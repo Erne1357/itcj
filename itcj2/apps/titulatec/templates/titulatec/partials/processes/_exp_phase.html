@@ -164,7 +164,9 @@
              panel de atender (`_appt_attend.html`, Tarea 4). `certificate_cell`
              (Tarea 4, §3.4) pinta si la constancia `survey_release` ya se
              imprimió -- MISMA fuente (`survey.certificate`) que la bandeja
-             de GTV. #}
+             de GTV. Con el proceso `cancelled`, una vigente sin lote dice
+             «No se imprimirá (inscripción revocada)» (Ruling R13,
+             `revoked=`). #}
           <div class="tt-req-meta">
             {{ survey_review_pill(survey.status) }}
             {%- if survey.status == 'rejected' and survey.reason %}
@@ -172,7 +174,7 @@
             {%- elif survey.status == 'approved' %}
               — Liberada por GTV · {{ survey.reviewed_at }}
             {%- endif %}
-            <br>{{ certificate_cell(survey.certificate, prior=(survey.origin == 'prior')) }}
+            <br>{{ certificate_cell(survey.certificate, prior=(survey.origin == 'prior'), revoked=(process.status == 'cancelled')) }}
           </div>
           {% elif r.auto_source == 'library_clearance' %}
           {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
@@ -186,7 +188,9 @@
              «No aplica (cotejo ya liberado)» y no se ofrece nada.
              `certificate_cell` (Tarea 4, §3.4) pinta si la constancia BIB ya
              se imprimió y reemplaza el folio suelto que antes salía bajo
-             «Liberado». m42 (`triage-minors.md`): con el proceso `cancelled`
+             «Liberado»; con el proceso `cancelled`, una vigente sin lote dice
+             «No se imprimirá (inscripción revocada)» (Ruling R13,
+             `revoked=`). m42 (`triage-minors.md`): con el proceso `cancelled`
              y el no adeudo todavía `missing`/`pending`, la píldora propia
              dice «Revocada» -- `library_clearance_pill` no mira
              `TitulationProcess.status`; aquí sí porque esta vista YA tiene
@@ -207,7 +211,7 @@
             {%- elif library.status == 'cleared' %}
               — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}
             {%- endif %}
-            <br>{{ certificate_cell(library.certificate, prior=(library.via == 'prior'), legacy=(library.via == 'legacy')) }}
+            <br>{{ certificate_cell(library.certificate, prior=(library.via == 'prior'), legacy=(library.via == 'legacy'), revoked=(process.status == 'cancelled')) }}
           </div>
           {% if can_register_prior and library.status in ('missing', 'pending', 'awaiting_payment') %}
           <form class="d-flex flex-wrap align-items-center gap-2 mt-1"

@@ -496,9 +496,9 @@ def test_columna_constancia_en_constancia_previa_no_emite_folio(
 def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
-    """Review Focus #5: con el proceso `cancelled` la celda conserva el
-    estado de SU constancia (no lee nada del proceso) y la fila sigue sin
-    acciones."""
+    """Review Focus #5: con el proceso `cancelled` una constancia YA impresa
+    sigue diciendo «Impresa» -el papel existe; Ruling R13 solo cambia la
+    vigente SIN lote, prueba de abajo- y la fila sigue sin acciones."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
@@ -517,6 +517,34 @@ def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
     assert "hx-post" not in fila
     assert "Impresa" in fila
+    assert "No se imprimirá" not in fila
+
+
+def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    """Ruling R13 (P4 de la revisión final): la constancia VIGENTE sin lote de
+    una inscripción revocada nunca entrará a un lote (`_pending_criteria`,
+    Ruling R26): la celda dice «No se imprimirá (inscripción revocada)» en una
+    píldora NEUTRA, no «Sin imprimir» ámbar. El folio se conserva."""
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500085"), current_phase=2)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+    proc.status = "cancelled"          # se revocó con la constancia todavía sin imprimir
+    db_session.flush()
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500085")
+
+    assert resp.status_code == 200, resp.text[:500]
+    celda = _celda(_fila(resp.text, f'id="tt-rev-{review.id}"'), cert.number)
+    assert "No se imprimirá (inscripción revocada)" in celda
+    assert "tt-pill--neutral" in celda
+    assert "Sin imprimir" not in celda
+    assert "tt-pill--amber" not in celda
 
 
 def test_columna_constancia_no_hace_una_consulta_por_fila(

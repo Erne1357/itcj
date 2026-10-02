@@ -1058,9 +1058,9 @@ def test_columna_constancia_en_legado_no_muestra_nada(
 def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
-    """Review Focus #5: con el proceso `cancelled` la celda conserva el
-    estado de SU constancia (no lee nada del proceso) y la fila sigue sin
-    acciones."""
+    """Review Focus #5: con el proceso `cancelled` una constancia YA impresa
+    sigue diciendo «Impresa» -el papel existe; Ruling R13 solo cambia la
+    vigente SIN lote, prueba de abajo- y la fila sigue sin acciones."""
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
@@ -1081,6 +1081,39 @@ def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
     assert "hx-post" not in fila
     assert "Impresa" in fila
+    assert "No se imprimirá" not in fila
+
+
+def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Ruling R13 (P4 de la revisión final): la constancia VIGENTE sin lote de
+    una inscripción revocada nunca entrará a un lote (`_pending_criteria`,
+    Ruling R26), así que la celda dice «No se imprimirá (inscripción
+    revocada)» en una píldora NEUTRA, no «Sin imprimir» ámbar -la página de
+    Constancias tampoco la cuenta en «Por imprimir»-. El folio se conserva.
+    Control positivo: `test_columna_constancia_vigente_sin_imprimir_...` (la
+    misma constancia sin revocar sigue «Sin imprimir»)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600216"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    cert = _certs(db_session, clearance.id)[0]
+    proc.status = "cancelled"          # se revocó con la constancia todavía sin imprimir
+    db_session.flush()
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600216")
+
+    assert resp.status_code == 200, resp.text[:500]
+    celda = _celda(_fila(resp.text, f'id="lib-{clearance.id}"'), cert.number)
+    assert "No se imprimirá (inscripción revocada)" in celda
+    assert "tt-pill--neutral" in celda
+    assert "Sin imprimir" not in celda
+    assert "tt-pill--amber" not in celda
 
 
 def test_columna_constancia_no_hace_una_consulta_por_fila(

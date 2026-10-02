@@ -795,7 +795,35 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
 
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Liberado", "Impresa"),
-                           no_contiene=("Revocada", "En Biblioteca"))
+                           no_contiene=("Revocada", "En Biblioteca", "No se imprimirá"))
+
+    def test_constancias_sin_imprimir_de_un_revocado_no_se_imprimiran(
+            self, client_as, db_session, caso, make_survey_review):
+        """Ruling R13 (P4 de la revisión final): las DOS constancias vigentes
+        SIN lote -encuesta y no adeudo- de una inscripción revocada ya no
+        entrarán a un lote (`_pending_criteria`, Ruling R26), así que cada
+        celda dice «No se imprimirá (inscripción revocada)», nunca «Sin
+        imprimir». Las dos vistas le pasan a la macro el estado del proceso
+        (`revoked=`); con lote siguen «Impresa» (la prueba de arriba)."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0005")
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+        caso["proc"].status = "cancelled"
+        db_session.flush()
+
+        for resp in (_atender(client_as, caso["officer"], caso["proc"].id),
+                     _expediente(client_as, caso["officer"], caso["proc"].id)):
+            assert resp.status_code == 200, resp.text[:300]
+            assert resp.text.count("No se imprimirá (inscripción revocada)") == 2
+            assert "Sin imprimir" not in resp.text
 
 
 # ===========================================================================
@@ -814,3 +842,41 @@ def test_certificate_cell_nunca_queda_vacia():
     html = " ".join(tpl.render(info={"number": None, "voided_printed": None}).split())
 
     assert html == "—"
+
+
+def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
+    """Ruling R13: `revoked=True` cambia SOLO la vigente sin lote («Sin
+    imprimir» ámbar -> «No se imprimirá (inscripción revocada)» neutra). Una
+    impresa sigue «Impresa» (el papel existe) y una anulada tras imprimir
+    sigue pidiendo retirar el papel: las dos salen idénticas con o sin
+    `revoked`."""
+    from datetime import datetime
+
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/_macros.html" import certificate_cell %}'
+        '{{ certificate_cell(info, revoked=revoked) }}')
+
+    def _celda(info, revoked):
+        return " ".join(tpl.render(info=info, revoked=revoked).split())
+
+    lote = datetime(2031, 3, 10, 9, 0)
+    sin_lote = {"number": "BIB-2031-0001", "printed": False, "batch_id": None,
+                "batch_at": None, "voided_printed": None}
+    impresa = {"number": "BIB-2031-0002", "printed": True, "batch_id": 7,
+               "batch_at": lote, "voided_printed": None}
+    anulada = {"number": None, "printed": False, "batch_id": None, "batch_at": None,
+               "voided_printed": {"number": "BIB-2031-0003", "batch_id": 7,
+                                  "batch_at": lote, "voided_at": lote,
+                                  "void_reason": "x"}}
+
+    revocada = _celda(sin_lote, True)
+    assert "BIB-2031-0001" in revocada
+    assert "No se imprimirá (inscripción revocada)" in revocada
+    assert "tt-pill--neutral" in revocada
+    assert "Sin imprimir" not in revocada and "tt-pill--amber" not in revocada
+    assert "Sin imprimir" in _celda(sin_lote, False)
+    for info in (impresa, anulada):
+        assert _celda(info, True) == _celda(info, False)
+        assert "No se imprimirá" not in _celda(info, True)

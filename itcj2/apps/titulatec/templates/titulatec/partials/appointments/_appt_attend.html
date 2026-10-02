@@ -215,7 +215,9 @@
                  `certificate_cell` (Tarea 4 de `2026-10-02-titulatec-
                  constancias-y-pendientes-design.md` §3.4) pinta si la
                  constancia `survey_release` ya se imprimió -- MISMA fuente
-                 (`detail.survey.certificate`) que la bandeja de GTV. #}
+                 (`detail.survey.certificate`) que la bandeja de GTV. Con el
+                 proceso `cancelled`, una vigente sin lote dice «No se
+                 imprimirá (inscripción revocada)» (Ruling R13, `revoked=`). #}
               <div class="tt-req-meta">
                 {{ survey_review_pill(detail.survey.status) }}
                 {%- if detail.survey.status == 'rejected' and detail.survey.reason %}
@@ -223,7 +225,7 @@
                 {%- elif detail.survey.status == 'approved' %}
                   — Liberada por GTV · {{ detail.survey.reviewed_at }}
                 {%- endif %}
-                <br>{{ certificate_cell(detail.survey.certificate, prior=(detail.survey.origin == 'prior')) }}
+                <br>{{ certificate_cell(detail.survey.certificate, prior=(detail.survey.origin == 'prior'), revoked=(detail.process.status == 'cancelled')) }}
               </div>
               {% elif r.auto_source == 'library_clearance' %}
               {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
@@ -236,7 +238,9 @@
                  `not_applicable` (Ruling R21) la píldora dice «No aplica
                  (cotejo ya liberado)» y no se ofrece nada. `certificate_cell`
                  (Tarea 4, §3.4) pinta si la constancia BIB ya se imprimió y
-                 reemplaza el folio suelto que antes salía bajo «Liberado».
+                 reemplaza el folio suelto que antes salía bajo «Liberado»;
+                 con el proceso `cancelled`, una vigente sin lote dice «No se
+                 imprimirá (inscripción revocada)» (Ruling R13, `revoked=`).
                  m42 (`triage-minors.md`): con el proceso `cancelled` y el no
                  adeudo todavía `missing`/`pending`, la píldora propia dice
                  «Revocada» -- `library_clearance_pill` no mira
@@ -258,7 +262,7 @@
                 {%- elif detail.library.status == 'cleared' %}
                   — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}
                 {%- endif %}
-                <br>{{ certificate_cell(detail.library.certificate, prior=(detail.library.via == 'prior'), legacy=(detail.library.via == 'legacy')) }}
+                <br>{{ certificate_cell(detail.library.certificate, prior=(detail.library.via == 'prior'), legacy=(detail.library.via == 'legacy'), revoked=(detail.process.status == 'cancelled')) }}
               </div>
               {% if detail.can_register_prior and detail.library.status in ('missing', 'pending', 'awaiting_payment') %}
               <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo' ~ QZ) }}

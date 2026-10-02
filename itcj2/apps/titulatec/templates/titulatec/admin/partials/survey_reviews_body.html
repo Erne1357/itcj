@@ -17,8 +17,11 @@
    - Inscripción revocada (`r.revoked`, cualquier pestaña de historial): sin
      acciones (todas responderían 400), píldora «Revocada» y, en «Con
      observaciones», el texto vigente -la columna «Constancia» SÍ conserva
-     su celda: no lee nada del proceso (Review Focus #5 de
-     `2026-10-02-titulatec-constancias-y-pendientes-design.md`).
+     su celda (Review Focus #5 de
+     `2026-10-02-titulatec-constancias-y-pendientes-design.md`): «Impresa» y
+     «Anulada tras imprimir» no cambian, y una vigente SIN lote dice «No se
+     imprimirá (inscripción revocada)» en vez de «Sin imprimir» (Ruling R13,
+     `revoked=r.revoked`: «Por imprimir» ya no la toma, R26).
    Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
    (`static/js/shared/titulatec-utils.js:265`).
@@ -93,7 +96,7 @@
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
         <td>{{ survey_review_pill(r.status, origin=r.origin) }}</td>
-        <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior')) }}</td>
+        <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior'), revoked=r.revoked) }}</td>
         <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
           {% if r.revoked %}

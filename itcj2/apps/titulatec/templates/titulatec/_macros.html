@@ -128,8 +128,17 @@
    a `legacy` no le pasa en la práctica (nunca emitió nada), pero el cálculo
    es el mismo por si el dato algún día lo trae.
 
+   `revoked` (Ruling R13 de la revisión final): la inscripción está revocada
+   (`TitulationProcess.status == 'cancelled'`). Solo cambia la vigente SIN
+   lote: «Por imprimir» ya no la toma (`CertificateService.
+   _pending_criteria`, Ruling R26), así que en vez de «Sin imprimir» (ámbar)
+   dice «No se imprimirá (inscripción revocada)» en una píldora neutra.
+   «Impresa» y «Anulada tras imprimir» no cambian: ese papel existe. Las
+   bandejas pasan `r.revoked`; las dos vistas de SE, el estado del proceso.
+
    Orden de pintado: (1) con folio vigente, el folio y, según `info.printed`,
-   «Impresa · lote #N · fecha» o «Sin imprimir»; (2) si no hay vigente, el
+   «Impresa · lote #N · fecha», o -sin lote- «No se imprimirá (inscripción
+   revocada)» con `revoked` y «Sin imprimir» sin él; (2) si no hay vigente, el
    motivo: `prior` pinta «Constancia previa (papel del egresado)» y `legacy`
    «—»; sin ninguno de los dos, «—» (nunca tuvo constancia) SALVO que
    `info.voided_printed` exista -ahí no pinta nada (M1 de la revisión
@@ -144,7 +153,7 @@
    `legacy` es CONTRACTUALMENTE IMPOSIBLE hoy -`print_status_map` solo
    regresa folio vigente, `voided_printed` o `None`-, pero la celda nunca
    debe quedar en blanco si ese contrato cambiara: pinta «—». #}
-{% macro certificate_cell(info, prior=False, legacy=False) %}
+{% macro certificate_cell(info, prior=False, legacy=False, revoked=False) %}
   {%- set vigente = info and info.number -%}
   {%- set retirar = not vigente and info and info.voided_printed -%}
   {%- if vigente -%}
@@ -152,6 +161,8 @@
     {%- if info.printed %}
       {{ pill("Impresa", "success", "printer") }}
       <span class="small text-body-secondary">lote #{{ info.batch_id }} · {{ info.batch_at.strftime('%d/%m/%Y') if info.batch_at else '—' }}</span>
+    {%- elif revoked %}
+      {{ pill("No se imprimirá (inscripción revocada)", "neutral", "slash-circle") }}
     {%- else %}
       {{ pill("Sin imprimir", "amber", "hourglass-split") }}
     {%- endif %}
