@@ -426,13 +426,14 @@ class TestLectura:
 
 
 class TestSummary:
-    # Sin `certificate` (Ruling R14, revisión final de `2026-10-02-titulatec-
-    # constancias-y-pendientes-design.md` §3.4): el estado de impresión lo
+    # Sin `certificate` ni `certificate_number` (Rulings R14 y R17, revisión
+    # final de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
+    # §3.4): el resumen no consulta constancias. El estado de impresión lo
     # cuelgan las dos vistas de SE con UNA llamada a `print_status_map`
-    # (`test_se_library_views.py::TestUnaLecturaDeLaMarcaPorVista`); el
-    # resumen conserva `certificate_number`, el folio vigente.
+    # (`test_se_library_views.py::TestUnaLecturaDeLaMarcaPorVista`), y el
+    # folio suelto ya no tenía lector desde la Task 4 (Caja lee el de `_rows`).
     LLAVES = {"status", "via", "debt", "donation", "total", "note", "ready_at",
-              "paid_at", "receipt", "certificate_number",
+              "paid_at", "receipt",
               "prior_issued_on", "prior_note", "can_revert", "clearance_id"}
 
     def test_sin_fila(self, db_session, nuevo):
@@ -455,11 +456,10 @@ class TestSummary:
         assert resumen["note"] == "Debe 2 libros"
         assert resumen["ready_at"] is not None
         assert resumen["paid_at"] is None
-        assert resumen["certificate_number"] is None
         assert resumen["can_revert"] is False          # no está liberado
         assert resumen["clearance_id"] == esc.clearance.id
 
-    def test_pagado_trae_recibo_y_constancia_vigente(self, db_session, nuevo, actores):
+    def test_pagado_trae_recibo_y_se_puede_revertir(self, db_session, nuevo, actores):
         esc = nuevo()
         _a_caja(db_session, esc, actores.biblioteca)
         _pagar(db_session, esc, actores.caja, receipt="R-777")
@@ -470,69 +470,15 @@ class TestSummary:
         assert resumen["via"] == "payment"
         assert resumen["receipt"] == "R-777"
         assert resumen["paid_at"] is not None
-        assert resumen["certificate_number"] == _vigente(db_session, esc.clearance.id).number
-        assert resumen["certificate_number"].startswith("BIB-")
         assert resumen["can_revert"] is True
 
-    def test_certificate_number_sigue_siendo_la_vigente_ya_impresa(
-            self, db_session, nuevo, actores):
-        """Que la vigente entre a un lote no cambia el folio del resumen. Si
-        se imprimió o no lo pintan las vistas de SE con `certificate`, que
-        cuelgan ellas (Ruling R14) -- ya no viene en el resumen."""
-        from itcj2.apps.titulatec.services.certificate_service import CertificateService
-
-        esc = nuevo()
-        _a_caja(db_session, esc, actores.biblioteca)
-        _pagar(db_session, esc, actores.caja)
-        CertificateService.create_batch(db_session, kind="library_clearance",
-                                        actor_id=actores.caja.id)
-
-        resumen = LibraryClearanceService.summary_for_process(db_session, esc.process.id)
-        assert resumen["certificate_number"] == _vigente(db_session, esc.clearance.id).number
-        assert "certificate" not in resumen
-
-    def test_la_constancia_anulada_no_se_muestra(self, db_session, nuevo, actores):
-        esc = nuevo()
-        _a_caja(db_session, esc, actores.biblioteca)
-        _pagar(db_session, esc, actores.caja)
-        with patch(NOTIFY):
-            LibraryClearanceService.revert_payment(
-                db_session, esc.clearance.id, actores.caja.id, "Pago duplicado")
-
-        resumen = LibraryClearanceService.summary_for_process(db_session, esc.process.id)
-        assert resumen["certificate_number"] is None
-
-    def test_certificate_number_nunca_es_la_anulada_aunque_se_haya_impreso(
-            self, db_session, nuevo, actores):
-        """Pagado -> impreso -> revertido (Review Focus #1): `certificate_number`
-        es `None` -nunca el folio anulado, aunque ese papel sí se imprimió-.
-        El aviso «Anulada tras imprimir» lo pintan las vistas de SE con el
-        `certificate` que cuelgan ellas (Ruling R14,
-        `test_se_library_views.py::TestCeldaDeConstanciaBiblioteca`)."""
-        from itcj2.apps.titulatec.services.certificate_service import CertificateService
-
-        esc = nuevo()
-        _a_caja(db_session, esc, actores.biblioteca)
-        _pagar(db_session, esc, actores.caja)
-        CertificateService.create_batch(db_session, kind="library_clearance",
-                                        actor_id=actores.caja.id)
-        with patch(NOTIFY):
-            LibraryClearanceService.revert_payment(
-                db_session, esc.clearance.id, actores.caja.id, "Pago duplicado")
-
-        resumen = LibraryClearanceService.summary_for_process(db_session, esc.process.id)
-        assert resumen["certificate_number"] is None
-
-    def test_no_consulta_la_marca_de_impresion(self, db_session, nuevo, actores,
-                                              monkeypatch):
-        """Ruling R14 (M3/P2 de la revisión final): el resumen lo usan
-        también el tablero del egresado, «Mi cita» y las vistas de SE; la
-        marca «impresa» solo la pintan las de SE, que la cuelgan ellas con UNA
-        llamada por vista. Aquí: ninguna llamada a `print_status_map`, ninguna
-        consulta a `titulatec_certificate_batches` y UNA sola a
-        `titulatec_certificates` -el folio vigente de `certificate_number`
-        (`CertificateService.current_number`)-, aun con la constancia ya en un
-        lote."""
+    def test_no_consulta_constancias(self, db_session, nuevo, actores, monkeypatch):
+        """Rulings R14 y R17 (revisión final): el resumen lo usan también el
+        tablero del egresado y «Mi cita», que no pintan la constancia, y las
+        vistas de SE, que cuelgan su `certificate` con UNA llamada por vista.
+        Así que no trae ni `certificate` ni `certificate_number` y no toca
+        `titulatec_certificates`/`titulatec_certificate_batches`, ni siquiera
+        con la constancia vigente ya en un lote."""
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
         esc = nuevo()
@@ -547,10 +493,9 @@ class TestSummary:
         with _sql(db_session) as sentencias:
             resumen = LibraryClearanceService.summary_for_process(db_session, esc.process.id)
 
+        assert set(resumen) == self.LLAVES
         assert llamadas == []
-        assert resumen["certificate_number"] == _vigente(db_session, esc.clearance.id).number
-        assert not [s for s in sentencias if "titulatec_certificate_batches" in s], sentencias
-        assert len([s for s in sentencias if "titulatec_certificates" in s]) == 1, sentencias
+        assert not [s for s in sentencias if "titulatec_certificate" in s], sentencias
 
     def test_certificate_ref_es_el_source_ref_de_su_constancia(self, db_session, nuevo,
                                                                actores):
@@ -576,9 +521,6 @@ class TestSummary:
         assert resumen["via"] == "prior"
         assert resumen["prior_issued_on"] == reloj - timedelta(days=10)
         assert resumen["prior_note"] == "Papel de enero"
-        # `register_prior` NUNCA emite constancia BIB (el egresado trae su
-        # papel): sin folio vigente.
-        assert resumen["certificate_number"] is None
 
     def test_no_commitea(self, db_session, nuevo, monkeypatch):
         esc = nuevo(status="cleared")

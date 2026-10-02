@@ -681,9 +681,10 @@ class TestNeedsDeLaFaseDeCotejo:
 
 
 # ===========================================================================
-# Ruling R14 (M3 de la revisión final): el tablero y «Mi cita» usan los dos
-# `summary_for_process`, pero la marca «impresa» de la constancia es de SE
-# (la cuelgan sus dos vistas con UNA llamada): aquí no se paga.
+# Rulings R14 y R17 (M3 y N1 de la revisión final): el tablero y «Mi cita»
+# usan los dos `summary_for_process`, pero la constancia -su folio y la marca
+# «impresa»- es de SE (la cuelgan sus dos vistas con UNA llamada): aquí no se
+# consulta ninguna tabla de constancias.
 # ===========================================================================
 class TestSinMarcaDeImpresion:
     @pytest.fixture()
@@ -735,4 +736,4 @@ class TestSinMarcaDeImpresion:
         assert resp.status_code == 200, resp.text[:400]
         assert "Liberado" in resp.text, "control: la página sí pinta el no adeudo"
         assert llamadas == []
-        assert not [s for s in sentencias if "titulatec_certificate_batches" in s]
+        assert not [s for s in sentencias if "titulatec_certificate" in s], sentencias

@@ -468,23 +468,21 @@ class LibraryClearanceService:
         `NOT_APPLICABLE` = ya pasó su cotejo sin un no adeudo liberado, Ruling
         R21 -mismo criterio que `release_status`-), `via`, `debt`,
         `donation`, `total` (`Decimal` | None), `note` (la de Biblioteca),
-        `ready_at`, `paid_at`, `receipt`, `certificate_number` (el folio de
-        la constancia VIGENTE, nunca una anulada:
-        `CertificateService.current_number`, UNA consulta barata),
-        `prior_issued_on`, `prior_note`, `can_revert`, `clearance_id`.
-        Formatear es de quien pinta (`format_amount`). Con `NOT_APPLICABLE`
-        las vistas del egresado no pintan nada y las de SE dicen «No aplica
-        (cotejo ya liberado)» sin ofrecer «Constancia previa…».
+        `ready_at`, `paid_at`, `receipt`, `prior_issued_on`, `prior_note`,
+        `can_revert`, `clearance_id`. Formatear es de quien pinta
+        (`format_amount`). Con `NOT_APPLICABLE` las vistas del egresado no
+        pintan nada y las de SE dicen «No aplica (cotejo ya liberado)» sin
+        ofrecer «Constancia previa…».
 
-        NO trae el estado de impresión (Ruling R14, revisión final de
-        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4):
-        este resumen también lo usan el tablero del egresado y «Mi cita»,
-        que no lo pintan. Las dos vistas de SE lo cuelgan ellas como
+        NO consulta constancias: ni el estado de impresión (Ruling R14) ni el
+        folio vigente (`certificate_number` se quitó por el Ruling R17: sin
+        lector desde la Task 4; Caja lee el de `_rows`), revisión final de
+        `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4. Este
+        resumen también lo usan el tablero del egresado y «Mi cita», que no
+        pintan la constancia. Las dos vistas de SE la cuelgan ellas como
         `certificate`, con UNA llamada a `CertificateService.print_status_map`
         para encuesta y no adeudo juntos (refs de `certificate_ref`).
         """
-        from itcj2.apps.titulatec.services.certificate_service import CertificateService
-
         row = LibraryClearanceService.get_for_process(db, process_id)
         no_aplica = ((row is None or row.status != "cleared")
                      and LibraryClearanceService._phase2_approved(db, process_id))
@@ -492,7 +490,7 @@ class LibraryClearanceService:
             return {"status": NOT_APPLICABLE if no_aplica else "missing",
                     "via": None, "debt": None, "donation": None,
                     "total": None, "note": None, "ready_at": None, "paid_at": None,
-                    "receipt": None, "certificate_number": None,
+                    "receipt": None,
                     "prior_issued_on": None, "prior_note": None,
                     "can_revert": False, "clearance_id": None}
 
@@ -506,7 +504,6 @@ class LibraryClearanceService:
             "ready_at": row.ready_at,
             "paid_at": row.paid_at,
             "receipt": row.receipt_number,
-            "certificate_number": CertificateService.current_number(db, _ref(row.id)),
             "prior_issued_on": row.prior_issued_on,
             "prior_note": row.prior_note,
             "can_revert": LibraryClearanceService.can_revert(db, row),
@@ -1712,9 +1709,10 @@ class LibraryClearanceService:
         invariante 2). `certificate` es el dict completo que esa llamada
         regresa (o `None`); la plantilla lo pinta con la macro
         `certificate_cell`. `certificate_number` se CONSERVA -la constancia
-        VIGENTE, nunca una anulada- porque Caja y otras vistas ya lo leen
-        directo. Valores crudos (`Decimal`, `datetime`, `date`): formatear es
-        de la plantilla (`format_amount`)."""
+        VIGENTE, nunca una anulada- porque Caja lo lee directo bajo su píldora
+        (`cashier_body.html`; el resumen de `summary_for_process` ya no lo
+        trae, Ruling R17). Valores crudos (`Decimal`, `datetime`, `date`):
+        formatear es de la plantilla (`format_amount`)."""
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
         if not filas:

@@ -941,13 +941,14 @@ def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
 
 
 # ===========================================================================
-# 9. Ruling R14 (M3 + P2 de la revisión final): UNA lectura de la marca
-#    «impresa» por vista de SE. Cada vista hace UNA llamada a
+# 9. Rulings R14 y R17 (M3 + P2 y N1 de la revisión final): UNA lectura de
+#    constancias por vista de SE. Cada vista hace UNA llamada a
 #    `print_status_map` con los refs de encuesta y no adeudo que EXISTAN y
-#    cuelga `certificate` en cada resumen; los `summary_for_process` ya no la
-#    pagan (también los usan el tablero del egresado, «Mi cita» y las páginas
-#    públicas). Antes (Tarea 4) era una llamada por resumen: hasta 4
-#    consultas por vista.
+#    cuelga `certificate` en cada resumen; los `summary_for_process` no
+#    consultan constancias (también los usan el tablero del egresado, «Mi
+#    cita» y las páginas públicas). Antes (Tarea 4) era una llamada por
+#    resumen: hasta 4 consultas por vista; con el folio suelto del resumen de
+#    biblioteca que R14 conservaba, hasta 3. Ahora, a lo más 2 (invariante 2).
 # ===========================================================================
 @pytest.fixture()
 def espia(db_session, monkeypatch):
@@ -1003,9 +1004,9 @@ class TestUnaLecturaDeLaMarcaPorVista:
         """Encuesta en revisión y no adeudo por pagar: NINGUNO tiene
         constancia vigente, el peor caso de `print_status_map` (vigentes +
         anuladas con lote = 2 consultas). Por vista: UNA llamada con los dos
-        refs y a lo más 2 consultas de la marca (las que tocan los lotes);
-        sobre `titulatec_certificates`, esas más el folio vigente del resumen
-        de biblioteca (`certificate_number`, que R14 conserva)."""
+        refs, y a lo más 2 consultas sobre `titulatec_certificates` en TOTAL
+        -las dos de la marca, que tocan los lotes; el resumen de biblioteca ya
+        no busca su folio suelto, Ruling R17-."""
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
@@ -1018,8 +1019,7 @@ class TestUnaLecturaDeLaMarcaPorVista:
                                                        caso["proc"].id, espia):
             assert llamadas == [refs], nombre
             assert 1 <= len(_de_la_marca(sentencias)) <= 2, (nombre, _de_la_marca(sentencias))
-            assert len(_de_constancias(sentencias)) <= len(_de_la_marca(sentencias)) + 1, (
-                nombre, _de_constancias(sentencias))
+            assert len(_de_constancias(sentencias)) <= 2, (nombre, _de_constancias(sentencias))
 
     def test_sin_solicitud_de_encuesta_solo_pide_el_no_adeudo(
             self, client_as, db_session, caso, espia):
