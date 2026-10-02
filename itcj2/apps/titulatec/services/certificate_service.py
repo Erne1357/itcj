@@ -19,9 +19,11 @@ adeudo juntos, Ruling R14) y `voided_after_print` (por `kind`, para la página
 de Constancias). Las dos son de solo lectura y no tocan `TitulationProcess` ni
 ninguna tabla de liberación — eso lo cuidan `LibraryClearanceService`/
 `SurveyReviewService`/`ClearanceGate`. En todo el servicio, la única
-lectura de `TitulationProcess` es `_pending_criteria` (el `NOT EXISTS` de
+CONSULTA a `TitulationProcess` es `_pending_criteria` (el `NOT EXISTS` de
 «proceso revocado» de «Por imprimir»: `pending`, `pending_count` y
-`create_batch`, Ruling R26), que ninguna de esas dos usa.
+`create_batch`, Ruling R26), que ninguna de esas dos usa; `issue()`, además,
+lee la instancia de proceso que le pasa el dueño (alumno, convocatoria y su
+periodo, carrera) para congelar sus datos en la constancia.
 
 Reglas fijas, iguales a `SurveyReviewService`:
 
