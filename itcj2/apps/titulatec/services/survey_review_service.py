@@ -196,6 +196,35 @@ class SurveyReviewService:
         return "conflict"
 
     @staticmethod
+    def prior_conflict_reason(db: Session, process_id: int) -> str | None:
+        """Para un proceso en conflicto (`prior_outcome(db, process_id) ==
+        "conflict"`), el SUBMOTIVO exacto que la CLI de constancias previas
+        (`PriorClearanceService.import_rows`, D9 m39) necesita para no
+        imprimir un mensaje engañoso: `"revoked"` si GTV YA revocó una previa
+        de encuesta en este proceso (`_revoked_prior_event`, Ruling R30 #2 --
+        reimportar el mismo archivo no debe sonar como "ya envió la encuesta
+        de este semestre", sino "GTV la revocó, el egresado debe contestar de
+        nuevo"), o `"in_review"` si hay una solicitud real `in_review`/
+        `rejected` esperando revisión humana. `None` si el proceso NO está en
+        conflicto (`prior_outcome` daría `"apply"` o `"already"`).
+
+        Otra lectura de solo lectura permitida de `SurveyReview.status`/
+        `_revoked_prior_event` fuera de este service, igual que `prior_
+        outcome` (§5, invariante 2): `PriorClearanceService` llama aquí en
+        vez de leer el evento o el estado por su cuenta. No cambia el
+        dominio de retorno de `prior_outcome` -otros llamadores dependen de
+        esos tres valores (`apply`/`already`/`conflict`)-: esto es una
+        clasificación MÁS FINA, aparte, solo para el caso `conflict`."""
+        review = SurveyReviewService.get_for_process(db, process_id)
+        if review is None:
+            if SurveyReviewService._revoked_prior_event(db, process_id):
+                return "revoked"
+            return None
+        if review.status == "approved":
+            return None
+        return "in_review"
+
+    @staticmethod
     def _revoked_prior_event(db: Session, process_id: int) -> bool:
         """¿Este proceso tiene un `survey_review_revoked` con `origin ==
         'prior'` en su bitácora? Único rastro que sobrevive al DELETE de

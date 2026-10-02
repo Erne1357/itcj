@@ -438,6 +438,55 @@ class TestPriorOutcome:
 
 
 # ---------------------------------------------------------------------------
+# prior_conflict_reason (m39)
+# ---------------------------------------------------------------------------
+class TestPriorConflictReason:
+    """Submotivo fino de `prior_outcome == "conflict"`: distingue «GTV
+    revocó la previa aquí» de «hay una solicitud real en revisión», para que
+    `PriorClearanceService.import_rows` (la CLI) imprima el mensaje correcto
+    sin leer `.status` ni eventos por su cuenta (§5, invariante 2)."""
+
+    def test_none_si_no_hay_conflicto(self, db_session, escenario):
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, escenario["process"].id) is None
+
+    def test_none_si_ya_esta_aprobada(self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="approved")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) is None
+
+    def test_revoked_si_gtv_revoco_una_previa_aqui(self, db_session, escenario):
+        """Mismo escenario que `test_revocar_una_previa_deja_conflict_no_apply`
+        de `TestPriorOutcome`, pero mirando el submotivo: debe ser `"revoked"`,
+        no `"in_review"` -son casos que la CLI debe anunciar distinto (m39)."""
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+            db_session.flush()
+            SurveyReviewService.revoke(
+                db_session, previa.id, gtv.id, "Número de control equivocado")
+
+        assert SurveyReviewService.prior_conflict_reason(db_session, process.id) == "revoked"
+
+    def test_in_review_si_hay_una_solicitud_real_esperando(
+            self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="in_review")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) == "in_review"
+
+    def test_in_review_si_la_solicitud_real_fue_observada(
+            self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="rejected")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) == "in_review"
+
+
+# ---------------------------------------------------------------------------
 # can_revoke
 # ---------------------------------------------------------------------------
 class TestCanRevoke:
