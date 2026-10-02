@@ -891,6 +891,41 @@ def test_sin_cita_que_lo_ocupe_si_dice_que_agende(db_session, con_biblioteca,
     assert YA_PUEDES in _texto(_html(c, estricto=True))
 
 
+@pytest.mark.parametrize("kind, biblioteca, encuesta, falta_activo", [
+    ("library_cleared", "cleared", None, ["enviar tu encuesta de egresados"]),
+    ("survey_approved", "pending", "approved",
+     ["que el Centro de Información revise tu no adeudo de biblioteca"]),
+])
+@pytest.mark.parametrize("estado", ["active", "on_hold"])
+def test_en_pausa_no_dice_que_agende_ni_que_le_falta(db_session, con_biblioteca, kind,
+                                                    biblioteca, encuesta, falta_activo,
+                                                    estado):
+    """m32 (spec 2026-10-02 §3.7): `_que_falta` devuelve `None` con el proceso
+    `on_hold` -en pausa no se agenda-, aunque le falte la OTRA liberación: ni
+    «Ya puedes agendar» ni «Para agendar te falta». El control `active`, con
+    los mismos datos, sí dice lo que falta."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = con_biblioteca(biblioteca=biblioteca, via="no_charge" if biblioteca == "cleared"
+                          else None, encuesta=encuesta)
+    proc.status = estado
+    db_session.flush()
+    if kind == "library_cleared":
+        StudentMail.library_cleared(db_session, proc, via="no_charge")
+    else:
+        StudentMail.survey_result(db_session, proc, result="approved")
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    if estado == "on_hold":
+        assert c.context["falta"] is None
+        assert YA_PUEDES not in texto and "Para agendar te falta" not in texto
+    else:
+        assert c.context["falta"] == falta_activo
+        assert "Para agendar te falta:" in texto
+
+
 def test_agenda_falla_cerrado_si_no_le_llega_falta():
     """Con el entorno REAL (no estricto) un `falta` ausente es `Undefined`, que
     no es `none`: sin la guarda, `m.agenda` pintaría «Ya puedes agendar».
@@ -953,6 +988,31 @@ def test_pasa_a_caja_sin_adeudo_ni_nota_ni_informacion(db_session, con_bibliotec
     assert c.context["info_html"] is None
     assert "Sin adeudo" in texto and "$800.00" in texto
     assert "Nota de Biblioteca" not in texto and "Información para el alumno" not in texto
+
+
+def test_pasa_a_caja_sin_candado_no_habla_de_agendar(db_session, proceso):
+    """m32 (spec 2026-10-02 §3.7): convocatoria SIN el requisito automático
+    del no adeudo (`proceso`, no `con_biblioteca`). Lo que Biblioteca mandó a
+    Caja se debe igual y el aviso sale, pero no puede decir que lo necesita
+    para agendar: `library_required` es `False` (`ClearanceGate.
+    library_required`, invariante 8) y no hay línea «para agendar»."""
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    proc = proceso(fase=2)
+    fila = db_session.query(LibraryClearance).filter_by(process_id=proc.id).one()
+    fila.status, fila.cleared_via = "awaiting_payment", None
+    fila.debt_amount, fila.donation_amount = Decimal("300.00"), Decimal("800.00")
+    fila.total_amount = Decimal("1100.00")
+    db_session.flush()
+    _pasa_a_caja(db_session, proc)
+
+    c = _componer(db_session, proc)
+    texto = _texto(_html(c, estricto=True))
+
+    assert c.template == "library_ready.html"
+    assert c.context["library_required"] is False
+    assert "Total a pagar" in texto and "$1,100.00" in texto
+    assert "agendar" not in texto
 
 
 def test_pasa_a_caja_pinta_los_montos_vigentes(db_session, con_biblioteca):
