@@ -292,7 +292,18 @@ def _ultimo_enviado(db: Session, fila, kinds: tuple[str, ...]) -> str | None:
     (una fila pendiente, obsoleta, fallida o sin destinatario nunca le
     llegó). Mira hacia atrás, como `_hay_posterior` mira hacia adelante.
     Supone que las filas `sent` del outbox nunca se borran (hoy no existe
-    ninguna tarea de retención)."""
+    ninguna tarea de retención).
+
+    Límite conocido (angosto; se documenta, el despachador no cambia): un
+    correo que está saliendo todavía no es `sent`. (a) Dos corridas del
+    despachador encimadas -nada lo impide; cada unidad toma sus filas con
+    `FOR UPDATE SKIP LOCKED` (`mail_dispatch.py`, «TRANSACCIONES Y
+    CONCURRENCIA»)-: la corrida A tiene tomado un `library_cleared` mientras
+    Graph lo envía y la corrida B compone una reversión encolada entretanto;
+    B no lo ve `sent`, así que la reversión sale obsoleta y el «quedó
+    liberado» sí llega. (b) Graph lo envió pero falló el commit que lo marca
+    `sent` (entrega «al menos una vez»): su reintento sale obsoleto (hay una
+    reversión después) y la reversión también, con el mismo desenlace."""
     from itcj2.apps.titulatec.models import EmailOutbox
 
     ultimo = (db.query(EmailOutbox.kind)
