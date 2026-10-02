@@ -24,7 +24,11 @@ Secciones 6-7 (Tarea 4 de `2026-10-02-titulatec-constancias-y-pendientes-
 design.md` §3.4): la celda «Constancia» (`certificate_cell`, Tarea 3) junto a
 las dos filas -encuesta y no adeudo- en estas MISMAS dos pantallas, y m42
 (`triage-minors.md`): un proceso revocado con el no adeudo todavía
-`missing`/`pending` pinta «Revocada», nunca «En Biblioteca».
+`missing`/`pending` -o `awaiting_payment`, Ruling R15, sin el sufijo «Por
+cobrar»- pinta «Revocada», nunca «En Biblioteca» ni «Por pagar en Caja». De
+la revisión final, en las mismas dos pantallas: una constancia vigente sin
+lote de un revocado dice «No se imprimirá (inscripción revocada)» (Ruling
+R13) y ninguna ofrece «Constancia previa…» a un revocado (M2).
 """
 from __future__ import annotations
 
@@ -705,7 +709,8 @@ class TestCeldaDeConstanciaEncuesta:
 # 7. m42 (`triage-minors.md`): `library_clearance_pill` no mira
 #    `TitulationProcess.status`, así que un proceso REVOCADO con el no adeudo
 #    todavía `missing`/`pending` mostraba «En Biblioteca» como si el trámite
-#    siguiera vivo. Las dos vistas tienen el proceso a la mano: deciden ELLAS
+#    siguiera vivo -y, en `awaiting_payment`, «Por cobrar $X en Caja»
+#    (Ruling R15)-. Las dos vistas tienen el proceso a la mano: deciden ELLAS
 #    (no se toca la macro compartida -la usan +12 vistas-).
 # ===========================================================================
 @pytest.fixture()
@@ -773,6 +778,38 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
         _en_las_dos_vistas(client_as, revocado_sin_fila["officer"],
                            revocado_sin_fila["proc"].id,
                            contiene=("Revocada",), no_contiene=("En Biblioteca",))
+
+    def test_por_pagar_en_caja_pinta_revocada_sin_el_monto(self, client_as, db_session, caso):
+        """Ruling R15 (M4 + P3 de la revisión final): la «Revocada» de m42
+        cubre también `awaiting_payment`. Con la inscripción revocada y el no
+        adeudo congelado en Caja, el renglón ya no dice «Por pagar en Caja —
+        Por cobrar $1,200.00 en Caja»: Caja no lo cobraría
+        (`register_payment` lo rechaza) y SE mandaría al egresado a una
+        vuelta inútil. Sin el sufijo del monto. Aserciones acotadas al
+        renglón del requisito en cada vista."""
+        import lxml.html
+
+        from itcj2.apps.titulatec.models import CotejoRequirement
+
+        req = (db_session.query(CotejoRequirement)
+               .filter_by(cohort_id=caso["cohort"].id, auto_source="library_clearance")
+               .one())
+        antes = _atender(client_as, caso["officer"], caso["proc"].id)
+        assert "Por cobrar $1,200.00 en Caja" in " ".join(antes.text.split()), (
+            "control positivo: vivo, el renglón sí dice el monto por cobrar")
+        caso["proc"].status = "cancelled"
+        db_session.flush()
+
+        for resp in (_atender(client_as, caso["officer"], caso["proc"].id),
+                     _expediente(client_as, caso["officer"], caso["proc"].id)):
+            assert resp.status_code == 200, resp.text[:300]
+            (fila,) = lxml.html.fromstring(resp.text).xpath(
+                f'//*[@id="appt-req-{req.id}" or @id="exp-req-{req.id}"]')
+            texto = " ".join(fila.text_content().split())
+            assert "Revocada" in texto, texto
+            assert "Por pagar en Caja" not in texto, texto
+            assert "Por cobrar" not in texto, texto
+            assert "$1,200.00" not in texto, texto
 
     def test_ninguna_vista_ofrece_constancia_previa_a_un_revocado(
             self, client_as, revocado, caso, se):

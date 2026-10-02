@@ -191,18 +191,21 @@
              «Liberado»; con el proceso `cancelled`, una vigente sin lote dice
              «No se imprimirá (inscripción revocada)» (Ruling R13,
              `revoked=`). m42 (`triage-minors.md`): con el proceso `cancelled`
-             y el no adeudo todavía `missing`/`pending`, la píldora propia
-             dice «Revocada» -- `library_clearance_pill` no mira
-             `TitulationProcess.status`; aquí sí porque esta vista YA tiene
-             `process` a la mano (no se toca la macro compartida, la usan +12
-             vistas). #}
+             y el no adeudo todavía `missing`/`pending`, o `awaiting_payment`
+             (Ruling R15: Caja ya no lo cobraría -`register_payment` lo
+             rechaza-), la píldora propia dice «Revocada» y el renglón NO
+             lleva el sufijo «— Por cobrar $X en Caja» --
+             `library_clearance_pill` no mira `TitulationProcess.status`; aquí
+             sí porque esta vista YA tiene `process` a la mano (no se toca la
+             macro compartida, la usan +12 vistas). #}
           <div class="tt-req-meta">
-            {%- if process.status == 'cancelled' and library.status in ('missing', 'pending') -%}
+            {%- set no_adeudo_revocado = process.status == 'cancelled' and library.status in ('missing', 'pending', 'awaiting_payment') -%}
+            {%- if no_adeudo_revocado -%}
               <span class="tt-pill tt-pill--neutral">Revocada</span>
             {%- else -%}
               {{ library_clearance_pill(library.status, via=library.via) }}
             {%- endif %}
-            {%- if library.status == 'awaiting_payment' %}
+            {%- if library.status == 'awaiting_payment' and not no_adeudo_revocado %}
               — Por cobrar {{ format_amount(library.total) }} en Caja
             {%- elif library.status == 'cleared' and library.via == 'prior' %}
               — Constancia previa{% if library.prior_issued_on %} del {{ library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if library.prior_note %} — {{ library.prior_note }}{% endif %}

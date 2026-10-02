@@ -244,18 +244,21 @@
                  con el proceso `cancelled`, una vigente sin lote dice «No se
                  imprimirá (inscripción revocada)» (Ruling R13, `revoked=`).
                  m42 (`triage-minors.md`): con el proceso `cancelled` y el no
-                 adeudo todavía `missing`/`pending`, la píldora propia dice
-                 «Revocada» -- `library_clearance_pill` no mira
-                 `TitulationProcess.status`; aquí sí porque esta vista YA
-                 tiene `detail.process` a la mano (no se toca la macro
-                 compartida, la usan +12 vistas). #}
+                 adeudo todavía `missing`/`pending`, o `awaiting_payment`
+                 (Ruling R15: Caja ya no lo cobraría -`register_payment` lo
+                 rechaza-), la píldora propia dice «Revocada» y el renglón
+                 NO lleva el sufijo «— Por cobrar $X en Caja» --
+                 `library_clearance_pill` no mira `TitulationProcess.status`;
+                 aquí sí porque esta vista YA tiene `detail.process` a la mano
+                 (no se toca la macro compartida, la usan +12 vistas). #}
               <div class="tt-req-meta">
-                {%- if detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending') -%}
+                {%- set no_adeudo_revocado = detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending', 'awaiting_payment') -%}
+                {%- if no_adeudo_revocado -%}
                   <span class="tt-pill tt-pill--neutral">Revocada</span>
                 {%- else -%}
                   {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
                 {%- endif %}
-                {%- if detail.library.status == 'awaiting_payment' %}
+                {%- if detail.library.status == 'awaiting_payment' and not no_adeudo_revocado %}
                   — Por cobrar {{ format_amount(detail.library.total) }} en Caja
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
                   — Constancia previa{% if detail.library.prior_issued_on %} del {{ detail.library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if detail.library.prior_note %} — {{ detail.library.prior_note }}{% endif %}
