@@ -68,10 +68,10 @@ botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec
 | 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:330-359`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
 | 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:439-460`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
 | 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:463-478`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
-| 12 | `library_ready` | individual | `LibraryClearanceService._mark_ready` → `StudentMail.library_ready` (Registrar con adeudo > 0, o Corregir el monto) | `_compose_library_ready` (`mail_compose.py:614-663`) | `library_ready.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_READY`) |
-| 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9) | `_compose_library_cleared` (`:666-706`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
-| 14 | `library_reverted` | individual | `LibraryClearanceService.revert_payment`/`.revert_clearance`/`.undo_prior` → `StudentMail.library_reverted(to_status=)` | `_compose_library_reverted` (`:709-779`) | `library_reverted.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REVERTED`) |
-| 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:923-952`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
+| 12 | `library_ready` | individual | `LibraryClearanceService._mark_ready` → `StudentMail.library_ready` (Registrar con adeudo > 0, o Corregir el monto) | `_compose_library_ready` (`mail_compose.py:630-679`) | `library_ready.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_READY`) |
+| 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9) | `_compose_library_cleared` (`:682-722`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
+| 14 | `library_reverted` | individual | `LibraryClearanceService.revert_payment`/`.revert_clearance`/`.undo_prior` → `StudentMail.library_reverted(to_status=)` | `_compose_library_reverted` (`:725-801`) | `library_reverted.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REVERTED`) |
+| 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:945-974`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
 
 Los 4 del no adeudo (12-15) cuelgan de la fase 2, como los de GTV; ninguno lleva grupo —cada
 transición de Biblioteca/Caja es un correo propio, no se agrupan entre sí como `docs:`/`cita:`—.
@@ -216,7 +216,7 @@ agendó otra o se reagendó: el intento nuevo le quita `is_current` y la vieja c
 2026-09-29).
 
 **No adeudo de biblioteca (2026-10-01, #12-15) — `_compose_library_ready`/`_cleared`/`_reverted`/
-`_reminder` (`:614-663`/`:666-706`/`:709-779`/`:923-952`).** Las cuatro se re-validan al enviar
+`_reminder` (`:630-679`/`:682-722`/`:725-801`/`:945-974`).** Las cuatro se re-validan al enviar
 contra `LibraryClearanceService.payment_due`/`.reviewable`/`ClearanceGate` (D8, igual que el
 resto) y pintan los montos VIGENTES de la fila, no los del payload — ni una corrección doble
 (`library_ready` más nuevo del mismo proceso → obsoleto) ni un correo de liberación tras una
@@ -225,10 +225,11 @@ completo de cuándo dispara cada uno: ⤵ [no adeudo de biblioteca: Biblioteca �
 Caja](phase2_library_clearance.md).
 
 **`_compose_library_reverted` re-valida en CUATRO pasos, en este orden** (spec 2026-10-02 §2,
-m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por el Ruling R12 de la revisión final):
+m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por los Rulings R12 y R17 de la revisión
+final):
 
 1. Se volvió a liberar DESPUÉS (`_hay_posterior(db, fila, "library_cleared")`) → obsoleto.
-2. **E10/R12 — anclado en lo ÚLTIMO que el egresado recibió por correo**, no en «el
+2. **E10/R12/R17 — anclado en lo ÚLTIMO que el egresado recibió por correo**, no en «el
    `library_cleared` más reciente, saliera o no» (ese ancla, la PRIMERA versión de E10, perdía
    una reversión legítima cuando liberar/revertir se repetía varias veces dentro de la misma
    espera del despachador — el motivo del Ruling R8). Sea **S** la fila `sent` MÁS RECIENTE del
@@ -236,17 +237,23 @@ m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por el Ruling R12 de l
    (`_ultimo_enviado`, que devuelve su `id` y su `kind`).
    - **S es un `library_cleared`** → sale: es la noticia que corrige el «quedó liberado» que sí
      le llegó.
-   - **Si no** (S es una reversión, o no hay S) → obsoleto SOLO si entre S (o el inicio) y esta
-     reversión hay un `library_cleared` encolado, en cualquier estado (`_hay_entre(db, fila,
-     "library_cleared", despues_de=S.id o 0)`, la gemela acotada de `_hay_posterior`): se liberó
-     y se revirtió dentro de la misma espera, o Caja se equivocó de renglón, y ese «quedó
-     liberado» nunca le llegó — «Se revirtió tu no adeudo…» sería ruido o, peor, falso. Motivo
-     en `last_error`: «no salió el aviso de la liberación que revierte».
+   - **Si no** (S es una reversión, o no hay S), lo que cuenta es la ventana del ciclo VIGENTE:
+     de **W** a esta reversión. W es el más reciente de S y la reversión anterior del proceso en
+     CUALQUIER estado (`_ultima_antes(db, fila, "library_reverted")`, Ruling R17): una reversión,
+     salga o no, cierra el ciclo viejo. Obsoleto SOLO si en esa ventana hay un
+     `library_cleared` encolado, en cualquier estado (`_hay_entre(db, fila, "library_cleared",
+     despues_de=W)`, la gemela acotada de `_hay_posterior`): se liberó y se revirtió dentro de la
+     misma espera, o Caja se equivocó de renglón, y ese «quedó liberado» nunca le llegó — «Se
+     revirtió tu no adeudo…» sería ruido o, peor, falso. Motivo en `last_error`: «no salió el
+     aviso de la liberación que revierte».
    - **Si no hay ese `library_cleared`** → sale: un no adeudo legado (backfill de `tt20261001a` o
      promoción D17), una liberación con `TITULATEC_EMAIL_ENABLED=false` o una re-liberación sin
-     correo no encolaron ningún «quedó liberado», pero el egresado SÍ vio «Liberado» en la app, y
-     este correo es el único aviso que le llega por fuera (Ruling R12; con R8 estos casos salían
-     obsoletos y solo quedaba el aviso in-app).
+     correo no encolaron ningún «quedó liberado» en el ciclo vigente, pero el egresado SÍ vio
+     «Liberado» en la app, y este correo es el único aviso que le llega por fuera (Ruling R12; con
+     R8 estos casos salían obsoletos y solo quedaba el aviso in-app). Con R17 esto vale también
+     después de un ciclo abortado. Ejemplo: liberado y revertido en la misma espera (los dos
+     obsoletos), re-liberado sin correo y revertido otra vez; esta última sale, porque el liberado
+     sin salir del ciclo cerrado ya no la calla.
 
    Así, liberado (sale) → revertido → re-liberado → revertido en una sola espera manda la
    reversión FINAL (S es aquel liberado; los dos pasos de en medio salen obsoletos, por la regla 1
@@ -264,15 +271,17 @@ m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por el Ruling R12 de l
 
 `_ultimo_enviado` SUPONE que las filas `sent` del outbox nunca se purgan (hoy no hay ninguna tarea
 de retención — un futuro job de retención tendría que conservar la última `sent`
-`library_cleared`/`library_reverted` de cada proceso) y documenta en su propio docstring dos
+`library_cleared`/`library_reverted` de cada proceso y, por el Ruling R17, también su última
+`library_reverted` en cualquier estado, que fija dónde empieza el ciclo vigente) y documenta en su
+propio docstring dos
 carreras angostas, sin cambio en el despachador: (a) dos corridas de `MailDispatcher` encimadas
 sobre el mismo proceso (cada una toma sus filas con `FOR UPDATE SKIP LOCKED`, §4) pueden hacer que
 una reversión salga obsoleta aunque el «quedó liberado» que la antecede SÍ se esté entregando en
 ese momento; (b) Graph aceptó el envío pero el commit que lo marca `sent` falló (entrega «al menos
 una vez»). Revertir un `library_cleared/legacy` —el backfill de `tt20261001a`— o cualquier
 liberación hecha con `TITULATEC_EMAIL_ENABLED=false` SÍ manda el correo de reversión desde el
-Ruling R12: no hay ningún `library_cleared` encolado que vuelva obsoleta la reversión (con R8 no
-salía y solo quedaba el aviso in-app `LIBRARY_REVERTED`).
+Ruling R12: no hay ningún `library_cleared` encolado en su ciclo vigente que vuelva obsoleta la
+reversión (con R8 no salía y solo quedaba el aviso in-app `LIBRARY_REVERTED`).
 
 **D11 — `_que_falta(db, process, bloqueos=None)` (`:224-272`).** Función compartida por
 `_compose_survey` (liberar) y `_compose_library_cleared`: arma, con el estado VIVO al componer,
@@ -284,8 +293,8 @@ fase 1 si sigue sin aprobar, y cada bloqueo de `ClearanceGate.blockers` en su or
 primero; el de Caja lleva el total congelado). Reemplaza el «Ya puedes agendar tu cita de
 cotejo.» fijo que traía `survey_approved` hasta el 2026-09-29 (D13).
 
-Los cuatro recordatorios (`_compose_appt_reminder` `:831-871`, `_compose_docs_reminder` `:874-895`,
-`_compose_survey_reminder` `:898-920`, `_compose_library_reminder` `:923-952`, el último nuevo
+Los cuatro recordatorios (`_compose_appt_reminder` `:853-893`, `_compose_docs_reminder` `:896-917`,
+`_compose_survey_reminder` `:920-942`, `_compose_library_reminder` `:945-974`, el último nuevo
 2026-10-01) se re-validan al enviar contra el estado ACTUAL, no el del payload — ver §4.
 
 ---

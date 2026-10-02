@@ -42,8 +42,9 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    - Columna **«Constancia»** en las TRES pestañas (2026-10-02, ⤵ [constancias por
      lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7)): folio y, si ya
      se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir» —con la inscripción revocada, una
-     vigente sin lote dice «No se imprimirá (inscripción revocada)», porque ya no entra a ningún
-     lote (Ruling R13)—; si la última constancia se anuló DESPUÉS de imprimirse, «Anulada tras
+     vigente sin lote pinta la píldora «No se imprimirá» y la nota tenue «inscripción revocada»,
+     porque ya no entra a ningún lote (Rulings R13 y R18)—; si la última constancia se anuló
+     DESPUÉS de imprimirse, «Anulada tras
      imprimir» con el lote a retirar, que abre la celda sin un «—» encima (M1). Reemplaza el folio
      suelto que antes vivía bajo «Estado», solo en «Liberados».
 2. 💰 **Caja** inicia sesión → aterriza en `/titulatec/admin/caja` o entra por **Caja**
@@ -346,15 +347,16 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
   la píldora neutra dice «No aplica (cotejo ya liberado)» y no hay botón (la ruta, llamada a mano,
   responde 400 con el mismo motivo que Biblioteca).
   - **Constancia (2026-10-02)**: junto a la píldora, `certificate_cell(certificate, prior=,
-    legacy=, revoked=)` — folio + «Impresa · lote #N · fecha» / «Sin imprimir» (o «No se imprimirá
-    (inscripción revocada)» con el proceso `cancelled`, Ruling R13), o «Anulada tras imprimir» si
-    la última se anuló después de imprimirse. `certificate` lo cuelga la VISTA, no el resumen
-    (Ruling R14): `pages/appointments.py`/`pages/admin.py::_detail_ctx` hacen UNA llamada
-    `CertificateService.print_status_map(db, [ref_encuesta, ref_biblioteca])` con los refs que
-    existan (`certificate_ref` de cada dueño) y la cuelgan en los dos resúmenes. `summary_for_process`
-    ya no consulta la marca —también lo usan el tablero y «Mi cita» del egresado, que no la pintan—
-    y conserva `certificate_number`, el folio vigente, con UNA consulta barata
-    (`CertificateService.current_number`). ⤵ [constancias por
+    legacy=, revoked=)` — folio + «Impresa · lote #N · fecha» / «Sin imprimir» (o, con el proceso
+    `cancelled`, la píldora «No se imprimirá» y la nota tenue «inscripción revocada», Rulings R13 y
+    R18), o «Anulada tras imprimir» si la última se anuló después de imprimirse. `certificate` lo
+    cuelga la VISTA, no el resumen (Ruling R14): `pages/appointments.py`/`pages/admin.py::
+    _detail_ctx` hacen UNA llamada `CertificateService.print_status_map(db, [ref_encuesta,
+    ref_biblioteca])` con los refs que existan (`certificate_ref` de cada dueño) y la cuelgan en
+    los dos resúmenes: a lo más 2 consultas de constancias por vista. `summary_for_process` no
+    consulta constancias —también lo usan el tablero y «Mi cita» del egresado, que no las pintan—
+    y ya no trae `certificate_number` (Ruling R17: sin lector desde la Task 4; el folio suelto de
+    Caja sale de `_rows`). ⤵ [constancias por
     lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7).
   - **m42 — proceso revocado:** con `TitulationProcess.status == 'cancelled'` y el no adeudo
     todavía `missing`/`pending` —o `awaiting_payment` (Ruling R15)—, el renglón ya NO dice «En
@@ -388,12 +390,17 @@ egresado](xcut_student_email_notifications.md): `library_ready` (pasa a Caja / s
 monto), `library_cleared` (queda liberado, D11 con el estado vivo), `library_reverted` (se
 revierte/deshace) y `library_reminder` (recordatorio diario del pago pendiente, D14, ancla
 `ready_at`). Avisos in-app: `LIBRARY_READY`, `LIBRARY_CLEARED`, `LIBRARY_REVERTED`,
-`LIBRARY_REMINDER` — `services/notify.notify_student`. La reversión sale si lo último que el
-egresado recibió por correo del no adeudo fue un «quedó liberado»; si no, NO sale cuando la
-liberación que revierte encoló un «quedó liberado» que nunca le llegó (liberar y revertir en la
-misma espera, o el renglón equivocado de Caja), y SÍ sale al revertir un no adeudo legado o uno
-liberado con el correo apagado, que el egresado vio «Liberado» en la app (E10, afinada por el
-Ruling R12; detalle en el flujo de correos).
+`LIBRARY_REMINDER` — `services/notify.notify_student`.
+
+La reversión (E10, afinada por los Rulings R12 y R17; detalle en el flujo de correos) sale si lo
+último que el egresado recibió por correo del no adeudo (S) fue un «quedó liberado». Si no, se
+mira la ventana del ciclo vigente: lo que va de W a la reversión, donde W es el más reciente de S
+y la reversión anterior en cualquier estado (esa reversión cierra el ciclo viejo).
+- Si en esa ventana hay un `library_cleared` encolado, en cualquier estado, NO sale: liberar y
+  revertir en la misma espera, o el renglón equivocado de Caja.
+- Si no lo hay, SÍ sale: un no adeudo legado, uno liberado con el correo apagado o uno re-liberado
+  sin correo. Aplica aunque antes haya habido un ciclo abortado. El egresado vio «Liberado» en la
+  app.
 
 ## Requisito `library_clearance` automático (§4.3)
 
@@ -529,20 +536,21 @@ entre los dos, el código viejo ve el requisito automático y no deja marcarlo a
 `ClearanceConflict`, `parse_amount`, «ya pasó su cotejo», `day_cut` —ayer fijo/hoy con signo,
 cobro-reversa-cobro mismo día, día vacío, payload viejo sin `total`—, `_revertible_ids`,
 `reviewable` —7 casos parametrizados; desde la revisión final, `_reviewable_clause` recorre la
-MISMA tabla, con y sin fila de no adeudo (M5)—, el resumen sin `certificate` y con
-`certificate_number` en UNA consulta sin lotes —R14—),
+MISMA tabla, con y sin fila de no adeudo (M5)—, el resumen sin `certificate` ni
+`certificate_number` y sin consultar constancias —R14/R17—),
 `test_clearance_gate.py` (estado con dominios cerrados, lote, cláusula SQL, prueba estructural,
 incluida la forma de INSTANCIA/dict que ensanchó la Tarea 9), `test_library_inbox.py` (páginas: authz, sin
 `{process_id}`, swap `outerHTML`, 400 + `X-Tt-Error`, choque = 200 + re-pintado + aviso, columna
 «Constancia» en sus 3 pestañas, la anulada tras imprimir sin «—» encima —M1—, «No se imprimirá»
-de un revocado —R13—), `test_cashier_inbox.py` (ídem + «Corte del día»: `dia` basura cae
++ la nota «inscripción revocada» de un revocado —R13/R18—), `test_cashier_inbox.py` (ídem +
+«Corte del día»: `dia` basura cae
 en hoy, «Revertir…» solo en el cobro vigente del corte, aviso de éxito viendo hoy u otro día,
 `caja_pill` por fila), `test_se_library_views.py` (respaldo de SE, «No aplica», «Revocada» con el
 proceso revocado —m42; desde R15 también por pagar en Caja, sin el monto—, ninguna vista ofrece
-«Constancia previa…» a un revocado —M2—, la celda de constancia en las dos vistas —con R13—, y UNA
-llamada a `print_status_map` por vista con a lo más 2 consultas de la marca —R14—),
-`test_student_library_status.py` (dashboard/Mi cita del egresado; R14: ninguna de las dos consulta
-la marca), `test_cli_biblioteca_caja.py` (los dos comandos, dry-run,
+«Constancia previa…» a un revocado —M2—, la celda de constancia en las dos vistas —con R13/R18—,
+y UNA llamada a `print_status_map` por vista con a lo más 2 consultas de constancias en total
+—R14/R17—), `test_student_library_status.py` (dashboard/Mi cita del egresado; R14/R17: ninguna de
+las dos consulta constancias), `test_cli_biblioteca_caja.py` (los dos comandos, dry-run,
 pre-chequeos, re-backfill, promoción D17, `[20, 21, 23]` del primer comando y que nunca re-corre
 `mail_2026_09/`).
 

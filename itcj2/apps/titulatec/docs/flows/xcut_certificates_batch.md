@@ -168,18 +168,15 @@ se reimprime; no hay un paso aparte de «confirmar impresión».
   CERRADO: exactamente `days` días vale, un segundo más vieja ya no), de la más reciente a la más
   vieja. Incluye las de un proceso YA revocado después (a diferencia de `pending`): el papel sigue
   circulando y hay que recuperarlo igual.
-- **`CertificateService.current_number(db, source_ref) -> str | None`** (Ruling R14 de la revisión
-  final): el folio de la VIGENTE de un origen, SIN la marca — UNA consulta barata a
-  `titulatec_certificates`, sin lotes. Lo usa `LibraryClearanceService.summary_for_process` para
-  su `certificate_number`; así la tabla de constancias sigue teniendo un solo lector
-  (`CertificateService`, invariante 4) y el resumen ya no paga `print_status_map`.
 - **`certificate_cell(info, *, prior=False, legacy=False, revoked=False)`** (macro en
   `templates/titulatec/_macros.html`): pinta la celda a partir del dict de arriba (o `None`):
   - con vigente: folio + píldora «Impresa» (`lote #N · dd/mm/aaaa`), o —sin lote— «Sin imprimir»
-    (ámbar); con `revoked` (inscripción revocada, Ruling R13) esa vigente sin lote dice **«No se
-    imprimirá (inscripción revocada)»** en una píldora neutra, porque `_pending_criteria` ya no la
-    lleva a ningún lote (R26) — así no contradice a «Por imprimir». «Impresa» y «Anulada tras
-    imprimir» no cambian con `revoked`: ese papel existe;
+    (ámbar); con `revoked` (inscripción revocada, Ruling R13) esa vigente sin lote pinta la
+    píldora neutra **«No se imprimirá»** y, fuera de ella, la nota tenue **«inscripción
+    revocada»**, que sí se parte (Ruling R18: la píldora es `nowrap` y con el motivo adentro
+    desbordaba en celular). Es porque `_pending_criteria` ya no la lleva a ningún lote (R26) —
+    así no contradice a «Por imprimir». «Impresa» y «Anulada tras imprimir» no cambian con
+    `revoked`: ese papel existe;
   - sin vigente: «Constancia previa (papel del egresado)» si `prior`; «—» si `legacy` o si nunca
     tuvo constancia;
   - ADEMÁS, si no hay vigente y hay una anulada-con-lote: «Anulada tras imprimir · folio · lote #N —
@@ -196,17 +193,22 @@ se reimprime; no hay un paso aparte de «confirmar impresión».
     `pages/admin.py::_detail_ctx`) hace UNA llamada `print_status_map(db, [ref_encuesta,
     ref_biblioteca])` con los refs que existan (`SurveyReviewService.certificate_ref`/
     `LibraryClearanceService.certificate_ref`; sin solicitud o sin fila no se pide) y cuelga
-    `certificate` en cada resumen (`None` si no aplica). Los dos `summary_for_process` ya no
-    consultan la marca: también los usan el tablero del egresado, «Mi cita» y las páginas públicas
-    de la encuesta, que no la pintan. Las dos vistas pasan `revoked=` con el estado del proceso.
+    `certificate` en cada resumen (`None` si no aplica): a lo más 2 consultas de constancias por
+    vista. Los dos `summary_for_process` no consultan constancias —ni la marca (R14) ni, el de
+    biblioteca, su viejo `certificate_number`, que no tenía lector desde la Task 4 (Ruling R17)—:
+    también los usan el tablero del egresado, «Mi cita» y las páginas públicas de la encuesta, que
+    no la pintan. Las dos vistas pasan `revoked=` con el estado del proceso.
     Con el proceso `cancelled` el renglón del no adeudo muestra «Revocada» en vez de la píldora
     de liberación (m42; desde R15 también en lugar de «Por pagar en Caja», sin el sufijo del
     monto), y la celda de constancia se conserva.
   - La página de Constancias NO la usa: muestra lo mismo con sus propias tablas, directo de
     `pending`/`voided_after_print` (ver «Página de Constancias» abajo), sin `print_status_map`.
-  - Caja (`cashier_body.html`) tampoco: sigue con el folio suelto de siempre
+  - Caja tampoco pinta la celda (`cashier_body.html`): sigue con el folio suelto de siempre
     (`r.certificate_number`) bajo su propia píldora (`caja_pill`, ⤵ [no adeudo de
-    biblioteca](phase2_library_clearance.md)).
+    biblioteca](phase2_library_clearance.md)). Sus DATOS sí pasan por `print_status_map`: la tabla
+    de búsqueda/«Por cobrar» sale de `_rows` (el mismo de Biblioteca, que calcula `certificate` y
+    de ahí `certificate_number`) y el «Corte del día» (`day_cut`) lo usa para saber qué cobro
+    sigue siendo el de la constancia vigente («Revertir…»).
 
 ### El PDF (WeasyPrint)
 
@@ -303,7 +305,8 @@ negocio es tarea del llamador (`create_batch` ya impide un lote de 0 constancias
   válidos del mismo trámite.
 - **Inscripción revocada con constancias sin imprimir** → no salen en «Por imprimir» ni en el
   lote (`_pending_criteria`); se quedan sin lote y sin anular, y la celda «Constancia» de las
-  bandejas y de las vistas de SE las pinta «No se imprimirá (inscripción revocada)» (R13).
+  bandejas y de las vistas de SE las pinta con la píldora «No se imprimirá» y la nota «inscripción
+  revocada» (R13/R18).
 - **`?por_hoja=` fuera de forma** (ausente, vacío, `abc`, `4`, …) → `_parse_por_hoja` cae en 3 por
   hoja (`DEFAULT_PER_PAGE`): nunca `400`/`500` — es un filtro de vista, igual que `_parse_dia` de
   Caja.
@@ -328,14 +331,14 @@ el truncado de `control_number`/`student_name` a su columna y, desde la Tarea 1 
 2026-10-02, también el de `program_name` —`core_programs.name` es `Text` sin tope,
 `Certificate.program_name` es `String(200)`—; `print_status_map`/`voided_after_print`: vigente
 sin/con lote, pagado→impreso→anulado, anulada sin lote, anulada→re-emitida, lote mixto de varias
-anuladas, el límite de 30 días CERRADO exacto, presupuesto de consultas en 1 y 20 filas;
-`current_number`: una consulta sin lotes, nunca el folio anulado),
-`test_se_library_views.py` (la celda en las dos vistas de SE; R13 en las dos celdas y por render
-directo de la macro; R14: una llamada por vista con los refs que existan y a lo más 2 consultas
-de la marca), `test_library_inbox.py`/`test_survey_reviews_admin_routes.py` (la columna en las
-bandejas; la anulada tras imprimir abre la celda sin «—», M1; R13 en las dos),
-`test_student_library_status.py`/`test_survey_review_submit.py` (R14: el tablero, «Mi cita» y la
-página pública de la encuesta no llaman `print_status_map` ni tocan los lotes),
+anuladas, el límite de 30 días CERRADO exacto, presupuesto de consultas en 1 y 20 filas),
+`test_se_library_views.py` (la celda en las dos vistas de SE; R13/R18 en las dos celdas y por
+render directo de la macro; R14/R17: una llamada por vista con los refs que existan y a lo más 2
+consultas de constancias en total), `test_library_inbox.py`/`test_survey_reviews_admin_routes.py`
+(la columna en las bandejas; la anulada tras imprimir abre la celda sin «—», M1; R13/R18 en las
+dos), `test_student_library_status.py`/`test_survey_review_submit.py` (R14/R17: el tablero, «Mi
+cita» y la página pública de la encuesta no llaman `print_status_map` ni tocan ninguna tabla de
+constancias),
 `test_biblioteca_caja_models.py` (el UNIQUE parcial en el modelo y en la BD),
 `test_certificate_pdf.py` (2 o 3 por página, `per_page=4` truena, el pie anclado al fondo con
 espacio de firma en los dos acomodos, el sello ANULADA en los dos acomodos, texto extraíble con

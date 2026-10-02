@@ -94,8 +94,8 @@
    tras imprimir abre la celda, sin un «—» encima (M1 de la revisión final). Con una inscripción
    revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta «Revocada», pero
    la celda de constancia SÍ se conserva: «Impresa» y «Anulada tras imprimir» no cambian, y una
-   vigente sin lote dice «No se imprimirá (inscripción revocada)» —ya no entra a ningún lote,
-   Ruling R13; `revoked=r.revoked`—.
+   vigente sin lote pinta la píldora «No se imprimirá» y la nota tenue «inscripción revocada»
+   —ya no entra a ningún lote; Rulings R13 y R18; `revoked=r.revoked`—.
 3. En una fila de **En revisión**/**Con observaciones**: botón **Liberar** (con `hx-confirm`,
    siempre disponible) y un campo de motivo + **Observar**/**Actualizar observaciones**.
 4. En una fila de **Liberadas**: "Liberada por {nombre} el {fecha}" y, solo si `can_revoke`, un
@@ -222,11 +222,12 @@ SE: `pages/appointments.py`/`pages/admin.py::_detail_ctx` hacen UNA llamada
 los refs que existan (`SurveyReviewService.certificate_ref(review_id)` = `survey_review:{id}`; sin
 solicitud no se pide), y dejan `certificate` en el dict (`None` si no aplica).
 `_appt_attend.html`/`_exp_phase.html` pintan `certificate_cell(certificate, prior=(origin ==
-'prior'), revoked=)` junto a la píldora — folio + «Impresa»/«Sin imprimir» (o «No se imprimirá
-(inscripción revocada)» con el proceso `cancelled`, R13), o «Anulada tras imprimir» — ⤵
+'prior'), revoked=)` junto a la píldora — folio + «Impresa»/«Sin imprimir» (o, con el proceso
+`cancelled`, la píldora «No se imprimirá» y la nota «inscripción revocada», R13/R18), o «Anulada
+tras imprimir» — ⤵
 [constancias por lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). A
-lo más 2 consultas de la marca por vista (invariante 2), la misma cota de `list_for_inbox` por
-página.
+lo más 2 consultas de constancias por vista, en total (invariante 2; desde el Ruling R17 el
+resumen de biblioteca tampoco consulta constancias), la misma cota de `list_for_inbox` por página.
 
 ## Caminos alternos / errores ❗
 
