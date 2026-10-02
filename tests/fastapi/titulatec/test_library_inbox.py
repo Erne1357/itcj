@@ -596,8 +596,9 @@ def test_barra_de_lote_trae_el_gancho_de_conteo_y_badge_vacio(
     resp = client_as(staff).get(f"{URL}/body?status=pending")
 
     assert resp.status_code == 200, resp.text[:500]
-    assert '<span id="tt-lib-bulk-count"></span>' in resp.text, (
-        "el badge debe nacer vacío en el servidor (nunca un «(0)» fijo)")
+    assert '<span id="tt-lib-bulk-count" aria-live="polite"></span>' in resp.text, (
+        "el badge debe nacer vacío en el servidor (nunca un «(0)» fijo) y "
+        "anunciarse por lector de pantalla (m23, triage-minors.md)")
     assert 'data-tt-count-into="#tt-lib-bulk-count"' in resp.text, (
         "la casilla de lote debe llevar el gancho genérico de conteo")
     assert "Sin adeudo (seleccionados)" not in resp.text, (
