@@ -98,7 +98,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
@@ -731,9 +731,13 @@ class LibraryClearanceService:
         """Revertir pago (Caja, motivo): `cleared/payment` → `awaiting_payment`.
 
         Solo con la fase 2 sin aprobar (`can_revert`). El monto congelado se
-        queda (sigue debiéndolo); se borran pago y recibo —salen del corte del
-        día—, se descumple el requisito y se anula la constancia. Es una
-        entrada NUEVA a Caja: `ready_at` se vuelve a fijar (Ruling R10).
+        queda (sigue debiéndolo); se borran pago y recibo de la fila VIGENTE
+        (ya no cuenta como «cobrado hoy» para el Registrar/pagar de ahora en
+        adelante), se descumple el requisito y se anula la constancia. El
+        corte (`day_cut`) del día del cobro original NO cambia (E3,
+        invariante 3): este evento entra al corte de HOY como su propio
+        renglón negativo. Es una entrada NUEVA a Caja: `ready_at` se vuelve a
+        fijar (Ruling R10).
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
@@ -998,27 +1002,138 @@ class LibraryClearanceService:
         return LibraryClearanceService._rows(db, filas)
 
     @staticmethod
-    def paid_on(db: Session, day: date) -> tuple[list[dict], Decimal]:
-        """Pagos registrados en Caja ese día (pestaña «Pagados»): filas
-        `cleared/payment` con `paid_at` dentro del día, recientes primero, y
-        el «Total del día» como `Decimal` (corte simple). Un pago revertido ya
-        no tiene `paid_at`: sale del corte."""
-        from itcj2.apps.titulatec.models import LibraryClearance
+    def day_cut(db: Session, day: date) -> dict:
+        """Corte del día de Caja (E3, spec `2026-10-02-titulatec-constancias-
+        y-pendientes-design.md` §3.6): FIJO una vez cerrado el día -- depende
+        SOLO de `ProcessEvent` con `created_at` en ese día (invariante 3: los
+        eventos no se editan ni se borran), así que una reversa de OTRO día
+        nunca mueve el corte de HOY. Reemplaza a `paid_on` (que leía la fila
+        VIGENTE por `paid_at`: una reversa posterior la bajaba en silencio,
+        incluso en el corte de un día YA cerrado).
+
+        Fuente: la bitácora (`titulatec_process_events`), del más reciente al
+        más viejo. `library_payment_registered` es un COBRO (+
+        `payload.total`); `library_payment_reverted` es una REVERSA (−
+        `payload.total`, con `payload.reason` y `payload.paid_at` del cobro
+        que revirtió). Devuelve `{"rows", "charged", "reverted", "net"}`:
+        `charged`/`reverted` son sumas NO negativas; `net = charged -
+        reverted` sí puede ser negativo (un día con solo reversas de cobros de
+        OTRO día). Todo `Decimal` a centavos.
+
+        Cada renglón: `kind` (`"charge"`|`"reversal"`), `at`, `clearance_id`,
+        `student`, `control`, `program`, `amount` CON SIGNO (positivo cobro,
+        negativo reversa), `receipt`, `actor` (quién lo hizo, `None` sin
+        actor), `reason`/`original_paid_at` (SOLO reversas; `None` en
+        cobros), `certificate` (el folio que ESE evento trae en su payload --
+        el histórico, no necesariamente el vigente) y `can_revert_here`.
+
+        Tolerante a payloads viejos de dev incompletos (nunca truena): un
+        `total` ausente o que no parsea cuenta como `Decimal("0.00")` --
+        entra así a `charged`/`reverted` (no distorsiona el corte) y, como un
+        cobro/reversa REAL nunca tiene total 0 (`register_payment` solo corre
+        sobre un total > 0), un `amount` en cero es por construcción ese
+        dato viejo: la plantilla lo pinta «—» (un `Decimal` en 0 es «falsy»).
+
+        `can_revert_here` (SOLO en cobros; las reversas nunca ofrecen
+        «Revertir…»): el folio de ESE cobro sigue siendo la constancia
+        VIGENTE de su fila **y** la fila es revertible AHORA (`can_revert`:
+        liberada, proceso admitido, fase 2 sin aprobar). En LOTE -- una
+        consulta de folios vigentes (`CertificateService.print_status_map`),
+        una de los `status` actuales de las filas y una de fases 2 aprobadas
+        (`_phase2_approved_ids`), nunca una por renglón. Dos cobros de la
+        MISMA fila (revertido y vuelto a cobrar) solo pueden coincidir con el
+        folio vigente en el MÁS RECIENTE -- cada cobro saca un folio nuevo
+        (§5 invariante 5 de la spec de ayer)."""
+        from itcj2.apps.titulatec.models import LibraryClearance, ProcessEvent, TitulationProcess
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        from itcj2.core.models.program import Program
+        from itcj2.core.models.user import User
+        from sqlalchemy.orm import aliased
 
         if isinstance(day, datetime):
             day = day.date()
         inicio = datetime.combine(day, time.min)
         fin = inicio + timedelta(days=1)
-        filas = (LibraryClearanceService._inbox_query(db)
-                 .filter(LibraryClearance.status == "cleared",
-                         LibraryClearance.cleared_via == "payment",
-                         LibraryClearance.paid_at >= inicio,
-                         LibraryClearance.paid_at < fin)
-                 .order_by(LibraryClearance.paid_at.desc(), LibraryClearance.id.desc())
-                 .all())
-        rows = LibraryClearanceService._rows(db, filas)
-        total = sum((fila["total"] or Decimal("0") for fila in rows), Decimal("0"))
-        return rows, Decimal(total).quantize(_CENT)
+
+        Actor = aliased(User)
+        filas = (
+            db.query(ProcessEvent, TitulationProcess, User, Program, Actor)
+            .join(TitulationProcess, TitulationProcess.id == ProcessEvent.process_id)
+            .join(User, User.id == TitulationProcess.student_id)
+            .outerjoin(Program, Program.id == TitulationProcess.program_id)
+            .outerjoin(Actor, Actor.id == ProcessEvent.actor_id)
+            .filter(ProcessEvent.event_type.in_(
+                ("library_payment_registered", "library_payment_reverted")),
+                    ProcessEvent.created_at >= inicio,
+                    ProcessEvent.created_at < fin)
+            .order_by(ProcessEvent.created_at.desc(), ProcessEvent.id.desc())
+            .all()
+        )
+        if not filas:
+            cero = Decimal("0.00")
+            return {"rows": [], "charged": cero, "reverted": cero, "net": cero}
+
+        charge_ids = sorted({
+            (event.payload or {}).get("clearance_id")
+            for event, *_ in filas
+            if event.event_type == "library_payment_registered"
+            and (event.payload or {}).get("clearance_id") is not None
+        })
+        estado_actual: dict[int, str] = {}
+        folio_vigente: dict[int, str | None] = {}
+        if charge_ids:
+            estado_actual = dict(
+                db.query(LibraryClearance.id, LibraryClearance.status)
+                .filter(LibraryClearance.id.in_(charge_ids))
+                .all())
+            impresion = CertificateService.print_status_map(
+                db, [_ref(cid) for cid in charge_ids])
+            folio_vigente = {cid: (impresion.get(_ref(cid)) or {}).get("number")
+                             for cid in charge_ids}
+        fase2_aprobada = LibraryClearanceService._phase2_approved_ids(
+            db, {process.id for _, process, *_ in filas})
+
+        rows = []
+        charged = Decimal("0.00")
+        reverted = Decimal("0.00")
+        for event, process, student, program, actor in filas:
+            payload = event.payload or {}
+            es_cobro = event.event_type == "library_payment_registered"
+            monto = LibraryClearanceService._event_amount(payload.get("total"))
+            clearance_id = payload.get("clearance_id")
+            certificate = payload.get("certificate")
+            rows.append({
+                "id": event.id,
+                "kind": "charge" if es_cobro else "reversal",
+                "at": event.created_at,
+                "clearance_id": clearance_id,
+                "student": student.full_name,
+                "control": student.control_number or "",
+                "program": program.name if program else "",
+                "amount": monto if es_cobro else -monto,
+                "receipt": payload.get("receipt"),
+                "actor": actor.full_name if actor else None,
+                "reason": None if es_cobro else payload.get("reason"),
+                "original_paid_at": (None if es_cobro else
+                                     LibraryClearanceService._parse_event_iso(
+                                         payload.get("paid_at"))),
+                "certificate": certificate,
+                "can_revert_here": bool(
+                    es_cobro and clearance_id is not None
+                    and estado_actual.get(clearance_id) == "cleared"
+                    and process.status in ADMITTED_PROCESS_STATUSES
+                    and process.id not in fase2_aprobada
+                    and certificate is not None
+                    and folio_vigente.get(clearance_id) == certificate),
+            })
+            if es_cobro:
+                charged += monto
+            else:
+                reverted += monto
+
+        return {"rows": rows, "charged": charged.quantize(_CENT),
+               "reverted": reverted.quantize(_CENT),
+               "net": (charged - reverted).quantize(_CENT)}
 
     # --------------------------------------------------------- piezas internas
     @staticmethod
@@ -1292,6 +1407,32 @@ class LibraryClearanceService:
         if total < 0:
             raise ValueError("El monto no puede ser negativo.")
         return total
+
+    @staticmethod
+    def _event_amount(raw) -> Decimal:
+        """`payload.total` (texto) de un evento de Caja -> `Decimal` a
+        centavos, para `day_cut`. Ausente, que no parsea o negativo ->
+        `Decimal("0.00")` -- dato viejo de dev; nunca truena. Un cobro/reversa
+        REAL nunca tiene total 0 (`register_payment` solo corre con total >
+        0), así que 0 identifica por construcción un payload incompleto."""
+        if raw in (None, ""):
+            return Decimal("0.00")
+        try:
+            monto = Decimal(str(raw)).quantize(_CENT)
+        except (InvalidOperation, ValueError, TypeError):
+            return Decimal("0.00")
+        return monto if monto >= 0 else Decimal("0.00")
+
+    @staticmethod
+    def _parse_event_iso(raw) -> datetime | None:
+        """`payload.paid_at` (ISO) de una reversa -> `datetime`, o `None` si
+        falta o no parsea (dato viejo de dev; `day_cut` nunca truena)."""
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _library_requirement(db: Session, cohort_id: int):

@@ -6,8 +6,11 @@ search`-, ve el desglose adeudo + donación voluntaria de libro = total
 (congelado por Biblioteca, Tarea 4), registra el pago («Registrar pago»,
 número de recibo opcional) y puede revertir un cobro equivocado («Revertir
 pago…», motivo) mientras la fase 2 no esté aprobada (`can_revert`). Sin citas
-en Caja (D4). «Pagados» es un corte simple del día con su total
-(`LibraryClearanceService.paid_on`).
+en Caja (D4). «Pagados» («Corte del día», E3) es un corte FIJO: los cobros del
+día más las reversas HECHAS ese día, como renglón negativo
+(`LibraryClearanceService.day_cut`) -- una reversa de OTRO día nunca mueve el
+corte de un día ya cerrado (spec `2026-10-02-titulatec-constancias-y-
+pendientes-design.md` §3.6).
 
 Cada ruta lleva EXACTAMENTE un código en `perms=[...]`: la lista es OR
 (`itcj2/dependencies.py:131`), así que un código de más abre la bandeja entera
@@ -15,12 +18,15 @@ a quien no debería.
 
 El buscador tiene PRECEDENCIA sobre las pestañas (spec
 `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md` §4.8):
-con `q` no vacío se listan resultados de `search` en cualquier estado («En
-Biblioteca», «Por pagar en Caja», «Liberado»), sin importar la pestaña activa;
-limpiar el buscador regresa a la pestaña. Sin `q`: «Por cobrar»
-(`awaiting_payment`, FIFO por `ready_at`, Ruling R9: solo procesos admitidos,
-mismo filtro que «Por revisar» de Biblioteca) o «Pagados» (selector de día,
-por omisión hoy vía `db_now().date()`, con «Total del día»).
+con `q` no vacío se listan resultados de `search` en cualquier estado, con la
+píldora PROPIA de Caja (E11, macro `caja_pill` de `cashier_body.html`): «En
+Biblioteca», «Por cobrar $X», «Pagado» o «Liberado» -- nunca la compartida
+`library_clearance_pill` (spec `2026-10-02-titulatec-constancias-y-pendientes-
+design.md` §3.6, m27). Sin importar la pestaña activa; limpiar el buscador
+regresa a la pestaña. Sin `q`: «Por cobrar» (`awaiting_payment`, FIFO por
+`ready_at`, Ruling R9: solo procesos admitidos, mismo filtro que «Por
+revisar» de Biblioteca) o «Pagados» («Corte del día»: selector de día, por
+omisión hoy vía `db_now().date()`, con «Cobrado/Revertido/Total del día»).
 
 Las rutas van por `clearance_id`, NUNCA por `process_id` (§4.6: Caja no tiene
 alcance por carrera, ve todo; §5 invariante 6, censo en
@@ -65,7 +71,7 @@ _PAGE_SIZE = 50
 # entrar: es la cola de trabajo pendiente (FIFO por `ready_at`, spec §4.8).
 _TABS = (
     ("por_cobrar", "Por cobrar"),
-    ("pagados", "Pagados"),
+    ("pagados", "Corte del día"),
 )
 _TAB_KEYS = tuple(key for key, _ in _TABS)
 _DEFAULT_TAB = "por_cobrar"
@@ -126,7 +132,10 @@ def _body_ctx(db, *, tab, q, dia, page):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ, igual que en `library_admin.py`. Con `q` se listan los
     resultados de `search` (cualquier estado, sin paginar); sin `q`, la
-    pestaña activa: `por_cobrar` (paginada) o `pagados` (corte del día)."""
+    pestaña activa: `por_cobrar` (paginada, fila de `LibraryClearanceService.
+    _rows`) o `pagados` (`day_cut`: corte del día FIJO -- E3, spec
+    `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.6 -- con su
+    propia forma de renglón, `None` en cualquier otra pestaña/búsqueda)."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
         LibraryClearanceService, format_amount,
     )
@@ -148,11 +157,12 @@ def _body_ctx(db, *, tab, q, dia, page):
         db, admitted_only=True)["awaiting_payment"]
 
     has_more = False
-    total_dia = None
+    day_cut = None
     if q_clean:
         rows = LibraryClearanceService.search(db, q_clean)
     elif tab == "pagados":
-        rows, total_dia = LibraryClearanceService.paid_on(db, dia_sel)
+        rows = []
+        day_cut = LibraryClearanceService.day_cut(db, dia_sel)
     else:
         rows, has_more = LibraryClearanceService.list_for_inbox(
             db, status="awaiting_payment", q=None, page=page_n, per_page=_PAGE_SIZE,
@@ -161,7 +171,7 @@ def _body_ctx(db, *, tab, q, dia, page):
     return {
         "tabs": _TABS, "tab": tab, "q": q_clean or "", "page": page_n,
         "dia": dia_sel.isoformat(), "rows": rows, "has_more": has_more,
-        "total_dia": total_dia, "por_cobrar_count": por_cobrar_count,
+        "day_cut": day_cut, "por_cobrar_count": por_cobrar_count,
         "searching": q_clean is not None, "format_amount": format_amount,
     }
 
@@ -243,7 +253,9 @@ async def revert(clearance_id: int, request: Request,
     """Revertir pago (motivo obligatorio): `cleared/payment` ->
     `awaiting_payment` (`LibraryClearanceService.revert_payment`). Solo si la
     fase 2 no está aprobada (`can_revert`); el monto congelado se queda (sigue
-    debiéndolo), se anula la constancia y sale del corte del día."""
+    debiéndolo) y se anula la constancia. El corte del día del cobro original
+    NO cambia (E3, invariante 3): esta reversa entra al corte de HOY como su
+    propio renglón, en negativo."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 

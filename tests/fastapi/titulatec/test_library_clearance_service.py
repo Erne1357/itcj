@@ -22,7 +22,11 @@ transición tiene que releer al tomar el `FOR UPDATE` y responder con un
 DATOS. La BD de dev es COMPARTIDA y ya trae filas reales del backfill: las
 listas se aíslan con un token único en el apellido (`q`) o se miden por delta,
 nunca por absolutos; los periodos son los sintéticos de `make_period` y los
-días de cobro de `paid_on` son de 2031, donde nadie más cobra.
+días de cobro de `day_cut` (`TestDayCut`) son de 2031, donde nadie más cobra.
+Esas pruebas fijan `ProcessEvent.created_at` A MANO tras llamar al service
+real (el `db_now()` parchado NO toca el `server_default=NOW()` del evento):
+nunca dependen del reloj de verdad ni de una fecha de calendario fija contra
+él.
 """
 from __future__ import annotations
 
@@ -2235,43 +2239,145 @@ class TestSearch:
         assert LibraryClearanceService.search(db_session, q) == []
 
 
-class TestPaidOn:
-    DIA = date(2031, 3, 14)
+class TestDayCut:
+    """`day_cut` (E3): corte del día FIJO desde `ProcessEvent`, nunca desde la
+    fila VIGENTE. Cada prueba fija `ProcessEvent.created_at` A MANO después de
+    llamar al service real -parchar `db_now()` solo controla lo que el PYTHON
+    de la transición escribe (`clearance.paid_at`/`updated_at`), nunca el
+    `server_default=NOW()` del evento-: así ningún caso depende del reloj de
+    verdad ni de una fecha de calendario fija contra él (Review Focus #3)."""
 
-    def _pagado(self, nuevo, cohort, cuando, total):
-        donacion = Decimal("800.00")
-        return nuevo(cohort=cohort, status="cleared", cleared_via="payment",
-                     debt_amount=total - donacion, donation_amount=donacion,
-                     total_amount=total, paid_at=cuando, receipt_number="R")
+    TOTAL = ADEUDO + DONACION   # 1100.00 ($300 adeudo + $800 donación, nuevo())
 
-    def test_lista_del_dia_y_total(self, db_session, nuevo):
-        base = self._pagado(nuevo, None, datetime(2031, 3, 14, 9, 0), Decimal("1100.00"))
-        tarde = self._pagado(nuevo, base.cohort, datetime(2031, 3, 14, 17, 30),
-                             Decimal("800.00"))
-        self._pagado(nuevo, base.cohort, datetime(2031, 3, 13, 23, 59), Decimal("900.00"))
-        self._pagado(nuevo, base.cohort, datetime(2031, 3, 15, 0, 0), Decimal("900.00"))
+    @staticmethod
+    def _en(db, monkeypatch, process_id, tipo, cuando):
+        """Último evento `tipo` de `process_id` -> su `created_at` fijado a
+        `cuando`. Se llama DESPUÉS de la transición real."""
+        evento = _events(db, process_id, tipo)[-1]
+        evento.created_at = cuando
+        return evento
 
-        filas, total = LibraryClearanceService.paid_on(db_session, self.DIA)
-
-        assert [f["id"] for f in filas] == [tarde.clearance.id, base.clearance.id]
-        assert total == Decimal("1900.00")
-        assert isinstance(total, Decimal)
-
-    def test_un_pago_revertido_sale_del_corte(self, db_session, nuevo, actores, monkeypatch):
-        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 3, 16, 11, 0))
+    def test_ayer_queda_fijo_y_hoy_trae_la_reversa_con_signo(
+            self, db_session, nuevo, actores, monkeypatch):
+        """Mandatorio: cobro ayer + reversa hoy -- el corte de ayer NO cambia
+        (mismas filas y totales) y el de hoy trae -monto con el neto en
+        negativo."""
+        ayer, hoy = date(2031, 7, 10), date(2031, 7, 11)
         esc = nuevo()
         _a_caja(db_session, esc, actores.biblioteca)
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 7, 10, 10, 0))
         _pagar(db_session, esc, actores.caja)
+        self._en(db_session, monkeypatch, esc.process.id,
+                 "library_payment_registered", datetime(2031, 7, 10, 10, 0))
 
-        filas, total = LibraryClearanceService.paid_on(db_session, date(2031, 3, 16))
-        assert [f["id"] for f in filas] == [esc.clearance.id]
-        assert total == Decimal("1100.00")
-
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 7, 11, 9, 0))
         with patch(NOTIFY):
             LibraryClearanceService.revert_payment(
-                db_session, esc.clearance.id, actores.caja.id, "Error")
-        assert LibraryClearanceService.paid_on(db_session, date(2031, 3, 16)) == (
-            [], Decimal("0.00"))
+                db_session, esc.clearance.id, actores.caja.id, "Cobro equivocado")
+        self._en(db_session, monkeypatch, esc.process.id,
+                 "library_payment_reverted", datetime(2031, 7, 11, 9, 0))
+
+        corte_ayer = LibraryClearanceService.day_cut(db_session, ayer)
+        assert [r["kind"] for r in corte_ayer["rows"]] == ["charge"]
+        fila_ayer = corte_ayer["rows"][0]
+        assert fila_ayer["amount"] == self.TOTAL
+        assert fila_ayer["clearance_id"] == esc.clearance.id
+        assert fila_ayer["student"] == esc.student.full_name
+        assert fila_ayer["control"] == esc.student.control_number
+        assert fila_ayer["receipt"] == "R-100"            # default de `_pagar`
+        assert fila_ayer["actor"] == actores.caja.full_name
+        assert fila_ayer["certificate"] and fila_ayer["certificate"].startswith("BIB-")
+        assert fila_ayer["reason"] is None
+        assert fila_ayer["original_paid_at"] is None
+        assert corte_ayer["charged"] == self.TOTAL
+        assert corte_ayer["reverted"] == Decimal("0.00")
+        assert corte_ayer["net"] == self.TOTAL
+
+        corte_hoy = LibraryClearanceService.day_cut(db_session, hoy)
+        assert [r["kind"] for r in corte_hoy["rows"]] == ["reversal"]
+        fila_hoy = corte_hoy["rows"][0]
+        assert fila_hoy["amount"] == -self.TOTAL
+        assert fila_hoy["reason"] == "Cobro equivocado"
+        assert fila_hoy["original_paid_at"] is not None
+        assert fila_hoy["certificate"] == fila_ayer["certificate"], (
+            "la reversa trae el folio del MISMO cobro que anuló")
+        assert fila_hoy["can_revert_here"] is False
+        assert corte_hoy["charged"] == Decimal("0.00")
+        assert corte_hoy["reverted"] == self.TOTAL
+        assert corte_hoy["net"] == -self.TOTAL
+
+    def test_mismo_dia_cobro_reversa_cobro_neto_un_cobro_revertir_solo_el_ultimo(
+            self, db_session, nuevo, actores, monkeypatch):
+        """Mandatorio: cobro + reversa + cobro el MISMO día -- 3 renglones,
+        neto = un cobro, «Revertir…» (`can_revert_here`) SOLO en el último
+        cobro (el folio vigente es el de la 2.ª emisión; la 1.ª ya se anuló al
+        revertir)."""
+        dia = date(2031, 7, 20)
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca)
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 7, 20, 9, 0))
+        _pagar(db_session, esc, actores.caja, receipt="R-1")
+        cobro1 = self._en(db_session, monkeypatch, esc.process.id,
+                          "library_payment_registered", datetime(2031, 7, 20, 9, 0))
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 7, 20, 10, 0))
+        with patch(NOTIFY):
+            LibraryClearanceService.revert_payment(
+                db_session, esc.clearance.id, actores.caja.id, "Error de caja")
+        reversa = self._en(db_session, monkeypatch, esc.process.id,
+                           "library_payment_reverted", datetime(2031, 7, 20, 10, 0))
+
+        monkeypatch.setattr(f"{SVC}.db_now", lambda: datetime(2031, 7, 20, 11, 0))
+        _pagar(db_session, esc, actores.caja, receipt="R-2")
+        cobro2 = self._en(db_session, monkeypatch, esc.process.id,
+                          "library_payment_registered", datetime(2031, 7, 20, 11, 0))
+
+        corte = LibraryClearanceService.day_cut(db_session, dia)
+
+        assert [r["kind"] for r in corte["rows"]] == ["charge", "reversal", "charge"]
+        assert [r["id"] for r in corte["rows"]] == [cobro2.id, reversa.id, cobro1.id]
+        assert corte["charged"] == self.TOTAL * 2
+        assert corte["reverted"] == self.TOTAL
+        assert corte["net"] == self.TOTAL, "neto == un solo cobro"
+        assert [r["can_revert_here"] for r in corte["rows"]] == [True, False, False], (
+            "«Revertir…» solo en el cobro vigente (el último)")
+
+    def test_dia_vacio(self, db_session):
+        cero = Decimal("0.00")
+        assert LibraryClearanceService.day_cut(db_session, date(2031, 7, 30)) == {
+            "rows": [], "charged": cero, "reverted": cero, "net": cero}
+
+    def test_payload_viejo_sin_total_no_truena_y_cuenta_como_cero(
+            self, db_session, nuevo, actores):
+        """Tolerancia a datos viejos de dev (payload sin `total`): nunca
+        truena, entra a `charged` como 0 y la fila trae `amount == 0` (la
+        plantilla lo pinta «—»)."""
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        esc = nuevo()
+        _a_caja(db_session, esc, actores.biblioteca)
+        dia = date(2031, 7, 25)
+        db_session.add(ProcessEvent(
+            process_id=esc.process.id, actor_id=actores.caja.id,
+            event_type="library_payment_registered", phase_number=PHASE_COTEJO,
+            payload={"clearance_id": esc.clearance.id, "receipt": "R-OLD"},
+            created_at=datetime(2031, 7, 25, 9, 0),
+        ))
+        db_session.flush()
+
+        corte = LibraryClearanceService.day_cut(db_session, dia)
+
+        assert len(corte["rows"]) == 1
+        fila = corte["rows"][0]
+        assert fila["amount"] == Decimal("0.00")
+        assert not fila["amount"]
+        assert fila["certificate"] is None
+        assert fila["can_revert_here"] is False
+        assert fila["actor"] == actores.caja.full_name
+        assert corte["charged"] == Decimal("0.00")
+        assert corte["net"] == Decimal("0.00")
 
 
 # ---------------------------------------------------------------------------

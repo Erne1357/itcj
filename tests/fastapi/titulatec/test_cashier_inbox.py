@@ -117,7 +117,7 @@ def test_ve_pestana_por_cobrar_con_contador_y_filas(
 
     assert resp.status_code == 200, resp.text[:500]
     assert "Por cobrar" in resp.text
-    assert "Pagados" in resp.text
+    assert "Corte del día" in resp.text
     counts = LibraryClearanceService.counts_by_status(db_session)
     assert counts["awaiting_payment"] >= 1
     assert f'>{counts["awaiting_payment"]}<' in _tab_span(resp.text, "tt-cashier-tab-por_cobrar")
@@ -466,9 +466,16 @@ def test_pagados_corte_del_dia_respeta_el_selector_y_total(
     client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
     monkeypatch,
 ):
-    from itcj2.apps.titulatec.services.library_clearance_service import (
-        LibraryClearanceService, format_amount,
-    )
+    """`day_cut` lee `ProcessEvent.created_at` (server-side), NO
+    `LibraryClearance.paid_at`: parchar `db_now()` del service solo controla
+    lo que el PYTHON de `register_payment` escribe -nunca el
+    `server_default=NOW()` del evento-, así que cada pago fija el
+    `created_at` de su propio evento A MANO después de registrarlo (mismo
+    patrón que `TestDayCut` de test_library_clearance_service.py); nada
+    depende del reloj de verdad."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
     staff = make_cashier_staff()
     cohort = make_cohort(book_donation_amount=Decimal("100.00"))
     p1 = make_process(make_student(control_number="99700111"), cohort=cohort, current_phase=1,
@@ -482,22 +489,166 @@ def test_pagados_corte_del_dia_respeta_el_selector_y_total(
     LibraryClearanceService.register(db_session, c2.id, staff.id, debt_amount=Decimal("300"))
     LibraryClearanceService.register(db_session, c3.id, staff.id, debt_amount=Decimal("50"))
 
+    def _registrar_el(cuando, clearance_id, process_id):
+        monkeypatch.setattr(SVC_DB_NOW, lambda: cuando)
+        LibraryClearanceService.register_payment(db_session, clearance_id, staff.id)
+        evento = (db_session.query(ProcessEvent)
+                 .filter_by(event_type="library_payment_registered", process_id=process_id)
+                 .order_by(ProcessEvent.id.desc()).first())
+        evento.created_at = cuando
+
     # Días sintéticos en 2031, donde nadie más de la BD compartida cobra
-    # (mismo criterio que `TestPaidOn` de test_library_clearance_service.py).
-    monkeypatch.setattr(SVC_DB_NOW, lambda: datetime(2031, 4, 10, 12, 0, 0))
-    LibraryClearanceService.register_payment(db_session, c1.id, staff.id)
-    LibraryClearanceService.register_payment(db_session, c2.id, staff.id)
-    monkeypatch.setattr(SVC_DB_NOW, lambda: datetime(2031, 4, 11, 9, 0, 0))
-    LibraryClearanceService.register_payment(db_session, c3.id, staff.id)
+    # (mismo criterio que `TestDayCut` de test_library_clearance_service.py).
+    _registrar_el(datetime(2031, 4, 10, 12, 0, 0), c1.id, p1.id)
+    _registrar_el(datetime(2031, 4, 10, 15, 0, 0), c2.id, p2.id)
+    _registrar_el(datetime(2031, 4, 11, 9, 0, 0), c3.id, p3.id)
 
-    _, total_esperado = LibraryClearanceService.paid_on(db_session, date(2031, 4, 10))
-
+    # 200+100 (c1) + 300+100 (c2) = $700.00; c3 cae en OTRO día.
     resp = client_as(staff).get(f"{URL}/body?tab=pagados&dia=2031-04-10")
 
     assert resp.status_code == 200, resp.text[:500]
     assert "99700111" in resp.text and "99700112" in resp.text
     assert "99700113" not in resp.text, "el pago de otro día no debe aparecer en este corte"
-    assert format_amount(total_esperado) in resp.text
+    assert "Cobrado $700.00" in resp.text
+    assert "Total del día $700.00" in resp.text
+
+
+def test_dia_basura_cae_en_hoy(client_as, make_cashier_staff):
+    """m24: `dia=no-es-fecha` no es un valor ISO real -> cae en hoy, nunca un
+    400 (`_parse_dia` es un filtro de vista)."""
+    from itcj2.core.utils.timezone import db_now
+
+    resp = client_as(make_cashier_staff()).get(f"{URL}/body?tab=pagados&dia=no-es-fecha")
+
+    assert resp.status_code == 200, resp.text[:500]
+    hoy = db_now().date().isoformat()
+    assert f'value="{hoy}"' in resp.text
+
+
+def test_expected_total_nan_responde_400(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """m25: `Decimal("NaN")` SÍ parsea en `_expected_total` (NaN es un
+    `Decimal` válido), pero `_check_total_shape` lo ataja con `.is_finite()`
+    -> 400 + `X-Tt-Error`, nunca un 500 ni un cobro."""
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700115"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("300"))
+    db_session.refresh(clearance)
+
+    resp = client_as(staff).post(
+        f"{URL}/{clearance.id}/pagar",
+        data={"tab": "por_cobrar", "q": "", "dia": "", "page": "1",
+              "expected_total": "NaN"})
+
+    assert resp.status_code == 400, resp.text[:300]
+    assert resp.headers.get("X-Tt-Error")
+    db_session.refresh(clearance)
+    assert clearance.status == "awaiting_payment", "NaN no debe cobrar nada"
+    assert clearance.receipt_number is None
+
+
+def test_pagados_dia_vacio_sin_movimientos(client_as, make_cashier_staff):
+    """m26: un día sin ningún `ProcessEvent` de Caja -> «No hay movimientos
+    ese día.» y los tres totales del encabezado en $0.00."""
+    resp = client_as(make_cashier_staff()).get(f"{URL}/body?tab=pagados&dia=2031-04-21")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "No hay movimientos ese día." in resp.text
+    assert "Cobrado $0.00" in resp.text
+    assert "Total del día $0.00" in resp.text
+
+
+def test_pildoras_propias_de_caja_en_busqueda(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """m27 (E11): Caja pinta su PROPIA píldora en la búsqueda -- nunca la
+    compartida `library_clearance_pill` («Por pagar en Caja»/«Constancia
+    previa»)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("50.00"))
+    make_process(make_student(control_number="99700124", first_name="UNO",
+                              last_name="PILDORACAJA"),
+                cohort=cohort, current_phase=1, library_clearance="pending")
+    p_caja = make_process(make_student(control_number="99700125", first_name="DOS",
+                                       last_name="PILDORACAJA"),
+                          cohort=cohort, current_phase=1, library_clearance="pending")
+    c_caja = _clearance(db_session, p_caja)
+    LibraryClearanceService.register(db_session, c_caja.id, staff.id, debt_amount=Decimal("100"))
+    p_pagado = make_process(make_student(control_number="99700126", first_name="TRES",
+                                         last_name="PILDORACAJA"),
+                            cohort=cohort, current_phase=1, library_clearance="pending")
+    c_pagado = _clearance(db_session, p_pagado)
+    LibraryClearanceService.register(db_session, c_pagado.id, staff.id, debt_amount=Decimal("100"))
+    LibraryClearanceService.register_payment(db_session, c_pagado.id, staff.id)
+
+    cohort_libre = make_cohort(book_donation_amount=Decimal("0.00"))
+    p_liberado = make_process(make_student(control_number="99700127", first_name="CUATRO",
+                                           last_name="PILDORACAJA"),
+                              cohort=cohort_libre, current_phase=1, library_clearance="pending")
+    c_liberado = _clearance(db_session, p_liberado)
+    LibraryClearanceService.register(db_session, c_liberado.id, staff.id, debt_amount=Decimal("0"))
+    db_session.refresh(c_liberado)
+    assert c_liberado.status == "cleared" and c_liberado.cleared_via == "no_charge"
+
+    resp = client_as(staff).get(f"{URL}/body?q=PILDORACAJA")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "En Biblioteca" in resp.text
+    assert "Por cobrar $150.00" in resp.text          # 100 adeudo + 50 donación
+    assert "Pagado" in resp.text
+    assert "Liberado" in resp.text
+
+
+def test_revertir_solo_aparece_en_el_cobro_vigente_del_corte(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+    monkeypatch,
+):
+    """Review Focus #3, a nivel de plantilla: cobro + reversa + cobro el
+    mismo día -> el botón «Revertir…» del corte sale UNA sola vez (en el
+    cobro vigente), aunque haya dos renglones `charge`."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99700131"), cohort=cohort, current_phase=1,
+                        library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("300"))
+
+    def _en(cuando, fn):
+        monkeypatch.setattr(SVC_DB_NOW, lambda: cuando)
+        fn()
+        evento = (db_session.query(ProcessEvent)
+                 .filter_by(process_id=proc.id)
+                 .order_by(ProcessEvent.id.desc()).first())
+        evento.created_at = cuando
+
+    _en(datetime(2031, 4, 26, 9, 0), lambda: LibraryClearanceService.register_payment(
+        db_session, clearance.id, staff.id, receipt_number="R-1"))
+    _en(datetime(2031, 4, 26, 10, 0), lambda: LibraryClearanceService.revert_payment(
+        db_session, clearance.id, staff.id, "Error"))
+    _en(datetime(2031, 4, 26, 11, 0), lambda: LibraryClearanceService.register_payment(
+        db_session, clearance.id, staff.id, receipt_number="R-2"))
+
+    resp = client_as(staff).get(f"{URL}/body?tab=pagados&dia=2031-04-26")
+
+    assert resp.status_code == 200, resp.text[:500]
+    # 3 renglones DISTINTOS (2 cobros + 1 reversa) -- no la fila ÚNICA y
+    # vigente que pintaba el viejo `paid_on` para esta misma clearance.
+    assert resp.text.count('id="caja-mov-') == 3
+    # "R-1" también sale en el renglón de la reversa (el recibo que revirtió,
+    # payload.receipt de `revert_payment`): el cobro nuevo es "R-2" y solo él
+    # debe ofrecer «Revertir…».
+    assert resp.text.count("R-2") == 1
+    assert resp.text.count("Revertir…") == 1, "solo el cobro vigente debe ofrecer revertir"
 
 
 # ---------------------------------------------------------------------------
