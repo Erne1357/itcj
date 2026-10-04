@@ -582,6 +582,21 @@ la liga vencida o sin el claro en Redis. Esa indistinción es un invariante, no 
    cuando no, la respuesta es inmediata. Solo confirma un par (control, correo) que quien pregunta ya
    escribió, con 10 intentos por hora por IP.
 
+## Bandeja de Solicitudes paginada y con búsqueda (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §4. Quita el tope de 300 filas del listado.
+
+- **50 por página** (`utils/paging.py:17`, `PAGE_SIZE`), pager compartido `‹ Anteriores · a–b de N · Siguientes ›` (macro `pager`, `templates/titulatec/_macros.html:308`; `requests_body.html:450`). `_body_ctx` (`pages/requests_admin.py:451`) pagina con `paginate_query` (`:581`) y conserva los tres órdenes con desempate por `id`: FIFO `created_at` en «Por revisar», FIFO `reviewed_at` en «En Cómputo», historial `created_at DESC`.
+- **Parámetros** de `GET /admin/solicitudes[/body]`: `status`, `cohort_id` y los nuevos `q` y `page` (`:734`, `:748`). Cambiar pestaña, convocatoria o búsqueda vuelve a `page=1`; una acción de fila (aprobar, rechazar, reenviar...) re-pinta la MISMA pestaña, página y búsqueda (hidden `page`/`q` en cada formulario), y si vació la última página cae en la última válida (nunca un vacío con pager «11»).
+- **Búsqueda** (`#tt-req-q`, `strip()`, máx. 100 caracteres): `enrollment_request_search(q)` (`services/enrollment_request_service.py:205`): nº de control (también en MAYÚSCULA), nombre en ambos órdenes, correo y folio; `%`, `_` y `\` escapados. Es el constructor ÚNICO: Accesos lo reutiliza. Sin resultados: «Sin resultados para "q"», sin pager.
+- **Contador por pestaña** (`tab_counts`, `pages/requests_admin.py:561`): un `GROUP BY status` con el mismo alcance, convocatoria y búsqueda que la lista.
+- **Alcance por carrera** (`officer_programs`) se aplica ANTES de contar y paginar: totales y contadores nunca incluyen otra carrera.
+- Los KPIs de arriba (`stats()`, sección anterior) siguen siendo el universo completo, sin cambios. Su nota «sin el límite de 300 filas» queda vacía: ya no hay tope.
+- Las revocadas leen su motivo con `ProcessService.cancellation_info_map` (`services/process_service.py:183`): una consulta, no una por fila.
+- **El buscador no pierde lo tecleado**: `#tt-req-q` lleva `hx-preserve="true"` (`requests_body.html:178`) y el contenedor `#tt-req-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` (`_syncPreservedSearch`) repone el texto cuando una navegación cambia `q` sin pasar por el input. Fix `545aab64`.
+
+**Medido (EXPLAIN ANALYZE, dev, 2026-10-04)**: bandeja «Por revisar» 0.27 ms (consulta de la página) y ≤0.04 ms con `q`; contadores ≤0.02 ms. La base de dev es chica (4 solicitudes, 2 procesos): el plan es `Seq Scan` y el tiempo no extrapola a producción; con volumen real, la búsqueda `ILIKE '%...%'` no usa índice (aceptado, ver spec). Sin índices ni migración en este cambio.
+
 ## Flujos relacionados
 
 - ⤵ [Alcance por carrera + encargados](engine_officer_scope.md) — quién ve y resuelve cada solicitud.

@@ -334,6 +334,10 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
    El `stuck` que pierden los 4 primeros KPIs **se conserva tal cual**: es la semántica de
    siempre, no un descuido de la migración a HTMX.
 
+## Buscador y medición (2026-10-04)
+
+`#proc-q` lleva `hx-preserve="true"` (`templates/titulatec/admin/processes.html:114`) y `#proc-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` repone el texto cuando la navegación cambia `q` sin pasar por el input (fix `545aab64`). Un tablero con búsqueda sin resultados dice «Sin resultados para "q"» en vez de nueve columnas de «—». Los KPIs conservan el filtro de estado y nunca se mueven con `q`/`phase`/`stuck`/página (`pages/admin.py:1754`). Medido en dev (EXPLAIN ANALYZE, 2026-10-04): pasada 1 de Procesos 0.027 ms (con `q` ≤0.03 ms); base de dev chica, Seq Scan.
+
 ## Flujos relacionados
 
 - ⤵ [Alcance por carrera + encargados](engine_officer_scope.md) — quién ve qué en esta bandeja.

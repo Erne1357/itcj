@@ -41,6 +41,10 @@
    última válida. `?selected=` pinta el detalle aunque el proceso caiga en otra página, siempre que
    esté en el universo filtrado; fuera de él (otra pestaña, otra búsqueda, otra carrera) no hay
    detalle.
+   El buscador `#tt-docs-q` lleva `hx-preserve="true"` (`partials/documents_body.html:29`) y
+   `#docs-filters` anuncia `data-tt-q-server` (`static/js/shared/titulatec-utils.js:414`): lo
+   tecleado mientras viaja la petición no se pierde (fix `545aab64`, 2026-10-04). Medido en dev
+   (EXPLAIN ANALYZE, 2026-10-04): pasada 1 de Documentos ≤0.03 ms (base de dev chica; Seq Scan).
 
 ## Secuencia
 

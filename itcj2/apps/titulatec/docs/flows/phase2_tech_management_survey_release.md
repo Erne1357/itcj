@@ -275,6 +275,12 @@ resumen de biblioteca tampoco consulta constancias), la misma cota de `list_for_
   `process_id` — `tests/fastapi/titulatec/test_scope_guard.py` exige la guarda de carrera a toda
   ruta con `{process_id}` en el path, y estas no la necesitan porque GTV ve todo.
 
+## Liberaciones y Encuestas: pager compartido (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReviewService.list_for_inbox` (`services/survey_review_service.py:629`, `paginate_query` en `:675`) devuelve un `Page` y la bandeja de Liberaciones (`pages/survey_reviews_admin.py:76`, `survey_reviews_body.html:160`, prefijo `tt-liberaciones`) usa la macro `pager`; lo mismo la lista de respuestas de Encuestas (`pages/surveys_admin.py:76`, `:93`, `surveys_body.html:51`, prefijo `tt-surveys`). Parámetros: Liberaciones `status`, `q`, `page`; Encuestas `form_id`, `page`. Cambiar pestaña o búsqueda ⇒ `page=1`; fuera de rango ⇒ última válida. Los contadores de pestaña respetan la búsqueda (como ya hacían).
+
+**Buscador sin pérdida de tecleo**: `#tt-releases-q` lleva `hx-preserve="true"` y `#tt-releases-filters` anuncia `data-tt-q-server` (`survey_reviews_body.html`, commit `b2ce954a`, 2026-10-04); la sincronización la hace `titulatec-utils.js:414`.
+
 ## Flujos relacionados
 
 - ← Lo abre: el envío de la encuesta (`pages/public.py::survey_submit` → `SurveyService.submit`)

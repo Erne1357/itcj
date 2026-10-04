@@ -462,6 +462,10 @@ re-anima el shell entero en sus propios swaps. Cada zona declara un `data-tt-fad
 de su contenido y `static/js/admin/appointments.js` marca con `.tt-enter` solo las que cambiaron.
 El indicador (`#appt-skel`) vive **fuera** del shell: dentro se destruiría estando visible.
 
+## Cola del encargado sin consultas por candidato (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §8, sin cambio de listas, orden, contadores ni UI. Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les agendes», «Liberaciones pendientes») salen de `AppointmentService.queue_candidates` (`services/appointment_service.py:352`, antes `_pending_candidates`), calculado UNA vez por `_shell_ctx` (`pages/appointments.py:959`, uso en `:1017`) con mapas en lote: `DocumentService.initial_docs_approved_map` (`services/document_service.py:208`, misma regla perfil + R-G) y `SelfBookingService.cancellations_map` / `blocked_map` (`services/self_booking_service.py:196`, `:224`, `GROUP BY`). Los métodos por proceso y los `list_*` conservan firma y delegan. `list_appointments` puebla `process` desde su JOIN (`contains_eager`). `_shell_ctx` pasó de 252 a 40 consultas con 3 candidatos por clase y de 2115 a 40 con 30 (test de equivalencia contra el algoritmo por fila congelado). El buscador `#appt-q` ya llevaba `hx-preserve` (es el patrón que copiaron las demás bandejas).
+
 ## Limitaciones conocidas
 
 Verificadas contra el código al **2026-09-29**. No son bugs con ticket abierto: son el

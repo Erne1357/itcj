@@ -337,6 +337,19 @@ permisos y mapeos de puesto de Centro de Cómputo se quedan como estaban (D4/D5)
 despliegue de la [Consulta de elegibilidad al SII](xcut_sii_eligibility.md#despliegue) (pull +
 rebuild, `alembic upgrade head`, reiniciar todos los procesos); el modo `sii` es el de por omisión.
 
+## Bandeja de Accesos paginada y con búsqueda (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §5. Quita el tope de 300 filas.
+
+- **50 por página** con el pager compartido (`access_body.html:280`). `_body_ctx` (`pages/access_admin.py:225`) pagina con `paginate_query` (`:288`) y conserva el FIFO de las colas de trabajo con desempate por `id`. El antiguo `_tab_query` se partió en `_tab_filter` (`:161`, predicado) y `_tab_order` (`:197`); lista y contador comparten el predicado, así «Con acceso» sigue excluyendo `nip_source='sii'` en ambos.
+- **Parámetros** de `GET /admin/accesos[/body]` (`:480`, `:493`): `status`, `cohort_id` y los nuevos `q`, `page`. Cambiar pestaña / filtro / búsqueda ⇒ `page=1`; una acción de fila (dar acceso, regresar a revisión, rechazar, reenviar, reasignar NIP) re-pinta misma pestaña, página y búsqueda, o la última válida.
+- **Búsqueda**: `enrollment_request_search` (la MISMA de Solicitudes, `services/enrollment_request_service.py:205`).
+- **Contador por pestaña**: UNA consulta con un `COUNT(*) FILTER (WHERE <predicado de la pestaña>)` por pestaña (`pages/access_admin.py:278-283`), no un `GROUP BY status`: «Con acceso» y «Devueltas» dependen de sellos y de `nip_source`, no solo del estado.
+- CC ve todo: no hay alcance por carrera en esta bandeja.
+- **`hx-preserve="true"`** en `#tt-access-q` (`access_body.html:69`) + `data-tt-q-server` en `#tt-access-filters` (`titulatec-utils.js:414`): lo tecleado mientras viaja la petición no se pierde.
+
+**Medido (EXPLAIN ANALYZE, dev, 2026-10-04)**: consulta de la página ≤0.02 ms, contadores 0.02 ms, con `q` ≤0.03 ms. La base de dev es chica (4 solicitudes, 2 procesos): el plan es `Seq Scan` y el tiempo no extrapola a producción; con volumen real, la búsqueda `ILIKE '%...%'` no usa índice (aceptado, ver spec). Sin índices ni migración en este cambio.
+
 ## Flujos relacionados
 
 - ← [Consulta de elegibilidad al SII](xcut_sii_eligibility.md) — el modo `sii` (por omisión): cuándo
