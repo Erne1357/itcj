@@ -2751,7 +2751,7 @@ button.tt-seat--libre { pointer-events: auto; }
   min-width: 0;
 }
 .tt-pager-range {
-  font-size: 0.875rem;
+  font-size: var(--tt-fs-200);
   color: var(--tt-text-2);
   font-variant-numeric: tabular-nums;
 }
