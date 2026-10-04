@@ -339,3 +339,26 @@ def test_posgrado_excused_sigue_igual_paginado(db_session, escena, make_program,
     # 3 pendientes + 4 extras sin subir (fase 1 en curso: no se dispensan).
     assert pag1["rows"][0]["pending"] == 7
     assert pag1["total_pending"] == pag2["total_pending"] == 7
+
+
+# ---------------------------------------------------------------------------
+# Buscador con hx-preserve (fix Task 6, ronda 1)
+# ---------------------------------------------------------------------------
+def test_buscador_preservado_y_q_viaja(db_session, escena, client_as, tres_por_pagina):
+    from tests.fastapi.titulatec.paging_asserts import (
+        assert_buscador_preservado, assert_incluye_filtros,
+    )
+
+    oficial = escena.officer()
+    for _ in range(4):
+        escena.proc(first_name="LUCERO")
+    cli = client_as(oficial)
+    for url in (URL, f"{URL}/body"):
+        html = cli.get(url, params={"q": "lucero"}).text
+        assert_buscador_preservado(html, input_id="tt-docs-q",
+                                   filters_id="docs-filters", q="lucero")
+        nxt = re.search(r'<button[^>]*id="tt-docs-pager-next"[^>]*>', html, re.S).group(0)
+        assert_incluye_filtros(nxt, "docs-filters")
+        # Las pestañas toman `q` del mismo bloque.
+        tabs = re.findall(r'<button class="btn btn-sm[^>]*hx-vals=\'\{"status"[^>]*>', html, re.S)
+        assert tabs and all('hx-include="#docs-filters"' in t for t in tabs)

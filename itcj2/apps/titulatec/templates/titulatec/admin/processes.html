@@ -103,7 +103,7 @@
          swap que el resto de la vista (select == target => morph:outerHTML).
          El pager de la tabla incluye este mismo bloque (`hx-include`); su
          `hx-vals` de pagina pisa el `page=1` oculto. #}
-      <div class="d-flex align-items-center min-w-0" id="proc-filters">
+      <div class="d-flex align-items-center min-w-0" id="proc-filters" data-tt-q-server="{{ q or '' }}">
         <input type="hidden" name="view" value="{{ V }}">
         <input type="hidden" name="status" value="{{ status or '' }}">
         <input type="hidden" name="stuck" value="{{ 1 if stuck else 0 }}">
@@ -111,7 +111,7 @@
         <input type="hidden" name="page" value="1">
         <label class="tt-search" id="proc-search-wrap" aria-label="Buscar proceso">
           <i class="bi bi-search" aria-hidden="true"></i>
-          <input type="search" id="proc-q" name="q" value="{{ q }}" maxlength="100"
+          <input type="search" id="proc-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
                  placeholder="Buscar alumno, control o folio…" autocomplete="off"
                  hx-get="/titulatec/admin/processes" hx-include="#proc-filters"
                  hx-target="#tt-admin-content" hx-select="#tt-admin-content"
@@ -171,7 +171,15 @@
 {# El id distingue este panel del de la tabla: sin el, Idiomorph intentaria
    morfear una tabla en un kanban en vez de sustituir un panel por el otro. #}
 <div class="px-4 pt-3 pb-4" id="proc-board-pane">
+  {# Una busqueda sin resultados no pinta nueve columnas de «—»: dice que no
+     encontro nada, igual que la tabla (spec 2026-10-04 §3.3). #}
+  {% if q and not columns|sum(attribute='count') %}
+  <div class="tt-card text-center py-4" id="proc-board-no-results">
+    <span class="tt-kicker"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados para "{{ q }}"</span>
+  </div>
+  {% else %}
   {% include "titulatec/admin/partials/processes_board.html" %}
+  {% endif %}
 </div>
 {% else %}
 <div class="px-4 pt-3 pb-4" id="proc-table-pane">

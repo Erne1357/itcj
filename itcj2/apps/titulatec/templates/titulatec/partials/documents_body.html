@@ -13,7 +13,7 @@
    pinta aunque su proceso caiga en otra página. #}
 {% from "titulatec/_macros.html" import estado_pill, track_pill, pager %}
 
-<div id="docs-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+<div id="docs-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
   <input type="hidden" name="status" value="{{ status_filter }}">
   <input type="hidden" name="selected" value="{{ selected_id or '' }}">
   <input type="hidden" name="page" value="1">
@@ -26,7 +26,7 @@
   {% endfor %}
   <div class="tt-search">
     <i class="bi bi-search" aria-hidden="true"></i>
-    <input type="search" id="tt-docs-q" name="q" value="{{ q }}" maxlength="100"
+    <input type="search" id="tt-docs-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
            placeholder="Buscar nombre, control o folio"
            aria-label="Buscar nombre, control o folio"
            hx-get="/titulatec/admin/documents/body" hx-target="#docs-body"

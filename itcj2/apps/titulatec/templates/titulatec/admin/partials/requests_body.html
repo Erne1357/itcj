@@ -169,13 +169,13 @@
   {# Un <div>, no un <form>: en el modo alterno la bandeja no lleva ni un
      formulario (solo lectura), y buscar y paginar siguen sirviendo ahí.
      `hx-include="#tt-req-filters"` toma los campos de dentro. #}
-  <div id="tt-req-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div id="tt-req-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
     <input type="hidden" name="status" value="{{ status }}">
     <input type="hidden" name="cohort_id" value="{{ cohort_id or '' }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">
       <i class="bi bi-search" aria-hidden="true"></i>
-      <input type="search" id="tt-req-q" name="q" value="{{ q }}" maxlength="100"
+      <input type="search" id="tt-req-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
              placeholder="Buscar control, nombre, correo o folio"
              aria-label="Buscar control, nombre, correo o folio"
              hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"

@@ -396,5 +396,55 @@
     _syncCountGroups();
   }
 
+  // ---------------------------------------------------------------------------
+  // Buscadores con `hx-preserve` (bandejas paginadas, spec 2026-10-04).
+  //
+  // El `<input name="q">` lleva `hx-preserve="true"`: htmx re-inserta el MISMO
+  // nodo tras el swap, así lo tecleado mientras viaja la petición no se pierde y
+  // el `strip()` del servidor no le come el espacio final ("maria " + "lopez").
+  // Precio: el nodo conservado no recibe el `q` del servidor nunca. Si una
+  // navegación cambia `q` sin pasar por el input (re-clic en el menú lateral,
+  // que llega sin `q`), el texto quedaría viejo y lo arrastrarían las pestañas
+  // y el pager vía `hx-include`. Por eso el contenedor de filtros (que NO se
+  // conserva, así que su atributo sí es fresco) anuncia en `data-tt-q-server`
+  // el `q` con el que se pintó, y aquí se repone SOLO si el input no tiene el
+  // foco (si lo tiene, el usuario está escribiendo y manda él) y difiere sin
+  // contar espacios de los extremos.
+  // ---------------------------------------------------------------------------
+  function _syncPreservedSearch() {
+    document.querySelectorAll('[data-tt-q-server]').forEach(function (box) {
+      var input = box.querySelector('input[name="q"][hx-preserve]');
+      if (!input || input === document.activeElement) return;
+      var server = box.getAttribute('data-tt-q-server') || '';
+      if (input.value.trim() !== server) input.value = server;
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', _syncPreservedSearch);
+
+  // Foco del buscador conservado. htmx 2.0.3 conserva el nodo con
+  // `moveBefore` donde existe (Chromium) y el foco sobrevive; sin esa API
+  // (Firefox/Safari) cae a `replaceChild`, el nodo sale y vuelve al DOM y PIERDE
+  // el foco, y htmx no lo repone porque su restauración solo actúa si el nodo
+  // enfocado ya no está en el documento (aquí sí está: es el mismo). Medido en
+  // Chromium borrando `Element.prototype.moveBefore`: valor intacto, foco
+  // perdido. Se repone aquí, con el cursor, ANTES del settle (para que
+  // `_syncPreservedSearch` lo vea enfocado y no le toque el texto).
+  var _qFoco = null;
+  document.body.addEventListener('htmx:beforeSwap', function () {
+    var a = document.activeElement;
+    _qFoco = (a && a.id && a.matches && a.matches('input[name="q"][hx-preserve]'))
+      ? { id: a.id, start: a.selectionStart, end: a.selectionEnd } : null;
+  });
+  document.body.addEventListener('htmx:afterSwap', function () {
+    if (!_qFoco) return;
+    var f = _qFoco;
+    _qFoco = null;
+    var el = document.getElementById(f.id);
+    if (el && el !== document.activeElement) {
+      el.focus({ preventScroll: true });
+      try { el.setSelectionRange(f.start, f.end); } catch (e) { /* type sin selección */ }
+    }
+  });
+
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

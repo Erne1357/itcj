@@ -60,13 +60,13 @@
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 {%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
 <div id="tt-access-body" data-tt-view="access-body">
-  <div id="tt-access-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div id="tt-access-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
     <input type="hidden" name="status" value="{{ status }}">
     <input type="hidden" name="cohort_id" value="{{ cohort_id or '' }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">
       <i class="bi bi-search" aria-hidden="true"></i>
-      <input type="search" id="tt-access-q" name="q" value="{{ q }}" maxlength="100"
+      <input type="search" id="tt-access-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
              placeholder="Buscar control, nombre, correo o folio"
              aria-label="Buscar control, nombre, correo o folio"
              hx-get="/titulatec/admin/accesos/body" hx-target="#tt-access-body"

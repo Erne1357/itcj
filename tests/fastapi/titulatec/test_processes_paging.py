@@ -368,3 +368,55 @@ def test_js_ya_no_filtra_en_cliente():
     assert "estado.fase" not in js, "la fase la filtra el servidor (?phase=)"
     # Lo que sí sigue siendo de cliente: orden de la página y alto del kanban.
     assert "th.sortable" in js and "medirTablero" in js
+
+
+# ---------------------------------------------------------------------------
+# Buscador con hx-preserve y tablero sin resultados (fix ronda 1)
+# ---------------------------------------------------------------------------
+def test_buscador_preservado_y_q_viaja(db_session, escena, client_as, tres_por_pagina):
+    from tests.fastapi.titulatec.paging_asserts import (
+        assert_buscador_preservado, assert_incluye_filtros,
+    )
+
+    oficial = escena.officer()
+    for _ in range(4):
+        escena.proc(first_name="LUCERO")
+    html = client_as(oficial).get(URL, params={"q": "lucero"}).text
+
+    assert_buscador_preservado(html, input_id="proc-q", filters_id="proc-filters",
+                               q="lucero")
+    nxt = re.search(r'<button[^>]*id="tt-proc-pager-next"[^>]*>', html, re.S).group(0)
+    assert_incluye_filtros(nxt, "proc-filters")
+    # Los enlaces de filtro (chips, vista, funnel) llevan `q` en su URL.
+    for ctl in ("proc-chip-active", "proc-view-board", "proc-seg-1"):
+        tag = re.search(r'<a[^>]*id="%s"[^>]*>' % ctl, html, re.S).group(0)
+        assert "q=lucero" in tag, ctl
+
+
+def test_el_js_repone_el_buscador_preservado_si_no_tiene_foco():
+    js = (_APP / "static" / "js" / "shared" / "titulatec-utils.js").read_text(encoding="utf-8")
+    cuerpo = js.split("function _syncPreservedSearch", 1)[1].split("}\n  document", 1)[0]
+    assert "data-tt-q-server" in cuerpo
+    assert 'input[name="q"][hx-preserve]' in cuerpo
+    assert "document.activeElement" in cuerpo
+    assert "htmx:afterSettle', _syncPreservedSearch" in js
+    # Sin `moveBefore` (Firefox/Safari) htmx re-inserta el nodo y pierde el foco:
+    # se repone en afterSwap, antes del settle.
+    foco = js.split("var _qFoco = null;", 1)[1]
+    assert "htmx:beforeSwap" in foco and "htmx:afterSwap" in foco
+    assert "el.focus(" in foco and "setSelectionRange" in foco
+
+
+def test_busqueda_sin_resultados_en_tablero(escena, client_as):
+    oficial = escena.officer()
+    escena.proc(current_phase=2)
+    html = client_as(oficial).get(URL, params={"view": "board", "q": "<b>nadie"}).text
+
+    assert 'id="proc-board-no-results"' in html
+    assert 'Sin resultados para "&lt;b&gt;nadie"' in html
+    assert "<b>nadie" not in html
+    assert 'id="proc-board"' not in html          # sin las 9 columnas de «—»
+
+    # Con resultados el tablero sigue ahí.
+    con = client_as(oficial).get(URL, params={"view": "board", "q": "ALUMNO"}).text
+    assert 'id="proc-board"' in con and 'id="proc-board-no-results"' not in con

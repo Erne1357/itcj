@@ -319,3 +319,28 @@ def test_consultas_fijas_con_3_y_con_40(client_as, db_session, make_cc, make_coh
 
     assert len(re.findall(r'<tr id="tt-acc-', resp_grande.text)) == 40
     assert len(con_40) == len(con_3), (len(con_3), len(con_40))
+
+
+# ---------------------------------------------------------------------------
+# Buscador con hx-preserve (fix Task 6, ronda 1)
+# ---------------------------------------------------------------------------
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_cc, make_cohort, tres_por_pagina,
+):
+    from tests.fastapi.titulatec.paging_asserts import (
+        assert_buscador_preservado, assert_incluye_filtros,
+    )
+
+    cohort = make_cohort(status="open")
+    for i in range(4):
+        _en_espera(db_session, cohort, control=f"9995{i:04d}", first_name="LUCERO",
+                   reviewed_at=datetime(2001, 1, 1 + i, 9, 0))
+    cli = client_as(make_cc())
+    for url in (URL, f"{URL}/body"):
+        html = cli.get(url, params={"cohort_id": cohort.id, "q": "lucero"}).text
+        assert_buscador_preservado(html, input_id="tt-access-q",
+                                   filters_id="tt-access-filters", q="lucero")
+        nxt = re.search(r'<button[^>]*id="tt-access-pager-next"[^>]*>', html, re.S).group(0)
+        assert_incluye_filtros(nxt, "tt-access-filters")
+        tab = re.search(r'<button id="tt-acc-tab-granted"[^>]*>', html).group(0)
+        assert "q=lucero" in tab

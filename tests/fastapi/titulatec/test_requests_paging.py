@@ -440,3 +440,29 @@ def test_en_modo_alterno_se_busca_sin_formularios(
     assert "<form" not in html
     assert 'id="tt-req-q"' in html
     assert re.findall(r'<tr id="tt-req-(\d+)"', html) == [str(req.id)]
+
+
+# ---------------------------------------------------------------------------
+# Buscador con hx-preserve (fix Task 6, ronda 1)
+# ---------------------------------------------------------------------------
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_head, make_cohort, tres_por_pagina,
+):
+    from tests.fastapi.titulatec.paging_asserts import (
+        assert_buscador_preservado, assert_incluye_filtros,
+    )
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    for i in range(4):
+        _make_req(db_session, cohort, control=f"9976{i:04d}", first_name="LUCERO",
+                  created_at=datetime(2001, 1, 1 + i, 9, 0))
+    cli = client_as(head)
+    for url in (URL, f"{URL}/body"):            # carga completa y parcial
+        html = cli.get(url, params={"cohort_id": cohort.id, "q": "lucero"}).text
+        assert_buscador_preservado(html, input_id="tt-req-q",
+                                   filters_id="tt-req-filters", q="lucero")
+        nxt = re.search(r'<button[^>]*id="tt-req-pager-next"[^>]*>', html, re.S).group(0)
+        assert_incluye_filtros(nxt, "tt-req-filters")
+        tab = re.search(r'<button id="tt-req-tab-rejected"[^>]*>', html).group(0)
+        assert "q=lucero" in tab
