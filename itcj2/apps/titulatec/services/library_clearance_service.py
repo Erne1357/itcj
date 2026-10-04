@@ -103,6 +103,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, paginate_query
 from itcj2.core.utils.timezone import db_now
 
 # Vigencia de una constancia previa (D9): `issued_on >= hoy - 365 días`.
@@ -931,8 +932,8 @@ class LibraryClearanceService:
 
     @staticmethod
     def list_for_inbox(db: Session, *, status: str, q: str | None = None,
-                       page: int = 1, per_page: int = 50,
-                       admitted_only: bool = False) -> tuple[list[dict], bool]:
+                       page: int = 1, per_page: int = PAGE_SIZE,
+                       admitted_only: bool = False) -> Page:
         """Página de una pestaña de las bandejas de Biblioteca y Caja.
 
         * `pending` («Por revisar»): FIFO por la aceptación de la inscripción
@@ -959,7 +960,7 @@ class LibraryClearanceService:
 
         `can_revert` y el número de constancia vigente se calculan EN LOTE (una
         consulta cada uno por página), nunca por fila. Devuelve
-        `(filas, has_more)`; cada fila es el dict de `_rows`.
+        un `Page` cuyos `items` son los dicts de `_rows`.
         """
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
         from itcj2.apps.titulatec.models.library_clearance import LIBRARY_STATUSES
@@ -985,9 +986,9 @@ class LibraryClearanceService:
             query = query.order_by(LibraryClearance.updated_at.desc(),
                                    LibraryClearance.id.desc())
 
-        filas = query.offset((page - 1) * per_page).limit(per_page + 1).all()
-        has_more = len(filas) > per_page
-        return LibraryClearanceService._rows(db, filas[:per_page]), has_more
+        pagina = paginate_query(query, page, per_page)
+        return Page(items=LibraryClearanceService._rows(db, pagina.items),
+                    total=pagina.total, page=pagina.page, per_page=pagina.per_page)
 
     @staticmethod
     def cohorts_missing_donation(db: Session) -> list[dict]:

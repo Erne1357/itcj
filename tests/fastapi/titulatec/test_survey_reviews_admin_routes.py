@@ -682,3 +682,31 @@ def test_permiso_de_observar_no_alcanza_para_liberar(
         data={"status": "in_review", "q": "", "page": "1"})
 
     assert resp.status_code == 403, resp.text[:300]
+
+
+# ---------------------------------------------------------------------------
+# Pager compartido: «1–N de T»
+# ---------------------------------------------------------------------------
+def test_liberaciones_muestra_rango_de_total(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+    monkeypatch,
+):
+    import functools
+    from itcj2.apps.titulatec.pages import survey_reviews_admin
+
+    monkeypatch.setattr(survey_reviews_admin, "_body_ctx",
+                        functools.partial(survey_reviews_admin._body_ctx, per_page=2))
+    for _ in range(3):
+        make_survey_review(
+            make_process(make_student(last_name="PAGLIBZQ"), current_phase=2),
+            status="in_review")
+    c = client_as(make_gtv())
+
+    p1 = c.get(f"{URL}/body?status=in_review&q=PAGLIBZQ").text
+    p2 = c.get(f"{URL}/body?status=in_review&q=PAGLIBZQ&page=2").text
+
+    assert "1–2 de 3" in p1
+    assert "3–3 de 3" in p2
+    assert "Siguientes" in p1 and "Anteriores" in p2
+    prev = re.search(r'<button[^>]*id="tt-liberaciones-pager-prev"[^>]*>', p2, re.S).group(0)
+    assert "status=in_review" in prev and "q=PAGLIBZQ" in prev and '"page": 1' in prev

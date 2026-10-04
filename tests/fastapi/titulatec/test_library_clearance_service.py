@@ -675,8 +675,8 @@ class TestCotejoYaLiberado:
         abierto = nuevo(last_name=token, donation=None)
         nuevo(cohort=abierto.cohort, last_name=token, phase=3)
 
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="pending", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token).items
         counts = LibraryClearanceService.counts_by_status(db_session, q=token)
         avisos = {a["cohort_id"]: a["pending"] for a in
                   LibraryClearanceService.cohorts_missing_donation(db_session)}
@@ -2106,10 +2106,11 @@ class TestListForInbox:
         segundo.process.created_at = datetime(2030, 1, 2, 9, 0)
         db_session.flush()
 
-        filas, has_more = LibraryClearanceService.list_for_inbox(
+        pagina = LibraryClearanceService.list_for_inbox(
             db_session, status="pending", q=token)
+        filas = pagina.items
 
-        assert has_more is False
+        assert pagina.has_next is False
         assert [f["id"] for f in filas] == [
             primero.clearance.id, segundo.clearance.id, tercero.clearance.id]
 
@@ -2123,8 +2124,8 @@ class TestListForInbox:
         temprano = _en_caja(tarde.cohort, datetime(2030, 2, 1, 9, 0))
         medio = _en_caja(tarde.cohort, datetime(2030, 2, 2, 9, 0))
 
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="awaiting_payment", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="awaiting_payment", q=token).items
 
         assert [f["id"] for f in filas] == [
             temprano.clearance.id, medio.clearance.id, tarde.clearance.id]
@@ -2153,10 +2154,10 @@ class TestListForInbox:
                             process_status="cancelled")
         _en_caja(activo.cohort, datetime(2030, 2, 4, 9, 0), process_status="completed")
 
-        con_flag, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="awaiting_payment", q=token, admitted_only=True)
-        sin_flag, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="awaiting_payment", q=token)
+        con_flag = LibraryClearanceService.list_for_inbox(
+            db_session, status="awaiting_payment", q=token, admitted_only=True).items
+        sin_flag = LibraryClearanceService.list_for_inbox(
+            db_session, status="awaiting_payment", q=token).items
 
         assert [f["id"] for f in con_flag] == [activo.clearance.id, en_pausa.clearance.id]
         assert revocado.clearance.id in {f["id"] for f in sin_flag}, (
@@ -2173,8 +2174,8 @@ class TestListForInbox:
         _a_caja(db_session, pagado, actores.biblioteca)
         _pagar(db_session, pagado, actores.caja)             # updated_at = ahora
 
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="cleared", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="cleared", q=token).items
 
         assert [f["id"] for f in filas] == [
             pagado.clearance.id, revocado.clearance.id, viejo.clearance.id]
@@ -2204,8 +2205,8 @@ class TestListForInbox:
                                                 actor_id=actores.caja.id)
         sin_constancia = nuevo(cohort=pagado.cohort, last_name=token)
 
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="cleared", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="cleared", q=token).items
         por_id = {f["id"]: f for f in filas}
 
         pagada = por_id[pagado.clearance.id]
@@ -2214,8 +2215,8 @@ class TestListForInbox:
         assert pagada["certificate"]["number"] == pagada["certificate_number"]
         assert pagada["certificate"]["voided_printed"] is None
 
-        filas_pend, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="pending", q=token)
+        filas_pend = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token).items
         sin_fila = next(f for f in filas_pend if f["id"] == sin_constancia.clearance.id)
         assert sin_fila["certificate"] is None
         assert sin_fila["certificate_number"] is None
@@ -2225,8 +2226,8 @@ class TestListForInbox:
         cerrada = nuevo(cohort=abierta.cohort, last_name=token, status="cleared", phase=2)
         _fase2(db_session, cerrada.process, "approved")
 
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="cleared", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="cleared", q=token).items
 
         por_id = {f["id"]: f for f in filas}
         assert por_id[abierta.clearance.id]["can_revert"] is True
@@ -2234,8 +2235,8 @@ class TestListForInbox:
 
     def test_fila_trae_lo_que_pinta_la_bandeja(self, db_session, nuevo, token):
         esc = nuevo(last_name=token, donation=None)
-        filas, _ = LibraryClearanceService.list_for_inbox(
-            db_session, status="pending", q=token)
+        filas = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token).items
 
         fila = filas[0]
         assert fila["id"] == esc.clearance.id
@@ -2258,13 +2259,28 @@ class TestListForInbox:
         nuevo(cohort=base.cohort, last_name=token)
         nuevo(cohort=base.cohort, last_name=token)
 
-        p1, mas1 = LibraryClearanceService.list_for_inbox(
+        p1 = LibraryClearanceService.list_for_inbox(
             db_session, status="pending", q=token, page=1, per_page=2)
-        p2, mas2 = LibraryClearanceService.list_for_inbox(
+        p2 = LibraryClearanceService.list_for_inbox(
             db_session, status="pending", q=token, page=2, per_page=2)
 
-        assert (len(p1), mas1, len(p2), mas2) == (2, True, 1, False)
-        assert not {f["id"] for f in p1} & {f["id"] for f in p2}
+        assert (len(p1.items), p1.has_next, len(p2.items), p2.has_next) == (2, True, 1, False)
+        assert (p1.total, p2.total) == (3, 3)
+        assert not {f["id"] for f in p1.items} & {f["id"] for f in p2.items}
+
+    def test_inbox_muestra_rango_de_total(self, db_session, nuevo, token):
+        base = nuevo(last_name=token)
+        nuevo(cohort=base.cohort, last_name=token)
+        nuevo(cohort=base.cohort, last_name=token)
+
+        p2 = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token, page=2, per_page=2)
+        # Fuera de rango cae a la ultima pagina valida.
+        p9 = LibraryClearanceService.list_for_inbox(
+            db_session, status="pending", q=token, page=9, per_page=2)
+
+        assert (p2.start, p2.end, p2.total) == (3, 3, 3)
+        assert (p9.page, p9.start, p9.end) == (2, 3, 3)
 
     def test_pestana_desconocida(self, db_session):
         with pytest.raises(ValueError):

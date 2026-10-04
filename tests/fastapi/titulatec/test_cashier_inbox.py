@@ -867,3 +867,38 @@ def test_ninguna_ruta_lleva_process_id():
     paths = [getattr(r, "path", "") for r in router.routes]
     assert paths, "el router de caja no tiene rutas"
     assert not any("{process_id}" in p for p in paths), paths
+
+
+# ---------------------------------------------------------------------------
+# Pager compartido: «1–N de T»
+# ---------------------------------------------------------------------------
+def test_caja_muestra_rango_de_total(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+    monkeypatch,
+):
+    import functools
+    from itcj2.apps.titulatec.pages import cashier_admin
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    monkeypatch.setattr(cashier_admin, "_body_ctx",
+                        functools.partial(cashier_admin._body_ctx, per_page=2))
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    for _ in range(3):
+        proc = make_process(make_student(), cohort=cohort, current_phase=1,
+                            library_clearance="pending")
+        LibraryClearanceService.register(
+            db_session, _clearance(db_session, proc).id, staff.id, debt_amount=Decimal("100"))
+    total = LibraryClearanceService.counts_by_status(
+        db_session, admitted_only=True)["awaiting_payment"]
+    assert total >= 3
+    c = client_as(staff)
+
+    p1 = c.get(f"{URL}/body?tab=por_cobrar").text
+    ultima = (total + 1) // 2
+    pn = c.get(f"{URL}/body?tab=por_cobrar&page={ultima}").text
+    busq = c.get(f"{URL}/body?tab=por_cobrar&q=ZZNADIEZZ").text
+
+    assert f"1–2 de {total}" in p1
+    assert f"{2 * (ultima - 1) + 1}–{total} de {total}" in pn
+    assert "tt-cashier-pager" not in busq and "tt-pager-range" not in busq

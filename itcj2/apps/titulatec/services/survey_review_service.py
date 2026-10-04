@@ -67,6 +67,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
 
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, paginate_query
 from itcj2.core.utils.timezone import db_now
 
 # Estados reales de `SurveyReview.status`. El pseudo-estado "missing" de
@@ -626,7 +627,7 @@ class SurveyReviewService:
 
     @staticmethod
     def list_for_inbox(db: Session, *, status: str, q: str | None = None,
-                       page: int = 1, per_page: int = 50) -> tuple[list[dict], bool]:
+                       page: int = 1, per_page: int = PAGE_SIZE) -> Page:
         """Página de la bandeja de GTV para una pestaña (`status`).
 
         `in_review` sale de más antigua a más nueva (a quien lleva más tiempo
@@ -648,7 +649,6 @@ class SurveyReviewService:
             Cohort, ProcessPhase, SurveyReview, TitulationProcess,
         )
 
-        page = max(1, page)
         per_page = max(1, per_page)
         Reviewer = aliased(User)
 
@@ -672,9 +672,8 @@ class SurveyReviewService:
         else:
             query = query.order_by(SurveyReview.reviewed_at.desc(), SurveyReview.id.desc())
 
-        filas = query.offset((page - 1) * per_page).limit(per_page + 1).all()
-        has_more = len(filas) > per_page
-        filas = filas[:per_page]
+        pagina = paginate_query(query, max(1, page), per_page)
+        filas = pagina.items
 
         process_ids = [process.id for _, process, *_ in filas]
         fase2_status = dict(
@@ -716,7 +715,8 @@ class SurveyReviewService:
                 # conserva, pero toda acción respondería 400 (`_active_process`).
                 "revoked": process.status == "cancelled",
             })
-        return out, has_more
+        return Page(items=out, total=pagina.total, page=pagina.page,
+                    per_page=pagina.per_page)
 
     # ------------------------------------------------------------------ guardas
     @staticmethod

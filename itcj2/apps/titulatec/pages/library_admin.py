@@ -42,6 +42,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.library_admin")
 router = APIRouter(prefix="/admin/biblioteca", tags=["titulatec-pages-library"])
@@ -51,7 +52,6 @@ _REGISTER = ["titulatec.library_clearance.api.register"]
 _PRIOR = ["titulatec.library_clearance.api.prior"]
 _REVERT = ["titulatec.library_clearance.api.revert"]
 
-_PAGE_SIZE = 50
 
 # Pestañas, en el orden en que se pintan. `pending` es la que ve Biblioteca al
 # entrar: es la cola de trabajo pendiente (FIFO por inscripción, spec §4.7).
@@ -111,7 +111,7 @@ def _bulk_notice(result: dict) -> str:
     return aviso
 
 
-def _body_ctx(db, *, status, q, page):
+def _body_ctx(db, *, status, q, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ: `LibraryClearanceService.list_for_inbox` trataría "   " como
     un patrón `ILIKE '%%'` de verdad, así que el recorte vive en la ruta y no
@@ -125,13 +125,13 @@ def _body_ctx(db, *, status, q, page):
     page = max(1, _to_int(page) or 1)
 
     counts = LibraryClearanceService.counts_by_status(db, q=q_clean)
-    rows, has_more = LibraryClearanceService.list_for_inbox(
-        db, status=tab, q=q_clean, page=page, per_page=_PAGE_SIZE)
+    pagina = LibraryClearanceService.list_for_inbox(
+        db, status=tab, q=q_clean, page=page, per_page=per_page)
     missing_donation = LibraryClearanceService.cohorts_missing_donation(db)
 
     return {
-        "tabs": _TABS, "status": tab, "counts": counts, "rows": rows,
-        "q": q_clean or "", "page": page, "has_more": has_more,
+        "tabs": _TABS, "status": tab, "counts": counts, "rows": pagina.items,
+        "q": q_clean or "", "page": pagina.page, "pg": pagina,
         "missing_donation": missing_donation, "format_amount": format_amount,
     }
 

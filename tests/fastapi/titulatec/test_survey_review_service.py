@@ -580,9 +580,11 @@ class TestListForInbox:
         r2 = make_survey_review(p2, status="in_review")
         make_survey_review(p3, status="rejected")
 
-        filas, has_more = SurveyReviewService.list_for_inbox(db_session, status="in_review")
+        pagina = SurveyReviewService.list_for_inbox(db_session, status="in_review")
+        filas = pagina.items
 
-        assert has_more is False
+        assert pagina.has_next is False
+        assert pagina.total == 2
         assert [f["id"] for f in filas] == [r1.id, r2.id]
         primera = filas[0]
         assert primera["process_id"] == p1.id
@@ -601,12 +603,12 @@ class TestListForInbox:
         make_survey_review(p1, status="in_review")
         make_survey_review(p2, status="in_review")
 
-        por_nombre, _ = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", q="ZAPATA")
+        por_nombre = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q="ZAPATA").items
         assert [f["process_id"] for f in por_nombre] == [p1.id]
 
-        por_control, _ = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", q=beto.control_number)
+        por_control = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=beto.control_number).items
         assert [f["process_id"] for f in por_control] == [p2.id]
 
     def test_paginado_con_has_more(
@@ -618,17 +620,34 @@ class TestListForInbox:
             for _ in range(3)
         ]
 
-        pagina1, has_more1 = SurveyReviewService.list_for_inbox(
+        p1 = SurveyReviewService.list_for_inbox(
             db_session, status="in_review", page=1, per_page=2)
-        pagina2, has_more2 = SurveyReviewService.list_for_inbox(
+        p2 = SurveyReviewService.list_for_inbox(
             db_session, status="in_review", page=2, per_page=2)
+        pagina1, pagina2 = p1.items, p2.items
 
         assert len(pagina1) == 2
-        assert has_more1 is True
+        assert p1.has_next is True
         assert len(pagina2) == 1
-        assert has_more2 is False
+        assert p2.has_next is False
+        assert (p1.total, p2.total) == (3, 3)
         assert ({f["id"] for f in pagina1} | {f["id"] for f in pagina2}
                 == {r.id for r in reviews})
+
+    def test_inbox_muestra_rango_de_total(
+            self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        cohort = make_cohort()
+        for _ in range(3):
+            make_survey_review(make_process(make_student(), cohort=cohort, current_phase=2),
+                               status="in_review")
+
+        p2 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", page=2, per_page=2)
+        p9 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", page=9, per_page=2)
+
+        assert (p2.start, p2.end, p2.total) == (3, 3, 3)
+        assert (p9.page, p9.start, p9.end) == (2, 3, 3)
 
     def test_can_revoke_en_lote(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
@@ -644,7 +663,7 @@ class TestListForInbox:
         r_libre = make_survey_review(libre, status="approved")
         r_cerrada = make_survey_review(cerrada, status="approved")
 
-        filas, _ = SurveyReviewService.list_for_inbox(db_session, status="approved")
+        filas = SurveyReviewService.list_for_inbox(db_session, status="approved").items
 
         por_id = {f["id"]: f for f in filas}
         assert por_id[r_libre.id]["can_revoke"] is True
@@ -670,13 +689,13 @@ class TestListForInbox:
         sin_liberar = make_survey_review(
             make_process(make_student(), cohort=cohort, current_phase=2), status="in_review")
 
-        filas, _ = SurveyReviewService.list_for_inbox(db_session, status="approved")
+        filas = SurveyReviewService.list_for_inbox(db_session, status="approved").items
         fila = next(f for f in filas if f["id"] == review.id)
         assert fila["certificate"]["printed"] is True
         assert fila["certificate"]["batch_id"] == batch.id
 
-        filas_en_revision, _ = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review")
+        filas_en_revision = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review").items
         fila_sin = next(f for f in filas_en_revision if f["id"] == sin_liberar.id)
         assert fila_sin["certificate"] is None
 

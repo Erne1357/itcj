@@ -61,7 +61,7 @@
    `#tt-lib-bulk-btn` en 0. Degradación: sin ese script el botón sigue
    sirviendo igual que siempre -la ruta ya responde 400 si se manda sin nada
    marcado-, nada más sin el contador ni el auto-deshabilitado. #}
-{% from "titulatec/_macros.html" import library_clearance_pill, certificate_cell %}
+{% from "titulatec/_macros.html" import library_clearance_pill, certificate_cell, pager %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -259,19 +259,6 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/biblioteca/body?status={{ status }}&page={{ page - 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-library-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/biblioteca/body?status={{ status }}&page={{ page + 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-library-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ pager(pg, '/titulatec/admin/biblioteca/body?status=' ~ status ~ (('&q=' ~ (q | urlencode)) if q else ''), '#tt-library-body', prefix='tt-biblioteca') }}
   {% endif %}
 </div>

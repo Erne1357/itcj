@@ -474,8 +474,8 @@ class TestLectores:
         make_survey_review(proc, status="in_review")
 
         def _ids():
-            filas, _ = SurveyReviewService.list_for_inbox(db_session, status="in_review",
-                                                         per_page=500)
+            filas = SurveyReviewService.list_for_inbox(db_session, status="in_review",
+                                                         per_page=500).items
             return {f["process_id"] for f in filas}
 
         antes_n = SurveyReviewService.counts_by_status(db_session)["in_review"]

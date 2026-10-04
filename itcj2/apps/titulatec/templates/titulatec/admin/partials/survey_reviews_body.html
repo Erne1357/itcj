@@ -43,7 +43,7 @@
    con la petición sin confirmar nada (defecto real, detectado por E2E el
    2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
    titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
-{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell %}
+{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell, pager %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -157,19 +157,6 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page - 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-releases-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page + 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-releases-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ pager(pg, '/titulatec/admin/liberaciones/body?status=' ~ status ~ (('&q=' ~ (q | urlencode)) if q else ''), '#tt-releases-body', prefix='tt-liberaciones') }}
   {% endif %}
 </div>

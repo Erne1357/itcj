@@ -48,7 +48,7 @@
    mismo idiom que `library_body.html` -- el puente hx-confirm -> modal ya
    existe (`static/js/shared/titulatec-utils.js:265`). Sin `<script>` inline
    ni `confirm()/alert()`. #}
-{% from "titulatec/_macros.html" import pill %}
+{% from "titulatec/_macros.html" import pill, pager %}
 {% macro tab_fields(tab, q, dia, page) -%}
 <input type="hidden" name="tab" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -255,19 +255,8 @@
       </tbody>
     </table>
   </div>
-  {% if not searching and tab == 'por_cobrar' and (page > 1 or has_more) %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/caja/body?tab=por_cobrar&page={{ page - 1 }}"
-            hx-target="#tt-cashier-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/caja/body?tab=por_cobrar&page={{ page + 1 }}"
-            hx-target="#tt-cashier-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
+  {% if not searching and tab == 'por_cobrar' %}
+  {{ pager(pg, '/titulatec/admin/caja/body?tab=por_cobrar', '#tt-cashier-body', prefix='tt-cashier') }}
   {% endif %}
   {% endif %}
   {% endif %}

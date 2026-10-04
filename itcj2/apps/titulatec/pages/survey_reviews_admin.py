@@ -30,6 +30,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.survey_reviews_admin")
 router = APIRouter(prefix="/admin/liberaciones", tags=["titulatec-pages-survey-reviews"])
@@ -38,7 +39,6 @@ _LIST = ["titulatec.survey_review.page.list"]
 _APPROVE = ["titulatec.survey_review.api.approve"]
 _REJECT = ["titulatec.survey_review.api.reject"]
 
-_PAGE_SIZE = 50
 
 # Pestañas, en el orden en que se pintan. `in_review` es la que ve GTV al
 # entrar: es la cola de trabajo pendiente.
@@ -73,7 +73,7 @@ def _tab(raw) -> str:
     return raw if isinstance(raw, str) and raw in _TAB_KEYS else _DEFAULT_TAB
 
 
-def _body_ctx(db, *, status, q, page):
+def _body_ctx(db, *, status, q, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ: `SurveyReviewService.list_for_inbox` trataría "   " como un
     patrón `ILIKE '%%'` de verdad (coincide con todo por casualidad, no
@@ -86,12 +86,12 @@ def _body_ctx(db, *, status, q, page):
     page = max(1, _to_int(page) or 1)
 
     counts = SurveyReviewService.counts_by_status(db, q=q_clean)
-    rows, has_more = SurveyReviewService.list_for_inbox(
-        db, status=tab, q=q_clean, page=page, per_page=_PAGE_SIZE)
+    pagina = SurveyReviewService.list_for_inbox(
+        db, status=tab, q=q_clean, page=page, per_page=per_page)
 
     return {
-        "tabs": _TABS, "status": tab, "counts": counts, "rows": rows,
-        "q": q_clean or "", "page": page, "has_more": has_more,
+        "tabs": _TABS, "status": tab, "counts": counts, "rows": pagina.items,
+        "q": q_clean or "", "page": pagina.page, "pg": pagina,
     }
 
 

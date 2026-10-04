@@ -1359,3 +1359,30 @@ def test_ninguna_ruta_lleva_process_id():
     paths = [getattr(r, "path", "") for r in router.routes]
     assert paths, "el router de biblioteca no tiene rutas"
     assert not any("{process_id}" in p for p in paths), paths
+
+
+# ---------------------------------------------------------------------------
+# Pager compartido: «1–N de T»
+# ---------------------------------------------------------------------------
+def test_biblioteca_muestra_rango_de_total(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+    monkeypatch,
+):
+    import functools
+    from itcj2.apps.titulatec.pages import library_admin
+
+    monkeypatch.setattr(library_admin, "_body_ctx",
+                        functools.partial(library_admin._body_ctx, per_page=2))
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    for _ in range(3):
+        make_process(make_student(last_name="PAGBIBZQ"), cohort=cohort, current_phase=1,
+                     library_clearance="pending")
+    c = client_as(make_library_staff())
+
+    p1 = c.get(f"{URL}/body?status=pending&q=PAGBIBZQ").text
+    p2 = c.get(f"{URL}/body?status=pending&q=PAGBIBZQ&page=2").text
+
+    assert "1–2 de 3" in p1
+    assert "3–3 de 3" in p2
+    prev = re.search(r'<button[^>]*id="tt-biblioteca-pager-prev"[^>]*>', p2, re.S).group(0)
+    assert "status=pending" in prev and "q=PAGBIBZQ" in prev and '"page": 1' in prev

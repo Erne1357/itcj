@@ -58,6 +58,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.cashier_admin")
 router = APIRouter(prefix="/admin/caja", tags=["titulatec-pages-cashier"])
@@ -65,8 +66,6 @@ router = APIRouter(prefix="/admin/caja", tags=["titulatec-pages-cashier"])
 _LIST = ["titulatec.library_payment.page.list"]
 _PAY = ["titulatec.library_payment.api.register"]
 _REVERT = ["titulatec.library_payment.api.revert"]
-
-_PAGE_SIZE = 50
 
 # Pestañas, en el orden en que se pintan. `por_cobrar` es la que ve Caja al
 # entrar: es la cola de trabajo pendiente (FIFO por `ready_at`, spec §4.8).
@@ -129,7 +128,7 @@ def _expected_total(raw):
         raise ValueError("El total no es válido; recarga la bandeja e intenta de nuevo.")
 
 
-def _body_ctx(db, *, tab, q, dia, page):
+def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ, igual que en `library_admin.py`. Con `q` se listan los
     resultados de `search` (cualquier estado, sin paginar); sin `q`, la
@@ -157,7 +156,7 @@ def _body_ctx(db, *, tab, q, dia, page):
     por_cobrar_count = LibraryClearanceService.counts_by_status(
         db, admitted_only=True)["awaiting_payment"]
 
-    has_more = False
+    pagina = None
     day_cut = None
     if q_clean:
         rows = LibraryClearanceService.search(db, q_clean)
@@ -165,13 +164,15 @@ def _body_ctx(db, *, tab, q, dia, page):
         rows = []
         day_cut = LibraryClearanceService.day_cut(db, dia_sel)
     else:
-        rows, has_more = LibraryClearanceService.list_for_inbox(
-            db, status="awaiting_payment", q=None, page=page_n, per_page=_PAGE_SIZE,
+        pagina = LibraryClearanceService.list_for_inbox(
+            db, status="awaiting_payment", q=None, page=page_n, per_page=per_page,
             admitted_only=True)
+        rows = pagina.items
+        page_n = pagina.page
 
     return {
         "tabs": _TABS, "tab": tab, "q": q_clean or "", "page": page_n,
-        "dia": dia_sel.isoformat(), "rows": rows, "has_more": has_more,
+        "dia": dia_sel.isoformat(), "rows": rows, "pg": pagina,
         "day_cut": day_cut, "por_cobrar_count": por_cobrar_count,
         "searching": q_clean is not None, "format_amount": format_amount,
     }
