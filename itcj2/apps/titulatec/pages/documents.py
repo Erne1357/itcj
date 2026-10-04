@@ -153,6 +153,8 @@ def _doc_row(proc, *, users, progs, names, docs, codes, track, initial_docs_phas
         "student": u.full_name if u else "—", "control": u.control_number if u else "—",
         "program": prog.name if prog else "—",
         "track": track,
+        # Sin consulta: ya viene en el proceso. Lo usa `_annotate_phase_lock`.
+        "current_phase": proc.current_phase,
         "docs": docs_out, "pending": pending,
         # Un dispensado (R-G) no bloquea el "listo para agendar cotejo": solo
         # los realmente exigibles -- aprobados o dispensados -- cuentan.
@@ -212,6 +214,31 @@ def _order_pending_by_wait(db, rows):
     return [r for _, _, r in con_espera] + sin_espera
 
 
+def _annotate_phase_lock(db, detail):
+    """Marca el detalle con lo que el panel de dictamen necesita (2026-10-04).
+
+    - `phase_closed`: el proceso ya pasó la fase `initial_docs`. Desde ahí el
+      dictamen se congela (`DocumentService.review` lo hace cumplir con
+      `PHASE_CLOSED_MSG`): sin Rechazar, y sin Aprobar sobre uno ya aprobado.
+    - `closes_phase` por documento: aprobar ESTE cierra la fase (es el único
+      del set que falta por aprobar y el proceso sigue en `initial_docs`). La
+      plantilla le pone la re-confirmación al botón Aprobar.
+
+    Solo para la fila seleccionada -- una consulta al catálogo de fases, no
+    una por fila (los conteos de `_doc_rows` no cambian).
+    """
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    n = PhaseService.phase_number_for_code(db, "initial_docs")
+    current = detail.get("current_phase")
+    en_fase = n is not None and current == n
+    detail["phase_closed"] = n is not None and isinstance(current, int) and current > n
+    faltan = [d for d in detail["docs"] if d["status"] not in ("approved", "excused")]
+    for d in detail["docs"]:
+        d["closes_phase"] = (en_fase and len(faltan) == 1 and faltan[0] is d
+                             and d["has_file"])
+
+
 def _body_ctx(db, *, user_id, status_filter, selected_id):
     from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.scope_service import officer_programs
@@ -255,6 +282,8 @@ def _body_ctx(db, *, user_id, status_filter, selected_id):
         rows = [r for r in rows if r["all_approved"]]
     total_pending = sum(r["pending"] for r in rows)
     detail = next((r for r in rows if r["process_id"] == selected_id), None) if selected_id else None
+    if detail:
+        _annotate_phase_lock(db, detail)
     return {"rows": rows, "total_pending": total_pending,
             "status_filter": status_filter or "", "detail": detail, "selected_id": selected_id,
             "can_review_docs": can_review_docs}

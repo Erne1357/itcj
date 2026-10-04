@@ -39,6 +39,11 @@ class DocumentService:
         "efirma_sat": "Comprobante de tu e.firma o de tu cita con el SAT.",
     }
 
+    # Sin acentos a propósito: viaja en el header `X-Tt-Error` (latin-1 en
+    # Starlette, UTF-8 en su TestClient), igual que los de `PhaseService`.
+    PHASE_CLOSED_MSG = ("La fase de este documento ya fue aprobada: su dictamen "
+                        "ya no admite rechazo ni cambios.")
+
     # ------------------------------------------------------------- set por perfil
     @staticmethod
     def initial_doc_types(track: str) -> tuple[str, ...]:
@@ -579,8 +584,19 @@ class DocumentService:
         mirar nada más -- falla ABIERTO justo donde el propio repo fija
         "FALLA CERRADO" para el mismo tipo de ausencia
         (`phase_service.py:158-161`, `phase_number_for_code`).
+
+        **Fase ya aprobada = dictamen congelado (2026-10-04, decisión del
+        usuario).** Si el proceso ya pasó la fase del documento
+        (`process.current_phase > fase del tipo`), NO se puede rechazar ni
+        tocar uno ya `approved`: el alumno no puede volver a subirlo
+        (`assert_student_can_act` cierra las fases anteriores) y nada regresa
+        el proceso de fase, así que un rechazo tardío lo dejaba trabado — fuera
+        de la cola de cotejo y sin forma de corregir. Lo único que sigue
+        permitido es APROBAR uno que no lo esté (p. ej. la fase se movió con
+        «Mover de fase» con documentos pendientes): eso solo destraba. Mismo
+        criterio en la bandeja (`pages/documents.py::_body_ctx`, `phase_closed`).
         """
-        from itcj2.apps.titulatec.models import DocumentType
+        from itcj2.apps.titulatec.models import DocumentType, TitulationProcess
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
         doc = DocumentService.get_document(db, process_id, type_code)
@@ -592,6 +608,14 @@ class DocumentService:
         if (fase_para_el_corte is not None
                 and fase_para_el_corte >= PhaseService._handoff_phase()):
             raise ValueError(PhaseService.HANDOFF_MSG)
+
+        proc = db.get(TitulationProcess, process_id)
+        actual = getattr(proc, "current_phase", None)
+        if (fase_para_el_corte is not None
+                and isinstance(actual, int) and not isinstance(actual, bool)
+                and actual > fase_para_el_corte
+                and (status == "rejected" or doc.review_status == "approved")):
+            raise ValueError(DocumentService.PHASE_CLOSED_MSG)
 
         doc.review_status = status
         doc.review_note = note or None
@@ -605,9 +629,6 @@ class DocumentService:
             doc.phase_number,
             {"type_code": type_code, "note": note or None},
         )
-
-        from itcj2.apps.titulatec.models import TitulationProcess
-        proc = db.get(TitulationProcess, process_id)
 
         if status == "rejected" and proc:
             from itcj2.apps.titulatec.services.notify import notify_student

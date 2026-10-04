@@ -254,6 +254,37 @@ ya no encuentra el proceso en la fase 1). Los correos siguen a su propia transac
 `docs_review` queda con el 1.er commit y el `phase_approved` solo existe si el 2.º se confirmó —
 nunca se avisa un avance que no ocurrió.
 
+## Último aprobado = re-confirmación, y después el dictamen se congela (desde 2026-10-04)
+
+Antes, rechazar un documento de la fase 1 con el proceso ya en la fase 2 dejaba al alumno
+**trabado**: el documento quedaba `rejected`, el proceso no regresaba de fase (nada en el código
+regresa una fase) y el alumno no podía re-subirlo (`assert_student_can_act` cierra las fases
+anteriores: «La fase 01 ya esta cerrada…»). Además salía de la cola de cotejo
+(`initial_docs_all_approved` en `AppointmentService`) pero `SelfBookingService.eligibility` no mira
+documentos, así que podía seguir agendando solo. Decisión del usuario: **no se arregla regresando de
+fase, se impide**.
+
+- **Re-confirmación.** `_annotate_phase_lock` (`pages/documents.py`, solo sobre la fila
+  seleccionada — una consulta al catálogo de fases, los conteos de `_doc_rows` no cambian) marca
+  `closes_phase` en el documento que es el ÚNICO por aprobar del set del perfil, con archivo, y con
+  el proceso en la fase `initial_docs`. La plantilla lo lleva como `data-closes` en su botón del
+  selector; el JS del panel (`applyReviewState`, `partials/documents_body.html`) le pone al botón
+  Aprobar `hx-confirm="Aprobar y avanzar de fase|…ya no se podrá cambiar… pasará a la siguiente
+  fase."` + `data-tt-confirm-ok="Aprobar y avanzar"`, que el puente de `titulatec-utils.js`
+  convierte en `confirmDialog`. El Aprobar del modal grande reusa ese mismo botón (y antes de
+  dispararlo aplica el estado del doc del MODAL), así que hereda el aviso.
+- **Congelado.** Con `current_phase` > fase del documento, `DocumentService.review` levanta
+  `PHASE_CLOSED_MSG` (ASCII, viaja en `X-Tt-Error` → 400) ante un **rechazo** o ante cualquier
+  dictamen sobre uno ya `approved` — antes de escribir nada. Sigue permitido **aprobar** uno que no
+  lo esté (p. ej. la fase se movió con «Mover de fase» con documentos pendientes): solo destraba, y
+  el dictamen tardío que fija `test_handoff_phase_cut.py` sigue en verde.
+- **UI con la fase cerrada** (`phase_closed`): aviso `#tt-review-locked`, sin botón Rechazar
+  (inline; el del modal se oculta por JS porque el modal vive fuera del swap), y Aprobar oculto
+  cuando el doc activo ya está aprobado.
+- Lo fija `tests/fastapi/titulatec/test_documents_phase_lock.py` (service, marcas y ruta real).
+- **Fuera de alcance:** «Mover de fase» del expediente sigue pudiendo aprobar la fase 1 sin los
+  documentos aprobados (sección de arriba); no hay re-confirmación ahí.
+
 ## Estado resultante
 
 - Todos los `Document.review_status = approved` del set del PERFIL (3 en licenciatura, 7 en
@@ -279,7 +310,8 @@ nunca se avisa un avance que no ocurrió.
   expediente, 2026-09-03 — ver "El dictamen de documentos…" arriba.)
 - Rechazar un doc → `review_status=rejected`; el proceso NO avanza; sigue en "Por evaluar" / "Con
   rechazo". Cuando el alumno re-sube, `DocumentService.save` lo devuelve a `pending`
-  (`services/document_service.py:301`).
+  (`services/document_service.py:301`). **Solo mientras la fase 1 sea la actual**: con la fase
+  ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba).
 - Aprobar solo una parte del set (p. ej. 2 de 3 en licenciatura, o 6 de 7 en posgrado) → no avanza
   (el avance solo dispara con el set COMPLETO del perfil aprobado y `current_phase == 1`).
 - Aprobar el set completo cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de

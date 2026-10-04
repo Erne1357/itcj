@@ -52,7 +52,8 @@
        el cotejo, no que "le falta subirlo". Un `missing` de verdad se queda
        SIN pintar aquí, como siempre. #}
     {% set en_cotejo = detail.docs | selectattr('status', 'equalto', 'excused') | list %}
-    <div id="tt-doc-review" data-process="{{ detail.process_id }}">
+    <div id="tt-doc-review" data-process="{{ detail.process_id }}"
+         data-phase-closed="{{ '1' if detail.phase_closed else '0' }}">
       {# El expediente contesta lo que esta bandeja no puede: si este documento
          ya se habia rechazado antes y por que. El `from` lleva la URL CANONICA
          de la pestana (no la del parcial `/body`) con su filtro y su alumno,
@@ -76,7 +77,8 @@
           {% for d in viewable %}
           <button type="button" class="btn btn-sm tt-docpick tt-btn-ghost"
                   data-type="{{ d.type_code }}" data-url="{{ d.view_url }}" data-name="{{ d.name|e }}"
-                  data-mime="{{ d.mime }}" data-status="{{ d.status }}" data-note="{{ d.note|e if d.note }}">
+                  data-mime="{{ d.mime }}" data-status="{{ d.status }}" data-note="{{ d.note|e if d.note }}"
+                  data-closes="{{ '1' if d.closes_phase else '0' }}">
             {{ d.name }} {{ estado_pill(d.status) }}
           </button>
           {% endfor %}
@@ -118,12 +120,20 @@
           <div class="tt-kicker" style="color:var(--tt-danger)">Último motivo de rechazo</div>
           <div id="tt-doc-note-text" class="p-2 mt-1" style="font-size:.82rem;background:var(--tt-danger-soft);border-radius:8px;color:#991B1B"></div>
         </div>
+        {% if detail.phase_closed %}
+        {# Fase 1 ya aprobada (2026-10-04): el dictamen queda congelado --
+           `DocumentService.review` lo hace cumplir. Sin Rechazar; Aprobar solo
+           aparece para un documento que todavia no lo esta (JS, `setActive`). #}
+        <div id="tt-review-locked" class="mt-2 p-2" style="font-size:.8rem;background:var(--tt-mist);border-radius:8px;color:var(--tt-slate)">
+          <i class="bi bi-lock me-1" aria-hidden="true"></i>La fase 1 ya fue aprobada: los dictámenes de estos documentos ya no se pueden cambiar.
+        </div>
+        {% endif %}
         {% if can_review_docs %}
         {# `can_review_docs` (arreglo A2, revision final 2026-09-21): sin el
            permiso, aprobar/rechazar responderia 403 -- se oculta el FORM
            entero (botones Y el comentario, que sin ellos no tiene a donde
            ir), no solo los botones. Ver `pages/documents.py::_body_ctx`. #}
-        <form id="tt-review-form" class="mt-2">
+        <form id="tt-review-form" class="mt-2"{% if detail.phase_closed %} data-phase-closed="1"{% endif %}>
           <input type="hidden" name="type_code" id="tt-review-type">
           <input type="hidden" name="status" value="{{ status_filter }}">
           <label class="tt-label">Comentario <span style="color:var(--tt-mute);font-weight:400">(obligatorio si rechazas)</span></label>
@@ -135,11 +145,13 @@
                     hx-vals='{"action":"approve"}' hx-include="#tt-review-form"
                     hx-target="#docs-body" hx-swap="innerHTML">
               <i class="bi bi-check-lg me-1"></i>Aprobar</button>
+            {% if not detail.phase_closed %}
             <button type="button" id="tt-inline-reject" class="btn btn-sm tt-btn-ghost" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"
                     hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/review"
                     hx-vals='{"action":"reject"}' hx-include="#tt-review-form"
                     hx-target="#docs-body" hx-swap="innerHTML">
               <i class="bi bi-x-lg me-1"></i>Rechazar</button>
+            {% endif %}
           </div>
         </form>
         {% endif %}
@@ -255,8 +267,36 @@
       if (btn.dataset.status === 'rejected' && btn.dataset.note) { noteText.textContent = btn.dataset.note; noteWrap.style.display = ''; }
       else { noteWrap.style.display = 'none'; }
     }
+    applyReviewState(btn);
     renderInto(stage, btn.dataset.url, btn.dataset.mime);
     if (intoModal) renderModal(btn);
+  }
+
+  // ---- Fase cerrada y re-confirmación del último aprobado (2026-10-04) ----
+  // `data-phase-closed` (fase 1 ya aprobada): sin Rechazar, y sin Aprobar sobre
+  // uno ya aprobado -- el servidor lo rechaza igual (`DocumentService.review`).
+  // `data-closes` (aprobar ESTE cierra la fase): el botón inline lleva
+  // `hx-confirm`, que el puente de `titulatec-utils.js` convierte en
+  // `confirmDialog`. El modal reusa ese mismo botón, así que hereda el aviso.
+  var phaseClosed = root.dataset.phaseClosed === '1';
+  var CLOSE_CONFIRM = 'Aprobar y avanzar de fase|Es el último documento por aprobar. '
+    + 'Al aprobarlo, el estatus de los documentos ya no se podrá cambiar '
+    + 'y el alumno pasará a la siguiente fase.';
+  function applyReviewState(pick) {
+    var hideApprove = phaseClosed && pick.dataset.status === 'approved';
+    var approves = [document.getElementById('tt-inline-approve'), document.getElementById('tt-modal-approve')];
+    approves.forEach(function (b) { if (b) b.hidden = hideApprove; });
+    var modalRej = document.getElementById('tt-modal-reject');
+    if (modalRej) modalRej.hidden = phaseClosed;
+    var inline = document.getElementById('tt-inline-approve');
+    if (!inline) return;
+    if (pick.dataset.closes === '1') {
+      inline.setAttribute('hx-confirm', CLOSE_CONFIRM);
+      inline.setAttribute('data-tt-confirm-ok', 'Aprobar y avanzar');
+    } else {
+      inline.removeAttribute('hx-confirm');
+      inline.removeAttribute('data-tt-confirm-ok');
+    }
   }
 
   picks.forEach(function (p) { p.addEventListener('click', function () { setActive(p, false); }); });
@@ -280,6 +320,7 @@
     modalActive = btn;
     if (modalOpen) modalOpen.href = btn.dataset.url;
     if (modalName) modalName.textContent = btn.dataset.name;
+    applyReviewState(btn);
     if (modalPicks) Array.prototype.forEach.call(modalPicks.children, function (mb) {
       var on = mb.dataset.type === btn.dataset.type;
       mb.classList.toggle('tt-btn-ink', on); mb.classList.toggle('tt-btn-ghost', !on);
@@ -304,6 +345,9 @@
     syncNoteToInline();
     var btn = action === 'approve' ? inlineApprove : inlineReject;
     if (modalEl && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    // Al cerrar el modal el panel inline sigue en SU doc: el aviso de cierre
+    // tiene que ser el del doc del modal, que es el que se va a dictaminar.
+    applyReviewState(modalActive);
     if (btn) btn.click();
   }
   if (modalApprove) modalApprove.addEventListener('click', function () { actFromModal('approve'); });
@@ -320,6 +364,7 @@
           mb.type = 'button'; mb.className = 'btn btn-sm tt-btn-ghost';
           mb.dataset.type = p.dataset.type; mb.dataset.url = p.dataset.url; mb.dataset.mime = p.dataset.mime;
           mb.dataset.name = p.dataset.name;
+          mb.dataset.status = p.dataset.status; mb.dataset.closes = p.dataset.closes;
           mb.innerHTML = p.innerHTML;
           mb.addEventListener('click', function () { renderModal(mb); });
           modalPicks.appendChild(mb);

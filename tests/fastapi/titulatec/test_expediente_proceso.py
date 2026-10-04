@@ -170,7 +170,9 @@ def test_dictaminar_deja_evento_con_el_motivo(db_session, expediente, make_docum
     PISA. Sin evento, el historial no puede decir por que se rechazo la vez
     anterior."""
     from itcj2.apps.titulatec.services.document_service import DocumentService
-    esc = expediente()
+    # Fase 1 en curso: con la fase ya aprobada el rechazo esta congelado
+    # (`DocumentService.PHASE_CLOSED_MSG`, `test_documents_phase_lock.py`).
+    esc = expediente(current_phase=1)
     make_document(esc["proc"], type_code="curp")
 
     DocumentService.review(db_session, esc["proc"].id, "curp", status="rejected",
