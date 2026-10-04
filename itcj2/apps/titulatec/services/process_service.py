@@ -178,3 +178,36 @@ class ProcessService:
             return {"reason": None, "at": None, "actor_id": None}
         return {"reason": (ev.payload or {}).get("reason"), "at": ev.created_at,
                 "actor_id": ev.actor_id}
+
+    @staticmethod
+    def cancellation_info_map(db: Session, processes) -> dict[int, dict | None]:
+        """`{process.id: cancellation_info(process)}` en UNA consulta.
+
+        Mismo resultado que `cancellation_info` proceso por proceso (mismo
+        evento: el ÚLTIMO `process_cancelled` por `created_at`, `id`; `None` si
+        el proceso no sigue `cancelled`), sin el N+1 de la bandeja de
+        solicitudes. Los `None` de `processes` se ignoran.
+        """
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        procs = [p for p in processes if p is not None]
+        out: dict[int, dict | None] = {p.id: None for p in procs}
+        cancelled = [p.id for p in procs if p.status == "cancelled"]
+        if not cancelled:
+            return out
+        for pid in cancelled:
+            out[pid] = {"reason": None, "at": None, "actor_id": None}
+        evs = (db.query(ProcessEvent)
+               .filter(ProcessEvent.process_id.in_(cancelled),
+                       ProcessEvent.event_type == "process_cancelled")
+               .order_by(ProcessEvent.process_id, ProcessEvent.created_at.desc(),
+                         ProcessEvent.id.desc())
+               .all())
+        seen: set[int] = set()
+        for ev in evs:
+            if ev.process_id in seen:
+                continue
+            seen.add(ev.process_id)
+            out[ev.process_id] = {"reason": (ev.payload or {}).get("reason"),
+                                  "at": ev.created_at, "actor_id": ev.actor_id}
+        return out

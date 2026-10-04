@@ -47,15 +47,20 @@ solo lectura, «sin formularios» (spec 2026-09-24 §8.1), y el spec 2026-09-25
 conserva ese modo tal cual (S1). En ese modo se revoca desde el expediente
 (`admin.process_cancel`), que no depende del modo.
 """
+import dataclasses
 import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
+from sqlalchemy import func
 from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import (
+    PAGE_SIZE, Page, normalize_q, paginate_query, parse_page,
+)
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.requests_admin")
 router = APIRouter(prefix="/admin/solicitudes", tags=["titulatec-pages-requests"])
@@ -443,8 +448,17 @@ def _approve_notice(db, req, detail: str):
     return None
 
 
-def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None = None):
+def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
+              requested_id: int | None = None, per_page: int = PAGE_SIZE):
     """Contexto del parcial. Distingue los DOS vacíos (riesgo 3 del diseño).
+
+    Paginado (spec 2026-10-04 §4): `page` es un `Page` cuyas `items` son las
+    filas YA armadas (`rows` es la misma lista); una página fuera de rango cae
+    en la última válida, así que una acción que vacía la última página
+    re-pinta la anterior. `q` filtra con `enrollment_request_search`.
+    `tab_counts` = solicitudes por pestaña con el MISMO alcance, convocatoria
+    y búsqueda que la lista (un `GROUP BY status`); los KPIs (`stats()`) siguen
+    siendo el universo sin pestaña, sin búsqueda y sin página.
 
     «¿Tiene cuenta?» se calcula aquí igual que en `approve()`: el número de
     control contra `core_users`, HOY, y solo si casa `CONTROL_NUMBER_RE` (la
@@ -465,16 +479,20 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     )
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        APPROVAL_LABELS, EnrollmentRequestService,
+        APPROVAL_LABELS, EnrollmentRequestService, enrollment_request_search,
     )
     from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
     tab = _tab(status)
+    q = normalize_q(q)
+    page = parse_page(page)
     scope = _officer_scope(db, user_id)
     mode = EnrollmentRequestService.reviewer_mode()
     sii = mode == "sii"
     configured = EligibilityService.sii_configured()
     ctx = {"rows": [], "status": tab, "tabs": _TABS, "cohort_id": cohort_id,
+           "q": q or "", "page": Page(items=[], total=0, page=1, per_page=per_page),
+           "tab_counts": {key: 0 for key, _label in _TABS},
            "programs": [], "no_programs": False,
            # Modo alterno = solo lectura: la plantilla no pinta ni un formulario
            # (las rutas POST lo cortan aparte, `_alternate_mode_block`).
@@ -506,8 +524,8 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             db, user_id, "titulatec")
 
     # KPIs y "por año de ingreso": MISMO alcance y convocatoria que el listado de
-    # abajo, pero sin filtro de pestaña ni el límite de 300 — es el universo
-    # completo, no la página visible.
+    # abajo, pero sin filtro de pestaña, sin búsqueda y sin paginar — es el
+    # universo completo, no la página visible.
     stats = EnrollmentRequestService.stats(db, scope=scope, cohort_id=cohort_id)
     ctx["kpis"] = stats["counts"]
     ctx["by_year"] = stats["by_year"]
@@ -522,35 +540,46 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
     programs = [{"id": p.id, "name": p.name} for p in programs_q.all()]
     ctx["programs"] = programs
 
-    q = db.query(EnrollmentRequest)
+    # Alcance + convocatoria + búsqueda: lo comparten la lista y el contador por
+    # pestaña (el alcance se aplica ANTES de contar y paginar, §3.3).
+    base = db.query(EnrollmentRequest)
     if scope != "ALL":
         # Una solicitud sin `program_id` (carrera en texto libre) solo la ve
         # quien tiene alcance total: resolverla es justo lo que hace el jefe.
-        q = q.filter(EnrollmentRequest.program_id.in_(scope))
-    if _TAB_STATUSES[tab] is not None:
-        q = q.filter(EnrollmentRequest.status.in_(_TAB_STATUSES[tab]))
+        base = base.filter(EnrollmentRequest.program_id.in_(scope))
     if cohort_id:
-        q = q.filter(EnrollmentRequest.cohort_id == cohort_id)
+        base = base.filter(EnrollmentRequest.cohort_id == cohort_id)
+    search = enrollment_request_search(q)
+    if search is not None:
+        base = base.filter(search)
 
+    # Contador por pestaña (D7): un GROUP BY status sobre el mismo universo.
+    by_status = dict(base.with_entities(EnrollmentRequest.status, func.count())
+                     .group_by(EnrollmentRequest.status).order_by(None).all())
+    for key, _label in _TABS:
+        statuses = _TAB_STATUSES[key]
+        ctx["tab_counts"][key] = (sum(by_status.values()) if statuses is None
+                                  else sum(by_status.get(st, 0) for st in statuses))
+
+    lq = base
+    if _TAB_STATUSES[tab] is not None:
+        lq = lq.filter(EnrollmentRequest.status.in_(_TAB_STATUSES[tab]))
     if tab == "pending_review":
         # FIFO (2026-09-24): «Por revisar» es una cola de trabajo, no un
-        # archivo — se atiende en el orden en que llegó. Con el límite de 300
-        # esto deja fuera las solicitudes MÁS NUEVAS si hay más de 300
-        # pendientes, que es lo correcto en una cola: las viejas nunca se
-        # pierden de vista por más que sigan llegando solicitudes después.
-        reqs = q.order_by(EnrollmentRequest.created_at.asc(),
-                          EnrollmentRequest.id.asc()).limit(300).all()
+        # archivo — se atiende en el orden en que llegó; la página 1 siempre
+        # es la de las más viejas.
+        lq = lq.order_by(EnrollmentRequest.created_at.asc(), EnrollmentRequest.id.asc())
     elif tab == "awaiting_access":
         # FIFO también (spec 2026-09-27 D10; Ruling R4: en todos los modos, es
         # la misma cola): se atiende en el orden en que SE la mandó a Centro de
         # Cómputo, `reviewed_at`, no en el de llegada del formulario.
-        reqs = q.order_by(EnrollmentRequest.reviewed_at.asc(),
-                          EnrollmentRequest.id.asc()).limit(300).all()
+        lq = lq.order_by(EnrollmentRequest.reviewed_at.asc(), EnrollmentRequest.id.asc())
     else:
         # El resto de pestañas son historial: se sigue leyendo de lo último
         # que pasó hacia atrás.
-        reqs = q.order_by(EnrollmentRequest.created_at.desc(),
-                          EnrollmentRequest.id.desc()).limit(300).all()
+        lq = lq.order_by(EnrollmentRequest.created_at.desc(), EnrollmentRequest.id.desc())
+    pg = paginate_query(lq, page, per_page)
+    reqs = pg.items
 
     # Cuentas, folios y convocatorias en una consulta cada uno: un `db.get` por
     # fila sería N+1.
@@ -598,16 +627,20 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
 
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
+    # Motivo de cada revocada en UNA consulta (antes, una por fila revocada).
+    revocations = ProcessService.cancellation_info_map(
+        db, [procs[r.converted_process_id] for r in reqs
+             if r.status == "converted" and r.converted_process_id in procs])
+
     for r in reqs:
         # Un control mal formado no se busca (ya viene en el lote, sin N+1):
         # `approve` tampoco lo haría, así que la fila no promete la liga.
         u = (users.get(r.control_number)
              if CONTROL_NUMBER_RE.fullmatch((r.control_number or "").strip()) else None)
         proc = procs.get(r.converted_process_id)
-        # Solo una revocada paga la consulta de su motivo (una por fila
-        # revocada, que es la excepción): la regla es la del servicio, que lee
-        # el ÚLTIMO `process_cancelled` y solo si el proceso sigue `cancelled`.
-        revoked = (ProcessService.cancellation_info(db, proc)
+        # La regla es la del servicio: el ÚLTIMO `process_cancelled` y solo si
+        # el proceso sigue `cancelled` (`cancellation_info_map`).
+        revoked = (revocations.get(proc.id)
                    if r.status == "converted" and proc is not None else None)
         has_account = u is not None
         reviewable = r.status in _TAB_STATUSES["pending_review"]
@@ -693,17 +726,19 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, requested_id: int | None =
             "sii": sii_cell,
             "approve": approve,
         })
+    ctx["page"] = dataclasses.replace(pg, items=ctx["rows"])
     return ctx
 
 
 @router.get("", name="titulatec.pages.requests.list")
 async def list_requests(request: Request, status: str = "", cohort_id: str = "",
+                        q: str = "", page: str = "",
                         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), status=status,
-                        cohort_id=_to_int(cohort_id))
+                        cohort_id=_to_int(cohort_id), q=q, page=page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/requests.html", ctx)
@@ -711,13 +746,14 @@ async def list_requests(request: Request, status: str = "", cohort_id: str = "",
 
 @router.get("/body", name="titulatec.pages.requests.body")
 async def body(request: Request, status: str = "", cohort_id: str = "",
+               q: str = "", page: str = "",
                user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), status=status,
-                        cohort_id=_to_int(cohort_id))
+                        cohort_id=_to_int(cohort_id), q=q, page=page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -757,6 +793,7 @@ async def approve(req_id: int, request: Request,
     program_id = _to_int((form.get("program_id") or "").strip())
     to_access = (form.get("to_access") or "").strip() == "1"
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
 
     aviso = None
     db = SessionLocal()
@@ -803,7 +840,8 @@ async def approve(req_id: int, request: Request,
             # propio): el estado y los sellos que decide el aviso.
             db.refresh(req)
             aviso = _approve_notice(db, req, result.detail)
-        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -831,6 +869,7 @@ async def reject(req_id: int, request: Request,
     form = await request.form()
     note = (form.get("note") or "").strip()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
     if not note:
         return Response(status_code=400, headers={
             "X-Tt-Error": _hdr("Escribe el motivo del rechazo: es lo que la persona lee.")})
@@ -844,7 +883,8 @@ async def reject(req_id: int, request: Request,
         if not EnrollmentRequestService.reject(db, req_id, note=note, actor_id=uid):
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("Esa solicitud ya se resolvió.")})
-        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -867,6 +907,7 @@ async def resend(req_id: int, request: Request,
     )
     form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
 
     db = SessionLocal()
     try:
@@ -877,7 +918,8 @@ async def resend(req_id: int, request: Request,
         ok, detail = EnrollmentRequestService.resend_link(db, req_id)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
-        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -904,6 +946,7 @@ async def resend_notice(req_id: int, request: Request,
     )
     form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
 
     db = SessionLocal()
     try:
@@ -914,7 +957,8 @@ async def resend_notice(req_id: int, request: Request,
         ok, detail = EnrollmentRequestService.resend_access_notice(db, req_id)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
-        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -952,6 +996,7 @@ async def reconsultar(req_id: int, request: Request,
 
     form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
 
     db = SessionLocal()
     try:
@@ -970,7 +1015,7 @@ async def reconsultar(req_id: int, request: Request,
             return Response(status_code=400,
                             headers={"X-Tt-Error": _hdr(_MSG_RECHECK_NOT_QUEUED)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        requested_id=req.id)
+                        q=tab_q, page=tab_page, requested_id=req.id)
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -1002,6 +1047,7 @@ async def revocar(req_id: int, request: Request,
     form = await request.form()
     reason = (form.get("reason") or "").strip()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
     if not reason:
         return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NO_REASON)})
 
@@ -1018,7 +1064,8 @@ async def revocar(req_id: int, request: Request,
                                         actor_id=uid)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
-        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort)
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)

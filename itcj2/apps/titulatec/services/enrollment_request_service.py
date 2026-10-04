@@ -201,6 +201,44 @@ def entry_year(control: str | None, today: date | None = None) -> str:
     pivote = (today or date.today()).year % 100
     return str(2000 + yy if yy <= pivote else 1900 + yy)
 
+
+def enrollment_request_search(q):
+    """Predicado de búsqueda sobre `EnrollmentRequest`, o `None` sin búsqueda.
+
+    Constructor ÚNICO de la búsqueda de solicitudes: lo usan la bandeja de
+    Solicitudes (`pages/requests_admin.py::_body_ctx`) y la de Accesos
+    (spec 2026-10-04 §4-§5, Ruling R1). `q` se normaliza aquí
+    (`utils.paging.normalize_q`: `strip()`, 100 caracteres, vacío = `None`).
+
+    Casa, en `ILIKE` con `\\`, `%` y `_` escapados (`like_pattern`): número de
+    control (y, exacto, en MAYÚSCULA: la forma de `CONTROL_NUMBER_RE`), el
+    nombre en el orden del formulario (nombre, paterno, materno) y en el de la
+    bandeja (paterno, materno, nombre), el correo de contacto y el folio del
+    proceso en que se convirtió (`converted_process_id`, subconsulta `IN`).
+
+    Uso: `cond = enrollment_request_search(q)`; `if cond is not None:
+    query = query.filter(cond)`.
+    """
+    from sqlalchemy import func, or_, select
+
+    from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+    from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q
+
+    q = normalize_q(q)
+    if q is None:
+        return None
+    p = like_pattern(q)
+    er = EnrollmentRequest
+    return or_(
+        er.control_number.ilike(p, escape="\\"),
+        er.control_number == q.upper(),
+        func.concat_ws(" ", er.first_name, er.last_name, er.middle_name).ilike(p, escape="\\"),
+        func.concat_ws(" ", er.last_name, er.middle_name, er.first_name).ilike(p, escape="\\"),
+        er.contact_email.ilike(p, escape="\\"),
+        er.converted_process_id.in_(
+            select(TitulationProcess.id).where(TitulationProcess.folio.ilike(p, escape="\\"))),
+    )
+
 # La vida de la liga NO es una constante: `EnrollmentRequestService._link_ttl_hours()`
 # (TITULATEC_ENROLLMENT_LINK_TTL_DAYS, 21 días por omisión).
 MAX_VERIFY_SENDS = 3             # tope del reenvío PÚBLICO; la bandeja no lo tiene
@@ -1772,8 +1810,8 @@ class EnrollmentRequestService:
           `_STATUS_GROUP` — `total`, `review` (por revisar, incluido el legado),
           `access` (en Centro de Cómputo, `awaiting_access`), `sent` (liga
           enviada), `converted` (inscritas), `rejected`. Mismo alcance
-          y `cohort_id` que el listado, pero SIN filtro de pestaña ni el límite de
-          300 filas: es el universo completo de la convocatoria (o de todas).
+          y `cohort_id` que el listado, pero SIN filtro de pestaña, sin búsqueda
+          y sin paginar: es el universo completo de la convocatoria (o de todas).
         - `by_year`: una entrada por año de ingreso (`entry_year`, orden
           descendente, "Sin año" al final), contando PERSONAS únicas (número de
           control distinto) por la solicitud MÁS RECIENTE (`created_at`, `id`) de
