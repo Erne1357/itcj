@@ -301,8 +301,11 @@
 
 {# Paginador compartido de las bandejas admin. `page` es un utils.paging.Page.
    Sin filas no pinta nada; con una sola pagina, solo el rango; con mas, prev/next.
-   include: selector CSS con los filtros a conservar al cambiar de pagina. #}
-{% macro pager(page, url, target, include=None, swap="outerHTML", push_url=False, prefix="tt") %}
+   include: selector CSS con los filtros a conservar al cambiar de pagina.
+   select: `hx-select` opcional, para vistas que repintan una pagina COMPLETA
+   recortando su contenedor (Procesos: `#tt-admin-content`). Si select == target,
+   el swap tiene que ser de la familia outerHTML (CLAUDE.md de la app, §4). #}
+{% macro pager(page, url, target, include=None, swap="outerHTML", push_url=False, prefix="tt", select=None) %}
 {% if page.total > 0 %}
   {% set _range %}<span class="tt-pager-range">{{ page.start }}–{{ page.end }} de {{ page.total }}</span>{% endset %}
   {% if page.pages <= 1 %}
@@ -310,12 +313,12 @@
   {% else %}
   <nav id="{{ prefix }}-pager" class="tt-pager" aria-label="Paginación">
     <button type="button" id="{{ prefix }}-pager-prev" class="btn btn-sm tt-btn-ghost"
-            {% if page.has_prev %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page - 1 }}}' hx-target="{{ target }}" hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
+            {% if page.has_prev %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page - 1 }}}' hx-target="{{ target }}"{% if select %} hx-select="{{ select }}"{% endif %} hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
       <i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline"> Anteriores</span>
     </button>
     {{ _range }}
     <button type="button" id="{{ prefix }}-pager-next" class="btn btn-sm tt-btn-ghost"
-            {% if page.has_next %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page + 1 }}}' hx-target="{{ target }}" hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
+            {% if page.has_next %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page + 1 }}}' hx-target="{{ target }}"{% if select %} hx-select="{{ select }}"{% endif %} hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
       <span class="d-none d-sm-inline">Siguientes </span><i class="bi bi-chevron-right"></i>
     </button>
   </nav>

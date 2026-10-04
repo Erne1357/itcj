@@ -3,21 +3,14 @@
 
    Qué resuelve
    ------------
-   La tabla tiene tres lentes de CLIENTE (buscador, orden por columna y filtro
-   por franja del funnel) y el tablero necesita que alguien le fije el alto al
-   viewport y le pinte las sombras de "hay más". Antes esto vivía DUPLICADO
-   inline en `admin/processes.html`, dentro del fragmento que el morph
-   reemplaza; este archivo existía en `static/js/admin/` desde hace tiempo pero
-   NINGÚN template lo cargaba.
-
-   Por qué el inline no podía quedarse
-   -----------------------------------
-   Desde que los filtros de la página son HTMX (`morph:outerHTML` sobre
-   `#tt-admin-content`), el `<script>` inline se re-ejecuta en cada swap:
-     · el IIFE viejo capturaba `rows`, `search` y `funnel` en un closure que tras
-       el morph apuntaba a nodos ya reemplazados -> el buscador dejaba de filtrar;
-     · y cada re-ejecución añadía OTRO listener a los mismos `th.sortable`, así
-       que el primer clic ordenaba dos veces (o sea, al revés).
+   La tabla conserva UNA lente de cliente: el orden por columna, que reordena
+   las filas de la página visible. Buscar, filtrar por fase y paginar son del
+   SERVIDOR desde 2026-10-04 (spec titulatec-paginacion §7): con la tabla
+   paginada, un filtro de cliente solo vería las 50 filas de la página. El
+   buscador (`#proc-q`) y las franjas del funnel hacen `hx-get` con los
+   filtros vigentes; aquí no se tocan.
+   El tablero necesita además que alguien le fije el alto al viewport y le
+   pinte las sombras de "hay más".
 
    Contrato (igual que import.js)
    ------------------------------
@@ -27,10 +20,9 @@
    · TODOS los listeners son delegados en `document`, que nunca se reemplaza. No
      hay guardas `data-tt-bound`: Idiomorph sincroniza atributos, así que borraría
      la guarda y volveríamos a duplicar listeners.
-   · El estado de las lentes vive en este módulo, no en el DOM, precisamente
-     porque el morph borra cualquier `data-*` que la respuesta no traiga. Gracias
-     a eso el texto del buscador, el orden y la fase seleccionada SOBREVIVEN a un
-     cambio de filtro del servidor (antes se perdían en cada recarga completa).
+   · El estado del orden vive en este módulo, no en el DOM, porque el morph
+     borra cualquier `data-*` que la respuesta no traiga: así el orden elegido
+     SOBREVIVE a un cambio de filtro o de página.
    · Marca con `.tt-enter` solo las filas/tarjetas cuyo id NO existía antes del
      swap. Es la otra mitad de la regla "si algo no cambia, que no se mueva":
      el contenedor ya no se re-anima entero (`data-tt-view`, titulatec-utils.js) y
@@ -41,43 +33,17 @@
 
   if (window.TitulaTecProcesses) return;          // guarda de doble carga
 
-  // Lentes de cliente. Sobreviven al morph porque viven aquí, no en el DOM.
-  //
-  // `q` es la consulta NORMALIZADA (recortada y en minúsculas), que es contra lo
-  // que se compara `data-search`. `qTexto` es lo que el usuario escribió, tal
-  // cual, y es lo único que puede volver al `<input>`: el morph le borra el
-  // `value` (la respuesta del servidor no trae ninguno) y si repusiéramos `q`,
-  // teclear "ANDREA" y pulsar un filtro le reescribiría su propio texto a
-  // "andrea" delante de los ojos. Filtrar y mostrar son cosas distintas.
-  var estado = { q: '', qTexto: '', fase: '', orden: null, dir: -1 };
+  // Lente de cliente: el orden de la página. Sobrevive al morph porque vive
+  // aquí, no en el DOM.
+  var estado = { orden: null, dir: -1 };
 
   // ------------------------------- Tabla -------------------------------
   function laTabla() { return document.getElementById('proc-table'); }
 
   function filasDe(tabla) {
+    // Solo filas de proceso; la fila de estado vacío no se ordena.
     return Array.prototype.slice.call(tabla.tBodies[0].rows)
-      .filter(function (r) { return r.dataset.search !== undefined; });
-  }
-
-  function aplicarFiltros() {
-    var tabla = laTabla();
-    if (!tabla) return;
-    var contador = document.getElementById('proc-count');
-    var filas = filasDe(tabla), total = filas.length, visibles = 0;
-
-    filas.forEach(function (r) {
-      var okTexto = !estado.q || (r.dataset.search || '').indexOf(estado.q) !== -1;
-      var okFase = !estado.fase || r.dataset.phase === estado.fase;
-      var on = okTexto && okFase;
-      r.style.display = on ? '' : 'none';
-      if (on) visibles++;
-    });
-
-    if (contador) {
-      contador.textContent = (visibles === total && !estado.q && !estado.fase)
-        ? total + ' proceso(s)'
-        : visibles + ' de ' + total + ' proceso(s)';
-    }
+      .filter(function (r) { return /^proc-row-\d+$/.test(r.id); });
   }
 
   function ordenar(tabla) {
@@ -103,16 +69,6 @@
     });
   }
 
-  function pintarFunnel() {
-    var funnel = document.getElementById('proc-funnel');
-    if (!funnel) return;
-    Array.prototype.forEach.call(funnel.querySelectorAll('.seg'), function (s) {
-      var esta = !!estado.fase && s.dataset.phase === estado.fase;
-      s.classList.toggle('is-sel', esta);
-      s.classList.toggle('is-dim', !!estado.fase && !esta);
-    });
-  }
-
   // ------------------------------ Tablero ------------------------------
   var HUECO_INFERIOR = 22;
 
@@ -134,7 +90,7 @@
   }
 
   // --------------------- Marcado de lo REALMENTE nuevo ---------------------
-  var SELECTOR_ITEMS = '#proc-table tbody tr[id], #proc-board a[id]';
+  var SELECTOR_ITEMS = '#proc-table tbody tr[id], #proc-board a.tt-kanban-card[id]';
   var antesDelSwap = null;
 
   function idsPresentes() {
@@ -160,14 +116,9 @@
   function sincronizar() {
     var tabla = laTabla();
     if (tabla) {
-      // El morph resetea el `value` del input (la respuesta no trae ninguno) y
-      // devuelve las filas al orden del servidor: reponemos ambas cosas.
-      var buscador = document.getElementById('proc-search');
-      if (buscador && buscador.value !== estado.qTexto) buscador.value = estado.qTexto;
+      // El morph devuelve las filas al orden del servidor: reponemos el elegido.
       ordenar(tabla);
       pintarCabeceras(tabla);
-      pintarFunnel();
-      aplicarFiltros();
     }
     medirTablero();
     // Segunda pasada tras layout/fuentes: la primera medida del kanban se toma
@@ -177,14 +128,6 @@
 
   // ------------------------------ Listeners ------------------------------
   // Todos en `document`: sobreviven a cualquier swap sin duplicarse.
-
-  document.addEventListener('input', function (e) {
-    var t = e.target;
-    if (!t || t.id !== 'proc-search') return;
-    estado.qTexto = t.value || '';
-    estado.q = estado.qTexto.trim().toLowerCase();
-    aplicarFiltros();
-  });
 
   document.addEventListener('click', function (e) {
     if (!e.target || !e.target.closest) return;
@@ -196,15 +139,6 @@
       estado.orden = clave;
       var tabla = laTabla();
       if (tabla) { ordenar(tabla); pintarCabeceras(tabla); }
-      return;
-    }
-
-    var seg = e.target.closest('#proc-funnel .seg');
-    if (seg && !seg.classList.contains('is-empty')) {
-      var fase = seg.dataset.phase;
-      estado.fase = (estado.fase === fase) ? '' : fase;
-      pintarFunnel();
-      aplicarFiltros();
     }
   });
 

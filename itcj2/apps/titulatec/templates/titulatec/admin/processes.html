@@ -3,25 +3,32 @@
 {% block admin_view %}processes{% endblock %}
 
 {% block admin_main %}
-{% from "titulatec/_macros.html" import proceso_pill %}
+{% from "titulatec/_macros.html" import proceso_pill, pager %}
 {% set V = view|default('table') %}
 {% set _st = '&stuck=1' if stuck else '' %}
+{# Filtros vigentes que TODO control conserva (spec 2026-10-04 §7): la busqueda
+   y la fase. Cambiar cualquier filtro vuelve a la pagina 1 (ninguna URL lleva
+   `page`). #}
+{% set _qq = ('&q=' ~ (q|urlencode)) if q else '' %}
+{% set _ph = ('&phase=' ~ phase) if phase is not none else '' %}
+{% set _keep = _ph ~ _qq %}
 {# Las URLs se arman UNA vez y se usan en `href` y en `hx-get`: el enlace normal
    (clic con rueda, "abrir en pestana nueva", el auditor responsive que navega por
    URL) y el swap HTMX no pueden divergir nunca. El querystring es identico al que
    habia antes de HTMX, para no cambiar la semantica de los filtros. #}
-{% set u_total = '/titulatec/admin/processes?view=' ~ V %}
+{% set u_total = '/titulatec/admin/processes?view=' ~ V ~ _keep %}
 {# A donde vuelve el boton Regresar del expediente: la URL CANONICA de
    esta pestana con sus filtros, no la del parcial HTMX. Sin esto, volver
    dejaba al revisor en la lista sin filtrar y sin el alumno abierto. #}
 {% set VOLVER = ('/titulatec/admin/processes?view=' ~ V ~ '&status=' ~ (status or '')
-                 ~ ('&stuck=1' if stuck else '')) | urlencode %}
-{% set u_active = '/titulatec/admin/processes?view=' ~ V ~ '&status=active' %}
-{% set u_completed = '/titulatec/admin/processes?view=' ~ V ~ '&status=completed' %}
-{% set u_hold = '/titulatec/admin/processes?view=' ~ V ~ '&status=on_hold' %}
-{% set u_stuck = '/titulatec/admin/processes?view=' ~ V ~ ('&status=' ~ status if status else '') ~ '&stuck=1' %}
-{% set u_table = '/titulatec/admin/processes?view=table' ~ ('&status=' ~ status if status else '') ~ _st %}
-{% set u_board = '/titulatec/admin/processes?view=board' ~ ('&status=' ~ status if status else '') ~ _st %}
+                 ~ ('&stuck=1' if stuck else '') ~ _keep
+                 ~ (('&page=' ~ page.page) if page and page.page > 1 else '')) | urlencode %}
+{% set u_active = '/titulatec/admin/processes?view=' ~ V ~ '&status=active' ~ _keep %}
+{% set u_completed = '/titulatec/admin/processes?view=' ~ V ~ '&status=completed' ~ _keep %}
+{% set u_hold = '/titulatec/admin/processes?view=' ~ V ~ '&status=on_hold' ~ _keep %}
+{% set u_stuck = '/titulatec/admin/processes?view=' ~ V ~ ('&status=' ~ status if status else '') ~ '&stuck=1' ~ _keep %}
+{% set u_table = '/titulatec/admin/processes?view=table' ~ ('&status=' ~ status if status else '') ~ _st ~ _keep %}
+{% set u_board = '/titulatec/admin/processes?view=board' ~ ('&status=' ~ status if status else '') ~ _st ~ _keep %}
 
 {# ===========================================================================
    Contrato de swap de esta pagina (el mismo que el del menu admin):
@@ -83,7 +90,7 @@
   {# ===== Filtros + vista + buscador ===== #}
   <div class="d-flex flex-wrap align-items-center gap-2 mt-3 tt-filterbar" id="proc-filterbar">
     {% for f, lbl in [('', 'Todos'), ('active', 'Activos'), ('completed', 'Completados'), ('on_hold', 'En espera'), ('cancelled', 'Cancelados')] %}
-    {% set u_chip = '/titulatec/admin/processes?view=' ~ V ~ ('&status=' ~ f if f else '') ~ _st %}
+    {% set u_chip = '/titulatec/admin/processes?view=' ~ V ~ ('&status=' ~ f if f else '') ~ _st ~ _keep %}
     <a id="proc-chip-{{ f or 'all' }}" href="{{ u_chip }}"
        hx-get="{{ u_chip }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
        hx-swap="morph:outerHTML" hx-push-url="true"
@@ -91,12 +98,27 @@
     {% endfor %}
 
     <div class="ms-auto d-flex flex-wrap align-items-center gap-2 min-w-0" id="proc-tools">
-      {% if V == 'table' %}
-      <label class="tt-search" id="proc-search-wrap" aria-label="Buscar proceso">
-        <i class="bi bi-search"></i>
-        <input type="search" id="proc-search" placeholder="Buscar alumno, control o folio…" autocomplete="off">
-      </label>
-      {% endif %}
+      {# Filtros vigentes + buscador (spec 2026-10-04 §7, D4): la busqueda va al
+         SERVIDOR con los filtros vigentes y `page=1`, con el mismo contrato de
+         swap que el resto de la vista (select == target => morph:outerHTML).
+         El pager de la tabla incluye este mismo bloque (`hx-include`); su
+         `hx-vals` de pagina pisa el `page=1` oculto. #}
+      <div class="d-flex align-items-center min-w-0" id="proc-filters">
+        <input type="hidden" name="view" value="{{ V }}">
+        <input type="hidden" name="status" value="{{ status or '' }}">
+        <input type="hidden" name="stuck" value="{{ 1 if stuck else 0 }}">
+        <input type="hidden" name="phase" value="{{ phase if phase is not none else '' }}">
+        <input type="hidden" name="page" value="1">
+        <label class="tt-search" id="proc-search-wrap" aria-label="Buscar proceso">
+          <i class="bi bi-search" aria-hidden="true"></i>
+          <input type="search" id="proc-q" name="q" value="{{ q }}" maxlength="100"
+                 placeholder="Buscar alumno, control o folio…" autocomplete="off"
+                 hx-get="/titulatec/admin/processes" hx-include="#proc-filters"
+                 hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+                 hx-swap="morph:outerHTML" hx-push-url="true"
+                 hx-trigger="keyup changed delay:400ms, search">
+        </label>
+      </div>
       <a id="proc-view-table" href="{{ u_table }}"
          hx-get="{{ u_table }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
          hx-swap="morph:outerHTML" hx-push-url="true"
@@ -113,18 +135,31 @@
   </div>
 
   {# ===== Funnel de fases (solo tabla) ===== #}
-  {% if V == 'table' and columns %}
+  {% if V == 'table' and columns and columns|sum(attribute='count') %}
   <div class="d-flex align-items-center gap-3 mt-3" id="proc-funnel-row">
     <div class="tt-funnel flex-grow-1" id="proc-funnel">
       {% set ncols = columns|length %}
+      {# Cada franja es un enlace a la tabla filtrada por esa fase (`?phase=N`
+         con los filtros vigentes, pagina 1); pulsar la seleccionada la quita.
+         Con la tabla paginada, filtrar en el cliente solo filtraria la pagina. #}
       {% for col in columns %}
       {% set ratio = (loop.index0 / (ncols - 1)) if ncols > 1 else 0 %}
       {% set hue = (222 - ratio * 184)|round|int %}
-      <button type="button" id="proc-seg-{{ col.number }}" class="seg {{ 'is-empty' if not col.count }}" data-phase="{{ col.number }}"
-              style="flex-grow:{{ col.count }};background:hsl({{ hue }},68%,46%)"
-              title="{{ '%02d'|format(col.number) }} · {{ col.name }} — {{ col.count }} proceso(s)">
-        {{ col.count if col.count }}
-      </button>
+      {% set sel = phase == col.phase %}
+      {% set u_seg = '/titulatec/admin/processes?view=table' ~ ('&status=' ~ status if status else '') ~ _st
+                     ~ ('' if sel else '&phase=' ~ col.phase) ~ _qq %}
+      {% if col.count %}
+      <a id="proc-seg-{{ col.phase }}" class="seg {{ 'is-sel' if sel }} {{ 'is-dim' if phase is not none and not sel }}" data-phase="{{ col.phase }}"
+         href="{{ u_seg }}" hx-get="{{ u_seg }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+         hx-swap="morph:outerHTML" hx-push-url="true"
+         {% if sel %}aria-current="true"{% endif %}
+         style="flex-grow:{{ col.count }};background:hsl({{ hue }},68%,46%)"
+         title="{{ '%02d'|format(col.phase) }} · {{ col.label }} — {{ col.count }} proceso(s)">{{ col.count }}</a>
+      {% else %}
+      <span id="proc-seg-{{ col.phase }}" class="seg is-empty {{ 'is-dim' if phase is not none }}" data-phase="{{ col.phase }}"
+            style="flex-grow:0;background:hsl({{ hue }},68%,46%)"
+            title="{{ '%02d'|format(col.phase) }} · {{ col.label }} — 0 proceso(s)"></span>
+      {% endif %}
       {% endfor %}
     </div>
     <span class="tt-funnel-legend">Distribución por fase</span>
@@ -156,7 +191,6 @@
       <tbody>
         {% for r in rows %}
         <tr id="proc-row-{{ r.id }}" class="{{ 'is-stuck' if r.idle_level=='crit' }}"
-            data-search="{{ (r.student ~ ' ' ~ r.control ~ ' ' ~ r.folio)|lower }}"
             data-phase="{{ r.phase }}"
             data-progress="{{ r.progress_pct }}" data-idle="{{ r.idle_days }}">
           <td class="tt-mono">{{ r.folio }}</td>
@@ -178,13 +212,19 @@
           <td class="text-end"><a href="/titulatec/admin/processes/{{ r.id }}?from={{ VOLVER }}" class="btn btn-sm tt-btn-soft">Abrir <i class="bi bi-arrow-right ms-1"></i></a></td>
         </tr>
         {% else %}
-        <tr id="proc-row-empty"><td colspan="9" class="text-center py-4" style="color:var(--tt-mute)">Sin procesos.</td></tr>
+        <tr id="proc-row-empty"><td colspan="9" class="text-center py-4" style="color:var(--tt-mute)">{% if q %}Sin resultados para "{{ q }}"{% else %}Sin procesos.{% endif %}</td></tr>
         {% endfor %}
       </tbody>
     </table>
    </div>
   </div>
-  <div id="proc-count" class="mt-2" style="font-size:.72rem;color:var(--tt-mute)"></div>
+  {# Pager (D2): 50 por pagina sobre el universo filtrado, con los filtros
+     vigentes de `#proc-filters` (status, stuck, phase, q, view). Repinta la
+     pagina entera recortando `#tt-admin-content`, como el resto de la vista. #}
+  <div id="proc-count" class="mt-2">
+    {{ pager(page, '/titulatec/admin/processes', '#tt-admin-content', include='#proc-filters',
+             swap='morph:outerHTML', push_url=True, prefix='tt-proc', select='#tt-admin-content') }}
+  </div>
 </div>
 {% endif %}
 {% endblock %}

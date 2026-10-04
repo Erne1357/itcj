@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from itcj2.dependencies import require_page_app
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 from itcj2.apps.titulatec.pages.nav import render_titulatec, get_titulatec_roles
 from itcj2.core.utils.security import hash_nip
 
@@ -1750,141 +1751,274 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     }
 
 
+def _proc_universe(db, *, user_id, status="", q=None, phase=None):
+    """PASADA 1 de Procesos: filas ligeras del universo + KPIs.
+
+    Una sola consulta: los procesos en alcance (`officer_programs`, ANTES de
+    contar) y del `status` pedido, con el `started_at` de su fase ACTUAL por
+    outer join (`uq_titulatec_phase_process_number` garantiza una fila como
+    mucho), en orden `created_at DESC, id DESC`. Con `q`, una consulta más
+    devuelve los ids que casan (`process_search`, que exige el join a `User`).
+
+    Devuelve `(ligeras, kpis)`:
+
+    * `ligeras` -- dicts `{"id", "created_at", "status", "current_phase",
+      "student_id", "program_id", "started_at_fase", "idle_days", "idle_level"}`
+      (+ `folio` y `modality_id`, que viajan de la misma fila para no volver a
+      leerlas en la pasada 2) del universo filtrado por estado, `q` y `phase`.
+      SIN el filtro «atorados»: ese lo aplica quien llama sobre `idle_level`.
+    * `kpis` -- con la lógica de siempre, sobre el universo filtrado por alcance
+      y `status` (como hoy: los KPIs son también los filtros de estado) pero
+      NUNCA por `q`, `phase`, `stuck` ni la página. `n_stuck` cuenta ese mismo
+      universo.
+    """
+    from datetime import datetime
+
+    from sqlalchemy import and_
+
+    from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
+    from itcj2.apps.titulatec.services.process_service import process_search
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+    from itcj2.config import get_settings
+    from itcj2.core.models.user import User
+
+    settings = get_settings()
+    warn_days = settings.TITULATEC_IDLE_WARN_DAYS
+    crit_days = settings.TITULATEC_IDLE_CRIT_DAYS
+    kpis = {"total": 0, "active": 0, "completed": 0, "on_hold": 0,
+            "cancelled": 0, "pct_completed": 0, "n_stuck": 0}
+
+    scope = officer_programs(db, user_id)
+    if scope != "ALL" and not scope:
+        return [], kpis
+
+    def _alcance(query):
+        if scope != "ALL":
+            query = query.filter(TitulationProcess.program_id.in_(scope))
+        if status:
+            query = query.filter(TitulationProcess.status == status)
+        return query
+
+    TP = TitulationProcess
+    base = _alcance(
+        db.query(TP.id, TP.created_at, TP.status, TP.current_phase, TP.student_id,
+                 TP.program_id, TP.folio, TP.modality_id, TP.updated_at,
+                 ProcessPhase.started_at)
+        .outerjoin(ProcessPhase, and_(ProcessPhase.process_id == TP.id,
+                                      ProcessPhase.phase_number == TP.current_phase))
+    ).order_by(TP.created_at.desc(), TP.id.desc())
+
+    now = datetime.now()
+    universo = []
+    for (pid, created_at, st, current_phase, student_id, program_id, folio,
+         modality_id, updated_at, started_at) in base.all():
+        since = started_at or updated_at
+        idle_days = max(0, (now - since).days) if since else 0
+        idle_level = ("crit" if idle_days >= crit_days
+                      else "warn" if idle_days >= warn_days else "ok")
+        # Una inscripción revocada no está «atorada»: ya no espera nada.
+        if st == "cancelled":
+            idle_level = "ok"
+        universo.append({
+            "id": pid, "created_at": created_at, "status": st,
+            "current_phase": current_phase, "student_id": student_id,
+            "program_id": program_id, "started_at_fase": started_at,
+            "idle_days": idle_days, "idle_level": idle_level,
+            "folio": folio, "modality_id": modality_id,
+        })
+
+    # KPIs. Una inscripción revocada no es un alumno en proceso: fuera del total
+    # y del porcentaje, como en el Resumen de la convocatoria
+    # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
+    # aparte en `cancelled`.
+    vivos = (universo if status == "cancelled"
+             else [r for r in universo if r["status"] != "cancelled"])
+    kpis["total"] = len(vivos)
+    kpis["cancelled"] = sum(1 for r in universo if r["status"] == "cancelled")
+    for r in vivos:
+        if r["status"] in ("active", "completed", "on_hold"):
+            kpis[r["status"]] += 1
+    if kpis["total"]:
+        kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
+    kpis["n_stuck"] = sum(1 for r in universo if r["idle_level"] == "crit")
+
+    filtradas = universo
+    pred = process_search(q)
+    if pred is not None:
+        casan = {pid for (pid,) in _alcance(
+            db.query(TP.id).outerjoin(User, User.id == TP.student_id)).filter(pred)}
+        filtradas = [r for r in filtradas if r["id"] in casan]
+    if phase is not None:
+        filtradas = [r for r in filtradas if r["current_phase"] == phase]
+    return filtradas, kpis
+
+
+def _proc_present(db, ligeras, *, phase_names, max_phase):
+    """PASADA 2 de Procesos: arma la fila completa SOLO de las visibles.
+
+    Alumnos, carreras y modalidades en lote (una consulta cada uno, solo si hay
+    ids): quita el `db.get(User)` / `db.get(Program)` por fila de antes.
+    """
+    from itcj2.apps.titulatec.models import Modality
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.user import User
+
+    if not ligeras:
+        return []
+    user_ids = {r["student_id"] for r in ligeras}
+    prog_ids = {r["program_id"] for r in ligeras if r["program_id"]}
+    mod_ids = {r["modality_id"] for r in ligeras if r["modality_id"]}
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids))}
+    progs = ({p.id: p.name for p in db.query(Program).filter(Program.id.in_(prog_ids))}
+             if prog_ids else {})
+    mods = ({m.id: m.name for m in db.query(Modality).filter(Modality.id.in_(mod_ids))}
+            if mod_ids else {})
+
+    rows = []
+    for r in ligeras:
+        u = users.get(r["student_id"])
+        phase = r["current_phase"]
+        rows.append({
+            "id": r["id"], "folio": r["folio"],
+            "student": u.full_name if u else "—",
+            "control": u.control_number if u else "—",
+            "program": progs.get(r["program_id"], "—"),
+            "modality": mods.get(r["modality_id"], "—"),
+            "phase": phase, "phase_name": phase_names.get(phase, ""),
+            "status": r["status"],
+            "idle_days": r["idle_days"], "idle_level": r["idle_level"],
+            "progress_pct": max(0, min(100, round(phase / max_phase * 100))),
+        })
+    return rows
+
+
+def _proc_url(view, status, stuck, q, phase=None, page=None) -> str:
+    """URL canónica de la bandeja con sus filtros (para `href`/`hx-get`)."""
+    from urllib.parse import urlencode
+
+    pares = [("view", view)]
+    if status:
+        pares.append(("status", status))
+    if stuck:
+        pares.append(("stuck", 1))
+    if phase is not None:
+        pares.append(("phase", phase))
+    if q:
+        pares.append(("q", q))
+    if page and page > 1:
+        pares.append(("page", page))
+    return "/titulatec/admin/processes?" + urlencode(pares)
+
+
+def _proc_ctx(db, *, user_id, status="", view="table", stuck=0, q=None, phase=None,
+              page=1, per_page: int = PAGE_SIZE) -> dict:
+    """Contexto completo de la bandeja de Procesos (dos pasadas).
+
+    Tabla: el universo filtrado (estado, `q`, «atorados», `phase`) se pagina en
+    Python (`paginate_list`, orden `created_at DESC, id DESC`) y solo la página
+    pasa a la pasada 2.
+
+    Tablero / funnel: el universo filtrado SIN `phase` (cada columna YA es una
+    fase) se agrupa por fase actual; cada columna conserva su conteo real y
+    presenta como mucho `per_page` tarjetas (las más recientes), con
+    `table_url` = «Ver las N en tabla» (`?view=table&phase=N` + filtros
+    vigentes). Sin las revocadas (salvo que se pidan): en el tablero se
+    leerían como alumnos parados en su fase.
+    """
+    from itcj2.apps.titulatec.models import PhaseDefinition
+    from itcj2.apps.titulatec.utils.paging import normalize_q, paginate_list
+    from itcj2.config import get_settings
+
+    settings = get_settings()
+    view = "board" if view == "board" else "table"
+    stuck = 1 if stuck else 0
+    q = normalize_q(q)
+
+    universo, kpis = _proc_universe(db, user_id=user_id, status=status, q=q)
+    if stuck:
+        universo = [r for r in universo if r["idle_level"] == "crit"]
+
+    todas = db.query(PhaseDefinition).order_by(PhaseDefinition.order_index).all()
+    phase_names = {d.number: d.name for d in todas}
+    phase_defs = [d for d in todas if d.is_active]
+    max_phase = max((d.number for d in phase_defs), default=0) or 1
+
+    buckets: dict[int, list] = {}
+    for r in universo:
+        if r["status"] == "cancelled" and status != "cancelled":
+            continue
+        buckets.setdefault(r["current_phase"], []).append(r)
+
+    columns = []
+    for d in phase_defs:
+        cards = buckets.get(d.number, [])
+        columns.append({
+            "phase": d.number, "label": d.name, "count": len(cards),
+            "n_stuck": sum(1 for c in cards if c["idle_level"] == "crit"),
+            "rows": cards[:per_page] if view == "board" else [],
+            "more": len(cards) > per_page,
+            "table_url": _proc_url("table", status, stuck, q, phase=d.number),
+        })
+
+    if view == "board":
+        visibles = [r for c in columns for r in c["rows"]]
+        presentadas = {r["id"]: r for r in _proc_present(
+            db, visibles, phase_names=phase_names, max_phase=max_phase)}
+        for c in columns:
+            c["rows"] = [presentadas[r["id"]] for r in c["rows"]]
+        pagina, rows = None, []
+    else:
+        en_fase = (universo if phase is None
+                   else [r for r in universo if r["current_phase"] == phase])
+        pagina = paginate_list(en_fase, page, per_page)
+        rows = _proc_present(db, pagina.items, phase_names=phase_names,
+                             max_phase=max_phase)
+
+    return {
+        "rows": rows, "page": pagina, "columns": columns, "kpis": kpis,
+        "status": status, "view": view, "stuck": stuck, "q": q or "", "phase": phase,
+        "idle_warn": settings.TITULATEC_IDLE_WARN_DAYS,
+        "idle_crit": settings.TITULATEC_IDLE_CRIT_DAYS,
+    }
+
+
 @router.get("/processes", name="titulatec.pages.admin.processes")
 async def processes(
     request: Request,
     status: str = "",
     view: str = "table",
-    stuck: int = 0,
+    stuck: str = "",
+    q: str = "",
+    phase: str = "",
+    page: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
 ):
-    """Bandeja de procesos (tabla densa o tablero kanban) con KPIs, funnel de
-    fases y señal de atoro (días sin moverse)."""
-    from datetime import datetime
-    from itcj2.config import get_settings
+    """Bandeja de procesos (tabla paginada o tablero kanban acotado) con KPIs,
+    funnel de fases, señal de atoro (días sin moverse) y búsqueda en servidor.
+
+    `stuck`, `phase` y `page` llegan como texto y se interpretan con
+    tolerancia (vacío / basura = sin filtro / página 1): el formulario de
+    filtros los manda siempre, a veces vacíos.
+    """
     from itcj2.database import SessionLocal
-    from itcj2.core.models.user import User
-    from itcj2.core.models.program import Program
-    from itcj2.apps.titulatec.models import (
-        TitulationProcess, PhaseDefinition, ProcessPhase, Modality,
-    )
-    from itcj2.apps.titulatec.services.scope_service import officer_programs
+    from itcj2.apps.titulatec.utils.paging import parse_page
 
-    view = "table" if view != "board" else "board"
-    settings = get_settings()
-    warn_days = settings.TITULATEC_IDLE_WARN_DAYS
-    crit_days = settings.TITULATEC_IDLE_CRIT_DAYS
-
-    def _empty(extra=None):
-        ctx = {
-            "rows": [], "status": status, "view": view, "stuck": stuck, "columns": [],
-            "kpis": {"total": 0, "active": 0, "completed": 0, "on_hold": 0,
-                     "cancelled": 0, "pct_completed": 0, "n_stuck": 0},
-            "idle_warn": warn_days, "idle_crit": crit_days,
-        }
-        if extra:
-            ctx.update(extra)
-        return ctx
+    try:
+        stuck_on = 1 if int(stuck or 0) else 0
+    except ValueError:
+        stuck_on = 0
+    try:
+        fase = int(phase) if phase.strip() else None
+    except ValueError:
+        fase = None
 
     db = SessionLocal()
     try:
-        scope = officer_programs(db, int(user["sub"]))
-        q = db.query(TitulationProcess)
-        if scope != "ALL":
-            if not scope:
-                return render_titulatec(request, "titulatec/admin/processes.html", _empty())
-            q = q.filter(TitulationProcess.program_id.in_(scope))
-        if status:
-            q = q.filter_by(status=status)
-
-        procs = q.order_by(TitulationProcess.created_at.desc()).all()
-
-        # KPIs sobre el universo filtrado por status/scope (antes del filtro stuck).
-        # Una inscripción revocada no es un alumno en proceso: fuera del total y
-        # del porcentaje, como en el Resumen de la convocatoria
-        # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
-        # aparte en `cancelled`.
-        universo = (procs if status == "cancelled"
-                    else [p for p in procs if p.status != "cancelled"])
-        kpis = {"total": len(universo), "active": 0, "completed": 0, "on_hold": 0,
-                "cancelled": sum(1 for p in procs if p.status == "cancelled"),
-                "pct_completed": 0, "n_stuck": 0}
-        for p in universo:
-            if p.status in ("active", "completed", "on_hold"):
-                kpis[p.status] += 1
-        if kpis["total"]:
-            kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
-
-        # Definiciones de fase + progreso.
-        phase_defs = (db.query(PhaseDefinition)
-                      .filter_by(is_active=True)
-                      .order_by(PhaseDefinition.order_index).all())
-        defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
-        max_phase = max((ph.number for ph in phase_defs), default=0) or 1
-
-        # Idle: started_at de la fase ACTUAL de cada proceso, en una sola query.
-        proc_ids = [p.id for p in procs]
-        phase_started = {}
-        if proc_ids:
-            for ph in (db.query(ProcessPhase)
-                       .filter(ProcessPhase.process_id.in_(proc_ids)).all()):
-                phase_started[(ph.process_id, ph.phase_number)] = ph.started_at
-
-        modalities = {m.id: m.name for m in db.query(Modality).all()}
-        now = datetime.now()
-
-        rows = []
-        for p in procs:
-            u = db.get(User, p.student_id)
-            prog = db.get(Program, p.program_id) if p.program_id else None
-            since = phase_started.get((p.id, p.current_phase)) or p.updated_at
-            idle_days = max(0, (now - since).days) if since else 0
-            idle_level = ("crit" if idle_days >= crit_days
-                          else "warn" if idle_days >= warn_days else "ok")
-            # Una inscripción revocada no está «atorada»: ya no espera nada.
-            if p.status == "cancelled":
-                idle_level = "ok"
-            progress_pct = max(0, min(100, round(p.current_phase / max_phase * 100)))
-            rows.append({
-                "id": p.id, "folio": p.folio,
-                "student": u.full_name if u else "—",
-                "control": u.control_number if u else "—",
-                "program": prog.name if prog else "—",
-                "modality": modalities.get(p.modality_id, "—"),
-                "phase": p.current_phase, "phase_name": defs.get(p.current_phase, ""),
-                "status": p.status,
-                "idle_days": idle_days, "idle_level": idle_level,
-                "progress_pct": progress_pct,
-            })
-
-        kpis["n_stuck"] = sum(1 for r in rows if r["idle_level"] == "crit")
-
-        if stuck:
-            rows = [r for r in rows if r["idle_level"] == "crit"]
-
-        # Columnas del kanban: agrupar por fase actual.
-        # Sin las revocadas (salvo que se pidan): en el tablero se leerían como
-        # alumnos parados en su fase.
-        buckets = {ph.number: [] for ph in phase_defs}
-        for r in rows:
-            if r["status"] == "cancelled" and status != "cancelled":
-                continue
-            buckets.setdefault(r["phase"], []).append(r)
-        columns = []
-        for ph in phase_defs:
-            cards = buckets.get(ph.number, [])
-            columns.append({
-                "number": ph.number, "name": ph.name, "cards": cards,
-                "count": len(cards),
-                "n_stuck": sum(1 for c in cards if c["idle_level"] == "crit"),
-            })
+        ctx = _proc_ctx(db, user_id=int(user["sub"]), status=status, view=view,
+                        stuck=stuck_on, q=q, phase=fase, page=parse_page(page))
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/processes.html", {
-        "rows": rows, "status": status, "view": view, "stuck": stuck,
-        "columns": columns, "kpis": kpis,
-        "idle_warn": warn_days, "idle_crit": crit_days,
-    })
+    return render_titulatec(request, "titulatec/admin/processes.html", ctx)
 
 
 def _exp_params(request) -> dict:

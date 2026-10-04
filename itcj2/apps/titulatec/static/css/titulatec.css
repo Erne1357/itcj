@@ -831,6 +831,11 @@ a.tt-kpi.is-active { border-color: var(--tt-accent); box-shadow: inset 0 0 0 1px
   line-height: 26px; text-align: center; cursor: pointer;
 }
 .tt-funnel > .seg.is-empty { min-width: 6px; opacity: .35; }
+/* Las franjas con procesos son enlaces a la tabla filtrada por fase (?phase=N). */
+.tt-funnel > a.seg { color: #fff; text-decoration: none; }
+.tt-funnel > .seg.is-empty { cursor: default; }
+.tt-funnel > .seg.is-dim { opacity: .4; }
+.tt-funnel > .seg.is-sel { box-shadow: inset 0 -3px 0 rgba(0,0,0,.35); }
 .tt-funnel-legend { flex: 0 0 auto; font-size: .72rem; color: var(--tt-mute); white-space: nowrap; }
 /* En móvil los segmentos son además el filtro por fase: 10px no es tocable. */
 @media (max-width: 991.98px) {
@@ -925,6 +930,10 @@ th.sortable { cursor: pointer; user-select: none; }
 .tt-kanban-col .col-scroll > .body { height: 100%; overflow-y: auto; }
 .tt-kanban-col .health { height: 4px; border-radius: 2px; background: var(--tt-line); overflow: hidden; margin-bottom: 8px; }
 .tt-kanban-col .health > i { display: block; height: 100%; background: var(--tt-danger); }
+/* Pie de columna con tope (D5): «Ver las N en tabla». */
+.tt-kanban-col .tt-kanban-more { display: block; margin-top: 8px; font-size: .72rem; font-weight: 600;
+  color: var(--tt-accent); text-align: center; text-decoration: none; }
+.tt-kanban-col .tt-kanban-more:hover { text-decoration: underline; }
 .tt-kanban-card .meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 
 /* --- Visor de documentos (cotejo y revisión) ----------------------------- */
