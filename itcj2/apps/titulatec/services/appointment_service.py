@@ -161,6 +161,8 @@ class AppointmentService:
         `allowed_program_ids`: None = sin restricción de carrera; set vacío = [].
         `q`: busca por nombre del alumno o número de control, DENTRO del alcance.
         """
+        from sqlalchemy.orm import contains_eager
+
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
         from itcj2.core.models.user import User
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
@@ -172,6 +174,9 @@ class AppointmentService:
             # cada intento superado como una cita más y el mismo alumno sale
             # repetido.
             .filter(ReviewAppointment.is_current.is_(True))
+            # `_appt_rows` lee `a.process` por fila: con el JOIN ya hecho, se
+            # puebla desde él (Tarea 7, sin una consulta por cita).
+            .options(contains_eager(ReviewAppointment.process))
         )
         if allowed_program_ids is not None:
             query = query.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -344,55 +349,83 @@ class AppointmentService:
         return q
 
     @staticmethod
-    def _pending_candidates(db: Session, *, program_id: int | None,
-                            allowed_program_ids: set | None) -> list:
-        """Procesos activos, SIN cita vigente, con los documentos iniciales DE
-        SU PERFIL aprobados (licenciatura: 3; posgrado: 7 --
+    def queue_candidates(db: Session, *, program_id: int | None = None,
+                         allowed_program_ids: set | None = None) -> dict:
+        """Los TRES cubos que salen del universo «sin cita»
+        (`_unscheduled_query`), calculados UNA vez y en consultas FIJAS
+        (Tarea 7, spec 2026-10-04-titulatec-paginacion-design.md §8):
+
+        * ``pending`` -- «Por agendar».
+        * ``blocked`` -- «Requieren que les agendes» (D10: bloqueados por D9).
+        * ``missing_clearance`` -- «Liberaciones pendientes».
+        * ``docs_ok`` -- {process_id: bool} de los candidatos de ambos lados
+          (`DocumentService.initial_docs_approved_map`).
+        * ``blocked_map`` / ``cancellations`` -- {process_id: bool/int} de
+          los candidatos con liberaciones completas y documentos aprobados
+          (`SelfBookingService.blocked_map` / `cancellations_map`), para que
+          la fila de «Requieren» pinte su conteo sin volver a preguntar.
+
+        El universo: procesos activos, SIN cita vigente, con los documentos
+        iniciales DE SU PERFIL aprobados (licenciatura: 3; posgrado: 7 --
         `DocumentService.initial_doc_types_for`, con la excepción R-G de un
         proceso cuya fase 1 ya cerró: spec 2026-09-30-titulatec-posgrado-
-        design.md §5, invariante 8) y con TODAS sus liberaciones
-        (`ClearanceGate.released_clause`, spec 2026-10-01-titulatec-
-        biblioteca-caja-design.md §4.4.2): la encuesta de egresados LIBERADA
-        por Gestión Tecnológica y Vinculación (D1, spec 2026-09-29-titulatec-
-        cotejo-espacios-design.md §2 — revierte D2 del 2026-09-15: antes
-        bastaba con que la solicitud existiera) y, donde la convocatoria lo
-        exige, el no adeudo de biblioteca liberado (D6).
+        design.md §5, invariante 8). Lo parte `ClearanceGate`: con TODAS sus
+        liberaciones (`released_clause`, spec 2026-10-01-titulatec-biblioteca-
+        caja-design.md §4.4.2 -- la encuesta LIBERADA por GTV, D1 de
+        2026-09-29, y donde la convocatoria lo exige el no adeudo de
+        biblioteca, D6) van a «Por agendar»/«Requieren»; a quien le falta
+        alguna (`not_released_clause`, la negación exacta) va a
+        «Liberaciones pendientes» (§4.4.3). Un proceso cae en uno o en otro,
+        nunca en los dos ni en ninguno.
 
-        De aquí salen DOS cubos que se reparten el conjunto sin solaparse
-        (§6): «Por agendar» y «Requieren que les agendes» (los bloqueados por
-        D9). Se calcula en un solo sitio para que no puedan desincronizarse:
-        con dos consultas gemelas, un proceso acabaría en los dos cubos o en
-        ninguno según cuál se tocara primero.
+        «Por agendar» y «Requieren que les agendes» se reparten el lado
+        liberado con UN predicado (`SelfBookingService.blocked_map`, la regla
+        6 de §3 que ve el alumno): mutuamente excluyentes (§6). Se calcula en
+        un solo sitio para que no puedan desincronizarse.
 
-        Los `no_show` NO entran: conservan su cita y su lugar («si no se
-        presentó es que ya pasó») y viven en `list_reschedule_processes`.
-        Quien SÍ tiene sus documentos pero le falta alguna liberación (la
-        encuesta sin enviar o sin liberar, o el no adeudo en Biblioteca o por
-        pagar en Caja) vive en `list_missing_clearance_processes`.
+        Los `no_show` NO entran: conservan su cita y su lugar y viven en
+        `list_reschedule_processes`. Orden de cada lista:
+        `TitulationProcess.created_at`, el de siempre.
+
+        Antes eran tres llamadas (`list_pending_processes`,
+        `list_self_blocked_processes`, `list_missing_clearance_processes`),
+        cada una con su universo y su consulta de documentos POR código POR
+        candidato, y un COUNT de cancelaciones por candidato: cientos de
+        consultas con unas decenas de candidatos.
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
         from itcj2.apps.titulatec.services.document_service import DocumentService
+        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
         q = AppointmentService._unscheduled_query(
             db, program_id=program_id, allowed_program_ids=allowed_program_ids)
         if q is None:
-            return []
-        q = q.filter(ClearanceGate.released_clause())
-        candidates = q.order_by(TitulationProcess.created_at).all()
-        # Perfil de TODOS en UNA consulta (`TrackService.for_processes`, vía
-        # `initial_doc_types_by_process`) -- no una por candidato: cada
-        # llamada a `initial_docs_all_approved` recibe su propio set ya
-        # resuelto y no vuelve a preguntar por la carrera.
-        codes_by_process = DocumentService.initial_doc_types_by_process(db, candidates)
-        return [p for p in candidates
-                if DocumentService.initial_docs_all_approved(
-                    db, p.id, codes=codes_by_process[p.id])]
+            return {"pending": [], "blocked": [], "missing_clearance": [],
+                    "docs_ok": {}, "blocked_map": {}, "cancellations": {}}
+        liberados = (q.filter(ClearanceGate.released_clause())
+                     .order_by(TitulationProcess.created_at).all())
+        faltan = (q.filter(ClearanceGate.not_released_clause())
+                  .order_by(TitulationProcess.created_at).all())
+        docs_ok = DocumentService.initial_docs_approved_map(db, liberados + faltan)
+        con_docs = [p for p in liberados if docs_ok[p.id]]
+        cancelaciones = SelfBookingService.cancellations_map(db, con_docs)
+        bloqueado = SelfBookingService.blocked_map(db, con_docs,
+                                                   cancellations=cancelaciones)
+        return {
+            "pending": [p for p in con_docs if not bloqueado[p.id]],
+            "blocked": [p for p in con_docs if bloqueado[p.id]],
+            "missing_clearance": [p for p in faltan if docs_ok[p.id]],
+            "docs_ok": docs_ok,
+            "blocked_map": bloqueado,
+            "cancellations": cancelaciones,
+        }
 
     @staticmethod
     def list_pending_processes(db: Session, *, program_id: int | None = None,
                                allowed_program_ids: set | None = None) -> list:
-        """«Por agendar»: los del universo de arriba que TODAVÍA pueden
-        agendarse solos (o esperar a que el encargado los siente).
+        """«Por agendar»: los del universo de `queue_candidates` que TODAVÍA
+        pueden agendarse solos (o esperar a que el encargado los siente).
 
         **Excluye a los bloqueados por D9**, que se van a su propio cubo
         (`list_self_blocked_processes`). Los cinco cubos de la cola son
@@ -407,12 +440,11 @@ class AppointmentService:
         rechazaron».
 
         El tope lo decide `SelfBookingService`, que es donde vive la regla del
-        alumno (D13), en vez de una consulta propia aquí.
+        alumno (D13), en vez de una consulta propia aquí. Quien necesite
+        también los otros dos cubos llama a `queue_candidates` UNA vez.
         """
-        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-        return [p for p in AppointmentService._pending_candidates(
-                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-                if not SelfBookingService.is_blocked_by_cancellations(db, p)]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)["pending"]
 
     @staticmethod
     def list_self_blocked_processes(db: Session, *, program_id: int | None = None,
@@ -426,48 +458,30 @@ class AppointmentService:
         están esperando a que alguien lo haga por ellos.
 
         El criterio es el mismo objeto que usa la pantalla del alumno
-        (`SelfBookingService.is_blocked_by_cancellations`, la regla 6 de §3):
-        con dos implementaciones, este cubo diría una cosa y el alumno vería
-        otra.
+        (`SelfBookingService.blocked_map`, la regla 6 de §3): con dos
+        implementaciones, este cubo diría una cosa y el alumno vería otra.
         """
-        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-        return [p for p in AppointmentService._pending_candidates(
-                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-                if SelfBookingService.is_blocked_by_cancellations(db, p)]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)["blocked"]
 
     @staticmethod
     def list_missing_clearance_processes(db: Session, *, program_id: int | None = None,
                                          allowed_program_ids: set | None = None) -> list:
         """Procesos activos, SIN cita, con los documentos iniciales de su
-        perfil aprobados (ver `_pending_candidates`), a los que les FALTA
+        perfil aprobados (ver `queue_candidates`), a los que les FALTA
         alguna liberación (spec 2026-10-01-titulatec-biblioteca-caja-design.md
         §4.4.3; antes `list_missing_survey_processes`, solo la encuesta).
 
-        Mismo universo y alcance que `list_pending_processes` — misma base
-        (`_unscheduled_query`) y mismo filtro de documentos — con el ÚNICO
-        predicado invertido: `ClearanceGate.not_released_clause()`, la
-        negación exacta del de `_pending_candidates`, así que un proceso cae
-        en uno o en otro, nunca en los dos ni en ninguno. Cubre a quien nunca
-        envió la encuesta, a quien la tiene `in_review`/`rejected` y, donde la
-        convocatoria exige el no adeudo de biblioteca, a quien lo tiene en
-        Biblioteca o por pagar en Caja. Alimenta el cubo «Liberaciones
-        pendientes» de la cola: nadie se agenda sin ellas, así que a este grupo
-        no le sirve un lugar libre, le sirve saber en qué va cada una
-        (`survey_status` + `library_status` por fila, `pages/appointments.py`).
+        Mismo universo y alcance que `list_pending_processes` con el ÚNICO
+        predicado invertido: `ClearanceGate.not_released_clause()`. Cubre a
+        quien nunca envió la encuesta, a quien la tiene `in_review`/`rejected`
+        y, donde la convocatoria exige el no adeudo de biblioteca, a quien lo
+        tiene en Biblioteca o por pagar en Caja. Alimenta el cubo
+        «Liberaciones pendientes» de la cola.
         """
-        from itcj2.apps.titulatec.models import TitulationProcess
-        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
-        from itcj2.apps.titulatec.services.document_service import DocumentService
-        q = AppointmentService._unscheduled_query(
-            db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-        if q is None:
-            return []
-        q = q.filter(ClearanceGate.not_released_clause())
-        candidates = q.order_by(TitulationProcess.created_at).all()
-        codes_by_process = DocumentService.initial_doc_types_by_process(db, candidates)
-        return [p for p in candidates
-                if DocumentService.initial_docs_all_approved(
-                    db, p.id, codes=codes_by_process[p.id])]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id,
+            allowed_program_ids=allowed_program_ids)["missing_clearance"]
 
     @staticmethod
     def list_reschedule_processes(db: Session, *,

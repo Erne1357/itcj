@@ -87,7 +87,7 @@ class DocumentService:
         """`initial_doc_types_for` de VARIOS procesos en UNA sola consulta.
 
         Para bandejas y barridos que ya trajeron la lista completa de
-        procesos (p. ej. `AppointmentService._pending_candidates`,
+        procesos (p. ej. `AppointmentService.queue_candidates`,
         `MailReminders._documentos`): resolver el perfil proceso por proceso
         dispararía la consulta de `TrackService.for_process` (carrera) una
         vez por candidato. Vía `TrackService.for_processes` -- lista vacía o
@@ -183,36 +183,101 @@ class DocumentService:
         catálogo de fases, la fase 1 se trata como ABIERTA (se exige el set
         completo) -- nunca se lanza una excepción por esto.
 
-        El estado de la fase (proceso + número de `initial_docs`) se calcula
-        LA PRIMERA VEZ que hace falta -- un extra ausente -- y se reutiliza
-        después: si `codes` no trae ningún extra (licenciatura de toda la
-        vida, o un `db` de prueba tipo `MagicMock`), esa consulta ni se
-        intenta. El código actual, en ese punto, YA se sabe sin fila (`doc is
-        None`): basta pasarle a `excused_initial_docs` un `present_codes`
-        vacío -- el predicado solo necesita saber que ESTE código no está
-        presente, no le importan sus hermanos.
+        El número de fase de `initial_docs` se consulta SOLO si hace falta
+        -- un extra ausente --; con `codes` sin extras (licenciatura) esa
+        consulta ni se intenta.
+
+        Desde la Tarea 7 (spec 2026-10-04-titulatec-paginacion-design.md §8)
+        es un envoltorio de `initial_docs_approved_map` con UN proceso: la
+        regla vive en un solo sitio. Un id inexistente se evalúa como un
+        proceso sin carrera y sin fase (licenciatura, nada dispensado) --
+        igual que antes, nunca una excepción.
         """
+        from types import SimpleNamespace
+
         from itcj2.apps.titulatec.models import TitulationProcess
+
+        proceso = db.get(TitulationProcess, process_id)
+        if proceso is None:
+            proceso = SimpleNamespace(id=process_id, program_id=None, current_phase=None)
+        codes_by_process = {process_id: tuple(codes)} if codes is not None else None
+        return DocumentService.initial_docs_approved_map(
+            db, [proceso], codes_by_process=codes_by_process)[process_id]
+
+    @staticmethod
+    def initial_docs_approved_map(db, processes, *,
+                                  codes_by_process: dict | None = None) -> dict[int, bool]:
+        """`initial_docs_all_approved` de VARIOS procesos YA CARGADOS, en
+        consultas FIJAS (Tarea 7, spec 2026-10-04-titulatec-paginacion-
+        design.md §8): la cola de «Citas de cotejo» la pedía candidato por
+        candidato y código por código (N x 3..7 consultas).
+
+        Consultas, sin importar cuántos procesos: el perfil
+        (`initial_doc_types_by_process`, a lo sumo una -- se omite para los
+        que lleguen en `codes_by_process`), los documentos del set en juego
+        (una, `IN` de procesos y de códigos) y el número de fase de
+        `initial_docs` (una, y SOLO si algún posgrado tiene un extra sin fila
+        -- igual que antes).
+
+        MISMA regla que siempre: todos los códigos del set del proceso
+        `approved`; un extra de `POSGRADO_EXTRA_DOCS` SIN fila se dispensa si
+        `excused_initial_docs` lo dice (R-G, fase 1 ya cerrada); uno CON fila
+        se evalúa como cualquier otro; los 3 base se exigen siempre.
+
+        `codes_by_process` (opcional): {process_id: codes} ya resuelto por
+        el llamador; un proceso que no aparezca ahí cae a su propio perfil.
+        Lista vacía -> `{}` sin consultar.
+        """
+        from itcj2.apps.titulatec.models import Document
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
-        if codes is None:
-            codes = DocumentService.initial_doc_types_for_id(db, process_id)
+        processes = [p for p in processes if p is not None]
+        if not processes:
+            return {}
+        codes_by_process = dict(codes_by_process or {})
+        sin_set = [p for p in processes if p.id not in codes_by_process]
+        if sin_set:
+            codes_by_process.update(DocumentService.initial_doc_types_by_process(db, sin_set))
 
-        excused = None
-        for code in codes:
-            doc = DocumentService.get_document(db, process_id, code)
-            if doc is None and code in DocumentService.POSGRADO_EXTRA_DOCS:
-                if excused is None:
-                    proceso = db.get(TitulationProcess, process_id)
-                    n = PhaseService.phase_number_for_code(db, "initial_docs")
-                    excused = DocumentService.excused_initial_docs(
-                        proceso, frozenset(), initial_docs_phase=n)
-                if code in excused:
-                    continue
-                return False
-            if not doc or doc.review_status != "approved":
-                return False
-        return True
+        en_juego = set()
+        for p in processes:
+            en_juego.update(codes_by_process[p.id])
+        estados: dict[tuple[int, str], str] = {}
+        if en_juego:
+            estados = {
+                (pid, code): status for pid, code, status in
+                db.query(Document.process_id, Document.type_code, Document.review_status)
+                .filter(Document.process_id.in_({p.id for p in processes}),
+                        Document.type_code.in_(en_juego))
+                .all()
+            }
+
+        sin_calcular = object()
+        fase_initial = sin_calcular
+        salida: dict[int, bool] = {}
+        for p in processes:
+            ok = True
+            excused = None
+            for code in codes_by_process[p.id]:
+                status = estados.get((p.id, code))
+                if status is None and code in DocumentService.POSGRADO_EXTRA_DOCS:
+                    if excused is None:
+                        if fase_initial is sin_calcular:
+                            fase_initial = PhaseService.phase_number_for_code(
+                                db, "initial_docs")
+                        # `present_codes` vacío: el predicado solo necesita
+                        # saber que ESTE código no tiene fila.
+                        excused = DocumentService.excused_initial_docs(
+                            p, frozenset(), initial_docs_phase=fase_initial)
+                    if code in excused:
+                        continue
+                    ok = False
+                    break
+                if status != "approved":
+                    ok = False
+                    break
+            salida[p.id] = ok
+        return salida
 
     @staticmethod
     def initial_docs_summary(db, process_id: int,

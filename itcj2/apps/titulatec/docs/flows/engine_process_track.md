@@ -114,7 +114,7 @@ sequenceDiagram
 | `services/document_service.py::initial_doc_types` / `_for` / `_for_id` / `_by_process` | `TrackService.for_level/for_process/for_process_id/for_processes` | el set de fase 1: `BASE_INITIAL_DOCS` (3) + `POSGRADO_EXTRA_DOCS` (4) si `track == "posgrado"` — **única fuente** del set (invariante 1) |
 | `services/document_service.py::initial_docs_all_approved` (R-G, ver abajo) | recibe el set ya resuelto (`codes`) | elegibilidad de cotejo, tolerando extras de posgrado FALTANTES si la fase 1 ya cerró |
 | `services/document_service.py::sync_initial_phase` | `initial_doc_types_for` | avanza `ProcessPhase(1)` a `in_review`/`in_progress` según el set DEL proceso (3 o 7) |
-| `services/appointment_service.py::_pending_candidates` (→ `list_pending_processes`, `list_self_blocked_processes`, `list_missing_clearance_processes`, `pages/appointments.py:937`) | `initial_doc_types_by_process` (lote, `TrackService.for_processes`) | los cubos «Por agendar» / «Requieren que les agendes» / «Liberaciones pendientes» de la cola del encargado |
+| `services/appointment_service.py::queue_candidates` (→ `list_pending_processes`, `list_self_blocked_processes`, `list_missing_clearance_processes`, `pages/appointments.py:937`) | `initial_doc_types_by_process` (lote, `TrackService.for_processes`) | los cubos «Por agendar» / «Requieren que les agendes» / «Liberaciones pendientes» de la cola del encargado |
 | `services/mail_reminders.py::_documentos` (recordatorio `docs_reminder`) | `initial_doc_types_by_process` (lote) | a cada proceso le mide "falta"/"por corregir" contra SU set, no un 3 fijo |
 | `pages/student.py::documents`, `_initial_docs_set_guard`, `document_upload`, `document_delete` | `TrackService.for_process` | 7 casillas en posgrado (3 en licenciatura); guarda 400 si el `type_code` no está en el set del proceso |
 | `pages/documents.py::_doc_rows`/`_doc_row` (bandeja SE) | `TrackService.for_level` (reusa `Program` ya cargado) | filas con perfiles MEZCLADOS en la misma bandeja; `track_pill` junto a la carrera |
@@ -176,7 +176,7 @@ existía) no debe regresar a Documentos por los 4 extras que nunca le pidieron.
   lógica en línea: consulta este predicado.
 - **A quién afecta (hallazgo de la revisión final — R-G llegaba solo a la elegibilidad, no a los
   CONTADORES):**
-  - **Elegibilidad de cotejo**: `AppointmentService._pending_candidates` (vía
+  - **Elegibilidad de cotejo**: `AppointmentService.queue_candidates` (vía
     `list_pending_processes`/`list_self_blocked_processes`/`list_missing_clearance_processes`
     —renombrada de `list_missing_survey_processes` el 2026-10-01, ⤵ [no adeudo de
     biblioteca](phase2_library_clearance.md)—, consumidos por la cola del encargado en

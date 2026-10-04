@@ -184,26 +184,65 @@ class SelfBookingService:
         `student_id` y `cancelled_by_id` son las dos `BigInteger` con FK a
         `core_users.id`, así que la comparación es directa y no pasa por
         ninguna otra tabla.
+
+        Delega en `cancellations_map` (Tarea 7): una sola implementación del
+        conteo para el alumno y para la cola.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment
         if proc is None:
             return 0
-        return (db.query(ReviewAppointment)
-                .filter(ReviewAppointment.process_id == proc.id,
-                        ReviewAppointment.status == "cancelled",
-                        ReviewAppointment.cancelled_by_id == proc.student_id)
-                .count())
+        return SelfBookingService.cancellations_map(db, [proc])[proc.id]
+
+    @staticmethod
+    def cancellations_map(db: Session, processes) -> dict[int, int]:
+        """`cancellations` de VARIOS procesos YA CARGADOS en UNA consulta
+        (`GROUP BY process_id, cancelled_by_id`; Tarea 7, spec 2026-10-04-
+        titulatec-paginacion-design.md §8). El cruce con `student_id` se hace
+        aquí contra el proceso en memoria -- mismo predicado que el COUNT por
+        proceso de antes: solo cuentan las que canceló ÉL. Lista vacía -> `{}`
+        sin consultar; un proceso sin cancelaciones sale con 0.
+        """
+        from sqlalchemy import func
+
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        processes = [p for p in processes if p is not None]
+        if not processes:
+            return {}
+        por_proceso: dict[tuple[int, int], int] = {
+            (pid, quien): n for pid, quien, n in
+            db.query(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id,
+                     func.count(ReviewAppointment.id))
+            .filter(ReviewAppointment.process_id.in_({p.id for p in processes}),
+                    ReviewAppointment.status == "cancelled",
+                    ReviewAppointment.cancelled_by_id.isnot(None))
+            .group_by(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id)
+            .all()
+        }
+        return {p.id: por_proceso.get((p.id, p.student_id), 0) for p in processes}
+
+    @staticmethod
+    def blocked_map(db: Session, processes, *, cancellations: dict | None = None
+                    ) -> dict[int, bool]:
+        """`is_blocked_by_cancellations` en lote (D9). `cancellations` (el
+        resultado de `cancellations_map`, opcional) evita repetir la consulta
+        a quien ya tiene los conteos en mano."""
+        processes = [p for p in processes if p is not None]
+        if cancellations is None:
+            cancellations = SelfBookingService.cancellations_map(db, processes)
+        tope = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX
+        return {p.id: cancellations[p.id] >= tope for p in processes}
 
     @staticmethod
     def is_blocked_by_cancellations(db: Session, proc) -> bool:
         """El predicado de D9, aislado.
 
         Lo comparten la regla 6 de `eligibility` y el cubo de D10
-        (`AppointmentService.list_self_blocked_processes`), que así no puede
-        discrepar de lo que ve el alumno en su pantalla.
+        (`AppointmentService.list_self_blocked_processes`, vía `blocked_map`),
+        que así no puede discrepar de lo que ve el alumno en su pantalla.
         """
-        return (SelfBookingService.cancellations(db, proc)
-                >= SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX)
+        if proc is None:
+            return False
+        return SelfBookingService.blocked_map(db, [proc])[proc.id]
 
     # ------------------------------------------------------------ §3: la puerta
     @staticmethod

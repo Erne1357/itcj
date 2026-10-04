@@ -371,7 +371,7 @@ está en fase 2, así que la fase 1 (los documentos) ya quedó atrás; ni `eligi
 (`SelfBookingService`) ni `AppointmentService.create` llaman a `DocumentService` en ningún punto.
 R-G — "un posgrado que cerró su fase 1 antes del despliegue no se regresa aunque le falten los 4
 extras" — se resuelve ENTERAMENTE dentro de `DocumentService.initial_docs_all_approved`, y su único
-consumidor es `AppointmentService._pending_candidates` (la cola del ENCARGADO, ⤵ [cita de cotejo
+consumidor es `AppointmentService.queue_candidates` (la cola del ENCARGADO, ⤵ [cita de cotejo
 (loop completo)](phase2_appointment_loop.md), cubos «Por agendar» / «Requieren que les agendes» /
 «Liberaciones pendientes»). Un egresado de posgrado que R-G mantiene en «Por agendar» agenda su propia
 cita exactamente igual que cualquier otro — esta pantalla no le agrega ni le quita ninguna

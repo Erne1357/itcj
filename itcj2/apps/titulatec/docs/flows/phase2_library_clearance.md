@@ -170,7 +170,7 @@ alguna liberación?» (§5 invariante 2); fuera de aquí y de los dos dueños
 | Consumidor | Qué hace con el gate |
 |---|---|
 | `AppointmentService.create` | tras las dos de la encuesta, `LibraryNotCleared(status)` (400) si el no adeudo sigue `pending`/`missing`/`awaiting_payment` donde la convocatoria lo exige. Aplica a TODO intento nuevo, incluido tras un `no_show` o una `attended` rechazada |
-| `AppointmentService._pending_candidates` / `list_missing_clearance_processes` | `released_clause()` / `not_released_clause()` — ⤵ [cita de cotejo](phase2_appointment_loop.md) |
+| `AppointmentService.queue_candidates` / `list_missing_clearance_processes` | `released_clause()` / `not_released_clause()` — ⤵ [cita de cotejo](phase2_appointment_loop.md) |
 | `SelfBookingService.eligibility` (regla 3) | `biblioteca_en_revision` (pending/missing) y `pago_pendiente` (awaiting_payment, con el total) — ⤵ [auto-agendado](phase2_student_self_booking.md) |
 | `pages/appointments.py` | filas de la cola (`survey_status`/`library_status`/`liberaciones_pendientes`) y ficha de atender |
 | `PhaseService._requirement_label` | sufijo «en revisión por Biblioteca» / «pendiente de pago en Caja» en la guarda de aprobar la fase 2 |

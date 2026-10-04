@@ -54,7 +54,7 @@ mano DESPUÉS de la migración, en la promoción de `activar-biblioteca-caja`
 
 Consumidores (barrido de lectores, spec §4.4; ninguno guarda su propia
 comparación): `AppointmentService.create` (`LibraryNotCleared`, tras las dos de
-la encuesta), `AppointmentService._pending_candidates` y
+la encuesta), `AppointmentService.queue_candidates` y
 `list_missing_clearance_processes` (las dos cláusulas),
 `SelfBookingService.eligibility` (regla 3), `pages/appointments.py` (filas de
 la cola y ficha de atender) y `PhaseService._requirement_label`. Las vistas del

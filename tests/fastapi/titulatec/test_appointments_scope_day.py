@@ -353,7 +353,7 @@ def test_toda_consulta_de_listado_recibe_el_alcance():
     sin_alcance = []
     for metodo in ("list_for_day", "list_appointments",
                    "list_pending_processes", "list_reschedule_processes",
-                   "agenda_process_ids"):
+                   "agenda_process_ids", "queue_candidates"):
         cuerpo = src
         for llamada in re.findall(re.escape(metodo) + r"\((?:[^()]|\([^()]*\))*\)", cuerpo):
             if "allowed_program_ids" not in llamada and "allowed" not in llamada:

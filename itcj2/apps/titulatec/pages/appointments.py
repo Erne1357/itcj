@@ -1008,7 +1008,14 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # un IDOR. Se valida contra el universo acotado COMPLETO (toda la agenda del
     # usuario mas toda su cola), no contra las filas de la vista, o abrir a
     # alguien de otro dia dejaria de funcionar.
-    pendientes = AppointmentService.list_pending_processes(db, allowed_program_ids=allowed)
+    #
+    # Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les
+    # agendes», «Liberaciones pendientes») salen de UN solo calculo en lote
+    # (`queue_candidates`, Tarea 7 de 2026-10-04-titulatec-paginacion): antes
+    # eran tres llamadas que repetian el universo y preguntaban documentos y
+    # cancelaciones candidato por candidato.
+    cola = AppointmentService.queue_candidates(db, allowed_program_ids=allowed)
+    pendientes = cola["pending"]
     reagendar = AppointmentService.list_reschedule_processes(db, allowed_program_ids=allowed)
     # «Liberaciones pendientes» (spec 2026-10-01-titulatec-biblioteca-caja-
     # design.md §4.4.5; antes «Encuesta sin liberar», D1 de 2026-09-29):
@@ -1019,12 +1026,11 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # nadie de este cubo (la guarda de `AppointmentService.create` lo
     # rechazaría), así que sus filas no llevan navegación ni arrastre — ver
     # `_appt_queue.html`. No entran a `visibles`: no hay ficha que abrirles.
-    liberaciones = AppointmentService.list_missing_clearance_processes(
-        db, allowed_program_ids=allowed)
+    liberaciones = cola["missing_clearance"]
     # D10: los que agotaron su tope de cancelaciones (D9) y ya NO pueden
     # agendarse solos. Cubo propio y mutuamente excluyente con «Por agendar»:
-    # la resta la hace `list_pending_processes`, no esta vista.
-    bloqueados = AppointmentService.list_self_blocked_processes(db, allowed_program_ids=allowed)
+    # la resta la hace `queue_candidates`, no esta vista.
+    bloqueados = cola["blocked"]
     # D5: la fase 02 quedo RECHAZADA, asi que necesitan otra cita. Cubo propio
     # porque, mientras tengan una cita vigente `attended`, quedan fuera del
     # universo «sin cita» del que salen los cubos 1, 2 y 5, y no son `no_show`,
@@ -1087,7 +1093,8 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "programs": _programs(db),
         "pending": _proc_rows(db, pendientes),
         "pending_count": len(pendientes),
-        "bloqueados": _proc_rows_bloqueados(db, bloqueados),
+        "bloqueados": _proc_rows_bloqueados(db, bloqueados,
+                                            cancelaciones=cola["cancellations"]),
         "bloqueados_count": len(bloqueados),
         "reagendar": _proc_rows_reagendar(db, reagendar),
         "reagendar_count": len(reagendar),
@@ -1172,24 +1179,25 @@ def _proc_rows(db, procs):
     return salida
 
 
-def _proc_rows_bloqueados(db, procs):
+def _proc_rows_bloqueados(db, procs, *, cancelaciones=None):
     """Filas del cubo de D10, con el conteo que EXPLICA por que estan ahi.
 
     «3 cancelaciones · ya no puede agendar solo» es lo que convierte una lista
     mas en una instruccion: sin el numero, el encargado no sabe si mirar el
     cubo es urgente o si el alumno simplemente no ha entrado a la pagina.
 
-    El conteo sale de `SelfBookingService.cancellations`, el MISMO predicado
-    que decide el cubo y que ve el alumno en su pantalla. Es un COUNT por fila,
-    y se acepta a proposito: este cubo solo tiene a quien cancelo tres veces,
-    asi que N es de un digito.
+    El conteo sale de `SelfBookingService.cancellations_map`, el MISMO conteo
+    que decide el cubo y que ve el alumno en su pantalla. `cancelaciones`
+    ({process_id: n}, opcional): el mapa que `_shell_ctx` ya trae de
+    `AppointmentService.queue_candidates`; sin el, se calcula aqui en UNA
+    consulta (nunca un COUNT por fila).
     """
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-    por_id = {p.id: p for p in procs}
     filas = _proc_rows(db, procs)
+    if cancelaciones is None:
+        cancelaciones = SelfBookingService.cancellations_map(db, procs)
     for fila in filas:
-        fila["cancelaciones"] = SelfBookingService.cancellations(
-            db, por_id[fila["process_id"]])
+        fila["cancelaciones"] = cancelaciones[fila["process_id"]]
     return filas
 
 
@@ -1245,7 +1253,7 @@ def _proc_rows_reagendar(db, procs):
     return _con_liberaciones(db, _proc_rows(db, procs))
 
 
-def _proc_rows_rechazados(db, procs):
+def _proc_rows_rechazados(db, procs, *, bloqueados=None):
     """Filas del cubo de D5, con lo que decide si la fila es arrastrable.
 
     Tres datos por encima de `_proc_rows`:
@@ -1265,10 +1273,10 @@ def _proc_rows_rechazados(db, procs):
       insertan la cita sin pasar por el service), y arrastrarlo a un lugar
       libre revienta con un error que no explica nada. En lote
       (`_con_liberaciones`).
-    * `bloqueado` — igual que en `_proc_rows_bloqueados`,
-      `SelfBookingService.is_blocked_by_cancellations` por fila y no en lote:
-      ES la fuente unica del predicado de D9, y este cubo tambien tiene pocas
-      filas.
+    * `bloqueado` — el predicado de D9 en lote (`SelfBookingService.
+      blocked_map`, la fuente unica que tambien ve el alumno), UNA consulta.
+      `bloqueados` ({process_id: bool}, opcional) lo trae ya calculado quien
+      lo tenga; sin el, se calcula aqui.
 
     Los dos primeros no son excluyentes entre si: un rechazado puede tener
     liberaciones PENDIENTES Y estar bloqueado por D9 a la vez, y la plantilla
@@ -1291,11 +1299,12 @@ def _proc_rows_rechazados(db, procs):
                             ProcessPhase.phase_number == PhaseService.PHASE_COTEJO)
                     .all()
     }
+    if bloqueados is None:
+        bloqueados = SelfBookingService.blocked_map(db, procs)
     for fila in filas:
         pid = fila["process_id"]
         fila["motivo"] = motivos.get(pid)
-        fila["bloqueado"] = SelfBookingService.is_blocked_by_cancellations(
-            db, por_id[pid])
+        fila["bloqueado"] = bloqueados[pid]
     return filas
 
 
