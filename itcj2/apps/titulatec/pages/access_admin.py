@@ -35,14 +35,19 @@ Una acción que no es del modo responde 400 + `X-Tt-Error` ANTES de abrir sesió
 inexistente = 404 liso. El NIP jamás vuelve al navegador ni a un log: el
 formulario lo manda, el servicio lo usa y aquí no se lee más que para pasarlo.
 """
+import dataclasses
 import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
+from sqlalchemy import func
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import (
+    PAGE_SIZE, Page, normalize_q, paginate_query, parse_page,
+)
 # Estados «por revisar» (incluido el legado): los del servicio, nunca una copia
 # que se desincronice el día que el servicio sume uno.
 from itcj2.apps.titulatec.services.enrollment_request_service import _REVIEWABLE
@@ -153,16 +158,18 @@ def _fmt(dt, with_time=False) -> str:
     return dt.strftime("%d/%m/%Y %H:%M" if with_time else "%d/%m/%Y")
 
 
-def _tab_query(q, tab: str):
-    """Filtro y orden de cada pestaña sobre `EnrollmentRequest`."""
-    from sqlalchemy import or_
+def _tab_filter(tab: str):
+    """Predicado de cada pestaña sobre `EnrollmentRequest` (`None` = sin filtro).
+
+    Lo comparten la lista y el contador de la pestaña: una sola regla, así el
+    número del botón y las filas que salen al abrirla nunca discrepan.
+    """
+    from sqlalchemy import and_, or_
 
     from itcj2.apps.titulatec.models import EnrollmentRequest as ER
 
     if tab == "awaiting_access":
-        # Cola de trabajo: FIFO por cuando SE la aprobó.
-        return (q.filter(ER.status == "awaiting_access")
-                .order_by(ER.reviewed_at.asc(), ER.id.asc()))
+        return ER.status == "awaiting_access"
     if tab == "granted":
         # Spec §8.2: `access_granted_at` no nulo. `approved` entra por D10 (se le
         # mandó liga) y `rejected` también: la D10 que SE canceló es un estado
@@ -173,21 +180,35 @@ def _tab_query(q, tab: str):
         # Y la cuenta que nació con el NIP del SII (spec 2026-09-27 §A6):
         # `_create_account` también le sella `access_granted_*`, pero CC no
         # intervino. `NULL` (anteriores a la columna) sí entra.
-        return (q.filter(ER.access_granted_at.isnot(None),
-                         ER.status.notin_(_REVIEWABLE + ("awaiting_access",)),
-                         or_(ER.nip_source.is_(None), ER.nip_source != "sii"))
-                .order_by(ER.access_granted_at.desc(), ER.id.desc()))
+        return and_(ER.access_granted_at.isnot(None),
+                    ER.status.notin_(_REVIEWABLE + ("awaiting_access",)),
+                    or_(ER.nip_source.is_(None), ER.nip_source != "sii"))
     if tab == "returned":
-        return (q.filter(ER.returned_at.isnot(None))
-                .order_by(ER.returned_at.desc(), ER.id.desc()))
+        return ER.returned_at.isnot(None)
     if tab == "pending_review":
         # Modo alterno: la cola de revisión incluye las `awaiting_access` que
-        # SE dejó antes de cambiar de modo (sobrantes). FIFO por llegada.
-        return (q.filter(ER.status.in_(_REVIEWABLE + ("awaiting_access",)))
-                .order_by(ER.created_at.asc(), ER.id.asc()))
+        # SE dejó antes de cambiar de modo (sobrantes).
+        return ER.status.in_(_REVIEWABLE + ("awaiting_access",))
     if tab in ("approved", "converted", "rejected"):
-        q = q.filter(ER.status == tab)
-    return q.order_by(ER.created_at.desc(), ER.id.desc())
+        return ER.status == tab
+    return None
+
+
+def _tab_order(tab: str):
+    """Orden de cada pestaña; SIEMPRE termina en `id` (paginar exige orden total)."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest as ER
+
+    if tab == "awaiting_access":
+        # Cola de trabajo: FIFO por cuando SE la aprobó.
+        return (ER.reviewed_at.asc(), ER.id.asc())
+    if tab == "granted":
+        return (ER.access_granted_at.desc(), ER.id.desc())
+    if tab == "returned":
+        return (ER.returned_at.desc(), ER.id.desc())
+    if tab == "pending_review":
+        # Cola de revisión del alterno: FIFO por llegada.
+        return (ER.created_at.asc(), ER.id.asc())
+    return (ER.created_at.desc(), ER.id.desc())
 
 
 def _returned_after(status: str, official: bool) -> str:
@@ -201,8 +222,17 @@ def _returned_after(status: str, official: bool) -> str:
     return "Servicios Escolares la volvió a aprobar" if official else "Después se aprobó"
 
 
-def _body_ctx(db, *, status, cohort_id):
+def _body_ctx(db, *, status, cohort_id, q=None, page=1, per_page: int = PAGE_SIZE):
     """Contexto del parcial. Sin alcance por carrera: CC ve todo.
+
+    Paginado (spec 2026-10-04 §5): `page` es un `Page` cuyas `items` son las
+    filas YA armadas (`rows` es la misma lista); una página fuera de rango cae
+    en la última válida, así que una acción que vacía la última página
+    re-pinta la anterior. `q` filtra con `enrollment_request_search` (la misma
+    de Solicitudes). `tab_counts` = filas por pestaña con la MISMA regla
+    (`_tab_filter`), convocatoria y búsqueda que la lista: una consulta con un
+    `COUNT(*) FILTER` por pestaña (no un `GROUP BY status`: «Con acceso» y
+    «Devueltas» dependen de sellos y de `nip_source`, no solo del estado).
 
     «¿Tiene cuenta?» se calcula aquí igual que en `grant_access()`/`approve()`:
     el número de control contra `core_users`, HOY (D10).
@@ -212,18 +242,23 @@ def _body_ctx(db, *, status, cohort_id):
     from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, TitulationProcess
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService, entry_year,
+        EnrollmentRequestService, enrollment_request_search, entry_year,
     )
 
     mode = EnrollmentRequestService.reviewer_mode()
     tab = _tab(mode, status)
+    q = normalize_q(q)
+    page = parse_page(page)
     # `official`: SE aprueba y CC solo da el acceso (oficial y `sii`); `sii`
     # solo cambia la cabecera de la página (Accesos como respaldo).
     # `sii_configured` (D11): con el SII sin configurar TODA solicitud sin
     # cuenta que SE aprueba llega aquí, no solo «a las que el SII no dio NIP»;
     # la cabecera dice la causa real (revisión final F4).
     ctx = {"sii": mode == _SII, "rows": [], "status": tab, "tabs": _TABS[mode],
-           "cohort_id": cohort_id, "mode": mode, "official": mode in _OFFICIAL_LIKE,
+           "cohort_id": cohort_id, "mode": mode, "q": q or "",
+           "page": Page(items=[], total=0, page=1, per_page=per_page),
+           "tab_counts": {key: 0 for key, _label in _TABS[mode]},
+            "official": mode in _OFFICIAL_LIKE,
            "sii_configured": EligibilityService.sii_configured(),
            "programs": [], "link_days": EnrollmentRequestService.link_ttl_days()}
 
@@ -232,10 +267,26 @@ def _body_ctx(db, *, status, cohort_id):
         ctx["programs"] = [{"id": p.id, "name": p.name}
                            for p in db.query(Program).order_by(Program.name).all()]
 
-    q = db.query(EnrollmentRequest)
+    # Convocatoria + búsqueda: las comparten la lista y el contador por pestaña.
+    base = db.query(EnrollmentRequest)
     if cohort_id:
-        q = q.filter(EnrollmentRequest.cohort_id == cohort_id)
-    reqs = _tab_query(q, tab).limit(300).all()
+        base = base.filter(EnrollmentRequest.cohort_id == cohort_id)
+    search = enrollment_request_search(q)
+    if search is not None:
+        base = base.filter(search)
+
+    # Contador por pestaña (D7): una consulta, un `COUNT(*) FILTER` por pestaña.
+    keys = [key for key, _label in _TABS[mode]]
+    counts = base.with_entities(*[
+        (func.count() if _tab_filter(key) is None
+         else func.count().filter(_tab_filter(key))) for key in keys]).order_by(None).one()
+    ctx["tab_counts"] = dict(zip(keys, counts))
+
+    lq = base
+    if _tab_filter(tab) is not None:
+        lq = lq.filter(_tab_filter(tab))
+    pg = paginate_query(lq.order_by(*_tab_order(tab)), page, per_page)
+    reqs = pg.items
 
     # Cuentas, folios, convocatorias y carreras en una consulta cada uno: un
     # `db.get` por fila sería N+1.
@@ -339,11 +390,14 @@ def _body_ctx(db, *, status, cohort_id):
                             or (tab == "pending_review" and r.status != "pending_review")),
             "prior_reject": prior_reject,
         })
+    ctx["page"] = dataclasses.replace(pg, items=ctx["rows"])
     return ctx
 
 
 def _render_body(request: Request, db, form):
-    ctx = _body_ctx(db, status=form.get("status"), cohort_id=_to_int(form.get("cohort_id")))
+    """Re-pinta la MISMA pestaña, convocatoria, búsqueda y página del formulario."""
+    ctx = _body_ctx(db, status=form.get("status"), cohort_id=_to_int(form.get("cohort_id")),
+                    q=form.get("q"), page=form.get("page"))
     return render_titulatec(request, "titulatec/admin/partials/access_body.html", ctx)
 
 
@@ -424,11 +478,12 @@ def _load(db, req_id: int):
 
 @router.get("", name="titulatec.pages.access.list")
 async def list_access(request: Request, status: str = "", cohort_id: str = "",
+                      q: str = "", page: str = "",
                       user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
-        ctx = _body_ctx(db, status=status, cohort_id=_to_int(cohort_id))
+        ctx = _body_ctx(db, status=status, cohort_id=_to_int(cohort_id), q=q, page=page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/access.html", ctx)
@@ -436,12 +491,13 @@ async def list_access(request: Request, status: str = "", cohort_id: str = "",
 
 @router.get("/body", name="titulatec.pages.access.body")
 async def body(request: Request, status: str = "", cohort_id: str = "",
+               q: str = "", page: str = "",
                user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
-        ctx = _body_ctx(db, status=status, cohort_id=_to_int(cohort_id))
+        ctx = _body_ctx(db, status=status, cohort_id=_to_int(cohort_id), q=q, page=page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/access_body.html", ctx)

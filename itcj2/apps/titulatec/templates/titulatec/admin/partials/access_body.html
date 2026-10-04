@@ -6,8 +6,15 @@
    (titulatec.css, «Bandeja de solicitudes»), que son primitivas de estilo.
 
    `status` es la pestaña activa (`_body_ctx` la normaliza por modo). Cada
-   formulario de fila la manda de vuelta, junto con la convocatoria, en campos
-   ocultos: la acción vuelve a pintar la pestaña donde estaba CC.
+   formulario de fila la manda de vuelta, junto con la convocatoria, la
+   búsqueda (`q`) y la página, en campos ocultos: la acción vuelve a pintar la
+   pestaña donde estaba CC (o la última página válida si la vació).
+
+   Paginada (spec 2026-10-04 §5): `page` (`utils.paging.Page`, 50 por página);
+   `#tt-access-filters` lleva los campos del filtro y la búsqueda (control,
+   nombre, correo o folio); cambiar de pestaña o de búsqueda vuelve a la
+   página 1. Cada pestaña lleva su contador (`tab_counts`: misma regla,
+   convocatoria y búsqueda que la lista).
 
    Modo oficial (`official`, también en modo `sii`, donde Accesos es el
    respaldo de SE para quien el SII no dio NIP): Por dar acceso · Con acceso ·
@@ -31,16 +38,19 @@
    «sale». Su formulario dice a qué correo va y deja no mandarlo (`no_mail`,
    «lo dicto por teléfono»).
    «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones),
-   pero no las cuentas que nacieron con el NIP del SII (`_tab_query`).
+   pero no las cuentas que nacieron con el NIP del SII (`_tab_filter`).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
    Sin hx-confirm: ninguna acción de aquí pide confirmación (si alguna la
    necesitara, el puente existe: `hx-confirm` + `data-tt-confirm-ok` en el
    `<form>`, que `titulatec-utils.js` lleva a `TitulaTecUtils.confirmDialog`,
    como aprobar en Solicitudes). Sin JS ni CSS en línea. #}
-{% macro tab_fields(tab, cohort) -%}
+{% from "titulatec/_macros.html" import pager %}
+{% macro tab_fields(tab, cohort, page_no, q) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
+<input type="hidden" name="page" value="{{ page_no }}">
+<input type="hidden" name="q" value="{{ q }}">
 {%- endmacro %}
 {% macro nip_field() -%}
 <input class="tt-field tt-field--xs" name="nip" type="text" inputmode="numeric"
@@ -48,18 +58,39 @@
        placeholder="NIP" aria-label="NIP de 4 dígitos">
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
+{%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
 <div id="tt-access-body" data-tt-view="access-body">
+  <div id="tt-access-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="cohort_id" value="{{ cohort_id or '' }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-access-q" name="q" value="{{ q }}" maxlength="100"
+             placeholder="Buscar control, nombre, correo o folio"
+             aria-label="Buscar control, nombre, correo o folio"
+             hx-get="/titulatec/admin/accesos/body" hx-target="#tt-access-body"
+             hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-access-filters">
+    </div>
+  </div>
+
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
     <button id="tt-acc-tab-{{ key }}" type="button"
             class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
             {% if status == key %}aria-current="true"{% endif %}
-            hx-get="/titulatec/admin/accesos/body?status={{ key }}{{ qs_cohort }}"
-            hx-target="#tt-access-body" hx-swap="outerHTML">{{ label }}</button>
+            hx-get="/titulatec/admin/accesos/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}"
+            hx-target="#tt-access-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
     {% endfor %}
   </div>
 
-  {% if not rows %}
+  {% if not rows and q %}
+  <div class="tt-card" id="tt-access-no-results">
+    <span class="tt-kicker"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados</span>
+    <p class="mb-0">Sin resultados para "{{ q }}"</p>
+  </div>
+  {% elif not rows %}
   <div class="tt-card" id="tt-access-empty">
     <span class="tt-kicker"><i class="bi bi-inbox me-1" aria-hidden="true"></i>Bandeja limpia</span>
     <p class="mb-0">No hay solicitudes con ese filtro.</p>
@@ -141,7 +172,7 @@
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/dar-acceso"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               {% if r.reviewable %}
               <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
                 <option value="">Carrera…</option>
@@ -173,7 +204,7 @@
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/devolver"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <textarea class="tt-field tt-field--xs w-100" name="note" rows="2" maxlength="2000"
                         required placeholder="Qué no cuadra (lo lee Servicios Escolares)"
                         aria-label="Motivo de la devolución"></textarea>
@@ -184,7 +215,7 @@
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/rechazar"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="note" required
                      placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
@@ -201,14 +232,14 @@
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/reenviar"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
             </form>
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/rechazar"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="note" required
                      placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
@@ -222,7 +253,7 @@
                   hx-post="/titulatec/admin/accesos/{{ r.id }}/reasignar-nip"
                   hx-target="#tt-access-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <span class="tt-req-sub w-100">Correo: {{ r.email }}</span>
               {{ nip_field() }}
               <div class="form-check small w-100 mb-0">
@@ -246,5 +277,6 @@
       </tbody>
     </table>
   </div>
+  {{ pager(page, '/titulatec/admin/accesos/body', '#tt-access-body', include='#tt-access-filters', prefix='tt-access') }}
   {% endif %}
 </div>

@@ -55,7 +55,7 @@ se aprueba desde aquí. El menú y el aterrizaje no cambian: «Accesos» lo ve q
 `titulatec.enrollment_access.page.list` y `titulatec_computer_center` aterriza aquí.
 
 **«Con acceso» no lista las cuentas que nacieron con el NIP del SII**: `_create_account` también
-les sella `access_granted_*` (la aprobación de SE), pero CC no intervino. `_tab_query` filtra
+les sella `access_granted_*` (la aprobación de SE), pero CC no intervino. `_tab_filter` filtra
 `nip_source IS DISTINCT FROM 'sii'` (`NULL`, las anteriores a `tt20260927a`, sí entran). Esas
 cuentas tampoco admiten «Reasignar NIP» (`must_change_password=False`); su «correo no enviado» se
 resuelve con «Reenviar aviso» desde Solicitudes › Inscritas.
@@ -71,7 +71,7 @@ patrón que la bandeja de GTV, `survey_reviews_admin.py`) — nunca llama a `off
 
 **Cambiar de modo no migra nada.** Si hay filas `awaiting_access` cuando alguien cambia a
 `computer_center`, esas filas no desaparecen: la pestaña **Por revisar** del modo alterno las
-incluye explícitamente («sobrantes», `_tab_query`, `pages/access_admin.py:148-152`) y «Dar
+incluye explícitamente («sobrantes», `_tab_filter`, `pages/access_admin.py:148-152`) y «Dar
 acceso» sobre ellas sigue siendo `grant_access` (nunca `approve`, que ya no las acepta — devuelve
 `_MSG_IN_ACCESS`, «Ya está en Centro de Cómputo para su acceso.»).
 
