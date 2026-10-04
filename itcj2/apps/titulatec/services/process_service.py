@@ -211,3 +211,36 @@ class ProcessService:
             out[ev.process_id] = {"reason": (ev.payload or {}).get("reason"),
                                   "at": ev.created_at, "actor_id": ev.actor_id}
         return out
+
+
+def process_search(q):
+    """Predicado de búsqueda sobre `TitulationProcess` + `User`, o `None`.
+
+    Constructor ÚNICO de la búsqueda de procesos en las bandejas admin (spec
+    2026-10-04 §3.3 y §6): número de control del alumno (en `ILIKE` y, exacto,
+    en MAYÚSCULA: la forma de `CONTROL_NUMBER_RE`), su nombre en los dos órdenes
+    (nombre, paterno, materno / paterno, materno, nombre) y el folio del
+    proceso. `q` se normaliza aquí (`utils.paging.normalize_q`) y el patrón
+    escapa `\`, `%` y `_` (`like_pattern`).
+
+    El LLAMADOR une `User` por `TitulationProcess.student_id`
+    (`outerjoin(User, User.id == TitulationProcess.student_id)`): sin alumno,
+    el proceso solo casa por folio.
+    """
+    from sqlalchemy import func, or_
+
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q
+    from itcj2.core.models.user import User
+
+    q = normalize_q(q)
+    if q is None:
+        return None
+    p = like_pattern(q)
+    return or_(
+        User.control_number.ilike(p, escape="\\"),
+        User.control_number == q.upper(),
+        func.concat_ws(" ", User.first_name, User.last_name, User.middle_name).ilike(p, escape="\\"),
+        func.concat_ws(" ", User.last_name, User.middle_name, User.first_name).ilike(p, escape="\\"),
+        TitulationProcess.folio.ilike(p, escape="\\"),
+    )

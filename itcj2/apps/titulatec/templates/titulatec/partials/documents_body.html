@@ -1,26 +1,52 @@
 {# Bandeja de revisión de documentos. Re-render en #docs-body (HTMX).
    Visor con PDF.js (renderiza a canvas → inmune al bloqueo del visor PDF del
-   navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO. #}
-{% from "titulatec/_macros.html" import estado_pill, track_pill %}
+   navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO.
 
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+   Paginada en dos pasadas (spec 2026-10-04 §6, `pages/documents.py::_body_ctx`):
+   `page` (`utils.paging.Page`, 50 por página) y `q` (nombre, nº de control o
+   folio) viajan en `#docs-filters` -- un <div>, como en Solicitudes: sus
+   hidden los toman las pestañas, las filas, la búsqueda y el pager con
+   `hx-include`, y `hx-vals` pisa lo que cambia (pestaña, fila, página).
+   Cambiar de pestaña o de búsqueda vuelve a la página 1 (hidden `page=1`).
+   El dictamen re-envía `page`/`q` desde `#tt-review-form`. «Procesos (N)» y
+   «N por evaluar» son del universo filtrado, no de la página; el detalle se
+   pinta aunque su proceso caiga en otra página. #}
+{% from "titulatec/_macros.html" import estado_pill, track_pill, pager %}
+
+<div id="docs-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <input type="hidden" name="status" value="{{ status_filter }}">
+  <input type="hidden" name="selected" value="{{ selected_id or '' }}">
+  <input type="hidden" name="page" value="1">
   <span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split me-1"></i>{{ total_pending }} por evaluar</span>
   {% for f, lbl in [('', 'Todos'), ('pending', 'Por evaluar'), ('rejected', 'Con rechazo'), ('approved', 'Completos')] %}
   <button class="btn btn-sm {{ 'tt-btn-ink' if status_filter==f else 'tt-btn-ghost' }}" type="button"
-          hx-get="/titulatec/admin/documents/body?status={{ f }}{{ '&selected=' ~ selected_id if selected_id }}"
+          hx-get="/titulatec/admin/documents/body" hx-vals='{"status": "{{ f }}"}'
+          hx-include="#docs-filters"
           hx-target="#docs-body" hx-swap="innerHTML" hx-indicator="#docs-skel">{{ lbl }}</button>
   {% endfor %}
+  <div class="tt-search">
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <input type="search" id="tt-docs-q" name="q" value="{{ q }}" maxlength="100"
+           placeholder="Buscar nombre, control o folio"
+           aria-label="Buscar nombre, control o folio"
+           hx-get="/titulatec/admin/documents/body" hx-target="#docs-body"
+           hx-swap="innerHTML" hx-trigger="keyup changed delay:400ms, search"
+           hx-include="#docs-filters" hx-indicator="#docs-skel">
+  </div>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="tt-card">
-      <span class="tt-kicker"><i class="bi bi-people me-1"></i>Procesos ({{ rows|length }})</span>
+      <span class="tt-kicker"><i class="bi bi-people me-1"></i>Procesos ({{ page.total }})</span>
       <div class="mt-2 d-flex flex-column gap-1">
         {% for r in rows %}
         <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none tt-hover-lift"
            style="border-radius:9px;border:1px solid var(--tt-line-soft);{{ 'background:var(--tt-mist)' if selected_id==r.process_id }}"
-           hx-get="/titulatec/admin/documents/body?status={{ status_filter }}&selected={{ r.process_id }}"
+           data-tt-docs-row="{{ r.process_id }}"
+           hx-get="/titulatec/admin/documents/body"
+           hx-vals='{"selected": {{ r.process_id }}, "page": {{ page.page }}}'
+           hx-include="#docs-filters"
            hx-target="#docs-body" hx-swap="innerHTML" hx-indicator="#docs-skel">
           <div class="flex-grow-1 min-w-0">
             <div style="font-size:.85rem;font-weight:600;color:var(--tt-ink)">{{ r.student }}</div>
@@ -31,9 +57,14 @@
           {% else %}<span class="tt-pill tt-pill--neutral">rev</span>{% endif %}
         </a>
         {% else %}
+        {% if q %}
+        <p class="mb-0" id="tt-docs-no-results"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados para "{{ q }}"</p>
+        {% else %}
         <p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">Sin documentos por revisar.</p>
+        {% endif %}
         {% endfor %}
       </div>
+      {{ pager(page, '/titulatec/admin/documents/body', '#docs-body', include='#docs-filters', swap='innerHTML', prefix='tt-docs') }}
     </div>
   </div>
 
@@ -59,7 +90,8 @@
          de la pestana (no la del parcial `/body`) con su filtro y su alumno,
          para que el Regresar del expediente devuelva aqui mismo. #}
       {% set VOLVER = ('/titulatec/admin/documents?status=' ~ (status_filter or '')
-                       ~ '&selected=' ~ detail.process_id) | urlencode %}
+                       ~ '&selected=' ~ detail.process_id ~ '&page=' ~ page.page
+                       ~ (('&q=' ~ (q | urlencode)) if q else '')) | urlencode %}
       <div class="tt-card mb-3 d-flex flex-wrap align-items-start justify-content-between gap-2">
         <div class="min-w-0">
           <span class="tt-kicker">{{ detail.folio }}</span>
@@ -136,6 +168,8 @@
         <form id="tt-review-form" class="mt-2"{% if detail.phase_closed %} data-phase-closed="1"{% endif %}>
           <input type="hidden" name="type_code" id="tt-review-type">
           <input type="hidden" name="status" value="{{ status_filter }}">
+          <input type="hidden" name="page" value="{{ page.page }}">
+          <input type="hidden" name="q" value="{{ q }}">
           <label class="tt-label">Comentario <span style="color:var(--tt-mute);font-weight:400">(obligatorio si rechazas)</span></label>
           <textarea name="note" id="tt-review-note" class="tt-field" rows="2" style="width:100%"
                     placeholder="Motivo del rechazo y la corrección esperada…"></textarea>

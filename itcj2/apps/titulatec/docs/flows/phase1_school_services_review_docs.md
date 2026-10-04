@@ -30,9 +30,17 @@
    con `assert_process_in_scope` (`:250` y `:281` respectivamente) → **404** fuera del alcance, así
    que el dictamen y su auto-avance de fase no pueden tocar un proceso de otra carrera. Ver
    [alcance por carrera](engine_officer_scope.md).
-3. Filtros: Todos / Por evaluar / Con rechazo / Completos (`partials/documents_body.html:8`).
-   Encabezado "N por evaluar" = suma de pendientes de las **filas ya filtradas**, no del scope
-   completo (`pages/documents.py:176-186`).
+3. Filtros: Todos / Por evaluar / Con rechazo / Completos y búsqueda por nombre, nº de control
+   (también en MAYÚSCULA) o folio (`#docs-filters`, `partials/documents_body.html`;
+   `process_search`, `services/process_service.py`). Encabezado "N por evaluar" y «Procesos (N)» =
+   del **universo filtrado** (alcance + búsqueda + pestaña), no de la página ni del scope completo.
+4. **Paginada (2026-10-04, spec `2026-10-04-titulatec-paginacion-design.md` §6)**: 50 procesos por
+   página (`utils/paging.PAGE_SIZE`), pager `‹ Anteriores · a–b de N · Siguientes ›`. Cambiar de
+   pestaña o de búsqueda vuelve a la página 1; el dictamen re-pinta la MISMA pestaña, página y
+   búsqueda (hidden `page`/`q` en `#tt-review-form`) y, si vació la última página, cae en la
+   última válida. `?selected=` pinta el detalle aunque el proceso caiga en otra página, siempre que
+   esté en el universo filtrado; fuera de él (otra pestaña, otra búsqueda, otra carrera) no hay
+   detalle.
 
 ## Secuencia
 
@@ -123,7 +131,26 @@ Existen copias en `partials/documents/_doc_viewer.html` y `partials/documents/_d
 
 O sea: la bandeja **no** usa esos parciales. Si tocas el visor, edita `documents_body.html`.
 
-## Lo que cuesta pintar la bandeja (arreglado 2026-09-02)
+## Lo que cuesta pintar la bandeja (arreglado 2026-09-02; dos pasadas desde 2026-10-04)
+
+**Hoy (paginación, 2026-10-04): dos pasadas, 5 consultas fijas de la vista** (3 de ellas a tablas
+`titulatec_*`) más la de eventos en «Por evaluar» — iguales con 2 procesos que con 40
+(`test_documents_inbox.py::test_el_contexto_completo_cuesta_lo_mismo_con_2_que_con_40`,
+`test_documents_paging.py::test_presupuesto_de_consultas_igual_con_2_y_con_40`).
+
+- **Pasada 1 — `_doc_states`** (todo el universo): procesos activos en alcance + búsqueda con
+  columnas ligeras (`id, created_at, current_phase, program_id, student_id, folio`), carreras
+  (nivel + nombre, una lectura) y documentos del set en juego (columnas de estado), más la fase
+  `initial_docs` solo si algún extra de posgrado no tiene fila. **Aquí, y solo aquí, vive la regla
+  de estados** (`pending`/`missing`/`excused`/`all_approved`). Sobre estos estados se quitan los
+  procesos sin ningún archivo, se filtra la pestaña, se ordena (FIFO de «Por evaluar» con
+  `_order_pending_by_wait`, sobre TODO el universo: la cola sigue entre páginas) y se cuenta.
+- **Pasada 2 — `_doc_present`** (solo los ≤50 de la página, y el detalle seleccionado si cae
+  fuera): usuarios y nombres de tipo de documento. No decide estados: los copia.
+- `_doc_rows(db, procs)` se conserva como `_doc_present(db, _doc_states(db, procs))`: 4 consultas
+  fijas (carreras, documentos, usuarios, tipos).
+
+Lo que sigue es la historia del arreglo original del N+1.
 
 `_body_ctx` resuelve las filas en **5 consultas fijas**, no en 4 por fila.
 

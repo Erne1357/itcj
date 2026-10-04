@@ -134,29 +134,44 @@ def test_la_lista_vacia_no_dispara_ninguna_consulta(db_session):
     assert len(c) == 0
 
 
-def test_el_contexto_completo_lee_titulatec_en_3_consultas(db_session, bandeja,
-                                                           make_head):
-    """`_body_ctx` de punta a punta: procesos + documentos + catalogo, y ya.
+_AUTHZ = ("core_permissions", "core_apps")
 
-    Se cuentan solo las tablas `titulatec_*` a proposito: lo demas (permisos,
-    alcance por carrera) es coste de autorizacion, no de esta vista, y varia
-    segun el actor y el estado del cache.
 
-    La jefa ve TODO, asi que a las filas del test se le suman las que ya haya en
-    la BD contra la que corre la suite (en dev, 28). Da igual: el invariante es
-    que la cuenta de consultas no dependa de cuantas sean.
+def test_el_contexto_completo_cuesta_lo_mismo_con_2_que_con_40(db_session, bandeja,
+                                                               make_head):
+    """`_body_ctx` de punta a punta, paginado en dos pasadas (spec 2026-10-04 §6).
+
+    Presupuesto FIJO medido (2026-10-04): **5 consultas de la vista** --
+    procesos (columnas ligeras), carreras (nivel + nombre), documentos
+    (pasada 1); usuarios y tipos de documento (pasada 2, solo la página) --,
+    de las que **3** tocan tablas `titulatec_*`. Lo demás es el coste de
+    autorizacion (`core_permissions`/`core_apps`: permisos y alcance), que no
+    es de esta vista y se excluye del presupuesto, pero tampoco puede crecer:
+    la cuenta TOTAL tiene que ser la misma con 2 procesos que con 40.
+
+    La jefa ve TODO, asi que a las filas del test se le suman las que ya haya
+    en la BD contra la que corre la suite. Da igual: el invariante es que la
+    cuenta no dependa de cuantas sean.
     """
     from itcj2.apps.titulatec.pages.documents import _body_ctx
 
-    mios = [bandeja() for _ in range(5)]
     jefa = make_head()
+    mios = [bandeja() for _ in range(2)]
     _body_ctx(db_session, user_id=jefa.id, status_filter=None, selected_id=None)
-    with _Contador(db_session.get_bind()) as c:
-        ctx = _body_ctx(db_session, user_id=jefa.id, status_filter=None, selected_id=None)
+    with _Contador(db_session.get_bind()) as c2:
+        ctx2 = _body_ctx(db_session, user_id=jefa.id, status_filter=None, selected_id=None)
 
-    vistos = {f["process_id"] for f in ctx["rows"]}
-    assert {p.id for p in mios} <= vistos
-    assert len(c.tocan("titulatec_")) == 3, "\n".join(c.tocan("titulatec_"))
+    mios += [bandeja() for _ in range(38)]
+    with _Contador(db_session.get_bind()) as c40:
+        ctx40 = _body_ctx(db_session, user_id=jefa.id, status_filter=None, selected_id=None)
+
+    assert {p.id for p in mios[:2]} <= {f["process_id"] for f in ctx2["rows"]}
+    assert ctx40["page"].total >= 40
+    assert len(c2) == len(c40), "\n".join(c40.sentencias)
+    for c in (c2, c40):
+        vista = [s for s in c.sentencias if not any(t in s for t in _AUTHZ)]
+        assert len(vista) == 5, "\n".join(vista)
+        assert len(c.tocan("titulatec_")) == 3, "\n".join(c.tocan("titulatec_"))
 
 
 # ---------------------------------------------------------------------------

@@ -160,7 +160,7 @@ def test_presupuesto_de_consultas_con_perfiles_mezclados(
         db_session, seed_document_types, make_program, make_cohort, make_student,
         make_process, make_document, make_head):
     """Mismo contador que `test_documents_inbox.py::
-    test_el_contexto_completo_lee_titulatec_en_3_consultas` (~linea 159):
+    test_el_contexto_completo_cuesta_lo_mismo_con_2_que_con_40`:
     solo tablas `titulatec_`, para no contar el coste de autorizacion. La
     linea base homogenea (solo licenciatura) mide 3; con perfiles mezclados
     el presupuesto es esa linea base + 1 como MAXIMO.
