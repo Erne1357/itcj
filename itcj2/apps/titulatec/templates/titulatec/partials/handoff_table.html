@@ -10,6 +10,7 @@
    (`submit`), para que Enter en el buscador dispare AJAX en vez de una
    navegación completa. El campo oculto `page=1` reinicia la paginación cada
    vez que cambia un filtro. #}
+{% from "titulatec/_macros.html" import pager %}
 <div id="tt-handoff-table" data-tt-view="handoff-table">
 
   {% if not no_programs %}
@@ -97,20 +98,7 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  {% set qs = '&cohort_id=' ~ (cohort_id or '') ~ '&program_id=' ~ (program_id or '') ~ '&modality_id=' ~ (modality_id or '') ~ '&q=' ~ (q | urlencode) %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberados/body?page={{ page - 1 }}{{ qs }}"
-            hx-target="#tt-handoff-table" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberados/body?page={{ page + 1 }}{{ qs }}"
-            hx-target="#tt-handoff-table" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {% set qs = '?cohort_id=' ~ (cohort_id or '') ~ '&program_id=' ~ (program_id or '') ~ '&modality_id=' ~ (modality_id or '') ~ '&q=' ~ (q | urlencode) %}
+  {{ pager(pg, '/titulatec/admin/liberados/body' ~ qs, '#tt-handoff-table', prefix='tt-liberados') }}
   {% endif %}
 </div>

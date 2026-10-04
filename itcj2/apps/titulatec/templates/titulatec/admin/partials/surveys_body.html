@@ -1,5 +1,6 @@
 {# Respuestas de la encuesta. Raíz `#tt-surveys-body`; todos los controles
    apuntan a ella con `hx-swap="outerHTML"`. #}
+{% from "titulatec/_macros.html" import pager %}
 <div id="tt-surveys-body" data-tt-view="surveys-body">
 
   {% if form %}
@@ -47,19 +48,6 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page - 1 }}"
-            hx-target="#tt-surveys-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page + 1 }}"
-            hx-target="#tt-surveys-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ pager(pg, '/titulatec/admin/encuestas/body?form_id=' ~ form.id, '#tt-surveys-body', prefix='tt-surveys') }}
   {% endif %}
 </div>

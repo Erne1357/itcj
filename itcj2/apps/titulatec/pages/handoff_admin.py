@@ -32,14 +32,13 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.handoff_admin")
 router = APIRouter(prefix="/admin/liberados", tags=["titulatec-pages-handoff"])
 
 _LIST = ["titulatec.handoff.page.list"]
 _EXPORT = ["titulatec.handoff.api.export"]
-
-_PAGE_SIZE = 50
 
 _CSV_HEADERS = ("No. control", "Nombre", "Correo", "Carrera", "Modalidad",
                 "Convocatoria", "Liberado el")
@@ -58,7 +57,8 @@ def _officer_scope(db, user_id: int):
     return officer_programs(db, user_id)
 
 
-def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: int) -> dict:
+def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: int,
+               per_page: int = PAGE_SIZE) -> dict:
     """Contexto del parcial. Distingue el alcance vacio (fail-closed, en
     silencio) de "sin resultados con este filtro" -- mismo riesgo que
     `requests_admin.py:_body_ctx` para la bandeja de Solicitudes."""
@@ -78,7 +78,7 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
 
     scope = _officer_scope(db, user_id)
     ctx = {
-        "rows": [], "total": 0, "page": max(1, page or 1), "has_more": False,
+        "rows": [], "total": 0, "page": max(1, page or 1), "pg": None,
         "cohort_id": cohort_id, "program_id": program_id, "modality_id": modality_id,
         "q": q or "", "no_programs": False,
         "cohorts": [], "programs": [], "modalities": [],
@@ -100,13 +100,12 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
 
     q_clean = (q or "").strip() or None
     page = max(1, page or 1)
-    rows, total = HandoffService.list_released(
+    pagina = HandoffService.list_released(
         db, allowed_program_ids=scope, cohort_id=cohort_id, program_id=program_id,
-        modality_id=modality_id, q=q_clean, page=page, per_page=_PAGE_SIZE,
+        modality_id=modality_id, q=q_clean, page=page, per_page=per_page,
     )
     ctx.update({
-        "rows": rows, "total": total, "page": page,
-        "has_more": (page * _PAGE_SIZE) < total,
+        "rows": pagina.items, "total": pagina.total, "page": pagina.page, "pg": pagina,
         "q": q_clean or "",
     })
     return ctx

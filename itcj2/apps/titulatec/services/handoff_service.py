@@ -30,6 +30,8 @@ from typing import Iterable, Literal
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, paginate_query
+
 _RELEASE_PHASE_CODE = "review_appointment"
 
 
@@ -144,29 +146,26 @@ class HandoffService:
 
     @staticmethod
     def list_released(db: Session, *, allowed_program_ids, cohort_id=None, program_id=None,
-                      modality_id=None, q=None, page=1, per_page=50
-                      ) -> tuple[list[ReleasedRow], int]:
-        """Filas de la bandeja + total (para paginar). Orden `released_at` desc,
-        desempate por `process_id` desc."""
+                      modality_id=None, q=None, page=1, per_page=PAGE_SIZE
+                      ) -> Page:
+        """Página de la bandeja (`Page` de `ReleasedRow`). Orden `released_at`
+        desc, desempate por `process_id` desc."""
         from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
 
         query = HandoffService._query(
             db, allowed_program_ids=allowed_program_ids, cohort_id=cohort_id,
             program_id=program_id, modality_id=modality_id, q=q,
         )
-        if query is None:
-            return [], 0
-
-        total = query.count()
         page = max(1, page or 1)
         per_page = max(1, per_page or 1)
-        rows = (
-            query.order_by(ProcessPhase.completed_at.desc(), TitulationProcess.id.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
-        return [HandoffService._row(*r) for r in rows], total
+        if query is None:
+            return Page(items=[], total=0, page=1, per_page=per_page)
+
+        pagina = paginate_query(
+            query.order_by(ProcessPhase.completed_at.desc(), TitulationProcess.id.desc()),
+            page, per_page)
+        return Page(items=[HandoffService._row(*r) for r in pagina.items],
+                    total=pagina.total, page=pagina.page, per_page=pagina.per_page)
 
     @staticmethod
     def export_rows(db: Session, *, allowed_program_ids, cohort_id=None, program_id=None,

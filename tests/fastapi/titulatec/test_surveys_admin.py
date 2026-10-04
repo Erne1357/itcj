@@ -5,6 +5,7 @@ hermana devuelve el parcial, nunca se olfatea `HX-Request`.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime
 
@@ -208,10 +209,12 @@ def test_las_respuestas_se_ordenan_de_la_mas_antigua_a_la_mas_nueva(
 def test_la_pagina_2_continua_a_la_1_en_el_mismo_orden_ascendente(
     client_as, db_session, make_head, monkeypatch,
 ):
-    """Pagina con `_PAGE_SIZE` chico a propósito: 3 respuestas y 2 por página
+    """Pagina con `per_page` chico a propósito: 3 respuestas y 2 por página
     dejan la 3a en la página 2, y sigue en el mismo orden que la 1."""
+    import functools
     import itcj2.apps.titulatec.pages.surveys_admin as surveys_admin
-    monkeypatch.setattr(surveys_admin, "_PAGE_SIZE", 2)
+    monkeypatch.setattr(surveys_admin, "_body_ctx",
+                        functools.partial(surveys_admin._body_ctx, per_page=2))
 
     head = make_head(perm_codes=SURVEY_PERMS)
     form = _make_form(db_session)
@@ -243,3 +246,26 @@ def test_la_pagina_2_continua_a_la_1_en_el_mismo_orden_ascendente(
     assert mas_antigua.control_number not in pagina2.text
     assert media.control_number not in pagina2.text
     assert "Anteriores" in pagina2.text
+    assert "1–2 de 3" in pagina1.text
+    assert "3–3 de 3" in pagina2.text
+
+
+def test_encuestas_muestra_rango_de_total(
+    client_as, db_session, make_head, monkeypatch,
+):
+    import functools
+    import itcj2.apps.titulatec.pages.surveys_admin as surveys_admin
+    monkeypatch.setattr(surveys_admin, "_body_ctx",
+                        functools.partial(surveys_admin._body_ctx, per_page=2))
+    form = _make_form(db_session)
+    for i in range(3):
+        _make_response(db_session, form, answers={"comentarios": "c"},
+                       control=f"9963001{i}", submitted_at=datetime(2001, 1, 1 + i, 9, 0))
+    c = client_as(make_head(perm_codes=SURVEY_PERMS))
+
+    # Fuera de rango cae a la última página válida.
+    html = c.get(f"{URL}/body?form_id={form.id}&page=9").text
+
+    assert "3–3 de 3" in html
+    prev = re.search(r'<button[^>]*id="tt-surveys-pager-prev"[^>]*>', html, re.S).group(0)
+    assert f"form_id={form.id}" in prev and '"page": 1' in prev

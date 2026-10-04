@@ -23,6 +23,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, paginate_query
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.surveys_admin")
 router = APIRouter(prefix="/admin/encuestas", tags=["titulatec-pages-surveys"])
@@ -30,8 +31,6 @@ router = APIRouter(prefix="/admin/encuestas", tags=["titulatec-pages-surveys"])
 _EXPORT = ["titulatec.survey.api.export"]
 _LIST = ["titulatec.survey.page.list"]
 _READ = ["titulatec.survey.api.read"]
-
-_PAGE_SIZE = 50
 
 
 def _to_int(raw):
@@ -74,7 +73,7 @@ def _forms(db):
             .order_by(SurveyForm.code, SurveyForm.version.desc()).all())
 
 
-def _body_ctx(db, *, form_id, page: int):
+def _body_ctx(db, *, form_id, page: int, per_page: int = PAGE_SIZE):
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import SurveyResponse
 
@@ -82,20 +81,20 @@ def _body_ctx(db, *, form_id, page: int):
     form = _resolve_form(db, form_id)
     ctx = {"forms": [{"id": f.id, "label": f"{f.code} v{f.version} ({f.status})"}
                      for f in forms],
-           "form": form, "rows": [], "page": page, "has_more": False,
+           "form": form, "rows": [], "page": page, "pg": None,
            "total": 0}
     if form is None:
         return ctx
 
     q = db.query(SurveyResponse).filter(SurveyResponse.form_id == form.id)
-    ctx["total"] = q.count()
     # FIFO (2026-09-24): orden de llegada, igual que `SurveyService
     # .export_rows` (que ya ordena por id ascendente) — el equipo revisa las
     # respuestas en el orden en que se enviaron.
-    rows = (q.order_by(SurveyResponse.submitted_at.asc(), SurveyResponse.id.asc())
-            .offset((page - 1) * _PAGE_SIZE).limit(_PAGE_SIZE + 1).all())
-    ctx["has_more"] = len(rows) > _PAGE_SIZE
-    rows = rows[:_PAGE_SIZE]
+    pagina = paginate_query(
+        q.order_by(SurveyResponse.submitted_at.asc(), SurveyResponse.id.asc()),
+        page, per_page)
+    ctx.update(total=pagina.total, page=pagina.page, pg=pagina)
+    rows = pagina.items
 
     user_ids = {r.user_id for r in rows if r.user_id}
     users = ({u.id: u for u in db.query(User).filter(User.id.in_(user_ids)).all()}
