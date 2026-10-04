@@ -2731,3 +2731,18 @@ button.tt-seat--libre { pointer-events: auto; }
   min-width: 0;
 }
 .tt-off-edit[hidden] { display: none; }
+
+/* ---- Paginador compartido de las bandejas admin ------------------------- */
+.tt-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-sp-3, 0.75rem);
+  margin-top: var(--tt-sp-3, 0.75rem);
+  min-width: 0;
+}
+.tt-pager-range {
+  font-size: 0.875rem;
+  color: var(--tt-text-2);
+  font-variant-numeric: tabular-nums;
+}
