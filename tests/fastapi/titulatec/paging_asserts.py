@@ -12,6 +12,9 @@ el espacio final). Además:
 * ese contenedor anuncia `data-tt-q-server` (el `q` con que se pintó), que lee
   `titulatec-utils.js::_syncPreservedSearch` para reponer el texto cuando una
   navegación cambia `q` sin pasar por el input.
+
+`include`: por omisión `#<filters_id>`; las bandejas viejas (Liberaciones,
+Biblioteca, Liberados) incluyen `closest form`.
 """
 from __future__ import annotations
 
@@ -20,7 +23,7 @@ import re
 import lxml.html
 
 
-def assert_buscador_preservado(html, *, input_id, filters_id, q):
+def assert_buscador_preservado(html, *, input_id, filters_id, q, include=None):
     doc = lxml.html.fromstring(html)
     (caja,) = doc.xpath('//*[@id="%s"]' % filters_id)
     inputs = caja.xpath('.//input[@id="%s"]' % input_id)
@@ -30,7 +33,7 @@ def assert_buscador_preservado(html, *, input_id, filters_id, q):
     assert inp.get("hx-preserve") == "true"
     assert inp.get("name") == "q"
     assert inp.get("value") == q, "la carga completa debe pre-llenar el buscador"
-    assert inp.get("hx-include") == "#" + filters_id
+    assert inp.get("hx-include") == (include or "#" + filters_id)
     assert caja.get("data-tt-q-server") == q
     return doc
 

@@ -69,13 +69,13 @@
 {%- endmacro %}
 <div id="tt-library-body" data-tt-view="library-body">
 
-  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+  <form id="tt-library-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}"
         hx-get="/titulatec/admin/biblioteca/body" hx-target="#tt-library-body" hx-swap="outerHTML">
     <input type="hidden" name="status" value="{{ status }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">
       <i class="bi bi-search"></i>
-      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+      <input type="search" id="tt-library-q" name="q" value="{{ q }}" hx-preserve="true" placeholder="Buscar control o nombre"
              aria-label="Buscar control o nombre" hx-get="/titulatec/admin/biblioteca/body"
              hx-target="#tt-library-body" hx-swap="outerHTML"
              hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">

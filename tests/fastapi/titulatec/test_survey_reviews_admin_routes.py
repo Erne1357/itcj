@@ -710,3 +710,21 @@ def test_liberaciones_muestra_rango_de_total(
     assert "Siguientes" in p1 and "Anteriores" in p2
     prev = re.search(r'<button[^>]*id="tt-liberaciones-pager-prev"[^>]*>', p2, re.S).group(0)
     assert "status=in_review" in prev and "q=PAGLIBZQ" in prev and '"page": 1' in prev
+
+
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    """hx-preserve en el buscador (mismo defecto que las bandejas nuevas):
+    id estable, q sigue viajando por `closest form` y en las pestañas."""
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+    proc = make_process(make_student(control_number="99500091"), current_phase=1)
+    make_survey_review(proc, status="in_review")
+    c = client_as(make_gtv())
+    for url in (URL, f"{URL}/body"):
+        html = c.get(url, params={"status": "in_review", "q": "99500091"}).text
+        assert_buscador_preservado(html, input_id="tt-releases-q",
+                                   filters_id="tt-releases-filters", q="99500091",
+                                   include="closest form")
+        tab = re.search(r'<button id="tt-rev-tab-approved"[^>]*>', html).group(0)
+        assert "q=99500091" in tab

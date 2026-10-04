@@ -1386,3 +1386,21 @@ def test_biblioteca_muestra_rango_de_total(
     assert "3–3 de 3" in p2
     prev = re.search(r'<button[^>]*id="tt-biblioteca-pager-prev"[^>]*>', p2, re.S).group(0)
     assert "status=pending" in prev and "q=PAGBIBZQ" in prev and '"page": 1' in prev
+
+
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """hx-preserve en el buscador: id estable, q sigue viajando."""
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    make_process(make_student(control_number="99600091"), cohort=cohort, current_phase=1,
+                library_clearance="pending")
+    c = client_as(make_library_staff())
+    for url in (URL, f"{URL}/body"):
+        html = c.get(url, params={"status": "pending", "q": "99600091"}).text
+        assert_buscador_preservado(html, input_id="tt-library-q",
+                                   filters_id="tt-library-filters", q="99600091",
+                                   include="closest form")
+        tab = re.search(r'<button id="tt-lib-tab-[a-z_]+"[^>]*q=99600091[^>]*>', html)
+        assert tab, "las pestañas deben arrastrar q"
