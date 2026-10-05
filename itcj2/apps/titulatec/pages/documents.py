@@ -299,7 +299,7 @@ def _body_ctx(db, *, user_id, status_filter, selected_id, q=None, page=1,
     from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.services.process_service import process_search
     from itcj2.apps.titulatec.services.scope_service import officer_programs
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
     q = normalize_q(q)
     page = parse_page(page)
@@ -311,7 +311,7 @@ def _body_ctx(db, *, user_id, status_filter, selected_id, q=None, page=1,
     # `POST .../document/review`, asi que "puede verlos" == "puede usarlos".
     can_review_docs = bool(
         user_id is not None
-        and get_user_permissions_for_app(db, user_id, "titulatec") & set(_REVIEW_PERMS)
+        and cached_perms(db, user_id, "titulatec") & set(_REVIEW_PERMS)
     )
     ctx = {"rows": [], "page": Page(items=[], total=0, page=1, per_page=per_page),
            "total_pending": 0, "status_filter": status_filter or "", "q": q or "",

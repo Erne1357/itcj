@@ -47,7 +47,11 @@
       </div>
       <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
     </div>
-    {% for it in admin_nav|default([]) %}
+    {# `admin_nav` llega como CALLABLE perezoso (`render_titulatec`): este es el UNICO
+       sitio que lo invoca, así que solo las páginas admin completas pagan el menú.
+       Si el contexto trae una lista ya resuelta, se usa tal cual. El `is defined`
+       va primero porque un `Undefined` de Jinja SÍ es «callable» (truena al invocarlo). #}
+    {% for it in (admin_nav() if (admin_nav is defined and admin_nav is callable) else admin_nav|default([])) %}
     <a href="{{ it.url }}"
        hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
        hx-swap="morph:outerHTML" hx-push-url="true"

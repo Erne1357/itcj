@@ -65,7 +65,7 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import Cohort, Modality
     from itcj2.apps.titulatec.services.handoff_service import HandoffService
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
     # Arreglo A5 (revision final 2026-09-21): el boton «Exportar CSV» se
     # pintaba sin comprobar `titulatec.handoff.api.export` -- justo el
@@ -73,7 +73,7 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
     # querer soportar ("alguien puede ver la bandeja sin poder descargarla").
     # Mismo criterio que `can_mark_reqs` (`pages/admin.py:1285-1291`): un
     # boton que dispara un GET que responde 403 es peor que no estar.
-    can_export = "titulatec.handoff.api.export" in get_user_permissions_for_app(
+    can_export = "titulatec.handoff.api.export" in cached_perms(
         db, user_id, "titulatec")
 
     scope = _officer_scope(db, user_id)

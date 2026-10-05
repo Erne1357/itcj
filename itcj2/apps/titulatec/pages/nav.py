@@ -145,13 +145,24 @@ _ADMIN_NAV = [
 ]
 
 
-def admin_nav_items(user_id: int) -> list[dict]:
-    """Items del menú admin visibles según los permisos del usuario en titulatec."""
-    from itcj2.database import SessionLocal
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+def admin_nav_items(user_id: int, db=None) -> list[dict]:
+    """Items del menú admin visibles según los permisos del usuario en titulatec.
+
+    Los permisos salen de `cached_perms`, la MISMA fuente que el gate
+    (`require_page_app`): con la caché tibia no emite ninguna consulta. Con `db`
+    usa esa sesión; sin ella abre la suya (`SessionLocal` no toma conexión del
+    pool hasta la primera consulta, así que con la caché tibia ni eso cuesta) —
+    `render_titulatec` no tiene la sesión de la ruta (cada ruta la cierra antes
+    de renderizar) y no hay que abrir una tercera.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
     try:
-        with SessionLocal() as db:
-            perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        if db is not None:
+            perms = cached_perms(db, user_id, "titulatec")
+        else:
+            from itcj2.database import SessionLocal
+            with SessionLocal() as _db:
+                perms = cached_perms(_db, user_id, "titulatec")
     except Exception as exc:
         logger.warning("Error obteniendo permisos titulatec para admin_nav (user %s): %s", user_id, exc)
         return []
@@ -182,11 +193,19 @@ def render_titulatec(
         "current_route": request.url.path,
         **(context or {}),
     }
-    # Inyectar admin_nav solo si no viene ya en el contexto y hay usuario autenticado.
+    # `admin_nav` es un CALLABLE perezoso, no una lista: el menú cuesta (permisos
+    # efectivos del usuario) y solo lo pinta `admin/base_admin.html`, que lo
+    # invoca. Jinja evalúa un callable del contexto únicamente donde la plantilla
+    # lo llama: las vistas del alumno y los parciales HTMX (que no extienden esa
+    # base) ya no pagan nada. Si el llamador trae su propio `admin_nav` en el
+    # contexto, se respeta.
     if "admin_nav" not in ctx and user is not None:
         try:
-            ctx["admin_nav"] = admin_nav_items(int(user["sub"]))
+            uid = int(user["sub"])
         except Exception as exc:
             logger.warning("Error calculando admin_nav para user %s: %s", user.get("sub"), exc)
-            ctx["admin_nav"] = []
+            ctx["admin_nav"] = lambda: []
+        else:
+            # `admin_nav_items` se resuelve como global del módulo al invocar.
+            ctx["admin_nav"] = lambda: admin_nav_items(uid)
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)

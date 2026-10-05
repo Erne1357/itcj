@@ -313,8 +313,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # que `ProcessService.cancel` deja vigente).
     can_register_prior = False
     if user_id is not None:
-        from itcj2.core.services.authz_service import get_user_permissions_for_app
-        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        from itcj2.core.services.authz_cache import cached_perms
+        _user_perms = cached_perms(db, user_id, "titulatec")
         can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
         can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
                               and proc.status != "cancelled")
@@ -2208,9 +2208,9 @@ _VISIBILIDADES = ("private", "bookable", "walkin")
 
 def _puede_todo(db, user_id: int) -> bool:
     """Si el usuario puede editar los espacios de CUALQUIERA (jefatura)."""
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
     try:
-        perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        perms = cached_perms(db, user_id, "titulatec")
     except Exception:
         return False
     return "titulatec.review_window.api.manage.all" in perms

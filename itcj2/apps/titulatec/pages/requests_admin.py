@@ -519,8 +519,8 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
         return ctx
 
     if ctx["can_act"]:
-        from itcj2.core.services.authz_service import get_user_permissions_for_app
-        ctx["can_revoke"] = _CANCEL[0] in get_user_permissions_for_app(
+        from itcj2.core.services.authz_cache import cached_perms
+        ctx["can_revoke"] = _CANCEL[0] in cached_perms(
             db, user_id, "titulatec")
 
     # KPIs y "por año de ingreso": MISMO alcance y convocatoria que el listado de

@@ -442,20 +442,16 @@ def test_hx_confirm_usa_el_articulo_las_en_plural(
 def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
     client_as, db_session, make_library_cert_staff, make_cert_process, monkeypatch,
 ):
-    """m29: `create_batch` llamaba `_visible_kinds` (-> 3 SELECT de
-    permisos vía `get_user_permissions_for_app`/`effective_perm_set`, sin
-    caché) DOS veces -- una para el 404 por `kind` ajeno, otra DENTRO de
+    """m29: `create_batch` llamaba `_visible_kinds` (-> permisos efectivos de
+    la app) DOS veces -- una para el 404 por `kind` ajeno, otra DENTRO de
     `_body_ctx` al repintar el parcial. `_body_ctx` ahora acepta `kinds` ya
     resuelto y `create_batch` se lo pasa.
 
-    Se cuenta `_visible_kinds` (el helper de ESTE módulo), no
-    `get_user_permissions_for_app` directo: la misma petición también pasa
-    por `require_page_app` (gate de página, vía `cached_perms`) y por
-    `render_titulatec` -> `admin_nav_items` (menú admin) -- las dos
-    resuelven permisos de `titulatec` POR SU CUENTA, sin relación con este
-    pendiente, y contarlas junto con `_visible_kinds` haría la prueba
-    depender de si el caché de Redis está tibio o frío (ajeno a lo que aquí
-    se arregla)."""
+    Se cuenta `_visible_kinds` (el helper de ESTE módulo), no la lectura de
+    permisos en sí: desde R2 (2026-10-05) todos pasan por `cached_perms`, pero
+    la misma petición también la hace el gate (`require_page_app`), así que
+    contarlas juntas haría la prueba depender de si el caché de Redis está
+    tibio o frío (ajeno a lo que aquí se arregla)."""
     import itcj2.apps.titulatec.pages.certificates_admin as certificates_admin
 
     staff = make_library_cert_staff()

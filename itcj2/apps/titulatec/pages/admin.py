@@ -580,14 +580,14 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
                         user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
     tab = tab if tab in ("resumen", "dias", "alumnos", "importar", "cotejo") else "resumen"
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
         if not cohort:
             return Response(status_code=404)
-        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
         ctx = {"cohort": cohort.to_dict(), "cohort_id": cohort_id, "tab": tab,
                "can_edit_days": "titulatec.cohort.api.review_days" in perms,
                "window_header": {"opens": _fecha_hora(cohort.opens_at),
@@ -608,9 +608,9 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx.update(_students_ctx(db, cohort_id, q="", phase=None, page=1))
         elif tab == "cotejo":
             # `_cotejo_reqs_ctx` vuelve a pedir los permisos (ya están en `perms`
-            # de arriba), pero `get_user_permissions_for_app` va por el caché de
-            # authz y la ruta suelta necesita el helper autocontenido: se deja la
-            # llamada tal cual para que el editor tenga UNA sola forma de armarse.
+            # de arriba), pero `cached_perms` es una lectura de Redis y la ruta
+            # suelta necesita el helper autocontenido: se deja la llamada tal
+            # cual para que el editor tenga UNA sola forma de armarse.
             ctx.update(_cotejo_reqs_ctx(db, cohort_id, int(user["sub"])))
     finally:
         db.close()
@@ -659,9 +659,9 @@ def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
-    perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    perms = cached_perms(db, user_id, "titulatec")
     reqs = CotejoRequirementService.list(db, cohort_id, active_only=False)
     return {
         "reqs": reqs,
@@ -876,7 +876,7 @@ async def cohort_window(
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cohort_service import CohortService
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
     from itcj2.apps.titulatec.models import Cohort
 
     db = SessionLocal()
@@ -918,7 +918,7 @@ async def cohort_window(
             # transacción de Postgres, nunca en el `except` entero.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
-        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)
     finally:
@@ -965,7 +965,7 @@ async def cohort_donation(
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.apps.titulatec.services.cohort_service import CohortService
     from itcj2.apps.titulatec.services.library_clearance_service import parse_amount
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
     db = SessionLocal()
     try:
@@ -978,7 +978,7 @@ async def cohort_donation(
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
-        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
         ctx = _donation_ctx(cohort, can_edit="titulatec.cohort.api.update" in perms)
     finally:
         db.close()
@@ -1630,8 +1630,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_revoke = False
     can_register_prior = False
     if user_id is not None:
-        from itcj2.core.services.authz_service import get_user_permissions_for_app
-        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        from itcj2.core.services.authz_cache import cached_perms
+        _user_perms = cached_perms(db, user_id, "titulatec")
         # Sobre una inscripción revocada el checklist queda de solo lectura:
         # acreditarle un requisito ya no mueve nada.
         can_mark_reqs = ("titulatec.process.api.requirement.mark" in _user_perms

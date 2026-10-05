@@ -23,7 +23,7 @@ Gate de página -ÚNICO código, spec §4.6-: `titulatec.certificate.page.list`
 en las CUATRO rutas. Es el permiso de ENTRAR a la página. Qué tipos puede de
 verdad VER cada actor es una pregunta aparte, que resuelve el ÚNICO helper de
 este archivo (`_visible_kinds`), leyendo sus permisos efectivos de la app
-(`get_user_permissions_for_app`) contra `library_clearance.api.
+(`cached_perms`, la misma fuente que el gate) contra `library_clearance.api.
 print_certificates` / `survey_review.api.print_certificates`. El reparto real
 del DML siempre concede ambos códigos juntos (`biblioteca_2026_10/
 21_insert_library_cashier_roles_perms.sql`), pero el helper no lo asume: una
@@ -162,9 +162,9 @@ def _visible_kinds(db, user_id: int) -> list[str]:
     permisos). ÚNICO lugar del archivo que resuelve esta pregunta -las cuatro
     rutas pasan por aquí, ver docstring del módulo-: un `kind` real fuera de
     esta lista responde 404."""
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
-    perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    perms = cached_perms(db, user_id, "titulatec")
     return [k for k in CERT_KINDS if _KIND_PERM[k] in perms]
 
 
