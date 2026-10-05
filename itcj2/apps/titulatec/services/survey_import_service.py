@@ -162,7 +162,8 @@ _NO = {"no", "n", "false", "0"}
 # escoger aunque la pregunta no aplicara («No trabajo», «No estudio»,
 # «Desempleado (a)», «Ninguno», «N0»...), ya en forma `_option_key`. En un
 # campo OCULTO por `visible_when` equivalen a «sin respuesta» (la plataforma
-# descarta los ocultos); en uno visible, un radio centinela se guarda raw.
+# descarta los ocultos); un valor REAL en un campo oculto se guarda raw (D1),
+# y en uno visible, un radio centinela también se guarda raw.
 _SENTINELS = frozenset({
     "no trabajo", "no estudio", "desempleado a", "desempleado", "desempleada",
     "ninguno", "ninguna", "n0", "no", "na", "n a", "no aplica",
@@ -463,30 +464,40 @@ class SurveyImportService:
         return texto, False
 
     @staticmethod
-    def normalize_answers(campos: dict, answers_raw: dict) -> dict[str, tuple[object, bool]]:
+    def normalize_answers(campos: dict, answers_raw: dict,
+                          stats: Optional[dict] = None) -> dict[str, tuple[object, bool]]:
         """Fila completa -> `{key: (valor, is_raw)}` sin los vacíos, aplicando
         `visible_when` como la plataforma (`survey_validator.is_visible`, el
         MISMO evaluador; contra los valores YA normalizados de la fila):
 
-        * campo OCULTO no-texto (radio/scale/...) -> no se guarda (la
-          plataforma descarta los ocultos; «No trabajo» en un radio oculto no
-          es un raw, es «no aplica»);
-        * campo OCULTO de texto -> no se guarda si es un centinela
-          (`_SENTINELS`); si trae otra cosa se conserva tal cual;
+        * campo OCULTO cuyo texto original es un centinela (`_SENTINELS`:
+          «No trabajo», «No estudio», «Desempleado (a)», «Ninguno», «N0»/«NO»)
+          -> no se guarda: es el «no aplica» que Forms obligaba a escribir;
+        * campo OCULTO con un valor REAL (no centinela), de cualquier tipo ->
+          se conserva con su texto ORIGINAL y `is_raw=True` (ruling de la
+          revisión final, D1 «ninguna respuesta se pierde»: la plataforma
+          descarta los ocultos, pero el egresado sí contestó algo);
         * si alguna llave de la condición quedó raw, la visibilidad no se
           puede evaluar y el campo se trata como visible (no se pierde nada).
+
+        `stats` (opcional, se acumula): `cells` (celdas guardadas), `raw`
+        (de ellas, `is_raw`) y `hidden_kept` (ocultas con valor real,
+        guardadas como originales).
         """
         from itcj2.apps.titulatec.utils.survey_validator import is_visible
 
         norm: dict[str, tuple[object, bool]] = {}
+        originales: dict[str, object] = {}
         for key, crudo in (answers_raw or {}).items():
             campo = campos.get(key) or {"key": key, "type": "text"}
             valor, es_raw = SurveyImportService.normalize(campo, crudo)
             if valor is not None:
                 norm[key] = (valor, es_raw)
+                originales[key] = crudo
 
         canonicos = {k: v for k, (v, r) in norm.items() if not r}
         crudos = {k for k, (_, r) in norm.items() if r}
+        ocultas_reales = 0
         for key in list(norm):
             campo = campos.get(key) or {}
             condicion = campo.get("visible_when")
@@ -500,13 +511,71 @@ class SurveyImportService:
                 visible = True
             if visible:
                 continue
-            valor, _ = norm[key]
-            if (campo.get("type") or "text") in ("text", "textarea"):
-                if _option_key(valor) in _SENTINELS:
-                    del norm[key]
-            else:
+            original = _as_text(originales[key])
+            if _option_key(original) in _SENTINELS:
                 del norm[key]
+                continue
+            norm[key] = (original, True)
+            ocultas_reales += 1
+
+        if stats is not None:
+            stats["cells"] = stats.get("cells", 0) + len(norm)
+            stats["raw"] = stats.get("raw", 0) + sum(1 for _, r in norm.values() if r)
+            stats["hidden_kept"] = stats.get("hidden_kept", 0) + ocultas_reales
         return norm
+
+    # ------------------------------------------------------------------
+    # Encuesta pública: ¿ya contestó en Forms?
+    # ------------------------------------------------------------------
+    @staticmethod
+    def pending_import_for_user(db: Session, user_id: Optional[int]) -> Optional[dict]:
+        """Respuesta de Forms IMPORTADA que espera la inscripción del egresado
+        (decisión del usuario tras la revisión final): `{"response_id",
+        "submitted_at"}` o `None`.
+
+        Solo cuenta si su liberación quedó DIFERIDA y todavía puede aplicarse:
+        `PriorClearance(kind='survey')` del control del usuario, sin aplicar
+        (`applied_process_id IS NULL`), vigente (`issued_on >= hoy -
+        PRIOR_VALIDITY_DAYS`) y ligada a una respuesta `identity_source=
+        'import'` de un formulario `egresados` (cualquier versión). Así el
+        aviso «se liberará cuando completes tu inscripción» siempre es cierto:
+        una importada que no liberará nada (vencida, sin control válido) no
+        congela la encuesta y el egresado puede contestarla aquí.
+
+        La consultan `pages/public.py::_solicitud_existente` (tarjeta de
+        estatus en lugar del formulario) y `SurveyService.submit` (rechazo del
+        envío, del lado del servidor). Solo lectura."""
+        from datetime import timedelta
+
+        from itcj2.apps.titulatec.models import PriorClearance, SurveyForm, SurveyResponse
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            PRIOR_VALIDITY_DAYS,
+        )
+        from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE
+        from itcj2.core.models.user import User
+        from itcj2.core.utils.timezone import db_now
+
+        if user_id is None:
+            return None
+        user = db.get(User, int(user_id))
+        control = ((getattr(user, "control_number", None) or "").strip().upper()
+                   if user is not None else "")
+        if not control:
+            return None
+        limite = db_now().date() - timedelta(days=PRIOR_VALIDITY_DAYS)
+        fila = (db.query(SurveyResponse.id, SurveyResponse.submitted_at)
+                .join(PriorClearance, PriorClearance.response_id == SurveyResponse.id)
+                .join(SurveyForm, SurveyForm.id == SurveyResponse.form_id)
+                .filter(PriorClearance.kind == "survey",
+                        PriorClearance.control_number == control,
+                        PriorClearance.applied_process_id.is_(None),
+                        PriorClearance.issued_on >= limite,
+                        SurveyResponse.identity_source == "import",
+                        SurveyForm.code == SURVEY_CODE)
+                .first())
+        if fila is None:
+            return None
+        return {"response_id": fila[0], "submitted_at": fila[1]}
 
     # ------------------------------------------------------------------
     # Liga respuesta <-> proceso
@@ -534,14 +603,19 @@ class SurveyImportService:
     # ------------------------------------------------------------------
     @staticmethod
     def import_rows(db: Session, rows: list[dict], *, source: str,
-                    dry_run: bool = False) -> dict[str, list[dict]]:
+                    dry_run: bool = False,
+                    stats: Optional[dict] = None) -> dict[str, list[dict]]:
         """Importa las filas de `read_xlsx`. Devuelve los 7 botes de
         `IMPORT_BUCKETS`; cada item `{"control_number", "reason", "ms_id"}`.
 
         `ValueError` si no hay formulario `egresados` abierto. `dry_run`
         clasifica todo (incluida la liberación, en `dry_run` también del
         lado de `PriorClearanceService`) sin escribir nada; si no, UN commit
-        al final."""
+        al final.
+
+        `stats` (opcional): se llena con `cells`/`raw`/`hidden_kept` de las
+        respuestas que se guardan (o se guardarían, en `dry_run`); ver
+        `normalize_answers`."""
         from itcj2.apps.titulatec.models import SurveyResponse
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
         from itcj2.apps.titulatec.services.prior_clearance_service import (
@@ -619,10 +693,13 @@ class SurveyImportService:
                      "esta respuesta ya se había importado", row["ms_id"])
                 continue
 
+            normalizadas = SurveyImportService.normalize_answers(
+                campos, row.get("answers_raw") or {}, stats=stats)
             response_id = None
             if not dry_run:
                 response_id = SurveyImportService._write_response(
-                    db, form, campos, row, import_ref=import_ref)
+                    db, form, campos, row, import_ref=import_ref,
+                    normalizadas=normalizadas)
             guardadas.append((row, response_id))
 
             if row["control_ok"]:
@@ -669,7 +746,7 @@ class SurveyImportService:
 
     @staticmethod
     def _write_response(db: Session, form, campos: dict, row: dict, *,
-                        import_ref: str) -> int:
+                        import_ref: str, normalizadas: Optional[dict] = None) -> int:
         """`SurveyResponse` importada + sus `SurveyAnswer`. Devuelve el id.
 
         Ruling (fix round 1): `user_id` siempre que exista el User del control
@@ -689,8 +766,9 @@ class SurveyImportService:
                    .order_by(TitulationProcess.id.desc()).first()
                    if user is not None else None)
 
-        normalizadas = SurveyImportService.normalize_answers(
-            campos, row.get("answers_raw") or {})
+        if normalizadas is None:
+            normalizadas = SurveyImportService.normalize_answers(
+                campos, row.get("answers_raw") or {})
 
         response = SurveyResponse(
             form_id=form.id, form_version=form.version,

@@ -69,6 +69,8 @@ def test_dry_run_no_escribe(tmp_path, db_session, patched_session_local, form):
     assert res.exit_code == 0, res.output
     assert "Guardadas, liberación diferida: 1" in res.output
     assert "no se escribió nada" in res.output
+    assert "ocultas con valor real (guardadas como originales): 0" in res.output
+    assert "con valor original (raw): " in res.output
     assert _respuestas(db_session, form) == 0
 
 

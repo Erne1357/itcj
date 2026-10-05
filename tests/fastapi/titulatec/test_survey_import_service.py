@@ -305,9 +305,15 @@ class TestVisibilidad:
         assert "tipo_estudio" not in out
         assert out["actividad_actual"] == ("Trabaja", False)
 
-    def test_radio_oculto_con_valor_real_tampoco(self):
-        out = self._n({"actividad_actual": "Trabaja", "tipo_estudio": "Maestría"})
-        assert "tipo_estudio" not in out
+    def test_radio_oculto_con_valor_real_se_conserva_raw(self):
+        # Ruling de la revisión final (D1): un valor REAL en un campo oculto
+        # no se pierde; se guarda con su texto original y `is_raw=True`.
+        stats = {}
+        out = _svc().normalize_answers(
+            _CAMPOS_VIS, {"actividad_actual": "Trabaja", "tipo_estudio": "Maestría"},
+            stats=stats)
+        assert out["tipo_estudio"] == ("Maestría", True)
+        assert stats == {"cells": 2, "raw": 1, "hidden_kept": 1}
 
     def test_radio_visible_con_centinela_queda_raw(self):
         out = self._n({"actividad_actual": "Estudia", "tipo_estudio": "Ninguno"})
@@ -315,21 +321,84 @@ class TestVisibilidad:
 
     @pytest.mark.parametrize("centinela", ["No trabajo", "no trabajo.", "N0", "NO"])
     def test_texto_oculto_centinela_no_se_guarda(self, centinela):
-        out = self._n({"actividad_actual": "Estudia", "nombre_empresa": centinela})
+        stats = {}
+        out = _svc().normalize_answers(
+            _CAMPOS_VIS, {"actividad_actual": "Estudia", "nombre_empresa": centinela},
+            stats=stats)
         assert "nombre_empresa" not in out
+        assert stats["hidden_kept"] == 0
 
-    def test_texto_oculto_con_dato_se_conserva_sin_raw(self):
+    def test_texto_oculto_con_dato_se_conserva_raw(self):
         out = self._n({"actividad_actual": "Estudia", "nombre_empresa": "ACME"})
-        assert out["nombre_empresa"] == ("ACME", False)
+        assert out["nombre_empresa"] == ("ACME", True)
 
-    def test_escala_oculta_no_se_guarda(self):
+    def test_escala_oculta_con_valor_real_se_conserva_con_su_texto_original(self):
         out = self._n({"actividad_actual": "Estudia", "scale_titulado": "Mucho 5"})
-        assert "scale_titulado" not in out
+        assert out["scale_titulado"] == ("Mucho 5", True)
+
+    @pytest.mark.parametrize("centinela", ["No estudio", "Desempleado (a)", "Ninguno"])
+    def test_radio_oculto_con_centinela_tampoco_se_guarda(self, centinela):
+        out = self._n({"actividad_actual": "Trabaja", "tipo_estudio": centinela})
+        assert "tipo_estudio" not in out
+
+    def test_visible_no_cuenta_como_oculta(self):
+        stats = {}
+        _svc().normalize_answers(
+            _CAMPOS_VIS, {"actividad_actual": "Estudia", "tipo_estudio": "Maestría"},
+            stats=stats)
+        assert stats == {"cells": 2, "raw": 0, "hidden_kept": 0}
 
     def test_fuente_raw_no_oculta_nada(self):
         out = self._n({"actividad_actual": "Jubilado", "tipo_estudio": "No estudio"})
         assert out["actividad_actual"] == ("Jubilado", True)
         assert out["tipo_estudio"] == ("No estudio", True)
+
+
+def _form_con_oculta(make_survey_form):
+    """`egresados` abierto donde `nombre_empresa` solo se ve si trabaja."""
+    import copy
+    import uuid
+
+    from tests.fastapi.titulatec._survey_xlsx import SCHEMA
+
+    schema = copy.deepcopy(SCHEMA)
+    for campo in schema["fields"]:
+        if campo["key"] == "nombre_empresa":
+            campo["visible_when"] = {"actividad_actual": ["Trabaja", "Estudia y trabaja"]}
+    return make_survey_form(code="egresados", version=100000 + uuid.uuid4().int % 800000,
+                            status="open", schema=schema)
+
+
+class TestOcultasConValorReal:
+    """Ruling de la revisión final (D1): una oculta con valor REAL se guarda
+    raw; una oculta centinela no. El dry-run las cuenta igual que la real."""
+
+    def test_dry_run_y_real_cuentan_y_guardan_raw(self, db_session, reloj,
+                                                  make_survey_form):
+        form = _form_con_oculta(make_survey_form)
+        filas = [fila(91, control="99600131", answers={
+                     "actividad_actual": "Estudia", "nombre_empresa": "ACME"}),
+                 fila(92, control="99600132", answers={
+                     "actividad_actual": "Estudia", "nombre_empresa": "No trabajo"})]
+        rows = _svc().read_xlsx(build_xlsx(filas))
+
+        en_seco: dict = {}
+        with patch(NOTIFY):
+            _svc().import_rows(db_session, rows, source="e.xlsx", dry_run=True,
+                               stats=en_seco)
+        assert en_seco["hidden_kept"] == 1
+        assert _respuestas(db_session, form) == []
+
+        real: dict = {}
+        with patch(NOTIFY):
+            _svc().import_rows(db_session, rows, source="e.xlsx", stats=real)
+        assert real == en_seco
+
+        por_control = {r.control_number: r for r in _respuestas(db_session, form)}
+        acme = _answer(db_session, por_control["99600131"].id, "nombre_empresa")
+        assert acme.is_raw is True and acme.value_text == "ACME"
+        assert por_control["99600131"].answers["nombre_empresa"] == "ACME"
+        assert "nombre_empresa" not in por_control["99600132"].answers
 
 
 # ---------------------------------------------------------------------------
