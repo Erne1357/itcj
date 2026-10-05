@@ -212,6 +212,15 @@ class ClearanceConflict(ValueError):
     Nada se escribe: se levanta antes de mutar."""
 
 
+class ClearanceObserved(ValueError):
+    """La fila está «Con observaciones» (spec 2026-10-05 §3.2): cualquier
+    transición que no sea Observar o Rehabilitar la rechaza con
+    `_MSG_OBSERVADO`. Sigue siendo un `ValueError` (los llamadores viejos y el
+    lote la tratan como una regla más); Caja la distingue para RE-PINTAR un
+    «Por cobrar» viejo en vez de un 400 sin swap (Review Focus 1), sin
+    comparar el estado fuera de los dueños (invariante 2)."""
+
+
 # ---------------------------------------------------------------------------
 # Dinero
 # ---------------------------------------------------------------------------
@@ -1707,7 +1716,7 @@ class LibraryClearanceService:
         """Con «Con observaciones» solo Observar y Rehabilitar aplican (spec
         2026-10-05 §3.2): todo lo demás responde `_MSG_OBSERVADO`."""
         if clearance.status == "observed":
-            raise ValueError(_MSG_OBSERVADO)
+            raise ClearanceObserved(_MSG_OBSERVADO)
 
     @staticmethod
     def _assert_needs_clearance(db: Session, process) -> None:

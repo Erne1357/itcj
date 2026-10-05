@@ -4,7 +4,9 @@ El Centro de Información (rol `titulatec_library`, puesto «Biblioteca · No
 adeudo») trabaja aquí la cola FIFO de TODA inscripción aceptada
 (`LibraryClearance`, Tarea 4): «Sin adeudo» (fila y lote), «Con adeudo…»
 (monto + nota) y «Constancia previa…» (fecha + nota) desde «Por revisar»;
-«Corregir…» desde «En caja»; «Revertir…»/«Deshacer…» desde «Liberados».
+«Corregir…» desde «En caja»; «Revertir…»/«Deshacer…» desde «Liberados»;
+«Observar…» desde «Por revisar»/«En caja» y, en «Con observaciones»,
+«Actualizar observación…» y «Rehabilitar» (spec 2026-10-05 §3.5).
 
 Cada ruta lleva EXACTAMENTE un código en `perms=[...]`: la lista es OR
 (`itcj2/dependencies.py:131`), así que un código de más abre la bandeja
@@ -58,6 +60,7 @@ _REVERT = ["titulatec.library_clearance.api.revert"]
 _TABS = (
     ("pending", "Por revisar"),
     ("awaiting_payment", "En caja"),
+    ("observed", "Con observaciones"),
     ("cleared", "Liberados"),
 )
 _TAB_KEYS = tuple(key for key, _ in _TABS)
@@ -323,6 +326,63 @@ async def revert(clearance_id: int, request: Request,
         uid = int(user["sub"])
         try:
             LibraryClearanceService.revert_clearance(db, clearance_id, uid, reason)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as e:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
+        ctx = _body_ctx(db, status=status, q=q, page=page)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/library_body.html", ctx)
+
+
+@router.post("/{clearance_id}/observar", name="titulatec.pages.library.observe")
+async def observe(clearance_id: int, request: Request,
+                  user: dict = Depends(require_page_app("titulatec", perms=_REGISTER))):
+    """Observar (desde «Por revisar»/«En caja») o Actualizar observación (desde
+    «Con observaciones»): mismo verbo en el service
+    (`LibraryClearanceService.observe`, spec 2026-10-05 §3.2/§3.5). Motivo
+    obligatorio (form `reason`); re-pinta la pestaña/página/búsqueda de donde
+    vino. Reglas de negocio -> 400 + `X-Tt-Error` (vía `_hdr`)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    form = await request.form()
+    reason = form.get("reason") or ""
+    status, q, page = form.get("status"), form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        try:
+            LibraryClearanceService.observe(db, clearance_id, reason=reason, actor_id=uid)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as e:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
+        ctx = _body_ctx(db, status=status, q=q, page=page)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/library_body.html", ctx)
+
+
+@router.post("/{clearance_id}/rehabilitar", name="titulatec.pages.library.reenable")
+async def reenable(clearance_id: int, request: Request,
+                   user: dict = Depends(require_page_app("titulatec", perms=_REGISTER))):
+    """Rehabilitar: `observed` -> `pending` («Por revisar») con los montos
+    que tuviera (`LibraryClearanceService.reenable`, spec 2026-10-05 §3.2).
+    Re-pinta la pestaña/página/búsqueda de donde vino."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    form = await request.form()
+    status, q, page = form.get("status"), form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        try:
+            LibraryClearanceService.reenable(db, clearance_id, actor_id=uid)
         except LookupError:
             return Response(status_code=404)
         except ValueError as e:

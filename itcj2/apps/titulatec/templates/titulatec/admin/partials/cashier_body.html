@@ -60,12 +60,16 @@
    (búsqueda / «Por cobrar»). `revoked` manda siempre, aunque el `status`
    real siga diciendo «Por cobrar»/«Pagado»/etc. -- la columna de acciones ya
    NO repite «Revocada» (dice «Sin acciones en Caja», como cualquier otra
-   fila sin acción), para no mostrarla dos veces en el mismo renglón. #}
+   fila sin acción), para no mostrarla dos veces en el mismo renglón.
+   `observed` (spec 2026-10-05 §3.4): «Con observaciones (Biblioteca)» -la
+   detuvo Biblioteca; Caja no tiene acción sobre ella. #}
 {% macro caja_pill(r) %}
   {%- if r.revoked -%}
     {{ pill("Revocada", "neutral") }}
   {%- elif r.status == "awaiting_payment" -%}
     {{ pill("Por cobrar " ~ format_amount(r.total), "navy", "cash-coin") }}
+  {%- elif r.status == "observed" -%}
+    {{ pill("Con observaciones (Biblioteca)", "danger", "exclamation-triangle") }}
   {%- elif r.status == "cleared" and r.via == "payment" -%}
     {{ pill("Pagado", "success", "cash-coin") }}
   {%- elif r.status == "cleared" -%}

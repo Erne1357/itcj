@@ -19,6 +19,11 @@
    - «Liberados»: píldora + fecha; «Deshacer…» (previa) o «Revertir…» (sin
      cargo/legado) según `can_revert`; un pago se revierte DESDE CAJA, no
      aquí (el service lo rechaza con 400 si se intenta).
+   - «Por revisar»/«En caja» también: «Observar…» (motivo obligatorio en un
+     `<textarea>`, spec 2026-10-05 §3.5) -> «Con observaciones».
+   - «Con observaciones»: motivo, quién y cuándo bajo la píldora;
+     «Actualizar observación…» (mismo endpoint `/observar`, textarea
+     precargada) y «Rehabilitar» (-> «Por revisar», montos intactos).
    - Inscripción revocada (`r.revoked`, cualquier pestaña): sin acciones
      (todas responderían 400), píldora «Revocada» -la columna «Constancia»
      SÍ conserva su celda (Review Focus #5 de
@@ -172,6 +177,11 @@
             Liberado el {{ r.updated_at.strftime('%d/%m/%Y') if r.updated_at else '—' }}
             {%- endif -%}
           </span>
+          {% elif r.status == 'observed' %}
+          <br><span class="small tt-td-wrap">{{ r.observation_reason or '—' }}</span>
+          <br><span class="small text-body-secondary">
+            {{- r.observed_by or '—' }} · {{ r.observed_at.strftime('%d/%m/%Y %H:%M') if r.observed_at else '—' -}}
+          </span>
           {% endif %}
         </td>
         <td>{{ certificate_cell(r.certificate, prior=(r.via == 'prior'), legacy=(r.via == 'legacy'), revoked=r.revoked) }}</td>
@@ -212,6 +222,15 @@
                      aria-label="Nota de la constancia previa de {{ r.student }}">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
             </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Observar"
+                  hx-confirm="Observar|¿Registrar observaciones a {{ r.student }}? Queda detenido hasta que Biblioteca lo rehabilite.">
+              {{ tab_fields(status, q, page) }}
+              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
+                        placeholder="Motivo de la observación" aria-label="Motivo de la observación de {{ r.student }}"></textarea>
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar…</button>
+            </form>
           {% elif r.status == 'awaiting_payment' %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
                   hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
@@ -225,6 +244,32 @@
               <input class="tt-field tt-field--xs" name="note" maxlength="1000" value="{{ r.note or '' }}"
                      placeholder="Nota" aria-label="Nota del adeudo de {{ r.student }}">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Corregir…</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Observar"
+                  hx-confirm="Observar|¿Registrar observaciones a {{ r.student }}? Queda detenido hasta que Biblioteca lo rehabilite.">
+              {{ tab_fields(status, q, page) }}
+              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
+                        placeholder="Motivo de la observación" aria-label="Motivo de la observación de {{ r.student }}"></textarea>
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar…</button>
+            </form>
+          {% elif r.status == 'observed' %}
+            <form class="d-inline" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/rehabilitar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Rehabilitar"
+                  hx-confirm="Rehabilitar|¿Rehabilitar a {{ r.student }}? Vuelve a «Por revisar» con sus montos.">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ink">Rehabilitar</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
+                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Actualizar"
+                  hx-confirm="Actualizar observación|¿Actualizar el motivo de la observación de {{ r.student }}?">
+              {{ tab_fields(status, q, page) }}
+              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
+                        aria-label="Nuevo motivo de la observación de {{ r.student }}">{{ r.observation_reason or '' }}</textarea>
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Actualizar observación…</button>
             </form>
           {% elif r.status == 'cleared' %}
             {% if r.can_revert and r.via == 'prior' %}

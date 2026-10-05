@@ -20,7 +20,8 @@ El buscador tiene PRECEDENCIA sobre las pestañas (spec
 `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md` §4.8):
 con `q` no vacío se listan resultados de `search` en cualquier estado, con la
 píldora PROPIA de Caja (E11, macro `caja_pill` de `cashier_body.html`): «En
-Biblioteca», «Por cobrar $X», «Pagado» o «Liberado» -- nunca la compartida
+Biblioteca», «Por cobrar $X», «Con observaciones (Biblioteca)», «Pagado» o
+«Liberado» -- nunca la compartida
 `library_clearance_pill` (spec `2026-10-02-titulatec-constancias-y-pendientes-
 design.md`: E11 en §2, m27 en la tabla de §3.7). Sin importar la pestaña
 activa; limpiar el buscador regresa a la pestaña. Sin `q`: «Por cobrar»
@@ -128,6 +129,10 @@ def _expected_total(raw):
         raise ValueError("El total no es válido; recarga la bandeja e intenta de nuevo.")
 
 
+_MSG_CAJA_OBSERVADO = ("Biblioteca registró observaciones en este caso: ya no está por "
+                       "cobrar. No se registró ningún pago.")
+
+
 def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ, igual que en `library_admin.py`. Con `q` se listan los
@@ -215,10 +220,12 @@ async def pay(clearance_id: int, request: Request,
     Biblioteca corrigió el monto mientras tanto (`ClearanceConflict`, Ruling
     R24) se responde 200 con la bandeja RE-PINTADA -el monto vigente a la
     vista, para volver a confirmar- y el motivo en `X-Tt-Notice` (warning);
-    las demás reglas siguen en 400 + `X-Tt-Error`."""
+    lo mismo si Biblioteca la OBSERVÓ entretanto (spec 2026-10-05: re-pinta
+    con `_MSG_CAJA_OBSERVADO`, nunca cobra). Las demás reglas siguen en 400 +
+    `X-Tt-Error`."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        ClearanceConflict, LibraryClearanceService,
+        ClearanceConflict, ClearanceObserved, LibraryClearanceService,
     )
 
     form = await request.form()
@@ -237,6 +244,13 @@ async def pay(clearance_id: int, request: Request,
             return Response(status_code=404)
         except ClearanceConflict as e:
             choque = str(e)
+        except ClearanceObserved:
+            # «Por cobrar» viejo en pantalla: Biblioteca lo OBSERVÓ mientras
+            # tanto (spec 2026-10-05 §3.2/§3.5, Review Focus 1). No se cobra,
+            # y como en el choque de monto (R24) se re-pinta la bandeja -la
+            # fila ya sin «Registrar pago»- con el aviso, en vez de un 400
+            # sin swap que dejaría la fila vieja ofreciendo cobrar.
+            choque = _MSG_CAJA_OBSERVADO
         except ValueError as e:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
         ctx = _body_ctx(db, tab=tab, q=q, dia=dia, page=page)
