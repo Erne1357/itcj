@@ -478,6 +478,12 @@ class TestImportacion:
         assert previa.response_id == resp.id
         assert previa.paper_pending is True
         assert previa.issued_on == datetime(2026, 6, 15).date()
+        # `created_at` es el `NOW()` REAL de Postgres (el `reloj` solo parchea
+        # `db_now()`); el folio de una diferida sale de esa fecha (D5 de los
+        # folios), así que se fija al día de la prueba: sin esto el semestre
+        # esperado (2026A) cambiaría con el reloj real a partir de 2027.
+        previa.created_at = HOY_FIJO
+        db_session.flush()
 
         proc = proceso(control_number="99600102")
         with patch(NOTIFY):
