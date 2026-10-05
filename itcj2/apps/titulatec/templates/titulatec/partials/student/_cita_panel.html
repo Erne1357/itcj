@@ -77,6 +77,9 @@
            no hay nada que el alumno pueda resolver él mismo. #}
         <div class="mt-1">
           {{ library_clearance_pill(it.library.status, it.library.via) }}
+          {%- if it.library.status == 'observed' and it.library.observation %}
+            — {{ it.library.observation }}
+          {%- endif %}
         </div>
         {% endif %}
         {% if it.survey_url %}

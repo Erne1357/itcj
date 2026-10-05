@@ -235,7 +235,7 @@ class LibraryNotCleared(AppointmentError):
     (`ClearanceGate.library_required`, invariante 8). Entrada del usuario
     (400, no colisión de estado): lo que hay en pantalla sigue siendo verdad,
     solo falta que Biblioteca o Caja lo liberen. `status` viaja en la
-    excepción —`missing` | `pending` | `awaiting_payment`, el `library` de
+    excepción —`missing` | `pending` | `awaiting_payment` | `observed`, el `library` de
     `ClearanceGate.status`— y `missing` (sin fila) se dice igual que
     `pending`: Biblioteca todavía no lo revisa.
     """
@@ -246,6 +246,9 @@ class LibraryNotCleared(AppointmentError):
         "awaiting_payment": ("El no adeudo de biblioteca de este alumno está pendiente de "
                              "pago en Caja (Recursos Financieros). Se podrá agendar "
                              "cuando lo pague."),
+        # Spec 2026-10-05 §3.4: Biblioteca lo detuvo con un motivo.
+        "observed": ("Biblioteca registró observaciones en el no adeudo de este alumno. "
+                     "Se podrá agendar cuando Biblioteca lo rehabilite y lo libere."),
     }
 
     def __init__(self, status: str, msg: str | None = None):

@@ -80,7 +80,7 @@ LIBRARY_NOT_APPLICABLE = "not_applicable"
 # Dominios CERRADOS de `status`/`status_map` (los fija la prueba): todo valor
 # que sale de aquí es uno de estos, y cada uno tiene respuesta en `blockers`.
 SURVEY_STATES = ("missing", "in_review", "approved", "rejected")
-LIBRARY_STATES = ("missing", "pending", "awaiting_payment", "cleared",
+LIBRARY_STATES = ("missing", "pending", "awaiting_payment", "observed", "cleared",
                   LIBRARY_NOT_REQUIRED, LIBRARY_NOT_APPLICABLE)
 
 # El estado que LIBERA cada una. Son las únicas comparaciones contra
@@ -95,14 +95,17 @@ _LIBRARY_FREE = (_LIBRARY_RELEASED, LIBRARY_NOT_REQUIRED, LIBRARY_NOT_APPLICABLE
 # _CLEARANCE_REASONS`, las excepciones de `AppointmentService.create`), así que
 # nunca sale de aquí un código fuera de esta lista.
 SURVEY_BLOCKERS = ("survey_missing", "survey_in_review", "survey_rejected")
-LIBRARY_BLOCKERS = ("library_pending", "library_awaiting_payment")
+# `library_observed` (spec 2026-10-05 §3.4): Biblioteca lo DETUVO con un
+# motivo («Con observaciones»); bloquea hasta que lo rehabilite y dictamine.
+LIBRARY_BLOCKERS = ("library_pending", "library_awaiting_payment", "library_observed")
 BLOCKERS = SURVEY_BLOCKERS + LIBRARY_BLOCKERS
 
 _SURVEY_BLOCKER = {"missing": "survey_missing", "in_review": "survey_in_review",
                    "rejected": "survey_rejected"}
 # `missing` (sin fila) cuenta como pendiente: Biblioteca todavía no lo revisa.
 _LIBRARY_BLOCKER = {"missing": "library_pending", "pending": "library_pending",
-                    "awaiting_payment": "library_awaiting_payment"}
+                    "awaiting_payment": "library_awaiting_payment",
+                    "observed": "library_observed"}
 
 
 class ClearanceGate:

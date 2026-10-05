@@ -202,7 +202,7 @@
              sí porque esta vista YA tiene `process` a la mano (no se toca la
              macro compartida, la usan +12 vistas). #}
           <div class="tt-req-meta">
-            {%- set no_adeudo_revocado = process.status == 'cancelled' and library.status in ('missing', 'pending', 'awaiting_payment') -%}
+            {%- set no_adeudo_revocado = process.status == 'cancelled' and library.status in ('missing', 'pending', 'awaiting_payment', 'observed') -%}
             {%- if no_adeudo_revocado -%}
               <span class="tt-pill tt-pill--neutral">Revocada</span>
             {%- else -%}
@@ -210,6 +210,8 @@
             {%- endif %}
             {%- if library.status == 'awaiting_payment' and not no_adeudo_revocado %}
               — Por cobrar {{ format_amount(library.total) }} en Caja
+            {%- elif library.status == 'observed' and not no_adeudo_revocado and library.observation %}
+              — {{ library.observation }}
             {%- elif library.status == 'cleared' and library.via == 'prior' %}
               — Constancia previa{% if library.prior_issued_on %} del {{ library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if library.prior_note %} — {{ library.prior_note }}{% endif %}
             {%- elif library.status == 'cleared' and library.via == 'legacy' %}

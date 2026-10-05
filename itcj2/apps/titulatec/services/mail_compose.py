@@ -117,6 +117,8 @@ _FALTA = {
     "library_pending": "que el Centro de Información revise tu no adeudo de biblioteca",
     "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu no "
                                  "adeudo de biblioteca"),
+    "library_observed": ("atender en la Biblioteca (Centro de Información) las observaciones "
+                         "a tu no adeudo de biblioteca"),
 }
 # El de Caja con su total congelado, cuando se conoce.
 _FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu no adeudo "

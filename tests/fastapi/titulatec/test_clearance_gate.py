@@ -349,8 +349,8 @@ class TestBlockers:
         from itcj2.apps.titulatec.services.library_clearance_service import NOT_APPLICABLE
 
         assert mod.SURVEY_STATES == ("missing", "in_review", "approved", "rejected")
-        assert mod.LIBRARY_STATES == ("missing", "pending", "awaiting_payment", "cleared",
-                                      "not_required", "not_applicable")
+        assert mod.LIBRARY_STATES == ("missing", "pending", "awaiting_payment", "observed",
+                                      "cleared", "not_required", "not_applicable")
         assert mod.LIBRARY_NOT_APPLICABLE == NOT_APPLICABLE == "not_applicable"
         libres = set()
         for estado in mod.LIBRARY_STATES:
@@ -384,7 +384,8 @@ class TestBlockers:
         from itcj2.apps.titulatec.services import clearance_gate as mod
 
         assert mod.BLOCKERS == ("survey_missing", "survey_in_review", "survey_rejected",
-                                "library_pending", "library_awaiting_payment")
+                                "library_pending", "library_awaiting_payment",
+                                "library_observed")
         assert set(mod.SURVEY_BLOCKERS) | set(mod.LIBRARY_BLOCKERS) == set(mod.BLOCKERS)
 
 
@@ -793,8 +794,10 @@ _METODOS_FILA_UNICA = ("first", "one", "one_or_none", "scalar")
 # nombre, nunca se filtra por él; ver el porqué en `_compara_dict_status`-.
 # Sin `in_review`/`approved`/`rejected`/`pending`/`missing`: Ruling R9, los
 # usan fases, documentos y Formato B también -un literal compartido no
-# identifica una liberación-.
-_LITERALES_EXCLUSIVOS_DE_LIBERACION = {"awaiting_payment", "cleared"}
+# identifica una liberación-. `observed` (spec 2026-10-05 §3.4, «Con
+# observaciones») también es exclusivo -barrido: solo modelo, dueño y
+# macros-, así que entra igual que los otros dos.
+_LITERALES_EXCLUSIVOS_DE_LIBERACION = {"awaiting_payment", "observed", "cleared"}
 
 
 def _fuentes():
@@ -1131,6 +1134,10 @@ def f(resumen):
     "dict: x['status'] in (…literal exclusivo…)": """
 def f(resumen):
     return resumen["status"] in ("awaiting_payment", "cleared")
+""",
+    "dict: x['status'] == 'observed' (spec 2026-10-05)": """
+def f(resumen):
+    return resumen["status"] == "observed"
 """,
 }
 

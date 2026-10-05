@@ -292,6 +292,7 @@ class PhaseService:
         "missing": "en revision por Biblioteca",
         "pending": "en revision por Biblioteca",
         "awaiting_payment": "pendiente de pago en Caja",
+        "observed": "con observaciones de Biblioteca",
     }
 
     # `auto_source` del requisito -> (llave de `ClearanceGate.status`, sufijos).

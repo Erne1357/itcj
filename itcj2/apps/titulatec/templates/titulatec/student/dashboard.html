@@ -275,6 +275,13 @@
                     {% if ph.library.note %}
                     <p class="tt-prose mb-0 mt-2">{{ ph.library.note }}</p>
                     {% endif %}
+                    {% elif ph.library.status == 'observed' %}
+                    {# Spec 2026-10-05 §3.4: igual que la encuesta `rejected` de
+                       arriba -- el aviso y, debajo, el motivo de Biblioteca. #}
+                    <p class="tt-prose mb-0 mt-2">Biblioteca registró observaciones en tu no adeudo. Acude a la Biblioteca (Centro de Información) para resolverlas.</p>
+                    {% if ph.library.observation %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
+                    {% endif %}
                     {% elif ph.library.status == 'cleared' and ph.library.via == 'prior' %}
                     <p class="tt-prose mb-0 mt-2">Constancia previa registrada: llévala a tu cotejo.</p>
                     {% elif ph.library.status == 'cleared' %}

@@ -1233,6 +1233,12 @@ _EVENT_UI = {
     "library_payment_reverted":     ("Caja revirtió el pago",     "arrow-counterclockwise", "amber"),
     "library_clearance_reverted":   ("Biblioteca revirtió la liberación", "arrow-counterclockwise", "amber"),
     "library_prior_undone":         ("Se deshizo la constancia previa", "arrow-counterclockwise", "amber"),
+    # «Con observaciones» (spec 2026-10-05 §3.4), gemelos de `survey_review_
+    # rejected`/`_revoked`. El motivo viaja en `reason` y `_evento_detalle` lo
+    # pinta; el de rehabilitar guarda el anterior como `previous_reason`, que
+    # a propósito no se repite (ya está en su `library_observed`).
+    "library_observed":             ("Biblioteca registró observaciones", "chat-left-text", "amber"),
+    "library_reenabled":            ("Biblioteca lo rehabilitó",  "arrow-clockwise",        "neutral"),
 }
 
 # Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la

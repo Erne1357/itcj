@@ -256,7 +256,7 @@
                  aquí sí porque esta vista YA tiene `detail.process` a la mano
                  (no se toca la macro compartida, la usan +12 vistas). #}
               <div class="tt-req-meta">
-                {%- set no_adeudo_revocado = detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending', 'awaiting_payment') -%}
+                {%- set no_adeudo_revocado = detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending', 'awaiting_payment', 'observed') -%}
                 {%- if no_adeudo_revocado -%}
                   <span class="tt-pill tt-pill--neutral">Revocada</span>
                 {%- else -%}
@@ -264,6 +264,8 @@
                 {%- endif %}
                 {%- if detail.library.status == 'awaiting_payment' and not no_adeudo_revocado %}
                   — Por cobrar {{ format_amount(detail.library.total) }} en Caja
+                {%- elif detail.library.status == 'observed' and not no_adeudo_revocado and detail.library.observation %}
+                  — {{ detail.library.observation }}
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
                   — Constancia previa{% if detail.library.prior_issued_on %} del {{ detail.library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if detail.library.prior_note %} — {{ detail.library.prior_note }}{% endif %}
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'legacy' %}

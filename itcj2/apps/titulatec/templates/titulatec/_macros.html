@@ -99,10 +99,13 @@
    NEUTRA «No aplica (cotejo ya liberado)» -la ven SE y la cola; las vistas
    del egresado ni siquiera la piden-. Las dos de «liberado» llevan el libro y
    no la palomita de «Liberada»: puestas lado a lado en la cola, se
-   distinguen de un vistazo. #}
+   distinguen de un vistazo. `observed` (spec 2026-10-05 §3.4): Biblioteca lo
+   detuvo con un motivo -«Con observaciones», tono danger, igual que la
+   encuesta `rejected`-; el motivo lo pinta cada vista junto a la píldora. #}
 {% macro library_clearance_pill(status, via=None) %}
   {% if status in ("missing", "pending") %}{{ pill("En Biblioteca", "amber", "book") }}
   {% elif status == "awaiting_payment" %}{{ pill("Por pagar en Caja", "navy", "cash-coin") }}
+  {% elif status == "observed" %}{{ pill("Con observaciones", "danger", "exclamation-triangle") }}
   {% elif status == "cleared" and via == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
   {% elif status == "cleared" %}{{ pill("Liberado", "success", "book") }}
   {% elif status == "not_applicable" %}{{ pill("No aplica (cotejo ya liberado)", "neutral", "dash-circle") }}

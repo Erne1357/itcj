@@ -105,6 +105,13 @@ class SelfBookingService:
         "pago_pendiente": ("Pasa a Caja (Recursos Financieros) a pagar {total}; no "
                            "necesitas cita. Podrás agendar en cuanto se libere tu no "
                            "adeudo."),
+        # Spec 2026-10-05-titulatec-biblioteca-observaciones §3.4: Biblioteca
+        # lo detuvo con un motivo («Con observaciones»). Lo resuelve EN la
+        # Biblioteca; el motivo lo ve en su tablero y en «Mi cita».
+        "biblioteca_con_observaciones": ("Biblioteca registró observaciones en tu no "
+                                         "adeudo: acude a la Biblioteca (Centro de "
+                                         "Información) para resolverlas. Podrás agendar "
+                                         "en cuanto se libere tu no adeudo."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
         # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
         # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.
@@ -122,7 +129,7 @@ class SelfBookingService:
 
     # Traduce el PRIMER bloqueo de `ClearanceGate.blockers` (regla 3: la
     # encuesta primero, luego el no adeudo de biblioteca) al código de razón
-    # de la tabla de §3. Vive junto a `MENSAJES` porque los cinco valores de
+    # de la tabla de §3. Vive junto a `MENSAJES` porque los seis valores de
     # este dict SON llaves de `MENSAJES`, y sus llaves son el conjunto cerrado
     # `clearance_gate.BLOCKERS` (lo cruza `test_clearance_gate.py`).
     _CLEARANCE_REASONS: dict[str, str] = {
@@ -131,6 +138,7 @@ class SelfBookingService:
         "survey_rejected": "encuesta_con_observaciones",
         "library_pending": "biblioteca_en_revision",
         "library_awaiting_payment": "pago_pendiente",
+        "library_observed": "biblioteca_con_observaciones",
     }
 
     # ------------------------------------------------------------- utilería

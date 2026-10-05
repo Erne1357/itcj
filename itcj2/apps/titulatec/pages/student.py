@@ -327,6 +327,9 @@ _EVENT_LABELS = {
     "library_payment_reverted":    "Se revirtió tu pago de biblioteca",
     "library_clearance_reverted":  "Se revirtió tu no adeudo de biblioteca",
     "library_prior_undone":        "Se deshizo tu constancia previa de biblioteca",
+    # «Con observaciones» (spec 2026-10-05 §3.4).
+    "library_observed":            "Biblioteca registró observaciones en tu no adeudo",
+    "library_reenabled":           "Biblioteca te rehabilitó; volverá a revisar tu no adeudo",
 }
 
 
@@ -371,7 +374,8 @@ _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el 
 # el de `MENSAJES`-. El predicado exacto es `SelfBookingService.
 # cita_ocupa_el_cotejo` (gemelo del que ya usaba `mail_compose.py::
 # _que_falta`, D11/Ruling R17).
-_LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente")
+_LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente",
+                             "biblioteca_con_observaciones")
 _LIBRARY_BLOCK_WITH_CITA_MSG = (
     "Ya tienes una cita de cotejo. Tu no adeudo de biblioteca debe quedar "
     "liberado (Biblioteca y, si corresponde, Caja) para que Servicios "
