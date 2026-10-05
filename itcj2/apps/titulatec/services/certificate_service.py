@@ -32,6 +32,11 @@ CONSULTA a `TitulationProcess` es `_pending_criteria` (el `NOT EXISTS` de
 lee la instancia de proceso que le pasa el dueño (alumno, convocatoria y su
 periodo, carrera) para congelar sus datos en la constancia.
 
+`list_folios` (spec folios 2026-10-05 §3.6) es la lectura de la pestaña «Folios»
+(`pages/certificates_admin.py`): por `kind`, con búsqueda por folio / control /
+nombre, filtro de estado (`FOLIO_ESTADOS`) y paginación; lee SOLO
+`titulatec_certificates`, igual que las dos anteriores.
+
 Reglas fijas, iguales a `SurveyReviewService`:
 
 * Métodos `@staticmethod`, `db: Session` primero, imports de modelos y de
@@ -51,12 +56,18 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page
 from itcj2.core.utils.timezone import db_now
 
 # Semestre del folio: año de 4 cifras + `A` (enero-junio) o `B`
 # (julio-diciembre). `re.ASCII` para que `\d` no acepte dígitos Unicode, y se
 # usa con `fullmatch` (un `$` con `match` dejaría pasar un «\n» final).
 SEMESTER_RE = re.compile(r"^\d{4}[AB]$", re.ASCII)
+
+# Filtro de estado de la pestaña «Folios» (`list_folios`, spec folios
+# 2026-10-05 §3.6), en el orden en que la página pinta sus chips. Cualquier
+# otro valor cae en `vigentes`.
+FOLIO_ESTADOS = ("vigentes", "anulados", "todos")
 
 
 def semester_key(when: date | datetime) -> str:
@@ -305,6 +316,67 @@ class CertificateService:
             .scalar()
         )
         return total or 0
+
+    @staticmethod
+    def list_folios(db: Session, *, kind: str, q: str | None = None,
+                    estado: str = "vigentes", per_page: int = PAGE_SIZE,
+                    page: int = 1) -> Page:
+        """Página de folios de `kind` para la pestaña «Folios» (spec folios
+        2026-10-05 §3.6): `issued_at DESC, id DESC`, paginada con
+        `utils/paging.paginate_query` (una página fuera de rango cae en la
+        última válida). Lee SOLO `titulatec_certificates` (invariante 4): ni
+        el proceso ni las tablas de liberación, los datos del egresado salen
+        de lo CONGELADO al emitir.
+
+        `estado`: `vigentes` (sin anular), `anulados` o `todos`; cualquier
+        otro valor (incluido `None`) cae en `vigentes`. `q` se normaliza aquí
+        con `normalize_q` (`strip()`, 100 caracteres, vacío o solo espacios =
+        sin filtro) y busca en `number`, `control_number` (también en
+        MAYÚSCULA, la forma de `CONTROL_NUMBER_RE`) y `student_name`, en
+        `ILIKE` con la diagonal invertida, `%` y `_` escapados (`like_pattern`).
+
+        Los items son dicts, no filas del ORM: `number`, `student_name`,
+        `control_number`, `program_name`, `issued_at`, `voided_at`,
+        `void_reason` (formatear fechas es tarea de quien pinte). Un `kind`
+        fuera de `CERT_KINDS` da `ValueError`.
+        """
+        from dataclasses import replace
+
+        from sqlalchemy import or_
+
+        from itcj2.apps.titulatec.models.certificate import Certificate
+        from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q, paginate_query
+
+        if kind not in CERT_KINDS:
+            raise ValueError(f"Tipo de constancia desconocido: {kind!r}.")
+
+        query = (
+            db.query(Certificate.number, Certificate.student_name,
+                     Certificate.control_number, Certificate.program_name,
+                     Certificate.issued_at, Certificate.voided_at,
+                     Certificate.void_reason)
+            .filter(Certificate.kind == kind)
+        )
+        if estado == "anulados":
+            query = query.filter(Certificate.voided_at.isnot(None))
+        elif estado != "todos":
+            query = query.filter(Certificate.voided_at.is_(None))
+
+        q = normalize_q(q)
+        if q is not None:
+            patron = like_pattern(q)
+            query = query.filter(or_(
+                Certificate.number.ilike(patron, escape="\\"),
+                Certificate.control_number.ilike(patron, escape="\\"),
+                Certificate.control_number == q.upper(),
+                Certificate.student_name.ilike(patron, escape="\\"),
+            ))
+
+        # Desempate por `id` (§18 regla 1): `issued_at` empata dentro de una
+        # misma transacción (`NOW()`) y entre lotes de una importación.
+        query = query.order_by(Certificate.issued_at.desc(), Certificate.id.desc())
+        pagina = paginate_query(query, page, per_page)
+        return replace(pagina, items=[fila._asdict() for fila in pagina.items])
 
     # ------------------------------------------------------- estado de impresión
     @staticmethod

@@ -1,6 +1,15 @@
-"""Página de Constancias (`pages/certificates_admin.py`), lotes e impresión.
+"""Página «Folios» (`pages/certificates_admin.py`; antes «Constancias»).
 
-El Centro de Información (no adeudo de biblioteca) y Gestión Tecnológica y
+Desde `2026-10-05-titulatec-folios-design.md` §3.6 la página es la tabla de
+folios con buscador (`list_folios`, pestañas por `kind`, chips de estado,
+paginación) y, SOLO con el switch de impresión encendido (`printing_on`), debajo
+va la parte de impresión de la ronda del 2026-10-01/02, que se describe en el
+resto de este docstring: el bloque «Pestaña «Folios»» de más abajo cubre lo
+nuevo, y las pruebas de lotes/PDF/«Por imprimir» piden `printing_on` y afirman
+lo mismo que antes. Con el switch apagado, lote y PDF dan 404 y ninguna vista
+menciona la impresión.
+
+Parte de impresión (switch encendido) -- El Centro de Información (no adeudo de biblioteca) y Gestión Tecnológica y
 Vinculación -GTV- (encuesta de egresados) comparten esta MISMA página -cada
 quien ve solo los `kind` de `CERT_KINDS` que puede imprimir (D15)-: «Por
 imprimir (N)» -> «Generar lote (N)» (confirmación) -> el PDF del lote (2 o 3
@@ -32,6 +41,8 @@ solo importa el CONJUNTO de permisos que el gate y el helper por tipo exigen.
 from __future__ import annotations
 
 import itertools
+import re
+from datetime import datetime
 
 import pytest
 
@@ -232,7 +243,7 @@ def test_encendido_el_pdf_del_lote_sigue_respondiendo_200(
     assert resp.headers["content-type"] == "application/pdf"
 
 
-def test_el_menu_solo_muestra_constancias_con_el_permiso(
+def test_el_menu_solo_muestra_folios_con_el_permiso(
     client_as, make_head, make_library_cert_staff,
 ):
     sin_permiso = client_as(make_head()).get("/titulatec/admin/documents")
@@ -242,7 +253,7 @@ def test_el_menu_solo_muestra_constancias_con_el_permiso(
     con_permiso = client_as(make_library_cert_staff()).get(URL)
     assert con_permiso.status_code == 200, con_permiso.text[:500]
     assert "/titulatec/admin/constancias" in con_permiso.text
-    assert "Constancias" in con_permiso.text
+    assert "Folios" in con_permiso.text
 
 
 # ---------------------------------------------------------------------------
@@ -431,18 +442,18 @@ def test_hx_confirm_usa_el_articulo_las_en_plural(
 def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
     client_as, db_session, make_library_cert_staff, make_cert_process, monkeypatch,
 ):
-    """m29: `create_batch` llamaba `_printable_kinds` (-> 3 SELECT de
+    """m29: `create_batch` llamaba `_visible_kinds` (-> 3 SELECT de
     permisos vía `get_user_permissions_for_app`/`effective_perm_set`, sin
     caché) DOS veces -- una para el 404 por `kind` ajeno, otra DENTRO de
     `_body_ctx` al repintar el parcial. `_body_ctx` ahora acepta `kinds` ya
     resuelto y `create_batch` se lo pasa.
 
-    Se cuenta `_printable_kinds` (el helper de ESTE módulo), no
+    Se cuenta `_visible_kinds` (el helper de ESTE módulo), no
     `get_user_permissions_for_app` directo: la misma petición también pasa
     por `require_page_app` (gate de página, vía `cached_perms`) y por
     `render_titulatec` -> `admin_nav_items` (menú admin) -- las dos
     resuelven permisos de `titulatec` POR SU CUENTA, sin relación con este
-    pendiente, y contarlas junto con `_printable_kinds` haría la prueba
+    pendiente, y contarlas junto con `_visible_kinds` haría la prueba
     depender de si el caché de Redis está tibio o frío (ajeno a lo que aquí
     se arregla)."""
     import itcj2.apps.titulatec.pages.certificates_admin as certificates_admin
@@ -452,20 +463,20 @@ def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
     _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
 
     llamadas = []
-    original = certificates_admin._printable_kinds
+    original = certificates_admin._visible_kinds
 
     def _contador(db, user_id):
         llamadas.append(user_id)
         return original(db, user_id)
 
-    monkeypatch.setattr(certificates_admin, "_printable_kinds", _contador)
+    monkeypatch.setattr(certificates_admin, "_visible_kinds", _contador)
 
     resp = client_as(staff).post(
         f"{URL}/library_clearance/lote",
         data={"page_library_clearance": "1", "page_survey_release": "1"})
 
     assert resp.status_code == 200, resp.text[:500]
-    assert len(llamadas) == 1, f"_printable_kinds se llamó {len(llamadas)} veces, se esperaba 1"
+    assert len(llamadas) == 1, f"_visible_kinds se llamó {len(llamadas)} veces, se esperaba 1"
 
 
 @pytest.mark.usefixtures("printing_on")
@@ -792,6 +803,622 @@ def test_body_ctx_agrega_pending_rows_y_voided_rows(
     }]
     assert seccion["pending_count"] == 1
     assert seccion["voided_rows"] == []
+
+
+# ---------------------------------------------------------------------------
+# Pestaña «Folios» (spec folios 2026-10-05 §3.6): con el switch APAGADO (el
+# default) la página es la tabla de folios con buscador; la impresión de abajo
+# solo existe con `printing_on`.
+#
+# La BD de dev es COMPARTIDA y trae constancias reales y un lote real: cada
+# prueba siembra SUS filas con un semestre SINTÉTICO (`2091A`, números
+# `BIB-2091A-0001`…) y un apellido-marcador `ZZ…`, y mira solo esas filas
+# (`?q=<marcador>`). Nunca afirma sobre totales ni sobre «Sin folios todavía»
+# de un tipo real sin aislarlo (`list_folios` parchado).
+# ---------------------------------------------------------------------------
+_SEM = "2091A"
+
+
+@pytest.fixture()
+def emitir_folio(db_session, make_user, make_student, make_process, make_cohort):
+    """Fábrica de folios con egresado propio. `last` es el marcador de
+    búsqueda; `issued_at`/`anular` se fijan DESPUÉS de emitir (`NOW()` es
+    constante dentro de la transacción de la prueba)."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    cohort = make_cohort()
+    emisor = make_user(first_name="EMISOR", last_name="FOLIOS")
+
+    def _emitir(kind="library_clearance", *, last="ZZFOLIOS", first="ALUMNO",
+                control=None, issued_at=None, anular=None, semester=_SEM):
+        alumno = make_student(control_number=control, first_name=first, last_name=last)
+        proc = make_process(alumno, cohort=cohort)
+        cert = CertificateService.issue(
+            db_session, kind=kind, process=proc,
+            source_ref=f"{kind}:tcp{next(_ref_counter)}", actor_id=emisor.id,
+            semester=semester)
+        if issued_at is not None:
+            cert.issued_at = issued_at
+        if anular is not None:
+            CertificateService.void(db_session, source_ref=cert.source_ref,
+                                    actor_id=emisor.id, reason=anular)
+        db_session.flush()
+        return cert
+
+    return _emitir
+
+
+@pytest.fixture()
+def tres_por_pagina(monkeypatch):
+    """Las pruebas de ruta de las bandejas paginadas parchean `_body_ctx` con
+    `per_page=3` (Ruling R2): nunca la constante."""
+    import functools
+
+    from itcj2.apps.titulatec.pages import certificates_admin
+
+    monkeypatch.setattr(certificates_admin, "_body_ctx",
+                        functools.partial(certificates_admin._body_ctx, per_page=3))
+
+
+def _filas(html):
+    import lxml.html
+
+    doc = lxml.html.fromstring(html)
+    return doc.xpath('//tr[starts-with(@id, "tt-folio-row-")]')
+
+
+def _numeros_en(html):
+    return [tr.get("id").removeprefix("tt-folio-row-") for tr in _filas(html)]
+
+
+def _texto(el):
+    return " ".join("".join(el.itertext()).split())
+
+
+def test_biblioteca_ve_solo_bib_y_sin_pestanas(client_as, emitir_folio, make_library_cert_staff):
+    bib = emitir_folio("library_clearance", last="ZZSOLOBIB")
+    gtv = emitir_folio("survey_release", last="ZZSOLOBIB")
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZSOLOBIB"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert _numeros_en(resp.text) == [bib.number]
+    assert gtv.number not in resp.text
+    assert "No adeudo de biblioteca" in resp.text
+    assert 'id="tt-folio-tab-library_clearance"' not in resp.text
+    assert 'id="tt-folio-tab-survey_release"' not in resp.text
+
+
+def test_gtv_ve_solo_gtv_y_sin_pestanas(client_as, emitir_folio, make_gtv_cert_staff):
+    bib = emitir_folio("library_clearance", last="ZZSOLOGTV")
+    gtv = emitir_folio("survey_release", last="ZZSOLOGTV")
+
+    resp = client_as(make_gtv_cert_staff()).get(URL, params={"q": "ZZSOLOGTV"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert _numeros_en(resp.text) == [gtv.number]
+    assert bib.number not in resp.text
+    assert "Liberación de encuesta de egresados" in resp.text
+    assert 'id="tt-folio-tab-survey_release"' not in resp.text
+
+
+def test_admin_ve_las_pestanas_y_kind_cambia_la_tabla(
+    client_as, emitir_folio, make_both_cert_staff,
+):
+    bib = emitir_folio("library_clearance", last="ZZAMBOS")
+    gtv = emitir_folio("survey_release", last="ZZAMBOS")
+    staff = make_both_cert_staff()
+
+    por_omision = client_as(staff).get(URL, params={"q": "ZZAMBOS"})
+    de_gtv = client_as(staff).get(URL, params={"q": "ZZAMBOS", "kind": "survey_release"})
+    de_gtv_body = client_as(staff).get(f"{URL}/body",
+                                       params={"q": "ZZAMBOS", "kind": "survey_release"})
+
+    assert por_omision.status_code == de_gtv.status_code == de_gtv_body.status_code == 200
+    # Sin `kind`: el primero visible (el orden de CERT_KINDS).
+    assert _numeros_en(por_omision.text) == [bib.number]
+    assert _numeros_en(de_gtv.text) == [gtv.number]
+    assert _numeros_en(de_gtv_body.text) == [gtv.number]
+    # Las dos pestañas, con la activa marcada.
+    for html in (por_omision.text, de_gtv.text):
+        assert 'id="tt-folio-tab-library_clearance"' in html
+        assert 'id="tt-folio-tab-survey_release"' in html
+    activa = re.search(r'<button[^>]*id="tt-folio-tab-survey_release"[^>]*>', de_gtv.text).group()
+    assert 'aria-current="true"' in activa
+    inactiva = re.search(r'<button[^>]*id="tt-folio-tab-library_clearance"[^>]*>', de_gtv.text).group()
+    assert 'aria-current' not in inactiva
+
+
+@pytest.mark.parametrize("ruta", ["", "/body"])
+def test_un_kind_ajeno_da_404(
+    client_as, make_library_cert_staff, make_gtv_cert_staff, make_list_only_staff, ruta,
+):
+    """Un `kind` REAL de `CERT_KINDS` que el actor no puede ver responde
+    404 -nunca 403-, igual que el lote y el PDF."""
+    assert client_as(make_library_cert_staff()).get(
+        f"{URL}{ruta}", params={"kind": "survey_release"}).status_code == 404
+    assert client_as(make_gtv_cert_staff()).get(
+        f"{URL}{ruta}", params={"kind": "library_clearance"}).status_code == 404
+    assert client_as(make_list_only_staff()).get(
+        f"{URL}{ruta}", params={"kind": "library_clearance"}).status_code == 404
+
+
+@pytest.mark.parametrize("kind", ["", "no_existe", "LIBRARY_CLEARANCE", "survey_release;x"])
+def test_un_kind_que_no_es_de_cert_kinds_cae_en_el_primero_visible(
+    client_as, emitir_folio, make_library_cert_staff, kind,
+):
+    bib = emitir_folio("library_clearance", last="ZZKINDMALO")
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZKINDMALO", "kind": kind})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert _numeros_en(resp.text) == [bib.number]
+
+
+def test_sin_tipos_visibles_pinta_el_aviso_y_ninguna_tabla(client_as, make_list_only_staff):
+    resp = client_as(make_list_only_staff()).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-cert-body"' in resp.text
+    assert "Sin tipos asignados" in resp.text
+    assert 'id="tt-folio-filters"' not in resp.text
+    assert _filas(resp.text) == []
+
+
+@pytest.mark.parametrize("ruta", ["", "/body"])
+def test_buscador_preservado_en_la_pagina_y_en_el_body(
+    client_as, make_library_cert_staff, ruta,
+):
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+
+    resp = client_as(make_library_cert_staff()).get(f"{URL}{ruta}", params={"q": "ZZBUSCA"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert_buscador_preservado(resp.text, input_id="tt-folio-q",
+                               filters_id="tt-folio-filters", q="ZZBUSCA")
+
+
+def test_el_buscador_sin_busqueda_va_vacio(client_as, make_library_cert_staff):
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    assert_buscador_preservado(resp.text, input_id="tt-folio-q",
+                               filters_id="tt-folio-filters", q="")
+
+
+def test_el_buscador_dispara_con_retraso_y_apunta_a_la_raiz(client_as, make_library_cert_staff):
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    caja = re.search(r'<input[^>]*id="tt-folio-q"[^>]*>', resp.text, re.S).group()
+    assert 'hx-get="/titulatec/admin/constancias/body"' in caja
+    assert 'hx-target="#tt-cert-body"' in caja
+    assert 'hx-swap="outerHTML"' in caja
+    assert "delay:400ms" in caja
+
+
+def test_la_busqueda_filtra_la_tabla_y_ignora_mayusculas_y_espacios(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    a = emitir_folio(last="ZZQUIEN", first="LUCÍA", control="Z9920001")
+    emitir_folio(last="ZZOTRA", first="PEDRO", control="Z9920002")
+    staff = make_library_cert_staff()
+
+    por_nombre = client_as(staff).get(URL, params={"q": "  zzquien  "})
+    por_control = client_as(staff).get(URL, params={"q": "z9920001"})
+    por_folio = client_as(staff).get(URL, params={"q": f"bib-{_SEM}-0001"})
+
+    assert _numeros_en(por_nombre.text) == [a.number]
+    assert _numeros_en(por_control.text) == [a.number]
+    assert a.number in _numeros_en(por_folio.text)
+    assert 'value="zzquien"' in por_nombre.text       # recortado, sin espacios
+
+
+def test_sin_resultados_con_busqueda_dice_sin_resultados_y_escapa_el_q(
+    client_as, make_library_cert_staff,
+):
+    q = "<b>ZZNOHAY</b>"
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": q})
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert "Sin resultados para" in resp.text
+    assert "&lt;b&gt;ZZNOHAY&lt;/b&gt;" in resp.text
+    assert q not in resp.text                       # nunca el HTML crudo
+    assert _filas(resp.text) == []
+    assert 'id="tt-folio-pager"' not in resp.text
+    assert "Sin folios todavía" not in resp.text
+
+
+def test_sin_folios_y_sin_busqueda_dice_sin_folios_todavia(
+    client_as, monkeypatch, make_library_cert_staff, make_gtv_cert_staff,
+):
+    """La BD de dev ya trae folios reales: se aísla parchando `list_folios`."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.utils.paging import Page
+
+    monkeypatch.setattr(
+        CertificateService, "list_folios",
+        staticmethod(lambda db, **kw: Page(items=[], total=0, page=1, per_page=50)))
+
+    for staff in (make_library_cert_staff(), make_gtv_cert_staff()):
+        resp = client_as(staff).get(URL)
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "Sin folios todavía" in resp.text
+        assert "Sin resultados para" not in resp.text
+        assert _filas(resp.text) == []
+
+
+def test_la_tabla_trae_las_columnas_y_los_datos_del_folio(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    cert = emitir_folio(last="ZZCOLS", first="ANA", control="Z9930001",
+                        issued_at=datetime(2026, 3, 7, 9, 30))
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZCOLS"})
+
+    import lxml.html
+    doc = lxml.html.fromstring(resp.text)
+    (tabla,) = doc.xpath('//table[@id="tt-folio-table"]')
+    cabeceras = [" ".join(th.text_content().split()) for th in tabla.xpath(".//thead//th")]
+    assert cabeceras == ["Folio", "Egresado", "No. de control", "Carrera", "Emitido", "Estado"]
+    (fila,) = tabla.xpath('.//tr[@id="tt-folio-row-%s"]' % cert.number)
+    celdas = [" ".join(td.text_content().split()) for td in fila.xpath("./td")]
+    assert celdas[0] == cert.number
+    assert celdas[1] == "ZZCOLS ANA"
+    assert celdas[2] == "Z9930001"
+    assert celdas[4] == "07/03/2026"                 # dd/mm/aaaa
+    assert celdas[5] == "Vigente"
+
+
+def test_una_fecha_nula_sale_con_guion(client_as, monkeypatch, make_library_cert_staff):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.utils.paging import Page
+
+    fila = {"number": "BIB-2091A-0001", "student_name": "ZZ SIN FECHA",
+            "control_number": "Z9930002", "program_name": "", "issued_at": None,
+            "voided_at": None, "void_reason": None}
+    monkeypatch.setattr(
+        CertificateService, "list_folios",
+        staticmethod(lambda db, **kw: Page(items=[fila], total=1, page=1, per_page=50)))
+
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    assert resp.status_code == 200, resp.text[:300]
+    (tr,) = _filas(resp.text)
+    assert _texto(tr.xpath("./td")[4]) == "—"
+
+
+def test_las_filas_van_de_la_mas_reciente_a_la_mas_vieja(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    viejo = emitir_folio(last="ZZORDEN", issued_at=datetime(2091, 1, 10, 9, 0))
+    nuevo = emitir_folio(last="ZZORDEN", issued_at=datetime(2091, 5, 20, 9, 0))
+    medio = emitir_folio(last="ZZORDEN", issued_at=datetime(2091, 3, 1, 9, 0))
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZORDEN"})
+
+    assert _numeros_en(resp.text) == [nuevo.number, medio.number, viejo.number]
+
+
+def test_un_folio_anulado_muestra_anulado_fecha_y_motivo(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    vigente = emitir_folio(last="ZZANULA")
+    anulado = emitir_folio(last="ZZANULA", anular="Se capturó con otro egresado")
+    staff = make_library_cert_staff()
+
+    todos = client_as(staff).get(URL, params={"q": "ZZANULA", "estado": "todos"})
+
+    assert set(_numeros_en(todos.text)) == {vigente.number, anulado.number}
+    (fila_anulada,) = [tr for tr in _filas(todos.text)
+                       if tr.get("id") == f"tt-folio-row-{anulado.number}"]
+    texto = _texto(fila_anulada)
+    assert "Anulado" in texto
+    assert "Se capturó con otro egresado" in texto
+    assert anulado.voided_at.strftime("%d/%m/%Y") in texto
+    (fila_vigente,) = [tr for tr in _filas(todos.text)
+                       if tr.get("id") == f"tt-folio-row-{vigente.number}"]
+    assert "Vigente" in _texto(fila_vigente)
+    assert "Anulado" not in _texto(fila_vigente)
+
+
+def test_los_estados_filtran_y_vigentes_es_el_de_omision(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    vigente = emitir_folio(last="ZZESTADOS")
+    anulado = emitir_folio(last="ZZESTADOS", anular="duplicado")
+    staff = make_library_cert_staff()
+
+    def pedir(**extra):
+        return client_as(staff).get(URL, params={"q": "ZZESTADOS", **extra})
+
+    assert _numeros_en(pedir().text) == [vigente.number]
+    assert _numeros_en(pedir(estado="vigentes").text) == [vigente.number]
+    assert _numeros_en(pedir(estado="anulados").text) == [anulado.number]
+    assert set(_numeros_en(pedir(estado="todos").text)) == {vigente.number, anulado.number}
+    # Un valor desconocido cae en vigentes, y el chip activo lo refleja.
+    raro = pedir(estado="basura")
+    assert _numeros_en(raro.text) == [vigente.number]
+    chip = re.search(r'<button[^>]*id="tt-folio-estado-vigentes"[^>]*>', raro.text).group()
+    assert 'aria-current="true"' in chip
+
+
+def test_los_chips_y_las_pestanas_conservan_los_otros_filtros(
+    client_as, make_both_cert_staff,
+):
+    resp = client_as(make_both_cert_staff()).get(
+        URL, params={"q": "ZZ cons", "kind": "survey_release", "estado": "todos"})
+
+    chip = re.search(r'<button[^>]*id="tt-folio-estado-anulados"[^>]*>', resp.text).group()
+    assert "/titulatec/admin/constancias/body?" in chip
+    assert "kind=survey_release" in chip and "estado=anulados" in chip
+    assert "q=ZZ%20cons" in chip
+    pestana = re.search(r'<button[^>]*id="tt-folio-tab-library_clearance"[^>]*>', resp.text).group()
+    assert "kind=library_clearance" in pestana and "estado=todos" in pestana
+    assert "q=ZZ%20cons" in pestana
+    for tag in (chip, pestana):
+        assert 'hx-target="#tt-cert-body"' in tag and 'hx-swap="outerHTML"' in tag
+    # Los campos ocultos del contenedor de filtros: lo que `hx-include` lleva.
+    caja = re.search(r'<div[^>]*id="tt-folio-filters".*?</div>', resp.text, re.S).group()
+    assert 'name="kind" value="survey_release"' in caja
+    assert 'name="estado" value="todos"' in caja
+    assert 'name="page" value="1"' in caja
+
+
+def test_la_paginacion_pagina_de_a_3_y_lleva_los_filtros(
+    client_as, emitir_folio, make_library_cert_staff, tres_por_pagina,
+):
+    from tests.fastapi.titulatec.paging_asserts import assert_incluye_filtros
+
+    certs = [emitir_folio(last="ZZPAG", issued_at=datetime(2091, 1, n, 9, 0))
+             for n in range(1, 8)]
+    esperados = [c.number for c in reversed(certs)]            # el más nuevo primero
+    staff = make_library_cert_staff()
+
+    p1 = client_as(staff).get(URL, params={"q": "ZZPAG"})
+    p2 = client_as(staff).get(f"{URL}/body", params={"q": "ZZPAG", "page": "2"})
+    p3 = client_as(staff).get(URL, params={"q": "ZZPAG", "page": "3"})
+    p99 = client_as(staff).get(URL, params={"q": "ZZPAG", "page": "99"})
+    basura = client_as(staff).get(URL, params={"q": "ZZPAG", "page": "abc"})
+
+    assert _numeros_en(p1.text) == esperados[0:3]
+    assert _numeros_en(p2.text) == esperados[3:6]
+    assert _numeros_en(p3.text) == esperados[6:7]
+    assert _numeros_en(p99.text) == esperados[6:7]             # fuera de rango: la última
+    assert _numeros_en(basura.text) == esperados[0:3]          # basura: la primera
+    assert "1–3 de 7" in p1.text and "4–6 de 7" in p2.text and "7–7 de 7" in p3.text
+    siguiente = re.search(r'<button[^>]*id="tt-folio-pager-next"[^>]*>', p1.text).group()
+    assert_incluye_filtros(siguiente, "tt-folio-filters")
+    assert 'hx-vals=\'{"page": 2}\'' in siguiente
+    assert 'hx-get="/titulatec/admin/constancias/body"' in siguiente
+    assert 'hx-target="#tt-cert-body"' in siguiente
+    assert "disabled" in re.search(r'<button[^>]*id="tt-folio-pager-prev"[^>]*>', p1.text).group()
+    assert "disabled" in re.search(r'<button[^>]*id="tt-folio-pager-next"[^>]*>', p3.text).group()
+
+
+def test_con_una_sola_pagina_el_pager_solo_muestra_el_rango(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    emitir_folio(last="ZZUNA")
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZUNA"})
+
+    assert "1–1 de 1" in resp.text
+    assert 'id="tt-folio-pager"' not in resp.text
+
+
+def test_sin_impresion_no_hay_ningun_texto_de_impresion_ni_lote(
+    client_as, emitir_folio, make_both_cert_staff,
+):
+    """Invariante 6: con el switch apagado ninguna vista menciona la
+    impresión. Se barre la página completa (menú y encabezado incluidos), el
+    parcial y la respuesta de otro `kind`."""
+    emitir_folio("library_clearance", last="ZZSINIMP")
+    emitir_folio("survey_release", last="ZZSINIMP")
+    staff = make_both_cert_staff()
+
+    paginas = [
+        client_as(staff).get(URL, params={"q": "ZZSINIMP"}),
+        client_as(staff).get(f"{URL}/body", params={"q": "ZZSINIMP"}),
+        client_as(staff).get(URL, params={"q": "ZZSINIMP", "kind": "survey_release",
+                                          "estado": "todos"}),
+    ]
+
+    for resp in paginas:
+        assert resp.status_code == 200, resp.text[:300]
+        minusculas = resp.text.lower()
+        for rastro in ("imprim", "generar lote", "lotes", "/lote", ".pdf", "por_hoja",
+                       "tt-cert-kind-", "tt-cert-pending", "tt-cert-voided", "bi-printer"):
+            assert rastro not in minusculas, rastro
+
+
+def test_el_menu_dice_folios_con_su_icono(client_as, make_library_cert_staff):
+    import lxml.html
+
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    doc = lxml.html.fromstring(resp.text)
+    (enlace,) = doc.xpath('//aside//a[@href="/titulatec/admin/constancias"]')
+    assert " ".join(enlace.text_content().split()) == "Folios"
+    assert "bi-hash" in enlace.xpath("./i")[0].get("class")
+    assert not [a for a in doc.xpath("//aside//a") if "Constancias" in a.text_content()]
+
+
+def test_el_titulo_y_el_encabezado_de_la_pagina(client_as, make_library_cert_staff):
+    resp = client_as(make_library_cert_staff()).get(URL)
+
+    assert "<title>Folios · TitulaTec</title>" in resp.text
+    assert "Folios de liberación" in resp.text
+    assert ("El folio se genera solo al liberar; búscalo por folio, número de control "
+            "o nombre.") in resp.text
+    assert "Constancias acumuladas por lote" not in resp.text
+
+
+def test_la_pagina_y_el_body_traen_la_misma_tabla(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    cert = emitir_folio(last="ZZMISMA")
+    staff = make_library_cert_staff()
+
+    pagina = client_as(staff).get(URL, params={"q": "ZZMISMA"})
+    cuerpo = client_as(staff).get(f"{URL}/body", params={"q": "ZZMISMA"})
+
+    assert _numeros_en(pagina.text) == _numeros_en(cuerpo.text) == [cert.number]
+    assert 'id="tt-cert-body"' in cuerpo.text and "<html" not in cuerpo.text
+
+
+# ---------------------------------------------------------------------------
+# `_body_ctx`: el contexto de folios y, solo con el switch, las secciones de hoy
+# ---------------------------------------------------------------------------
+def test_body_ctx_apagado_trae_folios_y_ninguna_seccion_de_impresion(
+    db_session, emitir_folio, make_both_cert_staff,
+):
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+
+    cert = emitir_folio("survey_release", last="ZZCTX")
+    staff = make_both_cert_staff()
+
+    ctx = _body_ctx(db_session, user_id=staff.id, kind="survey_release", q="  ZZCTX ",
+                    estado="todos", page=1, per_page=3)
+
+    assert ctx["sections"] == []
+    assert ctx["kind"] == "survey_release"
+    assert [k for k, _etiqueta in ctx["tabs"]] == ["library_clearance", "survey_release"]
+    assert ctx["q"] == "ZZCTX"
+    assert ctx["estado"] == "todos"
+    assert [r["number"] for r in ctx["rows"]] == [cert.number]
+    assert ctx["pg"].per_page == 3
+
+
+def test_body_ctx_sin_kind_toma_el_primero_visible_y_un_estado_raro_cae_en_vigentes(
+    db_session, make_gtv_cert_staff,
+):
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+
+    ctx = _body_ctx(db_session, user_id=make_gtv_cert_staff().id, estado="basura")
+
+    assert ctx["kind"] == "survey_release"
+    assert ctx["estado"] == "vigentes"
+    assert len(ctx["tabs"]) == 1
+
+
+def test_body_ctx_sin_kinds_no_consulta_folios(db_session, make_list_only_staff, monkeypatch):
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    def _no_debe_llamarse(*a, **kw):
+        raise AssertionError("list_folios no debe correr sin ningún kind visible")
+
+    monkeypatch.setattr(CertificateService, "list_folios", staticmethod(_no_debe_llamarse))
+
+    ctx = _body_ctx(db_session, user_id=make_list_only_staff().id)
+
+    assert ctx["kind"] is None and ctx["tabs"] == [] and ctx["rows"] == []
+    assert ctx["pg"] is None
+
+
+# ---------------------------------------------------------------------------
+# Con el switch ENCENDIDO: los folios y, debajo, la impresión de hoy sin cambios
+# ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
+def test_encendido_la_pagina_trae_folios_y_debajo_las_secciones_de_impresion(
+    client_as, emitir_folio, make_both_cert_staff,
+):
+    emitir_folio("library_clearance", last="ZZAMBAS")
+
+    resp = client_as(make_both_cert_staff()).get(URL, params={"q": "ZZAMBAS"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    texto = resp.text
+    assert 'id="tt-folio-filters"' in texto and 'id="tt-folio-table"' in texto
+    for kind in ("library_clearance", "survey_release"):
+        assert f'id="tt-cert-kind-{kind}"' in texto
+    assert "Por imprimir" in texto and "Generar lote" in texto
+    # La impresión va DEBAJO de la tabla de folios.
+    assert texto.index('id="tt-folio-table"') < texto.index('id="tt-cert-kind-library_clearance"')
+    # Una sola raíz, sin ids repetidos entre las dos partes.
+    assert texto.count('id="tt-cert-body"') == 1
+
+
+@pytest.mark.usefixtures("printing_on")
+def test_encendido_el_body_tambien_trae_las_dos_partes(client_as, make_library_cert_staff):
+    resp = client_as(make_library_cert_staff()).get(f"{URL}/body")
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'id="tt-folio-filters"' in resp.text
+    assert 'id="tt-cert-kind-library_clearance"' in resp.text
+    assert 'id="tt-cert-kind-survey_release"' not in resp.text
+
+
+@pytest.mark.usefixtures("printing_on")
+def test_body_ctx_encendido_trae_las_secciones_de_impresion(db_session, make_both_cert_staff):
+    from itcj2.apps.titulatec.pages.certificates_admin import _body_ctx
+
+    ctx = _body_ctx(db_session, user_id=make_both_cert_staff().id)
+
+    assert [s["kind"] for s in ctx["sections"]] == ["library_clearance", "survey_release"]
+    assert ctx["kind"] == "library_clearance"
+
+
+@pytest.mark.usefixtures("printing_on")
+def test_los_enlaces_de_impresion_conservan_los_filtros_de_folios(
+    client_as, emitir_folio, make_both_cert_staff,
+):
+    """Regla 3 de §18: una acción de la página re-pinta la MISMA vista.
+    «Generar lote» y «Lotes» incluyen `#tt-folio-filters`."""
+    emitir_folio("library_clearance", last="ZZLOTEFIL")
+
+    resp = client_as(make_both_cert_staff()).get(URL, params={"q": "ZZLOTEFIL"})
+
+    formulario = re.search(
+        r'<form[^>]*hx-post="/titulatec/admin/constancias/library_clearance/lote"[^>]*>',
+        resp.text, re.S).group()
+    assert 'hx-include="#tt-folio-filters"' in formulario
+
+
+@pytest.mark.usefixtures("printing_on")
+def test_generar_lote_repinta_la_misma_vista_de_folios(
+    client_as, db_session, emitir_folio, make_both_cert_staff,
+):
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+
+    emitir_folio("library_clearance", last="ZZREPINTA")
+    gtv = emitir_folio("survey_release", last="ZZREPINTA")
+    staff = make_both_cert_staff()
+
+    resp = client_as(staff).post(
+        f"{URL}/library_clearance/lote",
+        data={"page_library_clearance": "1", "page_survey_release": "1",
+              "kind": "survey_release", "q": "ZZREPINTA", "estado": "todos", "page": "1"})
+
+    assert resp.status_code == 200, resp.text[:500]
+    # El lote se creó y la parte de impresión sigue ahí...
+    assert "Generar lote (0)" in resp.text and 'target="_blank"' in resp.text
+    # ...y la tabla de folios es la MISMA que el actor tenía: pestaña, búsqueda y estado.
+    assert _numeros_en(resp.text) == [gtv.number]
+    assert_buscador_preservado(resp.text, input_id="tt-folio-q",
+                               filters_id="tt-folio-filters", q="ZZREPINTA")
+    chip = re.search(r'<button[^>]*id="tt-folio-estado-todos"[^>]*>', resp.text).group()
+    assert 'aria-current="true"' in chip
+
+
+@pytest.mark.usefixtures("printing_on")
+def test_generar_lote_sin_vista_previa_cae_en_los_valores_de_omision(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    """Un formulario viejo (o escrito a mano) sin `kind`/`q`/`estado`/`page`
+    no revienta: re-pinta el primer `kind` visible, sin búsqueda."""
+    emitir_folio("library_clearance", last="ZZSINCAMPOS")
+
+    resp = client_as(make_library_cert_staff()).post(
+        f"{URL}/library_clearance/lote", data={})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-folio-filters"' in resp.text
+    caja = re.search(r'<input[^>]*id="tt-folio-q"[^>]*>', resp.text, re.S).group()
+    assert 'value=""' in caja
 
 
 # ---------------------------------------------------------------------------

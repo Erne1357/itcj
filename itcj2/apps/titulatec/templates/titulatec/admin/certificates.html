@@ -1,12 +1,11 @@
 {% extends "titulatec/admin/base_admin.html" %}
-{% block title %}Constancias · TitulaTec{% endblock %}
+{% block title %}Folios · TitulaTec{% endblock %}
 {% block admin_view %}certificates{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4 pb-2">
-  <span class="tt-kicker">Constancias</span>
-  <h1 class="tt-display h3 fw-medium">Constancias acumuladas por lote</h1>
-  <p class="mb-0 small text-body-secondary">Genera el PDF de las constancias pendientes (tres por hoja
-     carta) y reabre cualquier lote anterior para reimprimirlo.</p>
+  <span class="tt-kicker">Folios</span>
+  <h1 class="tt-display h3 fw-medium">Folios de liberación</h1>
+  <p class="mb-0 small text-body-secondary">El folio se genera solo al liberar; búscalo por folio, número de control o nombre.</p>
 </div>
 <div class="px-4 pb-4">
   {% include "titulatec/admin/partials/certificates_body.html" %}

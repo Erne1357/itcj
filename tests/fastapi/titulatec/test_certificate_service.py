@@ -1307,3 +1307,256 @@ class TestGanchoGtv:
         assert SurveyReviewService.get_for_process(db_session, process.id) is None
         assert (db_session.query(Certificate)
                .filter_by(source_ref=f"survey_review:{review_id}").first()) is None
+
+
+# ---------------------------------------------------------------------------
+# `list_folios`: la tabla de la pestaña «Folios» (spec folios 2026-10-05 §3.6)
+#
+# La BD de dev es COMPARTIDA y ya trae constancias reales: cada prueba siembra
+# SUS filas con un semestre SINTÉTICO (`_SEM`, sin contadores reales) y/o un
+# nombre con un marcador `ZZ…` que ningún egresado real lleva, y busca solo por
+# eso. Nunca afirma sobre totales globales.
+# ---------------------------------------------------------------------------
+_SEM = "2091A"
+
+
+@pytest.fixture()
+def emitir(db_session, make_student, make_process, make_cohort, make_program, actor):
+    """Fábrica de constancias para `list_folios`: UN alumno + proceso por
+    llamada (los datos congelados salen del alumno), con `source_ref`
+    únicos. `issued_at` y la anulación se fijan DESPUÉS de emitir, porque
+    `NOW()` es constante dentro de la transacción de la prueba."""
+    cohort = make_cohort()
+
+    def _emitir(kind="library_clearance", *, control=None, first="ALUMNO",
+                last="ZZFOLIO", carrera=None, issued_at=None, anular=None,
+                semester=_SEM):
+        alumno = make_student(control_number=control, first_name=first, last_name=last)
+        programa = make_program(carrera) if carrera else None
+        proc = make_process(alumno, cohort=cohort, program=programa)
+        cert = CertificateService.issue(db_session, kind=kind, process=proc,
+                                        source_ref=_ref(kind), actor_id=actor.id,
+                                        semester=semester)
+        if issued_at is not None:
+            cert.issued_at = issued_at
+        if anular is not None:
+            CertificateService.void(db_session, source_ref=cert.source_ref,
+                                    actor_id=actor.id, reason=anular)
+        db_session.flush()
+        return cert
+
+    return _emitir
+
+
+def _numeros(pagina):
+    return [item["number"] for item in pagina.items]
+
+
+class TestListFolios:
+    def test_los_items_son_dicts_con_las_claves_del_contrato(
+            self, db_session, emitir):
+        cert = emitir(control="Z9910001", first="ANA", last="ZZCLAVES",
+                      carrera="Ingeniería ZZ de prueba", anular="se corrigió")
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZCLAVES", estado="todos")
+
+        (item,) = pagina.items
+        assert set(item) == {"number", "student_name", "control_number",
+                             "program_name", "issued_at", "voided_at", "void_reason"}
+        assert item["number"] == cert.number
+        assert item["student_name"] == "ZZCLAVES ANA"
+        assert item["control_number"] == "Z9910001"
+        assert item["program_name"] == "Ingeniería ZZ de prueba"
+        assert item["issued_at"] == cert.issued_at
+        assert item["voided_at"] is not None
+        assert item["void_reason"] == "se corrigió"
+
+    def test_busca_por_folio_parcial(self, db_session, emitir):
+        a = emitir()
+        b = emitir()
+        assert a.number == f"BIB-{_SEM}-0001" and b.number == f"BIB-{_SEM}-0002"
+
+        parcial = CertificateService.list_folios(
+            db_session, kind="library_clearance", q=f"{_SEM}-0002")
+        minuscula = CertificateService.list_folios(
+            db_session, kind="library_clearance", q=f"bib-{_SEM.lower()}-0001")
+
+        assert _numeros(parcial) == [b.number]
+        assert _numeros(minuscula) == [a.number]
+
+    def test_busca_por_control_tambien_en_minuscula(self, db_session, emitir):
+        cert = emitir(control="Z9910002")
+        otra = emitir(control="Z9910003")
+
+        exacto = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="Z9910002")
+        minuscula = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="z9910002")
+        parcial = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="Z99100")
+
+        assert _numeros(exacto) == [cert.number]
+        assert _numeros(minuscula) == [cert.number]
+        assert set(_numeros(parcial)) == {cert.number, otra.number}
+
+    def test_busca_por_nombre(self, db_session, emitir):
+        cert = emitir(first="MARIANA", last="ZZPÉREZ")
+        emitir(first="OTRO", last="ZZGÓMEZ")
+
+        por_apellido = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="zzpérez")
+        por_nombre = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPÉREZ MARIANA")
+
+        assert _numeros(por_apellido) == [cert.number]
+        assert _numeros(por_nombre) == [cert.number]
+
+    def test_un_porcentaje_literal_no_explota_ni_comodina(self, db_session, emitir):
+        con_porcentaje = emitir(first="100%", last="ZZPCT")
+        emitir(first="1000", last="ZZPCT")       # casaría si `%` fuera comodín
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPCT 100%")
+
+        assert _numeros(pagina) == [con_porcentaje.number]
+
+    def test_un_guion_bajo_y_una_diagonal_son_literales(self, db_session, emitir):
+        con_guion = emitir(first="A_B", last="ZZUND")
+        emitir(first="AXB", last="ZZUND")        # casaría si `_` fuera comodín
+        con_diagonal = emitir(first="C\\D", last="ZZUND")
+
+        guion = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZUND A_B")
+        diagonal = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZUND C\\D")
+
+        assert _numeros(guion) == [con_guion.number]
+        assert _numeros(diagonal) == [con_diagonal.number]
+
+    def test_busqueda_vacia_o_de_espacios_equivale_a_sin_filtro(self, db_session, emitir):
+        cert = emitir()
+        sin_filtro = CertificateService.list_folios(
+            db_session, kind="library_clearance", per_page=500)
+
+        for q in (None, "", "   ", "\t\n"):
+            pagina = CertificateService.list_folios(
+                db_session, kind="library_clearance", q=q, per_page=500)
+            assert pagina.total == sin_filtro.total, repr(q)
+        assert cert.number in _numeros(sin_filtro)
+
+    def test_la_busqueda_quita_los_espacios_de_los_bordes(self, db_session, emitir):
+        cert = emitir(last="ZZRECORTE")
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="   zzrecorte   ")
+
+        assert _numeros(pagina) == [cert.number]
+
+    def test_aplica_los_tres_estados(self, db_session, emitir):
+        vigente = emitir(last="ZZESTADO")
+        anulado = emitir(last="ZZESTADO", anular="duplicado")
+
+        def pedir(estado):
+            return CertificateService.list_folios(
+                db_session, kind="library_clearance", q="ZZESTADO", estado=estado)
+
+        assert set(_numeros(pedir("vigentes"))) == {vigente.number}
+        assert set(_numeros(pedir("anulados"))) == {anulado.number}
+        assert set(_numeros(pedir("todos"))) == {vigente.number, anulado.number}
+        # Por omisión y ante cualquier valor desconocido: vigentes.
+        omision = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZESTADO")
+        assert set(_numeros(omision)) == {vigente.number}
+        for raro in ("", "ANULADOS", "borrados", None, "vigentes; DROP TABLE x"):
+            assert set(_numeros(pedir(raro))) == {vigente.number}, repr(raro)
+
+    def test_un_anulado_trae_fecha_y_motivo(self, db_session, emitir):
+        emitir(last="ZZMOTIVO", anular="  se capturó mal  ")
+
+        (item,) = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZMOTIVO",
+            estado="anulados").items
+
+        assert item["voided_at"] is not None
+        assert item["void_reason"] == "se capturó mal"
+
+    def test_no_mezcla_tipos(self, db_session, emitir):
+        bib = emitir("library_clearance", last="ZZTIPO")
+        gtv = emitir("survey_release", last="ZZTIPO")
+
+        de_bib = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZTIPO")
+        de_gtv = CertificateService.list_folios(
+            db_session, kind="survey_release", q="ZZTIPO")
+
+        assert _numeros(de_bib) == [bib.number]
+        assert _numeros(de_gtv) == [gtv.number]
+        assert gtv.number.startswith("GTV-")
+
+    def test_ordena_por_emision_descendente_y_desempata_por_id(self, db_session, emitir):
+        viejo = emitir(last="ZZORDEN", issued_at=datetime(2091, 1, 10, 9, 0))
+        medio_a = emitir(last="ZZORDEN", issued_at=datetime(2091, 3, 1, 9, 0))
+        medio_b = emitir(last="ZZORDEN", issued_at=datetime(2091, 3, 1, 9, 0))   # mismo instante
+        nuevo = emitir(last="ZZORDEN", issued_at=datetime(2091, 5, 20, 9, 0))
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZORDEN")
+
+        # issued_at DESC, y en el empate el id mayor primero.
+        assert _numeros(pagina) == [nuevo.number, medio_b.number, medio_a.number, viejo.number]
+
+    def test_pagina_con_per_page_3(self, db_session, emitir):
+        certs = [emitir(last="ZZPAGINA", issued_at=datetime(2091, 1, n, 9, 0))
+                 for n in range(1, 8)]
+        esperados = [c.number for c in reversed(certs)]       # el más nuevo primero
+
+        p1 = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPAGINA", per_page=3, page=1)
+        p2 = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPAGINA", per_page=3, page=2)
+        p3 = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPAGINA", per_page=3, page=3)
+
+        assert (p1.total, p1.pages, p1.page) == (7, 3, 1)
+        assert _numeros(p1) == esperados[0:3]
+        assert _numeros(p2) == esperados[3:6]
+        assert _numeros(p3) == esperados[6:7]
+        assert (p3.start, p3.end) == (7, 7)
+
+    def test_una_pagina_fuera_de_rango_cae_en_la_ultima_valida(self, db_session, emitir):
+        for n in range(1, 5):
+            emitir(last="ZZRANGO", issued_at=datetime(2091, 1, n, 9, 0))
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZRANGO", per_page=3, page=99)
+
+        assert pagina.page == 2
+        assert len(pagina.items) == 1
+
+    def test_sin_coincidencias_devuelve_una_pagina_vacia(self, db_session):
+        pagina = CertificateService.list_folios(
+            db_session, kind="survey_release", q="ZZNOEXISTEESTENOMBRE")
+
+        assert (pagina.items, pagina.total, pagina.page) == ([], 0, 1)
+
+    def test_un_kind_fuera_de_cert_kinds_truena(self, db_session):
+        with pytest.raises(ValueError, match="Tipo de constancia desconocido"):
+            CertificateService.list_folios(db_session, kind="no_existe")
+
+    def test_no_lee_el_proceso_ni_las_tablas_de_liberacion(self, db_session, emitir):
+        """Invariante 4 del spec: solo `titulatec_certificates`. Se mira el
+        SQL que dispara (una consulta de cuenta y una de filas)."""
+        emitir(last="ZZSOLOCERT")
+
+        _, selects = _contar_selects(
+            db_session,
+            lambda: CertificateService.list_folios(
+                db_session, kind="library_clearance", q="ZZSOLOCERT"))
+
+        assert len(selects) == 2
+        for sql in selects:
+            assert "titulatec_certificates" in sql
+            for ajena in ("titulatec_processes", "titulatec_survey_reviews",
+                          "titulatec_library_clearances"):
+                assert ajena not in sql

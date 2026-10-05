@@ -137,7 +137,9 @@ _ADMIN_NAV = [
     # Información) y Caja (Recursos Financieros).
     ("Biblioteca",          "bi-book",        "/titulatec/admin/biblioteca",   {"titulatec.library_clearance.page.list"}),
     ("Caja",                "bi-cash-coin",   "/titulatec/admin/caja",         {"titulatec.library_payment.page.list"}),
-    ("Constancias",         "bi-printer",     "/titulatec/admin/constancias",  {"titulatec.certificate.page.list"}),
+    # Folios de liberación (2026-10-05): la pestaña que antes era «Constancias»
+    # (misma URL, mismo permiso); la impresión por lotes quedó tras un switch.
+    ("Folios",              "bi-hash",        "/titulatec/admin/constancias",  {"titulatec.certificate.page.list"}),
     ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
