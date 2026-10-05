@@ -923,6 +923,7 @@ def test_liberados_muestra_pildora_fecha_y_numero_de_constancia(
 # -design.md §3.3/E1/E6): folio + si ya se imprimió, a la derecha de «Estado»
 # en las 3 pestañas. Reemplaza el folio suelto que antes vivía bajo «Estado».
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_vigente_sin_imprimir_muestra_folio_y_pildora_ambar(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
@@ -946,6 +947,7 @@ def test_columna_constancia_vigente_sin_imprimir_muestra_folio_y_pildora_ambar(
     assert "Impresa" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
@@ -973,6 +975,7 @@ def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
     assert batch.created_at.strftime("%d/%m/%Y") in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
@@ -1057,6 +1060,7 @@ def test_columna_constancia_en_legado_no_muestra_nada(
     assert "Anulada tras imprimir" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
@@ -1086,6 +1090,7 @@ def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     assert "No se imprimirá" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
@@ -1165,6 +1170,169 @@ def test_columna_constancia_no_hace_una_consulta_por_fila(
     assert con_una_fila >= 1, "la columna debe consultar el estado de impresión"
     assert con_una_fila == con_veinte_filas, (
         f"1 fila: {con_una_fila} consultas; 20 filas: {con_veinte_filas}")
+
+
+# ---------------------------------------------------------------------------
+# Switch de impresión APAGADO (`TITULATEC_CERTIFICATE_PRINTING=False`, el
+# default; spec folios 2026-10-05 §3.5): la columna se llama «Folio» y la celda
+# pinta SOLO el folio -más una nota tenue «previa»/«previo al sistema»-, sin
+# ninguna palabra de impresión. Con el switch encendido todo lo de arriba
+# sigue igual (`printing_on`).
+# ---------------------------------------------------------------------------
+PALABRAS_DE_IMPRESION = (
+    "Impresa", "Sin imprimir", "No se imprimirá", "Anulada tras imprimir",
+    "Por imprimir", "Generar lote", "retira ese papel",
+)
+
+
+def _libera_sin_cargo(db_session, staff, make_student, make_cohort, make_process, control):
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number=control), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    LibraryClearanceService.register(db_session, clearance.id, staff.id, debt_amount=Decimal("0"))
+    return proc, clearance, _certs(db_session, clearance.id)[0]
+
+
+def test_apagado_la_celda_muestra_solo_el_folio_sin_palabras_de_impresion(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    staff = make_library_staff()
+    _, clearance, cert = _libera_sin_cargo(
+        db_session, staff, make_student, make_cohort, make_process, "99600230")
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600230")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    celda = _celda(fila, cert.number)
+    # La celda es EXACTAMENTE el folio: ni un espacio, ni un `<br>` suelto.
+    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in fila, palabra
+    assert "tt-pill--amber" not in fila
+
+
+def test_apagado_la_columna_se_encabeza_como_folio(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    staff = make_library_staff()
+    _libera_sin_cargo(db_session, staff, make_student, make_cohort, make_process, "99600231")
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600231")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "<th>Folio</th>" in resp.text
+    assert "<th>Constancia</th>" not in resp.text
+
+
+def test_apagado_una_previa_con_folio_lleva_la_nota_previa(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("150.00"))
+    proc = make_process(make_student(control_number="99600232"), cohort=cohort,
+                        current_phase=1, library_clearance="pending")
+    clearance = _clearance(db_session, proc)
+    fecha = (date.today() - timedelta(days=30)).isoformat()
+    resp_post = client_as(staff).post(
+        f"{URL}/{clearance.id}/previa",
+        data={"status": "pending", "q": "", "page": "1", "issued_on": fecha})
+    assert resp_post.status_code == 200, resp_post.text[:500]
+    cert = _certs(db_session, clearance.id)[0]
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600232")
+
+    assert resp.status_code == 200, resp.text[:500]
+    celda = _celda(_fila(resp.text, f'id="lib-{clearance.id}"'), cert.number)
+    assert _visible(celda) == f"{cert.number} previa", celda
+    assert '<span class="small text-body-secondary">previa</span>' in celda
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in celda, palabra
+
+
+def test_apagado_un_legado_con_folio_lleva_la_nota_previo_al_sistema(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """El legado nace sin folio; lo emite el backfill (`emitir-folios-previos`,
+    spec §3.4) con el semestre ANTERIOR al registro. Aquí se emite a mano igual
+    que él, y la celda apagada dice «previo al sistema» junto al folio."""
+    from itcj2.apps.titulatec.services.certificate_service import (
+        CertificateService, previous_semester_key,
+    )
+    from itcj2.core.utils.timezone import db_now
+
+    staff = make_library_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    proc = make_process(make_student(control_number="99600233"), cohort=cohort,
+                        current_phase=1, library_clearance="cleared")
+    clearance = _clearance(db_session, proc)
+    assert clearance.cleared_via == "legacy"
+    cert = CertificateService.issue(
+        db_session, kind="library_clearance", process=proc,
+        source_ref=f"library_clearance:{clearance.id}", actor_id=staff.id,
+        semester=previous_semester_key(db_now()))
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600233")
+
+    assert resp.status_code == 200, resp.text[:500]
+    celda = _celda(_fila(resp.text, f'id="lib-{clearance.id}"'), cert.number)
+    assert _visible(celda) == f"{cert.number} previo al sistema", celda
+    assert '<span class="small text-body-secondary">previo al sistema</span>' in celda
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in celda, palabra
+
+
+def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Con el switch encendido esta celda diría «No se imprimirá» +
+    «inscripción revocada» (R13/R18, prueba de arriba); apagado, no hay nada
+    que no se vaya a imprimir: el folio, y la píldora «Revocada» de la propia
+    fila sigue diciendo el estado."""
+    staff = make_library_staff()
+    proc, clearance, cert = _libera_sin_cargo(
+        db_session, staff, make_student, make_cohort, make_process, "99600234")
+    proc.status = "cancelled"          # se revocó con el folio ya emitido
+    db_session.flush()
+
+    resp = client_as(staff).get(f"{URL}/body?status=cleared&q=99600234")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    celda = _celda(fila, cert.number)
+    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    assert "No se imprimirá" not in fila
+    assert "inscripción revocada" not in fila
+    assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
+
+
+def test_apagado_una_anulada_tras_imprimir_no_avisa_de_retirar_papel(
+    client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
+):
+    """Pagado -> «impreso» -> revertido: sin vigente, apagado no hay papel que
+    retirar ni se habla de impresión; la celda no queda en blanco (un «—»,
+    «sin folio»), que es lo que dice el respaldo de la macro."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    staff = make_library_staff()
+    _, clearance, cert = _libera_sin_cargo(
+        db_session, staff, make_student, make_cohort, make_process, "99600235")
+    CertificateService.create_batch(db_session, kind="library_clearance", actor_id=staff.id)
+    LibraryClearanceService.revert_clearance(db_session, clearance.id, staff.id, "por error")
+
+    resp = client_as(staff).get(f"{URL}/body?status=pending&q=99600235")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="lib-{clearance.id}"')
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in fila, palabra
+    assert cert.number not in fila
+    celdas = re.findall(r"<td[^>]*>(.*?)</td>", fila, re.S)
+    assert _visible(celdas[-2]) == "—", celdas      # la de folio va antes de las acciones
 
 
 # ---------------------------------------------------------------------------

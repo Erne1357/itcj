@@ -156,6 +156,82 @@ def test_sin_permiso_de_pagina_responde_403_en_lote_y_pdf(client_as, make_outsid
     assert resp_pdf.status_code == 403, resp_pdf.text[:300]
 
 
+# ---------------------------------------------------------------------------
+# Switch de impresión APAGADO (`TITULATEC_CERTIFICATE_PRINTING=False`, el
+# default; spec folios 2026-10-05 §3.5): «Generar lote» y el PDF responden 404
+# ANTES de cualquier otra cosa (incluido el permiso por tipo y la existencia
+# del lote), sin escribir nada. El 403 del gate de PÁGINA sigue primero: es la
+# dependencia de la ruta, no su cuerpo.
+# ---------------------------------------------------------------------------
+def test_apagado_generar_lote_responde_404_aunque_el_actor_pueda_imprimir(
+    client_as, db_session, make_both_cert_staff, make_cert_process,
+):
+    from itcj2.apps.titulatec.models import CertificateBatch
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_both_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=2, actor_id=staff.id)
+    lotes_antes = db_session.query(CertificateBatch).count()
+    pendientes_antes = CertificateService.pending_count(db_session, "library_clearance")
+    assert pendientes_antes >= 2
+
+    resp = client_as(staff).post(
+        f"{URL}/library_clearance/lote",
+        data={"page_library_clearance": "1", "page_survey_release": "1"})
+
+    assert resp.status_code == 404, resp.text[:300]
+    assert CertificateService.pending_count(db_session, "library_clearance") == pendientes_antes
+    assert db_session.query(CertificateBatch).count() == lotes_antes, "no escribió ningún lote"
+
+
+def test_apagado_el_pdf_responde_404_aunque_el_lote_exista(
+    client_as, db_session, make_both_cert_staff, make_cert_process,
+):
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_both_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+    batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                            actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/lotes/{batch.id}.pdf")
+
+    assert resp.status_code == 404, resp.text[:300]
+
+
+def test_apagado_lote_y_pdf_de_un_id_cualquiera_responden_404(client_as, make_both_cert_staff):
+    """Los dos ejemplos literales de la spec: el 404 NO depende de que el
+    lote o el `kind` existan."""
+    staff = make_both_cert_staff()
+
+    resp_lote = client_as(staff).post(f"{URL}/library_clearance/lote", data={})
+    resp_pdf = client_as(staff).get(f"{URL}/lotes/1.pdf")
+
+    assert resp_lote.status_code == 404, resp_lote.text[:300]
+    assert resp_pdf.status_code == 404, resp_pdf.text[:300]
+
+
+def test_encendido_el_pdf_del_lote_sigue_respondiendo_200(
+    client_as, db_session, printing_on, make_both_cert_staff, make_cert_process,
+):
+    """Control positivo de los 404 de arriba: la MISMA petición, con el switch
+    encendido, funciona."""
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    staff = make_both_cert_staff()
+    proc = make_cert_process()
+    _issue(db_session, "library_clearance", proc, n=1, actor_id=staff.id)
+    batch = CertificateService.create_batch(db_session, kind="library_clearance",
+                                            actor_id=staff.id)
+
+    resp = client_as(staff).get(f"{URL}/lotes/{batch.id}.pdf")
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.headers["content-type"] == "application/pdf"
+
+
 def test_el_menu_solo_muestra_constancias_con_el_permiso(
     client_as, make_head, make_library_cert_staff,
 ):
@@ -218,6 +294,7 @@ def test_pagina_y_body_responden_200_con_la_misma_raiz(client_as, make_library_c
 # ---------------------------------------------------------------------------
 # «Por imprimir (N)» y «Generar lote»
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
 def test_por_imprimir_refleja_las_pendientes(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -231,6 +308,7 @@ def test_por_imprimir_refleja_las_pendientes(
     assert "Generar lote (3)" in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_generar_lote_crea_y_vacia_por_imprimir(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -252,6 +330,7 @@ def test_generar_lote_crea_y_vacia_por_imprimir(
     assert ".pdf" in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_lote_generado_trae_los_dos_enlaces_de_pdf_y_el_de_3_va_primero(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -273,6 +352,7 @@ def test_lote_generado_trae_los_dos_enlaces_de_pdf_y_el_de_3_va_primero(
     assert 'target="_blank"' in texto and 'rel="noopener"' in texto
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_generar_lote_no_duplica_ids_entre_la_tarjeta_y_la_fila(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -296,6 +376,7 @@ def test_generar_lote_no_duplica_ids_entre_la_tarjeta_y_la_fila(
     assert len(ids) == len(set(ids)), f"ids de PDF duplicados: {ids}"
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_cada_fila_de_lotes_trae_los_dos_enlaces_de_pdf_con_ids_estables(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -315,6 +396,7 @@ def test_cada_fila_de_lotes_trae_los_dos_enlaces_de_pdf_con_ids_estables(
             < resp.text.index(f'id="tt-cert-pdf-{batch.id}-2"'))
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_hx_confirm_usa_el_articulo_la_con_una_sola_pendiente(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -331,6 +413,7 @@ def test_hx_confirm_usa_el_articulo_la_con_una_sola_pendiente(
     assert "con las 1 constancia" not in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_hx_confirm_usa_el_articulo_las_en_plural(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -344,6 +427,7 @@ def test_hx_confirm_usa_el_articulo_las_en_plural(
     assert "con las 2 constancias por imprimir" in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
     client_as, db_session, make_library_cert_staff, make_cert_process, monkeypatch,
 ):
@@ -384,6 +468,7 @@ def test_create_batch_resuelve_kinds_imprimibles_una_sola_vez(
     assert len(llamadas) == 1, f"_printable_kinds se llamó {len(llamadas)} veces, se esperaba 1"
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_body_ctx_acepta_kinds_precalculado(db_session, make_library_cert_staff):
     """Contrato de `_body_ctx(..., kinds=None)`: si el llamador YA resolvió
     los `kind` imprimibles (como hace `create_batch`), se usan tal cual, sin
@@ -399,6 +484,7 @@ def test_body_ctx_acepta_kinds_precalculado(db_session, make_library_cert_staff)
     assert [s["kind"] for s in ctx["sections"]] == ["library_clearance"]
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_generar_lote_sin_pendientes_responde_400(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).post(f"{URL}/library_clearance/lote", data={})
 
@@ -406,12 +492,14 @@ def test_generar_lote_sin_pendientes_responde_400(client_as, make_library_cert_s
     assert resp.headers.get("X-Tt-Error")
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_generar_lote_de_tipo_ajeno_responde_404(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).post(f"{URL}/survey_release/lote", data={})
 
     assert resp.status_code == 404, resp.text[:300]
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_generar_lote_de_kind_desconocido_responde_404(client_as, make_both_cert_staff):
     resp = client_as(make_both_cert_staff()).post(f"{URL}/no_existe/lote", data={})
 
@@ -421,6 +509,7 @@ def test_generar_lote_de_kind_desconocido_responde_404(client_as, make_both_cert
 # ---------------------------------------------------------------------------
 # PDF del lote
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
 def test_pdf_del_lote_propio_responde_200_con_pdf(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -438,6 +527,7 @@ def test_pdf_del_lote_propio_responde_200_con_pdf(
     assert resp.headers["content-type"] == "application/pdf"
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_pdf_de_tipo_ajeno_responde_404(
     client_as, db_session, make_library_cert_staff, make_gtv_cert_staff, make_cert_process,
 ):
@@ -453,12 +543,14 @@ def test_pdf_de_tipo_ajeno_responde_404(
     assert resp.status_code == 404, resp.text[:300]
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_pdf_de_lote_inexistente_responde_404(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).get(f"{URL}/lotes/999999.pdf")
 
     assert resp.status_code == 404, resp.text[:300]
 
 
+@pytest.mark.usefixtures("printing_on")
 @pytest.mark.parametrize("por_hoja,esperado", [
     ("2", 2), ("3", 3), ("4", 3), ("abc", 3), ("", 3),
 ])
@@ -481,6 +573,7 @@ def test_pdf_por_hoja_200_pdf_y_el_nombre_refleja_el_acomodo_usado(
     assert f"_{esperado}xhoja.pdf" in resp.headers["content-disposition"]
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_pdf_sin_por_hoja_en_absoluto_usa_3(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -521,6 +614,7 @@ def test_el_pdf_del_lote_corre_en_el_threadpool_y_no_en_el_event_loop():
 # ---------------------------------------------------------------------------
 # «Lotes»: fecha, quién, cuántas, anuladas (Review Focus #6)
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
 def test_lotes_lista_fecha_quien_y_cuantas(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -538,6 +632,7 @@ def test_lotes_lista_fecha_quien_y_cuantas(
     assert staff.full_name in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_paginacion_de_lotes_usa_el_nombre_de_query_param_que_la_ruta_lee(
     client_as, db_session, make_library_cert_staff, make_cert_process, monkeypatch,
 ):
@@ -569,6 +664,7 @@ def test_paginacion_de_lotes_usa_el_nombre_de_query_param_que_la_ruta_lee(
     assert f'id="cert-batch-{batch2.id}"' not in pagina2.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_anuladas_se_listan_en_el_lote(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -591,6 +687,7 @@ def test_anuladas_se_listan_en_el_lote(
 # ---------------------------------------------------------------------------
 # «Por imprimir» plegable y «Anuladas después de imprimir» (Tarea 2, E6/E7)
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("printing_on")
 def test_detalle_de_pendientes_lista_fifo_y_sale_colapsado(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -620,6 +717,7 @@ def test_detalle_de_pendientes_lista_fifo_y_sale_colapsado(
     assert " open" not in etiqueta.group()
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_detalle_de_pendientes_no_se_pinta_con_0_pendientes(
     client_as, make_library_cert_staff,
 ):
@@ -629,6 +727,7 @@ def test_detalle_de_pendientes_no_se_pinta_con_0_pendientes(
     assert 'id="tt-cert-pending-library_clearance"' not in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_seccion_de_anuladas_no_se_pinta_sin_filas(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -642,6 +741,7 @@ def test_seccion_de_anuladas_no_se_pinta_sin_filas(
     assert 'id="tt-cert-voided-library_clearance"' not in resp.text
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_seccion_de_anuladas_aparece_con_folio_lote_y_motivo(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -665,6 +765,7 @@ def test_seccion_de_anuladas_aparece_con_folio_lote_y_motivo(
     assert "se corrigió después de imprimir" in texto
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_body_ctx_agrega_pending_rows_y_voided_rows(
     db_session, make_library_cert_staff, make_cert_process,
 ):

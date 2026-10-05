@@ -12,6 +12,10 @@ from fastapi import Request
 from starlette.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+# Import a nivel de módulo SEGURO: `certificate_service` solo importa
+# `db_now` arriba (modelos y servicios son locales) y no toca páginas.
+from itcj2.apps.titulatec.services.certificate_service import printing_enabled
+
 logger = logging.getLogger("itcj2.apps.titulatec.pages")
 
 _HERE = Path(__file__).parent
@@ -19,6 +23,13 @@ _TEMPLATES_DIR = _HERE.parent / "templates"
 
 # Instancia propia de Jinja2Templates — no toca itcj2/templates.py
 titulatec_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Switch de impresión de constancias (spec folios 2026-10-05 §3.5): CALLABLE
+# global, no variable de contexto -los globales de Jinja SÍ llegan a las macros
+# importadas sin contexto (`{% from "titulatec/_macros.html" import
+# certificate_cell %}`); el contexto de la página no-. Se evalúa en cada
+# render: `printing_enabled()` lee `get_settings()` cada vez.
+titulatec_templates.env.globals["tt_certificate_printing"] = printing_enabled
 
 
 def sv(path: str) -> str:

@@ -573,6 +573,7 @@ def _en_las_dos_vistas(client_as, actor, proc_id, *, contiene=(), no_contiene=()
 
 
 class TestCeldaDeConstanciaBiblioteca:
+    @pytest.mark.usefixtures("printing_on")
     def test_sin_imprimir_tras_pagar(self, client_as, db_session, caso):
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
@@ -585,6 +586,7 @@ class TestCeldaDeConstanciaBiblioteca:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Sin imprimir",), no_contiene=("Impresa",))
 
+    @pytest.mark.usefixtures("printing_on")
     def test_impresa_tras_el_lote(self, client_as, db_session, caso):
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
         from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -600,6 +602,7 @@ class TestCeldaDeConstanciaBiblioteca:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Impresa", f"lote #{batch.id}"))
 
+    @pytest.mark.usefixtures("printing_on")
     def test_anulada_tras_imprimir_avisa_retirar_el_papel(self, client_as, db_session, caso):
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
         from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -664,6 +667,7 @@ class TestCeldaDeConstanciaBiblioteca:
 
 
 class TestCeldaDeConstanciaEncuesta:
+    @pytest.mark.usefixtures("printing_on")
     def test_sin_imprimir_tras_liberar(self, client_as, db_session, caso, make_survey_review):
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
@@ -674,6 +678,7 @@ class TestCeldaDeConstanciaEncuesta:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Sin imprimir",), no_contiene=("Impresa",))
 
+    @pytest.mark.usefixtures("printing_on")
     def test_impresa_tras_el_lote(self, client_as, db_session, caso, make_survey_review):
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
@@ -687,6 +692,7 @@ class TestCeldaDeConstanciaEncuesta:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=("Impresa", f"lote #{batch.id}"))
 
+    @pytest.mark.usefixtures("printing_on")
     def test_anulada_tras_imprimir_avisa_retirar_el_papel(
             self, client_as, db_session, caso, make_survey_review):
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
@@ -721,6 +727,139 @@ class TestCeldaDeConstanciaEncuesta:
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
                            contiene=(cert.number,),
                            no_contiene=("Constancia previa (papel del egresado)",))
+
+
+# ===========================================================================
+# 6b. Switch de impresión APAGADO (`TITULATEC_CERTIFICATE_PRINTING=False`, el
+#     default; spec folios 2026-10-05 §3.5): las dos vistas de SE (D3: es lo
+#     ÚNICO que SE ve del folio) pintan solo el folio -más la nota tenue
+#     «previa»/«previo al sistema»-, sin ninguna palabra de impresión. Con el
+#     switch encendido todo lo de arriba sigue igual (`printing_on`).
+# ===========================================================================
+PALABRAS_DE_IMPRESION = (
+    "Impresa", "Sin imprimir", "No se imprimirá", "Anulada tras imprimir",
+    "Por imprimir", "Generar lote", "retira ese papel",
+)
+NOTA_PREVIA = '<span class="small text-body-secondary">previa</span>'
+NOTA_LEGADO = '<span class="small text-body-secondary">previo al sistema</span>'
+
+
+def _cert_vigente(db_session, source_ref):
+    from itcj2.apps.titulatec.models import Certificate
+    return (db_session.query(Certificate)
+            .filter_by(source_ref=source_ref, voided_at=None).one())
+
+
+class TestFolioSinImpresion:
+    def test_biblioteca_pagada_muestra_el_folio_sin_palabras_de_impresion(
+            self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0101")
+        cert = _cert_vigente(db_session, f"library_clearance:{clearance.id}")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=(f'<span class="tt-mono small">{cert.number}</span>',),
+                           no_contiene=PALABRAS_DE_IMPRESION + (NOTA_PREVIA, NOTA_LEGADO))
+
+    def test_encuesta_liberada_muestra_el_folio_sin_palabras_de_impresion(
+            self, client_as, db_session, caso, make_survey_review):
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+        cert = _cert_vigente(db_session, f"survey_review:{review.id}")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=(f'<span class="tt-mono small">{cert.number}</span>',),
+                           no_contiene=PALABRAS_DE_IMPRESION + (NOTA_PREVIA, NOTA_LEGADO))
+
+    def test_previa_de_biblioteca_lleva_la_nota_previa(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        with patch(NOTIFY):
+            LibraryClearanceService.register_prior(
+                db_session, clearance.id, caso["officer"].id,
+                issued_on=date.today() - timedelta(days=10), note="Papel de antes",
+                by="library")
+        cert = _cert_vigente(db_session, f"library_clearance:{clearance.id}")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=(f'<span class="tt-mono small">{cert.number}</span> {NOTA_PREVIA}',),
+                           no_contiene=PALABRAS_DE_IMPRESION + (
+                               "Constancia previa (papel del egresado)", NOTA_LEGADO))
+
+    def test_previa_de_encuesta_lleva_la_nota_previa(self, client_as, db_session, caso):
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        with patch(NOTIFY):
+            review = SurveyReviewService.register_prior(
+                db_session, caso["proc"], issued_on=date.today() - timedelta(days=10),
+                actor_id=caso["officer"].id)
+        cert = _cert_vigente(db_session, f"survey_review:{review.id}")
+
+        _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
+                           contiene=(f'<span class="tt-mono small">{cert.number}</span> {NOTA_PREVIA}',),
+                           no_contiene=PALABRAS_DE_IMPRESION + (NOTA_LEGADO,))
+
+    def test_legado_con_folio_lleva_la_nota_previo_al_sistema(
+            self, client_as, db_session, caso):
+        """El legado nace sin folio y lo emite el backfill (spec §3.4); aquí se
+        emite a mano con el semestre ANTERIOR al registro, como él."""
+        from itcj2.apps.titulatec.services.certificate_service import (
+            CertificateService, previous_semester_key,
+        )
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        from itcj2.core.utils.timezone import db_now
+
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        clearance.status = "cleared"
+        clearance.cleared_via = "legacy"
+        db_session.flush()
+        cert = CertificateService.issue(
+            db_session, kind="library_clearance", process=caso["proc"],
+            source_ref=f"library_clearance:{clearance.id}", actor_id=caso["officer"].id,
+            semester=previous_semester_key(db_now()))
+
+        _en_las_dos_vistas(
+            client_as, caso["officer"], caso["proc"].id,
+            contiene=(f'<span class="tt-mono small">{cert.number}</span> {NOTA_LEGADO}',),
+            no_contiene=PALABRAS_DE_IMPRESION + (NOTA_PREVIA,))
+
+    def test_la_vigente_de_un_revocado_muestra_el_folio_y_no_dice_que_no_se_imprimira(
+            self, client_as, db_session, caso, make_survey_review):
+        """Con el switch encendido son «No se imprimirá» + «inscripción
+        revocada» (R13/R18, prueba de la sección 7); apagado, el folio a secas."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
+        review = make_survey_review(caso["proc"], status="in_review")
+        with patch(NOTIFY):
+            LibraryClearanceService.register_payment(
+                db_session, clearance.id, caso["officer"].id, receipt_number="R-0102")
+            SurveyReviewService.approve(db_session, review.id, caso["officer"].id)
+        biblioteca = _cert_vigente(db_session, f"library_clearance:{clearance.id}")
+        encuesta = _cert_vigente(db_session, f"survey_review:{review.id}")
+        caso["proc"].status = "cancelled"
+        db_session.flush()
+
+        _en_las_dos_vistas(
+            client_as, caso["officer"], caso["proc"].id,
+            contiene=(f'<span class="tt-mono small">{biblioteca.number}</span>',
+                      f'<span class="tt-mono small">{encuesta.number}</span>'),
+            no_contiene=PALABRAS_DE_IMPRESION + ("inscripción revocada",))
 
 
 # ===========================================================================
@@ -847,6 +986,7 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
             assert "Revocada" in resp.text
             assert "/no-adeudo-previo" not in resp.text, "no se ofrece «Constancia previa…»"
 
+    @pytest.mark.usefixtures("printing_on")
     def test_ya_liberado_antes_de_revocar_conserva_su_pildora_y_constancia(
             self, client_as, db_session, caso):
         """Review Focus #5: un no adeudo que YA se liberó (y su constancia ya
@@ -870,6 +1010,7 @@ class TestProcesoRevocadoPildoraDeNoAdeudo:
                            contiene=("Liberado", "Impresa"),
                            no_contiene=("Revocada", "En Biblioteca", "No se imprimirá"))
 
+    @pytest.mark.usefixtures("printing_on")
     def test_constancias_sin_imprimir_de_un_revocado_no_se_imprimiran(
             self, client_as, db_session, caso, make_survey_review):
         """Ruling R13 (P4 de la revisión final): las DOS constancias vigentes
@@ -923,6 +1064,7 @@ def test_certificate_cell_nunca_queda_vacia():
     assert html == "—"
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_certificate_cell_revocada_solo_cambia_la_vigente_sin_lote():
     """Ruling R13: `revoked=True` cambia SOLO la vigente sin lote («Sin
     imprimir» ámbar -> píldora neutra «No se imprimirá» con la nota tenue

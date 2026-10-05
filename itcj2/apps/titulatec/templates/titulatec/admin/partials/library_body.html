@@ -38,8 +38,10 @@
      (Rulings R13 y R18,
      `revoked=r.revoked`: «Por imprimir» ya no la toma, R26).
 
-   Columna «Constancia» (Tarea 3 de esa misma spec, §3.3/E1/E6), entre
-   «Estado» y las acciones, en las 3 pestañas: folio + si ya se imprimió
+   Columna «Folio» (antes «Constancia»; Tarea 3 de esa misma spec, §3.3/E1/E6,
+   y spec folios 2026-10-05 §3.5 que la renombra), entre «Estado» y las
+   acciones, en las 3 pestañas: el folio y, solo con el switch de impresión
+   encendido (`tt_certificate_printing()`), si ya se imprimió
    (`certificate_cell`, con el dict de `CertificateService.print_status_map`
    que `_rows` agrega en `r.certificate`) -- reemplaza al folio suelto que
    antes vivía bajo «Estado» en «Liberados». `prior=True` con
@@ -226,7 +228,7 @@
       <thead><tr>
         {% if status == 'pending' %}<th class="tt-lib-th-check"></th>{% endif %}
         <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
-        <th>Inscrito</th><th>Monto</th><th>Estado</th><th>Constancia</th><th></th>
+        <th>Inscrito</th><th>Monto</th><th>Estado</th><th>Folio</th><th></th>
       </tr></thead>
       <tbody>
       {% set ncols = 10 if status == 'pending' else 9 %}

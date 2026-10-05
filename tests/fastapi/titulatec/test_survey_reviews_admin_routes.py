@@ -392,6 +392,7 @@ def _visible(html):
     return " ".join(re.sub(r"<[^>]+>", " ", html).split())
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_liberada_sin_imprimir_muestra_folio_y_pildora_ambar(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -413,6 +414,7 @@ def test_columna_constancia_liberada_sin_imprimir_muestra_folio_y_pildora_ambar(
     assert "Impresa" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -437,6 +439,7 @@ def test_columna_constancia_impresa_muestra_pildora_verde_lote_y_fecha(
     assert batch.created_at.strftime("%d/%m/%Y") in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -495,6 +498,7 @@ def test_columna_constancia_en_constancia_previa_muestra_su_folio(
     assert "Constancia previa (papel del egresado)" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -522,6 +526,7 @@ def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(
     assert "No se imprimirá" not in fila
 
 
+@pytest.mark.usefixtures("printing_on")
 def test_columna_constancia_revocada_sin_imprimir_dice_que_no_se_imprimira(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
@@ -597,6 +602,91 @@ def test_columna_constancia_no_hace_una_consulta_por_fila(
     assert con_una_fila >= 1, "la columna debe consultar el estado de impresión"
     assert con_una_fila == con_veinte_filas, (
         f"1 fila: {con_una_fila} consultas; 20 filas: {con_veinte_filas}")
+
+
+# ---------------------------------------------------------------------------
+# Switch de impresión APAGADO (`TITULATEC_CERTIFICATE_PRINTING=False`, el
+# default; spec folios 2026-10-05 §3.5): la columna se llama «Folio» y la celda
+# pinta SOLO el folio -más una nota tenue «previa»-, sin ninguna palabra de
+# impresión. Con el switch encendido todo lo de arriba sigue igual
+# (`printing_on`).
+# ---------------------------------------------------------------------------
+PALABRAS_DE_IMPRESION = (
+    "Impresa", "Sin imprimir", "No se imprimirá", "Anulada tras imprimir",
+    "Por imprimir", "Generar lote", "retira ese papel",
+)
+
+
+def test_apagado_la_celda_muestra_solo_el_folio_y_la_columna_se_llama_folio(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500240"), current_phase=1)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500240")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "<th>Folio</th>" in resp.text
+    assert "<th>Constancia</th>" not in resp.text
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    celda = _celda(fila, cert.number)
+    # La celda es EXACTAMENTE el folio: ni un espacio, ni un `<br>` suelto.
+    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in fila, palabra
+    assert "tt-pill--amber" not in fila
+
+
+def test_apagado_una_previa_con_folio_lleva_la_nota_previa(
+    client_as, db_session, make_gtv, make_student, make_process,
+):
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500241"), current_phase=1)
+    review = SurveyReviewService.register_prior(
+        db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
+    db_session.flush()
+    cert = _certs(db_session, review.id)[0]
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500241")
+
+    assert resp.status_code == 200, resp.text[:500]
+    celda = _celda(_fila(resp.text, f'id="tt-rev-{review.id}"'), cert.number)
+    assert _visible(celda) == f"{cert.number} previa", celda
+    assert '<span class="small text-body-secondary">previa</span>' in celda
+    for palabra in PALABRAS_DE_IMPRESION:
+        assert palabra not in celda, palabra
+
+
+def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
+    client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
+):
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    gtv = make_gtv()
+    proc = make_process(make_student(control_number="99500242"), current_phase=2)
+    review = make_survey_review(proc, status="in_review")
+    SurveyReviewService.approve(db_session, review.id, gtv.id)
+    cert = _certs(db_session, review.id)[0]
+    proc.status = "cancelled"          # se revocó con el folio ya emitido
+    db_session.flush()
+
+    resp = client_as(gtv).get(f"{URL}/body?status=approved&q=99500242")
+
+    assert resp.status_code == 200, resp.text[:500]
+    fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
+    celda = _celda(fila, cert.number)
+    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    assert "No se imprimirá" not in fila
+    assert "inscripción revocada" not in fila
+    assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
 
 
 # ---------------------------------------------------------------------------

@@ -113,9 +113,27 @@
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}
 
-{# — Celda «Constancia» de las bandejas de Biblioteca/GTV, y (Tarea 4) del
-   panel de atender cotejo y el expediente de SE — Tarea 3 de
+{# — Celda «Folio» (antes «Constancia») de las bandejas de Biblioteca/GTV, y
+   (Tarea 4) del panel de atender cotejo y el expediente de SE — Tarea 3 de
    `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.3, E1/E6.
+
+   SWITCH DE IMPRESIÓN (spec `2026-10-05-titulatec-folios-design.md` §3.5): UNA
+   sola condición, `tt_certificate_printing()`, global de Jinja de
+   `titulatec_templates` (`pages/nav.py`, llega a esta macro aunque se importe
+   sin contexto; es `certificate_service.printing_enabled`, que lee
+   `get_settings()` en cada render), separa las dos celdas. ENCENDIDO: todo lo de abajo, EXACTO a
+   la ronda del 2026-10-02 (impresa, sin imprimir, no se imprimirá, anulada tras
+   imprimir). APAGADO (el default; ya no se imprime, solo hay folio): con folio
+   vigente, el folio (`tt-mono`) y, tras un espacio, una nota tenue «previa»
+   (`prior`) o «previo al sistema» (`legacy`); sin folio vigente, `prior` pinta
+   «Constancia previa (papel del egresado)» y todo lo demás «—» -también una
+   fila con constancia anulada tras imprimir: ya no hay papel que retirar ni
+   que mencionar, y la celda nunca queda en blanco-. Apagado NUNCA salen
+   «Impresa», «Sin imprimir», «No se imprimirá» ni «Anulada tras imprimir»;
+   `info.printed`, `info.batch_*`, `info.voided_printed` y `revoked` no se
+   leen. Whitespace: apagado, la celda es EXACTAMENTE el `<span>` del folio
+   (más la nota), sin espacios ni `<br>` sueltos.
+
    `info` es el dict de `CertificateService.print_status_map` para el origen
    de esa fila (`library_clearance:{id}` / `survey_review:{id}`), o `None`
    -nunca tuvo constancia ni una anulada que alcanzara a entrar a un lote-.
@@ -163,6 +181,8 @@
 {% macro certificate_cell(info, prior=False, legacy=False, revoked=False) %}
   {%- set vigente = info and info.number -%}
   {%- set retirar = not vigente and info and info.voided_printed -%}
+  {%- if tt_certificate_printing() -%}
+  {#- Encendido: exactamente la ronda del 2026-10-02 (sin sangrar a propósito, para que el diff sea solo el `if`). -#}
   {%- if vigente -%}
     <span class="tt-mono small">{{ info.number }}</span><br>
     {%- if info.printed %}
@@ -188,6 +208,19 @@
     {{ pill("Anulada tras imprimir", "danger", "exclamation-octagon") }}
     <span class="tt-mono small">{{ info.voided_printed.number }}</span>
     <span class="small text-body-secondary">lote #{{ info.voided_printed.batch_id }} — retira ese papel</span>
+  {%- endif -%}
+  {%- else -%}
+    {#- Apagado (spec folios 2026-10-05 §3.5): solo el folio; nada de impresión. -#}
+    {%- if vigente -%}
+      <span class="tt-mono small">{{ info.number }}</span>
+      {%- if prior %} <span class="small text-body-secondary">previa</span>
+      {%- elif legacy %} <span class="small text-body-secondary">previo al sistema</span>
+      {%- endif -%}
+    {%- elif prior -%}
+      <span class="small text-body-secondary">Constancia previa (papel del egresado)</span>
+    {%- else -%}
+      —
+    {%- endif -%}
   {%- endif -%}
 {% endmacro %}
 

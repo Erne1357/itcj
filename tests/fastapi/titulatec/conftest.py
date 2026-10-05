@@ -200,6 +200,37 @@ def _modo_oficial_por_defecto(monkeypatch):
     monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_LINK_TTL_DAYS", 21)
 
 
+@pytest.fixture(autouse=True)
+def _impresion_apagada_por_defecto(monkeypatch):
+    """`printing_enabled()` lee `get_settings()` en cada llamada (spec folios
+    2026-10-05 §3.5). Sin esto, `TITULATEC_CERTIFICATE_PRINTING=true` en el
+    `.env` o el entorno del contenedor pondría en rojo, en falso, toda prueba
+    que espera la vista SIN impresión (misma razón que
+    `_modo_oficial_por_defecto`). Corre antes que `printing_on`, que al
+    pedirse explícitamente gana (mismo `monkeypatch`, el último `setattr`
+    manda)."""
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", False)
+
+
+@pytest.fixture()
+def printing_on(monkeypatch):
+    """Enciende la impresión de constancias (lotes, PDF y su estado de
+    impresión en las celdas): `TITULATEC_CERTIFICATE_PRINTING = True`.
+
+    Las pruebas de la ronda del 2026-10-02 (lotes, «Impresa», «Sin imprimir»,
+    «No se imprimirá», «Anulada tras imprimir», «Por imprimir», «Generar
+    lote») describen el comportamiento con el switch ENCENDIDO: lo piden con
+    esta fixture en lugar de reescribirse. Parchea el ATRIBUTO del singleton
+    de `get_settings()`, nunca `printing_enabled()` -la prueba real de que la
+    función lo lee en cada llamada-, igual que `_modo_oficial_por_defecto`.
+    """
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", True)
+
+
 @pytest.fixture()
 def modo_alterno(monkeypatch):
     """Centro de Computo revisa todo: se parchea `reviewer_mode`, nunca

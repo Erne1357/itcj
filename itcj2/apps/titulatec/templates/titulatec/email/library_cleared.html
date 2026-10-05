@@ -1,8 +1,10 @@
 {# El no adeudo de biblioteca quedó liberado (spec 2026-10-01-titulatec-
    biblioteca-caja-design.md §4.11): por pago en Caja (`pagado` = lo que cobró),
    sin cargo (total $0, D18) o por constancia previa (D9: lleva su papel al
-   cotejo). En los dos primeros la constancia la envía el Centro de Información
-   a Servicios Escolares (D7). D11 (`m.agenda(falta)`): si ya puede agendar o
+   cotejo). En los dos primeros ya no se imprime ni se envía una constancia
+   (spec folios 2026-10-05, C4): solo queda el folio y la liberación ya está
+   registrada para Servicios Escolares, que lo resuelve internamente; el texto
+   de la previa NO cambia (lleva su papel). D11 (`m.agenda(falta)`): si ya puede agendar o
    qué le falta, con el estado VIVO. Se re-valida al enviar (D8): si ya se
    revirtió, no sale, y la reversión que lo desmiente tampoco, salvo que lo
    último que recibió por correo del no adeudo fuera un «quedó liberado»
@@ -33,8 +35,8 @@
 {{ m.aviso("Lleva tu constancia física a tu cita de cotejo.") }}
 {% else %}
 <p style="margin:0 0 24px;">
-  Para tu cita de cotejo no necesitas llevar nada de biblioteca: el Centro de Información
-  envía tu constancia a Servicios Escolares.
+  Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación ya quedó
+  registrada para Servicios Escolares.
 </p>
 {% endif %}
 {{ m.agenda(falta) }}

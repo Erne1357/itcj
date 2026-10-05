@@ -75,6 +75,25 @@ def previous_semester_key(when: date | datetime) -> str:
     return f"{when.year}A"
 
 
+def printing_enabled() -> bool:
+    """¿Está encendida la impresión de constancias? (spec folios 2026-10-05
+    §3.5). Lee `TITULATEC_CERTIFICATE_PRINTING` de `get_settings()` en CADA
+    llamada, sin guardarlo en una constante de módulo: así los tests parchean
+    el atributo del singleton (`printing_on` del conftest) y un reinicio del
+    proceso es lo único que hace falta en producción.
+
+    Apagado (el default), los lotes y su PDF responden 404
+    (`pages/certificates_admin.py`) y la celda de constancias
+    (`certificate_cell`, `_macros.html`) pinta solo el folio. El código de los
+    lotes, el PDF y `print_status_map` NO se borra ni cambia (spec D2). Se
+    registra como global de Jinja `tt_certificate_printing`
+    (`pages/nav.py`) porque los globales sí llegan a las macros importadas sin
+    contexto, y las variables de contexto no."""
+    from itcj2.config import get_settings
+
+    return bool(get_settings().TITULATEC_CERTIFICATE_PRINTING)
+
+
 # Prefijo, título del documento, departamento que lo firma y la frase que
 # completa "se hace constar que FULANO ...". Textos VERBATIM del spec §4.5 —
 # no se parafrasean: son lo que se imprime y se entrega a SE.

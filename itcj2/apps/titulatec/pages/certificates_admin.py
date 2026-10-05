@@ -46,6 +46,14 @@ la app.
 Las rutas van por `kind`/`batch_id`, NUNCA por `process_id` (spec §4.6:
 Constancias no tiene alcance por carrera, ve todo; §5 invariante 6, censo en
 `tests/fastapi/titulatec/test_scope_guard.py`).
+
+Switch de impresión (spec `2026-10-05-titulatec-folios-design.md` §3.5,
+`TITULATEC_CERTIFICATE_PRINTING`, apagado por omisión): `create_batch` y
+`batch_pdf` responden 404 como PRIMERA sentencia si `printing_enabled()` es
+falso -antes de leer el formulario, de resolver permisos por tipo o de buscar
+el lote: no hay nada que imprimir y no se escribe nada-. El 403 del gate de
+página sigue primero porque es la dependencia de la ruta, no su cuerpo. El
+código de lotes y PDF no se borra (D2): encender el switch lo devuelve tal cual.
 """
 from __future__ import annotations
 
@@ -56,7 +64,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
-from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS
+from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS, printing_enabled
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.certificates_admin")
 router = APIRouter(prefix="/admin/constancias", tags=["titulatec-pages-certificates"])
@@ -244,7 +252,13 @@ async def create_batch(
     (`CertificateService.create_batch`, su propio commit). Los DOS enlaces
     para abrir el PDF en pestaña nueva (3 y 2 por hoja, `target="_blank"`,
     sin script inline) salen en el parcial re-pintado, como «Lote recién
-    generado»."""
+    generado».
+
+    Con el switch de impresión apagado (`printing_enabled()`) responde 404
+    ANTES de cualquier otra cosa (spec folios 2026-10-05 §3.5)."""
+    if not printing_enabled():
+        return Response(status_code=404)
+
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
@@ -304,7 +318,14 @@ def batch_pdf(
     no solo de TitulaTec) en cada «PDF · 3 por hoja»/«PDF · 2 por hoja». En
     `def`, FastAPI la corre en su threadpool, igual que `appointments.move`
     con el `FOR UPDATE` de `SlotService`. No lee el cuerpo de la petición,
-    así que no necesita `await request.form()`."""
+    así que no necesita `await request.form()`.
+
+    Con el switch de impresión apagado (`printing_enabled()`) responde 404
+    ANTES de cualquier otra cosa, aunque el lote exista (spec folios
+    2026-10-05 §3.5)."""
+    if not printing_enabled():
+        return Response(status_code=404)
+
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CertificateBatch
     from itcj2.apps.titulatec.services.certificate_service import CertificateService

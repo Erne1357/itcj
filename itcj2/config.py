@@ -486,6 +486,8 @@ class Settings(BaseSettings):
     TITULATEC_MAX_PDF_UPLOAD_SIZE: int = 20 * 1024 * 1024
     TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    # Impresión de constancias (lotes/PDF) oculta tras este switch: apagado solo se ve el folio (spec folios 2026-10-05 §3.5).
+    TITULATEC_CERTIFICATE_PRINTING: bool = False
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí

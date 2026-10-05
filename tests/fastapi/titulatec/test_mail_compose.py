@@ -1119,11 +1119,20 @@ def test_pasa_a_caja_obsoleto_si_la_fase_2_ya_se_aprobo(db_session, con_bibliote
     assert _componer(db_session, proc) == Obsolete("ya no tiene un pago pendiente en Caja")
 
 
+# Spec folios 2026-10-05 C4: ya no se imprime ni se envía una constancia; el
+# egresado de una liberación NORMAL lee que su liberación quedó registrada. La
+# previa (D9) no cambia: sigue llevando su papel al cotejo.
+TEXTO_LIBERACION_NORMAL = (
+    "Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación "
+    "ya quedó registrada para Servicios Escolares.")
+TEXTO_VIEJO_LIBERACION_NORMAL = "envía tu constancia a Servicios Escolares"
+
+
 @pytest.mark.parametrize("via, frases", [
     ("payment", ["Caja (Recursos Financieros) registró tu pago de $1,100.00",
-                 "no necesitas llevar nada"]),
+                 TEXTO_LIBERACION_NORMAL]),
     ("no_charge", ["registró que no tienes nada que pagar",
-                   "no necesitas llevar nada"]),
+                   TEXTO_LIBERACION_NORMAL]),
     ("prior", ["Tu constancia de no adeudo previa quedó registrada",
                "Lleva tu constancia física a tu cita de cotejo"]),
 ])
@@ -1144,6 +1153,10 @@ def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases
         assert frase in texto, frase
     assert YA_PUEDES in texto
     assert ("constancia física" in texto) is (via == "prior")
+    # C4: el texto nuevo es SOLO de la liberación normal; el viejo ya no sale
+    # en ninguna vía, y la previa no lee nada de «tu liberación ya quedó».
+    assert TEXTO_VIEJO_LIBERACION_NORMAL not in texto
+    assert (TEXTO_LIBERACION_NORMAL in texto) is (via != "prior")
 
 
 def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_biblioteca):
