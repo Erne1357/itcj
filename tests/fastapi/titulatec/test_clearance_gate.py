@@ -21,7 +21,9 @@ Qué fija este archivo:
    quedar pendiente; el candado se pregunta al ABRIR un intento.
 5. **La prueba estructural** (invariante 2): fuera de los dos services dueños
    y del gate, ningún `.py` de la app compara `SurveyReview.status` ni
-   `LibraryClearance.status`, ni pregunta por la liberación a los dueños.
+   `LibraryClearance.status`, ni pregunta por la liberación a los dueños. Única
+   excepción, por archivo y justificada: `FolioBackfillService`
+   (`_LECTORES_DE_REPARACION`, spec de folios 2026-10-05 §3.4).
 
 Convocatoria «con candado» = `seed_defaults` (los DEFAULTS de hoy ya traen el
 requisito automático, Ruling R2). Convocatoria «sin candado» = la lista VIEJA,
@@ -777,6 +779,19 @@ def test_cada_estado_del_dominio_tiene_su_pildora_sin_codigo_crudo():
 _APP = Path(_tt_pkg.__file__).resolve().parent
 _DUENOS = {"services/survey_review_service.py", "services/library_clearance_service.py",
            "services/clearance_gate.py"}
+# Lectores de REPARACIÓN autorizados a leer `.status` fuera de los dueños y del
+# gate (spec folios 2026-10-05 §3.4, Tarea 3). `FolioBackfillService` NO decide
+# si alguien «está liberado» para un consumidor (agendado, resúmenes, bandejas:
+# eso sigue siendo del gate) ni escribe estados: enumera, para repararlas, las
+# filas que los dueños ya dejaron liberadas (`SurveyReview` `approved`/`prior`,
+# `LibraryClearance` `cleared`/`prior|legacy`) SIN su folio, y su única
+# escritura es `CertificateService.issue`. Delegarlo en los dueños obligaría a
+# que `SurveyReviewService`/`LibraryClearanceService` leyeran
+# `titulatec_certificates` y armaran listas de candidatos que solo usa este
+# comando. Es una excepción por ARCHIVO (no por patrón) y se vigila aparte: el
+# control positivo de la prueba falla si el archivo deja de leer el estado
+# (entrada sobrante) y la lista no admite archivos que no existan.
+_LECTORES_DE_REPARACION = {"services/folio_backfill_service.py"}
 _MODELOS = {"SurveyReview", "LibraryClearance"}
 _SERVICIOS = {"SurveyReviewService", "LibraryClearanceService"}
 _API_LIBERACION = {"release_status", "release_status_map", "is_released"}
@@ -1043,18 +1058,26 @@ def test_nadie_fuera_del_gate_compara_el_estado_de_las_liberaciones():
     en m11/m18, Tarea 9 de 2026-10-02-titulatec-constancias-y-pendientes: las
     meta-pruebas de la sección 11 fijan, con fragmentos sintéticos, qué marca
     y qué NO marca cada forma)."""
-    ofensores, en_duenos, en_gate = [], 0, 0
+    ofensores, en_duenos, en_gate, en_lectores = [], 0, 0, 0
     for ruta, arbol in _fuentes():
         hallazgos = list(_comparaciones(arbol))
         if ruta in _DUENOS:
             en_duenos += len(hallazgos)
             en_gate += len(hallazgos) if ruta == "services/clearance_gate.py" else 0
             continue
+        if ruta in _LECTORES_DE_REPARACION:
+            en_lectores += len(hallazgos)
+            continue
         ofensores += ["%s:%d: %s" % (ruta, linea, src) for linea, src in hallazgos]
 
     # Controles positivos: el detector SÍ ve las comparaciones donde deben vivir.
     assert en_duenos >= 6, "el detector no encontró las comparaciones de los dueños"
     assert en_gate >= 2, "las cláusulas SQL del gate deberían comparar los dos estados"
+    assert all((_APP / ruta).is_file() for ruta in _LECTORES_DE_REPARACION), (
+        "un lector de reparación autorizado ya no existe: quítalo de la lista")
+    assert en_lectores >= 2, (
+        "el backfill de folios ya no lee el estado de las liberaciones (una "
+        "comparación por tipo): quítalo de _LECTORES_DE_REPARACION")
     assert not ofensores, ("comparan el estado de una liberación fuera del gate:\n"
                            + "\n".join(ofensores))
 

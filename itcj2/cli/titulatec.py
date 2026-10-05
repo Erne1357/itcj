@@ -2097,8 +2097,9 @@ def _run_counted_sql(sql: str, count_sql: str, dry_run: bool) -> int:
 # Biblioteca no ha tocado (`library_at IS NULL`) cuando su convocatoria tiene
 # el requisito `library_clearance` cumplido (`fulfilled|waived`) para ese
 # proceso, o cuando su fase 2 ya esta `approved` (ya paso su cotejo). Es DATO
-# como el backfill: sin eventos, sin avisos, sin correos, sin constancia (el
-# legado nunca emite). Idempotente: una fila promovida deja de ser `pending`.
+# como el backfill: sin eventos, sin avisos, sin correos, sin constancia EN ESTE
+# PASO (el folio del legado lo saca el paso siguiente de `activar-biblioteca-caja`,
+# `FolioBackfillService`). Idempotente: una fila promovida deja de ser `pending`.
 # El predicado es el MISMO texto para el UPDATE real y el COUNT de la vista
 # previa.
 _LIBRARY_CLEARANCE_PROMOTE_CONDITIONS = """
@@ -2560,16 +2561,25 @@ def activar_biblioteca_caja_command(dry_run, force):
        sin tocar por Biblioteca -> `cleared/legacy` si su requisito ya está
        cumplido a mano o su fase 2 ya está aprobada. Idempotente, sin
        eventos.
-    5. Verificación (`_verify_candado_biblioteca`): ninguna fila
+    5. Folios de previas y legado (`_emitir_folios_previos`, spec
+       `2026-10-05-titulatec-folios-design.md` §3.4): le saca su folio (GTV o
+       BIB, del semestre ANTERIOR al de su fecha de registro) a toda previa
+       y a todo `cleared/legacy` -el recién promovido incluido- que aún no
+       tenga uno vigente (`FolioBackfillService.run`, UN commit). Va DESPUÉS
+       de la promoción porque el legado nace ahí. Idempotente: es el mismo
+       paso de `titulatec emitir-folios-previos`.
+    6. Verificación (`_verify_candado_biblioteca`): ninguna fila
        `library_clearance` quedó sin el requisito automático. Aborta si algo
        no aterrizó.
 
     Imprime los conteos de cada paso. Correrlo dos veces no cambia nada la
     segunda (todos los pasos son idempotentes). `--dry-run`: pre-chequeos +
     lo que haría cada paso (requisitos por encender, filas del re-backfill,
-    filas de la promoción), sin escribir nada; sale distinto de 0 si faltan
-    archivos o si los pre-chequeos fallan sin `--force` -- igual que la
-    corrida real.
+    filas de la promoción, folios por emitir), sin escribir nada; sale
+    distinto de 0 si faltan archivos o si los pre-chequeos fallan sin
+    `--force` -- igual que la corrida real. Los folios del dry-run NO cuentan
+    el legado que el re-backfill y la promoción crearían en la corrida real
+    (el dry-run no escribe esas filas): la corrida real puede emitir más.
 
     Correrlo FUERA de horario y que Biblioteca haga ese mismo día su lote
     «Sin adeudo»: quien no tenga no adeudo liberado queda bloqueado desde
@@ -2610,6 +2620,11 @@ def activar_biblioteca_caja_command(dry_run, force):
                    "fila(s) que crearía (pending/legacy)")
         click.echo(f"[dry-run] Promoción D17: {_library_clearance_promote(dry_run=True)} "
                    "fila(s) pending que pasarían a cleared/legacy")
+        folios = _emitir_folios_previos(dry_run=True)
+        click.echo(f"[dry-run] Folios de previas y legado: {sum(folios.values())} "
+                   "folio(s) por emitir (sin contar el legado que el re-backfill y la "
+                   "promoción crearían en la corrida real)")
+        _echo_folios_por_tipo_y_semestre(folios)
         click.echo("Dry-run: no se ejecutó nada.")
         if bloquea:
             _abortar_con(pre["problemas"] + [
@@ -2637,6 +2652,11 @@ def activar_biblioteca_caja_command(dry_run, force):
     promovidas = _library_clearance_promote(dry_run=False)
     click.echo(f"Promoción D17: {promovidas} fila(s) pending -> cleared/legacy "
                "(requisito ya cumplido a mano o fase 2 ya aprobada).")
+
+    folios = _emitir_folios_previos(dry_run=False)
+    click.echo(f"Folios de previas y legado: {sum(folios.values())} folio(s) emitido(s) "
+               "(previas y legado sin folio vigente).")
+    _echo_folios_por_tipo_y_semestre(folios)
 
     problemas = _verify_candado_biblioteca()
     if problemas:
@@ -2768,6 +2788,88 @@ def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
         click.echo(f"  {etiqueta}: {len(filas)}")
         for fila in filas:
             click.echo(f"    · {fila['control_number']}: {fila['reason']}")
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
+
+
+# ---------------------------------------------------------------------------
+# Folios de las previas y del legado (spec 2026-10-05-titulatec-folios-design.md
+# §3.4, D5/D6). Las previas registradas desde la Tarea 2 de ese plan ya emiten su
+# folio solas; esto cubre las que se registraron ANTES (las importadas de Forms
+# en dev) y el no adeudo `cleared/legacy`, que escribe el SQL y no un service.
+# TODA la lógica vive en `FolioBackfillService`; el comando solo la imprime y
+# `activar-biblioteca-caja` la corre como su paso 5.
+# ---------------------------------------------------------------------------
+_FOLIOS_PREVIOS_ETIQUETAS = {
+    "survey_release": "Encuesta (GTV)",
+    "library_clearance": "No adeudo (BIB)",
+}
+
+
+def _emitir_folios_previos(dry_run: bool) -> dict[tuple[str, str], int]:
+    """Folia las previas y el legado que aún no tienen folio vigente
+    (`FolioBackfillService.run`) y devuelve el conteo por `(tipo, semestre)`.
+
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` pueda interceptarla en los
+    tests -- mismo patron que `_library_clearance_promote`. `dry_run=True`
+    solo cuenta; `dry_run=False` emite y hace UN commit. Si algo falla, no
+    queda ningun folio a medias: se deshace todo y se relanza el error.
+    Idempotente: una segunda corrida devuelve un conteo vacio.
+    """
+    from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return FolioBackfillService.run(db, dry_run=dry_run)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _echo_folios_por_tipo_y_semestre(conteo: dict[tuple[str, str], int]) -> None:
+    """Una línea por `(tipo, semestre)`: `  Encuesta (GTV) · 2026A: 372`."""
+    for (kind, semestre), n in sorted(conteo.items()):
+        click.echo(f"  {_FOLIOS_PREVIOS_ETIQUETAS.get(kind, kind)} · {semestre}: {n}")
+
+
+@titulatec_cli.command("emitir-folios-previos")
+@click.option("--dry-run", is_flag=True,
+              help="Cuenta los folios que emitiría (por tipo y semestre); no escribe nada.")
+def emitir_folios_previos_command(dry_run):
+    """Emite el folio de las previas y del legado que aún no lo tienen.
+
+    Lista toda liberación VIGENTE sin folio vigente de un proceso no
+    `cancelled` -encuesta previa aprobada (`origin='prior'`) y no adeudo
+    `cleared` por constancia previa o legado- y le saca su folio, sin emisor
+    (`issued_by_id` NULL), en el semestre ANTERIOR al de su fecha de registro
+    (registrada en 2026B da 2026A; D5/D6) y en orden de esa fecha, así que la
+    numeración de cada semestre sigue el orden en que se registraron. Imprime
+    los folios por tipo y semestre.
+
+    \b
+    - Las previas que se registren DESDE el código nuevo ya salen con su folio:
+      esto es para las anteriores (p. ej. las importadas del Excel de Forms) y
+      para el legado, que lo escribe el SQL, no un service.
+    - Idempotente: una liberación con folio vigente no se toca, así que
+      correrlo dos veces no emite nada la segunda. Un folio ANULADO no cuenta
+      como vigente (nunca se reutiliza: sale uno nuevo).
+    - `activar-biblioteca-caja` ya corre este mismo paso.
+
+    `--dry-run`: solo cuenta; no escribe nada.
+    """
+    conteo = _emitir_folios_previos(dry_run)
+    total = sum(conteo.values())
+    prefijo = "[dry-run] " if dry_run else ""
+
+    if not total:
+        click.echo(f"{prefijo}No hay previas ni legado sin folio vigente: nada que emitir.")
+    else:
+        click.echo(f"{prefijo}Folios {'por emitir' if dry_run else 'emitidos'}: {total}")
+        _echo_folios_por_tipo_y_semestre(conteo)
     if dry_run:
         click.echo("Dry-run: no se escribió nada.")
 

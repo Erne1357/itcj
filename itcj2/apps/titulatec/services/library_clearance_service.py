@@ -16,6 +16,9 @@ Máquina de estados (modelo `LibraryClearance`):
     awaiting_payment ──Registrar pago (Caja) ───────────────────> cleared/payment    (+folio BIB)
     pending|awaiting_payment ──Constancia previa (Biblioteca, SE o importación)
                                                                 ─> cleared/prior     (+folio BIB, semestre anterior)
+    (migración tt20261001a | promoción D17) ────────────────────> cleared/legacy    (dato, no una transición: su folio
+                                                                  BIB, semestre anterior, lo emite el backfill
+                                                                  `FolioBackfillService`, no este service)
     cleared/payment ──Revertir pago (Caja, motivo) ─────────────> awaiting_payment   (anula el folio)
     cleared/no_charge|legacy ──Revertir (Biblioteca, motivo) ───> pending            (anula el folio si hay)
     cleared/prior ──Deshacer constancia previa (motivo) ────────> pending            (anula el folio)
@@ -68,7 +71,9 @@ source_ref='library_clearance:{id}')` en el semestre de la emisión; quedar
 `source_ref` en el semestre ANTERIOR al del registro
 (`previous_semester_key`). Revertir (`revert_payment`/`revert_clearance`) y
 `undo_prior` anulan (`void`). `legacy` no emite aquí: sus folios los da el
-backfill (`FolioBackfillService`). «A lo más una vigente por origen» (§5,
+backfill (`FolioBackfillService`: `titulatec emitir-folios-previos` y el paso 5
+de `activar-biblioteca-caja`), que también cubre las previas registradas antes
+de que este service emitiera. «A lo más una vigente por origen» (§5,
 invariante 5) se cumple por construcción: solo se emite al ENTRAR a
 cleared/payment|no_charge|prior y toda salida de esos estados anula; volver a
 liberar saca un folio nuevo.

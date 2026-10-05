@@ -33,9 +33,11 @@ corren siempre.
 
 Hermeticidad (mismo criterio que `test_cli_posgrado.py`): las pruebas a
 nivel comando (`CliRunner`) parchan `execute_sql_file`, los `_verify_*`, los
-pre-chequeos, los conteos, el re-backfill y la promoción -- ninguna toca la BD
-de dev de verdad. `_library_clearance_rebackfill`, `_library_clearance_promote`
-y `_precheck_activar_biblioteca` en si mismas SI se prueban contra Postgres
+pre-chequeos, los conteos, el re-backfill, la promoción y el paso de folios
+(`_emitir_folios_previos`, spec 2026-10-05 §3.4; su contenido se prueba en
+`test_folio_backfill.py`) -- ninguna toca la BD de dev de verdad.
+`_library_clearance_rebackfill`, `_library_clearance_promote` y
+`_precheck_activar_biblioteca` en si mismas SI se prueban contra Postgres
 real, pero DENTRO del savepoint de `db_session` (`patched_session_local`
 intercepta su `SessionLocal()` interno) -- nunca contra el engine de
 produccion sin aislar.
@@ -85,6 +87,8 @@ _TODOS_LOS_DEL_DELTA = _DML_BIBLIOTECA_2026_10_FILES + _DML_BIBLIOTECA_2026_10_A
 _MOD = "itcj2.cli.titulatec"
 _PRE_OK = {"ocupantes": {_PUESTO_LIBRARY: 1, _PUESTO_CASHIER: 2},
            "sin_donacion": [], "problemas": []}
+# Lo que devuelve `_emitir_folios_previos` (conteo por tipo y semestre): 6 folios.
+_FOLIOS = {("survey_release", "2026A"): 5, ("library_clearance", "2026A"): 1}
 _PRE_MAL = {"ocupantes": {_PUESTO_LIBRARY: 0, _PUESTO_CASHIER: None},
             "sin_donacion": [{"cohort_id": 7, "name": "Convocatoria X", "pending": 3}],
             "problemas": ["puesto library_clearance_info_center sin ocupante vigente",
@@ -368,6 +372,8 @@ def _activar(args, *, pre, verif=(), orden=None):
                             side_effect=_anota("rebackfill", 4)),
         "promover": patch(f"{_MOD}._library_clearance_promote",
                           side_effect=_anota("promover", 6)),
+        "folios": patch(f"{_MOD}._emitir_folios_previos",
+                        side_effect=_anota("folios", dict(_FOLIOS))),
         "verificar": patch(f"{_MOD}._verify_candado_biblioteca",
                            side_effect=_anota("verificar", list(verif))),
     }
@@ -381,19 +387,23 @@ def _activar(args, *, pre, verif=(), orden=None):
 
 
 @requires_dml
-def test_activar_corre_el_22_rebackfill_promocion_y_verificacion_en_ese_orden():
+def test_activar_corre_el_22_rebackfill_promocion_folios_y_verificacion_en_ese_orden():
     res, m, orden = _activar([], pre=_PRE_OK)
 
     assert res.exit_code == 0, res.output
-    assert orden == ["dml", "rebackfill", "promover", "verificar"]
+    assert orden == ["dml", "rebackfill", "promover", "folios", "verificar"]
     corridos = [str(c.args[0]) for c in m["ejecutar"].call_args_list]
     assert [r.rsplit("/", 1)[-1] for r in corridos] == ["22_library_requirement_auto.sql"]
     m["rebackfill"].assert_called_once_with(dry_run=False)
     m["promover"].assert_called_once_with(dry_run=False)
+    m["folios"].assert_called_once_with(dry_run=False)
     # Los conteos de cada paso.
     assert "2 fila(s) encendida(s) de 5" in res.output
     assert "Re-backfill de no adeudo: 4 fila(s)" in res.output
     assert "Promoción D17: 6 fila(s)" in res.output
+    assert "Folios de previas y legado: 6 folio(s) emitido(s)" in res.output
+    assert "Encuesta (GTV) · 2026A: 5" in res.output
+    assert "No adeudo (BIB) · 2026A: 1" in res.output
     assert "ENCENDIDO" in res.output
 
 
@@ -406,6 +416,7 @@ def test_activar_sin_force_aborta_si_fallan_los_prechequeos_sin_escribir():
     m["ejecutar"].assert_not_called()
     m["rebackfill"].assert_not_called()
     m["promover"].assert_not_called()
+    m["folios"].assert_not_called()
     for problema in _PRE_MAL["problemas"]:
         assert problema in res.output
     assert "Convocatoria X (id 7): 3 proceso(s)" in res.output
@@ -417,7 +428,7 @@ def test_activar_con_force_sigue_aunque_fallen_los_prechequeos():
     res, m, orden = _activar(["--force"], pre=_PRE_MAL)
 
     assert res.exit_code == 0, res.output
-    assert orden == ["dml", "rebackfill", "promover", "verificar"]
+    assert orden == ["dml", "rebackfill", "promover", "folios", "verificar"]
     assert "ADVERTENCIA: --force" in res.output
     for problema in _PRE_MAL["problemas"]:
         assert problema in res.output
@@ -433,8 +444,13 @@ def test_activar_dry_run_cuenta_cada_paso_sin_escribir():
     m["verificar"].assert_not_called()
     m["rebackfill"].assert_called_once_with(dry_run=True)
     m["promover"].assert_called_once_with(dry_run=True)
+    m["folios"].assert_called_once_with(dry_run=True)
     assert "22_library_requirement_auto.sql" in res.output
     assert "Requisitos de no adeudo por encender: 2 de 5" in res.output
+    # El paso nuevo (spec folios §3.4) también muestra sus conteos en el dry-run.
+    assert "[dry-run] Folios de previas y legado: 6 folio(s) por emitir" in res.output
+    assert "Encuesta (GTV) · 2026A: 5" in res.output
+    assert "No adeudo (BIB) · 2026A: 1" in res.output
     assert "Dry-run: no se ejecutó nada." in res.output
 
 
