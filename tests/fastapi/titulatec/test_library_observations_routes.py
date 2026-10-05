@@ -103,8 +103,16 @@ def _observar_svc(db, clearance_id, actor_id, reason=MOTIVO):
 
 
 def _fila(html, marca):
+    """La fila y, si la trae, su `<tr id="lib-{id}-panel">` de dictamen (spec
+    2026-10-05-titulatec-biblioteca-acciones §3.1): los formularios de la
+    fila viven ahí desde ese rediseño."""
     assert marca in html, "falta la fila sembrada"
-    return html.split(marca, 1)[1].split("</tr>", 1)[0]
+    resto = html.split(marca, 1)[1]
+    fila, resto = resto.split("</tr>", 1)
+    m = re.match(r'\s*<tr id="%s-panel"' % re.escape(marca[4:-1]), resto)
+    if m:
+        fila += resto.split("</tr>", 1)[0]
+    return fila
 
 
 def _tab_span(html, tab_id):

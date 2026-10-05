@@ -9,8 +9,10 @@
    `page`, en campos ocultos.
 
    Acciones por pestaña (spec §4.7):
-   - «Por revisar»: casilla de lote + «Sin adeudo» (fila) · «Con adeudo…»
-     (monto + nota) · «Constancia previa…» (fecha + nota).
+   - «Por revisar»: casilla de lote + «Sin adeudo» (fila) y «Dictaminar…»,
+     que abre el panel bajo la fila (ver `lib_panel` abajo) con «Con
+     adeudo» (monto + nota) · «Constancia previa» (fecha + nota) ·
+     «Observar» (motivo).
    - «En caja»: desglose adeudo + donación = total, nota, «Corregir…» (mismo
      endpoint que Registrar, con `expected_status=awaiting_payment` +
      `expected_total` -- Ruling R8). Si otra persona movió la fila mientras
@@ -45,7 +47,8 @@
    (`name="ids"`) son inputs sueltos en su celda, y el botón «Sin adeudo»
    las recoge por fuera con `hx-include` (selector CSS global, sin anidar
    `<form>` dentro de las filas -- cada fila YA trae sus propios formularios de
-   acción en la misma `<tr>`, y un `<form>` no puede contener a otro). Mismo
+   acción, en su celda y en su `<tr>` de panel, y un `<form>` no puede
+   contener a otro). Mismo
    truco que `admin/process_detail.html:54,96` (`hx-include` a un `<form>`
    por id con el botón FUERA); aquí el ancla es `#tt-library-bulk-fields`
    (status/q/page) más `[name='ids']:checked`.
@@ -71,6 +74,83 @@
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
 <input type="hidden" name="page" value="{{ page }}">
+{%- endmacro %}
+{# --- Panel de dictamen bajo la fila (spec 2026-10-05-titulatec-biblioteca-
+   acciones §3.1-§3.2). La celda de acciones lleva a lo más dos controles: la
+   acción rápida de la pestaña y `lib_toggle`, que abre la SEGUNDA `<tr>`
+   (`lib_panel`, `d-none` por omisión) con el `data-tt-toggle` global de
+   `static/js/admin/appointments.js` (alterna `d-none` + `aria-expanded`;
+   cargado por `base_admin`). Sin JS nuevo, sin modal: el panel empuja hacia
+   abajo, no tapa ni encoge nada.
+
+   Varias opciones: `lib_picker` (fieldset + legend con las tarjetas
+   `lib_option`, radios `name="lib-{id}-op"` FUERA de todo `<form>`, ninguno
+   marcado) y debajo un `lib_form` por opción. El CSS (`.tt-lib-*`) muestra
+   solo el formulario de la tarjeta elegida con `:has()` por CLAVE
+   (`.tt-lib-pick[value=clave]` -> `.tt-lib-form--clave`), nunca por id: dos
+   paneles abiertos en filas distintas no se pisan. Sin `:has()` se ven
+   todos los formularios (degradación aceptable).
+
+   Una sola opción (Tarea 2: «Con observaciones», «Liberados»): `lib_panel`
+   con un encabezado `<p class="tt-lib-panel-title">` y un `lib_form`
+   directo, SIN `lib_picker`; como el panel no trae `.tt-lib-pick`, el
+   formulario queda visible.
+
+   `lib_form` conserva lo que importaba de los formularios de antes: el
+   `hx-post`, `tab_fields` y `hx-confirm` + `data-tt-confirm-ok` EN el
+   `<form>` (el elemento que lleva `hx-post`); los ocultos propios de cada
+   acción (`expected_status`, `expected_total`) van en el cuerpo del `call`.
+   Cada campo con `lib_field` (`<label class="tt-label" for>` visible). Ids
+   estables: `lib-{id}-panel`, `lib-{id}-opt-{clave}`, `lib-{id}-form-{clave}`.
+   Claves: debt, prior, observe, fix, update, revert, undo. #}
+{% macro lib_toggle(r, label) -%}
+<button type="button" class="btn btn-sm tt-btn-ghost tt-lib-toggle"
+        data-tt-toggle="lib-{{ r.id }}-panel" aria-controls="lib-{{ r.id }}-panel"
+        aria-expanded="false">{{ label }}<i class="bi bi-chevron-down tt-lib-chev" aria-hidden="true"></i></button>
+{%- endmacro %}
+{% macro lib_panel(r, colspan) -%}
+<tr id="lib-{{ r.id }}-panel" class="d-none tt-lib-panel-row">
+  <td colspan="{{ colspan }}">
+    <div class="tt-lib-panel">
+      {{ caller() }}
+    </div>
+  </td>
+</tr>
+{%- endmacro %}
+{% macro lib_picker(legend) -%}
+<fieldset class="tt-vis tt-lib-opts">
+  <legend class="tt-lib-panel-title">{{ legend }}</legend>
+  {{ caller() }}
+  <p class="tt-lib-hint mb-0">Elige un resultado.</p>
+</fieldset>
+{%- endmacro %}
+{% macro lib_option(r, key, title, explain) -%}
+<label class="tt-vis-opt" for="lib-{{ r.id }}-opt-{{ key }}">
+  <input class="form-check-input tt-lib-pick" type="radio" name="lib-{{ r.id }}-op"
+         id="lib-{{ r.id }}-opt-{{ key }}" value="{{ key }}" aria-controls="lib-{{ r.id }}-form-{{ key }}">
+  <span class="min-w-0">
+    <span class="rotulo d-block">{{ title }}</span>
+    <span class="derivada d-block">{{ explain }}</span>
+  </span>
+</label>
+{%- endmacro %}
+{% macro lib_form(r, key, action, ok, confirm) -%}
+<form id="lib-{{ r.id }}-form-{{ key }}" class="tt-lib-form tt-lib-form--{{ key }}"
+      hx-post="/titulatec/admin/biblioteca/{{ r.id }}/{{ action }}"
+      hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+      data-tt-confirm-ok="{{ ok }}"
+      hx-confirm="{{ confirm }}">
+  {{ tab_fields(status, q, page) }}
+  <div class="tt-lib-fields">
+    {{ caller() }}
+  </div>
+</form>
+{%- endmacro %}
+{% macro lib_field(fid, label, extra='') -%}
+<div class="tt-lib-field{{ ' ' ~ extra if extra }}">
+  <label class="tt-label" for="{{ fid }}">{{ label }}</label>
+  {{ caller() }}
+</div>
 {%- endmacro %}
 <div id="tt-library-body" data-tt-view="library-body">
 
@@ -141,11 +221,12 @@
   <div class="tt-table-wrap">
     <table class="table table-sm align-middle">
       <thead><tr>
-        {% if status == 'pending' %}<th style="width:2rem"></th>{% endif %}
+        {% if status == 'pending' %}<th class="tt-lib-th-check"></th>{% endif %}
         <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
         <th>Inscrito</th><th>Monto</th><th>Estado</th><th>Constancia</th><th></th>
       </tr></thead>
       <tbody>
+      {% set ncols = 10 if status == 'pending' else 9 %}
       {% for r in rows %}
       <tr id="lib-{{ r.id }}">
         {% if status == 'pending' %}
@@ -194,47 +275,18 @@
             <span class="tt-pill tt-pill--neutral">Revocada</span>
             <p class="small mb-0 mt-1">La inscripción fue revocada: no hay acciones.</p>
           {% elif r.status == 'pending' %}
-            <form class="d-inline" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Sin adeudo"
-                  hx-confirm="Sin adeudo|¿Marcar a {{ r.student }} sin adeudo de biblioteca?">
-              {{ tab_fields(status, q, page) }}
-              <input type="hidden" name="debt_amount" value="0">
-              <input type="hidden" name="expected_status" value="pending">
-              <button type="submit" class="btn btn-sm tt-btn-ink">Sin adeudo</button>
-            </form>
-            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Registrar"
-                  hx-confirm="Con adeudo|¿Registrar este adeudo para {{ r.student }}? Pasa a Caja a pagar.">
-              {{ tab_fields(status, q, page) }}
-              <input type="hidden" name="expected_status" value="pending">
-              <input class="tt-field tt-field--xs" style="width:6rem" type="text" name="debt_amount" required
-                     {% if r.debt is not none %}value="{{ r.debt }}" {% endif %}placeholder="Adeudo $" aria-label="Monto del adeudo de {{ r.student }}">
-              <input class="tt-field tt-field--xs" name="note" maxlength="1000" placeholder="Nota"
-                     {% if r.note %}value="{{ r.note }}" {% endif %}aria-label="Nota del adeudo de {{ r.student }}">
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Con adeudo…</button>
-            </form>
-            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/previa"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Registrar"
-                  hx-confirm="Constancia previa|¿Registrar que {{ r.student }} ya pagó y trae su constancia? Queda liberado sin pasar por Caja.">
-              {{ tab_fields(status, q, page) }}
-              <input class="tt-field tt-field--xs" type="date" name="issued_on" required
-                     aria-label="Fecha de la constancia previa de {{ r.student }}">
-              <input class="tt-field tt-field--xs" name="note" maxlength="1000" placeholder="Nota"
-                     aria-label="Nota de la constancia previa de {{ r.student }}">
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
-            </form>
-            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Observar"
-                  hx-confirm="Observar|¿Registrar observaciones a {{ r.student }}? Queda detenido hasta que Biblioteca lo rehabilite.">
-              {{ tab_fields(status, q, page) }}
-              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
-                        placeholder="Motivo de la observación" aria-label="Motivo de la observación de {{ r.student }}"></textarea>
-              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar…</button>
-            </form>
+            <div class="tt-lib-actions">
+              <form hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
+                    hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                    data-tt-confirm-ok="Sin adeudo"
+                    hx-confirm="Sin adeudo|¿Marcar a {{ r.student }} sin adeudo de biblioteca?">
+                {{ tab_fields(status, q, page) }}
+                <input type="hidden" name="debt_amount" value="0">
+                <input type="hidden" name="expected_status" value="pending">
+                <button type="submit" class="btn btn-sm tt-btn-ink">Sin adeudo</button>
+              </form>
+              {{ lib_toggle(r, 'Dictaminar…') }}
+            </div>
           {% elif r.status == 'awaiting_payment' %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
                   hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
@@ -243,7 +295,7 @@
               {{ tab_fields(status, q, page) }}
               <input type="hidden" name="expected_status" value="awaiting_payment">
               <input type="hidden" name="expected_total" value="{{ r.total }}">
-              <input class="tt-field tt-field--xs" style="width:6rem" type="text" name="debt_amount" required
+              <input class="tt-field tt-field--xs tt-lib-amount" type="text" name="debt_amount" required
                      value="{{ r.debt }}" aria-label="Nuevo monto del adeudo de {{ r.student }}">
               <input class="tt-field tt-field--xs" name="note" maxlength="1000" value="{{ r.note or '' }}"
                      placeholder="Nota" aria-label="Nota del adeudo de {{ r.student }}">
@@ -304,6 +356,48 @@
           {% endif %}
         </td>
       </tr>
+      {% if not r.revoked and r.status == 'pending' %}
+      {% call lib_panel(r, ncols) %}
+        {% call lib_picker('Dictaminar a ' ~ r.student) %}
+          {{ lib_option(r, 'debt', 'Con adeudo', 'Pasa a Caja a pagar el adeudo más la donación.') }}
+          {{ lib_option(r, 'prior', 'Constancia previa', 'Ya pagó antes y trae su constancia: queda liberado sin pasar por Caja.') }}
+          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar.') }}
+        {% endcall %}
+        <div class="tt-lib-forms">
+          {% call lib_form(r, 'debt', 'registrar', 'Registrar',
+                           'Con adeudo|¿Registrar este adeudo para ' ~ r.student ~ '? Pasa a Caja a pagar.') %}
+            <input type="hidden" name="expected_status" value="pending">
+            {% call lib_field('lib-' ~ r.id ~ '-debt-amount', 'Monto del adeudo ($)') %}
+            <input id="lib-{{ r.id }}-debt-amount" class="tt-field tt-lib-amount" type="text" inputmode="decimal"
+                   name="debt_amount" required{% if r.debt is not none %} value="{{ r.debt }}"{% endif %}>
+            {% endcall %}
+            {% call lib_field('lib-' ~ r.id ~ '-debt-note', 'Nota (opcional)', 'tt-lib-field--grow') %}
+            <input id="lib-{{ r.id }}-debt-note" class="tt-field" name="note" maxlength="1000"
+                   {%- if r.note %} value="{{ r.note }}"{% endif %}>
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-ink">Registrar adeudo</button>
+          {% endcall %}
+          {% call lib_form(r, 'prior', 'previa', 'Registrar',
+                           'Constancia previa|¿Registrar que ' ~ r.student ~ ' ya pagó y trae su constancia? Queda liberado sin pasar por Caja.') %}
+            {% call lib_field('lib-' ~ r.id ~ '-prior-date', 'Fecha de la constancia') %}
+            <input id="lib-{{ r.id }}-prior-date" class="tt-field" type="date" name="issued_on" required>
+            {% endcall %}
+            {% call lib_field('lib-' ~ r.id ~ '-prior-note', 'Nota (opcional)', 'tt-lib-field--grow') %}
+            <input id="lib-{{ r.id }}-prior-note" class="tt-field" name="note" maxlength="1000">
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-ink">Registrar constancia previa</button>
+          {% endcall %}
+          {% call lib_form(r, 'observe', 'observar', 'Observar',
+                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo rehabilite.') %}
+            {% call lib_field('lib-' ~ r.id ~ '-observe-reason', 'Motivo de la observación', 'tt-lib-field--grow') %}
+            <textarea id="lib-{{ r.id }}-observe-reason" class="tt-field" name="reason" rows="3" required
+                      maxlength="1000"></textarea>
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar</button>
+          {% endcall %}
+        </div>
+      {% endcall %}
+      {% endif %}
       {% endfor %}
       </tbody>
     </table>
