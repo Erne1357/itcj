@@ -1751,7 +1751,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     }
 
 
-def _proc_universe(db, *, user_id, status="", q=None, phase=None):
+def _proc_universe(db, *, user_id, status="", q=None):
     """PASADA 1 de Procesos: filas ligeras del universo + KPIs.
 
     Una sola consulta: los procesos en alcance (`officer_programs`, ANTES de
@@ -1765,7 +1765,7 @@ def _proc_universe(db, *, user_id, status="", q=None, phase=None):
     * `ligeras` -- dicts `{"id", "created_at", "status", "current_phase",
       "student_id", "program_id", "started_at_fase", "idle_days", "idle_level"}`
       (+ `folio` y `modality_id`, que viajan de la misma fila para no volver a
-      leerlas en la pasada 2) del universo filtrado por estado, `q` y `phase`.
+      leerlas en la pasada 2) del universo filtrado por estado y `q` (la fase la aplica `_proc_ctx`).
       SIN el filtro «atorados»: ese lo aplica quien llama sobre `idle_level`.
     * `kpis` -- con la lógica de siempre, sobre el universo filtrado por alcance
       y `status` (como hoy: los KPIs son también los filtros de estado) pero
@@ -1848,8 +1848,6 @@ def _proc_universe(db, *, user_id, status="", q=None, phase=None):
         casan = {pid for (pid,) in _alcance(
             db.query(TP.id).outerjoin(User, User.id == TP.student_id)).filter(pred)}
         filtradas = [r for r in filtradas if r["id"] in casan]
-    if phase is not None:
-        filtradas = [r for r in filtradas if r["current_phase"] == phase]
     return filtradas, kpis
 
 
@@ -1892,7 +1890,7 @@ def _proc_present(db, ligeras, *, phase_names, max_phase):
     return rows
 
 
-def _proc_url(view, status, stuck, q, phase=None, page=None) -> str:
+def _proc_url(view, status, stuck, q, phase=None) -> str:
     """URL canónica de la bandeja con sus filtros (para `href`/`hx-get`)."""
     from urllib.parse import urlencode
 
@@ -1905,8 +1903,6 @@ def _proc_url(view, status, stuck, q, phase=None, page=None) -> str:
         pares.append(("phase", phase))
     if q:
         pares.append(("q", q))
-    if page and page > 1:
-        pares.append(("page", page))
     return "/titulatec/admin/processes?" + urlencode(pares)
 
 

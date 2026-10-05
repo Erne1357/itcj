@@ -18,7 +18,7 @@ Orden en PANTALLA (fijado 2026-09-17; el orden en este archivo no importa):
 Por que la exclusion mutua es el invariante y no un detalle estetico
 -------------------------------------------------------------------
 Los cubos «Por agendar» y «Requieren que les agendes» salen del MISMO universo
-(`_pending_candidates`) y se reparten con un solo predicado
+(`AppointmentService.queue_candidates`) y se reparten con un solo predicado
 (`is_blocked_by_cancellations`). Si `list_pending_processes` olvidara restar a
 los bloqueados, el mismo alumno saldria en los dos y el encargado no sabria
 cual mirar — ni cual de los dos contadores le dice la verdad. Es exactamente el
@@ -87,9 +87,9 @@ _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 def _con_docs_y_encuesta(proc, make_document, make_survey_review, estado="approved"):
     """Los 3 documentos iniciales APROBADOS + la solicitud de liberacion.
 
-    Es el minimo para entrar a `_pending_candidates`, el universo del que
+    Es el minimo para entrar a `AppointmentService.queue_candidates`, el universo del que
     salen los cubos 1 y 2. Desde D1 (2026-09-29, revierte D2 del 2026-09-15)
-    `_pending_candidates` exige la solicitud LIBERADA (`status='approved'`),
+    `AppointmentService.queue_candidates` exige la solicitud LIBERADA (`status='approved'`),
     no solo enviada -- por eso el default aqui es `approved` y no `in_review`.
     Los demas cubos que usan este helper (reagendar, rechazados, dictamen) no
     leen el estado de la encuesta para decidir en que cubo caen -- quedan
@@ -151,7 +151,7 @@ def cola(seed_phase_defs, seed_document_types, make_program, make_cohort,
     # Tres cancelaciones SUYAS (`cancelled_by_id == student_id`, que es lo que
     # cuenta `SelfBookingService.cancellations`), ninguna vigente. Sin cita
     # vigente sigue estando "sin cita", que es lo que lo mantiene en el
-    # universo de `_pending_candidates`.
+    # universo de `AppointmentService.queue_candidates`.
     p_bloqueado = _con_docs_y_encuesta(_proc("BLOQUEADO"), make_document,
                                        make_survey_review)
     for n in range(1, 4):

@@ -1088,7 +1088,7 @@ finally:
  *
  * Nace en fase 2 (cotejo), con los 3 documentos iniciales YA aprobados y la
  * encuesta de egresados YA LIBERADA (D1): las tres cosas que
- * `AppointmentService._pending_candidates` exige para que un proceso entre a
+ * `AppointmentService.queue_candidates` exige para que un proceso entre a
  * «Por agendar» (`_shell_ctx.visibles`) — sin ellas `?selected=` se
  * descartaría en silencio y la ficha del alumno no abriría. Mismos requisitos
  * que exige `AppointmentService.create`, que es lo que hace `attend_now` por

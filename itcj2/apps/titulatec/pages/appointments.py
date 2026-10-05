@@ -24,7 +24,7 @@ boton Atras reconstruyen el estado exacto.
 
 Alcance por carrera: `officer_programs` se resuelve UNA vez por peticion y se
 pasa a las CUATRO consultas de listado (`list_appointments`, `list_for_day`,
-`counts_by_day`, `list_pending_processes`) mas `agenda_process_ids`. Los defaults
+`counts_by_day`, `queue_candidates`) mas `agenda_process_ids`. Los defaults
 de esos servicios son ABIERTOS (`allowed_program_ids=None` = sin restriccion),
 asi que olvidar uno filtra de menos EN SILENCIO: lo cubre
 tests/fastapi/titulatec/test_appointments_scope_day.py.

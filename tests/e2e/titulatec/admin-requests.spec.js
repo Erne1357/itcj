@@ -117,6 +117,11 @@ test('la fila "Solicitudes" del menú admin existe y lleva a su bandeja; "Encues
   await page.waitForURL('**/titulatec/admin/solicitudes');
   // «Por revisar» es la pestaña de por omisión y trae las dos solicitudes.
   await expect(page.locator('#tt-req-tab-pending_review[aria-current="true"]')).toBeVisible();
+  // La bandeja pagina de 50 en 50 y «Por revisar» va FIFO: en una base con mas
+  // de 50 pendientes las dos sembradas (las mas nuevas) no estarian en la
+  // pagina 1. Se buscan por prefijo de control (29990777 y 29990778).
+  await page.goto('/titulatec/admin/solicitudes?q=2999077', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#tt-req-tab-pending_review[aria-current="true"]')).toBeVisible();
   await expect(
     page.locator(`form[hx-post="/titulatec/admin/solicitudes/${reqSinCuenta}/aprobar"]`)
   ).toBeVisible();
