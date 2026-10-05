@@ -90,7 +90,11 @@ def test_doc_viewer_modulo_morph_safe():
     assert "window.TitulaTecDocViewer" in js
     assert "htmx:afterSettle" in js
     assert "DOMContentLoaded" in js
-    assert "data-tt-bound" in js
+    # Guarda de listeners del modal: expando (el snapshot de historial de htmx
+    # conserva atributos pero no listeners), nunca atributo.
+    assert "_ttDocViewerBound" in js
+    assert "data-tt-bound" not in js
+    assert "htmx:historyRestore" in js
     for nativo in ("confirm(", "alert(", "prompt("):
         assert not re.search(r"(?<![\w.])" + re.escape(nativo), js), nativo
     # Comportamiento de 2026-10-04 conservado.
@@ -101,6 +105,19 @@ def test_doc_viewer_modulo_morph_safe():
         assert pieza in js, pieza
     # Sin CRLF.
     assert "\r\n" not in JS.read_bytes().decode("utf-8")
+
+
+def test_cierre_del_modal_sin_dictaminar_restaura_el_estado_del_panel_inline():
+    """renderModal pinta el estado de revision del doc del modal sobre el boton
+    inline; si se cierra sin dictaminar, el handler no-acting debe re-aplicar el
+    del doc activo INLINE (si no, se salta el aviso de cierre de fase)."""
+    js = JS.read_text(encoding="utf-8")
+    m = re.search(r"'hidden\.bs\.modal', function \(\) \{(.*?)\n    \}\);", js, re.S)
+    assert m, "no se encontro el handler hidden.bs.modal"
+    body = m.group(1)
+    acting = body.index("S.acting")
+    assert body.index("syncNoteToInline()") > acting
+    assert "if (S.activeBtn) applyReviewState(S.activeBtn);" in body[body.index("syncNoteToInline()"):]
 
 
 def test_parciales_y_js_muertos_eliminados():

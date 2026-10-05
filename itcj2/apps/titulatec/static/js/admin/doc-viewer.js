@@ -21,9 +21,10 @@
        cada `htmx:afterSettle`;
      - el modal vive en `{% block modals %}` de `base_admin.html`, FUERA de
        todo swap: sus listeners propios (input de la nota, `hidden.bs.modal`)
-       se enlazan una sola vez con la guarda `data-tt-bound` sobre el modal.
-       Ahí sí es seguro escribirla: Idiomorph nunca toca ese nodo (en el
-       contenido morpheado la borraría, por eso los demás módulos no la usan).
+       se enlazan una sola vez con un expando (`modalEl._ttDocViewerBound`), no
+       un atributo: el snapshot de historial de htmx conserva atributos pero no
+       listeners, y tras Back el nodo nuevo quedaria marcado sin listeners.
+     - Back/Forward (`htmx:historyRestore`) tambien re-inicia.
 
    Expone solo `window.TitulaTecDocViewer = { init(root) }`.
    =========================================================================== */
@@ -264,8 +265,11 @@
   // Listeners propios del modal: UNA vez (vive fuera de todo swap).
   function bindModal() {
     var modalEl = $('tt-doc-modal');
-    if (!modalEl || modalEl.hasAttribute('data-tt-bound')) return;
-    modalEl.setAttribute('data-tt-bound', '1');
+    // Guarda como expando, NO como atributo: el snapshot de historial de htmx
+    // conserva atributos pero no listeners, y tras un Back el nodo nuevo
+    // llegaria marcado sin tener los listeners.
+    if (!modalEl || modalEl._ttDocViewerBound) return;
+    modalEl._ttDocViewerBound = true;
     modalEl.addEventListener('input', function (e) {
       if (e.target && e.target.id === 'tt-modal-note') syncNoteToInline();
     });
@@ -273,6 +277,9 @@
     modalEl.addEventListener('hidden.bs.modal', function () {
       if (S.acting) { S.acting = false; return; }
       syncNoteToInline();
+      // renderModal pinto el estado de revision del doc elegido en el modal
+      // sobre el boton inline; sin dictaminar, el panel sigue en SU doc.
+      if (S.activeBtn) applyReviewState(S.activeBtn);
     });
   }
 
@@ -320,6 +327,9 @@
     if (root === S.root && !(t && t.contains && t.contains(root))) return;
     init(root);
   });
+
+  // Back/Forward: htmx restaura el body desde un snapshot (nodos nuevos).
+  document.body.addEventListener('htmx:historyRestore', function () { init(); });
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { init(); });
