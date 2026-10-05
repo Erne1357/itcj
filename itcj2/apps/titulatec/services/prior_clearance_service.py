@@ -227,7 +227,13 @@ class PriorClearanceService:
         # del Excel trae su respuesta y su marca de papel; se transmiten.
         SurveyReviewService.register_prior(
             db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None,
-            response_id=previa.response_id, paper_pending=bool(previa.paper_pending))
+            response_id=previa.response_id, paper_pending=previa.paper_pending is True)
+        if previa.response_id is not None:
+            # La respuesta importada queda del egresado y de este proceso.
+            from itcj2.apps.titulatec.services.survey_import_service import (
+                SurveyImportService,
+            )
+            SurveyImportService.link_response_to_process(db, previa.response_id, process)
         return True
 
     @staticmethod
@@ -250,7 +256,8 @@ class PriorClearanceService:
     # ------------------------------------------------------------------
     @staticmethod
     def import_rows(db: Session, *, kind: str, rows: list[dict], source: str,
-                    dry_run: bool = False, today: Optional[date] = None) -> dict:
+                    dry_run: bool = False, today: Optional[date] = None,
+                    commit: bool = True) -> dict:
         """Importa, por número de control, constancias previas de un
         semestre anterior (D9, spec §4.12). `kind` ∈ `PRIOR_KINDS` (importado
         de `models/prior_clearance.py`: fuente única, m15). `rows` = lista de
@@ -311,6 +318,10 @@ class PriorClearanceService:
         sin este `set` las dos filas saldrían `applied`, prometiendo más
         altas de las que la corrida real aplicaría.
 
+        `commit=False` (lo usa `SurveyImportService.import_rows`, que escribe
+        las respuestas y es dueño de la transacción completa): solo `flush()`
+        al final; el llamador hace el único commit.
+
         Devuelve un dict con las 6 llaves de `IMPORT_BUCKETS`; cada una es
         una lista de `{"control_number": str, "reason": str}`, en el orden
         del CSV.
@@ -353,7 +364,7 @@ class PriorClearanceService:
             trae_liga = kind == "survey" and (
                 "response_id" in row or "paper_pending" in row)
             response_id = row.get("response_id") if kind == "survey" else None
-            paper_pending = bool(row.get("paper_pending")) if kind == "survey" else False
+            paper_pending = (row.get("paper_pending") is True) if kind == "survey" else False
             proceso = _open_process_for_control(db, control)
 
             if proceso is None:
@@ -427,8 +438,53 @@ class PriorClearanceService:
                         f"no adeudo liberado en el proceso {proceso.folio}")
 
         if not dry_run:
-            db.commit()
+            if commit:
+                db.commit()
+            else:
+                db.flush()
         return out
+
+    @staticmethod
+    def attach_imported_response(db: Session, *, control_number: str,
+                                 response_id: Optional[int], paper_pending: bool):
+        """Respuesta importada del Excel (spec `2026-10-05-titulatec-import-
+        encuesta-xlsx-design.md` R7) cuyo control YA estaba liberado por una
+        constancia previa SIN respuesta (p. ej. la del CSV de
+        `import-prior-clearances`): se le adjunta para que GTV vea «Ver
+        respuestas» y, si la fila venía en naranja, la constancia por recoger.
+
+        Busca la solicitud previa en el proceso ABIERTO del control o, si no
+        hay, en el proceso al que ya se aplicó su `PriorClearance` de
+        encuesta. La mutación de la solicitud la hace su dueño
+        (`SurveyReviewService.attach_imported_response`: solo previas sin
+        respuesta); aquí solo se liga la `PriorClearance` aplicada a ese
+        mismo proceso (si no tenía respuesta). Devuelve el proceso al que
+        quedó ligada la respuesta, o `None` si no se adjuntó a nada. Sin
+        commit."""
+        from itcj2.apps.titulatec.models import PriorClearance, TitulationProcess
+        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+        control = (control_number or "").strip().upper()
+        if response_id is None or not control:
+            return None
+        previa = (db.query(PriorClearance)
+                 .filter_by(kind="survey", control_number=control)
+                 .with_for_update().first())
+        proceso = _open_process_for_control(db, control)
+        review = SurveyReviewService.get_for_process(db, proceso.id) if proceso else None
+        if review is None and previa is not None and previa.applied_process_id is not None:
+            proceso = db.get(TitulationProcess, previa.applied_process_id)
+            review = (SurveyReviewService.get_for_process(db, proceso.id)
+                      if proceso is not None else None)
+        if review is None or not SurveyReviewService.attach_imported_response(
+                db, review, response_id=response_id, paper_pending=paper_pending):
+            return None
+        if (previa is not None and previa.applied_process_id == proceso.id
+                and previa.response_id is None):
+            previa.response_id = response_id
+            previa.paper_pending = paper_pending is True
+            db.flush()
+        return proceso
 
     @staticmethod
     def _defer(db: Session, *, kind: str, control: str, issued_on: date,

@@ -15,6 +15,7 @@ Comandos:
     titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja + descripción de recordatorios (no enciende el candado).
     titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17.
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
+    titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -2767,6 +2768,80 @@ def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
         click.echo(f"  {etiqueta}: {len(filas)}")
         for fila in filas:
             click.echo(f"    · {fila['control_number']}: {fila['reason']}")
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
+
+
+# ---------------------------------------------------------------------------
+# Encuesta de egresados desde el Excel de Microsoft Forms (spec
+# 2026-10-05-titulatec-import-encuesta-xlsx-design.md R1/§4.3). TODA la lógica
+# vive en `SurveyImportService`; este comando lee el archivo y la imprime.
+# ---------------------------------------------------------------------------
+_IMPORT_SURVEY_ETIQUETAS = {
+    "released": "Guardadas y liberadas",
+    "deferred": "Guardadas, liberación diferida",
+    "already_released": "Guardadas (ya liberadas)",
+    "conflicts": "Guardadas (conflicto)",
+    "saved_unreleased": "Guardadas sin liberar",
+    "duplicates": "Duplicadas (no guardadas)",
+    "already_imported": "Ya importadas",
+}
+
+
+@titulatec_cli.command("import-survey-xlsx")
+@click.argument("archivo", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--hoja", "hoja", default="Sheet1", show_default=True,
+              help="Hoja del libro con las respuestas de Forms.")
+@click.option("--dry-run", is_flag=True,
+              help="Clasifica cada fila (incluida la liberación); no escribe nada.")
+def import_survey_xlsx_command(archivo, hoja, dry_run):
+    """Importa la encuesta de egresados desde el Excel de Microsoft Forms.
+
+    Guarda cada respuesta (marcada como importada) ligada a su pregunta de la
+    encuesta `egresados` abierta, y libera al egresado por la maquinaria de
+    constancias previas (fecha = «Completion time»; Id en naranja = constancia
+    en papel por recoger).
+
+    \b
+    - Guardadas y liberadas: tenía proceso abierto; se liberó y se ligó.
+    - Guardadas, liberación diferida: sin proceso; se libera al inscribirse.
+    - Guardadas (ya liberadas): ya tenía liberación (se le liga la respuesta
+      si era una previa sin respuesta).
+    - Guardadas (conflicto): ya envió la encuesta aquí o GTV revocó; lo decide GTV.
+    - Guardadas sin liberar: control inválido/vacío o constancia vencida.
+    - Duplicadas: mismo control repetido; solo se importa la más reciente.
+    - Ya importadas: re-correr el archivo no duplica nada.
+
+    Un encabezado desconocido o faltante aborta sin escribir nada.
+    """
+    from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
+    from itcj2.database import SessionLocal
+
+    ruta = Path(archivo)
+    try:
+        rows = SurveyImportService.read_xlsx(ruta.read_bytes(), sheet=hoja)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+
+    db = SessionLocal()
+    try:
+        resultado = SurveyImportService.import_rows(
+            db, rows, source=ruta.name, dry_run=dry_run)
+    except ValueError as exc:
+        db.rollback()
+        raise click.ClickException(str(exc)) from None
+    finally:
+        db.close()
+
+    prefijo = "[dry-run] " if dry_run else ""
+    click.echo(f"{prefijo}encuesta de egresados: {len(rows)} fila(s) de {ruta.name} "
+               f"(hoja {hoja}).")
+    for bote, etiqueta in _IMPORT_SURVEY_ETIQUETAS.items():
+        filas = resultado[bote]
+        click.echo(f"  {etiqueta}: {len(filas)}")
+        for fila in filas:
+            click.echo(f"    · {fila['control_number']} (Id {fila['ms_id']}): "
+                       f"{fila['reason']}")
     if dry_run:
         click.echo("Dry-run: no se escribió nada.")
 

@@ -627,6 +627,31 @@ class SurveyReviewService:
         return review
 
     @staticmethod
+    def attach_imported_response(db: Session, review, *, response_id: int,
+                                 paper_pending: bool) -> bool:
+        """Adjunta una respuesta importada del Excel de Forms a una previa que
+        se liberó SIN respuesta (spec `2026-10-05-titulatec-import-encuesta-
+        xlsx-design.md` R7; p. ej. la del CSV de `import-prior-clearances`).
+
+        Solo actúa sobre `origin='prior'` con `response_id` vacío: una
+        solicitud nacida de un envío real, o una previa que ya tiene su
+        respuesta, NUNCA se pisa. `paper_pending` solo se ENCIENDE (`is
+        True`); nunca apaga una marca previa. No cambia `status`, el
+        cumplimiento ni la bitácora. Devuelve `True` si adjuntó. La llama
+        `PriorClearanceService.attach_imported_response`; sin commit.
+        """
+        if review is None or response_id is None:
+            return False
+        if review.origin != "prior" or review.response_id is not None:
+            return False
+        review.response_id = response_id
+        if paper_pending is True:
+            review.paper_pending = True
+        review.updated_at = db_now()
+        db.flush()
+        return True
+
+    @staticmethod
     def can_revoke(db: Session, review) -> bool:
         """¿Puede GTV revocar esta liberación ahora mismo?
 

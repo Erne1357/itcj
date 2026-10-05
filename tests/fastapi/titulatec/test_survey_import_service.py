@@ -1,0 +1,455 @@
+"""`SurveyImportService` (Tarea 2, spec `2026-10-05-titulatec-import-encuesta-
+xlsx-design.md` §4.2/§4.3): lee el Excel de Microsoft Forms, liga cada columna
+a su pregunta de la encuesta `egresados`, normaliza, deduplica, guarda la
+respuesta como `identity_source='import'` y libera por la maquinaria de
+constancias previas (`PriorClearanceService`), ligando la respuesta y la marca
+de constancia por recoger.
+
+Todo con un `.xlsx` SINTÉTICO (`_survey_xlsx.py`): el archivo real nunca.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+from unittest.mock import patch
+
+import pytest
+
+import itcj2.models  # noqa: F401
+from tests.fastapi.titulatec._survey_xlsx import (
+    HEADERS, KEYS, build_xlsx, fila, make_egresados_form,
+)
+
+NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
+HOY_FIJO = datetime(2026, 10, 1, 10, 0, 0)
+_MODULOS_RELOJ = (
+    "itcj2.apps.titulatec.services.library_clearance_service",
+    "itcj2.apps.titulatec.services.survey_review_service",
+    "itcj2.apps.titulatec.services.prior_clearance_service",
+    "itcj2.apps.titulatec.services.survey_import_service",
+)
+
+
+def _svc():
+    from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
+    return SurveyImportService
+
+
+def _review_svc():
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    return SurveyReviewService
+
+
+def _prior_svc():
+    from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
+    return PriorClearanceService
+
+
+@pytest.fixture()
+def reloj(monkeypatch):
+    for modulo in _MODULOS_RELOJ:
+        monkeypatch.setattr(f"{modulo}.db_now", lambda: HOY_FIJO)
+    return HOY_FIJO.date()
+
+
+@pytest.fixture()
+def form(make_survey_form):
+    return make_egresados_form(make_survey_form)
+
+
+@pytest.fixture()
+def proceso(make_student, make_process, make_cohort):
+    def _make(*, control_number=None, current_phase=1):
+        student = make_student(control_number=control_number)
+        return make_process(student, cohort=make_cohort(), current_phase=current_phase)
+    return _make
+
+
+def _importar(db, filas, *, dry_run=False, source="egresados.xlsx"):
+    rows = _svc().read_xlsx(build_xlsx(filas))
+    with patch(NOTIFY):
+        return _svc().import_rows(db, rows, source=source, dry_run=dry_run)
+
+
+def _controles(out, bote):
+    return [r["control_number"] for r in out[bote]]
+
+
+def _respuestas(db, form):
+    from itcj2.apps.titulatec.models import SurveyResponse
+    return (db.query(SurveyResponse).filter_by(form_id=form.id)
+            .order_by(SurveyResponse.id).all())
+
+
+def _answer(db, response_id, key):
+    from itcj2.apps.titulatec.models import SurveyAnswer
+    return db.query(SurveyAnswer).filter_by(response_id=response_id, field_key=key).one()
+
+
+# ---------------------------------------------------------------------------
+# Lectura
+# ---------------------------------------------------------------------------
+class TestLectura:
+    def test_mapeo_completo_de_los_69_encabezados(self):
+        respuestas = {k: f"v-{k}" for k in KEYS[7:]}
+        rows = _svc().read_xlsx(build_xlsx([fila(7, control="99600007",
+                                                 answers=respuestas)]))
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["ms_id"] == 7
+        assert row["control_raw"] == "99600007"
+        assert row["full_name"] == "EGRESADO SINTETICO"
+        assert row["completed_at"] == datetime(2026, 6, 15, 10, 30, 0)
+        assert row["paper_pending"] is False
+        esperadas = {k for k in KEYS if k is not None}
+        assert set(row["answers_raw"]) == esperadas
+        assert len(esperadas) == 64
+        for k in KEYS[7:]:
+            assert row["answers_raw"][k] == f"v-{k}"
+        assert row["answers_raw"]["no_control"] == "99600007"
+        assert row["answers_raw"]["nombre_completo"] == "EGRESADO SINTETICO"
+
+    def test_encabezado_desconocido_aborta(self):
+        headers = list(HEADERS)
+        headers[20] = "Pregunta que no existe en la encuesta"
+        with pytest.raises(ValueError, match="Pregunta que no existe"):
+            _svc().read_xlsx(build_xlsx([fila(1)], headers=headers))
+
+    def test_encabezado_faltante_aborta(self):
+        headers = list(HEADERS)
+        headers[8] = "Id"           # «Sexo» desaparece; «Id» queda repetido
+        with pytest.raises(ValueError):
+            _svc().read_xlsx(build_xlsx([fila(1)], headers=headers))
+
+    def test_relleno_naranja_en_a_marca_papel_por_recoger(self):
+        rows = _svc().read_xlsx(build_xlsx([
+            fila(1, control="99600001", orange=True),
+            fila(2, control="99600002"),
+            fila(3, control="99600003", theme_accent4=True),
+        ]))
+        assert [r["paper_pending"] for r in rows] == [True, False, True]
+
+    def test_hoja_inexistente_lista_las_hojas(self):
+        with pytest.raises(ValueError, match="carta de liberacion"):
+            _svc().read_xlsx(build_xlsx([fila(1)]), sheet="Otra")
+
+    def test_filas_vacias_se_ignoran(self):
+        import io
+
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(build_xlsx([fila(1)])))
+        wb["Sheet1"].append([None] * 69)
+        buf = io.BytesIO()
+        wb.save(buf)
+        assert len(_svc().read_xlsx(buf.getvalue())) == 1
+
+
+# ---------------------------------------------------------------------------
+# Normalización por tipo
+# ---------------------------------------------------------------------------
+_RADIO = {"key": "recibir_correos", "type": "radio",
+          "options": [{"value": "Si", "label": "Si"}, {"value": "No", "label": "No"}]}
+_RADIO_EC = {"key": "estado_civil", "type": "radio",
+             "options": [{"value": "Unión libre", "label": "Unión libre"}]}
+
+
+class TestNormalizacion:
+    @pytest.mark.parametrize("crudo, esperado", [
+        ("Sí", "Si"), ("si", "Si"), ("  SI ", "Si"), ("no", "No"),
+    ])
+    def test_radio_sin_acentos_ni_mayusculas(self, crudo, esperado):
+        assert _svc().normalize(_RADIO, crudo) == (esperado, False)
+
+    def test_radio_con_acento_en_la_opcion(self):
+        assert _svc().normalize(_RADIO_EC, "union  LIBRE") == ("Unión libre", False)
+
+    def test_radio_ignora_puntuacion(self):
+        campo = {"key": "periodo_egreso", "type": "radio",
+                 "options": [{"value": "AGOSTO DICIEMBRE", "label": "AGOSTO DICIEMBRE"}]}
+        assert _svc().normalize(campo, "Agosto-Diciembre") == ("AGOSTO DICIEMBRE", False)
+        assert _svc().normalize(campo, "agosto / diciembre.") == ("AGOSTO DICIEMBRE", False)
+
+    def test_radio_sin_match_se_guarda_crudo(self):
+        assert _svc().normalize(_RADIO, "No trabajo") == ("No trabajo", True)
+
+    def test_vacio_es_none(self):
+        assert _svc().normalize(_RADIO, "   ") == (None, False)
+        assert _svc().normalize(_RADIO, None) == (None, False)
+
+    def test_fecha_datetime_y_texto(self):
+        campo = {"key": "fecha_nacimiento", "type": "date"}
+        assert _svc().normalize(campo, datetime(1999, 5, 4)) == ("1999-05-04", False)
+        assert _svc().normalize(campo, "4/5/1999") == ("1999-05-04", False)
+        assert _svc().normalize(campo, "1999-05-04") == ("1999-05-04", False)
+        assert _svc().normalize(campo, "ayer") == ("ayer", True)
+
+    def test_scale(self):
+        campo = {"key": "scale_titulado", "type": "scale", "scale": {"min": 1, "max": 5}}
+        assert _svc().normalize(campo, 4) == (4, False)
+        assert _svc().normalize(campo, "5") == (5, False)
+        assert _svc().normalize(campo, 3.0) == (3, False)
+        assert _svc().normalize(campo, 7) == ("7", True)
+        assert _svc().normalize(campo, "mucho") == ("mucho", True)
+
+    def test_texto_recorta_y_largo_excedido_es_raw(self):
+        campo = {"key": "nombre_empresa", "type": "text", "validation": {"maxLength": 5}}
+        assert _svc().normalize(campo, "  ACME ") == ("ACME", False)
+        assert _svc().normalize(campo, "ACME SA DE CV") == ("ACME SA DE CV", True)
+
+    def test_numeros(self):
+        anio = {"key": "anio_egreso", "type": "text",
+                "validation": {"format": "year", "maxLength": 4}}
+        prom = {"key": "promedio_final", "type": "text",
+                "validation": {"format": "decimal", "maxLength": 6}}
+        assert _svc().normalize(anio, 2020) == ("2020", False)
+        assert _svc().normalize(anio, "2020") == ("2020", False)
+        assert _svc().normalize(anio, "dos mil") == ("dos mil", True)
+        assert _svc().normalize(prom, 93) == ("93", False)
+        assert _svc().normalize(prom, 93.0) == ("93", False)
+        assert _svc().normalize(prom, 93.5) == ("93.5", False)
+        assert _svc().normalize(prom, "93,5") == ("93.5", False)
+        assert _svc().normalize(prom, "noventa") == ("noventa", True)
+
+    def test_no_control(self):
+        campo = {"key": "no_control", "type": "text"}
+        assert _svc().normalize(campo, " l12345678 ") == ("L12345678", False)
+        assert _svc().normalize(campo, 20111222) == ("20111222", False)
+        assert _svc().normalize(campo, "1234567") == ("1234567", True)
+
+
+# ---------------------------------------------------------------------------
+# Importación: escritura y liberación
+# ---------------------------------------------------------------------------
+class TestImportacion:
+    def test_con_proceso_libera_liga_respuesta_y_papel(
+            self, db_session, reloj, form, proceso):
+        proc = proceso(control_number="99600101")
+        out = _importar(db_session, [fila(11, control="99600101", orange=True, answers={
+            "sexo": "hombre", "recibir_correos": "No trabajo", "scale_titulado": 4,
+            "fecha_nacimiento": datetime(1999, 5, 4),
+            "extra_aspecto_no_trabajo": "3"})])
+
+        assert _controles(out, "released") == ["99600101"]
+        (resp,) = _respuestas(db_session, form)
+        assert resp.identity_source == "import"
+        assert resp.import_ref == "msforms:11:2026-06-15T10:30:00"
+        assert resp.control_number == "99600101"
+        assert resp.submitted_at == datetime(2026, 6, 15, 10, 30, 0)
+        assert resp.form_version == form.version
+        assert resp.user_id == proc.student_id
+        assert resp.process_id == proc.id
+        assert resp.cohort_id == proc.cohort_id
+        assert resp.answers["sexo"] == "Hombre"
+        assert resp.answers["nombre_completo"] == "EGRESADO SINTETICO"
+        assert resp.answers["extra_aspecto_no_trabajo"] == "3"
+        assert _answer(db_session, resp.id, "recibir_correos").is_raw is True
+        assert _answer(db_session, resp.id, "sexo").is_raw is False
+        assert float(_answer(db_session, resp.id, "scale_titulado").value_num) == 4
+        assert _answer(db_session, resp.id, "fecha_nacimiento").value_text == "1999-05-04"
+
+        review = _review_svc().get_for_process(db_session, proc.id)
+        assert review.origin == "prior"
+        assert review.response_id == resp.id
+        assert review.paper_pending is True
+        assert review.prior_issued_on == datetime(2026, 6, 15).date()
+
+    def test_sin_proceso_difiere_y_apply_pending_liga_al_inscribirse(
+            self, db_session, reloj, form, proceso):
+        from itcj2.apps.titulatec.models import PriorClearance
+
+        out = _importar(db_session, [fila(12, control="99600102", orange=True)])
+        assert _controles(out, "deferred") == ["99600102"]
+        (resp,) = _respuestas(db_session, form)
+        assert resp.process_id is None and resp.user_id is None
+        previa = (db_session.query(PriorClearance)
+                  .filter_by(kind="survey", control_number="99600102").one())
+        assert previa.response_id == resp.id
+        assert previa.paper_pending is True
+        assert previa.issued_on == datetime(2026, 6, 15).date()
+
+        proc = proceso(control_number="99600102")
+        with patch(NOTIFY):
+            assert _prior_svc().apply_pending(db_session, proc, "99600102") == ["survey"]
+        review = _review_svc().get_for_process(db_session, proc.id)
+        assert review.response_id == resp.id
+        assert review.paper_pending is True
+        db_session.refresh(resp)
+        assert resp.user_id == proc.student_id
+        assert resp.process_id == proc.id
+        assert resp.cohort_id == proc.cohort_id
+
+    def test_usuario_sin_proceso_queda_con_user_id(
+            self, db_session, reloj, form, make_student):
+        alumno = make_student(control_number="99600103")
+        out = _importar(db_session, [fila(13, control="99600103")])
+        assert _controles(out, "deferred") == ["99600103"]
+        (resp,) = _respuestas(db_session, form)
+        assert resp.user_id == alumno.id
+        assert resp.process_id is None
+
+    def test_duplicados_se_queda_la_mas_reciente(self, db_session, reloj, form):
+        out = _importar(db_session, [
+            fila(21, control="99600104", completed=datetime(2026, 6, 1, 9, 0)),
+            fila(22, control="99600104", completed=datetime(2026, 6, 20, 9, 0)),
+            fila(23, control="99600104", completed=datetime(2026, 6, 10, 9, 0)),
+        ])
+        (resp,) = _respuestas(db_session, form)
+        assert resp.import_ref == "msforms:22:2026-06-20T09:00:00"
+        assert sorted(r["ms_id"] for r in out["duplicates"]) == [21, 23]
+        assert _controles(out, "deferred") == ["99600104"]
+
+    def test_idempotente_segunda_corrida_ya_importadas(self, db_session, reloj, form):
+        from itcj2.apps.titulatec.models import PriorClearance, SurveyAnswer
+
+        filas = [fila(31, control="99600105"), fila(32, control="")]
+        _importar(db_session, filas)
+        n_answers = db_session.query(SurveyAnswer).count()
+        out = _importar(db_session, filas)
+        assert len(_respuestas(db_session, form)) == 2
+        assert db_session.query(SurveyAnswer).count() == n_answers
+        assert sorted(r["ms_id"] for r in out["already_imported"]) == [31, 32]
+        for bote in ("released", "deferred", "saved_unreleased"):
+            assert out[bote] == []
+        assert (db_session.query(PriorClearance)
+                .filter_by(kind="survey", control_number="99600105").count()) == 1
+
+    @pytest.mark.parametrize("control", ["", "1234567", "ABC"])
+    def test_control_invalido_guarda_sin_liberar(self, db_session, reloj, form, control):
+        from itcj2.apps.titulatec.models import PriorClearance
+
+        n_previas = db_session.query(PriorClearance).count()
+        out = _importar(db_session, [fila(41, control=control)])
+        assert len(out["saved_unreleased"]) == 1
+        (resp,) = _respuestas(db_session, form)
+        assert resp.identity_source == "import"
+        assert resp.control_number is None
+        assert db_session.query(PriorClearance).count() == n_previas
+
+    def test_vencida_guarda_sin_liberar(self, db_session, reloj, form, proceso):
+        proc = proceso(control_number="99600106")
+        out = _importar(db_session, [fila(42, control="99600106",
+                                          completed=datetime(2025, 6, 1, 9, 0))])
+        assert _controles(out, "saved_unreleased") == ["99600106"]
+        assert len(_respuestas(db_session, form)) == 1
+        assert _review_svc().get_for_process(db_session, proc.id) is None
+
+    def test_conflicto_guarda_y_no_pisa_la_revision(
+            self, db_session, reloj, proceso, make_survey_review, make_survey_form):
+        proc = proceso(control_number="99600107")
+        review = make_survey_review(proc, status="in_review")
+        original = review.response_id
+        # `make_survey_review` abre su propio `egresados`: el del import va DESPUÉS.
+        form = make_egresados_form(make_survey_form)
+        out = _importar(db_session, [fila(51, control="99600107", orange=True)])
+        assert _controles(out, "conflicts") == ["99600107"]
+        (nueva,) = _respuestas(db_session, form)
+        assert nueva.id != original
+        db_session.refresh(review)
+        assert review.status == "in_review"
+        assert review.response_id == original
+        assert review.paper_pending is False
+
+    def test_ya_liberada_por_csv_adjunta_la_respuesta(
+            self, db_session, reloj, form, proceso):
+        proc = proceso(control_number="99600108")
+        with patch(NOTIFY):
+            _prior_svc().import_rows(db_session, kind="survey", source="viejo.csv", rows=[
+                {"control_number": "99600108", "issued_on": "2026-05-01"}])
+        review = _review_svc().get_for_process(db_session, proc.id)
+        assert review.response_id is None
+
+        out = _importar(db_session, [fila(61, control="99600108", orange=True)])
+        assert _controles(out, "already_released") == ["99600108"]
+        (resp,) = _respuestas(db_session, form)
+        db_session.refresh(review)
+        assert review.response_id == resp.id
+        assert review.paper_pending is True
+        assert resp.process_id == proc.id
+
+    def test_ya_liberada_con_respuesta_propia_no_se_toca(
+            self, db_session, reloj, proceso, make_survey_review, make_survey_form):
+        proc = proceso(control_number="99600109")
+        review = make_survey_review(proc, status="approved")
+        original = review.response_id
+        form = make_egresados_form(make_survey_form)
+        out = _importar(db_session, [fila(62, control="99600109", orange=True)])
+        assert _controles(out, "already_released") == ["99600109"]
+        db_session.refresh(review)
+        assert review.response_id == original
+        assert review.paper_pending is False
+        (resp,) = _respuestas(db_session, form)
+        assert resp.process_id is None
+
+    def test_ya_aplicada_en_proceso_cerrado_adjunta_a_la_previa_y_su_revision(
+            self, db_session, reloj, form, proceso):
+        from itcj2.apps.titulatec.models import PriorClearance, ProcessPhase
+
+        # Una diferida del CSV que ya se aplicó; luego la fase 2 se aprobó
+        # (el proceso deja de estar «abierto» para la importación).
+        with patch(NOTIFY):
+            _prior_svc().import_rows(db_session, kind="survey", source="viejo.csv", rows=[
+                {"control_number": "99600110", "issued_on": "2026-06-20"}])
+        proc = proceso(control_number="99600110")
+        with patch(NOTIFY):
+            _prior_svc().apply_pending(db_session, proc, "99600110")
+        (db_session.query(ProcessPhase).filter_by(process_id=proc.id, phase_number=2)
+         .update({"status": "approved"}))
+        db_session.flush()
+
+        out = _importar(db_session, [fila(63, control="99600110")])  # 2026-06-15
+        assert _controles(out, "already_released") == ["99600110"]
+        (resp,) = _respuestas(db_session, form)
+        review = _review_svc().get_for_process(db_session, proc.id)
+        assert review.response_id == resp.id
+        previa = (db_session.query(PriorClearance)
+                  .filter_by(kind="survey", control_number="99600110").one())
+        assert previa.response_id == resp.id
+        db_session.refresh(resp)
+        assert resp.process_id == proc.id
+
+    def test_dry_run_no_escribe_nada(self, db_session, reloj, form, proceso):
+        from itcj2.apps.titulatec.models import PriorClearance, SurveyAnswer, SurveyReview
+
+        proc = proceso(control_number="99600111")
+        cuenta = lambda: (len(_respuestas(db_session, form)),  # noqa: E731
+                          db_session.query(SurveyAnswer).count(),
+                          db_session.query(PriorClearance).count(),
+                          db_session.query(SurveyReview).count())
+        antes = cuenta()
+        filas = [fila(71, control="99600111"), fila(72, control="99600112"),
+                 fila(73, control="99600112", completed=datetime(2026, 5, 1)),
+                 fila(74, control="")]
+        out = _importar(db_session, filas, dry_run=True)
+        assert cuenta() == antes
+        assert _controles(out, "released") == ["99600111"]
+        assert _controles(out, "deferred") == ["99600112"]
+        assert len(out["duplicates"]) == 1
+        assert len(out["saved_unreleased"]) == 1
+        assert _review_svc().get_for_process(db_session, proc.id) is None
+
+    def test_sin_formulario_abierto_falla(self, db_session, reloj, make_survey_form):
+        from itcj2.apps.titulatec.models import SurveyForm
+        (db_session.query(SurveyForm).filter_by(code="egresados", status="open")
+         .update({"status": "closed"}))
+        db_session.flush()
+        rows = _svc().read_xlsx(build_xlsx([fila(1)]))
+        with pytest.raises(ValueError, match="egresados"):
+            _svc().import_rows(db_session, rows, source="x.xlsx", dry_run=True)
+
+    def test_botes_completos(self, db_session, reloj, form):
+        out = _importar(db_session, [fila(81, control="99600113")], dry_run=True)
+        assert tuple(out) == ("released", "deferred", "already_released", "conflicts",
+                              "saved_unreleased", "duplicates", "already_imported")
+        assert set(out["deferred"][0]) >= {"control_number", "reason", "ms_id"}
+
+
+def test_prior_clearance_paper_pending_exige_true_literal(
+        db_session, reloj):
+    """`paper_pending` se lee con `is True`: un texto «False» no marca papel."""
+    from itcj2.apps.titulatec.models import PriorClearance
+
+    _prior_svc().import_rows(db_session, kind="survey", source="x.xlsx", rows=[
+        {"control_number": "99600120", "issued_on": "2026-06-01",
+         "response_id": None, "paper_pending": "False"}])
+    previa = (db_session.query(PriorClearance)
+              .filter_by(kind="survey", control_number="99600120").one())
+    assert previa.paper_pending is False
