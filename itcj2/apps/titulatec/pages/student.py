@@ -318,6 +318,7 @@ _EVENT_LABELS = {
     # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
     # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
     "survey_review_prior":         "Tu encuesta quedó liberada por tu constancia previa",
+    "survey_paper_delivered":      "Recogiste tu constancia de liberación en Gestión Tecnológica y Vinculación",
     # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
     "library_debt_registered":     "Biblioteca registró tu adeudo",
     "library_no_charge":           "Biblioteca registró que no debes nada",

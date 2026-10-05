@@ -15,9 +15,17 @@ numero de control: esa la reemplaza y vuelve a quedar pendiente (Ruling
 R28). `issued_on` es NULLABLE en el esquema, pero NINGUN camino la deja en
 NULL: el servicio exige la fecha (una fila sin fecha cae en «Invalidas») y
 aplica las reglas de vigencia (fecha futura, 365/366 dias, §4.2).
+
+`response_id`/`paper_pending` (migracion `tt20261005b`, spec `2026-10-05-
+titulatec-import-encuesta-xlsx-design.md` R7/D3): solo significativos con
+`kind='survey'` y solo los llena la importacion del Excel de Microsoft Forms
+(`titulatec import-survey-xlsx`). `response_id` = la `SurveyResponse`
+importada (`ON DELETE SET NULL`); `paper_pending` = la constancia ya expedida
+que el egresado aun no recoge en GTV. `apply_pending` los transmite a
+`SurveyReviewService.register_prior`.
 """
 from sqlalchemy import (
-    Column, Date, DateTime, ForeignKey, Integer, String, Text,
+    BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text,
     UniqueConstraint,
 )
 from sqlalchemy.sql import text
@@ -48,6 +56,12 @@ class PriorClearance(Base):
     applied_process_id = Column(Integer, ForeignKey("titulatec_processes.id"),
                                 nullable=True)
     applied_at = Column(DateTime, nullable=True)
+
+    # Solo kind='survey' (R7/D3): ver el docstring del modulo.
+    response_id = Column(BigInteger,
+                         ForeignKey("titulatec_survey_responses.id", ondelete="SET NULL"),
+                         nullable=True)
+    paper_pending = Column(Boolean, nullable=False, server_default=text("FALSE"))
 
     def __repr__(self) -> str:
         return f"<PriorClearance {self.kind} {self.control_number}>"

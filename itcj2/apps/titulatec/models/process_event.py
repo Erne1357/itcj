@@ -57,6 +57,10 @@ EVENT_TYPES = frozenset({
     # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
     # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
     "survey_review_prior",
+    # GTV entregó la constancia en papel de una previa importada (spec
+    # 2026-10-05-titulatec-import-encuesta-xlsx-design.md D3):
+    # `SurveyReviewService.mark_paper_delivered`.
+    "survey_paper_delivered",
     # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
     # design.md §4.2/§4.12) y «Con observaciones» (spec 2026-10-05): los 10
     # que escribe `LibraryClearanceService` (`LIBRARY_EVENT_TYPES`).

@@ -223,8 +223,11 @@ class PriorClearanceService:
 
         if SurveyReviewService.prior_outcome(db, process.id) != "apply":
             return False
+        # R7 (spec 2026-10-05 import-encuesta-xlsx): la diferida que vino
+        # del Excel trae su respuesta y su marca de papel; se transmiten.
         SurveyReviewService.register_prior(
-            db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None)
+            db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None,
+            response_id=previa.response_id, paper_pending=bool(previa.paper_pending))
         return True
 
     @staticmethod
@@ -255,6 +258,17 @@ class PriorClearanceService:
         str|None (opcional)}` -la CLI arma esta lista desde el CSV (columna de
         control autodetectada o `--columna-control`; fecha por columna o
         `--fecha` fija)-; llamar directo desde una prueba también vale.
+
+        Llaves OPCIONALES, solo con `kind='survey'` (spec `2026-10-05-
+        titulatec-import-encuesta-xlsx-design.md` R7/D3; las manda
+        `SurveyImportService`, nunca el CSV): `"response_id": int|None` (la
+        `SurveyResponse` importada) y `"paper_pending": bool` (constancia
+        por recoger). Con proceso abierto viajan a `register_prior`; sin él
+        se guardan en la `PriorClearance` diferida y `apply_pending` las
+        transmite. Una fila SIN estas llaves no toca la liga de una diferida
+        pendiente que ya la tenía (un CSV posterior no la borra); al
+        reemplazar una ya aplicada (Ruling R28) la previa nueva queda con lo
+        que traiga la fila (sin llaves -> sin respuesta ni papel).
 
         Por fila:
 
@@ -335,12 +349,18 @@ class PriorClearanceService:
                 continue
 
             nota = (row.get("note") or "").strip() or None
+            # R7: llaves opcionales de la importación del Excel (solo encuesta).
+            trae_liga = kind == "survey" and (
+                "response_id" in row or "paper_pending" in row)
+            response_id = row.get("response_id") if kind == "survey" else None
+            paper_pending = bool(row.get("paper_pending")) if kind == "survey" else False
             proceso = _open_process_for_control(db, control)
 
             if proceso is None:
                 bote = PriorClearanceService._defer(
                     db, kind=kind, control=control, issued_on=fecha, note=nota,
-                    source=source, dry_run=dry_run)
+                    source=source, dry_run=dry_run,
+                    link=((response_id, paper_pending) if trae_liga else None))
                 if bote == "already":
                     _add("already", control,
                         "ya registrada: se aplicó antes y esta no es más nueva")
@@ -364,7 +384,8 @@ class PriorClearanceService:
                 if outcome == "apply":
                     if not dry_run:
                         SurveyReviewService.register_prior(
-                            db, proceso, issued_on=fecha, note=nota, actor_id=None)
+                            db, proceso, issued_on=fecha, note=nota, actor_id=None,
+                            response_id=response_id, paper_pending=paper_pending)
                     ya_aplicadas.add((kind, control))
                     _add("applied", control, f"encuesta liberada en el proceso {proceso.folio}")
                 elif outcome == "already":
@@ -411,7 +432,8 @@ class PriorClearanceService:
 
     @staticmethod
     def _defer(db: Session, *, kind: str, control: str, issued_on: date,
-              note: Optional[str], source: str, dry_run: bool) -> str:
+              note: Optional[str], source: str, dry_run: bool,
+              link: Optional[tuple[Optional[int], bool]] = None) -> str:
         """Registra (o actualiza) la `PriorClearance` diferida de `control`.
         UNIQUE (kind, control_number): una segunda carga del MISMO número
         actualiza fecha/nota/origen en vez de duplicar. Devuelve:
@@ -427,6 +449,12 @@ class PriorClearanceService:
         * `"already"` -- la que había ya se aplicó y esta NO es más nueva
           (misma fecha o anterior): ya registrada, no se toca nada.
 
+        `link` = `(response_id, paper_pending)` de la importación del Excel
+        (R7), o `None` si la fila no los trae: en una fila NUEVA o
+        REEMPLAZADA se escribe tal cual (`None` -> sin respuesta ni papel);
+        en una pendiente que se actualiza, `None` deja intacta la liga que
+        ya tenía.
+
         Sin escritura alguna si `dry_run` (la clasificación es la misma)."""
         from itcj2.apps.titulatec.models import PriorClearance
 
@@ -439,9 +467,11 @@ class PriorClearanceService:
             reemplaza = True
         if dry_run:
             return "replaced" if reemplaza else "deferred"
+        response_id, paper_pending = link if link is not None else (None, False)
         if fila is None:
             db.add(PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
-                                  note=note, source=source))
+                                  note=note, source=source, response_id=response_id,
+                                  paper_pending=paper_pending))
         else:
             fila.issued_on = issued_on
             fila.note = note
@@ -449,5 +479,8 @@ class PriorClearanceService:
             if reemplaza:
                 fila.applied_process_id = None
                 fila.applied_at = None
+            if reemplaza or link is not None:
+                fila.response_id = response_id
+                fila.paper_pending = paper_pending
         db.flush()
         return "replaced" if reemplaza else "deferred"

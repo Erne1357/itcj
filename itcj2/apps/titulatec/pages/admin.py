@@ -1224,6 +1224,7 @@ _EVENT_UI = {
     # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
     # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
     "survey_review_prior":          ("Se liberó por constancia previa", "file-earmark-check", "success"),
+    "survey_paper_delivered":       ("Se entregó la constancia de liberación en papel", "file-earmark-check", "success"),
     # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
     "library_debt_registered":      ("Biblioteca registró el adeudo", "cash-coin",          "amber"),
     "library_no_charge":            ("Biblioteca registró sin adeudo", "check2-square",     "success"),

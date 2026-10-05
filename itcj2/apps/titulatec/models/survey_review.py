@@ -19,9 +19,18 @@ previa (`PriorClearance`, §4.12) cuando el alumno ya traia la liberacion de
 ANTES de este sistema -- no hay encuesta real detras, por eso `response_id`
 puede ser NULL solo en ese caso. `SurveyReviewService` sigue siendo el UNICO
 escritor de `status`, incluidas las previas (spec §5 invariante 1).
+
+`paper_pending`/`paper_delivered_at`/`paper_delivered_by_id` (migracion
+`tt20261005b`, spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md`
+D3): una previa importada del Excel de Microsoft Forms cuya constancia en
+papel ya se expidio pero el egresado aun no recoge («Constancia por
+recoger»). Lo marca `register_prior(paper_pending=True)`; GTV registra la
+entrega con `SurveyReviewService.mark_paper_delivered` (llena `_at`/`_by`,
+`paper_pending` se conserva como hecho historico). Una previa importada
+tambien puede traer `response_id` (la respuesta importada, R7).
 """
 from sqlalchemy import (
-    BigInteger, Column, Date, DateTime, ForeignKey, Integer, String, Text,
+    BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text,
     UniqueConstraint,
 )
 from sqlalchemy.sql import text
@@ -70,6 +79,11 @@ class SurveyReview(Base):
     # dominio: SURVEY_REVIEW_ORIGINS (arriba).
     origin = Column(String(20), nullable=False, server_default=text("'submission'"))
     prior_issued_on = Column(Date, nullable=True)   # solo con origin='prior'; NULL = sin fecha conocida
+
+    # «Constancia por recoger» (D3): ver el docstring del modulo.
+    paper_pending = Column(Boolean, nullable=False, server_default=text("FALSE"))
+    paper_delivered_at = Column(DateTime, nullable=True)
+    paper_delivered_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 
     submitted_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

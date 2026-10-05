@@ -337,7 +337,9 @@ class SurveyReviewService:
     @staticmethod
     def register_prior(db: Session, process, *, issued_on: date,
                        note: str | None = None,
-                       actor_id: int | None = None) -> SurveyReview:
+                       actor_id: int | None = None,
+                       response_id: int | None = None,
+                       paper_pending: bool = False) -> SurveyReview:
         """Constancia previa de la encuesta (D9, spec `2026-10-01-titulatec-
         biblioteca-caja-design.md` §4.12): el egresado YA traía, de ANTES de
         este sistema, su liberación de encuesta -otro semestre, en papel-.
@@ -363,6 +365,15 @@ class SurveyReviewService:
         SIN commit: el llamador (`PriorClearanceService`) es dueño de la
         transacción completa del lote; aquí solo se hace `flush()` para que
         `review.id` exista antes del evento y del cumplimiento.
+
+        `response_id`/`paper_pending` (spec `2026-10-05-titulatec-import-
+        encuesta-xlsx-design.md` R7/D3): la importación del Excel de
+        Microsoft Forms SÍ trae respuesta detrás -se liga aquí para que GTV
+        vea «Ver respuestas»- y puede marcar la constancia en papel como
+        «por recoger» (`paper_pending=True`; GTV la cierra con
+        `mark_paper_delivered`). Sin ellos, la previa queda como siempre
+        (`response_id=None`, `paper_pending=False`). Ambos viajan en el
+        payload de `survey_review_prior`.
         """
         from itcj2.apps.titulatec.models import SurveyReview
         from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -382,8 +393,9 @@ class SurveyReviewService:
 
         ahora = db_now()
         review = SurveyReview(
-            process_id=process.id, response_id=None, status="approved",
+            process_id=process.id, response_id=response_id, status="approved",
             origin="prior", prior_issued_on=fecha, rejection_reason=None,
+            paper_pending=bool(paper_pending),
             reviewed_by_id=actor_id, reviewed_at=ahora,
             submitted_at=ahora, updated_at=ahora,
         )
@@ -397,7 +409,8 @@ class SurveyReviewService:
         )
         SurveyReviewService._log(db, process.id, actor_id, "survey_review_prior",
                                  {"review_id": review.id, "issued_on": fecha.isoformat(),
-                                  "note": nota})
+                                  "note": nota, "response_id": response_id,
+                                  "paper_pending": bool(paper_pending)})
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="SURVEY_REVIEW_APPROVED",
@@ -519,6 +532,12 @@ class SurveyReviewService:
         solicitud vuelve a `missing`; el egresado contesta normalmente. Sigue
         siendo este service el único que la toca.
 
+        Una previa IMPORTADA del Excel puede traer `response_id` (R8, spec
+        `2026-10-05-titulatec-import-encuesta-xlsx-design.md`): se borra solo
+        la SOLICITUD; la `SurveyResponse` NUNCA se borra -sigue en
+        «Encuestas», ligada por `control_number`-. La FK va de la solicitud a
+        la respuesta, así que el `db.delete(review)` no la arrastra.
+
         Devuelve la solicitud revocada, o `None` si era una previa (ya no
         existe).
         """
@@ -574,6 +593,38 @@ class SurveyReviewService:
 
         db.commit()
         return None if es_previa else review
+
+    @staticmethod
+    def mark_paper_delivered(db: Session, review_id: int, *,
+                             actor_id: int) -> SurveyReview:
+        """«Marcar constancia entregada» (D3, spec `2026-10-05-titulatec-
+        import-encuesta-xlsx-design.md` §4.4): GTV entregó al egresado la
+        constancia en papel de una previa importada con `paper_pending`.
+
+        Llena `paper_delivered_at`/`paper_delivered_by_id` (`paper_pending`
+        se CONSERVA como hecho histórico: «había papel por recoger y se
+        entregó») y deja `survey_paper_delivered` (payload `{"review_id"}`).
+        No cambia `status` ni el cumplimiento, ni manda correo (R10). No
+        exige el proceso `active`: es la entrega física de un papel ya
+        expedido, no un dictamen.
+
+        `LookupError` si no existe; `ValueError` si no tiene papel pendiente
+        o ya se entregó. Fila bloqueada `FOR UPDATE`; UN commit.
+        """
+        review = SurveyReviewService._locked_review(db, review_id)
+        if not review.paper_pending:
+            raise ValueError("Esta liberación no tiene constancia por recoger.")
+        if review.paper_delivered_at is not None:
+            raise ValueError("La constancia ya se había marcado como entregada.")
+
+        ahora = db_now()
+        review.paper_delivered_at = ahora
+        review.paper_delivered_by_id = actor_id
+        review.updated_at = ahora
+        SurveyReviewService._log(db, review.process_id, actor_id,
+                                 "survey_paper_delivered", {"review_id": review.id})
+        db.commit()
+        return review
 
     @staticmethod
     def can_revoke(db: Session, review) -> bool:
