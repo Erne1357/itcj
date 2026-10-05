@@ -19,7 +19,7 @@ Maquina de estados (detalle y guardas en `LibraryClearanceService`):
     awaiting_payment  ──Biblioteca corrige──────────────> awaiting_payment | cleared/no_charge
     awaiting_payment  ──Caja cobra──────────────────────> cleared   (cleared_via='payment')
     pending/awaiting  ──constancia previa───────────────> cleared   (cleared_via='prior';
-                         (Biblioteca, SE o la importacion   sin constancia BIB nueva)
+                         (Biblioteca, SE o la importacion   +folio BIB del semestre anterior)
                           `import-prior-clearances`)
     cleared/payment   ──Caja revierte el pago───────────> awaiting_payment
     cleared/no_charge|legacy ──Biblioteca revierte──────> pending

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -1441,7 +1442,7 @@ class TestRegisterPayment:
 # Constancia previa (D9) — Review Focus #7
 # ---------------------------------------------------------------------------
 class TestRegisterPrior:
-    def test_desde_pending_libera_sin_constancia_nueva(
+    def test_desde_pending_libera_y_emite_el_folio_del_semestre_anterior(
             self, db_session, nuevo, actores, reloj, commits):
         esc = nuevo()
 
@@ -1458,7 +1459,14 @@ class TestRegisterPrior:
         assert fila.prior_by_id == actores.biblioteca.id
         assert commits == [1]
 
-        assert _certs(db_session, fila.id) == []          # el egresado lleva su papel
+        # Spec folios 2026-10-05 §3.3: la previa TAMBIEN folia, en el semestre
+        # anterior al del registro (HOY_FIJO = 2026-10-01 -> 2026A).
+        (cert,) = _certs(db_session, fila.id)
+        assert cert.kind == "library_clearance"
+        assert re.fullmatch(r"BIB-2026A-\d{4}", cert.number), cert.number
+        assert cert.voided_at is None
+        assert cert.issued_by_id == actores.biblioteca.id
+        assert cert.process_id == esc.process.id
         cumplido = _fulfillment(db_session, esc.process.id, esc.req.id)
         assert cumplido is not None
         assert cumplido.external_ref == f"library_clearance:{fila.id}"
@@ -1752,6 +1760,109 @@ class TestRevertClearance:
 
 
 # ---------------------------------------------------------------------------
+# Folio de la constancia previa (spec folios 2026-10-05 §3.3)
+# ---------------------------------------------------------------------------
+def _reloj_en(monkeypatch, cuando):
+    """`db_now()` del service fijo en `cuando`. Los años sintéticos (2090+) son
+    a propósito: la BD de dev es COMPARTIDA y ya trae contadores reales de 2026."""
+    monkeypatch.setattr(f"{SVC}.db_now", lambda: cuando)
+    return cuando.date()
+
+
+class TestRegisterPriorFolio:
+    @pytest.mark.parametrize("cuando, semestre", [
+        (datetime(2091, 10, 5, 10, 0), "2091A"),      # B de Y -> A de Y
+        (datetime(2091, 7, 1, 8, 0), "2091A"),        # primer día de B
+        (datetime(2092, 2, 10, 10, 0), "2091B"),      # A de Y -> B de Y-1
+        (datetime(2091, 6, 30, 23, 0), "2090B"),      # último día de A
+    ])
+    def test_el_semestre_es_el_anterior_al_del_registro(
+            self, db_session, nuevo, actores, monkeypatch, cuando, semestre):
+        hoy = _reloj_en(monkeypatch, cuando)
+        esc = nuevo()
+
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                issued_on=hoy, note=None, by="library")
+
+        (cert,) = _certs(db_session, fila.id)
+        assert re.fullmatch(rf"BIB-{semestre}-\d{{4}}", cert.number), cert.number
+        assert cert.kind == "library_clearance"
+        assert cert.source_ref == f"library_clearance:{fila.id}"
+        assert cert.issued_by_id == actores.biblioteca.id
+        assert cert.voided_at is None
+
+    @pytest.mark.parametrize("origen", ["pending", "awaiting_payment"])
+    def test_emite_desde_pending_y_desde_en_caja(
+            self, db_session, nuevo, actores, monkeypatch, origen):
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        esc = nuevo()
+        if origen == "awaiting_payment":
+            _a_caja(db_session, esc, actores.biblioteca)
+        assert _certs(db_session, esc.clearance.id) == []
+
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.se.id,
+                issued_on=hoy, note=None, by="school_services")
+
+        (cert,) = _certs(db_session, fila.id)
+        assert cert.number.startswith("BIB-2091A-")
+        assert cert.issued_by_id == actores.se.id
+        assert cert.control_number == esc.student.control_number
+
+    def test_commit_false_tambien_emite_sin_commitear(
+            self, db_session, nuevo, monkeypatch):
+        """El camino de `import_rows`/`apply_pending`: sin actor y sin commit,
+        pero con folio (queda en la transacción del llamador)."""
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        esc = nuevo()
+        monkeypatch.setattr(db_session, "commit",
+                            lambda: pytest.fail("commit=False no debe commitear"))
+
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, None,
+                issued_on=hoy, note=None, by="import", commit=False)
+
+        (cert,) = _certs(db_session, fila.id)
+        assert cert.number.startswith("BIB-2091A-")
+        assert cert.issued_by_id is None              # importación: sin emisor
+        assert cert.voided_at is None
+
+    def test_un_rechazo_no_deja_folio(self, db_session, nuevo, actores, monkeypatch):
+        """Toda la validación va ANTES de emitir: una previa vencida no deja
+        constancia."""
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        esc = nuevo()
+
+        with pytest.raises(ValueError):
+            LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                issued_on=hoy - timedelta(days=PRIOR_VALIDITY_DAYS + 1),
+                note=None, by="library")
+
+        assert _certs(db_session, esc.clearance.id) == []
+
+    def test_dos_previas_consecutivas_en_el_mismo_semestre(
+            self, db_session, nuevo, actores, monkeypatch):
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        a, b = nuevo(), nuevo()
+
+        with patch(NOTIFY):
+            for esc in (a, b):
+                LibraryClearanceService.register_prior(
+                    db_session, esc.clearance.id, actores.biblioteca.id,
+                    issued_on=hoy, note=None, by="library")
+
+        na = _certs(db_session, a.clearance.id)[0].number
+        nb = _certs(db_session, b.clearance.id)[0].number
+        assert na.startswith("BIB-2091A-") and nb.startswith("BIB-2091A-")
+        assert int(nb.rsplit("-", 1)[1]) == int(na.rsplit("-", 1)[1]) + 1
+
+
+# ---------------------------------------------------------------------------
 # Deshacer constancia previa (Biblioteca o SE)
 # ---------------------------------------------------------------------------
 class TestUndoPrior:
@@ -1778,6 +1889,70 @@ class TestUndoPrior:
         assert ev.payload["issued_on"] == reloj.isoformat()
         assert aviso.call_args.kwargs["type"] == "LIBRARY_REVERTED"
         assert aviso.call_args.kwargs["body"] == "No era de este año"
+
+    def test_anula_el_folio_y_el_payload_trae_su_numero(
+            self, db_session, nuevo, actores, monkeypatch):
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        esc = nuevo()
+        with patch(NOTIFY):
+            LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                issued_on=hoy, note=None, by="library")
+        (cert,) = _certs(db_session, esc.clearance.id)
+        assert cert.voided_at is None
+        numero = cert.number
+
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.undo_prior(
+                db_session, esc.clearance.id, actores.se.id, "No era de este año")
+
+        assert fila.status == "pending"
+        (cert,) = _certs(db_session, esc.clearance.id)
+        assert cert.number == numero                     # el folio no se borra
+        assert cert.voided_at is not None
+        assert cert.voided_by_id == actores.se.id
+        assert cert.void_reason == "No era de este año"
+        ev = _events(db_session, esc.process.id, "library_prior_undone")[0]
+        assert ev.payload["certificate"] == numero
+        assert ev.payload["reason"] == "No era de este año"
+
+    def test_volver_a_registrar_emite_un_folio_nuevo_y_distinto(
+            self, db_session, nuevo, actores, monkeypatch):
+        hoy = _reloj_en(monkeypatch, datetime(2091, 10, 5, 10, 0))
+        esc = nuevo()
+        with patch(NOTIFY):
+            LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                issued_on=hoy, note=None, by="library")
+            LibraryClearanceService.undo_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id, "Error de captura")
+            LibraryClearanceService.register_prior(
+                db_session, esc.clearance.id, actores.biblioteca.id,
+                issued_on=hoy, note=None, by="library")
+
+        certs = _certs(db_session, esc.clearance.id)
+        assert len(certs) == 2
+        primero, segundo = certs
+        assert primero.voided_at is not None
+        assert segundo.voided_at is None
+        assert segundo.number != primero.number          # nunca se reutiliza
+        assert _vigente(db_session, esc.clearance.id).id == segundo.id
+
+    def test_una_previa_sin_folio_se_deshace_con_certificate_none(
+            self, db_session, nuevo, actores, reloj):
+        """Una previa de ANTES de este código (o aún sin backfill) no trae
+        folio: deshacer no truena, no anula nada y el payload lo dice."""
+        esc = nuevo(status="cleared", cleared_via="prior", prior_issued_on=reloj)
+        assert _certs(db_session, esc.clearance.id) == []
+
+        with patch(NOTIFY):
+            fila = LibraryClearanceService.undo_prior(
+                db_session, esc.clearance.id, actores.se.id, "Motivo")
+
+        assert fila.status == "pending"
+        assert _certs(db_session, esc.clearance.id) == []
+        ev = _events(db_session, esc.process.id, "library_prior_undone")[0]
+        assert "certificate" in ev.payload and ev.payload["certificate"] is None
 
     @pytest.mark.parametrize("via", ["no_charge", "payment", "legacy"])
     def test_solo_previas(self, db_session, nuevo, actores, via):

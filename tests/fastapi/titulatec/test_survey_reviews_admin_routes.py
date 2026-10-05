@@ -473,7 +473,7 @@ def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     assert _visible(celda).startswith("Anulada tras imprimir"), _visible(celda)
 
 
-def test_columna_constancia_en_constancia_previa_no_emite_folio(
+def test_columna_constancia_en_constancia_previa_muestra_su_folio(
     client_as, db_session, make_gtv, make_student, make_process,
 ):
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
@@ -489,8 +489,10 @@ def test_columna_constancia_en_constancia_previa_no_emite_folio(
 
     assert resp.status_code == 200, resp.text[:500]
     fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
-    assert "Constancia previa (papel del egresado)" in fila
-    assert "GTV-" not in fila
+    # Spec folios 2026-10-05 §3.3: la previa TAMBIÉN folia (semestre anterior
+    # al del registro); la celda pinta ese folio, ya no «papel del egresado».
+    assert re.search(r"GTV-\d{4}[AB]-\d{4}", fila), fila
+    assert "Constancia previa (papel del egresado)" not in fila
 
 
 def test_columna_constancia_revocada_conserva_la_celda_impresa_sin_acciones(

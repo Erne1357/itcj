@@ -619,7 +619,11 @@ class TestCeldaDeConstanciaBiblioteca:
                            contiene=("Anulada tras imprimir", "retira ese papel"),
                            no_contiene=("Sin imprimir",))
 
-    def test_previa_no_tiene_folio(self, client_as, db_session, caso):
+    def test_previa_tiene_folio(self, client_as, db_session, caso):
+        """Spec folios 2026-10-05 §3.3: la previa folia (semestre anterior al
+        del registro) y las dos vistas pintan ESE folio, no el texto de
+        «papel del egresado»."""
+        from itcj2.apps.titulatec.models import Certificate
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
@@ -629,9 +633,13 @@ class TestCeldaDeConstanciaBiblioteca:
                 db_session, clearance.id, caso["officer"].id,
                 issued_on=date.today() - timedelta(days=10), note="Papel de antes",
                 by="library")
+        cert = (db_session.query(Certificate)
+                .filter_by(source_ref=f"library_clearance:{clearance.id}",
+                           voided_at=None).one())
 
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
-                           contiene=("Constancia previa (papel del egresado)",))
+                           contiene=(cert.number,),
+                           no_contiene=("Constancia previa (papel del egresado)",))
 
     def test_legado_no_muestra_nada(self, client_as, db_session, caso):
         """R5(b) (revisión de la Tarea 4): `via == 'legacy'` (backfill sin
@@ -697,16 +705,22 @@ class TestCeldaDeConstanciaEncuesta:
                            contiene=("Anulada tras imprimir", "retira ese papel"),
                            no_contiene=("Sin imprimir",))
 
-    def test_previa_no_tiene_folio(self, client_as, db_session, caso):
+    def test_previa_tiene_folio(self, client_as, db_session, caso):
+        """Spec folios 2026-10-05 §3.3: igual que la de biblioteca, la previa
+        de encuesta folia y las dos vistas pintan el folio GTV."""
+        from itcj2.apps.titulatec.models import Certificate
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         with patch(NOTIFY):
-            SurveyReviewService.register_prior(
+            review = SurveyReviewService.register_prior(
                 db_session, caso["proc"], issued_on=date.today() - timedelta(days=10),
                 actor_id=caso["officer"].id)
+        cert = (db_session.query(Certificate)
+                .filter_by(source_ref=f"survey_review:{review.id}", voided_at=None).one())
 
         _en_las_dos_vistas(client_as, caso["officer"], caso["proc"].id,
-                           contiene=("Constancia previa (papel del egresado)",))
+                           contiene=(cert.number,),
+                           no_contiene=("Constancia previa (papel del egresado)",))
 
 
 # ===========================================================================

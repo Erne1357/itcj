@@ -10,15 +10,15 @@ Máquina de estados (modelo `LibraryClearance`):
 
     (alta del proceso | backfill) ──────────────────────────────> pending
     pending ──Registrar (Biblioteca), total > 0 ────────────────> awaiting_payment
-    pending ──Registrar (Biblioteca), total = 0 ────────────────> cleared/no_charge  (+constancia BIB)
+    pending ──Registrar (Biblioteca), total = 0 ────────────────> cleared/no_charge  (+folio BIB)
     awaiting_payment ──Corregir (Biblioteca) ───────────────────> awaiting_payment (nuevo monto)
                                                                   | cleared/no_charge si total = 0
-    awaiting_payment ──Registrar pago (Caja) ───────────────────> cleared/payment    (+constancia BIB)
+    awaiting_payment ──Registrar pago (Caja) ───────────────────> cleared/payment    (+folio BIB)
     pending|awaiting_payment ──Constancia previa (Biblioteca, SE o importación)
-                                                                ─> cleared/prior     (sin constancia nueva)
-    cleared/payment ──Revertir pago (Caja, motivo) ─────────────> awaiting_payment   (anula la constancia)
-    cleared/no_charge|legacy ──Revertir (Biblioteca, motivo) ───> pending            (anula la constancia si hay)
-    cleared/prior ──Deshacer constancia previa (motivo) ────────> pending
+                                                                ─> cleared/prior     (+folio BIB, semestre anterior)
+    cleared/payment ──Revertir pago (Caja, motivo) ─────────────> awaiting_payment   (anula el folio)
+    cleared/no_charge|legacy ──Revertir (Biblioteca, motivo) ───> pending            (anula el folio si hay)
+    cleared/prior ──Deshacer constancia previa (motivo) ────────> pending            (anula el folio)
     pending|awaiting_payment ──Observar (Biblioteca, motivo) ───> observed  (`ready_at` = NULL)
     observed ──Observar otra vez (actualiza el motivo) ─────────> observed
     observed ──Rehabilitar (Biblioteca) ────────────────────────> pending   (montos intactos)
@@ -60,12 +60,18 @@ Requisito `library_clearance`: quedar `cleared` → `RequirementService.fulfill`
 (`auto_source='library_clearance'`), no hay cumplimiento que escribir y la
 transición sigue igual: es una convocatoria sin candado de biblioteca (§4.4).
 
-Constancias (§4.5): quedar `cleared` por `payment`/`no_charge` emite
+Constancias (§4.5) y folios (spec `2026-10-05-titulatec-folios-design.md`
+§3.3): quedar `cleared` por `payment`/`no_charge` emite
 `CertificateService.issue(kind='library_clearance',
-source_ref='library_clearance:{id}')`; revertir anula (`void`). `prior` y
-`legacy` no emiten. «A lo más una vigente por origen» (§5, invariante 5) se
-cumple por construcción: solo se emite al ENTRAR a cleared/payment|no_charge y
-toda salida de esos dos estados anula; volver a liberar saca un folio nuevo.
+source_ref='library_clearance:{id}')` en el semestre de la emisión; quedar
+`cleared/prior` (`register_prior`, también con `commit=False`) emite el MISMO
+`source_ref` en el semestre ANTERIOR al del registro
+(`previous_semester_key`). Revertir (`revert_payment`/`revert_clearance`) y
+`undo_prior` anulan (`void`). `legacy` no emite aquí: sus folios los da el
+backfill (`FolioBackfillService`). «A lo más una vigente por origen» (§5,
+invariante 5) se cumple por construcción: solo se emite al ENTRAR a
+cleared/payment|no_charge|prior y toda salida de esos estados anula; volver a
+liberar saca un folio nuevo.
 
 Reglas fijas (patrón `SurveyReviewService`):
 
@@ -761,7 +767,10 @@ class LibraryClearanceService:
 
         El egresado ya pagó y trae su papel: `issued_on` obligatoria, no
         futura y vigente (`>= hoy - PRIOR_VALIDITY_DAYS`: exactamente 365 días
-        vale, 366 no). NO emite constancia BIB. `by` ∈ `PRIOR_BY` va al
+        vale, 366 no). EMITE el folio BIB (`source_ref=_ref(id)`) con
+        `semester=previous_semester_key(ahora)`: la previa es del semestre
+        ANTERIOR al del registro (spec folios 2026-10-05 §3.3); `actor_id=None`
+        lo deja sin emisor. `by` ∈ `PRIOR_BY` va al
         payload. `commit=False` (con `actor_id=None`) lo usa
         `PriorClearanceService.apply_pending` dentro de
         `ImportService.import_rows`: hace `flush()` y deja el commit al
@@ -781,13 +790,23 @@ class LibraryClearanceService:
         nota = LibraryClearanceService._clean_note(note)
         requirement = LibraryClearanceService._library_requirement(db, process.cohort_id)
 
+        ahora = db_now()
         desde = clearance.status
         clearance.status = "cleared"
         clearance.cleared_via = "prior"
         clearance.prior_issued_on = fecha
         clearance.prior_note = nota
         clearance.prior_by_id = actor_id
-        clearance.updated_at = db_now()
+        clearance.updated_at = ahora
+
+        # Folio de la previa: semestre ANTERIOR al del registro, en la misma
+        # transacción (también con `commit=False`, el camino de la importación).
+        from itcj2.apps.titulatec.services.certificate_service import (
+            CertificateService, previous_semester_key,
+        )
+        CertificateService.issue(db, kind=CERT_KIND, process=process,
+                                 source_ref=_ref(clearance.id), actor_id=actor_id,
+                                 semester=previous_semester_key(ahora))
 
         LibraryClearanceService._fulfill(db, process, clearance, requirement, actor_id)
         datos = {"clearance_id": clearance.id, "issued_on": fecha.isoformat(),
@@ -911,7 +930,11 @@ class LibraryClearanceService:
     def undo_prior(db: Session, clearance_id: int, actor_id: int, reason: str):
         """Deshacer constancia previa (Biblioteca o SE, motivo):
         `cleared/prior` → `pending`. Solo con la fase 2 sin aprobar;
-        descumple el requisito (la previa no emitió constancia que anular)."""
+        descumple el requisito y ANULA el folio de la previa (spec folios
+        2026-10-05 §3.3, como `revert_clearance`); el número nunca se libera:
+        volver a registrar la previa emite uno NUEVO. Una previa sin folio
+        (anterior a este código y aún sin backfill) no tiene nada que anular
+        y el payload lleva `certificate: None`."""
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
         LibraryClearanceService._assert_not_observed(clearance)
@@ -925,7 +948,11 @@ class LibraryClearanceService:
         LibraryClearanceService._reset_to_pending(clearance)
 
         LibraryClearanceService._unfulfill(db, process, requirement, actor_id)
-        datos = {"clearance_id": clearance.id, "reason": motivo, **previo}
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+        cert = CertificateService.void(db, source_ref=_ref(clearance.id),
+                                       actor_id=actor_id, reason=motivo)
+        datos = {"clearance_id": clearance.id, "reason": motivo, **previo,
+                 "certificate": cert.number if cert is not None else None}
         LibraryClearanceService._log(db, process.id, actor_id,
                                      "library_prior_undone", datos)
 

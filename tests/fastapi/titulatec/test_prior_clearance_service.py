@@ -10,7 +10,8 @@ Dos caminos, un mismo servicio:
   (§5 invariante 1), gemelo de `LibraryClearanceService.register_prior`
   (Tarea 4): crea DIRECTO una solicitud `approved`/`origin='prior'`, sin
   encuesta real detrás (`response_id=None`), sin commit (lo da el llamador) y
-  SIN emitir la constancia `survey_release` (el egresado trae su papel).
+  emitiendo el folio `survey_release` del semestre ANTERIOR (spec folios
+  2026-10-05 §3.3).
 * `PriorClearanceService` -- decide, por número de control, si una fila
   `PriorClearance` se aplica YA (hay proceso abierto) o se DIFIERE (upsert,
   sin proceso todavía); `apply_pending` la llama `ImportService.import_rows`
@@ -27,6 +28,7 @@ allá.
 from __future__ import annotations
 
 import ast
+import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -224,14 +226,23 @@ class TestSurveyRegisterPrior:
         assert cumplido is not None
         assert cumplido.external_ref == f"survey_prior:{review.id}"
 
-    def test_no_emite_constancia_de_encuesta(self, db_session, proceso, reloj):
+    def test_emite_el_folio_de_encuesta_del_semestre_anterior(
+            self, db_session, proceso, reloj):
+        """Spec folios 2026-10-05 §3.3: la previa de encuesta folia en el
+        semestre anterior al del registro (HOY_FIJO = 2026-10-01 -> 2026A);
+        `actor_id=None` (importación) deja `issued_by_id` NULL."""
         proc = proceso()
 
         with patch(NOTIFY):
             review = _review_svc().register_prior(
                 db_session, proc, issued_on=reloj, note=None)
 
-        assert _certs(db_session, f"survey_review:{review.id}") == []
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert cert.kind == "survey_release"
+        assert re.fullmatch(r"GTV-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
+        assert cert.voided_at is None
+        assert cert.process_id == proc.id
 
     def test_escribe_el_evento_survey_review_prior(self, db_session, proceso, reloj):
         proc = proceso()
@@ -328,6 +339,10 @@ class TestApplyPending:
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review is not None
         assert review.origin == "prior"
+        # La diferida que se aplica al inscribirse también deja su folio.
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert re.fullmatch(r"GTV-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
 
     def test_aplica_la_de_biblioteca_pendiente(self, db_session, proceso, reloj):
         proc = proceso(control_number="99600002", library_clearance="pending")
@@ -341,6 +356,9 @@ class TestApplyPending:
         clearance = _library_svc().get_for_process(db_session, proc.id)
         assert clearance.status == "cleared"
         assert clearance.cleared_via == "prior"
+        (cert,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert re.fullmatch(r"BIB-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
 
     def test_aplica_las_dos_a_la_vez(self, db_session, proceso, reloj):
         proc = proceso(control_number="99600003", library_clearance="pending")
@@ -351,6 +369,10 @@ class TestApplyPending:
             aplicadas = _svc().apply_pending(db_session, proc, "99600003")
 
         assert set(aplicadas) == {"survey", "library"}
+        from itcj2.apps.titulatec.models import Certificate
+        folios = (db_session.query(Certificate.kind)
+                  .filter_by(process_id=proc.id, voided_at=None).all())
+        assert sorted(k for (k,) in folios) == ["library_clearance", "survey_release"]
 
     def test_marca_applied_process_id_y_applied_at(self, db_session, proceso, reloj):
         from itcj2.apps.titulatec.models import PriorClearance
@@ -453,6 +475,9 @@ class TestImportRowsSurvey:
         assert resultado["expired"] == resultado["invalid"] == []
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review is not None and review.origin == "prior"
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert re.fullmatch(r"GTV-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
 
     def test_diferida_sin_proceso_y_aplicada_al_importar_el_proceso(
             self, db_session, make_cohort, reloj, titulatec_app):
@@ -491,6 +516,8 @@ class TestImportRowsSurvey:
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review is not None
         assert review.origin == "prior"
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert cert.number.startswith("GTV-2026A-")
 
     def test_ya_liberada(self, db_session, proceso, make_survey_review, reloj):
         proc = proceso(control_number="99700002")
@@ -590,6 +617,8 @@ class TestImportRowsSurvey:
         assert not db_session.new and not db_session.dirty and not db_session.deleted
         assert db_session.query(PriorClearance).count() == antes
         assert _review_svc().get_for_process(db_session, proc.id) is None
+        from itcj2.apps.titulatec.models import Certificate
+        assert db_session.query(Certificate).filter_by(process_id=proc.id).count() == 0
 
 
 class TestImportRowsLibrary:
@@ -603,6 +632,9 @@ class TestImportRowsLibrary:
         assert [f["control_number"] for f in resultado["applied"]] == ["99700010"]
         clearance = _library_svc().get_for_process(db_session, proc.id)
         assert clearance.status == "cleared" and clearance.cleared_via == "prior"
+        (cert,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert re.fullmatch(r"BIB-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
 
     def test_ya_liberada(self, db_session, proceso, reloj):
         proceso(control_number="99700011", library_clearance="cleared")
@@ -638,6 +670,8 @@ class TestImportRowsLibrary:
 
         assert [f["control_number"] for f in resultado["applied"]] == ["99700013"]
         assert db_session.query(LibraryClearance).filter_by(process_id=proc.id).first() is None
+        from itcj2.apps.titulatec.models import Certificate
+        assert db_session.query(Certificate).filter_by(process_id=proc.id).count() == 0
 
     def test_dry_run_no_sobrecuenta_aplicadas_con_un_control_repetido(
             self, db_session, proceso, reloj):

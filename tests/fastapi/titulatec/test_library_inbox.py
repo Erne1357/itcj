@@ -1012,7 +1012,7 @@ def test_columna_constancia_anulada_tras_imprimir_avisa_retirar_el_papel(
     assert _visible(celda).startswith("Anulada tras imprimir"), _visible(celda)
 
 
-def test_columna_constancia_en_constancia_previa_no_emite_folio(
+def test_columna_constancia_en_constancia_previa_muestra_su_folio(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
     staff = make_library_staff()
@@ -1031,8 +1031,10 @@ def test_columna_constancia_en_constancia_previa_no_emite_folio(
 
     assert resp.status_code == 200, resp.text[:500]
     fila = _fila(resp.text, f'id="lib-{clearance.id}"')
-    assert "Constancia previa (papel del egresado)" in fila
-    assert "BIB-" not in fila
+    # Spec folios 2026-10-05 §3.3: la previa TAMBIÉN folia (semestre anterior
+    # al del registro); la celda pinta ese folio, ya no «papel del egresado».
+    assert re.search(r"BIB-\d{4}[AB]-\d{4}", fila), fila
+    assert "Constancia previa (papel del egresado)" not in fila
 
 
 def test_columna_constancia_en_legado_no_muestra_nada(

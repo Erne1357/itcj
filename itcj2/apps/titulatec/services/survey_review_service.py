@@ -29,14 +29,17 @@ pasa por `in_review` -no hay encuesta real detrás-, solo la usa
 ruta) y acredita el requisito con `external_ref=f"survey_prior:{id}"` (no
 `survey_review:{id}`, para que el cumplimiento diga de dónde vino).
 
-Gancho de constancias (spec `2026-10-01-titulatec-biblioteca-caja-design.md`
-§4.5, D7/D21/D22): `approve` emite la constancia `survey_release` vía
-`CertificateService.issue` -- salvo que `review.origin == 'prior'` (esa
-solicitud nace de una constancia previa que SE ya capturó a mano, §4.12; el
-egresado no necesita una nueva). `revoke` siempre llama a
-`CertificateService.void`, que es un no-op (`None`) cuando no había nada que
-anular. Ambos, en la MISMA transacción, antes del único `commit` de la
-transición.
+Gancho de folios (spec `2026-10-01-titulatec-biblioteca-caja-design.md`
+§4.5, D7/D21/D22, y `2026-10-05-titulatec-folios-design.md` §3.3): `approve`
+emite el folio `survey_release` vía `CertificateService.issue` -- salvo que
+`review.origin == 'prior'`, porque una previa NUNCA pasa por `approve`: su
+folio lo emite `register_prior` (mismo `source_ref=survey_review:{id}`), en el
+semestre ANTERIOR al del registro (`previous_semester_key`). `revoke` siempre
+llama a `CertificateService.void` ANTES de borrar una previa (Ruling R22), así
+que el folio queda anulado aunque la solicitud ya no exista; `void` es un
+no-op (`None`) cuando no había nada que anular. Todo en la MISMA transacción:
+`register_prior` sin commit propio (lo da el llamador) y el resto antes del
+único `commit` de la transición.
 
 Reglas fijas, iguales a `RequirementService`/`PhaseService`:
 
@@ -371,13 +374,16 @@ class SurveyReviewService:
         vale, 366 no). Acredita `graduate_survey` con
         `external_ref=f"survey_prior:{review.id}"` -DISTINTO del
         `survey_review:{id}` que usa `approve()`, para que el cumplimiento
-        diga de dónde vino-. NUNCA emite la constancia `survey_release`: el
-        egresado trae su papel (gancho en `approve()`, que nunca se llama
-        aquí).
+        diga de dónde vino-. EMITE el folio `survey_release` (`source_ref=
+        f"survey_review:{review.id}"`) con `semester=previous_semester_key(
+        ahora)`: la previa es del semestre ANTERIOR al del registro (spec
+        folios 2026-10-05 §3.3). `actor_id=None` (importación/CLI) lo deja sin
+        emisor. El gancho de `approve()` no interviene: una previa nunca pasa
+        por ahí.
 
         SIN commit: el llamador (`PriorClearanceService`) es dueño de la
         transacción completa del lote; aquí solo se hace `flush()` para que
-        `review.id` exista antes del evento y del cumplimiento.
+        `review.id` exista antes del evento, del cumplimiento y del folio.
 
         `response_id`/`paper_pending` (spec `2026-10-05-titulatec-import-
         encuesta-xlsx-design.md` R7/D3): la importación del Excel de
@@ -414,6 +420,18 @@ class SurveyReviewService:
         )
         db.add(review)
         db.flush()                      # necesitamos `review.id` para el evento
+
+        # Folio de la previa (spec folios 2026-10-05 §3.3): semestre ANTERIOR
+        # al del registro, misma transacción y sin commit (el llamador es
+        # dueño). `revoke` lo anula antes de borrar la solicitud.
+        from itcj2.apps.titulatec.services.certificate_service import (
+            CertificateService, previous_semester_key,
+        )
+        CertificateService.issue(
+            db, kind="survey_release", process=process,
+            source_ref=f"survey_review:{review.id}", actor_id=actor_id,
+            semester=previous_semester_key(ahora),
+        )
 
         from itcj2.apps.titulatec.services.requirement_service import RequirementService
         RequirementService.fulfill(
@@ -473,10 +491,10 @@ class SurveyReviewService:
         SurveyReviewService._log(db, process.id, actor_id, "survey_review_approved",
                                  {"review_id": review.id})
 
-        # Constancia de liberación de encuesta (spec §4.5, D7/D21/D22): NUNCA
-        # para origin='prior' -- esa solicitud la creó Servicios Escolares a
-        # partir de una constancia previa (§4.12) y el egresado ya trae su
-        # papel de antes de este sistema. Misma transacción, antes del commit.
+        # Folio de liberación de encuesta (spec §4.5, D7/D21/D22): NUNCA aquí
+        # para origin='prior' -- una previa no pasa por `approve`; su folio
+        # (semestre anterior) lo emite `register_prior`. Misma transacción,
+        # antes del commit.
         if review.origin != "prior":
             from itcj2.apps.titulatec.services.certificate_service import CertificateService
             CertificateService.issue(

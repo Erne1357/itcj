@@ -9,6 +9,7 @@ Todo con un `.xlsx` SINTÉTICO (`_survey_xlsx.py`): el archivo real nunca.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -77,6 +78,18 @@ def _respuestas(db, form):
     from itcj2.apps.titulatec.models import SurveyResponse
     return (db.query(SurveyResponse).filter_by(form_id=form.id)
             .order_by(SurveyResponse.id).all())
+
+
+def _certs(db, review_id):
+    from itcj2.apps.titulatec.models import Certificate
+    return (db.query(Certificate)
+            .filter_by(source_ref=f"survey_review:{review_id}")
+            .order_by(Certificate.id).all())
+
+
+def _certs_de_proceso(db, process_id):
+    from itcj2.apps.titulatec.models import Certificate
+    return db.query(Certificate).filter_by(process_id=process_id).all()
 
 
 def _answer(db, response_id, key):
@@ -445,6 +458,12 @@ class TestImportacion:
         assert review.response_id == resp.id
         assert review.paper_pending is True
         assert review.prior_issued_on == datetime(2026, 6, 15).date()
+        # Spec folios 2026-10-05: la liberada también deja su folio (GTV del
+        # semestre anterior al del registro, sin emisor: es una importación).
+        (cert,) = _certs(db_session, review.id)
+        assert re.fullmatch(r"GTV-2026A-\d{4}", cert.number), cert.number
+        assert cert.issued_by_id is None
+        assert cert.control_number == "99600101"
 
     def test_sin_proceso_difiere_y_apply_pending_liga_al_inscribirse(
             self, db_session, reloj, form, proceso):
@@ -466,6 +485,8 @@ class TestImportacion:
         review = _review_svc().get_for_process(db_session, proc.id)
         assert review.response_id == resp.id
         assert review.paper_pending is True
+        (cert,) = _certs(db_session, review.id)           # la diferida también folia
+        assert cert.number.startswith("GTV-2026A-")
         db_session.refresh(resp)
         assert resp.user_id == proc.student_id
         assert resp.process_id == proc.id
@@ -685,6 +706,70 @@ class TestImportacion:
                               "saved_unreleased", "duplicates", "already_imported",
                               "invalid")
         assert set(out["deferred"][0]) >= {"control_number", "reason", "ms_id"}
+
+
+class TestFolios:
+    """Spec folios 2026-10-05 §3.3: UN folio por fila liberada, nada por las
+    demás."""
+
+    def test_un_folio_por_fila_liberada_y_ninguno_por_las_demas(
+            self, db_session, reloj, proceso, make_survey_review,
+            make_survey_form):
+        from itcj2.apps.titulatec.models import Certificate
+
+        a = proceso(control_number="99600201")
+        b = proceso(control_number="99600202")
+        c = proceso(control_number="99600203")            # vencida: guarda sin liberar
+        d = proceso(control_number="99600204")            # conflicto: GTV decide
+        make_survey_review(d, status="in_review")
+        make_egresados_form(make_survey_form)   # el del import va DESPUÉS del de `make_survey_review`
+        antes = db_session.query(Certificate).count()
+
+        out = _importar(db_session, [
+            fila(201, control="99600201"),
+            fila(202, control="99600202", orange=True),
+            fila(203, control="99600203", completed=datetime(2025, 6, 1, 9, 0)),
+            fila(204, control="99600204"),
+            fila(205, control="99600205"),                # sin proceso: diferida
+        ])
+
+        assert _controles(out, "released") == ["99600201", "99600202"]
+        assert _controles(out, "saved_unreleased") == ["99600203"]
+        assert _controles(out, "conflicts") == ["99600204"]
+        assert _controles(out, "deferred") == ["99600205"]
+        assert db_session.query(Certificate).count() == antes + 2
+
+        reviews = [_review_svc().get_for_process(db_session, proc.id) for proc in (a, b)]
+        folios = [_certs(db_session, review.id) for review in reviews]
+        assert all(len(f) == 1 for f in folios)
+        numeros = [f[0].number for f in folios]
+        assert all(re.fullmatch(r"GTV-2026A-\d{4}", n) for n in numeros), numeros
+        assert numeros[0] != numeros[1]
+        assert _certs_de_proceso(db_session, c.id) == []
+        assert _certs_de_proceso(db_session, d.id) == []
+
+    def test_dry_run_no_emite_folios(self, db_session, reloj, form, proceso):
+        from itcj2.apps.titulatec.models import Certificate
+
+        proceso(control_number="99600211")
+        antes = db_session.query(Certificate).count()
+
+        out = _importar(db_session, [fila(211, control="99600211")], dry_run=True)
+
+        assert _controles(out, "released") == ["99600211"]
+        assert db_session.query(Certificate).count() == antes
+
+    def test_la_segunda_corrida_no_vuelve_a_emitir(self, db_session, reloj, form, proceso):
+        from itcj2.apps.titulatec.models import Certificate
+
+        proceso(control_number="99600212")
+        _importar(db_session, [fila(212, control="99600212")])
+        despues_de_la_primera = db_session.query(Certificate).count()
+
+        out = _importar(db_session, [fila(212, control="99600212")])
+
+        assert _controles(out, "already_imported") == ["99600212"]
+        assert db_session.query(Certificate).count() == despues_de_la_primera
 
 
 def test_prior_clearance_paper_pending_exige_true_literal(

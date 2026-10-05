@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -387,6 +388,143 @@ class TestRevoke:
     def test_id_inexistente(self, db_session, escenario):
         with pytest.raises(LookupError):
             SurveyReviewService.revoke(db_session, 1_357_924, escenario["gtv"].id, "Motivo")
+
+
+# ---------------------------------------------------------------------------
+# Folio de la constancia previa (spec folios 2026-10-05 §3.3)
+# ---------------------------------------------------------------------------
+class TestRegisterPriorFolio:
+    """La previa de encuesta TAMBIÉN folia (`survey_release`), en el semestre
+    ANTERIOR al del registro. Años sintéticos (2090+): la BD de dev es
+    compartida y ya trae contadores reales de 2026."""
+
+    SVC = "itcj2.apps.titulatec.services.survey_review_service"
+
+    @staticmethod
+    def _certs(db, review_id):
+        from itcj2.apps.titulatec.models import Certificate
+        return (db.query(Certificate)
+                .filter_by(source_ref=f"survey_review:{review_id}")
+                .order_by(Certificate.id).all())
+
+    def _registrar(self, db_session, process, cuando, monkeypatch, **kw):
+        monkeypatch.setattr(f"{self.SVC}.db_now", lambda: cuando)
+        with patch(NOTIFY):
+            return SurveyReviewService.register_prior(
+                db_session, process, issued_on=cuando.date(), **kw)
+
+    @pytest.mark.parametrize("cuando, semestre", [
+        (datetime(2091, 10, 5, 10, 0), "2091A"),      # B de Y -> A de Y
+        (datetime(2091, 7, 1, 8, 0), "2091A"),        # primer día de B
+        (datetime(2092, 2, 10, 10, 0), "2091B"),      # A de Y -> B de Y-1
+        (datetime(2091, 6, 30, 23, 0), "2090B"),      # último día de A
+    ])
+    def test_emite_el_folio_del_semestre_anterior(
+            self, db_session, escenario, monkeypatch, cuando, semestre):
+        process, gtv = escenario["process"], escenario["gtv"]
+
+        review = self._registrar(db_session, process, cuando, monkeypatch,
+                                 actor_id=gtv.id)
+
+        (cert,) = self._certs(db_session, review.id)
+        assert cert.kind == "survey_release"
+        assert re.fullmatch(rf"GTV-{semestre}-\d{{4}}", cert.number), cert.number
+        assert cert.source_ref == f"survey_review:{review.id}"
+        assert cert.process_id == process.id
+        assert cert.issued_by_id == gtv.id
+        assert cert.voided_at is None
+        assert cert.control_number == process.student.control_number
+
+    def test_sin_actor_el_folio_queda_sin_emisor(
+            self, db_session, escenario, monkeypatch):
+        """Importación/CLI: `actor_id=None` -> `issued_by_id` NULL."""
+        review = self._registrar(db_session, escenario["process"],
+                                 datetime(2091, 10, 5, 10, 0), monkeypatch,
+                                 actor_id=None)
+
+        (cert,) = self._certs(db_session, review.id)
+        assert cert.number.startswith("GTV-2091A-")
+        assert cert.issued_by_id is None
+
+    def test_no_commitea_y_el_folio_queda_en_la_transaccion_del_llamador(
+            self, db_session, escenario, monkeypatch):
+        monkeypatch.setattr(db_session, "commit",
+                            lambda: pytest.fail("register_prior no debe commitear"))
+
+        review = self._registrar(db_session, escenario["process"],
+                                 datetime(2091, 10, 5, 10, 0), monkeypatch)
+
+        assert len(self._certs(db_session, review.id)) == 1
+
+    def test_un_rechazo_no_deja_folio(self, db_session, escenario, monkeypatch):
+        """Toda la validación va ANTES de emitir: previa vencida, sin folio."""
+        from datetime import timedelta
+        from itcj2.apps.titulatec.models import Certificate
+
+        cuando = datetime(2091, 10, 5, 10, 0)
+        monkeypatch.setattr(f"{self.SVC}.db_now", lambda: cuando)
+        antes = db_session.query(Certificate).count()
+
+        with pytest.raises(ValueError):
+            SurveyReviewService.register_prior(
+                db_session, escenario["process"],
+                issued_on=cuando.date() - timedelta(days=400))
+
+        assert db_session.query(Certificate).count() == antes
+
+    def test_revocar_la_previa_anula_el_folio_antes_de_borrar_la_solicitud(
+            self, db_session, escenario, monkeypatch):
+        """Ruling R22: `revoke` borra la fila de la previa. El folio se anula
+        ANTES del `db.delete`, así que su fila queda con `voided_at` aunque la
+        solicitud ya no exista."""
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = self._registrar(db_session, process, datetime(2091, 10, 5, 10, 0),
+                                 monkeypatch, actor_id=gtv.id)
+        review_id = review.id
+        (cert,) = self._certs(db_session, review_id)
+        numero = cert.number
+        assert cert.voided_at is None
+
+        visto = {}
+        delete_original = db_session.delete
+
+        def _delete(obj, *a, **k):
+            visto["anulado_antes"] = cert.voided_at is not None
+            return delete_original(obj, *a, **k)
+
+        monkeypatch.setattr(db_session, "delete", _delete)
+        with patch(NOTIFY):
+            resultado = SurveyReviewService.revoke(
+                db_session, review_id, gtv.id, "Número de control equivocado")
+
+        assert resultado is None
+        assert visto == {"anulado_antes": True}
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        (cert,) = self._certs(db_session, review_id)
+        assert cert.number == numero                  # el folio no se borra
+        assert cert.voided_at is not None
+        assert cert.voided_by_id == gtv.id
+        assert cert.void_reason == "Número de control equivocado"
+
+    def test_registrar_otra_previa_tras_revocar_emite_un_folio_distinto(
+            self, db_session, escenario, monkeypatch):
+        process, gtv = escenario["process"], escenario["gtv"]
+        cuando = datetime(2091, 10, 5, 10, 0)
+        primera = self._registrar(db_session, process, cuando, monkeypatch,
+                                  actor_id=gtv.id)
+        primer_id = primera.id
+        with patch(NOTIFY):
+            SurveyReviewService.revoke(db_session, primer_id, gtv.id, "Equivocada")
+
+        segunda = self._registrar(db_session, process, cuando, monkeypatch,
+                                  actor_id=gtv.id)
+
+        assert segunda.id != primer_id
+        (vieja,) = self._certs(db_session, primer_id)
+        (nueva,) = self._certs(db_session, segunda.id)
+        assert vieja.voided_at is not None and nueva.voided_at is None
+        assert nueva.number != vieja.number           # un folio nunca se reutiliza
+        assert nueva.number.startswith("GTV-2091A-")
 
 
 # ---------------------------------------------------------------------------
