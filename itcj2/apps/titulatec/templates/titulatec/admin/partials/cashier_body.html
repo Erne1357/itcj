@@ -77,15 +77,15 @@
 {% set mostrando_dia = (not searching) and tab == 'pagados' %}
 <div id="tt-cashier-body" data-tt-view="cashier-body">
 
-  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+  <form id="tt-cashier-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}"
         hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML">
     <input type="hidden" name="tab" value="{{ tab }}">
     <input type="hidden" name="dia" value="{{ dia }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">
       <i class="bi bi-search"></i>
-      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
-             autofocus aria-label="Buscar control o nombre"
+      <input type="search" id="tt-cashier-q" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+             hx-preserve="true" autofocus aria-label="Buscar control o nombre"
              hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML"
              hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
     </div>

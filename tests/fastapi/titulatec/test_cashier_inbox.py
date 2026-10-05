@@ -199,6 +199,39 @@ def test_busqueda_por_nombre(
     assert "99700071" in resp.text
 
 
+def test_busqueda_con_comodines_es_literal(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """`%` y `_` del buscador de Caja no comodinean (se escapan)."""
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    make_process(make_student(control_number="99700072", first_name="ZOE",
+                              last_name="COMODINCAJA"),
+                cohort=cohort, current_phase=1, library_clearance="pending")
+    c = client_as(staff)
+
+    assert "99700072" in c.get(f"{URL}/body?q=COMODINCAJA").text
+    assert "99700072" not in c.get(f"{URL}/body?q=COMOD%25CAJA").text   # %
+    assert "99700072" not in c.get(f"{URL}/body?q=COMODINC_JA").text    # _
+
+
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_cashier_staff, make_student, make_cohort, make_process,
+):
+    """hx-preserve en el buscador de Caja: id estable, `data-tt-q-server` en el form."""
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+    staff = make_cashier_staff()
+    cohort = make_cohort(book_donation_amount=Decimal("0.00"))
+    make_process(make_student(control_number="99700073", first_name="ZOE", last_name="PRESCAJA"),
+                cohort=cohort, current_phase=1, library_clearance="pending")
+    c = client_as(staff)
+    for url in (URL, f"{URL}/body"):
+        html = c.get(url, params={"q": "99700073"}).text
+        assert_buscador_preservado(html, input_id="tt-cashier-q",
+                                   filters_id="tt-cashier-filters", q="99700073",
+                                   include="closest form")
+
+
 # ---------------------------------------------------------------------------
 # Registrar pago
 # ---------------------------------------------------------------------------
