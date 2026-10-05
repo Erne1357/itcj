@@ -2326,6 +2326,21 @@ class TestSearch:
 
         assert len(LibraryClearanceService.search(db_session, token, limit=2)) == 2
 
+    def test_comodines_de_like_son_literales(self, db_session, nuevo, token):
+        """`%` y `_` del buscador (Caja y Biblioteca comparten `_search_clause`)
+        se escapan: no comodinean ni la búsqueda, ni el contador, ni la lista."""
+        fila = nuevo(last_name=token)
+        con_porciento = token[:5] + "%" + token[-3:]
+        con_guion = token[:5] + "_" + token[6:]
+
+        assert LibraryClearanceService.search(db_session, token)[0]["id"] == fila.clearance.id
+        for q in (con_porciento, con_guion):
+            assert LibraryClearanceService.search(db_session, q) == []
+            assert LibraryClearanceService.counts_by_status(db_session, q)["pending"] == 0
+            assert LibraryClearanceService.list_for_inbox(
+                db_session, status="pending", q=q).items == []
+        assert LibraryClearanceService.counts_by_status(db_session, token)["pending"] == 1
+
     @pytest.mark.parametrize("q", [None, "", "   "])
     def test_busqueda_vacia(self, db_session, q):
         assert LibraryClearanceService.search(db_session, q) == []

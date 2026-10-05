@@ -9,6 +9,7 @@ a notificar no necesitan el parche).
 from __future__ import annotations
 
 import re
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -610,6 +611,25 @@ class TestListForInbox:
         por_control = SurveyReviewService.list_for_inbox(
             db_session, status="in_review", q=beto.control_number).items
         assert [f["process_id"] for f in por_control] == [p2.id]
+
+    def test_comodines_de_like_son_literales(
+            self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        """`%` y `_` del buscador no comodinean (lista ni contador)."""
+        marca = "ZQ" + uuid.uuid4().hex[:10].upper()
+        ana = make_student(last_name=marca)
+        p1 = make_process(ana, cohort=make_cohort(), current_phase=2)
+        make_survey_review(p1, status="in_review")
+        con_porciento = marca[:4] + "%" + marca[-3:]
+        con_guion = marca[:4] + "_" + marca[5:]
+
+        literal = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca).items
+        assert [f["process_id"] for f in literal] == [p1.id]
+        for q in (con_porciento, con_guion):
+            assert SurveyReviewService.list_for_inbox(
+                db_session, status="in_review", q=q).items == []
+            assert SurveyReviewService.counts_by_status(db_session, q)["in_review"] == 0
+        assert SurveyReviewService.counts_by_status(db_session, marca)["in_review"] == 1
 
     def test_paginado_con_has_more(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):

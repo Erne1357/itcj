@@ -1678,8 +1678,10 @@ class LibraryClearanceService:
         de una pestaña y su lista divergieran al tocar solo una. `texto` ya
         viene recortado y no vacío -- lo valida el llamador."""
         from itcj2.core.models.user import User
-        patron = f"%{texto}%"
-        return or_(User.full_name.ilike(patron), User.control_number.ilike(patron))
+        from itcj2.apps.titulatec.utils.paging import like_pattern
+        patron = like_pattern(texto)
+        return or_(User.full_name.ilike(patron, escape="\\"),
+                   User.control_number.ilike(patron, escape="\\"))
 
     @staticmethod
     def _inbox_query(db: Session, q: str | None = None):

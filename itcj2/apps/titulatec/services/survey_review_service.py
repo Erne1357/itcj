@@ -67,7 +67,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
 
-from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, paginate_query
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, like_pattern, paginate_query
 from itcj2.core.utils.timezone import db_now
 
 # Estados reales de `SurveyReview.status`. El pseudo-estado "missing" de
@@ -612,11 +612,12 @@ class SurveyReviewService:
                  .join(TitulationProcess, TitulationProcess.id == SurveyReview.process_id)
                  .filter(_no_revocada_en_revision()))
         if q:
-            patron = f"%{q.strip()}%"
+            patron = like_pattern(q.strip())
             query = (
                 query
                 .join(User, User.id == TitulationProcess.student_id)
-                .filter(or_(User.full_name.ilike(patron), User.control_number.ilike(patron)))
+                .filter(or_(User.full_name.ilike(patron, escape="\\"),
+                            User.control_number.ilike(patron, escape="\\")))
             )
         filas = query.group_by(SurveyReview.status).all()
         out = {estado: 0 for estado in REVIEW_STATUSES}
@@ -663,9 +664,9 @@ class SurveyReviewService:
             .filter(_no_revocada_en_revision())
         )
         if q:
-            patron = f"%{q.strip()}%"
-            query = query.filter(or_(User.full_name.ilike(patron),
-                                     User.control_number.ilike(patron)))
+            patron = like_pattern(q.strip())
+            query = query.filter(or_(User.full_name.ilike(patron, escape="\\"),
+                                     User.control_number.ilike(patron, escape="\\")))
 
         if status == "in_review":
             query = query.order_by(SurveyReview.submitted_at.asc(), SurveyReview.id.asc())
