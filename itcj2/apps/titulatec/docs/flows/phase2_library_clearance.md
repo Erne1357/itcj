@@ -649,6 +649,26 @@ Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9 (mismo molde q
 - Parámetros: Biblioteca `status`, `q`, `page`; Caja `tab`, `q`, `dia`, `page` (solo «Por cobrar» pagina; con `q` la lista es `search()`, sin pager, máx. 20 filas; el pager de Caja hornea `tab=por_cobrar` y no lleva `q`). Cambiar pestaña / búsqueda ⇒ `page=1`; página fuera de rango ⇒ última válida.
 - **Buscador de Biblioteca** `#tt-library-q` con `hx-preserve="true"` y `data-tt-q-server` en `#tt-library-filters` (`library_body.html`, commit `b2ce954a`, 2026-10-04): mismo defecto de tecleo perdido que se arregló en las bandejas nuevas. El buscador de Caja `#tt-cashier-q` recibió lo mismo (`#tt-cashier-filters`, `include="closest form"`); conserva `autofocus`, que solo actúa en la carga completa. Los buscadores de Biblioteca, Liberaciones y Caja escapan `%`/`_` con `like_pattern` (comparten `_search_clause` / el de `survey_review_service`).
 
+## Bandeja de Biblioteca: acciones en un panel bajo la fila (2026-10-05)
+
+Rediseño de presentación (spec `2026-10-05-titulatec-biblioteca-acciones-design.md`; commits `3a452e42`, `f2e80603`, `65b91db6`). **No cambia ninguna regla**: endpoints, ocultos (`expected_status`, `expected_total`, `tab_fields`), `hx-confirm` y `data-tt-confirm-ok` son los de antes; solo cambia dónde y cómo se muestran. Todo en `itcj2/apps/titulatec/templates/titulatec/admin/partials/library_body.html`.
+
+- **Celda de Acciones**: a lo más dos controles, la acción rápida de la pestaña y el despliegue `lib_toggle` (`:106`, `button.tt-lib-toggle` con `data-tt-toggle="lib-{id}-panel"`, `aria-controls` y `aria-expanded="false"`). El despliegue abre una SEGUNDA `<tr id="lib-{id}-panel" class="d-none tt-lib-panel-row">` (`lib_panel`, `:111`) con `colspan` = columnas de la tabla; el panel empuja hacia abajo, no hay modal.
+- **Sin JS nuevo**: se reutiliza el `data-tt-toggle` global de `static/js/admin/appointments.js:49-56` (alterna `d-none` y `aria-expanded`; cargado por `base_admin`).
+- **`aria-label` del despliegue** (se pasa explícito al macro, `:106`, 2026-10-05): «Dictaminar a {alumno}» (Por revisar, `:288`), «Opciones de {alumno}» (En caja `:291`, Liberados `:305`), «Actualizar la observación de {alumno}» (Con observaciones, `:301`).
+- **Varias opciones** (`lib_picker` `:120` + `lib_option` `:127`): `fieldset.tt-vis` con `legend` y tarjetas `label.tt-vis-opt` (reuso de `.tt-vis-opt` de `static/css/titulatec.css:2169`, rótulo + explicación), radios `name="lib-{id}-op"` FUERA de todo `<form>`, ninguno marcado. Debajo, un `lib_form` (`:137`) por opción con `lib_field` (`:149`, `<label class="tt-label" for>` visible).
+- **`:has()` progresivo** (`titulatec.css:2811-2819`): se oculta todo `.tt-lib-form` y se muestra solo el de la tarjeta marcada, por CLAVE (`.tt-lib-pick[value=clave]` → `.tt-lib-form--clave`), nunca por id; dos paneles abiertos en filas distintas no se pisan. Sin `:has()` se ven todos los formularios (degradación aceptable). Las tarjetas elegidas pasan a papel blanco con borde de acento sobre el panel (`:2824-2825`). Panel de una sola opción: sin picker, formulario siempre visible.
+- **Ids estables**: `lib-{id}` (fila), `lib-{id}-panel`, `lib-{id}-opt-{clave}`, `lib-{id}-form-{clave}`. Claves: `debt`, `prior`, `observe`, `fix`, `update`, `revert`, `undo`.
+
+| Pestaña | Acción rápida | Despliegue | Opciones del panel (título · qué pasa · botón) |
+|---|---|---|---|
+| Por revisar | «Sin adeudo» (monto 0, `expected_status=pending`) | «Dictaminar…» | **Con adeudo**: pasa a Caja a pagar el adeudo más la donación · «Registrar adeudo» (monto + nota). **Constancia previa**: ya pagó antes, queda liberado sin pasar por Caja · «Registrar constancia previa» (fecha + nota). **Observar**: lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar · «Registrar observación» (motivo) |
+| En caja | ninguna | «Opciones…» | **Corregir monto**: cambia el adeudo y se recalcula con la donación vigente · «Corregir monto» (monto precargado, nota, `expected_status` + `expected_total`). **Observar**: igual que arriba y sale de Por cobrar · «Registrar observación» |
+| Con observaciones | «Rehabilitar» | «Actualizar…» | Opción única, sin selector: «Actualizar la observación de {alumno}» (cambia el motivo que ve el egresado) · «Actualizar observación» (textarea precargada y escapada) |
+| Liberados | ninguna | «Opciones…» solo si `can_revert` y vía `prior`/`no_charge`/`legacy` | Opción única con motivo obligatorio: constancia previa → «Deshacer constancia previa»; sin cargo/legado → «Revertir no adeudo». Vía pago → pastilla «Se revierte desde Caja»; fase 2 liberada → «Fase 2 liberada» (sin botón ni panel). Revocada: sin acciones |
+
+Pruebas: `tests/fastapi/titulatec/test_library_actions_ui.py` (estructura del panel, ids, aria por pestaña, labels, sin `style=` inline).
+
 ## Flujos relacionados
 
 - ⤵ [Constancias por lote](xcut_certificates_batch.md) — numeración, emisión/anulación, PDF.
