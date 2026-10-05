@@ -103,10 +103,10 @@
    Cada campo con `lib_field` (`<label class="tt-label" for>` visible). Ids
    estables: `lib-{id}-panel`, `lib-{id}-opt-{clave}`, `lib-{id}-form-{clave}`.
    Claves: debt, prior, observe, fix, update, revert, undo. #}
-{% macro lib_toggle(r, label) -%}
+{% macro lib_toggle(r, label, aria) -%}
 <button type="button" class="btn btn-sm tt-btn-ghost tt-lib-toggle"
         data-tt-toggle="lib-{{ r.id }}-panel" aria-controls="lib-{{ r.id }}-panel"
-        aria-expanded="false" aria-label="{{ label | replace('…', '') | trim }} a {{ r.student }}">{{ label }}<i class="bi bi-chevron-down tt-lib-chev" aria-hidden="true"></i></button>
+        aria-expanded="false" aria-label="{{ aria }} {{ r.student }}">{{ label }}<i class="bi bi-chevron-down tt-lib-chev" aria-hidden="true"></i></button>
 {%- endmacro %}
 {% macro lib_panel(r, colspan) -%}
 <tr id="lib-{{ r.id }}-panel" class="d-none tt-lib-panel-row">
@@ -285,10 +285,10 @@
                 <input type="hidden" name="expected_status" value="pending">
                 <button type="submit" class="btn btn-sm tt-btn-ink">Sin adeudo</button>
               </form>
-              {{ lib_toggle(r, 'Dictaminar…') }}
+              {{ lib_toggle(r, 'Dictaminar…', 'Dictaminar a') }}
             </div>
           {% elif r.status == 'awaiting_payment' %}
-            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…') }}</div>
+            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…', 'Opciones de') }}</div>
           {% elif r.status == 'observed' %}
             <div class="tt-lib-actions">
               <form hx-post="/titulatec/admin/biblioteca/{{ r.id }}/rehabilitar"
@@ -298,11 +298,11 @@
                 {{ tab_fields(status, q, page) }}
                 <button type="submit" class="btn btn-sm tt-btn-ink">Rehabilitar</button>
               </form>
-              {{ lib_toggle(r, 'Actualizar…') }}
+              {{ lib_toggle(r, 'Actualizar…', 'Actualizar la observación de') }}
             </div>
           {% elif r.status == 'cleared' %}
             {% if r.can_revert and r.via in ('prior', 'no_charge', 'legacy') %}
-            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…') }}</div>
+            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…', 'Opciones de') }}</div>
             {% elif r.can_revert and r.via == 'payment' %}
             <span class="tt-pill tt-pill--neutral">Se revierte desde Caja</span>
             {% else %}

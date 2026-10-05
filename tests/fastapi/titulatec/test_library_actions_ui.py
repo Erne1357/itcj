@@ -396,3 +396,20 @@ def test_revocada_sin_botones(client_as, staff, nuevo_en, token, db_session):
     assert "Revocada" in _visible(celda)
     assert "<button" not in celda and "<form" not in celda
     assert f'id="lib-{i}-panel"' not in html
+
+
+@pytest.mark.parametrize("tab,kw,prefijo", [
+    ("pending", {}, "Dictaminar a "),
+    ("awaiting_payment", {}, "Opciones de "),
+    ("observed", {}, "Actualizar la observación de "),
+    ("cleared", {"cleared_via": "no_charge"}, "Opciones de "),
+])
+def test_toggle_aria_natural_por_pestana(client_as, staff, nuevo_en, token, tab, kw, prefijo):
+    esc = nuevo_en(token, tab, **kw)
+    i = esc.clearance.id
+    celda = _ultima_celda(_tr(_body_tab(client_as, staff, token, tab), f"lib-{i}"))
+    abre = re.search(r"<button[^>]*data-tt-toggle[^>]*>", celda).group(0)
+    label = html_lib.unescape(re.search(r'aria-label="([^"]*)"', abre).group(1))
+    assert label.startswith(prefijo) and esc.student.last_name in label
+    assert 'aria-expanded="false"' in abre
+    assert f'aria-controls="lib-{i}-panel"' in abre
