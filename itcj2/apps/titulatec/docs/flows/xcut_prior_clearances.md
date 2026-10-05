@@ -4,7 +4,9 @@
 > el sistema legado—, su liberación de encuesta o su no adeudo de biblioteca, no tiene que
 > repetir el trámite. Servicios Escolares (o el desarrollador, para la base completa de
 > encuestas del semestre anterior) la registra, y el sistema la aplica al proceso del egresado
-> en cuanto hay uno que reclamarla — ya exista, o en cuanto se inscriba después.
+> en cuanto hay uno que reclamarla — ya exista, o en cuanto se inscriba después. Desde
+> 2026-10-05 la previa también lleva **folio** (`BIB-…`/`GTV-…`, semestre anterior al de su
+> registro): ⤵ [Folio de las previas y del legado](#folio-de-las-previas-y-del-legado-2026-10-05).
 
 | | |
 |---|---|
@@ -181,8 +183,9 @@ alta); las rutas de UI siempre usan `commit=True` (su propia transacción).
 En la bandeja de Liberaciones, una solicitud con `origin='prior'` sale en **«Liberadas»** con la
 píldora «Constancia previa», con «Ver respuestas» solo si la previa vino del Excel (2026-10-05: `response_id`
 ligado; las del CSV no tienen `SurveyResponse` detrás y `response_id` es `NULL`). Se revoca con el mismo botón que una liberación real
-(`SurveyReviewService.revoke`, que SIEMPRE llama a `CertificateService.void` — no-op porque
-`approve` nunca emitió constancia para un `origin='prior'`), pero el resultado es otro (Ruling
+(`SurveyReviewService.revoke`, que SIEMPRE llama a `CertificateService.void` — desde 2026-10-05
+anula el folio que `register_prior` emitió, ANTES de borrar la solicitud; antes era un no-op
+porque `approve` nunca emitió nada para un `origin='prior'`), pero el resultado es otro (Ruling
 R22): tras el evento `survey_review_revoked` (payload con `origin='prior'`), el `unfulfill`, el
 aviso y el correo, la solicitud se **BORRA** —vuelve a `missing`— porque una previa `rejected`
 dejaba al egresado sin salida (`SurveyService.submit` corta mientras exista cualquier fila). El
@@ -396,10 +399,46 @@ y `test_survey_import_ui.py`, con libros sintéticos de `_survey_xlsx.py`.
 - **Aplicada**: `applied_process_id`/`applied_at` fijos; `SurveyReview.status='approved',
   origin='prior'` (`response_id=NULL` salvo que venga del Excel) y/o `LibraryClearance.status='cleared', cleared_via='prior'`.
   **Nunca** se vuelve a ofrecer, ni a otro proceso del mismo alumno después.
-- Encuesta: constancia `survey_release` **NO** se emite (`SurveyReviewService.approve` la salta
-  cuando `origin='prior'`). No adeudo: constancia `library_clearance` tampoco (`register_prior`
-  nunca llama a `CertificateService.issue`) — el egresado ya trae su papel físico; por eso el
-  correo de liberación (`library_cleared`/`survey_approved`) le pide llevarlo a su cotejo.
+- **Folio (2026-10-05):** las dos `register_prior` EMITEN su folio (`survey_release`/
+  `library_clearance`), en el semestre ANTERIOR al registro; `SurveyReviewService.approve` sigue
+  saltando `origin='prior'` porque una previa nunca pasa por ahí. Antes de esa fecha no se
+  emitía nada (el egresado ya trae su papel físico). El correo de liberación
+  (`library_cleared`/`survey_approved`) sigue pidiéndole llevar ese papel a su cotejo (punto
+  abierto: los textos de las previas no cambiaron con los folios).
+
+## Folio de las previas y del legado (2026-10-05)
+
+Spec `docs/superpowers/specs/2026-10-05-titulatec-folios-design.md` D5/D6, §3.3, §3.4. Detalle de
+la numeración: ⤵ [folios](xcut_certificates_batch.md#numeración-atómica).
+
+- **Semestre = el ANTERIOR al de la fecha de registro** (`previous_semester_key`): registrada en
+  2026B da `2026A`; en 2027A, `2026B`. Las dos `register_prior`
+  (`SurveyReviewService`/`LibraryClearanceService`) emiten con
+  `CertificateService.issue(..., actor_id=<quien captura o None>, semester=previous_semester_key(
+  registered_at or ahora))` tras el `flush()`, en la MISMA transacción y sin commit (el llamador
+  es dueño; con `commit=False` también, que es el camino de `apply_pending` y de la importación).
+  `actor_id=None` en las cargas masivas (importación, CLI).
+- **Previa diferida: la «fecha de registro» es la IMPORTACIÓN, no la inscripción.**
+  `PriorClearanceService._apply_survey`/`_apply_library` pasan `registered_at=previa.created_at`
+  (el `PriorClearance`): una previa importada en 2026B que se inscribe en 2027 sigue en `2026A`.
+  `_defer` nunca escribe `created_at` (ni al actualizar una pendiente ni al reemplazar una ya
+  aplicada, R28), así que «registro» = primera importación de ese número de control.
+  `registered_at` SOLO elige el semestre del folio: `updated_at`/`reviewed_at` siguen siendo
+  «ahora».
+- **Deshacer / revocar anulan:** `LibraryClearanceService.undo_prior` anula el folio de la previa
+  (motivo = el de deshacer; el payload de `library_prior_undone` lleva `certificate`, `None` si no
+  tenía) y `SurveyReviewService.revoke` lo anula antes de borrar la solicitud (R22). El número
+  nunca se libera: volver a registrar la previa saca uno NUEVO.
+- **Legado** (`cleared/legacy`): solo lo crean el SQL de `tt20261001a` y la promoción D17 de
+  `activar-biblioteca-caja`; ningún service lo emite. Su folio sale del backfill.
+- **Backfill** (`FolioBackfillService`, CLI `titulatec emitir-folios-previos [--dry-run]` y paso 5
+  de `activar-biblioteca-caja`): folia las previas registradas ANTES de este código y el legado,
+  sin emisor, en el semestre anterior a su ancla (`reviewed_at` en encuesta, `updated_at` en no
+  adeudo). Idempotente. Las previas DIFERIDAS no son candidatas: reciben su folio al
+  inscribirse. Detalle: ⤵ [folios](xcut_certificates_batch.md#backfill-de-folios-de-previas-y-legado-foliobackfillservice).
+- **Dev (2026-10-05):** correr `emitir-folios-previos` tras migrar (el dry-run da 2 folios de
+  encuesta en 2026A, las previas ya aplicadas); las diferidas del Excel (368) reciben el suyo al
+  inscribirse, también 2026A.
 
 ## Caminos alternos / errores ❗
 
@@ -444,12 +483,18 @@ marca que deja la revocación; `TestPriorConflictReason` cubre el submotivo fino
 `test_cli_prior_clearances.py` (CLI: dry-run, autodetección de columna, los 4 formatos de fecha,
 botes, `--fecha`+`--columna-fecha` juntas rechaza con `UsageError` -m16-).
 
+Folios (2026-10-05): `test_prior_clearance_service.py`/`test_survey_review_service.py`/
+`test_library_clearance_service.py` (la previa emite el folio del semestre anterior; la diferida,
+el de su importación vía `registered_at`; `undo_prior` y revocar anulan),
+`test_survey_import_service.py` (un folio por fila liberada del Excel) y `test_folio_backfill.py`
+(candidatos, semestre por ancla, dry-run, idempotencia, CLI y paso de `activar-biblioteca-caja`).
+
 ## Flujos relacionados
 
 - ⤵ [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) — dueño real de
   `LibraryClearance`, paso 5.
 - ⤵ [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) —
   dueño real de `SurveyReview`, incluida la vista «Liberadas» con `origin='prior'`.
-- ⤵ [Constancias por lote](xcut_certificates_batch.md) — por qué una previa NUNCA emite una
-  constancia nueva.
+- ⤵ [Folios y constancias por lote](xcut_certificates_batch.md) — numeración por semestre, el
+  switch de impresión y el backfill; desde 2026-10-05 una previa también lleva folio.
 - Glosario: [`PriorClearance`, `PriorClearanceService`](_glossary.md).

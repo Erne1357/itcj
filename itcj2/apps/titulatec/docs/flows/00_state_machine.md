@@ -340,6 +340,14 @@ stateDiagram-v2
 > revierte Biblioteca; una previa se deshace) — ningún botón funciona sobre el `cleared_via`
 > equivocado, el service lo valida.
 >
+> **Folio por vía (2026-10-05):** todo `cleared` lleva un folio BIB vigente (`BIB-2026B-0001`).
+> `payment`/`no_charge` lo emiten en el semestre de la emisión; `prior` (`register_prior`, también
+> desde la importación) en el semestre ANTERIOR al registro; `legacy` lo recibe del backfill
+> (`FolioBackfillService`, `titulatec emitir-folios-previos` o el paso 5 de
+> `activar-biblioteca-caja`), no de este service. Salir de `cleared` —revertir pago, revertir
+> sin cargo/legado, deshacer una previa— anula el folio. Antes de esa fecha `prior` y `legacy`
+> no emitían. Detalle: [folios](xcut_certificates_batch.md#numeración-atómica).
+>
 > **`observed`** («Con observaciones», 2026-10-05, migración `tt20261005a`): Biblioteca detuvo al
 > egresado con un motivo (`observation_reason`/`observed_by_id`/`observed_at`, NULL fuera de este
 > estado). Se entra desde `pending`/`awaiting_payment` (desde Caja limpia `ready_at` y conserva los
@@ -377,21 +385,26 @@ stateDiagram-v2
 > import-prior-clearances` también puede llegar a `cleared/prior` sin acción humana en el
 > momento (⤵ [constancias previas](xcut_prior_clearances.md)).
 
-## Estado de una constancia (`Certificate`) — transversal (2026-10-01)
+## Estado de un folio (`Certificate`) — transversal (2026-10-01; folio por semestre 2026-10-05)
 
 No es una máquina de estados con transiciones intermedias: una `Certificate` nace **vigente**
-(`voided_at IS NULL`) con un folio único por tipo y año (`CertificateCounter`, contador atómico),
+(`voided_at IS NULL`) con un folio único por tipo y semestre (`{BIB|GTV}-{AAAA}{A|B}-{NNNN}`,
+`BIB-2026B-0001`; `CertificateCounter` con PK `(kind, semester)`, contador atómico),
 y su único cambio posible es **anularse** (`voided_at`/`voided_by_id`/`void_reason`) — nunca se
 borra, nunca se reutiliza su folio, y «volver a liberar» emite una fila NUEVA con folio NUEVO en
 vez de reabrir la anulada. A lo más UNA vigente por `source_ref`: la cuidan los emisores y la
 base (UNIQUE parcial `uq_titulatec_certificates_live_source`, Ruling R29). Emisores: `SurveyReviewService.approve` (`kind='survey_release'`,
-salvo `origin='prior'`) y `LibraryClearanceService` al quedar `cleared` por `payment`/`no_charge`
-(`kind='library_clearance'`). Detalle completo: [constancias por lote](xcut_certificates_batch.md).
+salvo `origin='prior'`), `LibraryClearanceService` al quedar `cleared` por `payment`/`no_charge`
+(`kind='library_clearance'`), las dos `register_prior` (previas: semestre ANTERIOR al registro) y
+`FolioBackfillService` (previas anteriores al código y legado `cleared/legacy`, sin emisor).
+Anulan: `revoke`, `revert_payment`/`revert_clearance` y `undo_prior`. La impresión por lote
+(`batch_id`) existe pero está apagada por omisión (`TITULATEC_CERTIFICATE_PRINTING`). Detalle
+completo: [folios y constancias por lote](xcut_certificates_batch.md).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> vigente: issue() — folio atómico + datos CONGELADOS
-    vigente --> anulada: void() — GTV revoca | Biblioteca/Caja revierte
+    [*] --> vigente: issue() — folio atómico por (tipo, semestre) + datos CONGELADOS
+    vigente --> anulada: void() — GTV revoca | Biblioteca/Caja revierte | se deshace una previa
     anulada --> [*]
     vigente --> [*]
 ```

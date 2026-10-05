@@ -14,7 +14,7 @@
 | **Permiso(s)** | `titulatec.library_clearance.page.list` (bandeja Biblioteca) · `.api.register` (registrar/lote/corregir) · `.api.prior` (constancia previa, también SE) · `.api.revert` (revertir sin cargo/legado) · `.api.print_certificates` (⤵ [constancias](xcut_certificates_batch.md)) · `titulatec.library_payment.page.list` (bandeja Caja) · `.api.register` (pagar) · `.api.revert` (revertir pago) · `titulatec.cohort.api.update` (SE: donación de la convocatoria) |
 | **Trigger** | `TitulationProcess` nuevo (`ImportService.import_rows`, cualquier vía de alta) → `LibraryClearanceService.open_for_process(..., just_created=True)` abre la fila `pending` EN LA MISMA transacción del alta, antes de la fase 2 |
 | **Precondiciones** | Proceso admitido (`active`/`on_hold`; `cancelled`/`completed` → `ValueError`) que **todavía no pasa su cotejo** (fase 2 sin aprobar; con ella aprobada el no adeudo es `not_applicable`, Rulings R20/R21). Para pasar a Caja: la convocatoria tiene `Cohort.book_donation_amount` capturada (D19). El candado solo existe tras `titulatec activar-biblioteca-caja` (ver [Despliegue](#despliegue-en-dos-pasos-ruling-r19)) |
-| **Sub-flujos** | ⤵ [Constancias por lote](xcut_certificates_batch.md) (la constancia BIB que emite `payment`/`no_charge`) · ⤵ [Constancias previas](xcut_prior_clearances.md) (D9, el camino `prior`) · ⤵ [Correos del proceso al egresado](xcut_student_email_notifications.md) (4 `kind` nuevos) · ⤵ compone [motor de avance de fase](engine_approve_advance_phase.md) (requisito de la fase 2) · ⤵ [cita de cotejo](phase2_appointment_loop.md) y [auto-agendado](phase2_student_self_booking.md) (consumen el candado) |
+| **Sub-flujos** | ⤵ [Folios y constancias por lote](xcut_certificates_batch.md) (el folio BIB que emiten `payment`/`no_charge`/`prior`; el del legado, el backfill) · ⤵ [Constancias previas](xcut_prior_clearances.md) (D9, el camino `prior`) · ⤵ [Correos del proceso al egresado](xcut_student_email_notifications.md) (4 `kind` nuevos) · ⤵ compone [motor de avance de fase](engine_approve_advance_phase.md) (requisito de la fase 2) · ⤵ [cita de cotejo](phase2_appointment_loop.md) y [auto-agendado](phase2_student_self_booking.md) (consumen el candado) |
 | **Estado final** | `LibraryClearance.status = cleared` (`cleared_via` ∈ `payment`\|`no_charge`\|`prior`\|`legacy`) → requisito `library_clearance` `fulfilled` (`external_ref="library_clearance:{id}"`) → donde la convocatoria lo exige, `ClearanceGate` dejó de bloquear a este proceso |
 
 Spec `docs/superpowers/specs/2026-10-01-titulatec-biblioteca-caja-design.md` §4.1.1, §4.2, §4.3,
@@ -39,14 +39,17 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    - **En caja**: desglose (adeudo + donación = total), nota; **«Opciones…»** abre el panel con «Corregir monto» y «Observar».
    - **Liberados**: cómo se liberó (píldora), fecha, **«Revertir…»**/**«Deshacer…»** según
      permiso y `can_revert`.
-   - Columna **«Constancia»** en las TRES pestañas (2026-10-02, ⤵ [constancias por
-     lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7)): folio y, si ya
-     se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir» —con la inscripción revocada, una
-     vigente sin lote pinta la píldora «No se imprimirá» y la nota tenue «inscripción revocada»,
-     porque ya no entra a ningún lote (Rulings R13 y R18)—; si la última constancia se anuló
-     DESPUÉS de imprimirse, «Anulada tras
-     imprimir» con el lote a retirar, que abre la celda sin un «—» encima (M1). Reemplaza el folio
-     suelto que antes vivía bajo «Estado», solo en «Liberados».
+   - Columna **«Folio»** (antes «Constancia»; renombrada el 2026-10-05) en las TRES pestañas
+     (2026-10-02, ⤵ [constancias por
+     lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7)): el folio
+     (`BIB-2026B-0001`) y, con la nota tenue «previa» o «previo al sistema», si la liberación es
+     `prior`/`legacy`. **Solo con `TITULATEC_CERTIFICATE_PRINTING` encendido** (apagado por
+     omisión) la celda además dice si ya se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir»
+     —con la inscripción revocada, una vigente sin lote pinta la píldora «No se imprimirá» y la
+     nota tenue «inscripción revocada», porque ya no entra a ningún lote (Rulings R13 y R18)—; si
+     la última constancia se anuló DESPUÉS de imprimirse, «Anulada tras imprimir» con el lote a
+     retirar, que abre la celda sin un «—» encima (M1). Apagado nunca salen esas píldoras.
+     Reemplaza el folio suelto que antes vivía bajo «Estado», solo en «Liberados».
 2. 💰 **Caja** inicia sesión → aterriza en `/titulatec/admin/caja` o entra por **Caja**
    (`bi-cash-coin`). Buscador primero (autofocus, nombre o control, **en cualquier estado**:
    «En Biblioteca» / «Por cobrar $X» / «Pagado» / «Liberado», con la píldora PROPIA de Caja —
@@ -61,7 +64,8 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    (`titulatec.cohort.api.update`). Cola de citas → cubo **«Liberaciones pendientes»** (antes
    «Encuesta sin liberar», ⤵ [cita de cotejo](phase2_appointment_loop.md)). Panel de atender y
    expediente (fase 2) → fila `library_clearance` de solo lectura con píldora, detalle y (2026-10-02)
-   la celda de constancia (folio + si ya se imprimió), más **«Constancia previa…»**/**«Deshacer»**
+   la celda de folio (`certificate_cell`; el «ya se imprimió» solo con el switch de impresión
+   encendido), más **«Constancia previa…»**/**«Deshacer»**
    de respaldo (D9, con `library_clearance.api.prior` y, desde la revisión final, nunca sobre una
    inscripción revocada —M2—).
 4. 👤 **Egresado**: dashboard → bloque «No adeudo de biblioteca» (visible desde la fase 1, solo
@@ -89,6 +93,19 @@ distinto `cleared_via` — separados aquí solo para dibujar las flechas de reve
 `legacy` es un cuarto `cleared_via` sin arista de entrada dibujable: lo escribe el DATO, nunca
 una transición — el backfill de `tt20261001a` y, al encender el candado, el re-backfill y la
 **promoción D17** de `activar-biblioteca-caja` (Ruling R20, ver [Despliegue](#despliegue-en-dos-pasos-ruling-r19)).)
+
+**Folio por vía (2026-10-05, ⤵ [folios](xcut_certificates_batch.md#numeración-atómica)).** Cada
+`cleared` lleva un folio `BIB-{AAAA}{A|B}-{NNNN}` vigente; lo que cambia es el semestre y quién lo
+emite:
+
+| `cleared_via` | Emite el folio | Semestre | Al salir de `cleared` |
+|---|---|---|---|
+| `payment` / `no_charge` | `register_payment` / `register` (total = 0) | el de la EMISIÓN (`semester_key(db_now())`) | `revert_payment` / `revert_clearance` lo anulan |
+| `prior` | `register_prior` (Biblioteca, SE o importación; también con `commit=False`) | el ANTERIOR al registro (`previous_semester_key`; en una previa diferida, el de su importación vía `registered_at=PriorClearance.created_at`) | `undo_prior` lo ANULA (el payload de `library_prior_undone` lleva `certificate`) |
+| `legacy` | `FolioBackfillService` (CLI `titulatec emitir-folios-previos` y paso 5 de `activar-biblioteca-caja`), NO este service | el anterior a `updated_at` de la fila, sin emisor (`issued_by_id` NULL) | `revert_clearance` lo anula |
+
+Antes del 2026-10-05 `prior` y `legacy` no emitían nada; las previas registradas con ese código
+no tienen folio hasta correr el backfill (deshacerlas no anula nada: `certificate: None`).
 
 **Ya pasó su cotejo (Rulings R20/R21).** Con la fase 2 `approved` y el no adeudo SIN liberar (sin
 fila —el backfill salta a propósito esos procesos— o con una fila que nunca llegó a `cleared`),
@@ -122,9 +139,11 @@ Biblioteca ya le mandó (`register_payment` no cambia).
   commit.
 - Al **entrar** a `cleared` (vía `payment`/`no_charge`) → `RequirementService.fulfill` del
   requisito `library_clearance` (si la convocatoria lo tiene automático y activo) y
-  `CertificateService.issue(kind="library_clearance", ...)` (⤵ [constancias](xcut_certificates_batch.md)).
-  Al **salir** de `cleared` → `unfulfill` + `CertificateService.void`. `prior` y `legacy` nunca
-  emiten constancia BIB (el egresado ya trae su papel).
+  `CertificateService.issue(kind="library_clearance", ...)` (⤵ [folios](xcut_certificates_batch.md)).
+  Al **salir** de `cleared` → `unfulfill` + `CertificateService.void`. La vía `prior` TAMBIÉN
+  emite desde 2026-10-05 (`register_prior`, semestre anterior al registro) y `undo_prior` la anula;
+  `legacy` no emite aquí, su folio lo da el backfill (`FolioBackfillService`, ver la tabla de
+  arriba).
 - Al **volver a `pending`** (Revertir sin cargo/legado, Deshacer previa) la fila regresa a la
   forma de recién abierta: sin montos, nota, firma de Biblioteca, pago ni datos de constancia
   previa (lo anterior queda en el payload del `ProcessEvent`) — **salvo `ready_at`**, que se
@@ -318,12 +337,12 @@ sequenceDiagram
 | 3 | 📚 | fila, «Sin adeudo» / «Con adeudo…» | registrar adeudo (0 o > 0) | `POST /admin/biblioteca/{clearance_id}/registrar` | `LibraryClearanceService.register` | ver máquina de estados arriba | `library_debt_registered` \| `library_no_charge` | `library_ready` \| `library_cleared` |
 | 3b| 📚 | Por revisar, casillas + barra | **lote «Sin adeudo»** (D10) | `POST /admin/biblioteca/registrar` (form `ids[]`) | `register_no_debt_bulk` | N filas `pending → awaiting_payment\|cleared/no_charge`, UN commit | 1 evento por fila aplicada | 1 correo por fila aplicada |
 | 4 | 📚 | En caja, «Corregir…» | corregir monto/nota | `POST /admin/biblioteca/{clearance_id}/registrar` (`expected_status=awaiting_payment`, `expected_total=`) | `register` (misma función) | `library_amount_corrected` o `cleared/no_charge` si el nuevo total es 0 | `library_amount_corrected` \| `library_no_charge` | `library_ready` (updated=True) \| `library_cleared` |
-| 5 | 📚/🏛️ | fila, «Constancia previa…» | D9: ya pagó, trae su papel | `POST /admin/biblioteca/{clearance_id}/previa` (Biblioteca) · `POST /admin/processes/{pid}/no-adeudo-previo` (SE, expediente) · `POST /admin/appointments/{pid}/no-adeudo-previo` (SE, panel de atender) | `register_prior(by="library"\|"school_services")` | `pending\|awaiting_payment → cleared/prior` | `library_prior_registered` | `library_cleared` (vía prior) |
+| 5 | 📚/🏛️ | fila, «Constancia previa…» | D9: ya pagó, trae su papel | `POST /admin/biblioteca/{clearance_id}/previa` (Biblioteca) · `POST /admin/processes/{pid}/no-adeudo-previo` (SE, expediente) · `POST /admin/appointments/{pid}/no-adeudo-previo` (SE, panel de atender) | `register_prior(by="library"\|"school_services")` | `pending\|awaiting_payment → cleared/prior` + folio BIB del semestre anterior (`registered_at` en la diferida) | `library_prior_registered` | `library_cleared` (vía prior) |
 | 6 | 💰 | Caja · Por cobrar / buscador | ver / buscar / pestaña «Corte del día» | `GET /admin/caja[/body]` | `search` \| `list_for_inbox(status="awaiting_payment", admitted_only=True)` \| `day_cut(day)` | — (lectura) | — | — |
 | 7 | 💰 | fila, «Registrar pago» | cobrar el monto CONGELADO | `POST /admin/caja/{clearance_id}/pagar` (`recibo`, `expected_total`) | `register_payment` | `awaiting_payment → cleared/payment` | `library_payment_registered` | `library_cleared` |
 | 8 | 💰 | fila Liberados, «Revertir pago…» | revertir un cobro (motivo) | `POST /admin/caja/{clearance_id}/revertir` | `revert_payment` | `cleared/payment → awaiting_payment`, `ready_at` NUEVO (R10) | `library_payment_reverted` | `library_reverted` |
 | 9 | 📚 | fila Liberados, «Revertir…» | revertir sin cargo/legado (motivo) | `POST /admin/biblioteca/{clearance_id}/revertir` | `revert_clearance` | `cleared/no_charge\|legacy → pending` | `library_clearance_reverted` | `library_reverted` |
-| 10| 📚/🏛️ | fila Liberados, «Deshacer…» | deshacer constancia previa (motivo) | `POST /admin/biblioteca/{clearance_id}/deshacer-previa` (Biblioteca) · rutas gemelas de SE con `{process_id}` | `undo_prior` | `cleared/prior → pending` | `library_prior_undone` | `library_reverted` |
+| 10| 📚/🏛️ | fila Liberados, «Deshacer…» | deshacer constancia previa (motivo) | `POST /admin/biblioteca/{clearance_id}/deshacer-previa` (Biblioteca) · rutas gemelas de SE con `{process_id}` | `undo_prior` | `cleared/prior → pending` + anula el folio (payload `certificate`) | `library_prior_undone` | `library_reverted` |
 | 11| 🏛️ | Convocatoria · Resumen | capturar/editar la donación | `POST /admin/cohorts/{cohort_id}/donacion` | `CohortService.set_book_donation` | `titulatec_cohorts.book_donation_amount` | — | — |
 
 Las rutas de Biblioteca (`pages/library_admin.py`), Caja (`pages/cashier_admin.py`) y
@@ -430,8 +449,10 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
   se ofrece con el trámite ABIERTO (`missing`/`pending`/`awaiting_payment`): con `not_applicable`
   la píldora neutra dice «No aplica (cotejo ya liberado)» y no hay botón (la ruta, llamada a mano,
   responde 400 con el mismo motivo que Biblioteca).
-  - **Constancia (2026-10-02)**: junto a la píldora, `certificate_cell(certificate, prior=,
-    legacy=, revoked=)` — folio + «Impresa · lote #N · fecha» / «Sin imprimir» (o, con el proceso
+  - **Folio (2026-10-02; solo el folio desde 2026-10-05)**: junto a la píldora,
+    `certificate_cell(certificate, prior=, legacy=, revoked=)` — el folio, con la nota tenue
+    «previa»/«previo al sistema»; las píldoras de impresión de lo que sigue solo salen con
+    `TITULATEC_CERTIFICATE_PRINTING` encendido: folio + «Impresa · lote #N · fecha» / «Sin imprimir» (o, con el proceso
     `cancelled`, la píldora «No se imprimirá» y la nota tenue «inscripción revocada», Rulings R13 y
     R18), o «Anulada tras imprimir» si la última se anuló después de imprimirse. `certificate` lo
     cuelga la VISTA, no el resumen (Ruling R14): `pages/appointments.py`/`pages/admin.py::
@@ -503,8 +524,10 @@ antes decía que las áreas envían las constancias); lo de la constancia previa
 
 - `LibraryClearance.status = cleared`, `cleared_via` dice cómo; requisito `library_clearance`
   (si automático y activo) `fulfilled` con `external_ref="library_clearance:{id}"`.
-- `payment`/`no_charge`: una `Certificate(kind="library_clearance")` vigente, número `BIB-AAAA-
-  NNNN` (⤵ [constancias](xcut_certificates_batch.md)). `prior`/`legacy`: ninguna.
+- Toda `cleared`: una `Certificate(kind="library_clearance")` vigente, folio `BIB-AAAA{A|B}-NNNN`
+  (p. ej. `BIB-2026B-0001`; ⤵ [folios](xcut_certificates_batch.md)). `payment`/`no_charge` en el
+  semestre de la emisión; `prior` en el anterior al registro; `legacy` la recibe del backfill
+  (`titulatec emitir-folios-previos`), así que puede faltar hasta correrlo.
 - `ProcessEvent` en la fase 2 por cada transición (8 `event_type`, `LIBRARY_EVENT_TYPES`),
   visible en el expediente y el timeline del alumno.
 - Donde la convocatoria exige el requisito, `ClearanceGate.is_clear` para este proceso ya no
@@ -600,7 +623,14 @@ siembra ese texto)—:
       `fulfilled`/`waived` (SE lo siguió marcando a mano después de la migración, mientras el
       requisito era manual) o si su fase 2 ya está `approved`. Dato, como el backfill: sin
       eventos ni correos.
-   5. Verificación del requisito automático (`_verify_candado_biblioteca`).
+   5. **Folios de previas y legado** (2026-10-05, `_emitir_folios_previos` →
+      `FolioBackfillService.run`, el MISMO paso de `titulatec emitir-folios-previos`): le saca su
+      folio BIB/GTV —del semestre anterior a su fecha de registro, sin emisor— a toda previa y a
+      todo `cleared/legacy` (el recién promovido incluido: va DESPUÉS de la promoción porque el
+      legado nace ahí) que aún no tenga uno vigente. Un solo commit. Su `--dry-run` no cuenta el
+      legado que el re-backfill y la promoción crearían en la corrida real. ⤵
+      [folios](xcut_certificates_batch.md#backfill-de-folios-de-previas-y-legado-foliobackfillservice).
+   6. Verificación del requisito automático (`_verify_candado_biblioteca`).
 
    Imprime el conteo de cada paso; todo es idempotente (una segunda corrida no cambia nada).
    `--dry-run` corre los pre-chequeos y cuenta lo que haría cada paso sin escribir, y sale
@@ -630,8 +660,9 @@ MISMA tabla, con y sin fila de no adeudo (M5)—, el resumen sin `certificate` n
 `test_clearance_gate.py` (estado con dominios cerrados, lote, cláusula SQL, prueba estructural,
 incluida la forma de INSTANCIA/dict que ensanchó la Tarea 9), `test_library_inbox.py` (páginas: authz, sin
 `{process_id}`, swap `outerHTML`, 400 + `X-Tt-Error`, choque = 200 + re-pintado + aviso, columna
-«Constancia» en sus 3 pestañas, la anulada tras imprimir sin «—» encima —M1—, «No se imprimirá»
-+ la nota «inscripción revocada» de un revocado —R13/R18—), `test_cashier_inbox.py` (ídem +
+«Folio» en sus 3 pestañas —con el switch de impresión encendido por fixture `printing_on`: la
+anulada tras imprimir sin «—» encima —M1—, «No se imprimirá» + la nota «inscripción revocada» de
+un revocado —R13/R18—; apagado, el folio sin píldoras—), `test_cashier_inbox.py` (ídem +
 «Corte del día»: `dia` basura cae
 en hoy, «Revertir…» solo en el cobro vigente del corte, aviso de éxito viendo hoy u otro día,
 `caja_pill` por fila), `test_se_library_views.py` (respaldo de SE, «No aplica», «Revocada» con el

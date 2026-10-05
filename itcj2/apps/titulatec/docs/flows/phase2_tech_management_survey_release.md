@@ -12,8 +12,8 @@
 | **Permiso(s)** | `titulatec.survey_review.page.list` (ver la bandeja) · `titulatec.survey_review.api.approve` (Liberar) · `titulatec.survey_review.api.reject` (Observar y Revocar) |
 | **Trigger** | El egresado envía la encuesta de egresados (`POST /titulatec/encuesta-egresados`) con un proceso acreditable y SIN solicitud previa |
 | **Precondiciones** | Proceso `status == "active"`; existe una fila `SurveyReview` para ese proceso (nace con el envío, una por proceso, `UNIQUE(process_id)`) |
-| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (la liberación desatasca `PhaseService._cotejo_gate_error`, pero aprobar la fase 2 sigue siendo un paso separado) · ⤵ [constancias por lote](xcut_certificates_batch.md) (emite `survey_release` al liberar, salvo `origin='prior'`) · ⤵ [constancias previas](xcut_prior_clearances.md) (D9: `register_prior`, sexta transición) · ⤵ [candado único](phase2_library_clearance.md#el-candado-único-clearancegate) (`ClearanceGate`, spec 2026-10-01) |
-| **Estado final** | `SurveyReview.status = approved` (libera) → `graduate_survey` queda `fulfilled` + constancia `GTV-AAAA-NNNN` emitida (salvo `origin='prior'`); o `rejected` (con motivo) → el requisito sigue sin cumplimiento |
+| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) (la liberación desatasca `PhaseService._cotejo_gate_error`, pero aprobar la fase 2 sigue siendo un paso separado) · ⤵ [folios y constancias por lote](xcut_certificates_batch.md) (emite el folio `survey_release` al liberar, salvo `origin='prior'`, cuyo folio emite `register_prior`) · ⤵ [constancias previas](xcut_prior_clearances.md) (D9: `register_prior`, sexta transición) · ⤵ [candado único](phase2_library_clearance.md#el-candado-único-clearancegate) (`ClearanceGate`, spec 2026-10-01) |
+| **Estado final** | `SurveyReview.status = approved` (libera) → `graduate_survey` queda `fulfilled` + folio `GTV-AAAA{A\|B}-NNNN` emitido (p. ej. `GTV-2026B-0001`; en una previa, `origin='prior'`, lo emite `register_prior` en el semestre anterior al registro); o `rejected` (con motivo) → el requisito sigue sin cumplimiento |
 
 > **Esta liberación es UNA de las dos que abren la puerta de agendar (2026-09-29, D1 —
 > `D2` del 2026-09-15 queda REVERTIDA; 2026-10-01, ampliada por el no adeudo de biblioteca).**
@@ -46,17 +46,25 @@
 > **Cuatro ajustes del 2026-10-01** (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.5,
 > §4.12, D9/D12/D13; ninguno cambia el VERBO de Liberar/Observar/Revocar):
 >
-> 1. **Constancia al liberar.** `approve` emite `CertificateService.issue(kind="survey_release",
->    source_ref="survey_review:{id}")` en la MISMA transacción, **salvo** `review.origin ==
->    'prior'` (la solicitud nace de una constancia previa que SE ya capturó a mano — el egresado
->    no necesita una nueva). `revoke` siempre llama a `CertificateService.void` (no-op si nunca
->    emitió). GTV la imprime por lote desde la página de Constancias — ⤵
->    [constancias por lote](xcut_certificates_batch.md).
+> 1. **Constancia al liberar** (desde 2026-10-05, **folio**: ya no se imprime, la impresión por
+>    lote quedó tras `TITULATEC_CERTIFICATE_PRINTING`, apagado por omisión). `approve` emite
+>    `CertificateService.issue(kind="survey_release", source_ref="survey_review:{id}")` en la
+>    MISMA transacción, con el semestre de la emisión (`GTV-2026B-0001`), **salvo**
+>    `review.origin == 'prior'` (una previa nunca pasa por `approve`: su folio lo emite
+>    `register_prior`, ver el ajuste 2). `revoke` siempre llama a `CertificateService.void`
+>    (no-op si no había folio vigente; una previa se anula ANTES de borrarla, R22). GTV ve su
+>    folio en la pestaña «Folios» (`/titulatec/admin/constancias`, permiso
+>    `survey_review.api.print_certificates`, que ahora significa «ver los folios de encuesta») —
+>    ⤵ [folios y constancias por lote](xcut_certificates_batch.md).
 > 2. **Sexta transición: `register_prior` (D9).** Un camino APARTE que no pasa por `in_review`
 >    —no hay encuesta real detrás—: crea DIRECTO una solicitud `approved`/`origin='prior'`,
 >    `response_id=NULL`, acredita `graduate_survey` con `external_ref="survey_prior:{id}"`
->    (distinto de `survey_review:{id}`, para que el cumplimiento diga de dónde vino) y NUNCA
->    emite constancia. Solo la llama `PriorClearanceService` (CLI `titulatec
+>    (distinto de `survey_review:{id}`, para que el cumplimiento diga de dónde vino) y, desde
+>    2026-10-05, EMITE el folio `survey_release` (`source_ref="survey_review:{id}"`) en el
+>    semestre ANTERIOR al registro (`previous_semester_key(registered_at or ahora)`; en una
+>    previa diferida, el de su importación, kwarg `registered_at`), sin emisor si viene de una
+>    importación (`actor_id=None`); antes de esa fecha nunca emitía. Solo la llama
+>    `PriorClearanceService` (CLI `titulatec
 >    import-prior-clearances`), nunca una ruta de este flujo — ⤵
 >    [constancias previas](xcut_prior_clearances.md).
 > 3. **D12 — línea de contacto en Observar y Revocar.** Los correos `survey_rejected`/
@@ -87,10 +95,11 @@
    `pages/nav.py`) o entra por el ítem **Liberaciones** del menú admin.
 2. Pestañas **En revisión** (default, la cola de trabajo) · **Con observaciones** · **Liberadas**,
    cada una con su contador. Buscador por número de control o nombre; 50 filas por página. Columna
-   **«Constancia»** (2026-10-02, entre «Estado» y «Ver respuestas»/las acciones, en las TRES
-   pestañas): folio y, si ya se imprimió, «Impresa · lote #N · fecha» o «Sin imprimir»; «Anulada
-   tras imprimir» si la última se anuló DESPUÉS de imprimirse — ⤵ [constancias por
-   lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). La anulada
+   **«Folio»** (antes «Constancia»; 2026-10-02, entre «Estado» y «Ver respuestas»/las acciones, en
+   las TRES pestañas): el folio (con la nota tenue «previa» si es `origin='prior'`) y, **solo con
+   `TITULATEC_CERTIFICATE_PRINTING` encendido** (apagado por omisión), si ya se imprimió, «Impresa
+   · lote #N · fecha» o «Sin imprimir»; «Anulada tras imprimir» si la última se anuló DESPUÉS de
+   imprimirse — ⤵ [constancias por lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). La anulada
    tras imprimir abre la celda, sin un «—» encima (M1 de la revisión final). Con una inscripción
    revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta «Revocada», pero
    la celda de constancia SÍ se conserva: «Impresa» y «Anulada tras imprimir» no cambian, y una
@@ -145,10 +154,10 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/encuesta-egresados` | envía la encuesta (proceso acreditable, sin solicitud previa) | `POST /titulatec/encuesta-egresados` (`pages/public.py::survey_submit`) | `SurveyService.submit` → `SurveyReviewService.open_for_submission` | `titulatec_survey_reviews` INSERT (`status=in_review`, `submitted_at`) | `survey_review_submitted` (fase 2) | — (acción del propio egresado) |
 | 2 | 🛠️ | Liberaciones | ver la cola / buscar / paginar | `GET /titulatec/admin/liberaciones[/body]` | `SurveyReviewService.list_for_inbox` + `counts_by_status` | — (lectura) | — | — |
-| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")`; `titulatec_certificates` ← `CertificateService.issue(kind="survey_release", ...)` **salvo** `origin='prior'` | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` (D13: sin «Ya puedes agendar» fijo) |
+| 3 | 🛠️ | fila, "Liberar" | libera (desde `in_review` **o** `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/liberar` | `SurveyReviewService.approve` | `status=approved`, `reviewed_by_id`/`reviewed_at`, `rejection_reason=NULL`; `titulatec_requirement_fulfillments` ← `RequirementService.fulfill(graduate_survey, source="system", external_ref="survey_review:{id}")`; `titulatec_certificates` ← `CertificateService.issue(kind="survey_release", ...)` en el semestre de hoy, **salvo** `origin='prior'` (su folio lo emitió `register_prior`) | `survey_review_approved` + notif `SURVEY_REVIEW_APPROVED` | `survey_approved` (D13: sin «Ya puedes agendar» fijo) |
 | 4 | 🛠️ | fila, motivo + "Observar" | deja/actualiza observaciones (desde `in_review` o `rejected`) | `POST /titulatec/admin/liberaciones/{review_id}/observar` (form `reason`) | `SurveyReviewService.reject` | `status=rejected`, `rejection_reason=motivo`, `reviewed_by_id`/`reviewed_at` | `survey_review_rejected` (payload `reason`) + notif `SURVEY_REVIEW_REJECTED` | `survey_rejected` (con el motivo; D12: línea de contacto `servicio_ext@cdjuarez.tecnm.mx`) |
-| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo` — **una previa (`origin='prior'`) se BORRA** y vuelve a `missing` (Ruling R22); `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)`; `titulatec_certificates` ← `CertificateService.void(source_ref="survey_review:{id}", ...)` (no-op si nunca emitió) | `survey_review_revoked` (payload `reason`, `origin`, `review_id`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo; D12: línea de contacto; con `origin='prior'` pide contestar la encuesta) |
-| 6 | 🤖 | CLI `titulatec import-prior-clearances --tipo encuesta` | constancia previa (D9): el egresado YA traía su liberación de otro semestre | — (sin ruta; solo `PriorClearanceService`) | `SurveyReviewService.register_prior` | `titulatec_survey_reviews` INSERT DIRECTO `status=approved`, `origin='prior'`, `response_id=NULL`; `titulatec_requirement_fulfillments` ← `fulfill(graduate_survey, external_ref="survey_prior:{id}")`; **sin** constancia | `survey_review_prior` | `survey_approved` (texto propio de previa) |
+| 5 | 🛠️ | fila, motivo + "Revocar" (solo si `can_revoke`) | revoca una liberación | `POST /titulatec/admin/liberaciones/{review_id}/revocar` (form `reason`) | `SurveyReviewService.revoke` | `status=rejected`, `rejection_reason=motivo` — **una previa (`origin='prior'`) se BORRA** y vuelve a `missing` (Ruling R22); `titulatec_requirement_fulfillments` ← `RequirementService.unfulfill(graduate_survey)`; `titulatec_certificates` ← `CertificateService.void(source_ref="survey_review:{id}", ...)` (anula el folio, también el de una previa ANTES de borrarla; no-op si no había vigente) | `survey_review_revoked` (payload `reason`, `origin`, `review_id`) + notif `SURVEY_REVIEW_REVOKED` | `survey_revoked` (con el motivo; D12: línea de contacto; con `origin='prior'` pide contestar la encuesta) |
+| 6 | 🤖 | CLI `titulatec import-prior-clearances --tipo encuesta` | constancia previa (D9): el egresado YA traía su liberación de otro semestre | — (sin ruta; solo `PriorClearanceService`) | `SurveyReviewService.register_prior` | `titulatec_survey_reviews` INSERT DIRECTO `status=approved`, `origin='prior'`, `response_id=NULL`; `titulatec_requirement_fulfillments` ← `fulfill(graduate_survey, external_ref="survey_prior:{id}")`; `titulatec_certificates` ← `CertificateService.issue(kind="survey_release", semester=previous_semester_key(registered_at or ahora))` (folio de la previa, semestre anterior al registro; sin emisor si es importación) | `survey_review_prior` | `survey_approved` (texto propio de previa) |
 
 Las tres acciones de GTV (3–5) leen la fila con `SELECT … FOR UPDATE` antes de validar nada, y
 hacen **un solo `commit`** al final (`services/survey_review_service.py`, mismo patrón que
@@ -222,7 +231,7 @@ SE: `pages/appointments.py`/`pages/admin.py::_detail_ctx` hacen UNA llamada
 los refs que existan (`SurveyReviewService.certificate_ref(review_id)` = `survey_review:{id}`; sin
 solicitud no se pide), y dejan `certificate` en el dict (`None` si no aplica).
 `_appt_attend.html`/`_exp_phase.html` pintan `certificate_cell(certificate, prior=(origin ==
-'prior'), revoked=)` junto a la píldora — folio + «Impresa»/«Sin imprimir» (o, con el proceso
+'prior'), revoked=)` junto a la píldora — el folio, y con el switch de impresión encendido «Impresa»/«Sin imprimir» (o, con el proceso
 `cancelled`, la píldora «No se imprimirá» y la nota «inscripción revocada», R13/R18), o «Anulada
 tras imprimir» — ⤵
 [constancias por lote](xcut_certificates_batch.md#estado-de-impresión-ya-se-imprimió-e1e5-e7). A
@@ -355,8 +364,9 @@ Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReview
 - ⤵ [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) — la OTRA
   liberación que exige `ClearanceGate` donde la convocatoria la pide; esta encuesta sigue siendo
   incondicional y se reporta primero.
-- ⤵ [Constancias por lote](xcut_certificates_batch.md) — numeración, PDF y D15 (GTV imprime
-  `survey_release`).
+- ⤵ [Folios y constancias por lote](xcut_certificates_batch.md) — numeración por semestre,
+  página «Folios», switch de impresión y D15 (GTV ve `survey_release`; imprime solo con el switch
+  encendido).
 - ⤵ [Constancias previas](xcut_prior_clearances.md) — D9, `register_prior`, las CLI de
   importación (`import-prior-clearances` y, 2026-10-05, `import-survey-xlsx`: los únicos caminos que crean una solicitud `origin='prior'`).
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
