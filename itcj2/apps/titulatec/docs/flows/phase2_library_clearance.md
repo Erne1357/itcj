@@ -559,8 +559,8 @@ pre-chequeos, re-backfill, promoción D17, `[20, 21, 23]` del primer comando y q
 Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9 (mismo molde que las otras bandejas, sin cambio de reglas).
 
 - `LibraryClearanceService.list_for_inbox` (`services/library_clearance_service.py:934`) devuelve un `Page` (`paginate_query`, `:989`: total, rango, página acotada) en lugar de `(filas, has_more)`; lo usan Biblioteca (`pages/library_admin.py:114`, `library_body.html:262`, prefijo `tt-biblioteca`) y Caja (`pages/cashier_admin.py:131`, `:167`, `cashier_body.html:259`, prefijo `tt-cashier`). El pager inline «Anteriores/Siguientes» se reemplazó por la macro `pager`.
-- Parámetros: Biblioteca `status`, `q`, `page`; Caja `tab`, `q`, `dia`, `page`. Cambiar pestaña / búsqueda ⇒ `page=1`; página fuera de rango ⇒ última válida.
-- **Buscador de Biblioteca** `#tt-library-q` con `hx-preserve="true"` y `data-tt-q-server` en `#tt-library-filters` (`library_body.html`, commit `b2ce954a`, 2026-10-04): mismo defecto de tecleo perdido que se arregló en las bandejas nuevas. El buscador de Caja no se tocó (lleva `autofocus`; queda como pendiente de consistencia).
+- Parámetros: Biblioteca `status`, `q`, `page`; Caja `tab`, `q`, `dia`, `page` (solo «Por cobrar» pagina; con `q` la lista es `search()`, sin pager, máx. 20 filas; el pager de Caja hornea `tab=por_cobrar` y no lleva `q`). Cambiar pestaña / búsqueda ⇒ `page=1`; página fuera de rango ⇒ última válida.
+- **Buscador de Biblioteca** `#tt-library-q` con `hx-preserve="true"` y `data-tt-q-server` en `#tt-library-filters` (`library_body.html`, commit `b2ce954a`, 2026-10-04): mismo defecto de tecleo perdido que se arregló en las bandejas nuevas. El buscador de Caja `#tt-cashier-q` recibió lo mismo (`#tt-cashier-filters`, `include="closest form"`); conserva `autofocus`, que solo actúa en la carga completa. Los buscadores de Biblioteca, Liberaciones y Caja escapan `%`/`_` con `like_pattern` (comparten `_search_clause` / el de `survey_review_service`).
 
 ## Flujos relacionados
 

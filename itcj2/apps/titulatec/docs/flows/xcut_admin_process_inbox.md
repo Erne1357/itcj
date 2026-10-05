@@ -68,7 +68,7 @@ Qué se anima ahora (ver [`docs/design/ui_motion.md`](../design/ui_motion.md)):
 Spec `2026-10-04-titulatec-paginacion-design.md` §7. La ruta (`pages/admin.py::processes`) es
 ahora una envoltura de `_proc_ctx`, que arma la vista en **dos pasadas**:
 
-1. **`_proc_universe(db, user_id, status, q, phase)`** — UNA consulta: procesos en alcance
+1. **`_proc_universe(db, user_id, status, q)`** — UNA consulta: procesos en alcance
    (`officer_programs`, antes de contar) y del `status` pedido, con el `started_at` de su fase
    ACTUAL por outer join a `ProcessPhase` (único por `uq_titulatec_phase_process_number`), en orden
    `created_at DESC, id DESC` (el desempate por `id` faltaba). Filas ligeras
@@ -336,7 +336,7 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
 
 ## Buscador y medición (2026-10-04)
 
-`#proc-q` lleva `hx-preserve="true"` (`templates/titulatec/admin/processes.html:114`) y `#proc-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` repone el texto cuando la navegación cambia `q` sin pasar por el input (fix `545aab64`). Un tablero con búsqueda sin resultados dice «Sin resultados para "q"» en vez de nueve columnas de «—». Los KPIs conservan el filtro de estado y nunca se mueven con `q`/`phase`/`stuck`/página (`pages/admin.py:1754`). Medido en dev (EXPLAIN ANALYZE, 2026-10-04): pasada 1 de Procesos 0.027 ms (con `q` ≤0.03 ms); base de dev chica, Seq Scan.
+`#proc-q` lleva `hx-preserve="true"` (`templates/titulatec/admin/processes.html:114`) y `#proc-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` repone el texto cuando la navegación cambia `q` sin pasar por el input (fix `545aab64`). Un tablero con búsqueda sin resultados dice «Sin resultados para "q"» en vez de nueve columnas de «—». Los KPIs conservan el filtro de estado y nunca se mueven con `q`/`phase`/`stuck`/página (se arman al final de `_proc_universe`, `pages/admin.py:1788-1843`). Medido en dev (EXPLAIN ANALYZE, 2026-10-04): pasada 1 de Procesos 0.027 ms (con `q` ≤0.03 ms); base de dev chica, Seq Scan.
 
 ## Flujos relacionados
 
