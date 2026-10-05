@@ -419,3 +419,70 @@ def test_clearance_observed_sigue_siendo_value_error():
     )
     assert issubclass(ClearanceObserved, ValueError)
     assert not issubclass(ClearanceObserved, ClearanceConflict)
+
+
+# ---------------------------------------------------------------------------
+# Biblioteca: montos precargados al rehabilitar, XSS del motivo, filtro de admitidos
+# ---------------------------------------------------------------------------
+def test_rehabilitado_precarga_montos_y_nota_en_por_revisar(client_as, db_session, staff,
+                                                            nuevo, token):
+    """observar -> rehabilitar una fila con adeudo: «Por revisar» muestra los
+    montos conservados y precarga «Con adeudo…» (monto y nota), escapados."""
+    yo = staff()
+    esc = nuevo(status="awaiting_payment", last_name=token, library_note='Nota "x" <b>y</b>')
+    _observar_svc(db_session, esc.clearance.id, yo.id)
+    client_as(yo).post(f"{LIB}/{esc.clearance.id}/rehabilitar",
+                       data={"status": "observed", "q": token, "page": "1"})
+
+    html = client_as(yo).get(f"{LIB}/body", params={"status": "pending", "q": token}).text
+    fila = _fila(html, f'id="lib-{esc.clearance.id}"')
+
+    assert "Montos previos" in fila and "300.00" in fila
+    m = re.search(r'<form[^>]*hx-post="[^"]*/%d/registrar"[^>]*>(?:(?!</form>).)*?'
+                  r'name="debt_amount" required\s+value="([^"]*)"' % esc.clearance.id, fila, re.S)
+    assert m and Decimal(m.group(1)) == ADEUDO
+    assert 'value="Nota &#34;x&#34; &lt;b&gt;y&lt;/b&gt;"' in fila
+    assert "<b>y</b>" not in fila
+
+
+def test_pendiente_sin_montos_no_precarga(client_as, nuevo, staff, token):
+    esc = nuevo(last_name=token)
+    html = client_as(staff()).get(f"{LIB}/body", params={"status": "pending", "q": token}).text
+    fila = _fila(html, f'id="lib-{esc.clearance.id}"')
+    assert "Montos previos" not in fila
+    assert 'name="debt_amount" required' in fila
+    assert 'required\n                     value=' not in fila
+
+
+def test_motivo_con_html_se_escapa_en_fila_y_textarea(client_as, db_session, staff, nuevo,
+                                                      token):
+    yo = staff()
+    esc = nuevo(last_name=token)
+    peligro = '<script>alert(1)</script> "comillas" \'simples\''
+    _observar_svc(db_session, esc.clearance.id, yo.id, reason=peligro)
+
+    html = client_as(yo).get(f"{LIB}/body", params={"status": "observed", "q": token}).text
+    fila = _fila(html, f'id="lib-{esc.clearance.id}"')
+
+    assert "<script>alert(1)</script>" not in fila
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in fila
+    ta = re.search(r"<textarea[^>]*>(.*?)</textarea>", fila, re.S)
+    assert ta and "<script>" not in ta.group(1)
+    assert "&lt;script&gt;" in ta.group(1)
+    assert "</textarea><" not in ta.group(1)
+
+
+def test_observada_de_proceso_revocado_no_se_lista_ni_se_cuenta(client_as, db_session, staff,
+                                                                nuevo, token):
+    yo = staff()
+    vivo, muerto = nuevo(last_name=token), nuevo(last_name=token)
+    _observar_svc(db_session, vivo.clearance.id, yo.id)
+    _observar_svc(db_session, muerto.clearance.id, yo.id)
+    muerto.process.status = "cancelled"
+    db_session.flush()
+
+    html = client_as(yo).get(f"{LIB}/body", params={"status": "observed", "q": token}).text
+
+    assert f'id="lib-{vivo.clearance.id}"' in html
+    assert f'id="lib-{muerto.clearance.id}"' not in html
+    assert ">1</span>" in _tab_span(html, "tt-lib-tab-observed")

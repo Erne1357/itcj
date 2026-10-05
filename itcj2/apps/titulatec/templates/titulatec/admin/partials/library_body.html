@@ -158,7 +158,11 @@
         <td>{{ r.cohort }}</td>
         <td class="tt-mono">{{ r.enrolled_at.strftime('%d/%m/%Y') if r.enrolled_at else '—' }}</td>
         <td>
-          {% if r.status == 'pending' %}—
+          {% if r.status == 'pending' and r.debt is none and r.donation is none %}—
+          {% elif r.status == 'pending' %}
+            <span class="small text-body-secondary">Montos previos (rehabilitado):</span><br>
+            {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }}
+            {% if r.note %}<br><span class="small text-body-secondary">{{ r.note }}</span>{% endif %}
           {% elif r.status == 'awaiting_payment' %}
             {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
             {% if r.note %}<br><span class="small text-body-secondary">{{ r.note }}</span>{% endif %}
@@ -206,9 +210,9 @@
               {{ tab_fields(status, q, page) }}
               <input type="hidden" name="expected_status" value="pending">
               <input class="tt-field tt-field--xs" style="width:6rem" type="text" name="debt_amount" required
-                     placeholder="Adeudo $" aria-label="Monto del adeudo de {{ r.student }}">
+                     {% if r.debt is not none %}value="{{ r.debt }}" {% endif %}placeholder="Adeudo $" aria-label="Monto del adeudo de {{ r.student }}">
               <input class="tt-field tt-field--xs" name="note" maxlength="1000" placeholder="Nota"
-                     aria-label="Nota del adeudo de {{ r.student }}">
+                     {% if r.note %}value="{{ r.note }}" {% endif %}aria-label="Nota del adeudo de {{ r.student }}">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Con adeudo…</button>
             </form>
             <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/previa"

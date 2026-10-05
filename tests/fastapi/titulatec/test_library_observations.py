@@ -556,3 +556,16 @@ def test_resumen_trae_la_observacion(db_session, nuevo, actor):
     assert resumen["status"] == "observed"
     assert resumen["observation"] == "Libro dañado"
     assert resumen["observed_at"] is not None
+
+
+def test_observada_de_proceso_revocado_ni_se_lista_ni_se_cuenta(db_session, nuevo, actor, token):
+    """Mismo filtro de admitidos que las otras pestañas de trabajo: reenable lo
+    exige, así que un proceso revocado no se queda en la pestaña sin acciones."""
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+
+    nuevo(status="observed", process_status="cancelled", observation_reason="x",
+          last_name=token)
+
+    page = LibraryClearanceService.list_for_inbox(db_session, status="observed", q=token)
+    assert [r["id"] for r in page.items] == []
+    assert LibraryClearanceService.counts_by_status(db_session, token)["observed"] == 0

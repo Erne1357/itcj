@@ -350,7 +350,7 @@ class LibraryClearanceService:
         (`ClearanceGate`): `'cleared'` si la fila está liberada; si no, y la
         fase 2 del proceso YA está `approved`, `NOT_APPLICABLE` (Ruling R21:
         ya pasó su cotejo); si no, su `status` real (`pending` |
-        `awaiting_payment`) o `'missing'` sin fila. Fuente ÚNICA de esa
+        `awaiting_payment` | `observed`) o `'missing'` sin fila. Fuente ÚNICA de esa
         lectura: nadie más compara `LibraryClearance.status`. Es
         `release_status_map` con un solo id: imposible que diverjan."""
         return LibraryClearanceService.release_status_map(
@@ -1099,8 +1099,9 @@ class LibraryClearanceService:
           omisión: el llamador de Caja (`pages/cashier_admin.py`) lo pide
           explícito; Biblioteca no cambia.
         * `observed` («Con observaciones», spec 2026-10-05 §3.2): lo observado
-          más reciente primero (`observed_at DESC, id DESC`); como «Liberados»,
-          sin filtro de proceso admitido (historial). «Por revisar» NUNCA lo
+          más reciente primero (`observed_at DESC, id DESC`); SOLO procesos
+          admitidos (lista y contador): `reenable` lo exige, así que un
+          proceso revocado/terminado no se queda aquí sin acciones. «Por revisar» NUNCA lo
           incluye: es otro `status`.
         * `cleared` («Liberados»): lo liberado más reciente primero
           (`updated_at`); SIN este filtro -- conserva el historial de lo ya
@@ -1123,6 +1124,10 @@ class LibraryClearanceService:
         if status == "pending":
             query = query.filter(LibraryClearanceService._reviewable_clause())
         elif status == "awaiting_payment" and admitted_only:
+            query = query.filter(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
+        elif status == "observed":
+            # Solo procesos admitidos: uno revocado/terminado estando observado
+            # no se queda en la pestaña de trabajo sin acciones posibles.
             query = query.filter(TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES))
         if status == "pending":
             query = query.order_by(TitulationProcess.created_at.asc(),
@@ -1821,8 +1826,12 @@ class LibraryClearanceService:
         from sqlalchemy import and_
 
         from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
-        por_revisar = or_(LibraryClearance.status != "pending",
-                          LibraryClearanceService._reviewable_clause())
+        por_revisar = and_(
+            or_(LibraryClearance.status != "pending",
+                LibraryClearanceService._reviewable_clause()),
+            # «Con observaciones»: solo admitidos (igual que su lista).
+            or_(LibraryClearance.status != "observed",
+                TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES)))
         if not admitted_only:
             return por_revisar
         return and_(por_revisar,
