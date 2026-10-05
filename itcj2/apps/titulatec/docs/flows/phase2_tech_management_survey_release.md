@@ -193,11 +193,11 @@ la solicitud (paso 1) no lleva correo: es acción del propio egresado. Lo fija
 ## Dónde se ve el estatus (lectura, cuatro pantallas más)
 
 `SurveyReviewService.summary_for_process` es la ÚNICA consulta que arma el dict
-(`status|reason|reviewed_by|reviewed_at|review_id|response_id|origin`, con el pseudo-estado
+(`status|reason|reviewed_by|reviewed_at|review_id|response_id|origin|paper_to_collect`, con el pseudo-estado
 `missing` si no hay fila todavía). `origin` ∈ `submission` (la de siempre) \| `prior` (D9,
 ⤵ [constancias previas](xcut_prior_clearances.md)): la bandeja de GTV («Liberadas») y la tarjeta
 pública de estatus lo usan para distinguir una liberación real de una constancia previa — sin
-«Ver respuestas» cuando es `prior` (no hay `SurveyResponse` detrás). La pintan, todas de solo
+«Ver respuestas» cuando es `prior` del CSV (no hay `SurveyResponse` detrás; las del Excel sí, 2026-10-05). La pintan, todas de solo
 lectura:
 
 | Pantalla | Contexto | Plantilla |
@@ -275,6 +275,64 @@ resumen de biblioteca tampoco consulta constancias), la misma cota de `list_for_
   `process_id` — `tests/fastapi/titulatec/test_scope_guard.py` exige la guarda de carrera a toda
   ruta con `{process_id}` en el path, y estas no la necesitan porque GTV ve todo.
 
+## Respuestas importadas y constancia por recoger (2026-10-05)
+
+Spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` §4.4 (D1/D3/R7/R9/R10). Origen: ⤵
+[importar la encuesta desde el Excel](xcut_prior_clearances.md#importar-la-encuesta-de-egresados-desde-el-excel-de-forms-2026-10-05).
+Lo de esta sección solo ocurre con previas que traen `response_id`/`paper_pending`; el resto de
+Liberaciones no cambia.
+
+- **«Ver respuestas» en una previa.** La columna ya aparecía siempre que había `response_id`
+  (`templates/titulatec/admin/partials/survey_reviews_body.html:107`); las previas importadas ahora
+  lo traen, así que GTV abre `/titulatec/admin/encuestas/{response_id}` también desde «Liberadas».
+  Las previas del CSV siguen sin enlace.
+- **Píldora «Constancia por recoger»** (ámbar) junto a la del estado
+  (`survey_reviews_body.html:105`), mientras `SurveyReviewService.paper_to_collect(review)`
+  (`services/survey_review_service.py:296`) sea cierto: `paper_pending` y sin `paper_delivered_at`.
+  `list_for_inbox` y `summary_for_process` la cargan como `paper_to_collect`. **Con la inscripción
+  revocada (`r.revoked`) no se pinta**, igual que el botón (fix 2026-10-05, commit `29edfc92`;
+  prueba `test_previa_con_inscripcion_revocada_no_muestra_la_pildora_ni_el_boton`).
+- **«Marcar constancia entregada»** (solo en «Liberadas», fila no revocada con papel por recoger,
+  `survey_reviews_body.html:146`): `POST /titulatec/admin/liberaciones/{review_id}/entregada`
+  (`pages/survey_reviews_admin.py:203`, `titulatec.pages.releases.paper_delivered`), permiso
+  `titulatec.survey_review.api.approve` (el mismo de Liberar: GTV cierra la liberación que ella
+  misma expide). Lleva `hx-confirm` en el `<form>` y devuelve la bandeja re-renderizada.
+  `SurveyReviewService.mark_paper_delivered` (`survey_review_service.py:617`) llena
+  `paper_delivered_at`/`paper_delivered_by_id` (`paper_pending` se conserva como hecho histórico) y
+  deja el evento **`survey_paper_delivered`** (payload `{review_id}`; etiquetas en
+  `pages/admin.py:1227` y `pages/student.py:321`). Sin correo ni aviso (R10). `404` si el
+  `review_id` no existe; `400` + `X-Tt-Error` si no tenía papel por recoger o ya se entregó.
+- **Lo que ve el alumno** mientras el papel esté por recoger: «Recoge tu constancia de liberación
+  en Gestión Tecnológica y Vinculación.» (`data-tt-paper-pickup`) en la tarjeta de estatus de la
+  encuesta (`public/partials/survey_status.html:43`), en el tablero (`student/dashboard.html:104`
+  en el héroe de la fase actual y `:258` en el acordeón) y en Mi cita
+  (`partials/student/_cita_panel.html:74`). Desaparece al marcarla entregada.
+- **Correo de la previa** (R10): `StudentMail.survey_result(..., paper_pending=)`
+  (`services/student_mail.py:385`) mete `paper_pending` en el payload solo si es verdadero;
+  `_compose_survey` lo re-valida al componer (`services/mail_compose.py:595-608`: payload Y
+  `paper_to_collect` vivo, D8) y `email/survey_result.html:30` pone la línea en negritas, solo en
+  la variante de previa aprobada. ⤵ [correos del proceso](xcut_student_email_notifications.md).
+- **Revocar** una previa con respuesta la BORRA igual (R22), pero la `SurveyResponse` importada
+  NO se borra: sigue en «Encuestas».
+
+### Encuestas (bandeja de SE/GTV): lo que cambia para respuestas importadas
+
+(`pages/surveys_admin.py`, `templates/titulatec/admin/partials/surveys_body.html`,
+`survey_detail.html`; este flujo no tiene documento propio, vive aquí.)
+
+- **Pastilla «Importada»** (violeta) en la columna «Origen» en vez del código de
+  `identity_source` (`surveys_body.html:46`) y bajo el nombre en el detalle (`survey_detail.html:10`).
+- **Nombre**: `_who(response, user)` (`surveys_admin.py:116`) usa el de la cuenta; si no hay
+  cuenta, `answers.nombre_completo`; si no, «Anónimo». El control viene de la respuesta.
+- **Valores no coincidentes** (`SurveyAnswer.is_raw`): el detalle los agrupa en `data-tt-raw`
+  (`survey_detail.html:21`) con «Valor original, no coincide con las opciones actuales».
+- **«Otros datos importados»** (`#tt-survey-extras`, `survey_detail.html:33`): llaves de la
+  respuesta que no están en el schema del formulario (R9), con etiqueta legible de
+  `_EXTRA_LABELS` (`surveys_admin.py:133`, p. ej. `extra_aspecto_no_trabajo`).
+- **CSV**: columna nueva `importada` (`sí`/`no`) justo después de `identidad`
+  (`services/survey_service.py:444`, `SurveyService.export_rows`).
+
+
 ## Liberaciones y Encuestas: pager compartido (2026-10-04)
 
 Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReviewService.list_for_inbox` (`services/survey_review_service.py:629`, `paginate_query` en `:675`) devuelve un `Page` y la bandeja de Liberaciones (`pages/survey_reviews_admin.py:76`, `survey_reviews_body.html:160`, prefijo `tt-liberaciones`) usa la macro `pager`; lo mismo la lista de respuestas de Encuestas (`pages/surveys_admin.py:76`, `:93`, `surveys_body.html:51`, prefijo `tt-surveys`). Parámetros: Liberaciones `status`, `q`, `page`; Encuestas `form_id`, `page`. Cambiar pestaña o búsqueda ⇒ `page=1`; fuera de rango ⇒ última válida. Los contadores de pestaña respetan la búsqueda (como ya hacían).
@@ -292,8 +350,8 @@ Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReview
   incondicional y se reporta primero.
 - ⤵ [Constancias por lote](xcut_certificates_batch.md) — numeración, PDF y D15 (GTV imprime
   `survey_release`).
-- ⤵ [Constancias previas](xcut_prior_clearances.md) — D9, `register_prior`, la CLI de
-  importación (el único camino que crea una solicitud `origin='prior'`).
+- ⤵ [Constancias previas](xcut_prior_clearances.md) — D9, `register_prior`, las CLI de
+  importación (`import-prior-clearances` y, 2026-10-05, `import-survey-xlsx`: los únicos caminos que crean una solicitud `origin='prior'`).
 - ⤵ Guarda de agendar: [cita de cotejo (loop completo)](phase2_appointment_loop.md) — la puerta
   D1 del 2026-09-29 (encuesta LIBERADA; **revierte D2 del 2026-09-15**, que se conformaba con
   enviarla) y el cubo «Liberaciones pendientes» (antes «Encuesta sin liberar», que a su vez fue

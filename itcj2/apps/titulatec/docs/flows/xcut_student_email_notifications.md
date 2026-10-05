@@ -208,6 +208,21 @@ registrada con su constancia del semestre anterior, le pide **contestar la encue
 egresados en la plataforma**, conserva el motivo y la línea D12, y su liga/botón («Contestar la
 encuesta») lleva a `/titulatec/encuesta-egresados` en vez del tablero.
 
+### Línea «Recoge tu constancia» en el correo de la previa (2026-10-05)
+
+Spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` R10. Solo `survey_approved` con
+`origin='prior'` de una previa importada del Excel con la constancia en papel por recoger:
+`SurveyReviewService.register_prior(paper_pending=True)` → `StudentMail.survey_result(...,
+paper_pending=True)` (`services/student_mail.py:385-415`, el payload lleva `paper_pending` solo si
+es verdadero, así que los payloads existentes no cambian). Al componer, `_compose_survey` la
+re-valida con el estado VIVO (D8): el payload debe traerla Y `SurveyReviewService.paper_to_collect`
+debe seguir siendo cierto (`services/mail_compose.py:595-608`); si GTV ya marcó la entrega antes de
+que salga el correo, la línea se omite. La plantilla `email/survey_result.html:30` pone «Recoge tu
+constancia de liberación en Gestión Tecnológica y Vinculación.» en negritas, antes del «Lleva tu
+constancia física a tu cita de cotejo» de la variante de previa. «Marcar constancia entregada» no
+envía correo. ⤵ [liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
+
+
 `_compose_appt_no_show` (`:330-359`, #9): re-validado al enviar (D8) — si el encargado deshizo la
 inasistencia dentro de la gracia, `Obsolete("se corrigió la asistencia")`; si hay OTRA fila
 `appt_no_show` de la MISMA cita con `id` mayor (marcar → deshacer → marcar dentro de la espera),
