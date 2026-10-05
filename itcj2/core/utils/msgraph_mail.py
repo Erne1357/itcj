@@ -104,13 +104,27 @@ def save_cache(app_key: str, cache: msal.SerializableTokenCache):
             f.write(cache.serialize())
 
 
+# Caché HTTP de msal, UNA por proceso y compartida por todas las apps que
+# construye `get_msal_app`. Sin ella cada `ConfidentialClientApplication` nacía con
+# la suya vacía y repetía el descubrimiento del tenant
+# (`/.well-known/openid-configuration`, 180-220 ms medidos en producción) en CADA
+# correo. msal guarda ahí solo respuestas HTTP baratas de obtener (el
+# descubrimiento, 24 h) y llaves de throttling hasheadas: nunca tokens (esos viven
+# en la `SerializableTokenCache` de cada `app_key`, que NO se comparte).
+_MSAL_HTTP_CACHE: dict = {}
+
+
 def get_msal_app(app_key: str, cache=None) -> msal.ConfidentialClientApplication:
+    # Se sigue creando una app por llamada y cada una carga la caché de tokens de
+    # SU `app_key` (`load_cache`): compartir la app compartiría también los tokens
+    # entre apps. Lo único compartido es la caché HTTP de arriba.
     cache = cache or load_cache(app_key)
     return msal.ConfidentialClientApplication(
         CLIENT_ID,
         authority=AUTHORITY,
         client_credential=CLIENT_SECRET,
         token_cache=cache,
+        http_cache=_MSAL_HTTP_CACHE,
     )
 
 
@@ -231,7 +245,14 @@ def acquire_token_silent(app_key: str) -> str | None:
     if not account:
         return None
 
-    result = app.acquire_token_silent(_SCOPES_FULL, account=account)
+    # Solo la llamada a msal se mide (R1): los `return None` de arriba no salen a
+    # la red y contarlos como `ok` de 0 s taparían el p50 real. Un resultado sin
+    # `access_token` (error de AAD, o nada en la caché) es un token que no se
+    # obtuvo: `error`, aunque msal no lance. Una excepción sale tal cual.
+    with measured_outbound("msal") as call:
+        result = app.acquire_token_silent(_SCOPES_FULL, account=account)
+        if not result or "access_token" not in result:
+            call.mark_error()
     save_cache(app_key, cache)
     if not result or "access_token" not in result:
         return None

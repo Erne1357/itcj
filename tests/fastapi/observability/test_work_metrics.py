@@ -106,7 +106,9 @@ def test_closed_label_sets_match_the_contract():
     assert work.DOCUMENT_ENGINES == frozenset(
         {"libreoffice", "openpyxl", "xlsxwriter", "csv"}
     )
-    assert work.OUTBOUND_TARGETS == frozenset({"msgraph", "football_api"})
+    assert work.OUTBOUND_TARGETS == frozenset(
+        {"msgraph", "football_api", "msal", "sii"}
+    )
     assert work.OUTCOMES == frozenset(OUTCOMES)
 
 
