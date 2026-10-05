@@ -469,22 +469,24 @@ class SelfBookingService:
 
         Es el predicado de alcance de `scope_service._program_ids_for_user`
         recorrido al revés (carrera -> encargados), y se resuelve **llamando a
-        la función que ya existe** para cada dueño candidato, no reescribiendo
-        su join (`ProgramPosition` ⋈ `Position` ⋈ `PositionAppRole` /
-        `PositionAppPerm` ⋈ `UserPosition` con `_active_position_filter()`).
-        Una segunda implementación de ese join diverge en tres meses y nadie se
-        entera: el día que alguien añada una vía de asignación, el alcance del
-        encargado la respetaría y la oferta del alumno no.
+        la función que ya existe**, no reescribiendo su join (`ProgramPosition`
+        ⋈ `Position` ⋈ `PositionAppRole` / `PositionAppPerm` ⋈ `UserPosition`
+        con `_active_position_filter()`). Una segunda implementación de ese
+        join diverge en tres meses y nadie se entera: el día que alguien añada
+        una vía de asignación, el alcance del encargado la respetaría y la
+        oferta del alumno no.
 
-        El conjunto candidato es pequeño —solo los dueños de ventanas
-        PUBLICADAS de esos días—, así que preguntar uno por uno sale barato.
+        Llama a la versión EN LOTE, `_program_ids_for_users` (de la que la
+        singular es el caso de un usuario): dos consultas para todos los dueños
+        de la oferta, no dos por dueño (H10, spec 2026-10-05-titulatec-
+        rendimiento §3.5).
         """
-        from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
+        from itcj2.apps.titulatec.services.scope_service import _program_ids_for_users
 
         if not owner_ids or not program_id:
             return set()
-        return {uid for uid in owner_ids
-                if program_id in _program_ids_for_user(db, uid)}
+        carreras = _program_ids_for_users(db, owner_ids)
+        return {uid for uid in owner_ids if program_id in carreras.get(uid, ())}
 
     @staticmethod
     def _offerable_windows(db: Session, proc, *, ahora: datetime) -> list:
@@ -534,7 +536,8 @@ class SelfBookingService:
             minutes=SelfBookingService._settings().TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES)
 
     @staticmethod
-    def _offerable_slots(db: Session, window, *, ahora: datetime | None = None) -> list:
+    def _offerable_slots(db: Session, window, *, ahora: datetime | None = None,
+                         ocupacion: dict | None = None) -> list:
         """Franjas -o lugar- LIBRES de una ventana `bookable`/`walkin` que
         todavía admiten reserva.
 
@@ -543,19 +546,25 @@ class SelfBookingService:
         pulsaría un botón que siempre falla y no sabría por qué.
 
         Sin horario (D5, spec 2026-09-29-titulatec-cotejo-espacios-design.md
-        §3.3): `SlotService.free_slots` ya dice si queda lugar -una sola
+        §3.3): `SlotService.free_slots_from` ya dice si queda lugar -una sola
         franja, la apertura, con TODAS las citas vivas contando contra
         `capacity`-, y aquí la anticipación mínima se mide contra el CIERRE
         del espacio, no contra la apertura: es apartar lugar, no elegir hora.
         Devuelve `[start_time]` o `[]`, nunca la apertura si el espacio está
         lleno o cierra en menos del lapso mínimo.
+
+        `ocupacion` es la de ESTA ventana (`SlotService.occupancy_map`) cuando
+        quien llama ya la leyó para todas de una vez (`offer`); sin ella la
+        consulta aquí, una ventana.
         """
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         ahora = ahora or db_now()
         minimo = SelfBookingService._min_bookable_at(ahora)
         dia = window.review_day.date
-        libres = SlotService.free_slots(db, window)
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy(db, window)
+        libres = SlotService.free_slots_from(window, ocupacion)
         if window.visibility == "walkin":
             if not libres or datetime.combine(dia, window.end_time) < minimo:
                 return []
@@ -586,7 +595,7 @@ class SelfBookingService:
 
         Un `walkin` (D3: «sin horario · apartan lugar») viaja con `capacity`
         (el total del espacio), `places_left` (nunca negativo: `capacity`
-        menos la ocupación TOTAL de `SlotService.occupancy`, que en `walkin`
+        menos la ocupación TOTAL de `SlotService.occupancy_map`, que en `walkin`
         cuenta toda cita viva bajo la apertura) y `reservable` -derivado de
         `slots`, nunca de una cuenta aparte, para que las dos no puedan
         divergir-. `slots` es `[start_time]` si se puede apartar lugar, `[]`
@@ -623,6 +632,11 @@ class SelfBookingService:
         duenos = {w.owner_user_id for _, w in pares}
         nombres = {u.id: u for u in
                    db.query(User).filter(User.id.in_(duenos)).all()}
+        # La ocupación de TODAS las ventanas ofrecidas con UN SELECT (H10,
+        # Ampliación de la spec 2026-10-05-titulatec-rendimiento §3.5): antes,
+        # una consulta por ventana -dos en un sin horario-. Es la regla única
+        # de `SlotService.occupancy_map`; aquí no se filtra por estado.
+        ocupacion = SlotService.occupancy_map(db, [w for _, w in pares])
 
         por_dia: dict = {}
         for dia, w in pares:
@@ -630,7 +644,8 @@ class SelfBookingService:
                     "start_time": w.start_time, "end_time": w.end_time,
                     "location": w.location, "slots": []}
             if w.visibility == "bookable":
-                item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
                 if not item["slots"]:
                     continue
             else:
@@ -643,9 +658,10 @@ class SelfBookingService:
                     # aquí —en la oferta— y no en la plantilla: la UI pinta lo
                     # que recibe, no filtra datos.
                     continue
-                item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
                 capacidad = int(w.capacity or 1)
-                ocupados = SlotService.occupancy(db, w).get(w.start_time, 0)
+                ocupados = ocupacion.get(w.id, {}).get(w.start_time, 0)
                 item["capacity"] = capacidad
                 item["places_left"] = max(0, capacidad - ocupados)
                 # Derivado de `slots` -que ya decidió lugar libre Y anticipación

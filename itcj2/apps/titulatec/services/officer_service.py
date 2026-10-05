@@ -29,26 +29,41 @@ class OfficerService:
 
     @staticmethod
     def list_officers(db: Session, department_id: int, *, code_prefix: str = "se_officer_") -> list[dict]:
-        """Encargados (Positions del depto creados por esta app) con usuarios y carreras."""
+        """Encargados (Positions del depto creados por esta app) con usuarios y carreras.
+
+        Tres consultas, sin importar cuántos encargados haya (H10, spec
+        2026-10-05-titulatec-rendimiento §3.5): los puestos, y de TODOS ellos de
+        una vez sus usuarios y sus carreras. Antes eran dos por puesto.
+        """
         from itcj2.core.models.position import Position, UserPosition, ProgramPosition
         from itcj2.core.models.user import User
         from itcj2.core.models.program import Program
-        out = []
         positions = (
             db.query(Position)
             .filter(Position.department_id == department_id,
                     Position.code.like(f"{code_prefix}%"), Position.is_active.is_(True))
             .all()
         )
+        if not positions:
+            return []
+        position_ids = [pos.id for pos in positions]
+        users_by_position: dict[int, dict[int, User]] = {pid: {} for pid in position_ids}
+        for position_id, u in (
+            db.query(UserPosition.position_id, User)
+            .join(User, User.id == UserPosition.user_id)
+            .filter(UserPosition.position_id.in_(position_ids),
+                    UserPosition.is_active.is_(True)).all()
+        ):
+            users_by_position[position_id].setdefault(u.id, u)
+        programs_by_position: dict[int, dict[int, Program]] = {pid: {} for pid in position_ids}
+        for position_id, p in (
+            db.query(ProgramPosition.position_id, Program)
+            .join(Program, Program.id == ProgramPosition.program_id)
+            .filter(ProgramPosition.position_id.in_(position_ids)).all()
+        ):
+            programs_by_position[position_id].setdefault(p.id, p)
+        out = []
         for pos in positions:
-            users = (
-                db.query(User).join(UserPosition, UserPosition.user_id == User.id)
-                .filter(UserPosition.position_id == pos.id, UserPosition.is_active.is_(True)).all()
-            )
-            progs = (
-                db.query(Program).join(ProgramPosition, ProgramPosition.program_id == Program.id)
-                .filter(ProgramPosition.position_id == pos.id).all()
-            )
             out.append({
                 "id": pos.id, "name": pos.title,
                 # `is_active` viaja a la vista porque una cuenta se puede
@@ -56,8 +71,10 @@ class OfficerService:
                 # el encargado deja de poder entrar sin que nada en esta
                 # pestaña lo delatara.
                 "users": [{"id": u.id, "name": u.full_name,
-                           "is_active": bool(u.is_active)} for u in users],
-                "programs": [{"id": p.id, "name": p.name} for p in progs],
+                           "is_active": bool(u.is_active)}
+                          for u in users_by_position[pos.id].values()],
+                "programs": [{"id": p.id, "name": p.name}
+                             for p in programs_by_position[pos.id].values()],
             })
         return out
 

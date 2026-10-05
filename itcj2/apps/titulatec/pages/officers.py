@@ -67,9 +67,14 @@ def _body_ctx(db, department_id: int, *, reactivated: list[dict] | None = None) 
     # marca. `auth_service` filtra por ese campo al entrar, asi que nombrar
     # encargado a uno de ellos producia un encargado que no podia iniciar
     # sesion. Ahora la vista lo dice y el alta lo arregla.
+    # Una consulta para TODOS los usuarios del departamento, no un `db.get` por
+    # cada uno (H10, spec 2026-10-05-titulatec-rendimiento §3.5).
+    ids = sorted(OfficerService.department_user_ids(db, department_id))
+    por_id = ({u.id: u for u in db.query(User).filter(User.id.in_(ids)).all()}
+              if ids else {})
     usuarios = []
-    for uid in sorted(OfficerService.department_user_ids(db, department_id)):
-        u = db.get(User, uid)
+    for uid in ids:
+        u = por_id.get(uid)
         if u is None:                       # fila huerfana: no se pinta
             continue
         usuarios.append({"id": uid, "name": u.full_name,

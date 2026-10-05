@@ -341,11 +341,20 @@ class SlotService:
                 for dia, ventanas in windows_by_day.items()}
 
     @staticmethod
-    def free_slots(db: Session, window, *, excluir_process_id: int | None = None) -> list[time]:
-        """Franjas con lugar libre, en orden."""
-        ocupacion = SlotService.occupancy(db, window, excluir_process_id=excluir_process_id)
+    def free_slots_from(window, ocupacion: dict) -> list[time]:
+        """Franjas con lugar libre, en orden, a partir de una ocupación YA
+        calculada (`occupancy` / un valor de `occupancy_map`). Sin BD: es la
+        comparación contra el cupo que comparten `free_slots` y quien ya leyó
+        la ocupación de varias ventanas de una vez (`SelfBookingService.offer`).
+        """
         cupo = int(window.capacity or 1)
         return [h for h in SlotService.slots(window) if ocupacion.get(h, 0) < cupo]
+
+    @staticmethod
+    def free_slots(db: Session, window, *, excluir_process_id: int | None = None) -> list[time]:
+        """Franjas con lugar libre, en orden."""
+        return SlotService.free_slots_from(
+            window, SlotService.occupancy(db, window, excluir_process_id=excluir_process_id))
 
     # ------------------------------------------------------------ asignación
     @staticmethod
