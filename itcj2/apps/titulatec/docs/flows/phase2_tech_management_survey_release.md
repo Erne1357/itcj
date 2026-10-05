@@ -335,8 +335,9 @@ Liberaciones no cambia.
   orden alfabético, solo si alguna respuesta del formulario las trae (`:460-461`; M5 de la
   revisión final).
 - **Ocultas con valor real**: un valor que Forms aceptó en una pregunta que no aplicaba
-  (`visible_when` falso) se guarda como original (`is_raw`), así que también aparece en el detalle
-  con la marca de «Valor original» ⤵ [import](xcut_prior_clearances.md#importar-la-encuesta-de-egresados-desde-el-excel-de-forms-2026-10-05).
+  (`visible_when` falso) se guarda normalizado; solo lleva la marca de «Valor original» (`is_raw`)
+  si además no coincide con las opciones/formato. El detalle NO distingue hoy que la pregunta no
+  aplicaba ⤵ [import](xcut_prior_clearances.md#importar-la-encuesta-de-egresados-desde-el-excel-de-forms-2026-10-05).
 
 
 ## Liberaciones y Encuestas: pager compartido (2026-10-04)

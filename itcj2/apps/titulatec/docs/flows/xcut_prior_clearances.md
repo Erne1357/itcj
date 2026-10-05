@@ -251,9 +251,10 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
    lo marca). Canonicaliza sinónimos («Mucho 5», «Aprobé»/«Aprobó»). En un campo que NO aplica por
    `visible_when` (oculto para esa fila): un **centinela** («No trabajo», «No estudio»,
    «Desempleado (a)», «Ninguno», «N0»/«NO»; `_SENTINELS`, `:167`) se descarta; un **valor real**
-   (no centinela, de cualquier tipo) se CONSERVA con su texto original y `is_raw=True` — ruling de
-   la revisión final: D1 «ninguna respuesta se pierde» manda sobre imitar a la plataforma, que
-   descarta los ocultos. `survey_validator` NO se usa en este camino.
+   (no centinela, de cualquier tipo) se CONSERVA tal como se normalizó — ruling de la revisión
+   final: D1 «ninguna respuesta se pierde» manda sobre imitar a la plataforma, que descarta los
+   ocultos. `is_raw` significa SOLO «no coincide con las opciones/formato del campo»: una escala 1-5
+   u opción válida en un campo oculto queda `is_raw=False`. `survey_validator` NO se usa en este camino.
 7. **Libera SIEMPRE por la maquinaria de constancias previas**: arma filas
    `{control_number, issued_on, response_id, paper_pending}` y llama a
    `PriorClearanceService.import_rows(kind="survey", commit=False)`
@@ -263,10 +264,10 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
 
 Además de los botes, la CLI imprime una línea de celdas (en `--dry-run` también, con las mismas
 cifras que daría la corrida real): «Celdas guardadas: N · con valor original (raw): N · ocultas con
-valor real (guardadas como originales): N» (`stats` de `import_rows` / `normalize_answers`). Con el
-archivo de ENERO-JUNIO 2026 (dry-run del 2026-10-05): 21 071 celdas, 1 063 raw, de ellas 1 017
-ocultas con valor real — casi todas de los ~73 egresados que no trabajan y a quienes Forms obligó a
-contestar las escalas y el tamaño de empresa.
+valor real (guardadas; informativo): N» (`stats` de `import_rows` / `normalize_answers`). Con el
+archivo de ENERO-JUNIO 2026 (dry-run del 2026-10-05): 21 071 celdas, 47 raw y 1 017 ocultas con
+valor real (conteo informativo, no son raw) — casi todas de los ~73 egresados que no trabajan y a
+quienes Forms obligó a contestar las escalas y el tamaño de empresa.
 
 ### Botes que imprime la CLI (`IMPORT_BUCKETS`, `:56`; etiquetas en `itcj2/cli/titulatec.py`, `_IMPORT_SURVEY_ETIQUETAS`)
 

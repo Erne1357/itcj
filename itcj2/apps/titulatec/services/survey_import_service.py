@@ -162,8 +162,8 @@ _NO = {"no", "n", "false", "0"}
 # escoger aunque la pregunta no aplicara («No trabajo», «No estudio»,
 # «Desempleado (a)», «Ninguno», «N0»...), ya en forma `_option_key`. En un
 # campo OCULTO por `visible_when` equivalen a «sin respuesta» (la plataforma
-# descarta los ocultos); un valor REAL en un campo oculto se guarda raw (D1),
-# y en uno visible, un radio centinela también se guarda raw.
+# descarta los ocultos); un valor REAL en un campo oculto se guarda normalizado
+# (D1; raw solo si no coincide), y en uno visible, un radio centinela se guarda raw.
 _SENTINELS = frozenset({
     "no trabajo", "no estudio", "desempleado a", "desempleado", "desempleada",
     "ninguno", "ninguna", "n0", "no", "na", "n a", "no aplica",
@@ -474,9 +474,11 @@ class SurveyImportService:
           «No trabajo», «No estudio», «Desempleado (a)», «Ninguno», «N0»/«NO»)
           -> no se guarda: es el «no aplica» que Forms obligaba a escribir;
         * campo OCULTO con un valor REAL (no centinela), de cualquier tipo ->
-          se conserva con su texto ORIGINAL y `is_raw=True` (ruling de la
-          revisión final, D1 «ninguna respuesta se pierde»: la plataforma
-          descarta los ocultos, pero el egresado sí contestó algo);
+          se conserva TAL COMO se normalizó (ruling de la revisión final, D1
+          «ninguna respuesta se pierde»: la plataforma descarta los ocultos,
+          pero el egresado sí contestó algo). `is_raw` sigue significando SOLO
+          «no coincide con las opciones/formato»: una escala 1-5 u opción
+          válida en un oculto queda `is_raw=False`;
         * si alguna llave de la condición quedó raw, la visibilidad no se
           puede evaluar y el campo se trata como visible (no se pierde nada).
 
@@ -515,7 +517,8 @@ class SurveyImportService:
             if _option_key(original) in _SENTINELS:
                 del norm[key]
                 continue
-            norm[key] = (original, True)
+            # Se queda NORMALIZADO: `is_raw` solo significa «no coincide con
+            # las opciones/formato del campo», nunca «la pregunta no aplicaba».
             ocultas_reales += 1
 
         if stats is not None:

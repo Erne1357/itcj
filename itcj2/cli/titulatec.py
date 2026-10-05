@@ -2861,8 +2861,8 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
             click.echo(f"    · {fila['control_number']} (Id {fila['ms_id']}): "
                        f"{fila['reason']}")
     click.echo(f"  Celdas guardadas: {stats.get('cells', 0)} · con valor original "
-               f"(raw): {stats.get('raw', 0)} · ocultas con valor real (guardadas como "
-               f"originales): {stats.get('hidden_kept', 0)}")
+               f"(raw): {stats.get('raw', 0)} · ocultas con valor real (guardadas; "
+               f"informativo): {stats.get('hidden_kept', 0)}")
     if dry_run:
         click.echo("Dry-run: no se escribió nada.")
 

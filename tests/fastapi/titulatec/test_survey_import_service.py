@@ -305,14 +305,22 @@ class TestVisibilidad:
         assert "tipo_estudio" not in out
         assert out["actividad_actual"] == ("Trabaja", False)
 
-    def test_radio_oculto_con_valor_real_se_conserva_raw(self):
+    def test_radio_oculto_con_opcion_valida_se_conserva_normalizado(self):
         # Ruling de la revisión final (D1): un valor REAL en un campo oculto
-        # no se pierde; se guarda con su texto original y `is_raw=True`.
+        # no se pierde; `is_raw` solo marca lo que no coincide con el campo.
         stats = {}
         out = _svc().normalize_answers(
             _CAMPOS_VIS, {"actividad_actual": "Trabaja", "tipo_estudio": "Maestría"},
             stats=stats)
-        assert out["tipo_estudio"] == ("Maestría", True)
+        assert out["tipo_estudio"] == ("Maestría", False)
+        assert stats == {"cells": 2, "raw": 0, "hidden_kept": 1}
+
+    def test_radio_oculto_que_no_coincide_queda_raw(self):
+        stats = {}
+        out = _svc().normalize_answers(
+            _CAMPOS_VIS, {"actividad_actual": "Trabaja", "tipo_estudio": "Doctorado"},
+            stats=stats)
+        assert out["tipo_estudio"] == ("Doctorado", True)
         assert stats == {"cells": 2, "raw": 1, "hidden_kept": 1}
 
     def test_radio_visible_con_centinela_queda_raw(self):
@@ -328,13 +336,13 @@ class TestVisibilidad:
         assert "nombre_empresa" not in out
         assert stats["hidden_kept"] == 0
 
-    def test_texto_oculto_con_dato_se_conserva_raw(self):
+    def test_texto_oculto_con_dato_se_conserva_sin_raw(self):
         out = self._n({"actividad_actual": "Estudia", "nombre_empresa": "ACME"})
-        assert out["nombre_empresa"] == ("ACME", True)
+        assert out["nombre_empresa"] == ("ACME", False)
 
-    def test_escala_oculta_con_valor_real_se_conserva_con_su_texto_original(self):
+    def test_escala_oculta_valida_se_normaliza_sin_raw(self):
         out = self._n({"actividad_actual": "Estudia", "scale_titulado": "Mucho 5"})
-        assert out["scale_titulado"] == ("Mucho 5", True)
+        assert out["scale_titulado"] == (5, False)
 
     @pytest.mark.parametrize("centinela", ["No estudio", "Desempleado (a)", "Ninguno"])
     def test_radio_oculto_con_centinela_tampoco_se_guarda(self, centinela):
@@ -371,9 +379,10 @@ def _form_con_oculta(make_survey_form):
 
 class TestOcultasConValorReal:
     """Ruling de la revisión final (D1): una oculta con valor REAL se guarda
-    raw; una oculta centinela no. El dry-run las cuenta igual que la real."""
+    normalizada (raw solo si no coincide); una oculta centinela no. El dry-run
+    las cuenta igual que la real."""
 
-    def test_dry_run_y_real_cuentan_y_guardan_raw(self, db_session, reloj,
+    def test_dry_run_y_real_cuentan_y_guardan_sin_raw(self, db_session, reloj,
                                                   make_survey_form):
         form = _form_con_oculta(make_survey_form)
         filas = [fila(91, control="99600131", answers={
@@ -396,7 +405,7 @@ class TestOcultasConValorReal:
 
         por_control = {r.control_number: r for r in _respuestas(db_session, form)}
         acme = _answer(db_session, por_control["99600131"].id, "nombre_empresa")
-        assert acme.is_raw is True and acme.value_text == "ACME"
+        assert acme.is_raw is False and acme.value_text == "ACME"
         assert por_control["99600131"].answers["nombre_empresa"] == "ACME"
         assert "nombre_empresa" not in por_control["99600132"].answers
 
