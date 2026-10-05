@@ -177,7 +177,7 @@ def test_formularios_conservan_endpoints_y_confirm(client_as, staff, nuevo, toke
         "prior": ("previa", "Registrar", "Constancia previa|¿Registrar que",
                   "Registrar constancia previa", False),
         "observe": ("observar", "Observar", "Observar|¿Registrar observaciones a",
-                    "Observar", False),
+                    "Registrar observación", False),
     }
     for key, (accion, ok, confirm, boton, expected) in esperado.items():
         f = _form(panel, i, key)
@@ -237,3 +237,162 @@ def test_radios_por_fila(client_as, staff, nuevo, token):
         # Fuera de cualquier <form>: el selector no viaja en el POST.
         fs = re.search(r"<fieldset.*?</fieldset>", panel, re.S).group(0)
         assert "<form" not in fs
+
+
+# ---------------------------------------------------------------------------
+# Tarea 2: «En caja», «Con observaciones» y «Liberados»
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def nuevo_en(make_student, make_process, make_cohort, make_library_clearance):
+    def _build(last_name, status, phase=1, **cols):
+        cohort = make_cohort(book_donation_amount=Decimal("800.00"))
+        student = make_student(last_name=last_name)
+        process = make_process(student, cohort=cohort, current_phase=phase, library_clearance=None)
+        if status in ("awaiting_payment", "observed") and "total_amount" not in cols:
+            cols = {"debt_amount": Decimal("120.00"), "donation_amount": Decimal("800.00"),
+                    "total_amount": Decimal("920.00"), **cols}
+        clearance = make_library_clearance(process, status=status, **cols)
+        return SimpleNamespace(student=student, clearance=clearance, process=process)
+
+    return _build
+
+
+def _body_tab(client_as, staff, token, tab):
+    resp = client_as(staff).get(f"{LIB}/body", params={"status": tab, "q": token})
+    assert resp.status_code == 200, resp.text[:500]
+    return resp.text
+
+
+def _toggle(celda):
+    return re.search(r'<button[^>]*data-tt-toggle=[^>]*>.*?</button>', celda, re.S)
+
+
+def test_aria_label_del_toggle_nombra_al_egresado(client_as, staff, nuevo, token):
+    esc = nuevo(token)
+    celda = _ultima_celda(_tr(_body(client_as, staff, token), f"lib-{esc.clearance.id}"))
+    abre = re.search(r"<button[^>]*data-tt-toggle[^>]*>", celda).group(0)
+    label = html_lib.unescape(re.search(r'aria-label="([^"]*)"', abre).group(1))
+    assert label.startswith("Dictaminar a ") and esc.student.last_name in label
+
+
+def test_observar_boton_dice_registrar_observacion(client_as, staff, nuevo, token):
+    esc = nuevo(token)
+    i = esc.clearance.id
+    panel = _tr(_body(client_as, staff, token), f"lib-{i}-panel")
+    boton = re.search(r'<button type="submit"[^>]*>.*?</button>', _form(panel, i, "observe"), re.S)
+    assert _visible(boton.group(0)) == "Registrar observación"
+
+
+def test_en_caja_sin_accion_rapida_y_dos_opciones(client_as, staff, nuevo_en, token):
+    esc = nuevo_en(token, "awaiting_payment")
+    i = esc.clearance.id
+    html = _body_tab(client_as, staff, token, "awaiting_payment")
+    celda = _ultima_celda(_tr(html, f"lib-{i}"))
+
+    botones = re.findall(r"<button[^>]*>(.*?)</button>", celda, re.S)
+    assert [_visible(b) for b in botones] == ["Opciones…"]
+    assert "<form" not in celda and "<textarea" not in celda
+
+    panel = _tr(html, f"lib-{i}-panel")
+    assert 'colspan="9"' in panel and "d-none" in panel
+    opciones = re.findall(r'<label class="tt-vis-opt" for="lib-%d-opt-(\w+)">(.*?)</label>' % i,
+                          panel, re.S)
+    assert [k for k, _ in opciones] == ["fix", "observe"]
+    assert "Corregir monto" in _visible(opciones[0][1])
+    assert "Cambia el adeudo; se vuelve a calcular el total con la donación vigente." \
+        in _visible(opciones[0][1])
+    assert "Sale de Por cobrar" in _visible(opciones[1][1])
+
+    fix = _form(panel, i, "fix")
+    abre = re.match(r"<form[^>]*>", fix).group(0)
+    assert f'hx-post="/titulatec/admin/biblioteca/{i}/registrar"' in abre
+    assert 'data-tt-confirm-ok="Corregir"' in abre and 'hx-confirm="Corregir monto|' in abre
+    assert 'name="expected_status" value="awaiting_payment"' in fix
+    assert 'name="expected_total" value="920.00"' in fix
+    assert re.search(r'name="debt_amount"[^>]*required[^>]*value="120.00"', fix)
+    assert re.search(r'name="note"', fix)
+    assert _visible(re.search(r"<button type=\"submit\".*?</button>", fix, re.S).group(0)) \
+        == "Corregir monto"
+
+    obs = _form(panel, i, "observe")
+    assert f'hx-post="/titulatec/admin/biblioteca/{i}/observar"' in obs
+    assert 'data-tt-confirm-ok="Observar"' in obs
+    assert re.search(r'name="reason"[^>]*required', obs)
+    assert _visible(re.search(r"<button type=\"submit\".*?</button>", obs, re.S).group(0)) \
+        == "Registrar observación"
+    assert "style=" not in panel and "<fieldset" in panel
+
+
+def test_observadas_rehabilitar_visible_y_actualizar_en_panel(client_as, staff, nuevo_en, token):
+    motivo = 'Debe <b>"libro"</b> & más'
+    esc = nuevo_en(token, "observed", observation_reason=motivo)
+    i = esc.clearance.id
+    html = _body_tab(client_as, staff, token, "observed")
+    celda = _ultima_celda(_tr(html, f"lib-{i}"))
+
+    botones = re.findall(r"<button[^>]*>(.*?)</button>", celda, re.S)
+    assert [_visible(b) for b in botones] == ["Rehabilitar", "Actualizar…"]
+    assert f'hx-post="/titulatec/admin/biblioteca/{i}/rehabilitar"' in celda
+    assert 'hx-confirm="Rehabilitar|' in celda
+
+    panel = _tr(html, f"lib-{i}-panel")
+    assert 'colspan="9"' in panel and "d-none" in panel
+    assert "<fieldset" not in panel and "tt-lib-pick" not in panel, "opción única: sin selector"
+    upd = _form(panel, i, "update")
+    assert f'hx-post="/titulatec/admin/biblioteca/{i}/observar"' in upd
+    assert 'data-tt-confirm-ok="Actualizar"' in upd
+    assert 'hx-confirm="Actualizar observación|' in upd
+    ta = re.search(r"<textarea[^>]*>(.*?)</textarea>", upd, re.S)
+    assert html_lib.unescape(ta.group(1)) == motivo
+    assert "<b>" not in ta.group(1)
+    assert re.search(r'<label class="tt-label" for="lib-%d-update-reason">' % i, upd)
+    assert _visible(re.search(r"<button type=\"submit\".*?</button>", upd, re.S).group(0)) \
+        == "Actualizar observación"
+
+
+def test_liberados_revertir_o_deshacer_en_panel(client_as, staff, nuevo_en, token):
+    sin = nuevo_en(token, "cleared", cleared_via="no_charge")
+    previa = nuevo_en(token, "cleared", cleared_via="prior", prior_issued_on=None)
+    html = _body_tab(client_as, staff, token, "cleared")
+
+    casos = ((sin, "revert", "revertir", "Revertir", "Vuelve a Por revisar; se anula la constancia."),
+             (previa, "undo", "deshacer-previa", "Deshacer", "Vuelve a Por revisar."))
+    for esc, key, accion, ok, explica in casos:
+        i = esc.clearance.id
+        celda = _ultima_celda(_tr(html, f"lib-{i}"))
+        assert [_visible(b) for b in re.findall(r"<button[^>]*>(.*?)</button>", celda, re.S)] \
+            == ["Opciones…"]
+        panel = _tr(html, f"lib-{i}-panel")
+        assert 'colspan="9"' in panel and "<fieldset" not in panel
+        f = _form(panel, i, key)
+        abre = re.match(r"<form[^>]*>", f).group(0)
+        assert f'hx-post="/titulatec/admin/biblioteca/{i}/{accion}"' in abre
+        assert f'data-tt-confirm-ok="{ok}"' in abre
+        assert re.search(r'name="reason"[^>]*required', f)
+        assert re.search(r'<label class="tt-label" for="lib-%d-%s-reason">' % (i, key), f)
+        assert explica in _visible(panel)
+
+
+def test_liberados_sin_accion_no_muestra_despliegue(client_as, staff, nuevo_en, token):
+    pago = nuevo_en(token, "cleared", cleared_via="payment")
+    fase2 = nuevo_en(token, "cleared", cleared_via="no_charge", phase=3)
+    html = _body_tab(client_as, staff, token, "cleared")
+
+    for esc, texto in ((pago, "Se revierte desde Caja"), (fase2, "Fase 2 liberada")):
+        i = esc.clearance.id
+        celda = _ultima_celda(_tr(html, f"lib-{i}"))
+        assert texto in _visible(celda)
+        assert "<button" not in celda and "data-tt-toggle" not in celda
+        assert f'id="lib-{i}-panel"' not in html
+
+
+def test_revocada_sin_botones(client_as, staff, nuevo_en, token, db_session):
+    esc = nuevo_en(token, "awaiting_payment")
+    esc.process.status = "cancelled"
+    db_session.flush()
+    html = _body_tab(client_as, staff, token, "awaiting_payment")
+    i = esc.clearance.id
+    celda = _ultima_celda(_tr(html, f"lib-{i}"))
+    assert "Revocada" in _visible(celda)
+    assert "<button" not in celda and "<form" not in celda
+    assert f'id="lib-{i}-panel"' not in html

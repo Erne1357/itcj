@@ -106,7 +106,7 @@
 {% macro lib_toggle(r, label) -%}
 <button type="button" class="btn btn-sm tt-btn-ghost tt-lib-toggle"
         data-tt-toggle="lib-{{ r.id }}-panel" aria-controls="lib-{{ r.id }}-panel"
-        aria-expanded="false">{{ label }}<i class="bi bi-chevron-down tt-lib-chev" aria-hidden="true"></i></button>
+        aria-expanded="false" aria-label="{{ label | replace('…', '') | trim }} a {{ r.student }}">{{ label }}<i class="bi bi-chevron-down tt-lib-chev" aria-hidden="true"></i></button>
 {%- endmacro %}
 {% macro lib_panel(r, colspan) -%}
 <tr id="lib-{{ r.id }}-panel" class="d-none tt-lib-panel-row">
@@ -288,66 +288,21 @@
               {{ lib_toggle(r, 'Dictaminar…') }}
             </div>
           {% elif r.status == 'awaiting_payment' %}
-            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/registrar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Corregir"
-                  hx-confirm="Corregir monto|¿Corregir el monto de {{ r.student }}? Se vuelve a congelar con la donación vigente.">
-              {{ tab_fields(status, q, page) }}
-              <input type="hidden" name="expected_status" value="awaiting_payment">
-              <input type="hidden" name="expected_total" value="{{ r.total }}">
-              <input class="tt-field tt-field--xs tt-lib-amount" type="text" name="debt_amount" required
-                     value="{{ r.debt }}" aria-label="Nuevo monto del adeudo de {{ r.student }}">
-              <input class="tt-field tt-field--xs" name="note" maxlength="1000" value="{{ r.note or '' }}"
-                     placeholder="Nota" aria-label="Nota del adeudo de {{ r.student }}">
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Corregir…</button>
-            </form>
-            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Observar"
-                  hx-confirm="Observar|¿Registrar observaciones a {{ r.student }}? Queda detenido hasta que Biblioteca lo rehabilite.">
-              {{ tab_fields(status, q, page) }}
-              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
-                        placeholder="Motivo de la observación" aria-label="Motivo de la observación de {{ r.student }}"></textarea>
-              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar…</button>
-            </form>
+            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…') }}</div>
           {% elif r.status == 'observed' %}
-            <form class="d-inline" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/rehabilitar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Rehabilitar"
-                  hx-confirm="Rehabilitar|¿Rehabilitar a {{ r.student }}? Vuelve a «Por revisar» con sus montos.">
-              {{ tab_fields(status, q, page) }}
-              <button type="submit" class="btn btn-sm tt-btn-ink">Rehabilitar</button>
-            </form>
-            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/observar"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Actualizar"
-                  hx-confirm="Actualizar observación|¿Actualizar el motivo de la observación de {{ r.student }}?">
-              {{ tab_fields(status, q, page) }}
-              <textarea class="tt-field tt-field--xs" name="reason" rows="2" required maxlength="1000"
-                        aria-label="Nuevo motivo de la observación de {{ r.student }}">{{ r.observation_reason or '' }}</textarea>
-              <button type="submit" class="btn btn-sm tt-btn-ghost">Actualizar observación…</button>
-            </form>
+            <div class="tt-lib-actions">
+              <form hx-post="/titulatec/admin/biblioteca/{{ r.id }}/rehabilitar"
+                    hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                    data-tt-confirm-ok="Rehabilitar"
+                    hx-confirm="Rehabilitar|¿Rehabilitar a {{ r.student }}? Vuelve a «Por revisar» con sus montos.">
+                {{ tab_fields(status, q, page) }}
+                <button type="submit" class="btn btn-sm tt-btn-ink">Rehabilitar</button>
+              </form>
+              {{ lib_toggle(r, 'Actualizar…') }}
+            </div>
           {% elif r.status == 'cleared' %}
-            {% if r.can_revert and r.via == 'prior' %}
-            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/deshacer-previa"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Deshacer"
-                  hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ r.student }}? Vuelve a «Por revisar».">
-              {{ tab_fields(status, q, page) }}
-              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
-                     placeholder="Motivo" aria-label="Motivo para deshacer la constancia de {{ r.student }}">
-              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
-            </form>
-            {% elif r.can_revert and r.via in ('no_charge', 'legacy') %}
-            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/biblioteca/{{ r.id }}/revertir"
-                  hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                  data-tt-confirm-ok="Revertir"
-                  hx-confirm="Revertir|¿Revertir el no adeudo de {{ r.student }}? Vuelve a «Por revisar».">
-              {{ tab_fields(status, q, page) }}
-              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
-                     placeholder="Motivo" aria-label="Motivo para revertir el no adeudo de {{ r.student }}">
-              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir…</button>
-            </form>
+            {% if r.can_revert and r.via in ('prior', 'no_charge', 'legacy') %}
+            <div class="tt-lib-actions">{{ lib_toggle(r, 'Opciones…') }}</div>
             {% elif r.can_revert and r.via == 'payment' %}
             <span class="tt-pill tt-pill--neutral">Se revierte desde Caja</span>
             {% else %}
@@ -393,8 +348,79 @@
             <textarea id="lib-{{ r.id }}-observe-reason" class="tt-field" name="reason" rows="3" required
                       maxlength="1000"></textarea>
             {% endcall %}
-            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Observar</button>
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Registrar observación</button>
           {% endcall %}
+        </div>
+      {% endcall %}
+      {% endif %}
+      {% if not r.revoked and r.status == 'awaiting_payment' %}
+      {% call lib_panel(r, ncols) %}
+        {% call lib_picker('Opciones para ' ~ r.student) %}
+          {{ lib_option(r, 'fix', 'Corregir monto', 'Cambia el adeudo; se vuelve a calcular el total con la donación vigente.') }}
+          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar. Sale de Por cobrar.') }}
+        {% endcall %}
+        <div class="tt-lib-forms">
+          {% call lib_form(r, 'fix', 'registrar', 'Corregir',
+                           'Corregir monto|¿Corregir el monto de ' ~ r.student ~ '? Se vuelve a congelar con la donación vigente.') %}
+            <input type="hidden" name="expected_status" value="awaiting_payment">
+            <input type="hidden" name="expected_total" value="{{ r.total }}">
+            {% call lib_field('lib-' ~ r.id ~ '-fix-amount', 'Nuevo monto del adeudo ($)') %}
+            <input id="lib-{{ r.id }}-fix-amount" class="tt-field tt-lib-amount" type="text" inputmode="decimal"
+                   name="debt_amount" required value="{{ r.debt }}">
+            {% endcall %}
+            {% call lib_field('lib-' ~ r.id ~ '-fix-note', 'Nota (opcional)', 'tt-lib-field--grow') %}
+            <input id="lib-{{ r.id }}-fix-note" class="tt-field" name="note" maxlength="1000" value="{{ r.note or "" }}">
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-ink">Corregir monto</button>
+          {% endcall %}
+          {% call lib_form(r, 'observe', 'observar', 'Observar',
+                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo rehabilite.') %}
+            {% call lib_field('lib-' ~ r.id ~ '-observe-reason', 'Motivo de la observación', 'tt-lib-field--grow') %}
+            <textarea id="lib-{{ r.id }}-observe-reason" class="tt-field" name="reason" rows="3" required
+                      maxlength="1000"></textarea>
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Registrar observación</button>
+          {% endcall %}
+        </div>
+      {% endcall %}
+      {% elif not r.revoked and r.status == 'observed' %}
+      {% call lib_panel(r, ncols) %}
+        <p class="tt-lib-panel-title">Actualizar la observación de {{ r.student }}</p>
+        <p class="tt-lib-hint mb-0">Cambia el motivo que ve el egresado.</p>
+        <div class="tt-lib-forms">
+          {% call lib_form(r, 'update', 'observar', 'Actualizar',
+                           'Actualizar observación|¿Actualizar el motivo de la observación de ' ~ r.student ~ '?') %}
+            {% call lib_field('lib-' ~ r.id ~ '-update-reason', 'Motivo de la observación', 'tt-lib-field--grow') %}
+            <textarea id="lib-{{ r.id }}-update-reason" class="tt-field" name="reason" rows="3" required
+                      maxlength="1000">{{ r.observation_reason or "" }}</textarea>
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-ink">Actualizar observación</button>
+          {% endcall %}
+        </div>
+      {% endcall %}
+      {% elif not r.revoked and r.status == 'cleared' and r.can_revert and r.via in ('prior', 'no_charge', 'legacy') %}
+      {% set undo = r.via == 'prior' %}
+      {% call lib_panel(r, ncols) %}
+        <p class="tt-lib-panel-title">{{ 'Deshacer la constancia previa de ' if undo else 'Revertir el no adeudo de ' }}{{ r.student }}</p>
+        <p class="tt-lib-hint mb-0">{{ 'Vuelve a Por revisar.' if undo else 'Vuelve a Por revisar; se anula la constancia.' }}</p>
+        <div class="tt-lib-forms">
+          {% if undo %}
+          {% call lib_form(r, 'undo', 'deshacer-previa', 'Deshacer',
+                           'Deshacer constancia previa|¿Deshacer la constancia previa de ' ~ r.student ~ '? Vuelve a «Por revisar».') %}
+            {% call lib_field('lib-' ~ r.id ~ '-undo-reason', 'Motivo', 'tt-lib-field--grow') %}
+            <input id="lib-{{ r.id }}-undo-reason" class="tt-field" name="reason" required maxlength="1000">
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer constancia previa</button>
+          {% endcall %}
+          {% else %}
+          {% call lib_form(r, 'revert', 'revertir', 'Revertir',
+                           'Revertir|¿Revertir el no adeudo de ' ~ r.student ~ '? Vuelve a «Por revisar».') %}
+            {% call lib_field('lib-' ~ r.id ~ '-revert-reason', 'Motivo', 'tt-lib-field--grow') %}
+            <input id="lib-{{ r.id }}-revert-reason" class="tt-field" name="reason" required maxlength="1000">
+            {% endcall %}
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir no adeudo</button>
+          {% endcall %}
+          {% endif %}
         </div>
       {% endcall %}
       {% endif %}
