@@ -13,19 +13,22 @@
      que abre el panel bajo la fila (ver `lib_panel` abajo) con «Con
      adeudo» (monto + nota) · «Constancia previa» (fecha + nota) ·
      «Observar» (motivo).
-   - «En caja»: desglose adeudo + donación = total, nota, «Corregir…» (mismo
-     endpoint que Registrar, con `expected_status=awaiting_payment` +
-     `expected_total` -- Ruling R8). Si otra persona movió la fila mientras
+   - «En caja»: botón «Opciones…» (aria «Opciones de X») que abre el panel con
+     «Corregir monto» (desglose adeudo + donación = total, nota; mismo endpoint
+     que Registrar, con `expected_status=awaiting_payment` + `expected_total`
+     -- Ruling R8) y «Observar» (motivo). Si otra persona movió la fila mientras
      tanto, la ruta no escribe y responde 200 con este parcial RE-PINTADO y
      el motivo en `X-Tt-Notice` warning (Ruling R24), nunca un 400 sin swap.
-   - «Liberados»: píldora + fecha; «Deshacer…» (previa) o «Revertir…» (sin
-     cargo/legado) según `can_revert`; un pago se revierte DESDE CAJA, no
-     aquí (el service lo rechaza con 400 si se intenta).
-   - «Por revisar»/«En caja» también: «Observar…» (motivo obligatorio en un
+   - «Liberados»: píldora + fecha; botón «Opciones…» cuyo panel ofrece
+     «Deshacer previa» (previa) o «Revertir» (sin cargo/legado) según
+     `can_revert`; un pago se revierte DESDE CAJA, no aquí (el service lo
+     rechaza con 400 si se intenta).
+   - «Por revisar»/«En caja» también: «Observar» (motivo obligatorio en un
      `<textarea>`, spec 2026-10-05 §3.5) -> «Con observaciones».
-   - «Con observaciones»: motivo, quién y cuándo bajo la píldora;
-     «Actualizar observación…» (mismo endpoint `/observar`, textarea
-     precargada) y «Rehabilitar» (-> «Por revisar», montos intactos).
+   - «Con observaciones»: motivo, quién y cuándo bajo la píldora; acción
+     rápida «Rehabilitar» (-> «Por revisar», montos intactos) y botón
+     «Actualizar observación…» cuyo panel reabre el mismo endpoint
+     `/observar` con la textarea precargada.
    - Inscripción revocada (`r.revoked`, cualquier pestaña): sin acciones
      (todas responderían 400), píldora «Revocada» -la columna «Constancia»
      SÍ conserva su celda (Review Focus #5 de
@@ -121,7 +124,7 @@
 <fieldset class="tt-vis tt-lib-opts">
   <legend class="tt-lib-panel-title">{{ legend }}</legend>
   {{ caller() }}
-  <p class="tt-lib-hint mb-0">Elige un resultado.</p>
+  <p class="tt-lib-hint mb-0">Elige una opción.</p>
 </fieldset>
 {%- endmacro %}
 {% macro lib_option(r, key, title, explain) -%}
@@ -355,7 +358,7 @@
       {% endif %}
       {% if not r.revoked and r.status == 'awaiting_payment' %}
       {% call lib_panel(r, ncols) %}
-        {% call lib_picker('Opciones para ' ~ r.student) %}
+        {% call lib_picker('Opciones de ' ~ r.student) %}
           {{ lib_option(r, 'fix', 'Corregir monto', 'Cambia el adeudo; se vuelve a calcular el total con la donación vigente.') }}
           {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar. Sale de Por cobrar.') }}
         {% endcall %}
@@ -402,7 +405,7 @@
       {% set undo = r.via == 'prior' %}
       {% call lib_panel(r, ncols) %}
         <p class="tt-lib-panel-title">{{ 'Deshacer la constancia previa de ' if undo else 'Revertir el no adeudo de ' }}{{ r.student }}</p>
-        <p class="tt-lib-hint mb-0">{{ 'Vuelve a Por revisar.' if undo else 'Vuelve a Por revisar; se anula la constancia.' }}</p>
+        <p class="tt-lib-hint mb-0">{{ 'Vuelve a Por revisar.' if undo else 'Vuelve a Por revisar; se anula la constancia, si la hay.' }}</p>
         <div class="tt-lib-forms">
           {% if undo %}
           {% call lib_form(r, 'undo', 'deshacer-previa', 'Deshacer',

@@ -154,7 +154,7 @@ def test_tres_opciones_con_rotulo_y_explicacion(client_as, staff, nuevo, token):
         assert 'type="radio"' in radio and f'id="lib-{i}-opt-{key}"' in radio
         assert f'value="{key}"' in radio
         assert "checked" not in radio, "ninguna opción preseleccionada"
-    assert "Elige un resultado" in _visible(panel)
+    assert "Elige una opción" in _visible(panel)
     assert "—" not in _visible(panel), "sin guion largo en el panel"
 
 
@@ -355,7 +355,7 @@ def test_liberados_revertir_o_deshacer_en_panel(client_as, staff, nuevo_en, toke
     previa = nuevo_en(token, "cleared", cleared_via="prior", prior_issued_on=None)
     html = _body_tab(client_as, staff, token, "cleared")
 
-    casos = ((sin, "revert", "revertir", "Revertir", "Vuelve a Por revisar; se anula la constancia."),
+    casos = ((sin, "revert", "revertir", "Revertir", "Vuelve a Por revisar; se anula la constancia, si la hay."),
              (previa, "undo", "deshacer-previa", "Deshacer", "Vuelve a Por revisar."))
     for esc, key, accion, ok, explica in casos:
         i = esc.clearance.id
@@ -386,15 +386,28 @@ def test_liberados_sin_accion_no_muestra_despliegue(client_as, staff, nuevo_en, 
         assert f'id="lib-{i}-panel"' not in html
 
 
-def test_revocada_sin_botones(client_as, staff, nuevo_en, token, db_session):
-    esc = nuevo_en(token, "awaiting_payment")
+@pytest.mark.parametrize("tab,kw", [
+    ("pending", {}),
+    ("awaiting_payment", {}),
+    ("observed", {}),
+    ("cleared", {"cleared_via": "no_charge"}),
+])
+def test_revocada_sin_botones(client_as, staff, nuevo_en, token, db_session, tab, kw):
+    esc = nuevo_en(token, tab, **kw)
     esc.process.status = "cancelled"
     db_session.flush()
-    html = _body_tab(client_as, staff, token, "awaiting_payment")
+    html = _body_tab(client_as, staff, token, tab)
     i = esc.clearance.id
+    if tab in ("pending", "observed"):
+        # El servicio no lista revocados en las pestañas de trabajo: no hay
+        # fila, luego tampoco despliegue ni panel.
+        assert f'id="lib-{i}"' not in html
+        assert f'id="lib-{i}-panel"' not in html and "data-tt-toggle" not in html
+        return
     celda = _ultima_celda(_tr(html, f"lib-{i}"))
     assert "Revocada" in _visible(celda)
     assert "<button" not in celda and "<form" not in celda
+    assert "data-tt-toggle" not in celda
     assert f'id="lib-{i}-panel"' not in html
 
 

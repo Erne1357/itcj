@@ -36,7 +36,7 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    - Aviso arriba si hay pendientes de convocatorias SIN donación capturada: «La convocatoria X
      no tiene capturada la donación voluntaria de libro; Servicios Escolares debe capturarla
      para pasar casos a Caja.»
-   - **En caja**: desglose (adeudo + donación = total), nota, **«Corregir…»**.
+   - **En caja**: desglose (adeudo + donación = total), nota; **«Opciones…»** abre el panel con «Corregir monto» y «Observar».
    - **Liberados**: cómo se liberó (píldora), fecha, **«Revertir…»**/**«Deshacer…»** según
      permiso y `can_revert`.
    - Columna **«Constancia»** en las TRES pestañas (2026-10-02, ⤵ [constancias por

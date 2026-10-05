@@ -2783,7 +2783,7 @@ button.tt-seat--libre { pointer-events: auto; }
    unidades de contenedor queda el tope de 60rem. */
 #tt-library-body .tt-table-wrap { container-type: inline-size; }
 .tt-lib-panel {
-  position: sticky; left: 0; box-sizing: border-box;
+  position: sticky; left: var(--tt-sp-3); box-sizing: border-box;
   max-width: 60rem; width: calc(100cqi - 2 * var(--tt-sp-3));
   display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0;
 }
@@ -2818,9 +2818,11 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-lib-panel:has(.tt-lib-pick[value="revert"]:checked) .tt-lib-form--revert,
 .tt-lib-panel:has(.tt-lib-pick[value="undo"]:checked) .tt-lib-form--undo { display: block; }
 
-/* La tarjeta elegida se distingue del fondo del panel (ambos eran --tt-mist):
-   las no elegidas se funden con el panel y la elegida pasa a papel blanco con
-   borde de acento. Texto sin cambio de token (--tt-text-1/3 sobre blanco). */
-.tt-lib-opts .tt-vis-opt { background: transparent; }
+/* La tarjeta se distingue del fondo del panel (ambos eran --tt-mist): la no
+   elegida lleva borde --tt-text-3 (>=3:1 sobre el panel, WCAG 1.4.11) y la
+   elegida pasa a papel blanco con borde y anillo de acento. Texto sin cambio
+   de token (--tt-text-1/3 sobre blanco). */
+.tt-lib-opts .tt-vis-opt { background: transparent; border-color: var(--tt-text-3); }
 .tt-lib-opts .tt-vis-opt:has(input:checked) { background: var(--tt-paper);
+                                              border-color: var(--tt-accent-ink);
                                               box-shadow: inset 0 0 0 1px var(--tt-accent-ink); }
