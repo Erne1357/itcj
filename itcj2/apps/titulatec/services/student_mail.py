@@ -220,6 +220,8 @@ class StudentMail:
         "library_cleared": "Se liberó el no adeudo de biblioteca",
         "library_reverted": "Se revirtió el no adeudo de biblioteca",
         "library_reminder": "Recordatorio de pago en Caja",
+        "library_observed": "Biblioteca registró observaciones",
+        "library_reenabled": "Biblioteca lo rehabilitó",
     }
 
     # ------------------------------------------------------------------
@@ -483,6 +485,23 @@ class StudentMail:
             raise ValueError(f"estado de reversión desconocido: {to_status!r}")
         return StudentMail.enqueue(db, kind="library_reverted", process=process,
                                    payload={"reason": reason, "to_status": to_status})
+
+    @staticmethod
+    @_best_effort
+    def library_observed(db: Session, process, *, reason: str) -> bool:
+        """Biblioteca registró observaciones (o actualizó el motivo) en su no
+        adeudo (spec 2026-10-05 §3.3). El motivo va CONGELADO en el payload;
+        al ENVIAR solo sale si la fila sigue «Con observaciones»."""
+        return StudentMail.enqueue(db, kind="library_observed", process=process,
+                                   payload={"reason": reason})
+
+    @staticmethod
+    @_best_effort
+    def library_reenabled(db: Session, process) -> bool:
+        """Biblioteca lo rehabilitó: vuelve a «Por revisar» (spec 2026-10-05
+        §3.3). Al ENVIAR no sale si lo volvieron a observar."""
+        return StudentMail.enqueue(db, kind="library_reenabled", process=process,
+                                   payload={})
 
     @staticmethod
     @_best_effort

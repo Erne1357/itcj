@@ -64,7 +64,8 @@ def test_dominios_de_modulo_son_los_del_brief():
     from itcj2.apps.titulatec.models.prior_clearance import PRIOR_KINDS
     from itcj2.apps.titulatec.models.survey_review import SURVEY_REVIEW_ORIGINS
 
-    assert LIBRARY_STATUSES == ("pending", "awaiting_payment", "cleared")
+    # 'observed' = «Con observaciones» (spec 2026-10-05 §3.1).
+    assert LIBRARY_STATUSES == ("pending", "awaiting_payment", "observed", "cleared")
     assert CLEARED_VIA == ("payment", "no_charge", "prior", "legacy")
     assert CERTIFICATE_KINDS == ("survey_release", "library_clearance")
     assert PRIOR_KINDS == ("survey", "library")

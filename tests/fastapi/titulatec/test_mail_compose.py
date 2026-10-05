@@ -2432,6 +2432,10 @@ def test_texto_libre_sale_escapado(db_session, proceso, cita_esc, make_appointme
     StudentMail.library_reverted(db_session, p, reason=MALICIOSO, to_status="pending")
     correos["reversión del no adeudo"] = _componer(db_session, p)
 
+    p = con_biblioteca(biblioteca="observed", observation_reason=MALICIOSO)
+    StudentMail.library_observed(db_session, p, reason=MALICIOSO)
+    correos["observaciones de Biblioteca"] = _componer(db_session, p)
+
     for nombre, c in correos.items():
         # Con el entorno real y sin autoescape: el `|e` de la plantilla basta solo.
         for html in (_html(c), _html(c, sin_autoescape=True)):
@@ -2567,6 +2571,15 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
     _recordatorio(db, "library_reminder", p)
     _anota("recordatorio de pago", p)
 
+    # «Con observaciones» (spec 2026-10-05 §3.3).
+    p = con_biblioteca(biblioteca="observed", observation_reason="Libro dañado")
+    StudentMail.library_observed(db, p, reason="Libro dañado")
+    _anota("observaciones de Biblioteca", p)
+
+    p = con_biblioteca(biblioteca="pending")
+    StudentMail.library_reenabled(db, p)
+    _anota("Biblioteca lo rehabilitó", p)
+
     p = con_biblioteca(biblioteca="pending")
     _recordatorio(db, "survey_reminder", p)
     _anota("recordatorio de encuesta con candado de biblioteca", p)
@@ -2700,7 +2713,7 @@ def test_todo_kind_tiene_composicion():
     assert all(callable(fn) for fn in MailComposer.REGISTRY.values())
     for kind in ("appt_reminder", "docs_reminder", "survey_reminder",
                  "library_ready", "library_cleared", "library_reverted",
-                 "library_reminder"):
+                 "library_reminder", "library_observed", "library_reenabled"):
         assert kind in MailComposer.REGISTRY, kind
 
 

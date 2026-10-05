@@ -25,8 +25,16 @@ Maquina de estados (detalle y guardas en `LibraryClearanceService`):
     cleared/no_charge|legacy ──Biblioteca revierte──────> pending
     cleared/prior     ──se deshace la previa────────────> pending
                          (Biblioteca o SE)
+    pending|awaiting  ──Biblioteca observa (motivo)─────> observed  (`ready_at` = NULL,
+                                                                    montos intactos)
+    observed          ──Biblioteca actualiza el motivo──> observed
+    observed          ──Biblioteca rehabilita──────────> pending   (montos intactos)
 
-Las tres reversas exigen la fase 2 SIN aprobar (`can_revert`).
+Las tres reversas exigen la fase 2 SIN aprobar (`can_revert`); observar y
+rehabilitar tambien (spec `2026-10-05-titulatec-biblioteca-observaciones-
+design.md` §3.2). Desde `cleared` no se observa: primero se revierte. Con
+`observed` ni se registra, ni se cobra, ni se revierte, ni se aplica una
+constancia previa: primero se rehabilita.
 
 `cleared_via='legacy'` no tiene arista de entrada: lo escribe el dato, nunca
 una transicion -- el backfill de la migracion `tt20261001a` y la promocion
@@ -53,7 +61,10 @@ from itcj2.models.base import Base
 # Dominio de `status` (spec §4.1.1/§4.2). Nace en 'pending'.
 # 'awaiting_payment' = Biblioteca ya registro un adeudo > 0 y falta que Caja
 # cobre. 'cleared' = sin adeudo pendiente (ver `cleared_via` para el motivo).
-LIBRARY_STATUSES = ("pending", "awaiting_payment", "cleared")
+# 'observed' = Biblioteca DETUVO al egresado con un motivo («Con
+# observaciones», spec 2026-10-05 §3.1): ni agenda ni paga hasta que Biblioteca
+# lo rehabilite (vuelve a 'pending'). Sin CHECK de dominio en la BD.
+LIBRARY_STATUSES = ("pending", "awaiting_payment", "observed", "cleared")
 
 # Dominio de `cleared_via`. NULL salvo cuando `status='cleared'`.
 # 'payment' = Caja cobro el monto congelado. 'no_charge' = Biblioteca
@@ -109,6 +120,13 @@ class LibraryClearance(Base):
     paid_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     paid_at = Column(DateTime, nullable=True)
     receipt_number = Column(String(40), nullable=True)
+
+    # --- Observacion de Biblioteca (spec 2026-10-05 §3.1, tt20261005a) ---
+    # La VIGENTE mientras `status='observed'`; NULL en cualquier otro estado
+    # (rehabilitar la limpia). El historial vive en `ProcessEvent`.
+    observation_reason = Column(Text, nullable=True)
+    observed_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    observed_at = Column(DateTime, nullable=True)
 
     # --- Constancia previa (§4.12) ---
     prior_issued_on = Column(Date, nullable=True)

@@ -58,14 +58,17 @@ from itcj2.models.base import Base
 # de la espera).
 OUTBOX_STATUSES = ("pending", "sent", "failed", "no_recipient", "obsolete")
 
-# Catalogo cerrado de correos (spec §5), 15 kinds. `phase_approved` cubre
+# Catalogo cerrado de correos (spec §5), 17 kinds. `phase_approved` cubre
 # DOS filas del catalogo (fase `initial_docs`, agrupada con `docs_review`;
 # y el resto de las fases, individual) -- lo que cambia entre ambas es
 # `group_key`, no el `kind`. Los 4 ultimos son del no adeudo de biblioteca
 # (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11): pasa a Caja
 # (o se corrige el monto), quedo liberado, se revirtio y el recordatorio del
-# pago pendiente; todos individuales. Sin CHECK en la BD: crecer el catalogo
-# no lleva migracion (lo fija `test_email_outbox_model.py`).
+# pago pendiente; todos individuales. Los 2 ultimos, «Con observaciones» de
+# Biblioteca (spec 2026-10-05-titulatec-biblioteca-observaciones-design.md
+# §3.3): observar (con el motivo) y rehabilitar; tambien individuales. Sin
+# CHECK en la BD: crecer el catalogo no lleva migracion (lo fija
+# `test_email_outbox_model.py`).
 OUTBOX_KINDS = (
     "docs_review",
     "phase_approved",
@@ -82,6 +85,8 @@ OUTBOX_KINDS = (
     "library_cleared",
     "library_reverted",
     "library_reminder",
+    "library_observed",
+    "library_reenabled",
 )
 
 

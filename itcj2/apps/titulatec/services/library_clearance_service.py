@@ -19,6 +19,20 @@ Máquina de estados (modelo `LibraryClearance`):
     cleared/payment ──Revertir pago (Caja, motivo) ─────────────> awaiting_payment   (anula la constancia)
     cleared/no_charge|legacy ──Revertir (Biblioteca, motivo) ───> pending            (anula la constancia si hay)
     cleared/prior ──Deshacer constancia previa (motivo) ────────> pending
+    pending|awaiting_payment ──Observar (Biblioteca, motivo) ───> observed  (`ready_at` = NULL)
+    observed ──Observar otra vez (actualiza el motivo) ─────────> observed
+    observed ──Rehabilitar (Biblioteca) ────────────────────────> pending   (montos intactos)
+
+«Con observaciones» (spec `2026-10-05-titulatec-biblioteca-observaciones-
+design.md` §2/§3.2, gemelo de «Observar» de GTV): Biblioteca DETIENE al
+egresado con un motivo. Desde `cleared` no se observa (primero se revierte).
+Mientras está `observed` ninguna otra transición aplica -ni Registrar, ni el
+pago de Caja, ni las reversas, ni la constancia previa- con el mensaje
+`_MSG_OBSERVADO`; solo Rehabilitar, que lo regresa SIEMPRE a `pending` con los
+montos que tuviera (precargan el formulario de Registrar). Observar desde Caja
+limpia `ready_at` (sale de «Por cobrar» y de los recordatorios de pago) y
+conserva los montos. El requisito `library_clearance` no cambia en ninguna de
+las dos (no estaba cumplido).
 
 Montos (D16/D18/D19): Registrar = adeudo (0 = «sin adeudo») + nota opcional.
 La donación voluntaria de libro se CONGELA desde `Cohort.book_donation_amount`
@@ -145,7 +159,7 @@ _MSG_COTEJO_YA_LIBERADO = ("Este egresado ya pasó su cotejo; no necesita trámi
 # Quién registra una constancia previa: va al payload del evento.
 PRIOR_BY = ("library", "school_services", "import")
 
-# Los 8 `ProcessEvent` que escribe este service (fase 2, <= 40 caracteres).
+# Los 10 `ProcessEvent` que escribe este service (fase 2, <= 40 caracteres).
 # Fijado contra los `_log(...)` reales por `test_library_clearance_service.py`.
 LIBRARY_EVENT_TYPES = (
     "library_debt_registered",
@@ -156,6 +170,8 @@ LIBRARY_EVENT_TYPES = (
     "library_payment_reverted",
     "library_clearance_reverted",
     "library_prior_undone",
+    "library_observed",
+    "library_reenabled",
 )
 
 # Tipo de constancia que emite este service (`CERT_KINDS` de certificate_service).
@@ -165,8 +181,13 @@ CERT_KIND = "library_clearance"
 _STATUS_LABELS = {
     "pending": "Por revisar",
     "awaiting_payment": "En caja",
+    "observed": "Con observaciones",
     "cleared": "Liberado",
 }
+
+# Cualquier transición sobre una fila `observed` que no sea Observar o
+# Rehabilitar (spec 2026-10-05 §3.2).
+_MSG_OBSERVADO = ("Está con observaciones de Biblioteca; rehabilítalo primero.")
 
 _CENT = Decimal("0.01")
 
@@ -338,13 +359,28 @@ class LibraryClearanceService:
         lectura de `LibraryClearance.status` permitida para la clasificación
         de constancias previas fuera de este service. `PriorClearanceService`
         llama aquí en vez de comparar `.status` por su cuenta (§5, invariante
-        2). Gemela de `SurveyReviewService.prior_outcome` (sin el bote
-        `"conflict"`: biblioteca no tiene un estado "en revisión por alguien
-        más" que requiera que lo decida un humano)."""
+        2). Gemela de `SurveyReviewService.prior_outcome`. `"conflict"` =
+        Biblioteca lo tiene `observed` («Con observaciones», spec 2026-10-05):
+        `register_prior` lo rechazaría; lo decide Biblioteca (rehabilitar
+        primero), no la importación."""
         row = LibraryClearanceService.get_for_process(db, process_id)
         if row is None or row.status in ("pending", "awaiting_payment"):
             return "apply"
+        if row.status == "observed":
+            return "conflict"
         return "already"
+
+    @staticmethod
+    def observation(db: Session, process_id: int) -> dict | None:
+        """La observación VIGENTE de Biblioteca, SOLO LECTURA: `{"reason",
+        "observed_at"}` si la fila está `observed` («Con observaciones»);
+        `None` en cualquier otro estado o sin fila. Para los correos de
+        observar/rehabilitar (`mail_compose`), que así no comparan
+        `LibraryClearance.status` por su cuenta (invariante 2)."""
+        row = LibraryClearanceService.get_for_process(db, process_id)
+        if row is None or row.status != "observed":
+            return None
+        return {"reason": row.observation_reason, "observed_at": row.observed_at}
 
     @staticmethod
     def payment_due(db: Session, process_id: int) -> dict | None:
@@ -470,7 +506,8 @@ class LibraryClearanceService:
         R21 -mismo criterio que `release_status`-), `via`, `debt`,
         `donation`, `total` (`Decimal` | None), `note` (la de Biblioteca),
         `ready_at`, `paid_at`, `receipt`, `prior_issued_on`, `prior_note`,
-        `can_revert`, `clearance_id`. Formatear es de quien pinta
+        `observation` (el motivo VIGENTE de «Con observaciones», NULL fuera
+        de `observed`), `observed_at`, `can_revert`, `clearance_id`. Formatear es de quien pinta
         (`format_amount`). Con `NOT_APPLICABLE` las vistas del egresado no
         pintan nada y las de SE dicen «No aplica (cotejo ya liberado)» sin
         ofrecer «Constancia previa…».
@@ -493,6 +530,7 @@ class LibraryClearanceService:
                     "total": None, "note": None, "ready_at": None, "paid_at": None,
                     "receipt": None,
                     "prior_issued_on": None, "prior_note": None,
+                    "observation": None, "observed_at": None,
                     "can_revert": False, "clearance_id": None}
 
         return {
@@ -507,6 +545,8 @@ class LibraryClearanceService:
             "receipt": row.receipt_number,
             "prior_issued_on": row.prior_issued_on,
             "prior_note": row.prior_note,
+            "observation": row.observation_reason,
+            "observed_at": row.observed_at,
             "can_revert": LibraryClearanceService.can_revert(db, row),
             "clearance_id": row.id,
         }
@@ -659,6 +699,10 @@ class LibraryClearanceService:
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        # Antes que `_check_expected`: los montos de una observada siguen en
+        # la fila, y aunque coincidan no hay nada que cobrar (spec 2026-10-05
+        # §3.2, Review Focus 1).
+        LibraryClearanceService._assert_not_observed(clearance)
         LibraryClearanceService._check_expected(clearance, expected_total=expected_total)
         if clearance.status == "pending":
             raise ValueError("Biblioteca todavía no registra el monto de este egresado; "
@@ -718,6 +762,7 @@ class LibraryClearanceService:
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
             raise ValueError("Este no adeudo ya está liberado.")
         LibraryClearanceService._assert_needs_clearance(db, process)
@@ -773,6 +818,7 @@ class LibraryClearanceService:
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status != "cleared" or clearance.cleared_via != "payment":
             raise ValueError("Solo se puede revertir un pago registrado.")
         LibraryClearanceService._assert_phase2_open(db, process)
@@ -819,6 +865,7 @@ class LibraryClearanceService:
         """
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status != "cleared":
             raise ValueError("Este no adeudo no está liberado; no hay nada que revertir.")
         if clearance.cleared_via == "payment":
@@ -858,6 +905,7 @@ class LibraryClearanceService:
         descumple el requisito (la previa no emitió constancia que anular)."""
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
+        LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status != "cleared" or clearance.cleared_via != "prior":
             raise ValueError("Solo se puede deshacer una constancia previa registrada.")
         LibraryClearanceService._assert_phase2_open(db, process)
@@ -875,6 +923,93 @@ class LibraryClearanceService:
         LibraryClearanceService._notify_reverted(db, process, motivo)
         from itcj2.apps.titulatec.services.student_mail import StudentMail
         StudentMail.library_reverted(db, process, reason=motivo, to_status="pending")
+
+        db.commit()
+        return clearance
+
+    @staticmethod
+    def observe(db: Session, clearance_id: int, *, reason: str, actor_id: int):
+        """Observar (Biblioteca, motivo): `pending|awaiting_payment` →
+        `observed`; desde `observed` solo ACTUALIZA el motivo vigente (como
+        `SurveyReviewService.reject`). Spec 2026-10-05 §3.2, D1.
+
+        Guardas, todas antes de mutar: proceso admitido (`active`/`on_hold`),
+        no `cleared` (primero se revierte), fase 2 sin aprobar (Ruling R20:
+        quien ya pasó su cotejo no tiene trámite) y motivo 1..`REASON_MAX`
+        tras recortar. Desde Caja limpia `ready_at` -sale de «Por cobrar» y
+        de los recordatorios de pago- y conserva los montos. El requisito no
+        cambia (no estaba cumplido). Evento `library_observed {reason,
+        from_status}`, aviso `LIBRARY_OBSERVED` con el motivo y correo
+        `library_observed`; UN commit."""
+        clearance = LibraryClearanceService._locked(db, clearance_id)
+        process = LibraryClearanceService._admitted_process(db, clearance)
+        if clearance.status == "cleared":
+            raise ValueError("Este no adeudo ya está liberado; primero revierte la "
+                             "liberación y después regístrale observaciones.")
+        if clearance.status not in ("pending", "awaiting_payment", "observed"):
+            raise ValueError(f"Este caso no se puede observar (estado: {clearance.status}).")
+        LibraryClearanceService._assert_needs_clearance(db, process)
+        motivo = LibraryClearanceService._clean_reason(reason)
+
+        desde = clearance.status
+        ahora = db_now()
+        clearance.status = "observed"
+        if desde == "awaiting_payment":
+            clearance.ready_at = None       # sale de «Por cobrar» y de los recordatorios
+        clearance.observation_reason = motivo
+        clearance.observed_by_id = actor_id
+        clearance.observed_at = ahora
+        clearance.updated_at = ahora
+
+        LibraryClearanceService._log(db, process.id, actor_id, "library_observed",
+                                     {"clearance_id": clearance.id, "reason": motivo,
+                                      "from_status": desde})
+
+        from itcj2.apps.titulatec.services.notify import notify_student
+        notify_student(db, process.student_id, type="LIBRARY_OBSERVED",
+                       title="Biblioteca registró observaciones en tu no adeudo",
+                       body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_observed(db, process, reason=motivo)
+
+        db.commit()
+        return clearance
+
+    @staticmethod
+    def reenable(db: Session, clearance_id: int, *, actor_id: int):
+        """Rehabilitar (Biblioteca): `observed` → `pending` («Por revisar»),
+        SIEMPRE (D2), con los montos que tuviera -precargan el formulario de
+        Registrar-. Mismas guardas de proceso y fase 2 que `observe`. Limpia
+        la observación vigente (queda en el payload del evento
+        `library_reenabled {previous_reason}`). Aviso `LIBRARY_REENABLED` y
+        correo `library_reenabled`; UN commit."""
+        clearance = LibraryClearanceService._locked(db, clearance_id)
+        process = LibraryClearanceService._admitted_process(db, clearance)
+        if clearance.status != "observed":
+            raise ValueError("Este caso no tiene observaciones de Biblioteca; no hay nada "
+                             "que rehabilitar.")
+        LibraryClearanceService._assert_needs_clearance(db, process)
+
+        previo = clearance.observation_reason
+        clearance.status = "pending"
+        clearance.observation_reason = None
+        clearance.observed_by_id = None
+        clearance.observed_at = None
+        clearance.updated_at = db_now()
+
+        LibraryClearanceService._log(db, process.id, actor_id, "library_reenabled",
+                                     {"clearance_id": clearance.id,
+                                      "previous_reason": previo})
+
+        from itcj2.apps.titulatec.services.notify import notify_student
+        notify_student(db, process.student_id, type="LIBRARY_REENABLED",
+                       title="Biblioteca te rehabilitó",
+                       body=("Ya puedes continuar con tu trámite de no adeudo de "
+                             "biblioteca: el Centro de Información volverá a revisar "
+                             "tu caso."),
+                       process_id=process.id, phase_number=PHASE_COTEJO)
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        StudentMail.library_reenabled(db, process)
 
         db.commit()
         return clearance
@@ -899,8 +1034,8 @@ class LibraryClearanceService:
     @staticmethod
     def counts_by_status(db: Session, q: str | None = None, *,
                          admitted_only: bool = False) -> dict[str, int]:
-        """Conteo por pestaña: las 3 llaves de `LIBRARY_STATUSES` siempre
-        presentes. Mismo criterio que `list_for_inbox` (búsqueda `q` por nombre
+        """Conteo por pestaña: las 4 llaves de `LIBRARY_STATUSES` siempre
+        presentes (`observed` = «Con observaciones», spec 2026-10-05 §3.5). Mismo criterio que `list_for_inbox` (búsqueda `q` por nombre
         o número de control; «Por revisar» SIEMPRE sin procesos revocados ni
         terminados, ni los que ya pasaron su cotejo -Ruling R20-), para que el
         contador no anuncie lo que la tabla no muestra.
@@ -954,6 +1089,10 @@ class LibraryClearanceService:
           revisar») lo saca por completo. Por eso NO es el comportamiento por
           omisión: el llamador de Caja (`pages/cashier_admin.py`) lo pide
           explícito; Biblioteca no cambia.
+        * `observed` («Con observaciones», spec 2026-10-05 §3.2): lo observado
+          más reciente primero (`observed_at DESC, id DESC`); como «Liberados»,
+          sin filtro de proceso admitido (historial). «Por revisar» NUNCA lo
+          incluye: es otro `status`.
         * `cleared` («Liberados»): lo liberado más reciente primero
           (`updated_at`); SIN este filtro -- conserva el historial de lo ya
           liberado aunque el proceso se haya revocado después.
@@ -982,6 +1121,9 @@ class LibraryClearanceService:
         elif status == "awaiting_payment":
             query = query.order_by(LibraryClearance.ready_at.asc(),
                                    LibraryClearance.id.asc())
+        elif status == "observed":
+            query = query.order_by(LibraryClearance.observed_at.desc(),
+                                   LibraryClearance.id.desc())
         else:
             query = query.order_by(LibraryClearance.updated_at.desc(),
                                    LibraryClearance.id.desc())
@@ -1231,6 +1373,7 @@ class LibraryClearanceService:
         process = LibraryClearanceService._admitted_process(db, clearance)
         LibraryClearanceService._check_expected(
             clearance, expected_status=expected_status, expected_total=expected_total)
+        LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
             raise ValueError("Este no adeudo ya está liberado; para cambiarlo, primero "
                              "revierte la liberación.")
@@ -1560,6 +1703,13 @@ class LibraryClearanceService:
                              "ya no se puede revertir.")
 
     @staticmethod
+    def _assert_not_observed(clearance) -> None:
+        """Con «Con observaciones» solo Observar y Rehabilitar aplican (spec
+        2026-10-05 §3.2): todo lo demás responde `_MSG_OBSERVADO`."""
+        if clearance.status == "observed":
+            raise ValueError(_MSG_OBSERVADO)
+
+    @staticmethod
     def _assert_needs_clearance(db: Session, process) -> None:
         """Ruling R20 (I2): quien ya pasó su cotejo (fase 2 `approved`) no
         abre trámite de no adeudo -su estado es `NOT_APPLICABLE`-. Lo usa la
@@ -1709,7 +1859,8 @@ class LibraryClearanceService:
         impresión de la constancia vía `CertificateService.print_status_map`
         -hasta 2 consultas MÁS, nunca una por fila- (Tarea 3 de
         `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.3,
-        invariante 2). `certificate` es el dict completo que esa llamada
+        invariante 2), más UNA de nombres de quien observó solo si la página
+        trae filas `observed` (`observed_by`). `certificate` es el dict completo que esa llamada
         regresa (o `None`); la plantilla lo pinta con la macro
         `certificate_cell`. `certificate_number` se CONSERVA -la constancia
         VIGENTE, nunca una anulada- porque Caja lo lee directo bajo su píldora
@@ -1724,6 +1875,14 @@ class LibraryClearanceService:
             db, [clearance.id for clearance, *_ in filas])
         refs = [_ref(clearance.id) for clearance, *_ in filas]
         estado_impresion = CertificateService.print_status_map(db, refs)
+        # Quién observó (pestaña «Con observaciones»): UNA consulta por página.
+        observadores = {clearance.observed_by_id for clearance, *_ in filas
+                        if clearance.observed_by_id is not None}
+        nombres: dict[int, str] = {}
+        if observadores:
+            from itcj2.core.models.user import User
+            nombres = dict(db.query(User.id, User.full_name)
+                           .filter(User.id.in_(observadores)).all())
 
         out = []
         for clearance, process, student, program, cohort in filas:
@@ -1749,6 +1908,9 @@ class LibraryClearanceService:
                 "receipt": clearance.receipt_number,
                 "prior_issued_on": clearance.prior_issued_on,
                 "prior_note": clearance.prior_note,
+                "observation_reason": clearance.observation_reason,
+                "observed_at": clearance.observed_at,
+                "observed_by": nombres.get(clearance.observed_by_id),
                 "updated_at": clearance.updated_at,
                 "enrolled_at": process.created_at,
                 "certificate": certificate,

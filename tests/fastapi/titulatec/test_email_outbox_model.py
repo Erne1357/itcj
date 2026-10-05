@@ -43,6 +43,8 @@ class TestTablaYDominios:
             "library_cleared",
             "library_reverted",
             "library_reminder",
+            "library_observed",
+            "library_reenabled",
         )
 
     def test_cada_kind_cabe_en_su_columna(self):

@@ -76,6 +76,10 @@ EVENTO_A_CORREO = {
     "library_payment_reverted": "library_reverted",
     "library_clearance_reverted": "library_reverted",
     "library_prior_undone": "library_reverted",
+    # «Con observaciones» (spec 2026-10-05 §3.3): observar (o actualizar el
+    # motivo) -> `library_observed`; rehabilitar -> `library_reenabled`.
+    "library_observed": "library_observed",
+    "library_reenabled": "library_reenabled",
 }
 
 # Escritores que SÍ encolan: función -> la de `StudentMail` que deben llamar.
@@ -100,6 +104,8 @@ MAPEO = {
     "LibraryClearanceService.revert_payment": "library_reverted",
     "LibraryClearanceService.revert_clearance": "library_reverted",
     "LibraryClearanceService.undo_prior": "library_reverted",
+    "LibraryClearanceService.observe": "library_observed",
+    "LibraryClearanceService.reenable": "library_reenabled",
 }
 
 # Escritores que NO encolan, cada uno con su motivo.
@@ -352,7 +358,7 @@ def test_la_lista_blanca_no_encola_nada():
 
 
 def test_cada_evento_del_no_adeudo_tiene_su_correo():
-    """Los 8 de `LIBRARY_EVENT_TYPES` están en el catálogo: un evento nuevo del
+    """Los 10 de `LIBRARY_EVENT_TYPES` están en el catálogo: un evento nuevo del
     no adeudo sin correo registrado no pasaría inadvertido (el detector solo
     vigila los eventos que ya están en `EVENTO_A_CORREO`)."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
@@ -361,7 +367,8 @@ def test_cada_evento_del_no_adeudo_tiene_su_correo():
 
     assert set(LIBRARY_EVENT_TYPES) <= set(EVENTO_A_CORREO)
     assert {EVENTO_A_CORREO[e] for e in LIBRARY_EVENT_TYPES} == {
-        "library_ready", "library_cleared", "library_reverted"}
+        "library_ready", "library_cleared", "library_reverted",
+        "library_observed", "library_reenabled"}
 
 
 def test_ningun_event_type_opaco():

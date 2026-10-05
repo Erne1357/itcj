@@ -252,11 +252,13 @@ def test_constantes_publicas():
     assert PHASE_COTEJO == 2
 
 
-def test_los_ocho_eventos_del_spec_caben_en_la_columna():
+def test_los_diez_eventos_del_spec_caben_en_la_columna():
     assert LIBRARY_EVENT_TYPES == (
         "library_debt_registered", "library_no_charge", "library_amount_corrected",
         "library_payment_registered", "library_prior_registered",
         "library_payment_reverted", "library_clearance_reverted", "library_prior_undone",
+        # «Con observaciones» (spec 2026-10-05 §3.2).
+        "library_observed", "library_reenabled",
     )
     assert all(len(e) <= 40 for e in LIBRARY_EVENT_TYPES)   # ProcessEvent.event_type String(40)
 
@@ -434,7 +436,8 @@ class TestSummary:
     # folio suelto ya no tenía lector desde la Task 4 (Caja lee el de `_rows`).
     LLAVES = {"status", "via", "debt", "donation", "total", "note", "ready_at",
               "paid_at", "receipt",
-              "prior_issued_on", "prior_note", "can_revert", "clearance_id"}
+              "prior_issued_on", "prior_note", "observation", "observed_at",
+              "can_revert", "clearance_id"}
 
     def test_sin_fila(self, db_session, nuevo):
         esc = nuevo(status=None)
@@ -2030,9 +2033,9 @@ def token():
 
 
 class TestCounts:
-    def test_las_tres_llaves_siempre(self, db_session):
+    def test_las_cuatro_llaves_siempre(self, db_session):
         counts = LibraryClearanceService.counts_by_status(db_session)
-        assert set(counts) == {"pending", "awaiting_payment", "cleared"}
+        assert set(counts) == {"pending", "awaiting_payment", "observed", "cleared"}
         assert all(isinstance(v, int) and v >= 0 for v in counts.values())
 
     def test_con_q_cuenta_solo_lo_buscado_y_sin_revocadas_en_por_revisar(
@@ -2050,7 +2053,7 @@ class TestCounts:
 
         counts = LibraryClearanceService.counts_by_status(db_session, q=token)
 
-        assert counts == {"pending": 3, "awaiting_payment": 1, "cleared": 2}
+        assert counts == {"pending": 3, "awaiting_payment": 1, "observed": 0, "cleared": 2}
 
     def test_sin_q_por_delta(self, db_session, nuevo):
         antes = LibraryClearanceService.counts_by_status(db_session)

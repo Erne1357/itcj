@@ -52,7 +52,8 @@ aplica, devuelve `Obsolete("motivo legible")`, que va a `last_error`
 títulos (`asunto_recordatorio_*`) los comparte el aviso in-app que crea el
 barrido: un solo texto para los dos canales. Y los tres correos de las
 transiciones del no adeudo: `library_ready`, `library_cleared` y
-`library_reverted`.
+`library_reverted`; y los dos de «Con observaciones» de Biblioteca (spec
+2026-10-05 §3.3): `library_observed` y `library_reenabled`.
 """
 from __future__ import annotations
 
@@ -126,6 +127,8 @@ _ASUNTO_CAJA = "Ya puedes pasar a Caja por tu no adeudo de biblioteca"
 _ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu no adeudo de biblioteca"
 _ASUNTO_LIBERADO = "Tu no adeudo de biblioteca quedó liberado"
 _ASUNTO_REVERTIDO = "Se revirtió tu no adeudo de biblioteca"
+_ASUNTO_OBSERVADO = "Biblioteca registró observaciones en tu no adeudo de biblioteca"
+_ASUNTO_REHABILITADO = "Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo"
 _VIAS_LIBERACION = ("payment", "no_charge", "prior")
 # El `code` del requisito de cotejo del no adeudo (la «Información para el
 # alumno» de `library_ready` sale de él; también en la lista vieja, sin
@@ -801,6 +804,54 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
                    to_status=hacia, reason=_texto(datos.get("reason")), total=total)
 
 
+def _compose_library_observed(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Biblioteca registró observaciones en el no adeudo (spec 2026-10-05
+    §3.3): el motivo CONGELADO en el payload y «Acude a la Biblioteca».
+
+    Re-validado al enviar (D8), obsoleto si:
+
+    1. Hay un `library_observed` MÁS NUEVO del proceso: actualizó el motivo
+       dentro de la espera y sale ese (con el motivo vigente).
+    2. Hay un `library_reenabled` más nuevo, o la fila ya no está «Con
+       observaciones» (`LibraryClearanceService.observation`, el dueño:
+       aquí no se compara ningún estado, invariante 2). Review Focus 4:
+       observado y rehabilitado antes del despacho no manda un aviso falso.
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    if _hay_posterior(db, fila, "library_observed"):
+        return Obsolete("hay una observación más reciente de Biblioteca")
+    if (_hay_posterior(db, fila, "library_reenabled")
+            or LibraryClearanceService.observation(db, process.id) is None):
+        return Obsolete("Biblioteca ya lo rehabilitó")
+    return _correo(user, _ASUNTO_OBSERVADO, "library_observed.html",
+                   _tablero(PhaseService.PHASE_COTEJO),
+                   reason=_texto(_datos(fila).get("reason")))
+
+
+def _compose_library_reenabled(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Biblioteca lo rehabilitó: vuelve a «Por revisar» (spec 2026-10-05
+    §3.3). Sale mientras la fila NO esté otra vez «Con observaciones» (en
+    `pending` o cualquier estado posterior); obsoleto si lo volvieron a
+    observar o si hay un `library_reenabled` más nuevo (sale ese)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    if _hay_posterior(db, fila, "library_reenabled"):
+        return Obsolete("hay un aviso más reciente de rehabilitación")
+    if LibraryClearanceService.observation(db, process.id) is not None:
+        return Obsolete("Biblioteca volvió a registrar observaciones")
+    return _correo(user, _ASUNTO_REHABILITADO, "library_reenabled.html",
+                   _tablero(PhaseService.PHASE_COTEJO))
+
+
 # ---------------------------------------------------------------------------
 # Recordatorios (#8, #10, #11 y el del pago pendiente en Caja, spec 2026-10-01
 # §4.11). Los encola el barrido diario (`mail_reminders.MailReminders.run`);
@@ -1001,6 +1052,8 @@ class MailComposer:
         "library_cleared": _compose_library_cleared,
         "library_reverted": _compose_library_reverted,
         "library_reminder": _compose_library_reminder,
+        "library_observed": _compose_library_observed,
+        "library_reenabled": _compose_library_reenabled,
     }
 
     @staticmethod
