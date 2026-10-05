@@ -210,25 +210,25 @@ va al repo ni a un test (los tests fabrican libros con openpyxl,
 titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2/cli/titulatec.py:2792)
 ```
 
-### El archivo (`SurveyImportService.read_xlsx`, `services/survey_import_service.py:265`)
+### El archivo (`SurveyImportService.read_xlsx`, `services/survey_import_service.py:266`)
 
 - Hoja **`Sheet1`** (`DEFAULT_SHEET`, `:47`; `--hoja` la cambia). Si no existe, el error lista las
   que hay.
-- Las columnas se ligan por el **TEXTO normalizado del encabezado** (`_HEADER_MAP`, `:80`; nunca
+- Las columnas se ligan por el **TEXTO normalizado del encabezado** (`_HEADER_MAP`, `:84`; nunca
   por letra, R2). El texto de Forms trae instrucciones largas detrás, así que casi todos se
   comparan por prefijo (gana el más largo). Un encabezado desconocido, uno faltante o uno repetido
   **aborta sin escribir nada** (`ValueError` → `ClickException`).
 - `Id`, `Start time`, `Completion time`, `Email`, `Name` son de Forms. `Completion time` es la
   fecha de emisión de la liberación (`issued_on`). Una fila con datos pero sin `Id` aborta; las
   filas totalmente vacías se ignoran.
-- **Id en naranja = constancia en papel pendiente de recoger.** `_is_orange` (`:244`) lee el
+- **Id en naranja = constancia en papel pendiente de recoger.** `_is_orange` (`:245`) lee el
   relleno de la celda del `Id` (hallada por encabezado): `FFFFC000` o el color de tema accent4
   (`THEME_ACCENT4`). Naranja → `paper_pending=True` (ver «Constancia por recoger»).
 - La pregunta del Excel que el formulario abierto no tiene («…aspecto que valora la empresa… No
   trabajo») se guarda bajo la llave `extra_aspecto_no_trabajo` (`EXTRA_FIELDS`, `:76`; R9) y se ve
   en «Otros datos importados» de Encuestas.
 
-### Qué hace `SurveyImportService.import_rows` (`:536`)
+### Qué hace `SurveyImportService.import_rows` (`:605`)
 
 1. Exige el formulario `egresados` ABIERTO (`SurveyService.open_form`); si no hay, `ValueError`.
 2. **Duplicados dentro del archivo** → gana la respuesta con `Completion time` más reciente
@@ -241,22 +241,32 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
    por `form_id`: abrir una v2 del formulario no debe reimportar el archivo—. Una fila cuya
    referencia ya existe va a «Ya importadas» y no se toca. Respaldo duro: el índice único
    `uq_titulatec_survey_responses_form_import_ref` (la CLI traduce la colisión a un mensaje).
-5. **Guarda la respuesta** (`_write_response`, `:671`): `SurveyResponse.identity_source='import'`
+5. **Guarda la respuesta** (`_write_response`, `:748`): `SurveyResponse.identity_source='import'`
    (la UI la pinta «Importada») con `submitted_at = Completion time` y un `SurveyAnswer` por
    pregunta. `user_id` en cuanto exista el `User` de ese control y `cohort_id` desde su proceso más
    reciente; `process_id` **solo** cuando la respuesta queda ligada a una liberación (evita dos
    respuestas por proceso).
-6. **Normaliza sin rechazar** (D1): lo que no encaja con las opciones/formato del schema se guarda
-   con su texto original y `SurveyAnswer.is_raw=True` (la UI lo marca). Canonicaliza sinónimos
-   («Mucho 5», «Aprobé»/«Aprobó») y descarta los centinelas («No trabajo», «No estudio»,
-   «Desempleado (a)», «Ninguno») de campos que no aplican por `visible_when`, en vez de dejarlos
-   como raw. `survey_validator` NO se usa en este camino.
+6. **Normaliza sin rechazar** (D1; `normalize_answers`, `:467`): lo que no encaja con las
+   opciones/formato del schema se guarda con su texto original y `SurveyAnswer.is_raw=True` (la UI
+   lo marca). Canonicaliza sinónimos («Mucho 5», «Aprobé»/«Aprobó»). En un campo que NO aplica por
+   `visible_when` (oculto para esa fila): un **centinela** («No trabajo», «No estudio»,
+   «Desempleado (a)», «Ninguno», «N0»/«NO»; `_SENTINELS`, `:167`) se descarta; un **valor real**
+   (no centinela, de cualquier tipo) se CONSERVA con su texto original y `is_raw=True` — ruling de
+   la revisión final: D1 «ninguna respuesta se pierde» manda sobre imitar a la plataforma, que
+   descarta los ocultos. `survey_validator` NO se usa en este camino.
 7. **Libera SIEMPRE por la maquinaria de constancias previas**: arma filas
    `{control_number, issued_on, response_id, paper_pending}` y llama a
    `PriorClearanceService.import_rows(kind="survey", commit=False)`
    (`services/prior_clearance_service.py:258`) — no reimplementa la clasificación. Cada bote de
    allá se traduce a uno de acá (`_PRIOR_TO_BUCKET`, `:60`).
 8. UN commit al final; `--dry-run` no escribe nada (ni la respuesta).
+
+Además de los botes, la CLI imprime una línea de celdas (en `--dry-run` también, con las mismas
+cifras que daría la corrida real): «Celdas guardadas: N · con valor original (raw): N · ocultas con
+valor real (guardadas como originales): N» (`stats` de `import_rows` / `normalize_answers`). Con el
+archivo de ENERO-JUNIO 2026 (dry-run del 2026-10-05): 21 071 celdas, 1 063 raw, de ellas 1 017
+ocultas con valor real — casi todas de los ~73 egresados que no trabajan y a quienes Forms obligó a
+contestar las escalas y el tamaño de empresa.
 
 ### Botes que imprime la CLI (`IMPORT_BUCKETS`, `:56`; etiquetas en `itcj2/cli/titulatec.py`, `_IMPORT_SURVEY_ETIQUETAS`)
 
@@ -284,7 +294,7 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
   (`services/survey_review_service.py:351`) los escribe y los lleva en el payload de
   `survey_review_prior`. `_apply_survey` (`prior_clearance_service.py:218`) los pasa desde la fila
   diferida y, con respuesta, llama a `SurveyImportService.link_response_to_process`
-  (`survey_import_service.py:515`: llena `user_id`/`process_id`/`cohort_id`, solo en filas
+  (`survey_import_service.py:584`: llena `user_id`/`process_id`/`cohort_id`, solo en filas
   `identity_source='import'`).
 - **Diferida que lleva respuesta y papel** (R7): `_defer(..., link=(response_id, paper_pending))`
   (`prior_clearance_service.py:491`) los escribe en una fila nueva o reemplazada; en una pendiente
@@ -292,8 +302,51 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
 - **«Already» con liberación previa sin respuesta**: `PriorClearanceService.attach_imported_response`
   (`:449`) → `SurveyReviewService.attach_imported_response` (`survey_review_service.py:649`):
   adjunta la respuesta y ENCIENDE `paper_pending` (nunca lo apaga ni pisa una respuesta ya
-  ligada). También cubre la previa todavía diferida (`:484`).
+  ligada). Solo toca la `PriorClearance` **ya aplicada** a ese mismo proceso y sin respuesta
+  (`:483-487`). La previa todavía **diferida** NO pasa por aquí: va por `_defer(link=…)`
+  (`:491`), que en una pendiente SOBRESCRIBE `response_id` y `paper_pending` con los de la fila
+  nueva (`:551`, `reemplaza or link is not None`) — así que ahí una fila sin naranja sí puede
+  apagar el papel de una carga anterior.
+- **Sin correo al adjuntar el papel** (M7): cuando la liberación ya existía (p. ej. por el CSV) y
+  el Excel solo le adjunta la respuesta y enciende `paper_pending`, no se manda correo ni aviso
+  (R10: el correo es el de la liberación, que ya salió). El alumno lo ve solo en su tablero, la
+  tarjeta de la encuesta y Mi cita («Recoge tu constancia…»).
 - `paper_pending` se interpreta con `is True`, no con `bool()`.
+
+### Exportes posteriores de Forms (M6)
+
+La idempotencia es por `import_ref` (`Id` + `Completion time`), y la deduplicación por control
+(R3) solo dentro de UN archivo. Si un export POSTERIOR trae una fila más nueva de un control ya
+importado (otra respuesta en Forms), se guarda una **segunda** respuesta importada. Cuál queda
+ligada: si la previa ya se APLICÓ con respuesta, la nueva queda suelta (en «Encuestas», sin
+liberación: `attach_imported_response` no pisa una respuesta ligada); si la previa seguía
+DIFERIDA, `_defer(link=…)` la reapunta a la nueva y la vieja queda huérfana (sigue en
+«Encuestas»). Aceptado; nada se borra.
+
+### Encuesta pública con una respuesta importada diferida (2026-10-05)
+
+Decisión del usuario tras la revisión final: un egresado SIN solicitud (sin proceso acreditable o
+sin revisión todavía) cuya respuesta de Forms se importó y quedó **diferida** ya no ve el
+formulario vacío. `SurveyImportService.pending_import_for_user` (`survey_import_service.py:531`)
+lo detecta: `PriorClearance(kind='survey')` de su control, sin aplicar, vigente (`issued_on >= hoy
+- 365`) y ligada a una respuesta `identity_source='import'` de un formulario `egresados`.
+`pages/public.py::_solicitud_existente` (`:586`) devuelve entonces el pseudo-estado `imported` y
+`public/partials/survey_status.html:61-67` pinta «Ya recibimos tu encuesta — Tu encuesta de Microsoft
+Forms ya está registrada; se liberará cuando completes tu inscripción.» en lugar del formulario
+(el paso y el borrador también cortan). El envío se rechaza en el SERVIDOR dos veces: la ruta
+(`survey_submit`, `:891`) responde la tarjeta de gracias con `credit_status="imported"` sin
+escribir, y `SurveyService.submit` (`services/survey_service.py:365`) devuelve `imported` sin
+escribir aunque se llame directo. Con solicitud existente, todo sigue como antes. Una importada que
+no va a liberar nada (vencida, control inválido, sin previa diferida) NO congela la encuesta: el
+egresado puede contestarla aquí.
+
+### Correos y avisos de la corrida real
+
+La corrida SIN `--dry-run` encola un correo (`StudentMail.survey_result`) y deja un aviso en la app
+por **cada** fila del bote «Guardadas y liberadas» (las que liberan al momento vía
+`register_prior`); las diferidas lo harán cuando se apliquen al inscribirse. En dev el correo está
+pausado; en producción conviene revisar el dry-run antes, porque ese número es el de correos que
+salen.
 
 ### Cambio de `_defer` (afecta TAMBIÉN al CSV de `import-prior-clearances`)
 

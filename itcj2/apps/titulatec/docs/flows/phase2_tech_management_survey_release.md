@@ -206,7 +206,7 @@ lectura:
 | Mi cita — checklist físico | `pages/student.py::_checklist_ctx` | `student/cita.html` |
 | Cola de Servicios Escolares — panel de atender | `pages/appointments.py` (fila `auto_source == 'graduate_survey'`) | `partials/appointments/_appt_attend.html` |
 | Expediente del alumno — pestaña de la fase 2 | `pages/admin.py` (vía `RequirementService.list_with_status`) | `partials/processes/_exp_phase.html` |
-| Encuesta pública, tras el primer envío | `pages/public.py::_solicitud_existente` | `public/partials/survey_status.html` / `survey_thanks.html` |
+| Encuesta pública, tras el primer envío (o con su respuesta de Forms importada esperando la inscripción: pseudo-estado `imported`, 2026-10-05) | `pages/public.py::_solicitud_existente` | `public/partials/survey_status.html` / `survey_thanks.html` |
 
 En las cuatro primeras, el requisito `graduate_survey` sustituye el texto genérico "Lo acredita
 el sistema; no se marca a mano" por la píldora `survey_review_pill(status)` — macro NUEVA en
@@ -304,7 +304,7 @@ Liberaciones no cambia.
   `review_id` no existe; `400` + `X-Tt-Error` si no tenía papel por recoger o ya se entregó.
 - **Lo que ve el alumno** mientras el papel esté por recoger: «Recoge tu constancia de liberación
   en Gestión Tecnológica y Vinculación.» (`data-tt-paper-pickup`) en la tarjeta de estatus de la
-  encuesta (`public/partials/survey_status.html:43`), en el tablero (`student/dashboard.html:104`
+  encuesta (`public/partials/survey_status.html:45`), en el tablero (`student/dashboard.html:104`
   en el héroe de la fase actual y `:258` en el acordeón) y en Mi cita
   (`partials/student/_cita_panel.html:74`). Desaparece al marcarla entregada.
 - **Correo de la previa** (R10): `StudentMail.survey_result(..., paper_pending=)`
@@ -330,12 +330,18 @@ Liberaciones no cambia.
   respuesta que no están en el schema del formulario (R9), con etiqueta legible de
   `_EXTRA_LABELS` (`surveys_admin.py:133`, p. ej. `extra_aspecto_no_trabajo`).
 - **CSV**: columna nueva `importada` (`sí`/`no`) justo después de `identidad`
-  (`services/survey_service.py:444`, `SurveyService.export_rows`).
+  (`services/survey_service.py:466`, `SurveyService.export_rows`). Las llaves `extra_*` de las
+  respuestas importadas (R9, p. ej. `extra_aspecto_no_trabajo`) van como columnas al final, en
+  orden alfabético, solo si alguna respuesta del formulario las trae (`:460-461`; M5 de la
+  revisión final).
+- **Ocultas con valor real**: un valor que Forms aceptó en una pregunta que no aplicaba
+  (`visible_when` falso) se guarda como original (`is_raw`), así que también aparece en el detalle
+  con la marca de «Valor original» ⤵ [import](xcut_prior_clearances.md#importar-la-encuesta-de-egresados-desde-el-excel-de-forms-2026-10-05).
 
 
 ## Liberaciones y Encuestas: pager compartido (2026-10-04)
 
-Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReviewService.list_for_inbox` (`services/survey_review_service.py:629`, `paginate_query` en `:675`) devuelve un `Page` y la bandeja de Liberaciones (`pages/survey_reviews_admin.py:76`, `survey_reviews_body.html:160`, prefijo `tt-liberaciones`) usa la macro `pager`; lo mismo la lista de respuestas de Encuestas (`pages/surveys_admin.py:76`, `:93`, `surveys_body.html:51`, prefijo `tt-surveys`). Parámetros: Liberaciones `status`, `q`, `page`; Encuestas `form_id`, `page`. Cambiar pestaña o búsqueda ⇒ `page=1`; fuera de rango ⇒ última válida. Los contadores de pestaña respetan la búsqueda (como ya hacían).
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `SurveyReviewService.list_for_inbox` (`services/survey_review_service.py:725`, `paginate_query` en `:771`) devuelve un `Page` y la bandeja de Liberaciones (`pages/survey_reviews_admin.py:76`, `survey_reviews_body.html:175`, prefijo `tt-liberaciones`) usa la macro `pager`; lo mismo la lista de respuestas de Encuestas (`pages/surveys_admin.py:76`, `:93`, `surveys_body.html:54`, prefijo `tt-surveys`). Parámetros: Liberaciones `status`, `q`, `page`; Encuestas `form_id`, `page`. Cambiar pestaña o búsqueda ⇒ `page=1`; fuera de rango ⇒ última válida. Los contadores de pestaña respetan la búsqueda (como ya hacían).
 
 **Buscador sin pérdida de tecleo**: `#tt-releases-q` lleva `hx-preserve="true"` y `#tt-releases-filters` anuncia `data-tt-q-server` (`survey_reviews_body.html`, commit `b2ce954a`, 2026-10-04); la sincronización la hace `titulatec-utils.js:414`.
 
