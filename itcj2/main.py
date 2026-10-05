@@ -123,8 +123,10 @@ async def lifespan(app: FastAPI):
     """Startup y shutdown de la aplicación."""
     logger.info("FastAPI ITCJ v2 iniciando...")
 
-    # Capturar el event loop principal para que async_broadcast funcione
-    # desde endpoints síncronos (que corren en el threadpool).
+    # Capturar el event loop principal para que async_broadcast y el push de
+    # `NotificationService` funcionen desde endpoints síncronos (que corren en
+    # el threadpool). En TODOS los roles (http, sockets, all): cualquier proceso
+    # que sirve peticiones tiene hilos que necesitan saltar a su loop.
     from itcj2.utils import set_main_loop
     loop = asyncio.get_running_loop()
     set_main_loop(loop)

@@ -16,6 +16,10 @@ from itcj2.core.models.notification import Notification
 
 logger = logging.getLogger(__name__)
 
+# Sitio de `itcj_background_tasks_total` del push (conjunto cerrado de
+# `observability/spawn.py`): lo mismo salga el push de un loop o de un hilo.
+_PUSH_TASK = "notify_websocket_push"
+
 
 class NotificationService:
     """Servicio para manejo de notificaciones cross-app"""
@@ -81,27 +85,58 @@ class NotificationService:
         """
         Difunde la notificación vía WebSocket (Socket.IO /notify namespace).
 
+        Nunca espera el resultado del push y nunca lanza: la notificación ya
+        está en la sesión. Según dónde corra el llamador:
+
+        - Con un loop corriendo en el hilo actual (endpoint `async`, handler
+          de socket): `spawn` ahí.
+        - Sin loop en este hilo (una ruta `def` en el threadpool) y con el loop
+          principal de la app registrado y corriendo (`itcj2.utils.main_loop`):
+          `spawn_threadsafe` EN ese loop, con el `request_id` del hilo.
+        - Sin ninguno de los dos (CLI, Celery): no hace nada. En Celery el
+          aviso en tiempo real sale por el Pub/Sub de Redis, no por aquí.
+
         Args:
             user_id: ID del usuario
             notification: Instancia de Notification
         """
         try:
-            from itcj2.observability.spawn import spawn
-            from itcj2.sockets.notifications import push_notification
+            from itcj2.observability.spawn import discard, spawn, spawn_threadsafe
 
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
-                # No hay loop activo (e.g. en contexto sync sin uvicorn)
-                pass
+                in_this_thread = False
+                # Sin loop en este hilo: solo vale el loop principal, y solo si
+                # corre. Se decide ANTES de crear la corrutina: sin destino no
+                # hay nada que crear, ni que cerrar, ni que contar.
+                from itcj2.utils import main_loop
+
+                loop = main_loop()
+                if loop is None or not loop.is_running():
+                    return
             else:
-                # `spawn` y no `loop.create_task`: guarda la tarea hasta que
-                # termina (sin referencia, el recolector puede destruir el push
-                # a medio vuelo) y loguea con el `request_id` de la petición la
-                # excepción que antes se perdía.
-                spawn(
-                    push_notification(user_id, notification.to_dict()),
-                    name="notify_websocket_push",
+                in_this_thread = True
+
+            from itcj2.sockets.notifications import push_notification
+
+            # `to_dict()` se evalúa AQUÍ, en el hilo que posee la sesión: al
+            # loop solo cruza el dict ya armado, nunca el objeto ORM.
+            coro = push_notification(user_id, notification.to_dict())
+
+            # `spawn` y no `loop.create_task`: guarda la tarea hasta que
+            # termina (sin referencia, el recolector puede destruir el push a
+            # medio vuelo) y loguea con el `request_id` de la petición la
+            # excepción que antes se perdía.
+            if in_this_thread:
+                spawn(coro, name=_PUSH_TASK)
+            elif not spawn_threadsafe(coro, loop, name=_PUSH_TASK):
+                # El loop se cerró entre la comprobación y la programación
+                # (apagado).
+                discard(coro, name=_PUSH_TASK)
+                logger.warning(
+                    "broadcast_websocket: el loop principal ya no corre, "
+                    "push descartado (user_id=%s)", user_id,
                 )
 
         except Exception as e:

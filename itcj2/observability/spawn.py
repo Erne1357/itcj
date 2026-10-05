@@ -33,6 +33,10 @@ apagado del loop en un swap blue-green cancela lo pendiente y no debe
 ensuciar el panel de errores) y `dropped` (`discard()`: la rama de
 `async_broadcast` sin loop).
 
+`spawn_threadsafe(coro, loop, *, name)` es lo mismo pedido desde OTRO hilo (una
+ruta `def` en el threadpool no tiene loop): salta al `loop` dado y ahí llama a
+`spawn`. Lo usan `async_broadcast` y el push de `NotificationService`.
+
 Solo para trabajo CORTO. Las tareas de vida larga (el subscriber de Redis, la
 sonda de lag) siguen con su `create_task` y su referencia en el lifespan: su
 final es el apagado, no un resultado que contar.
@@ -44,6 +48,7 @@ Regla de oro 2: la tarea es la misma y devuelve lo mismo, y nada de la
 instrumentación lanza desde el done-callback.
 """
 import asyncio
+import contextvars
 import logging
 from functools import partial
 
@@ -144,6 +149,38 @@ def spawn(coro, *, name: str) -> asyncio.Task:
         partial(_on_done, name=name, coroutine=_describe(coro), counted=counted)
     )
     return task
+
+
+def spawn_threadsafe(coro, loop, *, name: str) -> bool:
+    """`spawn(coro, name=name)` pedido desde OTRO hilo (el threadpool de los
+    endpoints `def`) y ejecutado EN `loop`. No espera el resultado.
+
+    `call_soon_threadsafe` corre `spawn` en el hilo del loop: asyncio no es
+    thread-safe y la tarea y su done-callback deben nacer ahí. El contexto del
+    hilo que llama (el `request_id` de la petición, que anyio copió al
+    threadpool) se copia de forma EXPLÍCITA: la tarea y su log de error lo
+    heredan de ese callback. Una corrutina envoltorio también cruzaría el
+    contexto, pero sería una tarea más y repetiría la cuenta de `spawn`.
+    `run_coroutine_threadsafe` tampoco sirve aquí: deja la tarea sin
+    referencia fuerte, sin cuenta en `itcj_background_tasks_total` y sin el
+    log con contexto (la excepción se queda en un future que nadie lee).
+
+    Regresa `True` si quedó programada. Regresa `False` —sin tocar `coro`, que
+    sigue siendo del llamador— cuando no hay loop utilizable: `loop` es
+    `None`, no está corriendo, o se cerró entre la comprobación y la
+    programación (el apagado). Nunca lanza por eso.
+    """
+    if loop is None or not loop.is_running():
+        return False
+    try:
+        loop.call_soon_threadsafe(
+            partial(spawn, coro, name=name),
+            context=contextvars.copy_context(),
+        )
+    except RuntimeError:
+        # El loop se cerró entre `is_running()` y aquí.
+        return False
+    return True
 
 
 def discard(coro, *, name: str) -> None:

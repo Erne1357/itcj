@@ -212,11 +212,12 @@ OUTBOUND_REQUEST_DURATION = Histogram(
 #   loop principal antes de atender nada, así que ahí solo lo producen las
 #   carreras de arranque y de cierre: la serie raspada vale ~0 por estructura.
 # - `notify_websocket_push` no cuenta el push que
-#   `NotificationService.broadcast_websocket` salta cuando lo llama código
-#   síncrono (sin loop: endpoints `def`, Celery), que es el caso común. No es
-#   `dropped` a propósito (R42): varios de esos llamadores empujan aparte por
-#   `async_broadcast` y contarlo como pérdida alarmaría en falso. Esa serie
-#   solo se mueve con los llamadores async.
+#   `NotificationService.broadcast_websocket` salta cuando no hay NINGÚN loop
+#   (CLI, Celery: el aviso en tiempo real de Celery va por el Pub/Sub de
+#   Redis). No es `dropped` a propósito (R42): contarlo como pérdida alarmaría
+#   en falso. Desde R5 del plan de rendimiento de TitulaTec la serie sí se
+#   mueve con los endpoints `def`: su push salta al loop principal
+#   (`spawn_threadsafe`) y se cuenta ahí como cualquier otro.
 BACKGROUND_TASKS = Counter(
     "itcj_background_tasks_total",
     "Corrutinas en segundo plano terminadas o descartadas, por sitio y resultado.",
