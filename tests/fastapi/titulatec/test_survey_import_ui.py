@@ -297,6 +297,21 @@ def test_previa_sin_papel_pendiente_no_ofrece_marcar(client_as, db_session, make
     assert "/entregada" not in fila
 
 
+def test_previa_con_inscripcion_revocada_no_muestra_la_pildora_ni_el_boton(
+    client_as, db_session, make_gtv, previa,
+):
+    review, proc, _ = previa("99470012", current_phase=1)
+    proc.status = "cancelled"
+    db_session.flush()
+
+    fila = _fila(client_as(make_gtv()).get(
+        f"{LIB}/body?status=approved&q=99470012").text, review.id)
+
+    assert "Revocada" in fila
+    assert "Constancia por recoger" not in fila
+    assert "/entregada" not in fila
+
+
 def test_marcar_constancia_entregada_re_renderiza_y_quita_la_pildora(
     client_as, db_session, make_gtv, previa,
 ):

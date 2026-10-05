@@ -102,7 +102,7 @@
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
         <td>{{ survey_review_pill(r.status, origin=r.origin) }}
-          {%- if r.paper_to_collect %} {{ pill("Constancia por recoger", "amber", "envelope-paper") }}{% endif %}</td>
+          {%- if r.paper_to_collect and not r.revoked %} {{ pill("Constancia por recoger", "amber", "envelope-paper") }}{% endif %}</td>
         <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior'), revoked=r.revoked) }}</td>
         <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
