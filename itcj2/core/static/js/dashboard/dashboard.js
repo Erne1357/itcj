@@ -247,10 +247,13 @@ class WindowsDesktop {
             </div>
         </div>
         <div class="window-content">
+            <!-- Sin sandbox: scripts+same-origin lo vuelve evadible, y Chromium bloquea el visor PDF
+                 en documentos con sandbox (incluidas las pestanas abiertas desde ellos). -->
             <iframe class="window-iframe"
                     src="${config.iframeSrc}"
                     title="${config.name} Application"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads">
+                    allow="fullscreen"
+                    referrerpolicy="same-origin">
             </iframe>
         </div>
     `
