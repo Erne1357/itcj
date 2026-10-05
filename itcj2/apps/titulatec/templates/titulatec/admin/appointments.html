@@ -31,6 +31,7 @@
 {% endblock %}
 
 {% block modals %}
+{{ super() }}{# `#tt-doc-modal` de base_admin: sin esto, llegar a Documentos desde aquí por el menú lateral lo dejaba sin modal. #}
 {# Visor grande del cotejo. Vive en `modals` (nivel <body>) y NO dentro del
    parcial: `.tt-admin` usa `transform` para el drawer y rompería el
    `position:fixed` de Bootstrap. Consecuencia: NO entra al morph, así que es
