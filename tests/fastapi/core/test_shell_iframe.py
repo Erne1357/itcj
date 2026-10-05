@@ -13,9 +13,20 @@ def _tag(text: str, marker: str) -> str:
     return text[begin:text.index(">", start)]
 
 
-def test_desktop_window_iframe_sin_sandbox():
-    tag = _tag(DASHBOARD_JS.read_text(encoding="utf-8"), 'class="window-iframe"')
-    assert not re.search(r"\bsandbox\s*=", tag)
+def test_desktop_window_iframe_sandbox_solo_cross_origin():
+    js = DASHBOARD_JS.read_text(encoding="utf-8")
+    tag = _tag(js, 'class="window-iframe"')
+    # El tag no lleva sandbox fijo (same-origin): lo inyecta ${iframeSandbox}.
+    assert not re.search(r"sandbox\s*=", tag)
+    assert "${iframeSandbox}" in tag
+    # Cross-origin => sandbox con allow-*; same-origin => cadena vacia.
+    m = re.search(r"const iframeSandbox = iframeIsCrossOrigin\s*\?\s*'([^']*)'\s*:\s*\"\"", js)
+    assert m, "iframeSandbox debe ser condicional a iframeIsCrossOrigin"
+    assert m.group(1).startswith('sandbox="')
+    for permiso in ("allow-scripts", "allow-same-origin", "allow-forms", "allow-popups",
+                    "allow-popups-to-escape-sandbox", "allow-downloads"):
+        assert permiso in m.group(1), permiso
+    assert ".origin !== globalThis.location.origin" in js
     assert 'allow="fullscreen"' in tag
     assert 'referrerpolicy="same-origin"' in tag
 
