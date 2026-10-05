@@ -80,7 +80,7 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:145-190`) | (lectura) | — |
 | 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` | `Document.review_status`, `review_note`, `reviewed_by_id` · un solo commit al final | `docs_review` (aprobado **y** rechazado), grupo `docs:{pid}` |
-| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
+| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` (`base_admin.html:93`, módulo `doc-viewer.js`) | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
 | 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:261-263`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit propio de `approve_phase` | `phase_approved`, **mismo** grupo `docs:{pid}` |
 
 ### Correo al egresado (desde 2026-09-28)
@@ -115,25 +115,41 @@ del importador) cae a la etiqueta sola (`CURP.pdf`), y con un `type_code` fuera 
 descarga nunca falla por el nombre. Fijado por
 `tests/fastapi/titulatec/test_document_files_routes.py` y `test_document_storage.py`.
 
-### De dónde sale el visor (ojo con los parciales muertos)
+### De dónde sale el visor (reescrito 2026-10-05)
 
-El markup del visor y el `<script>` que lo controla están **inline** en
-`partials/documents_body.html:47-298`; el modal grande (`#tt-doc-modal`, con su propio dictamen que
-delega en los botones HTMX del panel inline) está **inline** en el `{% block modals %}` de
-`admin/documents.html:31-61`.
+Tres piezas, ninguna con `<script>` inline:
 
-Existen copias en `partials/documents/_doc_viewer.html` y `partials/documents/_doc_modal.html`, pero:
+- **Markup del panel**: `partials/documents_body.html` (selector de documentos `.tt-docpick`,
+  `#tt-doc-review` con `data-phase-closed`, botones HTMX de dictamen con `data-closes`, línea 113).
+  Solo datos por `data-*`.
+- **Módulo**: `static/js/admin/doc-viewer.js` (`window.TitulaTecDocViewer = { init }`, IIFE, línea 330).
+  PDF.js, documento activo, dictamen y modal. Lo carga **una vez** `admin/base_admin.html`
+  (`<script src=…doc-viewer.js>`, junto a `officers.js`), delega en `document.body` y se re-inicia
+  en `htmx:afterSettle` (`doc-viewer.js:301-330`) solo si el swap trajo `#tt-doc-review`.
+- **Modal grande** `#tt-doc-modal` (con `#tt-modal-actions`, su dictamen, que delega en los botones
+  del panel inline): `admin/base_admin.html:80-93`, dentro de `{% block modals %}` (nivel `<body>`).
+  `admin/appointments.html` y `admin/process_detail.html` lo heredan con `{{ super() }}`.
+  Si el revisor no tiene `can_review_docs` (el panel no pinta botones), el módulo oculta el
+  dictamen del modal.
 
-- `_doc_modal.html` **no lo incluye ningún template** (grep sobre `itcj2/`: solo aparece en su propia
-  cabecera y citado en un comentario de `_doc_viewer.html:11`).
-- `_doc_viewer.html` **tampoco lo incluye ningún template**: su único includer,
-  `partials/processes/_process_phase_panel.html`, se borró con el rediseño del Expediente
-  (2026-09-03). Verificado el 2026-09-15.
-- `static/js/partials/doc-viewer.js` dice ser cargado por `base_admin`, pero `admin/base_admin.html`
-  no lo carga: carga `admin/import.js`, `processes.js`, `appointments.js`, `expediente.js` y
-  `cotejo-info-editor.js`, y ninguno de ellos es el visor.
+**Causa del bug «Expandir no hacía nada» (corregido 2026-10-05, `ad8cacf9`)**: el visor era un
+`<script>` inline de `documents_body.html` y el modal vivía en `admin/documents.html`. La navegación
+del menú lateral trae solo `#tt-admin-content` (`hx-select`): el modal de la página no llegaba y el
+`<script>` inline corría antes de Bootstrap y sin modal, así que `Expandir` nunca enganchaba.
+Mover el modal a `base_admin` y el script a un módulo estático arregla las dos cosas.
 
-O sea: la bandeja **no** usa esos parciales. Si tocas el visor, edita `documents_body.html`.
+Los parciales muertos `partials/documents/_doc_viewer.html`, `_doc_modal.html` y
+`static/js/partials/doc-viewer.js` **se borraron** (2026-10-05); ya no hay copias que confundir.
+Si tocas el visor, edita `static/js/admin/doc-viewer.js` (comportamiento), `documents_body.html`
+(markup del panel) o `base_admin.html` (modal).
+
+**PDF dentro del escritorio del core (2026-10-05, `a5ae4057`)**: el `<iframe>` que aloja cada app en
+el escritorio llevaba `sandbox`, y Chromium **bloquea el visor de PDF** en documentos con sandbox
+(incluidas las pestañas abiertas desde ellos: «bloqueó esta página»). Se retiró el `sandbox` (con
+`allow-scripts`+`allow-same-origin` ya era evadible, no protegía) y quedó
+`allow="fullscreen"` + `referrerpolicy="same-origin"` (`itcj2/core/static/js/dashboard/dashboard.js:250-256`;
+shell móvil: `itcj2/core/templates/core/mobile/base_mobile.html`). Efecto aquí: el PDF del documento y «Abrir en
+pestaña» funcionan con clic izquierdo dentro del escritorio.
 
 ## Lo que cuesta pintar la bandeja (arreglado 2026-09-02; dos pasadas desde 2026-10-04)
 

@@ -131,6 +131,11 @@ sequenceDiagram
   siendo **`def`, no `async def`** (Ruling R23): WeasyPrint es CPU bloqueante —30 constancias
   1.7 s, 300 constancias 14.6 s, medido en el contenedor— y en el event loop congelaba un worker
   HTTP de toda la plataforma en cada PDF; como `def`, FastAPI la corre en su threadpool.
+  **Dentro del escritorio del core (2026-10-05)**: el `<iframe>` del escritorio llevaba `sandbox` y
+  Chromium bloqueaba el visor de PDF en ese contexto («bloqueó esta página» al abrir el lote con
+  clic izquierdo). Se retiró el `sandbox` del iframe
+  (`itcj2/core/static/js/dashboard/dashboard.js:250-256`, commit `a5ae4057`); los `<a
+  target="_blank">` no cambian.
 - **`certificates_of(db, batch_id)`**: todas las de un lote, anuladas incluidas — una anulada
   sale marcada «ANULADA» en el PDF **en los dos acomodos**, nunca desaparece del lote que ya se
   imprimió; la fila del lote conserva su `count` tal cual se generó, aunque una de sus constancias
