@@ -42,8 +42,6 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from itcj2.core.utils.timezone import db_now  # noqa: F401  (reloj parcheable en pruebas)
-
 logger = logging.getLogger(__name__)
 
 DEFAULT_SHEET = "Sheet1"
@@ -53,8 +51,10 @@ ORANGE_RGB = "FFFFC000"
 THEME_ACCENT4 = 7
 
 # Llaves del resultado de `import_rows`, en el orden en que la CLI las imprime.
+# `invalid` = fila NO guardada: sin «Completion time» legible no hay fecha de
+# envío, ni de constancia, ni `import_ref` estable (fix round 1).
 IMPORT_BUCKETS = ("released", "deferred", "already_released", "conflicts",
-                  "saved_unreleased", "duplicates", "already_imported")
+                  "saved_unreleased", "duplicates", "already_imported", "invalid")
 
 # Bote de `PriorClearanceService.import_rows` -> bote de esta importación.
 _PRIOR_TO_BUCKET = {
@@ -158,6 +158,20 @@ _FECHA_FORMATOS = ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S",
 _SI = {"si", "s", "true", "1"}
 _NO = {"no", "n", "false", "0"}
 
+# Respuestas «centinela» que el formulario de Forms obligaba a escribir o
+# escoger aunque la pregunta no aplicara («No trabajo», «No estudio»,
+# «Desempleado (a)», «Ninguno», «N0»...), ya en forma `_option_key`. En un
+# campo OCULTO por `visible_when` equivalen a «sin respuesta» (la plataforma
+# descarta los ocultos); en uno visible, un radio centinela se guarda raw.
+_SENTINELS = frozenset({
+    "no trabajo", "no estudio", "desempleado a", "desempleado", "desempleada",
+    "ninguno", "ninguna", "n0", "no", "na", "n a", "no aplica",
+})
+
+# Sinónimos POR PALABRA en la forma comparable de una opción: Forms y el
+# formulario de la plataforma pueden conjugar distinto «Aprobó»/«Aprobé».
+_OPTION_SYNONYMS = {"aprobe": "aprobo"}
+
 
 def normalize_text(value) -> str:
     """Encabezado/opción -> forma comparable: `\\xa0` a espacio, sin acentos,
@@ -206,7 +220,8 @@ def _option_key(texto) -> str:
     """Forma comparable de una OPCIÓN: además de `normalize_text`, la
     puntuación cuenta como espacio («AGOSTO-DICIEMBRE» == «AGOSTO DICIEMBRE»,
     «Supervisor/ Jefe» == «Supervisor / Jefe»)."""
-    return re.sub(r"[^a-z0-9]+", " ", normalize_text(texto)).strip()
+    palabras = re.sub(r"[^a-z0-9]+", " ", normalize_text(texto)).split()
+    return " ".join(_OPTION_SYNONYMS.get(p, p) for p in palabras)
 
 
 def _match_option(field: dict, texto: str) -> Optional[str]:
@@ -301,6 +316,7 @@ class SurveyImportService:
         if problemas:
             raise ValueError("No se importó nada. " + " | ".join(problemas))
 
+        col_id = vistos[_META_ID]
         salida: list[dict] = []
         for numero, fila in enumerate(filas, start=2):
             valores = {columnas[i]: c.value for i, c in enumerate(fila) if i in columnas}
@@ -313,6 +329,7 @@ class SurveyImportService:
             if isinstance(ms_id, float) and ms_id.is_integer():
                 ms_id = int(ms_id)
             completado = valores.get(_META_COMPLETED)
+            completado_crudo = completado
             if isinstance(completado, str):
                 texto = completado.strip()
                 for formato in _FECHA_FORMATOS:
@@ -328,10 +345,15 @@ class SurveyImportService:
             elif not isinstance(completado, datetime):
                 completado = None
             respuestas = {k: v for k, v in valores.items() if not k.startswith("__")}
+            # El naranja se lee en la columna del Id hallada POR ENCABEZADO
+            # (R2), no en una letra fija.
+            celda_id = fila[col_id] if col_id < len(fila) else None
             salida.append({
                 "ms_id": ms_id,
-                "paper_pending": _is_orange(fila[0]) if fila else False,
+                "paper_pending": _is_orange(celda_id),
                 "completed_at": completado,
+                "completed_raw": (None if completado is not None or completado_crudo is None
+                                  else str(completado_crudo)),
                 "full_name": respuestas.get("nombre_completo"),
                 "control_raw": respuestas.get("no_control"),
                 "answers_raw": respuestas,
@@ -344,7 +366,18 @@ class SurveyImportService:
     @staticmethod
     def normalize(field: dict, raw) -> tuple[object, bool]:
         """`(valor, is_raw)` de una celda contra su campo del schema. `(None,
-        False)` = vacío (no se guarda). Nunca lanza (D1)."""
+        False)` = vacío (no se guarda). Nunca lanza (D1): un schema mal formado
+        (p. ej. `scale.min` no numérico) deja el valor raw en vez de reventar."""
+        try:
+            return SurveyImportService._normalize(field or {}, raw)
+        except Exception:
+            logger.warning("normalize: schema inesperado en %r; valor guardado raw",
+                           (field or {}).get("key") if isinstance(field, dict) else None,
+                           exc_info=True)
+            return (None, False) if raw is None else (_as_text(raw), True)
+
+    @staticmethod
+    def _normalize(field: dict, raw) -> tuple[object, bool]:
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
         if raw is None:
@@ -394,6 +427,8 @@ class SurveyImportService:
         if tipo == "scale":
             escala = field.get("scale") or {}
             minimo, maximo = int(escala.get("min", 1)), int(escala.get("max", 5))
+            # Regla general: el ENTERO dentro del texto, si es uno solo y cae
+            # en min..max («Mucho 5» -> 5, «Poco 1» -> 1, «3» -> 3).
             numero = None
             if isinstance(raw, bool):
                 numero = None
@@ -401,8 +436,10 @@ class SurveyImportService:
                 numero = raw
             elif isinstance(raw, float) and raw.is_integer():
                 numero = int(raw)
-            elif isinstance(raw, str) and raw.strip().isdigit():
-                numero = int(raw.strip())
+            elif isinstance(raw, str):
+                enteros = re.findall(r"\d+", raw)
+                if len(enteros) == 1:
+                    numero = int(enteros[0])
             if numero is not None and minimo <= numero <= maximo:
                 return numero, False
             return _as_text(raw), True
@@ -424,6 +461,52 @@ class SurveyImportService:
         if tope and len(texto) > int(tope):
             return texto, True
         return texto, False
+
+    @staticmethod
+    def normalize_answers(campos: dict, answers_raw: dict) -> dict[str, tuple[object, bool]]:
+        """Fila completa -> `{key: (valor, is_raw)}` sin los vacíos, aplicando
+        `visible_when` como la plataforma (`survey_validator.is_visible`, el
+        MISMO evaluador; contra los valores YA normalizados de la fila):
+
+        * campo OCULTO no-texto (radio/scale/...) -> no se guarda (la
+          plataforma descarta los ocultos; «No trabajo» en un radio oculto no
+          es un raw, es «no aplica»);
+        * campo OCULTO de texto -> no se guarda si es un centinela
+          (`_SENTINELS`); si trae otra cosa se conserva tal cual;
+        * si alguna llave de la condición quedó raw, la visibilidad no se
+          puede evaluar y el campo se trata como visible (no se pierde nada).
+        """
+        from itcj2.apps.titulatec.utils.survey_validator import is_visible
+
+        norm: dict[str, tuple[object, bool]] = {}
+        for key, crudo in (answers_raw or {}).items():
+            campo = campos.get(key) or {"key": key, "type": "text"}
+            valor, es_raw = SurveyImportService.normalize(campo, crudo)
+            if valor is not None:
+                norm[key] = (valor, es_raw)
+
+        canonicos = {k: v for k, (v, r) in norm.items() if not r}
+        crudos = {k for k, (_, r) in norm.items() if r}
+        for key in list(norm):
+            campo = campos.get(key) or {}
+            condicion = campo.get("visible_when")
+            if not isinstance(condicion, dict) or not condicion:
+                continue
+            if any(fuente in crudos for fuente in condicion):
+                continue
+            try:
+                visible = is_visible(campo, canonicos)
+            except Exception:
+                visible = True
+            if visible:
+                continue
+            valor, _ = norm[key]
+            if (campo.get("type") or "text") in ("text", "textarea"):
+                if _option_key(valor) in _SENTINELS:
+                    del norm[key]
+            else:
+                del norm[key]
+        return norm
 
     # ------------------------------------------------------------------
     # Liga respuesta <-> proceso
@@ -464,8 +547,8 @@ class SurveyImportService:
         from itcj2.apps.titulatec.services.prior_clearance_service import (
             PriorClearanceService,
         )
+        from itcj2.apps.titulatec.models import SurveyForm
         from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
-        from itcj2.core.models.user import User
 
         form = SurveyService.open_form(db, SURVEY_CODE)
         if form is None:
@@ -518,10 +601,19 @@ class SurveyImportService:
         guardadas: list[tuple[dict, Optional[int]]] = []
         for row in conservadas:
             completado = row["completed_at"]
-            import_ref = (f"msforms:{row['ms_id']}:"
-                          f"{completado.isoformat() if completado else ''}")[:120]
+            if completado is None:
+                _add("invalid", row["control"],
+                     "«Completion time» vacío o ilegible: no se guarda (sin fecha de "
+                     "envío no hay constancia ni referencia estable)", row["ms_id"])
+                continue
+            import_ref = f"msforms:{row['ms_id']}:{completado.isoformat()}"[:120]
+            # Ruling: idempotencia por CÓDIGO de formulario, no por versión --
+            # abrir una v2 de `egresados` no debe reimportar el archivo.
             existe = (db.query(SurveyResponse.id)
-                      .filter_by(form_id=form.id, import_ref=import_ref).first())
+                      .join(SurveyForm, SurveyForm.id == SurveyResponse.form_id)
+                      .filter(SurveyForm.code == SURVEY_CODE,
+                              SurveyResponse.import_ref == import_ref)
+                      .first())
             if existe is not None:
                 _add("already_imported", row["control"],
                      "esta respuesta ya se había importado", row["ms_id"])
@@ -530,20 +622,19 @@ class SurveyImportService:
             response_id = None
             if not dry_run:
                 response_id = SurveyImportService._write_response(
-                    db, form, campos, row, import_ref=import_ref, user_model=User)
+                    db, form, campos, row, import_ref=import_ref)
             guardadas.append((row, response_id))
 
-            if row["control_ok"] and completado is not None:
+            if row["control_ok"]:
                 liberar.append({"control_number": row["control"],
                                 "issued_on": completado.date(),
                                 "response_id": response_id,
                                 "paper_pending": row["paper_pending"] is True})
                 por_control[row["control"]] = {"row": row, "response_id": response_id}
             else:
-                motivo = ("número de control inválido o vacío; se guarda sin liberar"
-                          if not row["control_ok"]
-                          else "sin fecha de envío (Completion time); se guarda sin liberar")
-                _add("saved_unreleased", row["control"], motivo, row["ms_id"])
+                _add("saved_unreleased", row["control"],
+                     "número de control inválido o vacío; se guarda sin liberar",
+                     row["ms_id"])
 
         # 4. Liberación: SIEMPRE por la maquinaria de constancias previas.
         if liberar:
@@ -578,24 +669,33 @@ class SurveyImportService:
 
     @staticmethod
     def _write_response(db: Session, form, campos: dict, row: dict, *,
-                        import_ref: str, user_model) -> int:
-        """`SurveyResponse` importada + sus `SurveyAnswer`. Devuelve el id."""
-        from itcj2.apps.titulatec.models import SurveyAnswer, SurveyResponse
+                        import_ref: str) -> int:
+        """`SurveyResponse` importada + sus `SurveyAnswer`. Devuelve el id.
+
+        Ruling (fix round 1): `user_id` siempre que exista el User del control
+        y `cohort_id` si ese User tiene un proceso (el más reciente), aunque la
+        respuesta no quede ligada a una liberación; `process_id` SOLO al
+        ligarse (`link_response_to_process`)."""
+        from itcj2.apps.titulatec.models import (
+            SurveyAnswer, SurveyResponse, TitulationProcess,
+        )
+        from itcj2.core.models.user import User
 
         control = row["control"] if row["control_ok"] else None
-        user = (db.query(user_model).filter_by(control_number=control).first()
+        user = (db.query(User).filter_by(control_number=control).first()
                 if control else None)
+        proceso = (db.query(TitulationProcess)
+                   .filter(TitulationProcess.student_id == user.id)
+                   .order_by(TitulationProcess.id.desc()).first()
+                   if user is not None else None)
 
-        normalizadas: dict[str, tuple[object, bool]] = {}
-        for key, crudo in (row.get("answers_raw") or {}).items():
-            campo = campos.get(key) or {"key": key, "type": "text"}
-            valor, es_raw = SurveyImportService.normalize(campo, crudo)
-            if valor is not None:
-                normalizadas[key] = (valor, es_raw)
+        normalizadas = SurveyImportService.normalize_answers(
+            campos, row.get("answers_raw") or {})
 
         response = SurveyResponse(
             form_id=form.id, form_version=form.version,
             user_id=(user.id if user is not None else None),
+            cohort_id=(proceso.cohort_id if proceso is not None else None),
             identity_source="import", control_number=control,
             answers={k: v for k, (v, _) in normalizadas.items()},
             import_ref=import_ref,

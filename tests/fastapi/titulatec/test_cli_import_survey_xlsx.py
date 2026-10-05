@@ -25,8 +25,7 @@ HOY_FIJO = datetime(2026, 10, 1, 10, 0, 0)
 def reloj(monkeypatch):
     for modulo in ("itcj2.apps.titulatec.services.library_clearance_service",
                   "itcj2.apps.titulatec.services.survey_review_service",
-                  "itcj2.apps.titulatec.services.prior_clearance_service",
-                  "itcj2.apps.titulatec.services.survey_import_service"):
+                  "itcj2.apps.titulatec.services.prior_clearance_service"):
         monkeypatch.setattr(f"{modulo}.db_now", lambda: HOY_FIJO)
 
 
@@ -58,7 +57,7 @@ def test_imprime_los_botes(tmp_path, db_session, patched_session_local, form):
     for etiqueta in ("Guardadas y liberadas: 0", "Guardadas, liberación diferida: 1",
                      "Guardadas (ya liberadas): 0", "Guardadas (conflicto): 0",
                      "Guardadas sin liberar: 1", "Duplicadas (no guardadas): 0",
-                     "Ya importadas: 0"):
+                     "Ya importadas: 0", "Inválidas (no guardadas): 0"):
         assert etiqueta in res.output
     assert "99600201" in res.output
     assert _respuestas(db_session, form) == 2
@@ -79,6 +78,30 @@ def test_hoja_inexistente_lista_las_hojas(tmp_path, db_session, patched_session_
     res = _invoke([str(ruta), "--hoja", "Hoja9"])
     assert res.exit_code != 0
     assert "Sheet1" in res.output and "carta de liberacion" in res.output
+
+
+def test_archivo_que_no_es_xlsx_da_error_claro(tmp_path, db_session,
+                                               patched_session_local, form):
+    ruta = tmp_path / "egresados.xlsx"
+    ruta.write_bytes(b"Id,Nombre\n1,X\n")
+    res = _invoke([str(ruta)])
+    assert res.exit_code != 0
+    assert "no es un libro .xlsx" in res.output
+    assert "Traceback" not in res.output
+
+
+def test_integrity_error_da_error_claro(tmp_path, db_session, patched_session_local,
+                                        form):
+    from sqlalchemy.exc import IntegrityError
+
+    ruta = _archivo(tmp_path, [fila(1, control="99600204")])
+    with patch("itcj2.apps.titulatec.services.survey_import_service."
+               "SurveyImportService.import_rows",
+               side_effect=IntegrityError("INSERT", {}, Exception("dup"))):
+        res = _invoke([str(ruta)])
+    assert res.exit_code != 0
+    assert "Ya importadas" in res.output
+    assert "Traceback" not in res.output
 
 
 def test_encabezado_desconocido_aborta_sin_escribir(tmp_path, db_session,

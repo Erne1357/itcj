@@ -25,7 +25,6 @@ _MODULOS_RELOJ = (
     "itcj2.apps.titulatec.services.library_clearance_service",
     "itcj2.apps.titulatec.services.survey_review_service",
     "itcj2.apps.titulatec.services.prior_clearance_service",
-    "itcj2.apps.titulatec.services.survey_import_service",
 )
 
 
@@ -115,10 +114,44 @@ class TestLectura:
             _svc().read_xlsx(build_xlsx([fila(1)], headers=headers))
 
     def test_encabezado_faltante_aborta(self):
-        headers = list(HEADERS)
-        headers[8] = "Id"           # «Sexo» desaparece; «Id» queda repetido
-        with pytest.raises(ValueError):
+        headers = HEADERS[:8] + HEADERS[9:] + [None]     # sin «Sexo»
+        with pytest.raises(ValueError, match="falta.*sexo"):
             _svc().read_xlsx(build_xlsx([fila(1)], headers=headers))
+
+    def test_encabezado_repetido_aborta(self):
+        headers = list(HEADERS) + [HEADERS[8]]           # «Sexo» dos veces
+        with pytest.raises(ValueError, match="repetido.*Sexo") as exc:
+            _svc().read_xlsx(build_xlsx([fila(1)], headers=headers))
+        assert "falta" not in str(exc.value)
+
+    def test_naranja_se_lee_en_la_columna_del_id_por_encabezado(self):
+        """Si Forms mueve la columna `Id`, el naranja se busca donde quedó
+        `Id` (hallado por encabezado), no en la letra A."""
+        import io
+
+        import openpyxl
+        from openpyxl.styles import PatternFill
+
+        wb = openpyxl.load_workbook(io.BytesIO(build_xlsx([
+            fila(1, control="99600001", orange=True), fila(2, control="99600002")])))
+        ws = wb["Sheet1"]
+        ws.insert_cols(1)
+        ws.cell(row=1, column=1, value="Start time")     # ignorada, puede repetirse
+        ws.cell(row=3, column=1).fill = PatternFill(fill_type="solid", fgColor="FFFFC000")
+        buf = io.BytesIO()
+        wb.save(buf)
+        rows = _svc().read_xlsx(buf.getvalue())
+        assert [(r["ms_id"], r["paper_pending"]) for r in rows] == [(1, True), (2, False)]
+
+    def test_completion_time_como_texto(self):
+        rows = _svc().read_xlsx(build_xlsx([
+            fila(1, completed="15/06/2026 10:30:00"),
+            fila(2, completed="2026-06-16 08:00:00"),
+            fila(3, completed="ayer por la tarde")]))
+        assert rows[0]["completed_at"] == datetime(2026, 6, 15, 10, 30, 0)
+        assert rows[1]["completed_at"] == datetime(2026, 6, 16, 8, 0, 0)
+        assert rows[2]["completed_at"] is None
+        assert rows[2]["completed_raw"] == "ayer por la tarde"
 
     def test_relleno_naranja_en_a_marca_papel_por_recoger(self):
         rows = _svc().read_xlsx(build_xlsx([
@@ -168,6 +201,30 @@ class TestNormalizacion:
         assert _svc().normalize(campo, "Agosto-Diciembre") == ("AGOSTO DICIEMBRE", False)
         assert _svc().normalize(campo, "agosto / diciembre.") == ("AGOSTO DICIEMBRE", False)
 
+    def test_radio_espacio_doble(self):
+        campo = {"key": "sector_empresa", "type": "radio",
+                 "options": [{"value": "Terciario (Educación)",
+                              "label": "Terciario (Educación)"}]}
+        assert _svc().normalize(campo, "Terciario  (Educación)") == (
+            "Terciario (Educación)", False)
+
+    @pytest.mark.parametrize("opcion, crudo", [
+        ("Aprobé nivel III", "Aprobó nivel III"),
+        ("Aprobó examen TOEFL", "Aprobé examen TOEFL"),
+    ])
+    def test_sinonimo_aprobo_aprobe(self, opcion, crudo):
+        campo = {"key": "acreditacion_idioma", "type": "radio",
+                 "options": [{"value": opcion, "label": opcion}]}
+        assert _svc().normalize(campo, crudo) == (opcion, False)
+
+    def test_schema_mal_formado_no_lanza(self):
+        campo = {"key": "scale_titulado", "type": "scale",
+                 "scale": {"min": "uno", "max": None}}
+        assert _svc().normalize(campo, 3) == ("3", True)
+        texto = {"key": "x", "type": "text", "validation": {"maxLength": "mucho"}}
+        assert _svc().normalize(texto, "hola") == ("hola", True)
+        assert _svc().normalize(None, "hola") == ("hola", False)
+
     def test_radio_sin_match_se_guarda_crudo(self):
         assert _svc().normalize(_RADIO, "No trabajo") == ("No trabajo", True)
 
@@ -188,6 +245,10 @@ class TestNormalizacion:
         assert _svc().normalize(campo, "5") == (5, False)
         assert _svc().normalize(campo, 3.0) == (3, False)
         assert _svc().normalize(campo, 7) == ("7", True)
+        assert _svc().normalize(campo, "Mucho 5") == (5, False)
+        assert _svc().normalize(campo, "Poco 1") == (1, False)
+        assert _svc().normalize(campo, " 2 ") == (2, False)
+        assert _svc().normalize(campo, "1 a 5") == ("1 a 5", True)
         assert _svc().normalize(campo, "mucho") == ("mucho", True)
 
     def test_texto_recorta_y_largo_excedido_es_raw(self):
@@ -214,6 +275,61 @@ class TestNormalizacion:
         assert _svc().normalize(campo, " l12345678 ") == ("L12345678", False)
         assert _svc().normalize(campo, 20111222) == ("20111222", False)
         assert _svc().normalize(campo, "1234567") == ("1234567", True)
+
+
+# ---------------------------------------------------------------------------
+# Visibilidad (visible_when) por fila
+# ---------------------------------------------------------------------------
+_CAMPOS_VIS = {
+    "actividad_actual": {"key": "actividad_actual", "type": "radio", "options": [
+        {"value": v, "label": v} for v in ("Estudia", "Trabaja", "Estudia y trabaja",
+                                           "No estudia, ni trabaja")]},
+    "tipo_estudio": {"key": "tipo_estudio", "type": "radio",
+                     "options": [{"value": "Maestría", "label": "Maestría"}],
+                     "visible_when": {"actividad_actual": ["Estudia", "Estudia y trabaja"]}},
+    "nombre_empresa": {"key": "nombre_empresa", "type": "text",
+                       "validation": {"maxLength": 200},
+                       "visible_when": {"actividad_actual": ["Trabaja", "Estudia y trabaja"]}},
+    "scale_titulado": {"key": "scale_titulado", "type": "scale",
+                       "scale": {"min": 1, "max": 5},
+                       "visible_when": {"actividad_actual": ["Trabaja", "Estudia y trabaja"]}},
+}
+
+
+class TestVisibilidad:
+    def _n(self, answers):
+        return _svc().normalize_answers(_CAMPOS_VIS, answers)
+
+    def test_radio_oculto_con_centinela_no_se_guarda(self):
+        out = self._n({"actividad_actual": "Trabaja", "tipo_estudio": "No estudio"})
+        assert "tipo_estudio" not in out
+        assert out["actividad_actual"] == ("Trabaja", False)
+
+    def test_radio_oculto_con_valor_real_tampoco(self):
+        out = self._n({"actividad_actual": "Trabaja", "tipo_estudio": "Maestría"})
+        assert "tipo_estudio" not in out
+
+    def test_radio_visible_con_centinela_queda_raw(self):
+        out = self._n({"actividad_actual": "Estudia", "tipo_estudio": "Ninguno"})
+        assert out["tipo_estudio"] == ("Ninguno", True)
+
+    @pytest.mark.parametrize("centinela", ["No trabajo", "no trabajo.", "N0", "NO"])
+    def test_texto_oculto_centinela_no_se_guarda(self, centinela):
+        out = self._n({"actividad_actual": "Estudia", "nombre_empresa": centinela})
+        assert "nombre_empresa" not in out
+
+    def test_texto_oculto_con_dato_se_conserva_sin_raw(self):
+        out = self._n({"actividad_actual": "Estudia", "nombre_empresa": "ACME"})
+        assert out["nombre_empresa"] == ("ACME", False)
+
+    def test_escala_oculta_no_se_guarda(self):
+        out = self._n({"actividad_actual": "Estudia", "scale_titulado": "Mucho 5"})
+        assert "scale_titulado" not in out
+
+    def test_fuente_raw_no_oculta_nada(self):
+        out = self._n({"actividad_actual": "Jubilado", "tipo_estudio": "No estudio"})
+        assert out["actividad_actual"] == ("Jubilado", True)
+        assert out["tipo_estudio"] == ("No estudio", True)
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +459,10 @@ class TestImportacion:
         assert _controles(out, "conflicts") == ["99600107"]
         (nueva,) = _respuestas(db_session, form)
         assert nueva.id != original
+        # Ruling: user_id y cohort_id aunque no se ligue; process_id no.
+        assert nueva.user_id == proc.student_id
+        assert nueva.cohort_id == proc.cohort_id
+        assert nueva.process_id is None
         db_session.refresh(review)
         assert review.status == "in_review"
         assert review.response_id == original
@@ -378,6 +498,7 @@ class TestImportacion:
         assert review.paper_pending is False
         (resp,) = _respuestas(db_session, form)
         assert resp.process_id is None
+        assert resp.cohort_id == proc.cohort_id
 
     def test_ya_aplicada_en_proceso_cerrado_adjunta_a_la_previa_y_su_revision(
             self, db_session, reloj, form, proceso):
@@ -435,10 +556,56 @@ class TestImportacion:
         with pytest.raises(ValueError, match="egresados"):
             _svc().import_rows(db_session, rows, source="x.xlsx", dry_run=True)
 
+    def test_completion_time_ilegible_es_invalida_y_no_se_guarda(
+            self, db_session, reloj, form):
+        out = _importar(db_session, [fila(91, control="99600130", completed="ayer"),
+                                     fila(92, control="99600131",
+                                          completed="15/06/2026 10:30:00")])
+        assert [r["ms_id"] for r in out["invalid"]] == [91]
+        assert _controles(out, "deferred") == ["99600131"]
+        (resp,) = _respuestas(db_session, form)
+        assert resp.import_ref == "msforms:92:2026-06-15T10:30:00"
+
+    def test_idempotencia_entre_versiones_del_formulario(
+            self, db_session, reloj, form, make_survey_form):
+        _importar(db_session, [fila(93, control="99600132")])
+        nueva_version = make_egresados_form(make_survey_form)
+        out = _importar(db_session, [fila(93, control="99600132")])
+        assert [r["ms_id"] for r in out["already_imported"]] == [93]
+        assert _respuestas(db_session, nueva_version) == []
+
+    def test_previa_pendiente_conserva_fecha_mas_nueva_y_nota(
+            self, db_session, reloj, form):
+        from itcj2.apps.titulatec.models import PriorClearance
+
+        _prior_svc().import_rows(db_session, kind="survey", source="viejo.csv", rows=[
+            {"control_number": "99600133", "issued_on": "2026-07-01",
+             "note": "Nota del CSV"}])
+        out = _importar(db_session, [fila(94, control="99600133")])  # 2026-06-15
+        assert _controles(out, "deferred") == ["99600133"]
+        previa = (db_session.query(PriorClearance)
+                  .filter_by(kind="survey", control_number="99600133").one())
+        assert previa.issued_on == datetime(2026, 7, 1).date()
+        assert previa.note == "Nota del CSV"
+        (resp,) = _respuestas(db_session, form)
+        assert previa.response_id == resp.id
+
+    def test_previa_pendiente_toma_la_fecha_si_es_mas_nueva(self, db_session, reloj, form):
+        from itcj2.apps.titulatec.models import PriorClearance
+
+        _prior_svc().import_rows(db_session, kind="survey", source="viejo.csv", rows=[
+            {"control_number": "99600134", "issued_on": "2026-05-01", "note": "CSV"}])
+        _importar(db_session, [fila(95, control="99600134")])          # 2026-06-15
+        previa = (db_session.query(PriorClearance)
+                  .filter_by(kind="survey", control_number="99600134").one())
+        assert previa.issued_on == datetime(2026, 6, 15).date()
+        assert previa.note == "CSV"
+
     def test_botes_completos(self, db_session, reloj, form):
         out = _importar(db_session, [fila(81, control="99600113")], dry_run=True)
         assert tuple(out) == ("released", "deferred", "already_released", "conflicts",
-                              "saved_unreleased", "duplicates", "already_imported")
+                              "saved_unreleased", "duplicates", "already_imported",
+                              "invalid")
         assert set(out["deferred"][0]) >= {"control_number", "reason", "ms_id"}
 
 

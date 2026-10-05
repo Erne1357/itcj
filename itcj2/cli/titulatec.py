@@ -2785,6 +2785,7 @@ _IMPORT_SURVEY_ETIQUETAS = {
     "saved_unreleased": "Guardadas sin liberar",
     "duplicates": "Duplicadas (no guardadas)",
     "already_imported": "Ya importadas",
+    "invalid": "Inválidas (no guardadas)",
 }
 
 
@@ -2811,9 +2812,15 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
     - Guardadas sin liberar: control inválido/vacío o constancia vencida.
     - Duplicadas: mismo control repetido; solo se importa la más reciente.
     - Ya importadas: re-correr el archivo no duplica nada.
+    - Inválidas (no guardadas): «Completion time» vacío o ilegible.
 
     Un encabezado desconocido o faltante aborta sin escribir nada.
     """
+    from zipfile import BadZipFile
+
+    from openpyxl.utils.exceptions import InvalidFileException
+    from sqlalchemy.exc import IntegrityError
+
     from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
     from itcj2.database import SessionLocal
 
@@ -2822,6 +2829,10 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
         rows = SurveyImportService.read_xlsx(ruta.read_bytes(), sheet=hoja)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from None
+    except (BadZipFile, InvalidFileException):
+        raise click.ClickException(
+            f"{ruta.name} no es un libro .xlsx válido (¿archivo dañado o de otro "
+            "formato? Expórtalo de nuevo desde Forms).") from None
 
     db = SessionLocal()
     try:
@@ -2830,6 +2841,12 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
     except ValueError as exc:
         db.rollback()
         raise click.ClickException(str(exc)) from None
+    except IntegrityError:
+        db.rollback()
+        raise click.ClickException(
+            "Otra importación guardó estas mismas respuestas al mismo tiempo; no se "
+            "escribió nada en esta corrida. Vuelve a correrla: lo ya guardado saldrá "
+            "como «Ya importadas».") from None
     finally:
         db.close()
 

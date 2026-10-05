@@ -287,7 +287,8 @@ class PriorClearanceService:
            aprobar):
            - sin proceso abierto -> se DIFIERE: upsert de `PriorClearance`
              (único por `kind`+`control_number`; una fila repetida actualiza
-             `issued_on`/`note`/`source` en vez de duplicar) -> `deferred`.
+             `source`, se queda con la `issued_on` MÁS NUEVA y conserva la `note` si la
+             nueva viene vacía, en vez de duplicar) -> `deferred`.
              Si la que había YA se aplicó a un proceso anterior: con una fecha
              MÁS NUEVA la reemplaza y vuelve a quedar pendiente -> `deferred`
              (Ruling R28); con la misma fecha o una anterior, ya registrada
@@ -492,7 +493,8 @@ class PriorClearanceService:
               link: Optional[tuple[Optional[int], bool]] = None) -> str:
         """Registra (o actualiza) la `PriorClearance` diferida de `control`.
         UNIQUE (kind, control_number): una segunda carga del MISMO número
-        actualiza fecha/nota/origen en vez de duplicar. Devuelve:
+        actualiza origen (y la fecha si es MÁS NUEVA; la nota si no viene
+        vacía) en vez de duplicar. Devuelve:
 
         * `"deferred"` -- quedó en espera (nueva, o una pendiente actualizada);
         * `"replaced"` -- Ruling R28 (M5 de la revisión final): la que había
@@ -528,10 +530,21 @@ class PriorClearanceService:
             db.add(PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
                                   note=note, source=source, response_id=response_id,
                                   paper_pending=paper_pending))
-        else:
+        elif reemplaza:
             fila.issued_on = issued_on
             fila.note = note
             fila.source = source
+        else:
+            # Pendiente que se actualiza (ruling Tarea 2 de la importación del
+            # Excel): gana la fecha MÁS NUEVA -una carga posterior con fecha
+            # vieja no acorta la vigencia- y una nota vacía no borra la que
+            # ya había (el Excel no trae nota; la del CSV se conserva).
+            if fila.issued_on is None or issued_on > fila.issued_on:
+                fila.issued_on = issued_on
+            if note:
+                fila.note = note
+            fila.source = source
+        if fila is not None:
             if reemplaza:
                 fila.applied_process_id = None
                 fila.applied_at = None
