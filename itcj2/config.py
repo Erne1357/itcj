@@ -355,7 +355,11 @@ class Settings(BaseSettings):
     # «Ver N horas más» y el resto de `.tt-cita-*`/`.tt-slotblock-*` nuevos).
     # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
     # `<details>` se ven sin su cabecera ni su chevron.
-    STATIC_VERSION: str = "1.0.1111589"
+    #
+    # Bump 2026-10-05: `titulatec/js/admin/doc-viewer.js` (estado de revision
+    # tras cerrar el modal, guarda expando, historyRestore) y
+    # `core/js/dashboard/dashboard.js` (sandbox solo en iframes cross-origin).
+    STATIC_VERSION: str = "1.0.1111590"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"

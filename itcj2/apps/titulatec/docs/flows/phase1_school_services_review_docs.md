@@ -80,7 +80,7 @@ sequenceDiagram
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | `/admin/documents` | Selecciona proceso | `GET …/documents/body?selected=` | `_body_ctx` (scoped, `pages/documents.py:145-190`) | (lectura) | — |
 | 2 | 🏛️ | panel derecho (doc activo) | Aprueba/rechaza doc | `POST …/{pid}/document/review` (`type_code`+`note` en form; reject exige `note`) | `DocumentService.review` | `Document.review_status`, `review_note`, `reviewed_by_id` · un solo commit al final | `docs_review` (aprobado **y** rechazado), grupo `docs:{pid}` |
-| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` (`base_admin.html:93`, módulo `doc-viewer.js`) | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
+| 2b | 🏛️ | visor | Ve PDF (PDF.js→canvas) / lo expande al modal `#tt-doc-modal` (`base_admin.html:93-125`, módulo `doc-viewer.js`) | `GET …/{pid}/document/{code}` (`?download=1` descarga) | `DocumentService.get_document` + `_storage_keys` → `storage.download_filename` | (lectura) · `Content-Disposition: inline\|attachment; filename="{control}_{ETIQUETA}.{ext}"` | — |
 | 3 | 🤖 | — | Auto-avance si las 3 aprobadas | (mismo POST) | `DocumentService.initial_docs_all_approved` + `PhaseService.can_transition` + `...approve_phase` (`pages/documents.py:261-263`) | fase1→`approved`, `current_phase=2`, `ProcessEvent` · commit propio de `approve_phase` | `phase_approved`, **mismo** grupo `docs:{pid}` |
 
 ### Correo al egresado (desde 2026-09-28)
@@ -122,12 +122,12 @@ Tres piezas, ninguna con `<script>` inline:
 - **Markup del panel**: `partials/documents_body.html` (selector de documentos `.tt-docpick`,
   `#tt-doc-review` con `data-phase-closed`, botones HTMX de dictamen con `data-closes`, línea 113).
   Solo datos por `data-*`.
-- **Módulo**: `static/js/admin/doc-viewer.js` (`window.TitulaTecDocViewer = { init }`, IIFE, línea 330).
+- **Módulo**: `static/js/admin/doc-viewer.js` (`window.TitulaTecDocViewer = { init }`, IIFE, línea 340).
   PDF.js, documento activo, dictamen y modal. Lo carga **una vez** `admin/base_admin.html`
   (`<script src=…doc-viewer.js>`, junto a `officers.js`), delega en `document.body` y se re-inicia
-  en `htmx:afterSettle` (`doc-viewer.js:301-330`) solo si el swap trajo `#tt-doc-review`.
+  en `htmx:afterSettle` (`doc-viewer.js:323-330`; también en `htmx:historyRestore`, `:332`) solo si el swap trajo `#tt-doc-review`.
 - **Modal grande** `#tt-doc-modal` (con `#tt-modal-actions`, su dictamen, que delega en los botones
-  del panel inline): `admin/base_admin.html:80-93`, dentro de `{% block modals %}` (nivel `<body>`).
+  del panel inline): `admin/base_admin.html:93-125` (`#tt-modal-actions` en :113), dentro de `{% block modals %}` (nivel `<body>`).
   `admin/appointments.html` y `admin/process_detail.html` lo heredan con `{{ super() }}`.
   Si el revisor no tiene `can_review_docs` (el panel no pinta botones), el módulo oculta el
   dictamen del modal.
