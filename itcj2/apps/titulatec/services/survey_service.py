@@ -438,7 +438,10 @@ class SurveyService:
                   if isinstance(f, dict)] if form is not None else []
         keys = [str(f.get("key")) for f in fields]
 
-        headers = ["id", "enviada_en", "identidad", "numero_control",
+        # `importada` (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4):
+        # «sí» para las respuestas cargadas del Excel de Forms
+        # (`identity_source='import'`), «no» para las de la plataforma.
+        headers = ["id", "enviada_en", "identidad", "importada", "numero_control",
                    "proceso_id", "convocatoria_id", "version"] + keys
 
         rows: list[list[str]] = []
@@ -451,6 +454,7 @@ class SurveyService:
                 r.id,
                 r.submitted_at.isoformat(sep=" ", timespec="seconds") if r.submitted_at else "",
                 r.identity_source or "",
+                "sí" if r.identity_source == "import" else "no",
                 r.control_number or "",
                 r.process_id or "",
                 r.cohort_id or "",

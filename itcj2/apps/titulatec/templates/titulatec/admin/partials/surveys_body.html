@@ -1,6 +1,9 @@
 {# Respuestas de la encuesta. Raíz `#tt-surveys-body`; todos los controles
-   apuntan a ella con `hx-swap="outerHTML"`. #}
-{% from "titulatec/_macros.html" import pager %}
+   apuntan a ella con `hx-swap="outerHTML"`. Una respuesta importada del Excel
+   de Forms (`identity_source='import'`, spec 2026-10-05-titulatec-import-
+   encuesta-xlsx §4.4) lleva la píldora «Importada» en vez del código crudo, y
+   sin cuenta su nombre sale de la propia respuesta (`_who`). #}
+{% from "titulatec/_macros.html" import pager, pill %}
 <div id="tt-surveys-body" data-tt-view="surveys-body">
 
   {% if form %}
@@ -40,7 +43,7 @@
         <td class="tt-mono">{{ r.submitted_at.strftime('%Y-%m-%d %H:%M') if r.submitted_at }}</td>
         <td>{{ r.name }}</td>
         <td class="tt-mono">{{ r.control }}</td>
-        <td><span class="tt-pill tt-pill--neutral">{{ r.identity }}</span></td>
+        <td>{% if r.imported %}{{ pill("Importada", "violet", "file-earmark-arrow-up") }}{% else %}<span class="tt-pill tt-pill--neutral">{{ r.identity }}</span>{% endif %}</td>
         <td><a class="btn btn-sm tt-btn-ghost"
                href="/titulatec/admin/encuestas/{{ r.id }}">Ver</a></td>
       </tr>

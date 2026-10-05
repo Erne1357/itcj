@@ -105,11 +105,35 @@ def _body_ctx(db, *, form_id, page: int, per_page: int = PAGE_SIZE):
             "id": r.id,
             "submitted_at": r.submitted_at,
             "identity": r.identity_source,
+            "imported": r.identity_source == "import",
             "control": r.control_number or (u.control_number if u else ""),
-            "name": u.full_name if u else "Anónimo",
+            "name": _who(r, u),
             "process_id": r.process_id,
         })
     return ctx
+
+
+def _who(response, user) -> str:
+    """Nombre a mostrar: el de la cuenta; si no hay cuenta y la respuesta se
+    importó del Excel de Forms (spec 2026-10-05-titulatec-import-encuesta-xlsx
+    §4.4), el `nombre_completo` que trae la propia respuesta; si no,
+    «Anónimo»."""
+    if user is not None:
+        return user.full_name
+    if response.identity_source == "import":
+        nombre = str((response.answers or {}).get("nombre_completo") or "").strip()
+        if nombre:
+            return nombre
+    return "Anónimo"
+
+
+# Llaves de una respuesta importada que NO son preguntas del formulario (R9):
+# van en «Otros datos importados», con su etiqueta legible. Una llave fuera
+# del `schema` que no esté aquí sale con su propio nombre en la misma sección.
+_EXTRA_LABELS = {
+    "extra_aspecto_no_trabajo":
+        "Aspecto que valora la empresa u organismo para contratar egresados: No trabajo",
+}
 
 
 @router.get("", name="titulatec.pages.surveys.list")
@@ -180,7 +204,7 @@ async def detail(response_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_READ))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
-    from itcj2.apps.titulatec.models import SurveyForm, SurveyResponse
+    from itcj2.apps.titulatec.models import SurveyAnswer, SurveyForm, SurveyResponse
 
     db = SessionLocal()
     try:
@@ -193,17 +217,34 @@ async def detail(response_id: int, request: Request,
         # preguntas de la versión que se contestó, no con las de hoy.
         labels = {f.get("key"): f.get("label", f.get("key"))
                   for f in ((form.schema or {}).get("fields") or [])} if form else {}
+        imported = row.identity_source == "import"
+        # Valores que el import no pudo encajar en las opciones (D1): se
+        # guardaron tal cual con `SurveyAnswer.is_raw`. Solo existen en filas
+        # importadas; una respuesta de la plataforma nunca los tiene.
+        raw_keys = ({k for (k,) in db.query(SurveyAnswer.field_key)
+                     .filter(SurveyAnswer.response_id == row.id,
+                             SurveyAnswer.is_raw.is_(True)).all()}
+                    if imported else set())
+        items, extras = [], []
+        for k, v in (row.answers or {}).items():
+            if imported and k not in labels:
+                # R9: lo que el Excel trae y el formulario no pregunta.
+                extras.append({"label": _EXTRA_LABELS.get(k, k), "key": k, "value": v})
+            else:
+                items.append({"label": labels.get(k, k), "key": k, "value": v,
+                              "raw": k in raw_keys})
         ctx = {
             "response": {
                 "id": row.id, "submitted_at": row.submitted_at,
                 "identity": row.identity_source,
+                "imported": imported,
                 "control": row.control_number or (u.control_number if u else ""),
-                "name": u.full_name if u else "Anónimo",
+                "name": _who(row, u),
                 "form_version": row.form_version,
             },
             "form": form,
-            "items": [{"label": labels.get(k, k), "key": k, "value": v}
-                      for k, v in (row.answers or {}).items()],
+            "items": items,
+            "extras": extras,
         }
     finally:
         db.close()

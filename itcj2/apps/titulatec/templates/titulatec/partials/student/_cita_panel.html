@@ -69,6 +69,10 @@
             — {{ it.survey.reason }}
           {%- endif %}
         </div>
+        {% if it.survey.paper_to_collect %}
+        {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4). #}
+        <div class="tt-cita-reqs-item-hint mt-1" data-tt-paper-pickup>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</div>
+        {% endif %}
         {% endif %}
         {% if it.library %}
         {# D6/§4.4/§4.10: lo liberan Biblioteca y Caja, no el alumno -- mismo

@@ -198,3 +198,32 @@ async def revoke(review_id: int, request: Request,
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/survey_reviews_body.html", ctx)
+
+
+@router.post("/{review_id}/entregada", name="titulatec.pages.releases.paper_delivered")
+async def paper_delivered(review_id: int, request: Request,
+                          user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
+    """«Marcar constancia entregada» (D3, spec `2026-10-05-titulatec-import-
+    encuesta-xlsx-design.md` §4.4): GTV entregó la constancia en papel de una
+    previa importada con `paper_pending`. Mismo permiso que Liberar: es GTV
+    cerrando la liberación que ella misma expide. 400 si no tenía papel por
+    recoger o ya se entregó (lo decide el service); sin correo (R10)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    form = await request.form()
+    status, q, page = form.get("status"), form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        try:
+            SurveyReviewService.mark_paper_delivered(db, review_id, actor_id=uid)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as e:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
+        ctx = _body_ctx(db, status=status, q=q, page=page)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/survey_reviews_body.html", ctx)

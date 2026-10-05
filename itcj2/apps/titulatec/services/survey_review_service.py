@@ -254,7 +254,8 @@ class SurveyReviewService:
 
         `status="missing"` es un PSEUDO-estado: no existe fila todavía (el
         egresado no ha enviado la encuesta). Llaves: `status`, `reason`,
-        `reviewed_by`, `reviewed_at`, `review_id`, `response_id`, `origin`.
+        `reviewed_by`, `reviewed_at`, `review_id`, `response_id`, `origin`,
+        `paper_to_collect`.
 
         NO trae la constancia ni su estado de impresión (Ruling R14, revisión
         final de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
@@ -271,7 +272,7 @@ class SurveyReviewService:
         if review is None:
             return {"status": "missing", "reason": None, "reviewed_by": None,
                     "reviewed_at": None, "review_id": None, "response_id": None,
-                    "origin": None}
+                    "origin": None, "paper_to_collect": False}
 
         reviewer = db.get(User, review.reviewed_by_id) if review.reviewed_by_id else None
         return {
@@ -286,7 +287,19 @@ class SurveyReviewService:
             # (`partials/survey_status.html`) y la bandeja de GTV lo usan para
             # distinguir una liberación real de una constancia previa.
             "origin": review.origin,
+            # D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4): el
+            # egresado tiene que recoger su constancia en papel en GTV.
+            "paper_to_collect": SurveyReviewService.paper_to_collect(review),
         }
+
+    @staticmethod
+    def paper_to_collect(review) -> bool:
+        """«Constancia por recoger» (D3): la previa importada marcó papel
+        pendiente (`paper_pending`) y GTV todavía no lo entrega
+        (`paper_delivered_at` vacío). `paper_pending` se conserva tras la
+        entrega como hecho histórico, así que nunca basta por sí solo."""
+        return bool(review is not None and review.paper_pending
+                    and review.paper_delivered_at is None)
 
     @staticmethod
     def certificate_ref(review_id: int | None) -> str | None:
@@ -415,13 +428,19 @@ class SurveyReviewService:
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="SURVEY_REVIEW_APPROVED",
                        title="Tu encuesta de egresados quedó liberada",
-                       body="Se registró tu constancia previa; llévala a tu cita de cotejo.",
+                       body=("Se registró tu constancia previa. Recoge tu constancia de "
+                             "liberación en Gestión Tecnológica y Vinculación."
+                             if paper_pending else
+                             "Se registró tu constancia previa; llévala a tu cita de cotejo."),
                        process_id=process.id, phase_number=PHASE_COTEJO)
 
         # Correo (spec §4.11/§4.12): `origin='prior'` cambia el texto del
-        # resultado "approved" a la variante de constancia previa.
+        # resultado "approved" a la variante de constancia previa; con
+        # `paper_pending` (R10, spec 2026-10-05) añade la línea de recoger la
+        # constancia en GTV.
         from itcj2.apps.titulatec.services.student_mail import StudentMail
-        StudentMail.survey_result(db, process, result="approved", origin="prior")
+        StudentMail.survey_result(db, process, result="approved", origin="prior",
+                                  paper_pending=bool(paper_pending))
 
         return review
 
@@ -778,9 +797,14 @@ class SurveyReviewService:
                 "current_phase": process.current_phase,
                 "status": review.status,
                 # 'submission' | 'prior' (D9, §4.12): la plantilla pinta la
-                # píldora «Constancia previa» y oculta «Ver respuestas»
-                # (`response_id` es NULL en una previa).
+                # píldora «Constancia previa». «Ver respuestas» sale siempre
+                # que haya `response_id`: NULL en una previa del CSV, ligado
+                # en una previa del Excel de Forms (spec 2026-10-05-titulatec-
+                # import-encuesta-xlsx R7).
                 "origin": review.origin,
+                # «Constancia por recoger» (D3): papel pendiente y aún sin
+                # entregar; con él la fila ofrece «Marcar constancia entregada».
+                "paper_to_collect": SurveyReviewService.paper_to_collect(review),
                 "reason": review.rejection_reason,
                 "reviewed_by": reviewer.full_name if reviewer else None,
                 "reviewed_at": (f"{review.reviewed_at:%d/%m/%Y}"

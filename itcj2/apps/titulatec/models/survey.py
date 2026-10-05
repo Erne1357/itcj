@@ -73,7 +73,9 @@ class SurveyResponse(Base):
     del archivo, no una auto-declaracion en la plataforma; y aun asi esta fila
     NO acredita nada por si sola: la liberacion va por `PriorClearanceService`
     -> `SurveyReviewService.register_prior` con sus propias guardas. Solo las
-    filas 'import' llevan `import_ref` (`"msforms:{archivo}:{Id}"`), unico por
+    filas 'import' llevan `import_ref` (`"msforms:{Id}:{Completion time ISO}"`,
+    ruling del controlador que sustituye el texto de R6: no depende del nombre
+    del archivo y no choca entre semestres aunque Forms reinicie los Id), unico por
     formulario (indice parcial `uq_titulatec_survey_responses_form_import_ref`,
     declarado aqui y en la migracion `tt20261005b` porque el CI usa
     `create_all`): re-correr el mismo archivo no duplica (R6). Sus `answers`
@@ -107,7 +109,7 @@ class SurveyResponse(Base):
     user_agent_hash = Column(String(64), nullable=True)
     submitted_at = Column(DateTime, nullable=False,
                           server_default=text("NOW()"), index=True)
-    # Solo con identity_source='import': "msforms:{archivo}:{Id}" (R6).
+    # Solo con identity_source='import': "msforms:{Id}:{Completion time ISO}" (R6).
     import_ref = Column(String(120), nullable=True)
 
     def __repr__(self) -> str:

@@ -381,7 +381,8 @@ class StudentMail:
     @_best_effort
     def survey_result(db: Session, process, *, result: str,
                       reason: str | None = None,
-                      origin: str = "submission") -> bool:
+                      origin: str = "submission",
+                      paper_pending: bool = False) -> bool:
         """Dictamen sobre la encuesta (#4-#6): `result` ∈
         approved|rejected|revoked → `survey_{result}`. Individual.
 
@@ -395,6 +396,13 @@ class StudentMail:
         (Ruling R22) la solicitud se borró y el correo le pide contestar la
         encuesta. `approve`/`reject` nunca lo pasan: se quedan en el valor
         por omisión `"submission"`, el de siempre.
+
+        `paper_pending` (R10, spec `2026-10-05-titulatec-import-encuesta-
+        xlsx-design.md`): solo `register_prior` lo enciende, cuando la previa
+        importada del Excel de Forms trae la constancia en papel «por
+        recoger»; la plantilla añade entonces la línea de recogerla en GTV
+        (el compositor la vuelve a validar al enviar). Viaja en el payload
+        solo si es `True`, así que las filas de siempre no cambian.
         """
         from itcj2.apps.titulatec.models.survey_review import SURVEY_REVIEW_ORIGINS
 
@@ -402,9 +410,11 @@ class StudentMail:
             raise ValueError(f"resultado de GTV desconocido: {result!r}")
         if origin not in SURVEY_REVIEW_ORIGINS:
             raise ValueError(f"origen de encuesta desconocido: {origin!r}")
+        payload = {"reason": reason, "origin": origin}
+        if paper_pending is True:
+            payload["paper_pending"] = True
         return StudentMail.enqueue(
-            db, kind=f"survey_{result}", process=process,
-            payload={"reason": reason, "origin": origin})
+            db, kind=f"survey_{result}", process=process, payload=payload)
 
     @staticmethod
     @_best_effort

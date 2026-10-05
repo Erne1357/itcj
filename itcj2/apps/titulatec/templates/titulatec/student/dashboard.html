@@ -98,6 +98,12 @@
           <p class="tt-prose mt-3 mb-0" style="font-size:.86rem;color:var(--tt-slate);line-height:1.55">{{ current.desc }}</p>
           {% endif %}
 
+          {% if current.survey and current.survey.paper_to_collect %}
+          {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4): en la fase
+             actual el acordeón no se despliega, así que el aviso va aquí. #}
+          <p class="tt-prose mt-3 mb-0" data-tt-paper-pickup>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</p>
+          {% endif %}
+
           {% if current.status == 'rejected' and current.rejection_reason %}
           <div class="mt-3 p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
             <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Necesita corrección</span>
@@ -246,6 +252,10 @@
                     </div>
                     {% if ph.survey.status == 'rejected' and ph.survey.reason %}
                     <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
+                    {% endif %}
+                    {% if ph.survey.paper_to_collect %}
+                    {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4). #}
+                    <p class="tt-prose mb-0 mt-2" data-tt-paper-pickup>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</p>
                     {% endif %}
                     {% if ph.survey.status == 'missing' and ph.survey.url %}
                     <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">

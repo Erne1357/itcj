@@ -1,7 +1,7 @@
 {# Dictamen de GTV sobre la encuesta de egresados (spec 2026-09-28 §5,
    #4-#6). `result`: approved (liberada), rejected (observaciones) o revoked
    (se revocó la liberación). Contexto: first_name, link, result, reason,
-   origin y falta.
+   origin, falta y paper_pending.
    Liberada (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11):
    `origin` = "prior" es una constancia previa del semestre anterior (D9), sin
    encuesta real ni dictamen de GTV detrás; "submission" es la de siempre (el
@@ -13,7 +13,10 @@
    mandarlo a la ventanilla de GTV.
    Revocada con `origin` = "prior" (Ruling R22): la solicitud se BORRÓ -no
    había encuesta real detrás-, así que le pide contestar la encuesta en la
-   plataforma; `link` ya apunta a la encuesta y el botón lo dice. #}
+   plataforma; `link` ya apunta a la encuesta y el botón lo dice.
+   `paper_pending` (R10, spec 2026-10-05-titulatec-import-encuesta-xlsx): solo
+   en la previa liberada; la constancia en papel está en GTV por recoger
+   (re-validado al enviar por `_papel_por_recoger`). #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{% if result == "approved" and origin == "prior" %}Tu encuesta de egresados quedó registrada como liberada{% elif result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
@@ -24,7 +27,8 @@
 {% if origin == "prior" %}
 <p style="margin:0 0 24px;">
   Tu encuesta de egresados del semestre anterior <strong>quedó registrada como liberada</strong>.
-  Lleva tu constancia física a tu cita de cotejo.
+  {% if paper_pending %}<strong>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</strong>
+  {% endif %}Lleva tu constancia física a tu cita de cotejo.
 </p>
 {% else %}
 <p style="margin:0 0 24px;">

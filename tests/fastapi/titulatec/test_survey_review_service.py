@@ -728,15 +728,17 @@ class TestSummaryForProcess:
     # `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4): el
     # estado de impresión lo cuelgan las dos vistas de SE con UNA llamada a
     # `print_status_map` para encuesta y no adeudo juntos.
+    # `paper_to_collect` (D3, spec 2026-10-05-titulatec-import-encuesta-xlsx
+    # §4.4): «Constancia por recoger», para el aviso al egresado.
     LLAVES = {"status", "reason", "reviewed_by", "reviewed_at", "review_id",
-              "response_id", "origin"}
+              "response_id", "origin", "paper_to_collect"}
 
     def test_sin_solicitud(self, db_session, escenario):
         resumen = SurveyReviewService.summary_for_process(db_session, escenario["process"].id)
         assert resumen == {
             "status": "missing", "reason": None, "reviewed_by": None,
             "reviewed_at": None, "review_id": None, "response_id": None,
-            "origin": None,
+            "origin": None, "paper_to_collect": False,
         }
 
     def test_con_solicitud_en_revision(self, db_session, escenario, make_survey_review):

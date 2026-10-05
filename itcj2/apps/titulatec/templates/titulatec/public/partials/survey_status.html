@@ -37,6 +37,11 @@
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta ya fue liberada</h2>
     {% if review.origin == 'prior' %}
     <p class="mb-0">Tu encuesta del semestre anterior quedó registrada como liberada. Lleva tu constancia física a tu cita de cotejo; no tienes nada más que hacer aquí.</p>
+    {% if review.paper_to_collect %}
+    {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4): la constancia en
+       papel la tiene GTV; desaparece cuando GTV la marca entregada. #}
+    <p class="mb-0 mt-2" data-tt-paper-pickup><strong>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</strong></p>
+    {% endif %}
     {% else %}
     <p class="mb-0">Gestión Tecnológica y Vinculación revisó tu encuesta y la liberó{% if review.reviewed_at %} el {{ review.reviewed_at }}{% endif %}. No tienes nada más que hacer aquí; continúa con tu proceso de titulación en TitulaTec.</p>
     {% endif %}

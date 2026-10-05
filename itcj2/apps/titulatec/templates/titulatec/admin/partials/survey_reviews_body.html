@@ -23,7 +23,12 @@
      imprimirá» + la nota «inscripción revocada» en vez de «Sin imprimir»
      (Rulings R13 y R18,
      `revoked=r.revoked`: «Por imprimir» ya no la toma, R26).
-   Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
+   - Constancia por recoger (`r.paper_to_collect`, D3 de `2026-10-05-
+     titulatec-import-encuesta-xlsx-design.md` §4.4): píldora junto al
+     estado y, en «Liberadas» sin revocar, «Marcar constancia entregada»
+     (`/entregada`, con `hx-confirm`). «Ver respuestas» sale con
+     `r.response_id`, también en una previa del Excel de Forms (R7).
+   Sin `hx-confirm` salvo Liberar/Revocar/Marcar entregada (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
    (`static/js/shared/titulatec-utils.js:265`).
 
@@ -43,7 +48,7 @@
    con la petición sin confirmar nada (defecto real, detectado por E2E el
    2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
    titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
-{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell, pager %}
+{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell, pager, pill %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -96,7 +101,8 @@
         <td>{{ r.cohort }}</td>
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
-        <td>{{ survey_review_pill(r.status, origin=r.origin) }}</td>
+        <td>{{ survey_review_pill(r.status, origin=r.origin) }}
+          {%- if r.paper_to_collect %} {{ pill("Constancia por recoger", "amber", "envelope-paper") }}{% endif %}</td>
         <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior'), revoked=r.revoked) }}</td>
         <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
@@ -137,6 +143,15 @@
             </form>
           {% elif r.status == 'approved' %}
             <p class="small mb-1">Liberada por {{ r.reviewed_by or '—' }} el {{ r.reviewed_at or '—' }}</p>
+            {% if r.paper_to_collect %}
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/entregada"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Marcar entregada"
+                  hx-confirm="Marcar constancia entregada|¿Confirmas que {{ r.student }} ya recogió su constancia de liberación en papel?">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost mb-1">Marcar constancia entregada</button>
+            </form>
+            {% endif %}
             {% if r.can_revoke %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/revocar"
                   hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
