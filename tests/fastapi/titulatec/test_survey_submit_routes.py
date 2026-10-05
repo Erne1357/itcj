@@ -247,14 +247,15 @@ def test_la_tarjeta_de_gracias_tiene_copy_propio_para_los_cuatro_creditos():
         "titulatec/public/partials/survey_thanks.html")
 
     textos = {}
-    for estado in ("anonymous", "no_process", "already_submitted", "in_review"):
+    for estado in ("anonymous", "no_process", "already_submitted", "in_review",
+                   "imported"):
         html = tpl.render(credit_status=estado)
         assert f'data-tt-credit="{estado}"' in html
         plano = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
         assert len(plano) > 40, f"{estado}: mensaje vacio o de relleno ({plano!r})"
         textos[estado] = plano
 
-    assert len(set(textos.values())) == 4, (
+    assert len(set(textos.values())) == 5, (
         "dos estados de credito se leen igual: "
         + repr({k: v[:60] for k, v in textos.items()}))
 

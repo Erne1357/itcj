@@ -263,6 +263,40 @@ def test_csv_agrega_la_columna_importada(client_as, db_session, make_head):
     assert por_id[str(nat.id)][col] == "no"
 
 
+def test_csv_incluye_las_llaves_extra_importadas(client_as, db_session, make_head):
+    """M5: `extra_aspecto_no_trabajo` (R9, sin pregunta en el schema) va al CSV."""
+    head = make_head(perm_codes=SURVEY_PERMS)
+    form = _make_form(db_session)
+    imp = _imported(db_session, form, control="99470006",
+                    answers={"nombre_completo": "CSV EXTRA",
+                             "extra_aspecto_no_trabajo": "=Mucho 5"})
+
+    resp = client_as(head).get(f"{ENC}/export.csv?form_id={form.id}")
+
+    assert resp.status_code == 200, resp.text[:300]
+    filas = list(csv.reader(io.StringIO(resp.text.lstrip("﻿"))))
+    headers = filas[0]
+    assert headers[-1] == "extra_aspecto_no_trabajo"
+    fila = {f[0]: f for f in filas[1:]}[str(imp.id)]
+    # Escapado contra inyección de fórmulas como cualquier otra columna.
+    assert fila[headers.index("extra_aspecto_no_trabajo")] == "'=Mucho 5"
+
+
+def test_csv_sin_importadas_no_agrega_columnas_extra(client_as, db_session, make_head):
+    from itcj2.apps.titulatec.models import SurveyResponse
+
+    head = make_head(perm_codes=SURVEY_PERMS)
+    form = _make_form(db_session)
+    db_session.add(SurveyResponse(form_id=form.id, form_version=1,
+                                  identity_source="anonymous", answers={}))
+    db_session.flush()
+
+    resp = client_as(head).get(f"{ENC}/export.csv?form_id={form.id}")
+
+    headers = next(csv.reader(io.StringIO(resp.text.lstrip("﻿"))))
+    assert not [h for h in headers if h.startswith("extra_")]
+
+
 # ---------------------------------------------------------------------------
 # Liberaciones (GTV)
 # ---------------------------------------------------------------------------
@@ -467,3 +501,126 @@ def test_correo_de_previa_omite_la_linea_si_ya_se_entrego_al_enviar(
     texto = _correo_previa(db_session, proc)
 
     assert PICKUP not in texto
+
+
+# ---------------------------------------------------------------------------
+# Encuesta pública: respuesta de Forms importada que espera la inscripción
+# (decisión del usuario tras la revisión final)
+# ---------------------------------------------------------------------------
+SURVEY_PUBLIC = "/titulatec/encuesta-egresados"
+IMPORTED_PENDING = ("Tu encuesta de Microsoft Forms ya está registrada; se liberará "
+                    "cuando completes tu inscripción.")
+OK_PAYLOAD = {"website": "", "situacion_laboral": "empleado", "relacion_carrera": "4",
+              "areas_fuertes": ["tecnica", "idiomas"], "comentarios": "Prueba."}
+
+
+@pytest.fixture()
+def diferida(db_session, make_survey_form, make_student):
+    """Egresado SIN proceso cuya respuesta de Forms se importó y quedó
+    DIFERIDA (`PriorClearance` sin aplicar, ligada a la respuesta). Devuelve
+    `(student, form, response)`."""
+    from itcj2.apps.titulatec.models import PriorClearance
+    from itcj2.core.utils.timezone import db_now
+
+    def _make(control, *, dias=10, con_previa=True):
+        form = make_survey_form()            # `egresados` abierto
+        student = make_student(control_number=control)
+        response = _imported(db_session, form, control=control,
+                             answers={"nombre_completo": "EGRESADA DIFERIDA"})
+        if con_previa:
+            db_session.add(PriorClearance(
+                kind="survey", control_number=control,
+                issued_on=db_now().date() - timedelta(days=dias),
+                source="egresados.xlsx", response_id=response.id, paper_pending=False))
+        db_session.flush()
+        return student, form, response
+    return _make
+
+
+def _cuenta_respuestas(db_session, form):
+    from itcj2.apps.titulatec.models import SurveyResponse
+    return db_session.query(SurveyResponse).filter_by(form_id=form.id).count()
+
+
+def test_encuesta_publica_con_import_diferido_muestra_la_tarjeta_y_no_el_formulario(
+    client_as, diferida,
+):
+    student, _, _ = diferida("99470031")
+
+    resp = client_as(student).get(SURVEY_PUBLIC, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert IMPORTED_PENDING in _texto(resp.text)
+    assert 'data-tt-review-status="imported"' in resp.text
+    assert 'id="tt-survey-form"' not in resp.text
+
+
+def test_envio_con_import_diferido_se_rechaza_sin_escribir(
+    client_as, db_session, diferida,
+):
+    student, form, _ = diferida("99470032")
+    antes = _cuenta_respuestas(db_session, form)
+
+    resp = client_as(student).post(SURVEY_PUBLIC, data=OK_PAYLOAD,
+                                   headers={"X-Real-IP": "203.0.113.131"},
+                                   follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'data-tt-credit="imported"' in resp.text
+    assert IMPORTED_PENDING in _texto(resp.text)
+    assert _cuenta_respuestas(db_session, form) == antes
+
+
+def test_submit_del_servicio_tambien_rechaza_con_import_diferido(db_session, diferida):
+    """Defensa del lado del servicio, sin pasar por la ruta."""
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+
+    student, form, _ = diferida("99470033")
+    antes = _cuenta_respuestas(db_session, form)
+
+    resp, errors, estado = SurveyService.submit(
+        db_session, form, dict(OK_PAYLOAD), user_id=student.id,
+        client_ip="203.0.113.132", user_agent="pytest")
+
+    assert (resp, errors, estado) == (None, {}, "imported")
+    assert _cuenta_respuestas(db_session, form) == antes
+
+
+@pytest.mark.parametrize("caso", ["sin_import", "importada_sin_previa", "previa_vencida"])
+def test_sin_import_diferido_vigente_el_egresado_ve_el_formulario(
+    client_as, make_survey_form, make_student, diferida, caso,
+):
+    """Sin respuesta importada -o con una que no liberará nada (sin previa
+    diferida, o vencida)- la encuesta sigue abierta: nunca un callejón."""
+    if caso == "sin_import":
+        make_survey_form()
+        student = make_student(control_number="99470034")
+    elif caso == "importada_sin_previa":
+        student, _, _ = diferida("99470035", con_previa=False)
+    else:
+        student, _, _ = diferida("99470036", dias=400)
+
+    resp = client_as(student).get(SURVEY_PUBLIC, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'id="tt-survey-form"' in resp.text
+    assert IMPORTED_PENDING not in _texto(resp.text)
+
+
+def test_con_solicitud_existente_manda_la_solicitud_no_el_aviso_de_import(
+    client_as, db_session, make_survey_form, seed_phase_defs, make_cohort, previa,
+):
+    """Si ya hay solicitud (previa aplicada), el comportamiento de siempre."""
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    make_survey_form()
+    _, proc, _ = previa("99470037", paper=False, cohort=make_cohort(), current_phase=2)
+    db_session.commit()
+
+    resp = client_as(db_session.get(User, proc.student_id)).get(
+        SURVEY_PUBLIC, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:300]
+    assert 'data-tt-review-status="approved"' in resp.text
+    assert IMPORTED_PENDING not in _texto(resp.text)

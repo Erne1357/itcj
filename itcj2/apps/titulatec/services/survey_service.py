@@ -296,9 +296,12 @@ class SurveyService:
                ) -> tuple[object | None, dict[str, str], str]:
         """Escribe una respuesta completa. Devuelve `(response, errors, credit_status)`.
 
-        `credit_status` en {'in_review','already_submitted','no_process',
-        'anonymous'}. En cualquier rama sin respuesta escrita (incluida
-        `already_submitted`) `response` es `None`: el llamador no debe leerlo.
+        `credit_status` en {'in_review','already_submitted','imported',
+        'no_process','anonymous'}. En cualquier rama sin respuesta escrita
+        (incluidas `already_submitted` e `imported`) `response` es `None`: el
+        llamador no debe leerlo. `imported` = sin solicitud, pero su respuesta
+        de Microsoft Forms ya se importó y espera su inscripción
+        (`SurveyImportService.pending_import_for_user`): no se escribe nada.
 
         Tarea 3 (spec 5.3, D6): el proceso se resuelve ANTES de validar el
         formulario. Si el alumno tiene proceso acreditable y ESE proceso ya
@@ -353,6 +356,14 @@ class SurveyService:
             if (process is not None
                     and SurveyReviewService.get_for_process(db, process.id) is not None):
                 return None, {}, "already_submitted"
+            # Decisión del usuario (revisión final del import de Forms): sin
+            # solicitud, pero con su respuesta de Forms importada esperando
+            # la inscripción -> la encuesta también está congelada.
+            from itcj2.apps.titulatec.services.survey_import_service import (
+                SurveyImportService,
+            )
+            if SurveyImportService.pending_import_for_user(db, user_id) is not None:
+                return None, {}, "imported"
             user = db.get(User, user_id)
             control_number = getattr(user, "control_number", None)
 
@@ -438,17 +449,25 @@ class SurveyService:
                   if isinstance(f, dict)] if form is not None else []
         keys = [str(f.get("key")) for f in fields]
 
+        respuestas = (db.query(SurveyResponse)
+                      .filter(SurveyResponse.form_id == form_id)
+                      .order_by(SurveyResponse.id)
+                      .all())
+        # M5 (revisión final del import de Forms): las llaves `extra_*` que
+        # trae una respuesta importada sin pregunta en el `schema` (R9, p. ej.
+        # `extra_aspecto_no_trabajo`) también van al CSV, al final y en orden
+        # alfabético; sin respuestas importadas no aparece ninguna columna.
+        extras = sorted({str(k) for r in respuestas for k in (r.answers or {})
+                         if str(k).startswith("extra_") and str(k) not in keys})
+
         # `importada` (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4):
         # «sí» para las respuestas cargadas del Excel de Forms
         # (`identity_source='import'`), «no» para las de la plataforma.
         headers = ["id", "enviada_en", "identidad", "importada", "numero_control",
-                   "proceso_id", "convocatoria_id", "version"] + keys
+                   "proceso_id", "convocatoria_id", "version"] + keys + extras
 
         rows: list[list[str]] = []
-        for r in (db.query(SurveyResponse)
-                  .filter(SurveyResponse.form_id == form_id)
-                  .order_by(SurveyResponse.id)
-                  .all()):
+        for r in respuestas:
             answers = r.answers or {}
             crudas = [
                 r.id,
@@ -459,7 +478,7 @@ class SurveyService:
                 r.process_id or "",
                 r.cohort_id or "",
                 r.form_version,
-            ] + [_cell(answers.get(k)) for k in keys]
+            ] + [_cell(answers.get(k)) for k in keys + extras]
             # Escapado INCONDICIONAL y para TODA columna (seccion 8.2).
             rows.append([escape_formula(c) for c in crudas])
 

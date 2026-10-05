@@ -626,11 +626,21 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         process = ProcessService.creditable_process(db, int(user["sub"]))
-        if process is None:
+        if (process is not None
+                and SurveyReviewService.get_for_process(db, process.id) is not None):
+            return SurveyReviewService.summary_for_process(db, process.id)
+        # Sin solicitud: ¿su respuesta de Microsoft Forms ya se importó y
+        # espera la inscripción? (decisión del usuario, revisión final del
+        # import). Pseudo-estado `imported`: tarjeta de estatus, no formulario.
+        from itcj2.apps.titulatec.services.survey_import_service import (
+            SurveyImportService,
+        )
+        importada = SurveyImportService.pending_import_for_user(db, int(user["sub"]))
+        if importada is None:
             return None
-        if SurveyReviewService.get_for_process(db, process.id) is None:
-            return None
-        return SurveyReviewService.summary_for_process(db, process.id)
+        return {"status": "imported", "origin": "import", "reason": None,
+                "reviewed_by": None, "reviewed_at": None, "review_id": None,
+                "response_id": importada["response_id"], "paper_to_collect": False}
     except Exception:
         logger.warning("survey: fallo comprobando la solicitud existente (user=%s)",
                        user.get("sub"))
@@ -878,10 +888,13 @@ async def survey_submit(
         # Corta AQUÍ -antes de armar `submitted`, el presupuesto o
         # `SurveyService.submit`- y responde la tarjeta de gracias de
         # siempre con `already_submitted`, sin cobrar el limitador.
-        if _solicitud_existente(db, user) is not None:
+        existente = _solicitud_existente(db, user)
+        if existente is not None:
             return render_titulatec(
                 request, "titulatec/public/partials/survey_thanks.html",
-                {"credit_status": "already_submitted", "back_link": _back_link(db, user)})
+                {"credit_status": ("imported" if existente.get("status") == "imported"
+                                   else "already_submitted"),
+                 "back_link": _back_link(db, user)})
 
         # Instantánea plana ANTES de escribir: el camino de recuperación hace
         # `rollback()` y ahí toda instancia ORM queda expirada.

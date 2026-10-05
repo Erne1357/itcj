@@ -18,7 +18,9 @@
 
    Raiz `#tt-survey-status`, ctx {"review": <SurveyReviewService.
    summary_for_process>, "back_link": ...}. `review.status` es SIEMPRE uno
-   de `in_review|rejected|approved` -esta plantilla nunca se pinta para el
+   de `in_review|rejected|approved`, o el pseudo-estado `imported` (respuesta
+   de Forms importada que espera la inscripción; ver `pages/public.py::
+   _solicitud_existente`) -esta plantilla nunca se pinta para el
    pseudo-estado `missing` (ausencia de solicitud), que es justo el caso en
    el que se pinta el formulario en su lugar-.
 
@@ -55,6 +57,14 @@
     {% if review.reason %}<p class="mb-2" data-tt-review-reason>{{ review.reason }}</p>{% endif %}
     <p class="mb-2">Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez.tecnm.mx">servicio_ext@cdjuarez.tecnm.mx</a></p>
     <p class="mb-0">No necesitas volver a contestar esta encuesta: tu respuesta ya quedó registrada.</p>
+
+  {% elif review.status == 'imported' %}
+    {# Pseudo-estado `imported` (decisión del usuario, revisión final del
+       import de Forms): sin solicitud todavía, pero su respuesta de Microsoft
+       Forms ya se importó y su liberación espera la inscripción
+       (`SurveyImportService.pending_import_for_user`). #}
+    <h2 class="tt-display h5 mt-1 mb-2">Ya recibimos tu encuesta</h2>
+    <p class="mb-0" data-tt-imported-pending>Tu encuesta de Microsoft Forms ya está registrada; se liberará cuando completes tu inscripción.</p>
 
   {% else %}
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta está en revisión</h2>
