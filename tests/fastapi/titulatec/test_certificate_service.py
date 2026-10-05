@@ -4,7 +4,9 @@ invariante 5) y su estado de impresión (Tarea 2, spec
 `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.2, invariantes
 2 y 4).
 
-Cubre: numeración atómica por tipo y año (`issue`), anulación sin borrar ni
+Cubre: numeración atómica por tipo y semestre (`issue`, folio
+`BIB-2026B-0001`, spec `2026-10-05-titulatec-folios-design.md` §3.1, con
+`semester_key`/`previous_semester_key`/`SEMESTER_RE`), anulación sin borrar ni
 liberar folio (`void`), lotes (`pending`/`create_batch`/`list_batches`/
 `certificates_of`), estado de impresión por `source_ref`
 (`print_status_map`) y por `kind` (`voided_after_print`), `period_label`, y
@@ -20,18 +22,36 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
+import itcj2.apps.titulatec.services.certificate_service as cert_mod
 from itcj2.apps.titulatec.models import Certificate
 from itcj2.apps.titulatec.services.certificate_service import CERT_KINDS, CertificateService
 from itcj2.core.utils.timezone import db_now
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
+
+# Año SINTÉTICO para las pruebas de numeración que dejan el semestre a
+# `db_now()`: la BD de dev es COMPARTIDA (CLAUDE.md) y ya trae contadores
+# reales (`library_clearance`/`2026B`; el backfill de folios de previas suma
+# `2026A`), así que un «-0001» con el reloj de hoy saldría «-0004». Con el
+# reloj parcheado a un año sin contadores reales, el primer folio SIEMPRE es
+# 0001 (el renglón del contador muere con el rollback de `db_session`).
+_ANIO = 2091
+_OCTUBRE = datetime(_ANIO, 10, 5, 9, 0, 0)
+
+
+@pytest.fixture()
+def reloj_octubre(monkeypatch):
+    """`db_now()` de `certificate_service` fijo en octubre de `_ANIO`
+    (semestre `B`): se parchea DONDE se importa, no en su módulo de origen."""
+    monkeypatch.setattr(cert_mod, "db_now", lambda: _OCTUBRE)
+    return _OCTUBRE
 
 # Ruling R30 #1 (re-revisión de la ola final): un `source_ref` real SIEMPRE
 # es `f"{namespace}:{id}"` con `id` el entero de una fila (`LibraryClearance`
@@ -134,10 +154,48 @@ def test_cert_kinds_trae_los_2_tipos_del_spec():
 
 
 # ---------------------------------------------------------------------------
+# Semestre del folio (spec 2026-10-05-titulatec-folios-design.md §3.1)
+# ---------------------------------------------------------------------------
+class TestSemestre:
+    @pytest.mark.parametrize("cuando, esperado", [
+        (date(2026, 1, 1), "2026A"),
+        (date(2026, 6, 30), "2026A"),      # último día de A
+        (date(2026, 7, 1), "2026B"),       # primero de B: julio ya es B
+        (date(2026, 12, 31), "2026B"),
+        (datetime(2026, 6, 30, 23, 59, 59), "2026A"),
+        (datetime(2026, 7, 1, 0, 0, 0), "2026B"),
+    ])
+    def test_semester_key_acepta_date_y_datetime(self, cuando, esperado):
+        assert cert_mod.semester_key(cuando) == esperado
+
+    @pytest.mark.parametrize("cuando, esperado", [
+        (date(2026, 10, 5), "2026A"),      # B de Y da A de Y
+        (date(2027, 2, 10), "2026B"),      # A de Y da B de Y-1
+        (date(2026, 6, 30), "2025B"),
+        (date(2026, 12, 31), "2026A"),
+        (date(2026, 1, 1), "2025B"),
+        (datetime(2026, 7, 1, 0, 0, 0), "2026A"),
+    ])
+    def test_previous_semester_key(self, cuando, esperado):
+        assert cert_mod.previous_semester_key(cuando) == esperado
+
+    @pytest.mark.parametrize("valor", ["2026A", "2026B", "1901A", "2091B"])
+    def test_semester_re_acepta_aaaa_mas_a_o_b(self, valor):
+        assert cert_mod.SEMESTER_RE.pattern == r"^\d{4}[AB]$"
+        assert cert_mod.SEMESTER_RE.fullmatch(valor)
+
+    @pytest.mark.parametrize("valor", ["2026C", "26A", "", "2026a", "2026AB",
+                                       " 2026A", "2026A\n", "20260"])
+    def test_semester_re_rechaza_lo_demas(self, valor):
+        assert not cert_mod.SEMESTER_RE.fullmatch(valor)
+
+
+# ---------------------------------------------------------------------------
 # issue — numeración (Review Focus #6)
 # ---------------------------------------------------------------------------
 class TestIssueNumeracion:
-    def test_primer_folio_del_anio_es_0001_y_congela_los_datos(self, db_session, escenario):
+    def test_primer_folio_del_semestre_es_0001_y_congela_los_datos(
+            self, db_session, escenario, reloj_octubre):
         proc, alumno = escenario["process"], escenario["student"]
         ref = _ref()
 
@@ -146,8 +204,7 @@ class TestIssueNumeracion:
             source_ref=ref, actor_id=alumno.id)
 
         assert cert.id is not None
-        assert cert.number.startswith("BIB-")
-        assert cert.number.endswith("-0001")
+        assert cert.number == f"BIB-{_ANIO}B-0001"
         assert cert.process_id == proc.id
         assert cert.source_ref == ref
         assert cert.control_number == "20261234"
@@ -155,9 +212,76 @@ class TestIssueNumeracion:
         assert cert.program_name == "Ingeniería en Sistemas Computacionales"
         assert cert.period_label == escenario["period"].name   # periodo sintético: cae al respaldo
         assert cert.issued_by_id == alumno.id
-        assert cert.issued_at is not None
+        assert cert.issued_at == reloj_octubre
         assert cert.voided_at is None
         assert cert.batch_id is None
+
+    def test_sin_semestre_usa_el_de_db_now_y_es_consecutivo(
+            self, db_session, escenario, reloj_octubre, actor):
+        """`semester=None` = semestre de la EMISIÓN (`semester_key(db_now())`,
+        decisión C1 del spec): octubre da `B`."""
+        proc = escenario["process"]
+
+        c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                      source_ref=_ref(), actor_id=actor.id)
+        c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                      source_ref=_ref(), actor_id=actor.id)
+
+        assert c1.number == f"BIB-{_ANIO}B-0001"
+        assert c2.number == f"BIB-{_ANIO}B-0002"
+
+    def test_semestre_explicito_tiene_su_propio_contador(
+            self, db_session, escenario, reloj_octubre, actor):
+        """Un `semester` explícito (previas y legado: el semestre ANTERIOR al
+        registro) numera en SU contador, independiente del `B` de hoy. Año
+        sintético y no `2026A`: el backfill de folios de previas llena el
+        contador real de `2026A` en la BD de dev compartida."""
+        proc = escenario["process"]
+
+        bib_hoy = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                           source_ref=_ref(), actor_id=actor.id)
+        gtv_a = CertificateService.issue(db_session, kind="survey_release", process=proc,
+                                         source_ref=_ref("survey_review"), actor_id=actor.id,
+                                         semester=f"{_ANIO}A")
+        bib_a = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                         source_ref=_ref(), actor_id=actor.id,
+                                         semester=f"{_ANIO}A")
+        bib_hoy2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
+                                            source_ref=_ref(), actor_id=actor.id)
+
+        assert bib_hoy.number == f"BIB-{_ANIO}B-0001"
+        assert gtv_a.number == f"GTV-{_ANIO}A-0001"
+        assert bib_a.number == f"BIB-{_ANIO}A-0001"     # no sigue al B
+        assert bib_hoy2.number == f"BIB-{_ANIO}B-0002"  # el B no se enteró del A
+        assert bib_a.issued_at == reloj_octubre           # se emite HOY aunque folie en A
+
+    @pytest.mark.parametrize("semestre", ["2026C", "26A", "", "2026a", "2026A\n"])
+    def test_semestre_invalido_truena_sin_tocar_el_contador(
+            self, db_session, escenario, actor, semestre):
+        with pytest.raises(ValueError):
+            CertificateService.issue(db_session, kind="library_clearance",
+                                     process=escenario["process"], source_ref=_ref(),
+                                     actor_id=actor.id, semester=semestre)
+
+        # Se valida ANTES del upsert: ningún renglón nace con ese semestre.
+        cuantos = db_session.execute(
+            text("SELECT COUNT(*) FROM titulatec_certificate_counters "
+                 "WHERE semester = :s"), {"s": semestre}).scalar()
+        assert cuantos == 0
+        assert db_session.query(Certificate).filter(
+            Certificate.number.like(f"%-{semestre}-%")).count() == 0
+
+    def test_actor_none_deja_issued_by_id_nulo(self, db_session, escenario, reloj_octubre):
+        """Importaciones y CLI (backfill) emiten sin usuario:
+        `issued_by_id` NULLABLE desde `tt20261005c`."""
+        cert = CertificateService.issue(db_session, kind="survey_release",
+                                        process=escenario["process"],
+                                        source_ref=_ref("survey_review"), actor_id=None,
+                                        semester=f"{_ANIO}A")
+        db_session.expire(cert)
+
+        assert db_session.get(Certificate, cert.id).issued_by_id is None
+        assert cert.number == f"GTV-{_ANIO}A-0001"
 
     def test_usa_el_periodo_real_de_la_convocatoria_del_proceso(
             self, db_session, make_student, make_process, make_cohort, make_period, actor):
@@ -174,7 +298,7 @@ class TestIssueNumeracion:
 
         assert cert.period_label == "Enero-Junio 2099"
 
-    def test_secuencia_por_tipo_y_anio(self, db_session, escenario, actor):
+    def test_secuencia_por_tipo_y_semestre(self, db_session, escenario, actor):
         proc = escenario["process"]
 
         c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
@@ -187,7 +311,8 @@ class TestIssueNumeracion:
         assert [_folio_n(c.number) for c in (c1, c2, c3)] == \
             [_folio_n(c1.number), _folio_n(c1.number) + 1, _folio_n(c1.number) + 2]
 
-    def test_tipos_distintos_no_comparten_secuencia(self, db_session, escenario, actor):
+    def test_tipos_distintos_no_comparten_secuencia(
+            self, db_session, escenario, reloj_octubre, actor):
         proc = escenario["process"]
 
         bib = CertificateService.issue(db_session, kind="library_clearance", process=proc,
@@ -195,22 +320,23 @@ class TestIssueNumeracion:
         gtv = CertificateService.issue(db_session, kind="survey_release", process=proc,
                                        source_ref=_ref("survey_review"), actor_id=actor.id)
 
-        assert bib.number.endswith("-0001")
-        assert gtv.number.endswith("-0001")
+        assert bib.number == f"BIB-{_ANIO}B-0001"
+        assert gtv.number == f"GTV-{_ANIO}B-0001"
 
-    def test_cambio_de_anio_reinicia_el_contador(self, db_session, escenario, monkeypatch, actor):
-        import itcj2.apps.titulatec.services.certificate_service as cert_mod
-
+    def test_cambio_de_semestre_reinicia_el_contador(
+            self, db_session, escenario, monkeypatch, actor):
         proc = escenario["process"]
-        monkeypatch.setattr(cert_mod, "db_now", lambda: datetime(2029, 3, 1, 8, 0, 0))
-        c1 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref=_ref(), actor_id=actor.id)
-        assert c1.number == "BIB-2029-0001"
 
-        monkeypatch.setattr(cert_mod, "db_now", lambda: datetime(2030, 1, 15, 8, 0, 0))
-        c2 = CertificateService.issue(db_session, kind="library_clearance", process=proc,
-                                      source_ref=_ref(), actor_id=actor.id)
-        assert c2.number == "BIB-2030-0001"   # reinicia; NO sigue en 0002
+        def _emitir_en(cuando):
+            monkeypatch.setattr(cert_mod, "db_now", lambda: cuando)
+            return CertificateService.issue(db_session, kind="library_clearance",
+                                            process=proc, source_ref=_ref(),
+                                            actor_id=actor.id).number
+
+        assert _emitir_en(datetime(2029, 3, 1, 8, 0, 0)) == "BIB-2029A-0001"
+        assert _emitir_en(datetime(2029, 6, 30, 23, 0, 0)) == "BIB-2029A-0002"
+        assert _emitir_en(datetime(2029, 7, 1, 8, 0, 0)) == "BIB-2029B-0001"   # reinicia en julio
+        assert _emitir_en(datetime(2030, 1, 15, 8, 0, 0)) == "BIB-2030A-0001"  # y en enero
 
     def test_anular_no_libera_el_numero(self, db_session, escenario, actor):
         proc = escenario["process"]
@@ -270,7 +396,7 @@ class TestIssueNumeracion:
         """Review Focus #6 («emisiones simultáneas»): DOS conexiones REALES
         a Postgres (no el `db_session` de SAVEPOINTs del resto del archivo,
         que comparte una sola conexión física y no puede modelar bloqueo
-        entre transacciones) numerando el MISMO `(kind, year)` a la vez.
+        entre transacciones) numerando el MISMO `(kind, semester)` a la vez.
 
         No basta con lanzar dos hilos y esperar que no truenen -- eso
         pasaría igual aunque el segundo nunca tocara el lock del primero.
@@ -281,8 +407,8 @@ class TestIssueNumeracion:
         `INSERT ... ON CONFLICT ... DO UPDATE`, no una coincidencia de
         scheduling del hilo del SO.
 
-        Año 1901 a propósito: imposible de chocar con una convocatoria real
-        de la BD de dev COMPARTIDA (CLAUDE.md). El renglón que el contador
+        Semestre `1901A` a propósito: imposible de chocar con un contador
+        real de la BD de dev COMPARTIDA (CLAUDE.md). El renglón que el contador
         deja en `titulatec_certificate_counters` se borra en un ÚNICO
         `finally` que envuelve TODO el cuerpo (arrancar los hilos + los
         asserts), pase lo que pase -- un `try/finally` partido en dos (uno
@@ -292,7 +418,7 @@ class TestIssueNumeracion:
         `RuntimeError` y tapa el assert real (fix round 2 de la revisión).
         """
         kind = "library_clearance"
-        year = 1901
+        semester = "1901A"
         Session = sessionmaker(bind=_pg_engine, future=True)
 
         # Limpieza previa defensiva: si una corrida anterior murió a medio
@@ -300,7 +426,8 @@ class TestIssueNumeracion:
         # renglón viejo que invalidaría el {1, 2} de abajo.
         with _pg_engine.begin() as conn:
             conn.execute(text("DELETE FROM titulatec_certificate_counters "
-                              "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
+                              "WHERE kind = :k AND semester = :s"),
+                         {"k": kind, "s": semester})
 
         resultados: dict[str, str] = {}
         errores: list[tuple[str, Exception]] = []
@@ -311,7 +438,7 @@ class TestIssueNumeracion:
         def _hilo_a():
             session = Session()
             try:
-                resultados["A"] = CertificateService._next_number(session, kind, year)
+                resultados["A"] = CertificateService._next_number(session, kind, semester)
                 a_tiene_el_renglon.set()
                 # Sostiene la transacción (y el lock de fila) abierta A PROPÓSITO
                 # hasta que el test de abajo confirme que B quedó esperando ESE
@@ -329,7 +456,7 @@ class TestIssueNumeracion:
             session = Session()
             try:
                 pids["B"] = session.execute(text("SELECT pg_backend_pid()")).scalar()
-                resultados["B"] = CertificateService._next_number(session, kind, year)
+                resultados["B"] = CertificateService._next_number(session, kind, semester)
                 session.commit()
             except Exception as exc:                      # pragma: no cover - diagnóstico
                 errores.append(("B", exc))
@@ -374,11 +501,12 @@ class TestIssueNumeracion:
             assert set(resultados) == {"A", "B"}
             numeros = {_folio_n(resultados["A"]), _folio_n(resultados["B"])}
             assert numeros == {1, 2}   # consecutivos: ni colisión ni hueco
+            assert set(resultados.values()) == {"BIB-1901A-0001", "BIB-1901A-0002"}
         finally:
             # Red de seguridad ÚNICA para TODO el cuerpo de arriba: pase lo
             # que pase (cualquier assert roto, cualquier excepción), nunca se
             # cuelga un hilo vivo ni se le queda pegado a la BD compartida el
-            # renglón de 1901.
+            # renglón de 1901A.
             seguir_con_commit_de_a.set()        # idempotente -- suelta a A
             vivos = []
             for nombre, hilo in (("A", hilo_a), ("B", hilo_b)):
@@ -392,7 +520,7 @@ class TestIssueNumeracion:
             # el DELETE de abajo se quede esperando ESE MISMO lock (la suite
             # se cuelga sin ninguna pista de qué pasó) o que pise una fila que
             # esa sesión todavía necesita. Se prefiere fallar RUIDOSO y dejar
-            # el renglón de 1901 SIN BORRAR (año sintético: purgable a mano,
+            # el renglón de 1901A SIN BORRAR (semestre sintético: purgable a mano,
             # nunca puede chocar con una convocatoria real) en vez de competir
             # por su lock. Nunca pasa en una corrida sana: 5 s de margen ya es
             # generoso frente al <1 s que tarda el camino feliz completo.
@@ -400,10 +528,11 @@ class TestIssueNumeracion:
                 pytest.fail(
                     f"hilo(s) {vivos!r} seguían vivos tras el join; no se "
                     f"borró titulatec_certificate_counters (kind={kind!r}, "
-                    f"year={year}) para no competir por su lock de fila")
+                    f"semester={semester!r}) para no competir por su lock de fila")
             with _pg_engine.begin() as conn:
                 conn.execute(text("DELETE FROM titulatec_certificate_counters "
-                                  "WHERE kind = :k AND year = :y"), {"k": kind, "y": year})
+                                  "WHERE kind = :k AND semester = :s"),
+                             {"k": kind, "s": semester})
 
 
 # ---------------------------------------------------------------------------

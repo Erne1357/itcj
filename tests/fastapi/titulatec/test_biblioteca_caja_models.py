@@ -407,28 +407,64 @@ def test_certificate_batch_se_crea_con_count(db_session, make_user):
     assert batch.created_at is not None
 
 
-def test_certificate_counter_pk_compuesta_kind_year(db_session):
+def test_certificate_counter_pk_compuesta_kind_semester(db_session):
+    """Folio por semestre (spec `2026-10-05-titulatec-folios-design.md`
+    §3.2, `tt20261005c`): la PK pasa de `(kind, year)` a `(kind, semester
+    String(5))` -- en el modelo (CI, `create_all`) Y en la base (Alembic)."""
     from itcj2.apps.titulatec.models import CertificateCounter
 
-    db_session.add(CertificateCounter(kind="survey_release", year=2029, last_value=1))
+    tabla = CertificateCounter.__table__
+    assert [c.name for c in tabla.primary_key.columns] == ["kind", "semester"]
+    assert tabla.c.semester.type.length == 5
+    assert "year" not in tabla.c
+
+    pk_en_base = db_session.execute(sa_text(
+        "SELECT a.attname FROM pg_index i "
+        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) "
+        "WHERE i.indrelid = 'titulatec_certificate_counters'::regclass "
+        "AND i.indisprimary ORDER BY array_position(i.indkey, a.attnum)"
+    )).scalars().all()
+    assert pk_en_base == ["kind", "semester"]
+
+    db_session.add(CertificateCounter(kind="survey_release", semester="2029A", last_value=1))
     db_session.flush()
-    # mismo kind, otro anio: convive sin chocar
-    db_session.add(CertificateCounter(kind="survey_release", year=2030, last_value=0))
+    # mismo kind, otro semestre: convive sin chocar
+    db_session.add(CertificateCounter(kind="survey_release", semester="2029B", last_value=0))
     db_session.flush()
 
     with pytest.raises(IntegrityError):
         with db_session.begin_nested():
-            db_session.add(CertificateCounter(kind="survey_release", year=2029, last_value=0))
+            db_session.add(CertificateCounter(kind="survey_release", semester="2029A",
+                                              last_value=0))
             db_session.flush()
 
 
 def test_certificate_counter_last_value_nace_en_cero(db_session):
     from itcj2.apps.titulatec.models import CertificateCounter
 
-    row = CertificateCounter(kind="library_clearance", year=2031)
+    row = CertificateCounter(kind="library_clearance", semester="2031A")
     db_session.add(row)
     db_session.flush()
     assert row.last_value == 0
+
+
+def test_certificate_issued_by_id_es_nullable(db_session, egresado):
+    """Importaciones y CLI emiten sin usuario (spec 2026-10-05 §3.1):
+    `issued_by_id` NULLABLE en el modelo y en la base (`tt20261005c`)."""
+    from itcj2.apps.titulatec.models import Certificate
+
+    assert Certificate.__table__.c.issued_by_id.nullable is True
+    en_base = db_session.execute(sa_text(
+        "SELECT is_nullable FROM information_schema.columns "
+        "WHERE table_name = 'titulatec_certificates' AND column_name = 'issued_by_id'"
+    )).scalar()
+    assert en_base == "YES"
+
+    row = Certificate(**_certificate_kwargs(egresado["process"], issued_by_id=None,
+                                            number="GTV-2029A-0201"))
+    db_session.add(row)
+    db_session.flush()
+    assert row.id is not None and row.issued_by_id is None
 
 
 # ---------------------------------------------------------------------------

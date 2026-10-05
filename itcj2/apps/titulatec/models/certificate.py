@@ -2,10 +2,11 @@
 
 Spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.1.3-5/§4.5: UNA
 tabla para los dos tipos de constancia (`kind`), numeracion atomica por tipo
-y anio (`CertificateCounter`), emision individual o por lote
-(`CertificateBatch`). El PDF NUNCA se guarda: se regenera de los datos ya
-congelados en la fila -- mismo resultado siempre, asi que no hay archivo que
-mantener sincronizado con la base.
+y semestre (`CertificateCounter`; por semestre desde
+`2026-10-05-titulatec-folios-design.md` §3.2, migracion `tt20261005c`),
+emision individual o por lote (`CertificateBatch`). El PDF NUNCA se guarda:
+se regenera de los datos ya congelados en la fila -- mismo resultado siempre,
+asi que no hay archivo que mantener sincronizado con la base.
 
 Unico escritor: `CertificateService` (tarea aparte). Una constancia nunca se
 borra -- se ANULA (`voided_at`/`voided_by_id`/`void_reason`) y el numero no
@@ -27,8 +28,9 @@ CERTIFICATE_KINDS = ("survey_release", "library_clearance")
 
 class Certificate(Base):
     """Una constancia emitida. `number` es el folio visible
-    (`GTV-2026-0001`), unico, asignado por `CertificateCounter` (atomico,
-    nunca se repite ni se reutiliza aunque la constancia se anule despues).
+    (`GTV-2026B-0001`: prefijo, anio + semestre `A`/`B`, consecutivo), unico,
+    asignado por `CertificateCounter` (atomico, nunca se repite ni se
+    reutiliza aunque la constancia se anule despues).
 
     `source_ref` ata la constancia a la fila que la origino SIN FK real
     (puede ser `SurveyReview` o `LibraryClearance` segun `kind`):
@@ -56,7 +58,7 @@ class Certificate(Base):
 
     id = Column(Integer, primary_key=True)
     kind = Column(String(20), nullable=False)             # dominio: CERTIFICATE_KINDS
-    number = Column(String(20), nullable=False, unique=True, index=True)  # 'GTV-2026-0001'
+    number = Column(String(20), nullable=False, unique=True, index=True)  # 'GTV-2026B-0001'
 
     process_id = Column(Integer, ForeignKey("titulatec_processes.id"),
                         nullable=False, index=True)
@@ -69,7 +71,9 @@ class Certificate(Base):
     period_label = Column(String(40), nullable=False)
 
     issued_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
-    issued_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)
+    # NULL = emitida sin usuario (importaciones y CLI de folios de previas),
+    # desde `tt20261005c`.
+    issued_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 
     batch_id = Column(Integer, ForeignKey("titulatec_certificate_batches.id"),
                       nullable=True, index=True)
@@ -100,20 +104,21 @@ class CertificateBatch(Base):
 
 
 class CertificateCounter(Base):
-    """Contador atomico de folio por tipo y anio. El servicio
+    """Contador atomico de folio por tipo y semestre (`2026A`/`2026B`,
+    `tt20261005c`; antes era por tipo y anio). El servicio
     (`CertificateService._next_number`) NO lo lee antes de escribir: hace UNA
-    sola sentencia `INSERT ... ON CONFLICT (kind, year) DO UPDATE SET
+    sola sentencia `INSERT ... ON CONFLICT (kind, semester) DO UPDATE SET
     last_value = last_value + 1 RETURNING last_value` (segura con PgBouncer,
-    spec §4.5) -- la primera emision del (kind, anio) inserta 1, las demas
-    incrementan bajo el lock de fila del propio upsert. El folio emitido es
-    ese valor ya incrementado y nunca se reutiliza aunque la constancia se
-    anule.
+    spec §4.5) -- la primera emision del (kind, semestre) inserta 1, las
+    demas incrementan bajo el lock de fila del propio upsert. El folio
+    emitido es ese valor ya incrementado y nunca se reutiliza aunque la
+    constancia se anule.
     """
     __tablename__ = "titulatec_certificate_counters"
 
     kind = Column(String(20), primary_key=True)            # dominio: CERTIFICATE_KINDS
-    year = Column(Integer, primary_key=True)
+    semester = Column(String(5), primary_key=True)         # '2026A'/'2026B' (SEMESTER_RE)
     last_value = Column(Integer, nullable=False, server_default=text("0"))
 
     def __repr__(self) -> str:
-        return f"<CertificateCounter {self.kind}/{self.year}={self.last_value}>"
+        return f"<CertificateCounter {self.kind}/{self.semester}={self.last_value}>"

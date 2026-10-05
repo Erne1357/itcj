@@ -10,6 +10,13 @@ emitir (`issue`) para el mismo `source_ref` — eso saca un folio NUEVO. El PDF
 no vive aquí: `utils/certificate_pdf.py::render_certificates_pdf` lo arma a
 partir de los datos ya CONGELADOS en cada fila, siempre que haga falta.
 
+Folio por SEMESTRE desde `2026-10-05-titulatec-folios-design.md` §3.1
+(migración `tt20261005c`): `{PREFIJO}-{AAAA}{A|B}-{NNNN}` (`BIB-2026B-0001`,
+`GTV-2026A-0001`), consecutivo por tipo + semestre. `A` = enero-junio, `B` =
+julio-diciembre (`semester_key`). Una liberación normal folia en el semestre
+de la EMISIÓN (`semester=None` → `semester_key(db_now())`); las previas y el
+legado pasan el semestre ANTERIOR a su registro (`previous_semester_key`).
+
 Desde la Tarea 2 de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
 (§3.2, E1/E6/E7, §5 invariante 4) también es el ÚNICO lugar que calcula el
 ESTADO DE IMPRESIÓN: `print_status_map` (por `source_ref`, hasta 2 consultas
@@ -38,12 +45,35 @@ Reglas fijas, iguales a `SurveyReviewService`:
 """
 from __future__ import annotations
 
-from datetime import timedelta
+import re
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from itcj2.core.utils.timezone import db_now
+
+# Semestre del folio: año de 4 cifras + `A` (enero-junio) o `B`
+# (julio-diciembre). `re.ASCII` para que `\d` no acepte dígitos Unicode, y se
+# usa con `fullmatch` (un `$` con `match` dejaría pasar un «\n» final).
+SEMESTER_RE = re.compile(r"^\d{4}[AB]$", re.ASCII)
+
+
+def semester_key(when: date | datetime) -> str:
+    """Semestre del folio para una fecha: mes 1-6 da `A`, mes 7-12 da `B`
+    (`2026-06-30` → `2026A`, `2026-07-01` → `2026B`). Acepta `date` o
+    `datetime` (solo lee año y mes)."""
+    return f"{when.year}{'A' if when.month <= 6 else 'B'}"
+
+
+def previous_semester_key(when: date | datetime) -> str:
+    """Semestre ANTERIOR al de `when` (previas y legado, decisión D5/D6 del
+    spec 2026-10-05): `A` de Y da `(Y-1)B`; `B` de Y da `YA`
+    (`2026-10-05` → `2026A`, `2027-02-10` → `2026B`)."""
+    if when.month <= 6:
+        return f"{when.year - 1}B"
+    return f"{when.year}A"
+
 
 # Prefijo, título del documento, departamento que lo firma y la frase que
 # completa "se hace constar que FULANO ...". Textos VERBATIM del spec §4.5 —
@@ -80,15 +110,17 @@ _PERIOD_LABEL_MAX = 40
 
 class CertificateService:
     """Único dueño de `titulatec_certificates` / `_certificate_batches` /
-    `_certificate_counters`. También expone el estado de impresión de solo
-    lectura (`print_status_map`, `voided_after_print`) para que otras vistas
-    lo lean sin tocar la tabla directo (Tarea 2 de
+    `_certificate_counters`. Emite el folio por tipo + semestre
+    (`BIB-2026B-0001`, `issue`/`_next_number`, spec 2026-10-05 §3.1). También
+    expone el estado de impresión de solo lectura (`print_status_map`,
+    `voided_after_print`) para que otras vistas lo lean sin tocar la tabla
+    directo (Tarea 2 de
     `2026-10-02-titulatec-constancias-y-pendientes-design.md`)."""
 
     # ------------------------------------------------------------- emisión
     @staticmethod
     def issue(db: Session, *, kind: str, process, source_ref: str,
-              actor_id: int) -> Certificate:
+              actor_id: int | None, semester: str | None = None) -> Certificate:
         """Emite una constancia NUEVA con folio propio y datos CONGELADOS del
         proceso en este momento (D7/D21/D22). No consulta antes si
         `source_ref` ya tiene una vigente: «a lo más UNA vigente por
@@ -100,19 +132,33 @@ class CertificateService:
         llamador que se equivocara truena con `IntegrityError` en el `flush()`
         de aquí, nunca deja dos vigentes. Sin commit — la transacción del
         llamador decide.
+
+        `semester` (spec 2026-10-05 §3.1): `None` folia en el semestre de la
+        emisión (`semester_key(db_now())`); las previas y el legado pasan el
+        suyo (`previous_semester_key(...)`). Un valor que no cumpla
+        `SEMESTER_RE` truena con `ValueError` ANTES de tocar el contador.
+        `actor_id=None` es válido (importaciones y CLI): `issued_by_id` queda
+        NULL. `issued_at` es SIEMPRE la hora real de emisión, aunque el folio
+        caiga en un semestre anterior.
         """
         from itcj2.apps.titulatec.models.certificate import Certificate
         from itcj2.core.models.program import Program
 
         if kind not in CERT_KINDS:
             raise ValueError(f"Tipo de constancia desconocido: {kind!r}.")
+        if semester is not None and not (isinstance(semester, str)
+                                         and SEMESTER_RE.fullmatch(semester)):
+            raise ValueError(
+                f"Semestre de folio inválido: {semester!r} (se espera el año "
+                f"y A o B, p. ej. 2026A o 2026B).")
 
         student = process.student
         period = process.cohort.academic_period if process.cohort else None
         program = db.get(Program, process.program_id) if process.program_id else None
 
         ahora = db_now()
-        numero = CertificateService._next_number(db, kind, ahora.year)
+        semestre = semester if semester is not None else semester_key(ahora)
+        numero = CertificateService._next_number(db, kind, semestre)
         etiqueta = CertificateService.period_label(period)[:_PERIOD_LABEL_MAX]
 
         cert = Certificate(
@@ -132,28 +178,30 @@ class CertificateService:
         return cert
 
     @staticmethod
-    def _next_number(db: Session, kind: str, year: int) -> str:
-        """Folio atómico: `INSERT … ON CONFLICT (kind, year) DO UPDATE SET
-        last_value = last_value + 1 RETURNING last_value`, UNA sola sentencia
-        (segura con PgBouncer, spec §4.5). Nace en 1 la primera vez que se
-        emite ese (`kind`, `year`); anular una constancia NUNCA libera su
-        número, y volver a emitir para el mismo origen saca el SIGUIENTE."""
+    def _next_number(db: Session, kind: str, semester: str) -> str:
+        """Folio atómico: `INSERT … ON CONFLICT (kind, semester) DO UPDATE
+        SET last_value = last_value + 1 RETURNING last_value`, UNA sola
+        sentencia (segura con PgBouncer, spec §4.5). Nace en 1 la primera vez
+        que se emite ese (`kind`, `semester`); anular una constancia NUNCA
+        libera su número, y volver a emitir para el mismo origen saca el
+        SIGUIENTE. Devuelve `{PREFIJO}-{semester}-{NNNN}` (`BIB-2026B-0001`).
+        No valida `semester`: lo hace `issue` antes de llamar aquí."""
         from sqlalchemy.dialects.postgresql import insert as pg_insert
         from itcj2.apps.titulatec.models.certificate import CertificateCounter
 
         tabla = CertificateCounter.__table__
         stmt = (
             pg_insert(tabla)
-            .values(kind=kind, year=year, last_value=1)
+            .values(kind=kind, semester=semester, last_value=1)
             .on_conflict_do_update(
-                index_elements=["kind", "year"],
+                index_elements=["kind", "semester"],
                 set_={"last_value": tabla.c.last_value + 1},
             )
             .returning(tabla.c.last_value)
         )
         n = db.execute(stmt).scalar_one()
         prefix = CERT_KINDS[kind]["prefix"]
-        return f"{prefix}-{year}-{n:04d}"
+        return f"{prefix}-{semester}-{n:04d}"
 
     @staticmethod
     def void(db: Session, *, source_ref: str, actor_id: int,
