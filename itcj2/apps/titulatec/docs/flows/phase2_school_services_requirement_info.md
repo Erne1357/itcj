@@ -162,8 +162,8 @@ módulo admin del CLAUDE.md §4):
   acreditan Biblioteca y Caja —
   ⤵ ver [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md). Las dos pistas
   por defecto quedan fijas en el código (`CotejoRequirementService.DEFAULTS`): «La libera GTV; no
-  necesitas llevar nada: su liberación queda registrada para Servicios Escolares.» (encuesta) y
-  «Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: su liberación queda
+  necesitas llevar nada: tu liberación queda registrada para Servicios Escolares.» (encuesta) y
+  «Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: tu liberación queda
   registrada para Servicios Escolares.» (no adeudo) — desde el 2026-10-05 (ampliación C4 de
   `2026-10-05-titulatec-folios-design.md`) ya no dicen que el área «envía la constancia»: no hay
   constancia impresa que enviar, solo el folio. El DML solo las reemplaza si SE no las había

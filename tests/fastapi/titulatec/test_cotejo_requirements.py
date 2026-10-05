@@ -40,10 +40,10 @@ AUTO_LIBRARY = "library_clearance"
 
 # Pistas de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.3, literal.
 # El DML `biblioteca_2026_10/22_library_requirement_auto.sql` repite las dos.
-HINT_SURVEY = ("La libera GTV; no necesitas llevar nada: su liberación queda "
+HINT_SURVEY = ("La libera GTV; no necesitas llevar nada: tu liberación queda "
                "registrada para Servicios Escolares.")
 HINT_LIBRARY = ("Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: "
-                "su liberación queda registrada para Servicios Escolares.")
+                "tu liberación queda registrada para Servicios Escolares.")
 
 # Copia APROBADA por el usuario (diseno 2026-09-15). Se fija aqui a proposito y no
 # se importa del servicio: cambiarla es una decision de producto, no un refactor.

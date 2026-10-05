@@ -677,7 +677,7 @@ class TestNeedsDeLaFaseDeCotejo:
         assert "No-adeudo de biblioteca y comprobante de la encuesta" not in fila
         # Spec folios 2026-10-05, ampliación C4: ya no se «envía» una constancia
         # a Servicios Escolares; la liberación queda registrada. La previa no cambia.
-        assert ("No necesitas llevar nada del no adeudo ni de la encuesta: sus "
+        assert ("No necesitas llevar nada del no adeudo ni de la encuesta: tus "
                 "liberaciones quedan registradas para Servicios Escolares") in fila
         assert "las envían las áreas" not in fila
         assert "si registraste una constancia previa, llévala" in fila
