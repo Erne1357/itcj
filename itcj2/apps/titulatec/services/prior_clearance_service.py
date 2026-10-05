@@ -225,9 +225,13 @@ class PriorClearanceService:
             return False
         # R7 (spec 2026-10-05 import-encuesta-xlsx): la diferida que vino
         # del Excel trae su respuesta y su marca de papel; se transmiten.
+        # `registered_at=previa.created_at` (spec folios D5, «previa diferida»):
+        # el folio sale del semestre anterior a la IMPORTACIÓN, no al de esta
+        # inscripción (que puede ser semestres después).
         SurveyReviewService.register_prior(
             db, process, issued_on=previa.issued_on, note=previa.note, actor_id=None,
-            response_id=previa.response_id, paper_pending=previa.paper_pending is True)
+            response_id=previa.response_id, paper_pending=previa.paper_pending is True,
+            registered_at=previa.created_at)
         if previa.response_id is not None:
             # La respuesta importada queda del egresado y de este proceso.
             from itcj2.apps.titulatec.services.survey_import_service import (
@@ -246,9 +250,10 @@ class PriorClearanceService:
         if LibraryClearanceService.prior_outcome(db, process.id) != "apply":
             return False
         clearance = LibraryClearanceService.open_for_process(db, process)
+        # `registered_at=previa.created_at`: igual que `_apply_survey` (D5).
         LibraryClearanceService.register_prior(
             db, clearance.id, None, issued_on=previa.issued_on, note=previa.note,
-            by="import", commit=False)
+            by="import", commit=False, registered_at=previa.created_at)
         return True
 
     # ------------------------------------------------------------------

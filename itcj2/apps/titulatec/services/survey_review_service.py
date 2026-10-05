@@ -34,7 +34,8 @@ Gancho de folios (spec `2026-10-01-titulatec-biblioteca-caja-design.md`
 emite el folio `survey_release` vía `CertificateService.issue` -- salvo que
 `review.origin == 'prior'`, porque una previa NUNCA pasa por `approve`: su
 folio lo emite `register_prior` (mismo `source_ref=survey_review:{id}`), en el
-semestre ANTERIOR al del registro (`previous_semester_key`). `revoke` siempre
+semestre ANTERIOR al del registro (`previous_semester_key`; para una previa
+diferida, el de su importación: kwarg `registered_at`, D5). `revoke` siempre
 llama a `CertificateService.void` ANTES de borrar una previa (Ruling R22), así
 que el folio queda anulado aunque la solicitud ya no exista; `void` es un
 no-op (`None`) cuando no había nada que anular. Todo en la MISMA transacción:
@@ -355,7 +356,8 @@ class SurveyReviewService:
                        note: str | None = None,
                        actor_id: int | None = None,
                        response_id: int | None = None,
-                       paper_pending: bool = False) -> SurveyReview:
+                       paper_pending: bool = False,
+                       registered_at: datetime | None = None) -> SurveyReview:
         """Constancia previa de la encuesta (D9, spec `2026-10-01-titulatec-
         biblioteca-caja-design.md` §4.12): el egresado YA traía, de ANTES de
         este sistema, su liberación de encuesta -otro semestre, en papel-.
@@ -376,10 +378,19 @@ class SurveyReviewService:
         `survey_review:{id}` que usa `approve()`, para que el cumplimiento
         diga de dónde vino-. EMITE el folio `survey_release` (`source_ref=
         f"survey_review:{review.id}"`) con `semester=previous_semester_key(
-        ahora)`: la previa es del semestre ANTERIOR al del registro (spec
-        folios 2026-10-05 §3.3). `actor_id=None` (importación/CLI) lo deja sin
-        emisor. El gancho de `approve()` no interviene: una previa nunca pasa
-        por ahí.
+        registered_at or ahora)`: la previa es del semestre ANTERIOR al del
+        registro (spec folios 2026-10-05 §3.3). `actor_id=None`
+        (importación/CLI) lo deja sin emisor. El gancho de `approve()` no
+        interviene: una previa nunca pasa por ahí.
+
+        `registered_at` (spec folios D5, «previa diferida»): la fecha de
+        registro que decide el semestre del folio. `None` = «ahora» de este
+        método (el registro directo). `PriorClearanceService._apply_survey` pasa
+        `PriorClearance.created_at` -la IMPORTACIÓN-: una previa importada
+        sin proceso y aplicada al inscribirse el egresado, a veces semestres
+        después, debe seguir en el semestre anterior al de su importación, no
+        al de su inscripción. SOLO elige el semestre: `reviewed_at`/
+        `submitted_at`/`updated_at` siguen siendo «ahora».
 
         SIN commit: el llamador (`PriorClearanceService`) es dueño de la
         transacción completa del lote; aquí solo se hace `flush()` para que
@@ -430,7 +441,7 @@ class SurveyReviewService:
         CertificateService.issue(
             db, kind="survey_release", process=process,
             source_ref=f"survey_review:{review.id}", actor_id=actor_id,
-            semester=previous_semester_key(ahora),
+            semester=previous_semester_key(registered_at or ahora),
         )
 
         from itcj2.apps.titulatec.services.requirement_service import RequirementService

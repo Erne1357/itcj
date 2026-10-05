@@ -122,7 +122,11 @@ def _library_req(db, cohort_id):
 
 
 def _prior(db, *, kind, control, issued_on, note=None, source="test.csv",
-          applied_process=None):
+          applied_process=None, created_at=None):
+    """`created_at` = fecha de IMPORTACIÓN (spec folios D5: la «fecha de
+    registro» de una previa diferida). Por omisión HOY_FIJO, el mismo reloj
+    de las pruebas, para que el semestre del folio no dependa del reloj real
+    de Postgres (`server_default=NOW()`)."""
     from itcj2.apps.titulatec.models import PriorClearance
     from itcj2.core.utils.timezone import db_now
 
@@ -131,6 +135,7 @@ def _prior(db, *, kind, control, issued_on, note=None, source="test.csv",
         source=source,
         applied_process_id=getattr(applied_process, "id", applied_process),
         applied_at=(db_now() if applied_process is not None else None),
+        created_at=created_at or HOY_FIJO,
     )
     db.add(row)
     db.flush()
@@ -458,6 +463,158 @@ class TestApplyPending:
 
 
 # ---------------------------------------------------------------------------
+# Previa diferida: la «fecha de registro» es la IMPORTACIÓN (spec folios D5)
+# ---------------------------------------------------------------------------
+# Años sintéticos (2091/2092): la base de dev es compartida y tiene folios
+# reales; así los contadores que toca la prueba son solo suyos y nunca se
+# afirma un número absoluto de un semestre real.
+_IMPORTADA_OCT_2091 = datetime(2091, 10, 5, 9, 0, 0)     # semestre 2091B -> previo 2091A
+_IMPORTADA_ENE_2092 = datetime(2092, 1, 15, 9, 0, 0)     # semestre 2092A -> previo 2091B
+
+
+def _fijar_reloj(monkeypatch, cuando: datetime) -> date:
+    """`db_now()` en `cuando` en los tres módulos del reloj; devuelve el día."""
+    for modulo in _MODULOS_RELOJ:
+        monkeypatch.setattr(f"{modulo}.db_now", lambda cuando=cuando: cuando)
+    return cuando.date()
+
+
+_CASOS_DIFERIDA = [
+    pytest.param(_IMPORTADA_OCT_2091, datetime(2092, 2, 10, 10, 0, 0), "2091A",
+                 id="importada-en-octubre-aplicada-en-febrero"),
+    pytest.param(_IMPORTADA_ENE_2092, datetime(2092, 10, 5, 10, 0, 0), "2091B",
+                 id="importada-en-enero-aplicada-en-octubre"),
+]
+
+
+class TestPreviaDiferidaTomaLaFechaDeImportacion:
+    """Una `PriorClearance` diferida (importada sin proceso) se aplica al
+    inscribirse el egresado, a veces semestres después. Su folio NO sale del
+    semestre de la inscripción sino del anterior a su IMPORTACIÓN
+    (`PriorClearance.created_at`): una importada en octubre de 2091 que se
+    inscribe en febrero de 2092 sigue siendo 2091A (con el reloj de la
+    inscripción daría 2091B). Una previa registrada directo (sin
+    `registered_at`) sigue el semestre anterior al «ahora» del método."""
+
+    @pytest.mark.parametrize("importada,ahora,esperado", _CASOS_DIFERIDA)
+    def test_encuesta_diferida_folia_en_el_semestre_anterior_a_su_importacion(
+            self, db_session, proceso, monkeypatch, importada, ahora, esperado):
+        hoy = _fijar_reloj(monkeypatch, ahora)
+        proc = proceso(control_number="99800001")
+        _prior(db_session, kind="survey", control="99800001",
+               issued_on=hoy - timedelta(days=5), created_at=importada)
+
+        with patch(NOTIFY):
+            aplicadas = _svc().apply_pending(db_session, proc, "99800001")
+
+        assert aplicadas == ["survey"]
+        review = _review_svc().get_for_process(db_session, proc.id)
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert re.fullmatch(rf"GTV-{esperado}-\d{{4}}", cert.number), cert.number
+        assert cert.issued_by_id is None
+        # Nada más cambia: la solicitud se resuelve «ahora», no en la importación.
+        assert review.reviewed_at == ahora and review.updated_at == ahora
+
+    @pytest.mark.parametrize("importada,ahora,esperado", _CASOS_DIFERIDA)
+    def test_biblioteca_diferida_folia_en_el_semestre_anterior_a_su_importacion(
+            self, db_session, proceso, monkeypatch, importada, ahora, esperado):
+        hoy = _fijar_reloj(monkeypatch, ahora)
+        proc = proceso(control_number="99800002", library_clearance="pending")
+        _prior(db_session, kind="library", control="99800002",
+               issued_on=hoy - timedelta(days=5), created_at=importada)
+
+        with patch(NOTIFY):
+            aplicadas = _svc().apply_pending(db_session, proc, "99800002")
+
+        assert aplicadas == ["library"]
+        clearance = _library_svc().get_for_process(db_session, proc.id)
+        (cert,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert re.fullmatch(rf"BIB-{esperado}-\d{{4}}", cert.number), cert.number
+        assert cert.issued_by_id is None
+        assert clearance.updated_at == ahora
+
+    def test_las_dos_diferidas_toman_cada_una_su_fecha_de_importacion(
+            self, db_session, proceso, monkeypatch):
+        """Importadas en semestres distintos: cada folio sale de SU fecha."""
+        ahora = datetime(2092, 10, 5, 10, 0, 0)
+        hoy = _fijar_reloj(monkeypatch, ahora)
+        proc = proceso(control_number="99800003", library_clearance="pending")
+        _prior(db_session, kind="survey", control="99800003",
+               issued_on=hoy - timedelta(days=5), created_at=_IMPORTADA_OCT_2091)
+        _prior(db_session, kind="library", control="99800003",
+               issued_on=hoy - timedelta(days=5), created_at=_IMPORTADA_ENE_2092)
+
+        with patch(NOTIFY):
+            aplicadas = _svc().apply_pending(db_session, proc, "99800003")
+
+        assert set(aplicadas) == {"survey", "library"}
+        review = _review_svc().get_for_process(db_session, proc.id)
+        clearance = _library_svc().get_for_process(db_session, proc.id)
+        (gtv,) = _certs(db_session, f"survey_review:{review.id}")
+        (bib,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert gtv.number.startswith("GTV-2091A-"), gtv.number
+        assert bib.number.startswith("BIB-2091B-"), bib.number
+
+    def test_encuesta_directa_sin_registered_at_sigue_el_semestre_anterior_a_ahora(
+            self, db_session, proceso, monkeypatch):
+        hoy = _fijar_reloj(monkeypatch, datetime(2092, 2, 10, 10, 0, 0))
+        proc = proceso()
+
+        with patch(NOTIFY):
+            review = _review_svc().register_prior(
+                db_session, proc, issued_on=hoy - timedelta(days=5))
+
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert re.fullmatch(r"GTV-2091B-\d{4}", cert.number), cert.number
+
+    def test_encuesta_directa_con_registered_at_usa_esa_fecha(
+            self, db_session, proceso, monkeypatch):
+        ahora = datetime(2092, 2, 10, 10, 0, 0)
+        hoy = _fijar_reloj(monkeypatch, ahora)
+        proc = proceso()
+
+        with patch(NOTIFY):
+            review = _review_svc().register_prior(
+                db_session, proc, issued_on=hoy - timedelta(days=5),
+                registered_at=_IMPORTADA_OCT_2091)
+
+        (cert,) = _certs(db_session, f"survey_review:{review.id}")
+        assert re.fullmatch(r"GTV-2091A-\d{4}", cert.number), cert.number
+        # `registered_at` solo elige el semestre del folio.
+        assert review.reviewed_at == ahora and review.updated_at == ahora
+
+    def test_biblioteca_directa_sin_registered_at_sigue_el_semestre_anterior_a_ahora(
+            self, db_session, proceso, monkeypatch):
+        hoy = _fijar_reloj(monkeypatch, datetime(2092, 2, 10, 10, 0, 0))
+        proc = proceso(library_clearance="pending")
+        clearance = _library_svc().get_for_process(db_session, proc.id)
+
+        with patch(NOTIFY):
+            _library_svc().register_prior(
+                db_session, clearance.id, None, issued_on=hoy - timedelta(days=5),
+                by="import", commit=False)
+
+        (cert,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert re.fullmatch(r"BIB-2091B-\d{4}", cert.number), cert.number
+
+    def test_biblioteca_directa_con_registered_at_usa_esa_fecha(
+            self, db_session, proceso, monkeypatch):
+        ahora = datetime(2092, 2, 10, 10, 0, 0)
+        hoy = _fijar_reloj(monkeypatch, ahora)
+        proc = proceso(library_clearance="pending")
+        clearance = _library_svc().get_for_process(db_session, proc.id)
+
+        with patch(NOTIFY):
+            _library_svc().register_prior(
+                db_session, clearance.id, None, issued_on=hoy - timedelta(days=5),
+                by="import", commit=False, registered_at=_IMPORTADA_OCT_2091)
+
+        (cert,) = _certs(db_session, f"library_clearance:{clearance.id}")
+        assert re.fullmatch(r"BIB-2091A-\d{4}", cert.number), cert.number
+        assert clearance.updated_at == ahora
+
+
+# ---------------------------------------------------------------------------
 # PriorClearanceService.import_rows (motor de la CLI)
 # ---------------------------------------------------------------------------
 class TestImportRowsSurvey:
@@ -498,6 +655,12 @@ class TestImportRowsSurvey:
                 db_session, kind="survey", source="t.csv",
                 rows=[{"control_number": "99700099", "issued_on": reloj.isoformat()}])
         assert [f["control_number"] for f in resultado["deferred"]] == ["99700099"]
+        # `created_at` es el `NOW()` real de Postgres; el folio de una previa
+        # diferida sale de esa fecha (D5), así que se fija al reloj de la prueba.
+        from itcj2.apps.titulatec.models import PriorClearance
+        (db_session.query(PriorClearance)
+         .filter_by(kind="survey", control_number="99700099")
+         .update({"created_at": HOY_FIJO}))
         db_session.commit()
 
         from itcj2.apps.titulatec.services.import_service import ImportService

@@ -69,7 +69,8 @@ Constancias (§4.5) y folios (spec `2026-10-05-titulatec-folios-design.md`
 source_ref='library_clearance:{id}')` en el semestre de la emisión; quedar
 `cleared/prior` (`register_prior`, también con `commit=False`) emite el MISMO
 `source_ref` en el semestre ANTERIOR al del registro
-(`previous_semester_key`). Revertir (`revert_payment`/`revert_clearance`) y
+(`previous_semester_key`; para una previa diferida, el de su importación:
+kwarg `registered_at`, D5). Revertir (`revert_payment`/`revert_clearance`) y
 `undo_prior` anulan (`void`). `legacy` no emite aquí: sus folios los da el
 backfill (`FolioBackfillService`: `titulatec emitir-folios-previos` y el paso 5
 de `activar-biblioteca-caja`), que también cubre las previas registradas antes
@@ -767,16 +768,26 @@ class LibraryClearanceService:
     @staticmethod
     def register_prior(db: Session, clearance_id: int, actor_id: int | None, *,
                        issued_on: date, note: str | None = None, by: str,
-                       commit: bool = True):
+                       commit: bool = True, registered_at: datetime | None = None):
         """Constancia previa (D9): `pending|awaiting_payment` → `cleared/prior`.
 
         El egresado ya pagó y trae su papel: `issued_on` obligatoria, no
         futura y vigente (`>= hoy - PRIOR_VALIDITY_DAYS`: exactamente 365 días
         vale, 366 no). EMITE el folio BIB (`source_ref=_ref(id)`) con
-        `semester=previous_semester_key(ahora)`: la previa es del semestre
-        ANTERIOR al del registro (spec folios 2026-10-05 §3.3); `actor_id=None`
-        lo deja sin emisor. `by` ∈ `PRIOR_BY` va al
-        payload. `commit=False` (con `actor_id=None`) lo usa
+        `semester=previous_semester_key(registered_at or ahora)`: la previa es
+        del semestre ANTERIOR al del registro (spec folios 2026-10-05 §3.3);
+        `actor_id=None` lo deja sin emisor. `by` ∈ `PRIOR_BY` va al
+        payload.
+
+        `registered_at` (spec folios D5, «previa diferida»): la fecha de
+        registro que decide el semestre del folio. `None` = «ahora» de este
+        método (el registro directo). `PriorClearanceService._apply_library`
+        pasa `PriorClearance.created_at` -la IMPORTACIÓN-: una previa
+        importada sin proceso y aplicada al inscribirse el egresado, a veces
+        semestres después, sigue en el semestre anterior al de su importación.
+        SOLO elige el semestre: `updated_at` y el resto siguen siendo «ahora».
+
+        `commit=False` (con `actor_id=None`) lo usa
         `PriorClearanceService.apply_pending` dentro de
         `ImportService.import_rows`: hace `flush()` y deja el commit al
         llamador. Ruling R20 (I2): con la fase 2 ya `approved` -ya pasó su
@@ -811,7 +822,7 @@ class LibraryClearanceService:
         )
         CertificateService.issue(db, kind=CERT_KIND, process=process,
                                  source_ref=_ref(clearance.id), actor_id=actor_id,
-                                 semester=previous_semester_key(ahora))
+                                 semester=previous_semester_key(registered_at or ahora))
 
         LibraryClearanceService._fulfill(db, process, clearance, requirement, actor_id)
         datos = {"clearance_id": clearance.id, "issued_on": fecha.isoformat(),
