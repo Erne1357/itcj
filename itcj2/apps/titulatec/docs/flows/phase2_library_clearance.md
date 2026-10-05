@@ -26,9 +26,9 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
 
 1. 📚 **Biblioteca** inicia sesión → aterriza en `/titulatec/admin/biblioteca`
    (`_ROLE_DASHBOARD`) o entra por el ítem **Biblioteca** del menú admin (`bi-book`). Tres
-   pestañas con contador — **Por revisar** (`pending`, FIFO por `TitulationProcess.created_at` =
+   pestañas con contador (cuatro desde 2026-10-05, ⤵ [Con observaciones](#con-observaciones-2026-10-05)) — **Por revisar** (`pending`, FIFO por `TitulationProcess.created_at` =
    aceptación de la inscripción, *default*), **En caja** (`awaiting_payment`, FIFO por
-   `ready_at`), **Liberados** (`cleared`, recientes primero) — y buscador por nombre/control, 50
+   `ready_at`), **Con observaciones** (`observed`, recientes primero), **Liberados** (`cleared`, recientes primero) — y buscador por nombre/control, 50
    por página.
    - **Por revisar**: casilla por fila + barra «Sin adeudo (N)» (lote, confirmación) y, por
      fila, **«Sin adeudo»**, **«Con adeudo…»** (monto + nota) y **«Constancia previa…»** (fecha +
@@ -137,6 +137,89 @@ ENTRA a `awaiting_payment` desde otro estado (Registrar desde `pending`, Reverti
 que no cambia nada —mismo adeudo, misma donación congelada, misma nota— es **no-op**: sin
 evento, sin aviso, sin correo, sin firma nueva de Biblioteca (`_same_registration`).
 
+## Con observaciones (2026-10-05)
+
+Spec `2026-10-05-titulatec-biblioteca-observaciones-design.md` (no se commitea). Biblioteca puede
+**detener** a un egresado con un motivo: estado nuevo `observed`, etiqueta UI **«Con
+observaciones»**. Mientras dura, el egresado no agenda y no paga; Biblioteca lo **rehabilita** y
+vuelve a dictaminar. Gemelo de «GTV deja observaciones» en la encuesta, pero reversible por
+Biblioteca sin intervención del egresado.
+
+```mermaid
+stateDiagram-v2
+    pending --> observed: 📚 Observar (motivo)
+    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL, montos intactos)
+    observed --> observed: 📚 Actualizar observación (nuevo motivo)
+    observed --> pending: 📚 Rehabilitar (montos precargan Registrar)
+```
+
+- **Quién/qué permiso**: Biblioteca, con `titulatec.library_clearance.api.register` (el mismo de
+  Registrar; **sin DML ni permisos nuevos**). Rutas por `clearance_id` (nunca `process_id`, lo
+  fija `test_scope_guard.py`): `POST /titulatec/admin/biblioteca/{clearance_id}/observar`
+  (`pages/library_admin.py:339`, campo `reason` + `status`/`q`/`page` de vuelta) y
+  `POST /titulatec/admin/biblioteca/{clearance_id}/rehabilitar` (`:369`). Las dos re-pintan la
+  bandeja (pestaña/página/búsqueda de donde vinieron); reglas de negocio → `400` + `X-Tt-Error`
+  (`_hdr`, ASCII), `LookupError` → `404`.
+- **Service** (`services/library_clearance_service.py`, único escritor, invariante 1):
+  `observe` (`:940`) y `reenable` (`:988`). Un `SELECT … FOR UPDATE` + UN commit, evento,
+  aviso in-app (`LIBRARY_OBSERVED`/`LIBRARY_REENABLED`) y correo (`StudentMail.library_observed`/
+  `.library_reenabled`) en la MISMA transacción.
+- **Motivo**: obligatorio, `strip()`, 1..1000 caracteres (`REASON_MAX`, `:130`). Se guarda en
+  `observation_reason`/`observed_by_id`/`observed_at` (`models/library_clearance.py:125-129`),
+  que valen NULL fuera de `observed`; al rehabilitar se limpian y el motivo anterior queda en el
+  payload del evento `library_reenabled {previous_reason}`.
+- **Guardas de `observe`** (todas antes de mutar): proceso admitido (`active`/`on_hold`); no
+  `cleared` («primero revierte la liberación»); **fase 2 sin aprobar** (`_assert_needs_clearance`,
+  Ruling R20: quien ya pasó su cotejo no tiene trámite) → `ValueError`/`400`, nada escrito. Un
+  proceso cancelado/terminado falla igual en `_admitted_process`. Desde `observed` solo
+  **actualiza** el motivo (como `SurveyReviewService.reject`).
+- **Desde Caja** (`awaiting_payment`): limpia `ready_at` (sale de «Por cobrar» y de los
+  recordatorios de pago, que filtran por `awaiting_payment`) y **conserva los montos**. No cambia
+  el requisito `library_clearance` (no estaba cumplido) ni emite/anula constancia.
+- **Rehabilitar** (`reenable`): `observed` → `pending` SIEMPRE (D2), aunque tuviera montos
+  —precargan el formulario de «Registrar»—; no vuelve a Caja solo. El candado sigue bloqueando
+  agendar, ahora por `library_pending`, hasta que Biblioteca dictamine (Review Focus 2).
+- **Con `observed` ninguna otra transición aplica**: Registrar/Corregir, lote «Sin adeudo»,
+  cobrar, revertir y constancia previa levantan `ClearanceObserved` (`:215`, subclase de
+  `ValueError`; `_assert_not_observed` `:1715`; mensaje «Está con observaciones de Biblioteca;
+  rehabilítalo primero.»). Las páginas no leen literales de estado: capturan la excepción.
+- **Bandeja de Biblioteca**: cuarta pestaña **«Con observaciones»** (`pages/library_admin.py:63`,
+  contador en `counts_by_status`, que ahora trae las 4 llaves de `LIBRARY_STATUSES`; orden
+  `observed_at DESC, id DESC`, `list_for_inbox` `:1133`; paginación por `utils/paging.py` + macro
+  `pager`). La fila muestra motivo, quién y cuándo, **«Actualizar observación…»** y
+  **«Rehabilitar»**; en «Por revisar»/«En caja» aparece **«Observar…»** (formulario con motivo).
+  Plantilla: `templates/titulatec/admin/partials/library_body.html`.
+- **Caja** (`pages/cashier_admin.py`): el buscador pinta «Con observaciones (Biblioteca)» (píldora
+  `danger`, `cashier_body.html:71`) y **no** ofrece «Registrar pago»; el observado sale de «Por
+  cobrar». Si la cajera tenía un «Por cobrar» viejo en pantalla y Biblioteca lo observó mientras
+  tanto, «Registrar pago» no cobra: `ClearanceObserved` (`:247`) se traduce a **`200` + bandeja
+  re-pintada + `X-Tt-Notice` (`warning`, `_MSG_CAJA_OBSERVADO` `:132`)**, igual que el choque de
+  monto (R24), en vez de un `400` sin swap que dejaría la fila vieja ofreciendo cobrar (Review
+  Focus 1).
+- **Constancia previa / importación** (⤵ [constancias previas](xcut_prior_clearances.md)):
+  `prior_outcome` devuelve `"conflict"` para `observed` (`:360-380`); la importación de previas lo
+  lista en `conflicts` («Biblioteca registró observaciones en su no adeudo; lo decide
+  Biblioteca», `prior_clearance_service.py:393`) en vez de abortar el lote; primero lo rehabilita
+  Biblioteca.
+- **Lectores** (invariante 2, solo por el dueño): `LibraryClearanceService.observation(db, pid)`
+  (`:383`, `{"reason","observed_at"}` o `None`) para correos y vistas; `summary_for_process`
+  trae `observation`/`observed_at`.
+- **Eventos** (`models/process_event.py:71`): `library_observed {clearance_id, reason,
+  from_status}` y `library_reenabled {previous_reason}`; el expediente de SE
+  (`pages/admin.py:1240`, `_EVENT_UI`) y el historial del egresado (`pages/student.py:331`) los
+  pintan.
+- **Egresado**: píldora «Con observaciones» (`_macros.html:108`), el motivo en el bloque del
+  dashboard (`student/dashboard.html:278`) y en «Mi cita» (`_cita_panel.html:80`), y el
+  expediente de SE (`_exp_phase.html:213`). El hero del tablero solo pinta la píldora cuando la
+  fase 2 es la actual (el motivo se lee en «Mi cita» y en el mensaje de autoagenda).
+- **Migración y despliegue**: `migrations/versions/tt20261005a_titulatec_library_observations.py`
+  (`down_revision = "tt20261001a"`, escrita a mano): tres columnas NULL en
+  `titulatec_library_clearances` (`observation_reason`, `observed_by_id` FK `core_users`,
+  `observed_at`); `status` es texto libre, no hay `CHECK` que ampliar. **Despliegue: `alembic
+  upgrade head`** — sin DML, sin permisos nuevos, sin comando CLI, sin backfill (ninguna fila
+  existente nace `observed`). Reversa: `alembic downgrade -1` devuelve las filas `observed` a
+  `pending` antes de borrar las columnas.
+
 ## El candado único ClearanceGate
 
 `services/clearance_gate.py::ClearanceGate` es la ÚNICA fuente de «¿a este egresado le falta
@@ -155,10 +238,11 @@ alguna liberación?» (§5 invariante 2); fuera de aquí y de los dos dueños
 - `status(db, pid)` → `{"survey": SurveyReviewService.release_status(...), "library":
   LibraryClearanceService.release_status(...)}` — dominios CERRADOS (`SURVEY_STATES`,
   `LIBRARY_STATES`, los fija la prueba): `library` ∈ `missing`\|`pending`\|`awaiting_payment`\|
-  `cleared`\|`not_required`\|`not_applicable`. `status_map(db, ids)` en lote (consultas FIJAS,
+  `observed`\|`cleared`\|`not_required`\|`not_applicable`. `status_map(db, ids)` en lote (consultas FIJAS,
   nunca una por proceso; la de biblioteca trae fila y fase 2 en UNA consulta).
 - `blockers(status)` → lista ORDENADA (**encuesta primero**) de `BLOCKERS` = `survey_missing`\|
-  `survey_in_review`\|`survey_rejected`\|`library_pending`\|`library_awaiting_payment`. En
+  `survey_in_review`\|`survey_rejected`\|`library_pending`\|`library_awaiting_payment`\|`library_observed`
+  (2026-10-05, `clearance_gate.py:98-108`). En
   biblioteca no bloquean `cleared`, `not_required` ni `not_applicable`. Un estado que no se
   reconoce bloquea (falla cerrado). `is_clear(db, pid)` → sin bloqueos.
 - `released_clause()`/`not_released_clause()` — lo mismo en SQL (cuatro `EXISTS`
@@ -169,11 +253,11 @@ alguna liberación?» (§5 invariante 2); fuera de aquí y de los dos dueños
 
 | Consumidor | Qué hace con el gate |
 |---|---|
-| `AppointmentService.create` | tras las dos de la encuesta, `LibraryNotCleared(status)` (400) si el no adeudo sigue `pending`/`missing`/`awaiting_payment` donde la convocatoria lo exige. Aplica a TODO intento nuevo, incluido tras un `no_show` o una `attended` rechazada |
+| `AppointmentService.create` | tras las dos de la encuesta, `LibraryNotCleared(status)` (400) si el no adeudo sigue `pending`/`missing`/`awaiting_payment`/`observed` (este último con mensaje propio, `appointment_errors.py:250`) donde la convocatoria lo exige. Aplica a TODO intento nuevo, incluido tras un `no_show` o una `attended` rechazada |
 | `AppointmentService.queue_candidates` / `list_missing_clearance_processes` | `released_clause()` / `not_released_clause()` — ⤵ [cita de cotejo](phase2_appointment_loop.md) |
-| `SelfBookingService.eligibility` (regla 3) | `biblioteca_en_revision` (pending/missing) y `pago_pendiente` (awaiting_payment, con el total) — ⤵ [auto-agendado](phase2_student_self_booking.md) |
+| `SelfBookingService.eligibility` (regla 3) | `biblioteca_en_revision` (pending/missing), `pago_pendiente` (awaiting_payment, con el total) y `biblioteca_con_observaciones` (observed, 2026-10-05) — ⤵ [auto-agendado](phase2_student_self_booking.md) |
 | `pages/appointments.py` | filas de la cola (`survey_status`/`library_status`/`liberaciones_pendientes`) y ficha de atender |
-| `PhaseService._requirement_label` | sufijo «en revisión por Biblioteca» / «pendiente de pago en Caja» en la guarda de aprobar la fase 2 |
+| `PhaseService._requirement_label` | sufijo «en revisión por Biblioteca» / «pendiente de pago en Caja» / «con observaciones de Biblioteca» (`phase_service.py:295`) en la guarda de aprobar la fase 2 |
 | Vistas del egresado, expediente, correos (D11) | cada una en su propia tarea — ver abajo |
 
 ## Secuencia
@@ -385,7 +469,7 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
 
 ## Correos y avisos
 
-Cuatro `kind` nuevos (`OUTBOX_KINDS` 11 → 15), detalle completo en ⤵ [correos del proceso al
+Cuatro `kind` nuevos (`OUTBOX_KINDS` 11 → 15; el 2026-10-05 se suman `library_observed` y `library_reenabled`, ⤵ [Con observaciones](#con-observaciones-2026-10-05)), detalle completo en ⤵ [correos del proceso al
 egresado](xcut_student_email_notifications.md): `library_ready` (pasa a Caja / se corrige el
 monto), `library_cleared` (queda liberado, D11 con el estado vivo), `library_reverted` (se
 revierte/deshace) y `library_reminder` (recordatorio diario del pago pendiente, D14, ancla
@@ -440,6 +524,9 @@ la encuesta»: ahora dice que las áreas envían las constancias a Servicios Esc
 - **Ya pasó su cotejo** (fase 2 `approved`) → Registrar / lote / constancia previa: `ValueError`
   «Este egresado ya pasó su cotejo; no necesita trámite de no adeudo.» (`400`, o «omitido» en el
   lote); «Por revisar» ni siquiera lo muestra (Ruling R20).
+- **Observar con la fase 2 ya `approved`, con el proceso cancelado/terminado o con la fila `cleared`** → `ValueError` → `400` + `X-Tt-Error`, nada escrito (2026-10-05).
+- **Cualquier acción sobre una fila `observed` que no sea Observar/Rehabilitar** → `ClearanceObserved` → `400` (en Caja, `200` + re-pintado, ver arriba).
+- **Motivo vacío o de más de 1000 caracteres** → `ValueError` → `400`.
 - **Dos personas sobre la misma fila** → `200` + bandeja re-pintada + aviso warning, ver
   «Concurrencia» arriba (Ruling R24).
 - **Revertir/Deshacer con la fase 2 ya `approved`** → `ValueError` («ya fue liberada; ya no se
@@ -550,7 +637,7 @@ proceso revocado —m42; desde R15 también por pagar en Caja, sin el monto—, 
 «Constancia previa…» a un revocado —M2—, la celda de constancia en las dos vistas —con R13/R18—,
 y UNA llamada a `print_status_map` por vista con a lo más 2 consultas de constancias en total
 —R14/R17—), `test_student_library_status.py` (dashboard/Mi cita del egresado; R14/R17: ninguna de
-las dos consulta constancias), `test_cli_biblioteca_caja.py` (los dos comandos, dry-run,
+las dos consulta constancias), `test_library_observations.py` (service: observar/actualizar/rehabilitar, guardas, Caja → observed sin `ready_at`, correos y su obsolescencia, `prior_outcome`, pestaña), `test_library_observations_gate.py` (blocker `library_observed`, autoagenda, vistas), `test_library_observations_routes.py` (rutas `/observar` y `/rehabilitar`, authz, Caja con «Por cobrar» viejo; 2026-10-05), `test_cli_biblioteca_caja.py` (los dos comandos, dry-run,
 pre-chequeos, re-backfill, promoción D17, `[20, 21, 23]` del primer comando y que nunca re-corre
 `mail_2026_09/`).
 

@@ -322,6 +322,10 @@ pantallas: [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearan
 stateDiagram-v2
     [*] --> pending: alta del proceso | backfill (legado cumplido)
     pending --> awaiting_payment: 📚 Registrar, total > 0
+    pending --> observed: 📚 Observar (motivo)
+    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL)
+    observed --> observed: 📚 Actualizar observación
+    observed --> pending: 📚 Rehabilitar
     pending --> cleared: 📚 Registrar, total = 0 (D18, cleared_via=no_charge)
     awaiting_payment --> awaiting_payment: 📚 Corregir, nuevo monto > 0
     awaiting_payment --> cleared: 📚 Corregir, nuevo monto = 0 (no_charge) · 💰 Registrar pago (payment)
@@ -335,6 +339,15 @@ stateDiagram-v2
 > `cleared`: decide qué botón de reversa aplica (un pago lo revierte Caja; sin cargo/legado lo
 > revierte Biblioteca; una previa se deshace) — ningún botón funciona sobre el `cleared_via`
 > equivocado, el service lo valida.
+>
+> **`observed`** («Con observaciones», 2026-10-05, migración `tt20261005a`): Biblioteca detuvo al
+> egresado con un motivo (`observation_reason`/`observed_by_id`/`observed_at`, NULL fuera de este
+> estado). Se entra desde `pending`/`awaiting_payment` (desde Caja limpia `ready_at` y conserva los
+> montos); se sale SOLO con **Rehabilitar** → `pending` (D2). Con `observed` no se registra, cobra,
+> revierte ni aplica una constancia previa (`ClearanceObserved`); `ClearanceGate` lo bloquea con
+> `library_observed`. Observar/rehabilitar exigen fase 2 sin aprobar y proceso admitido; desde
+> `cleared` no se observa (primero se revierte). Detalle:
+> [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05).
 >
 > **`ready_at`** (Ruling R10) es la entrada VIGENTE a `awaiting_payment`: se vuelve a fijar SOLO
 > al ENTRAR desde otro estado (Registrar desde `pending`, Revertir pago desde `cleared/payment`),

@@ -72,6 +72,8 @@ botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec
 | 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9) | `_compose_library_cleared` (`:682-722`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
 | 14 | `library_reverted` | individual | `LibraryClearanceService.revert_payment`/`.revert_clearance`/`.undo_prior` → `StudentMail.library_reverted(to_status=)` | `_compose_library_reverted` (`:725-801`) | `library_reverted.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REVERTED`) |
 | 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:945-974`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
+| 16 | `library_observed` (2026-10-05) | individual | `LibraryClearanceService.observe` → `StudentMail.library_observed(reason=)` (`library_clearance_service.py:940`, `student_mail.py:491`) | `_compose_library_observed` (`mail_compose.py:809`) | `library_observed.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_OBSERVED`, con el motivo) |
+| 17 | `library_reenabled` (2026-10-05) | individual | `LibraryClearanceService.reenable` → `StudentMail.library_reenabled` (`library_clearance_service.py:988`, `student_mail.py:500`) | `_compose_library_reenabled` (`mail_compose.py:838`) | `library_reenabled.html` | idem | **nuevo** (`LIBRARY_REENABLED`) |
 
 Los 4 del no adeudo (12-15) cuelgan de la fase 2, como los de GTV; ninguno lleva grupo —cada
 transición de Biblioteca/Caja es un correo propio, no se agrupan entre sí como `docs:`/`cita:`—.
@@ -223,6 +225,13 @@ resto) y pintan los montos VIGENTES de la fila, no los del payload — ni una co
 reversión posterior (`_hay_posterior`, `:275-285`, mismo patrón que `appt_no_show`). Detalle
 completo de cuándo dispara cada uno: ⤵ [no adeudo de biblioteca: Biblioteca →
 Caja](phase2_library_clearance.md).
+
+**«Con observaciones» (2026-10-05, #16-17) — `_compose_library_observed`/`_compose_library_reenabled` (`mail_compose.py:809`/`:838`, registro en `:1057`).** El motivo del `library_observed` va CONGELADO en el payload (lo que Biblioteca escribió al observar); nadie compara el estado de la fila aquí, se pregunta al dueño (`LibraryClearanceService.observation`). Reglas de obsolescencia al ENVIAR:
+
+- `library_observed` es obsoleto si hay un `library_observed` MÁS NUEVO del proceso (actualizaron el motivo en la espera: sale ese, con el motivo vigente), si hay un `library_reenabled` más nuevo, o si la fila ya no está observada. Review Focus 4: observado y rehabilitado antes del despacho no manda un aviso falso («tienes observaciones» sería mentira).
+- `library_reenabled` es obsoleto si hay otro `library_reenabled` más nuevo o si la fila está OTRA VEZ observada (sale el aviso de observación); en `pending` o cualquier estado posterior sale.
+- **Decisión (libro mayor 2026-10-05, spec §3.3): el correo «te rehabilitó» SÍ sale aunque su par «observaciones» haya salido `Obsolete`.** Observar y rehabilitar dentro de la misma espera deja al egresado con UN solo correo, «Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo», neto cero y potencialmente confuso, pero su texto es verdadero y no se suprime para no esconder un cambio de estado real. Costo conocido: un correo sin contexto previo.
+- Los recordatorios de pago (`library_reminder`) no cambian: el barrido filtra por `awaiting_payment` (`awaiting_payment_clause`) y `observe` limpia `ready_at`, así que un observado deja de recibirlos.
 
 **`_compose_library_reverted` re-valida en CUATRO pasos, en este orden** (spec 2026-10-02 §2,
 m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por los Rulings R12 y R17 de la revisión
@@ -588,7 +597,7 @@ si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega
   [liberación GTV de la encuesta](phase2_tech_management_survey_release.md),
   [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md),
   [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) (los 4 `kind` nuevos,
-  D11/D14).
+  D11/D14; 2026-10-05, `library_observed`/`library_reenabled`: ⤵ [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05)).
 - ⤵ D11/D13: `_que_falta` consulta [`ClearanceGate`](phase2_library_clearance.md#el-candado-único-clearancegate),
   la única fuente de «qué liberaciones le faltan».
 - ← De dónde sale el set de 3 vs. 7 que mide `docs_reminder`: [perfil de titulación por nivel de

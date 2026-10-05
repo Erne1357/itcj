@@ -162,6 +162,7 @@ La consumen **la pantalla del alumno y la cola del encargado**. Con dos implemen
 | 3c | la envió, pero quedó `rejected` (observaciones de GTV) | `encuesta_con_observaciones` | «Gestión Tecnológica y Vinculación dejó observaciones en tu encuesta de egresados. Podrás agendar en cuanto la liberen.» |
 | 3d | encuesta liberada, pero el no adeudo de biblioteca sigue en Biblioteca (`pending`/`missing`) **donde la convocatoria lo exige** (2026-10-01, D6) | `biblioteca_en_revision` | «El Centro de Información está revisando si tienes adeudo con la biblioteca. Podrás agendar en cuanto se libere tu no adeudo.» |
 | 3e | ídem, pero `awaiting_payment` (pasó a Caja) | `pago_pendiente` | «Pasa a Caja (Recursos Financieros) a pagar ${total}; no necesitas cita. Podrás agendar en cuanto se libere tu no adeudo.» |
+| 3f | ídem, pero Biblioteca lo dejó `observed` («Con observaciones», 2026-10-05) | `biblioteca_con_observaciones` | «Biblioteca registró observaciones en tu no adeudo: acude a la Biblioteca (Centro de Información) para resolverlas. Podrás agendar en cuanto se libere tu no adeudo.» (texto en `self_booking_service.py:111`; el motivo se ve en el tablero y en «Mi cita») |
 | 4 | cita vigente en `scheduled\|confirmed\|in_progress` | `tiene_cita` | «Ya tienes una cita. Cancélala si necesitas otra.» |
 | 5 | cita vigente `attended` y fase 2 SIN veredicto -ni `approved` (ya cortó en la 2) ni `rejected`- | `cotejo_en_dictamen` | «Tu cotejo ya se realizó. Servicios Escolares está por dictaminarlo; si queda con observaciones podrás agendar otra cita.» |
 | 6 | cancelaciones propias ≥ `TITULATEC_SELF_CANCEL_MAX` | `bloqueado_por_cancelaciones` | «Cancelaste N veces. Pídele la cita a tu encargado de carrera.» |
@@ -200,7 +201,7 @@ el no adeudo liberado, Ruling R21 — de todos modos la regla 2, «fase aprobada
 
 El diccionario `SelfBookingService._CLEARANCE_REASONS` traduce cada código de `ClearanceGate.
 blockers` (`survey_missing`/`survey_in_review`/`survey_rejected`/`library_pending`/
-`library_awaiting_payment`) a su `reason`; los cinco textos viven en `SelfBookingService.
+`library_awaiting_payment`/`library_observed`) a su `reason` (`biblioteca_con_observaciones` desde 2026-10-05, `self_booking_service.py:141`); los seis textos viven en `SelfBookingService.
 MENSAJES`, junto con los demás.
 
 **Los casos que SÍ dejan agendar**, que son el corazón de la feature: cita `attended` con la fase 2
