@@ -161,10 +161,14 @@ módulo admin del CLAUDE.md §4):
   despliegue, Ruling R19—, DML `biblioteca_2026_10/22_library_requirement_auto.sql`), y lo
   acreditan Biblioteca y Caja —
   ⤵ ver [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md). Las dos pistas
-  por defecto quedan fijas en el código (`CotejoRequirementService.DEFAULTS`): «La libera GTV y
-  envía la constancia a Servicios Escolares; no necesitas llevar nada.» (encuesta) y «Lo liberan
-  Biblioteca y Caja; la constancia la envía el Centro de Información a Servicios Escolares.» (no
-  adeudo) — el DML solo las reemplaza si SE no las había editado ya. Este flujo (la nota
+  por defecto quedan fijas en el código (`CotejoRequirementService.DEFAULTS`): «La libera GTV; no
+  necesitas llevar nada: su liberación queda registrada para Servicios Escolares.» (encuesta) y
+  «Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: su liberación queda
+  registrada para Servicios Escolares.» (no adeudo) — desde el 2026-10-05 (ampliación C4 de
+  `2026-10-05-titulatec-folios-design.md`) ya no dicen que el área «envía la constancia»: no hay
+  constancia impresa que enviar, solo el folio. El DML solo las reemplaza si SE no las había
+  editado ya, así que una convocatoria que ya traía las pistas anteriores las conserva tal cual.
+  Este flujo (la nota
   informativa del requisito) no cambia por ninguno de los dos: sigue siendo edición de texto, no
   de crédito — el checklist del alumno (`/titulatec/student/cita`) muestra el botón «i» de
   `library_clearance` exactamente igual que el de `graduate_survey`.

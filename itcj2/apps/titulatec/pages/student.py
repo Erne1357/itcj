@@ -60,8 +60,9 @@ _PHASE_INFO = {
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
-            "Las constancias de no adeudo y de la encuesta las envían las áreas a "
-            "Servicios Escolares; si registraste una constancia previa, llévala.",
+            "No necesitas llevar nada del no adeudo ni de la encuesta: sus liberaciones "
+            "quedan registradas para Servicios Escolares; si registraste una constancia "
+            "previa, llévala.",
             "12 fotografías tamaño credencial: ovaladas, B/N, fondo blanco, papel mate.",
             "$1,900 en efectivo para el pago del proceso.",
         ],

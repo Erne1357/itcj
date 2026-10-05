@@ -40,10 +40,10 @@ AUTO_LIBRARY = "library_clearance"
 
 # Pistas de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.3, literal.
 # El DML `biblioteca_2026_10/22_library_requirement_auto.sql` repite las dos.
-HINT_SURVEY = ("La libera GTV y envía la constancia a Servicios Escolares; no "
-               "necesitas llevar nada.")
-HINT_LIBRARY = ("Lo liberan Biblioteca y Caja; la constancia la envía el Centro de "
-                "Información a Servicios Escolares.")
+HINT_SURVEY = ("La libera GTV; no necesitas llevar nada: su liberación queda "
+               "registrada para Servicios Escolares.")
+HINT_LIBRARY = ("Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: "
+                "su liberación queda registrada para Servicios Escolares.")
 
 # Copia APROBADA por el usuario (diseno 2026-09-15). Se fija aqui a proposito y no
 # se importa del servicio: cambiarla es una decision de producto, no un refactor.
@@ -74,8 +74,9 @@ class TestDefaults:
         assert AUTO_LIBRARY == AUTO_SOURCE_LIBRARY and len(AUTO_LIBRARY) <= 20
 
     def test_las_pistas_de_las_liberaciones_son_las_de_la_spec(self):
-        """Ninguna de las dos pide llevar un papel: las constancias las envían
-        las áreas a Servicios Escolares (spec §4.3)."""
+        """Ninguna de las dos pide llevar un papel: la liberación queda
+        registrada para Servicios Escolares (spec §4.3, con la ampliación C4 de
+        `2026-10-05-titulatec-folios-design.md`: ya no se «envía» una constancia)."""
         pistas = {code: hint for (_i, _l, hint, code, _a, _info) in DEFAULTS}
 
         assert pistas[AUTO_SURVEY] == HINT_SURVEY

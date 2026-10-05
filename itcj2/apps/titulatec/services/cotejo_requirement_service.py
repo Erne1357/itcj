@@ -59,11 +59,12 @@ DEFAULTS = [
     ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente.",
      "efirma", None, None),
     ("clipboard-check", "Encuesta de egresados",
-     "La libera GTV y envía la constancia a Servicios Escolares; no necesitas llevar nada.",
+     "La libera GTV; no necesitas llevar nada: su liberación queda registrada para "
+     "Servicios Escolares.",
      "graduate_survey", "graduate_survey", None),
     ("book", "No-adeudo de biblioteca",
-     "Lo liberan Biblioteca y Caja; la constancia la envía el Centro de Información a "
-     "Servicios Escolares.",
+     "Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: su liberación "
+     "queda registrada para Servicios Escolares.",
      "library_clearance", "library_clearance", None),
     ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate.",
      "photos", None, None),

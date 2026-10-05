@@ -495,7 +495,9 @@ y la reversión anterior en cualquier estado (esa reversión cierra el ciclo vie
 al día las filas YA sembradas, respetando las pistas que SE ya hubiera editado. Las rutas de marcado manual del encargado (`appointments.py:1796`,
 `admin.py:1982`) YA rechazaban todo `auto_source` desde la liberación GTV (2026-09-15): no
 cambian. `pages/student.py` deja de pedirle al alumno «No-adeudo de biblioteca y comprobante de
-la encuesta»: ahora dice que las áreas envían las constancias a Servicios Escolares.
+la encuesta»: ahora dice que no necesita llevar nada porque sus liberaciones quedan registradas
+para Servicios Escolares (desde el 2026-10-05, ampliación C4 de `2026-10-05-titulatec-folios-design.md`,
+antes decía que las áreas envían las constancias); lo de la constancia previa no cambia.
 
 ## Estado resultante
 
