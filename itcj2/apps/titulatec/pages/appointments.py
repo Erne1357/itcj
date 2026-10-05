@@ -551,18 +551,26 @@ def _dias_ctx(db, cohort_id, *, abierto, today):
     Sustituye al calendario mensual, del que 29 de sus 35 celdas eran inertes:
     el trabajo son seis mananas concretas.
 
-    La ocupacion sale de UNA sola funcion (`SlotService.day_occupancy`), la
-    misma que alimenta la cabecera del tablero: con dos numeradores distintos
-    la pantalla mostraba dos cifras que no cuadraban. Y NO se acota por
-    carrera: la carrera decide que NOMBRES se ven, nunca los conteos.
+    La ocupacion sale de UNA sola regla (`SlotService.day_occupancy_map`, la
+    version en lote de `day_occupancy`), la misma que alimenta la cabecera del
+    tablero: con dos numeradores distintos la pantalla mostraba dos cifras que
+    no cuadraban. Y NO se acota por carrera: la carrera decide que NOMBRES se
+    ven, nunca los conteos.
+
+    Tres consultas para todo el carril (dias, sus ventanas y la ocupacion de
+    todas), sin importar cuantos dias o ventanas tenga la convocatoria: antes
+    eran una por dia mas una por ventana (H6, spec 2026-10-05-titulatec-
+    rendimiento §3.4).
     """
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
+    filas = ReviewDayService.list_rows(db, cohort_id) if cohort_id else []
+    por_dia = SlotService.windows_for_days(db, [f.id for f in filas])
+    totales = SlotService.day_occupancy_map(db, por_dia)
     salida = []
-    for fila in (ReviewDayService.list_rows(db, cohort_id) if cohort_id else []):
-        ventanas = SlotService.windows_for_day(db, fila.id)
-        ocupados, capacidad = SlotService.day_occupancy(db, ventanas)
+    for fila in filas:
+        ocupados, capacidad = totales[fila.id]
         salida.append({
             "date": fila.date.isoformat(),
             "day": fila.date.day,
@@ -721,10 +729,19 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
             ficha["n"] = n
         return ficha
 
+    # Ocupacion de TODOS los espacios del dia (mios y ajenos) y la banda
+    # «fuera de la rejilla» de los mios, en una consulta cada una: antes cada
+    # espacio pagaba las suyas, y cada ajeno DOS (H6, spec 2026-10-05-
+    # titulatec-rendimiento §3.4). Misma regla: son los mapas de
+    # `window_occupancy` y `out_of_grid`.
+    totales = SlotService.window_occupancy_map(db, list(mias) + list(ajenas))
+    fuera_de_rejilla = SlotService.out_of_grid_map(
+        db, [w for w in mias if w.visibility != "walkin"])
+
     hoy = db_now().date()
     grupos = []
     for w in mias:
-        ocupados, capacidad = SlotService.window_occupancy(db, w)
+        ocupados, capacidad = totales[w.id]
 
         if w.visibility == "walkin":
             vivas = walkin_vivas.get(w.id, [])
@@ -770,7 +787,7 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
             # Citas que dejaron de caer en la rejilla al cambiar la duracion.
             # Se muestran, no se esconden: el modelo lo permite y taparlo seria
             # peor que ensenarlo.
-            "fuera": [_ficha(a) for a in SlotService.out_of_grid(db, w)
+            "fuera": [_ficha(a) for a in fuera_de_rejilla.get(w.id, [])
                       if a.process_id in vistos],
         })
 
@@ -781,8 +798,8 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
         # Solo conteos y horario. NUNCA nombres: pueden ser de carreras fuera
         # del alcance de este usuario.
         "ajenas": [{"horario": f"{w.start_time:%H:%M}–{w.end_time:%H:%M}",
-                    "ocupados": SlotService.window_occupancy(db, w)[0],
-                    "capacidad": SlotService.window_occupancy(db, w)[1]}
+                    "ocupados": totales[w.id][0],
+                    "capacidad": totales[w.id][1]}
                    for w in ajenas],
         "sin_espacio": not mias,
     }
