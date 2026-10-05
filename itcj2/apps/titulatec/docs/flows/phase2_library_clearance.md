@@ -28,7 +28,7 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    (`_ROLE_DASHBOARD`) o entra por el ítem **Biblioteca** del menú admin (`bi-book`). Tres
    pestañas con contador (cuatro desde 2026-10-05, ⤵ [Con observaciones](#con-observaciones-2026-10-05)) — **Por revisar** (`pending`, FIFO por `TitulationProcess.created_at` =
    aceptación de la inscripción, *default*), **En caja** (`awaiting_payment`, FIFO por
-   `ready_at`), **Con observaciones** (`observed`, recientes primero), **Liberados** (`cleared`, recientes primero) — y buscador por nombre/control, 50
+   `ready_at`), **Con observaciones** (`observed`, recientes primero, solo procesos admitidos: lista y contador), **Liberados** (`cleared`, recientes primero) — y buscador por nombre/control, 50
    por página.
    - **Por revisar**: casilla por fila + barra «Sin adeudo (N)» (lote, confirmación) y, por
      fila, **«Sin adeudo»**, **«Con adeudo…»** (monto + nota) y **«Constancia previa…»** (fecha +
@@ -150,7 +150,7 @@ stateDiagram-v2
     pending --> observed: 📚 Observar (motivo)
     awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL, montos intactos)
     observed --> observed: 📚 Actualizar observación (nuevo motivo)
-    observed --> pending: 📚 Rehabilitar (montos precargan Registrar)
+    observed --> pending: 📚 Rehabilitar (montos precargan «Con adeudo…»)
 ```
 
 - **Quién/qué permiso**: Biblioteca, con `titulatec.library_clearance.api.register` (el mismo de
@@ -159,7 +159,7 @@ stateDiagram-v2
   (`pages/library_admin.py:339`, campo `reason` + `status`/`q`/`page` de vuelta) y
   `POST /titulatec/admin/biblioteca/{clearance_id}/rehabilitar` (`:369`). Las dos re-pintan la
   bandeja (pestaña/página/búsqueda de donde vinieron); reglas de negocio → `400` + `X-Tt-Error`
-  (`_hdr`, ASCII), `LookupError` → `404`.
+  (el mensaje viaja por `_hdr`, que lo codifica en porcentaje, `pages/library_admin.py:70`), `LookupError` → `404`.
 - **Service** (`services/library_clearance_service.py`, único escritor, invariante 1):
   `observe` (`:940`) y `reenable` (`:988`). Un `SELECT … FOR UPDATE` + UN commit, evento,
   aviso in-app (`LIBRARY_OBSERVED`/`LIBRARY_REENABLED`) y correo (`StudentMail.library_observed`/
@@ -177,7 +177,7 @@ stateDiagram-v2
   recordatorios de pago, que filtran por `awaiting_payment`) y **conserva los montos**. No cambia
   el requisito `library_clearance` (no estaba cumplido) ni emite/anula constancia.
 - **Rehabilitar** (`reenable`): `observed` → `pending` SIEMPRE (D2), aunque tuviera montos
-  —precargan el formulario de «Registrar»—; no vuelve a Caja solo. El candado sigue bloqueando
+  —la fila «Por revisar» los muestra («Montos previos») y precarga monto y nota del formulario «Con adeudo…», `templates/titulatec/admin/partials/library_body.html:161-169` y `:212-215`—; no vuelve a Caja solo. El candado sigue bloqueando
   agendar, ahora por `library_pending`, hasta que Biblioteca dictamine (Review Focus 2).
 - **Con `observed` ninguna otra transición aplica**: Registrar/Corregir, lote «Sin adeudo»,
   cobrar, revertir y constancia previa levantan `ClearanceObserved` (`:215`, subclase de
