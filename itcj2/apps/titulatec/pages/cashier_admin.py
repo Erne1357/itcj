@@ -60,6 +60,7 @@ from fastapi.responses import Response
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.cashier_admin")
 router = APIRouter(prefix="/admin/caja", tags=["titulatec-pages-cashier"])
@@ -184,9 +185,9 @@ def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
 
 
 @router.get("", name="titulatec.pages.cashier.list")
-async def list_cashier(request: Request, tab: str = "", q: str = "", dia: str = "",
-                       page: str = "1",
-                       user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_cashier(request: Request, tab: str = "", q: str = "", dia: str = "",
+                 page: str = "1",
+                 user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -197,8 +198,8 @@ async def list_cashier(request: Request, tab: str = "", q: str = "", dia: str = 
 
 
 @router.get("/body", name="titulatec.pages.cashier.body")
-async def body(request: Request, tab: str = "", q: str = "", dia: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, tab: str = "", q: str = "", dia: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params (HTMX manda
     `tab`/`q`/`dia`/`page` vacíos la primera vez)."""
     from itcj2.database import SessionLocal
@@ -223,12 +224,18 @@ async def pay(clearance_id: int, request: Request,
     lo mismo si Biblioteca la OBSERVÓ entretanto (spec 2026-10-05: re-pinta
     con `_MSG_CAJA_OBSERVADO`, nunca cobra). Las demás reglas siguen en 400 +
     `X-Tt-Error`."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_pay, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_pay(clearance_id, request, user, form):
+    """Cuerpo síncrono de `pay`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import (
         ClearanceConflict, ClearanceObserved, LibraryClearanceService,
     )
 
-    form = await request.form()
     recibo = form.get("recibo") or None
     tab, q, dia, page = form.get("tab"), form.get("q"), form.get("dia"), form.get("page")
 
@@ -274,6 +281,13 @@ async def revert(clearance_id: int, request: Request,
     propio renglón, en negativo -- si la cajera revertía mientras veía el
     corte de OTRO día, el aviso de éxito (`X-Tt-Notice`, success) se lo
     aclara."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_revert, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_revert(clearance_id, request, user, form):
+    """Cuerpo síncrono de `revert`: corre en el threadpool, no en el event loop."""
     from datetime import date
 
     from itcj2.database import SessionLocal
@@ -282,7 +296,6 @@ async def revert(clearance_id: int, request: Request,
         LibraryClearanceService, format_amount,
     )
 
-    form = await request.form()
     reason = form.get("reason") or ""
     tab, q, dia, page = form.get("tab"), form.get("q"), form.get("dia"), form.get("page")
 

@@ -10,6 +10,7 @@ from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.apps.titulatec.utils.paging import (
     PAGE_SIZE, Page, normalize_q, paginate_list, parse_page,
 )
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.documents")
 router = APIRouter(prefix="/admin/documents", tags=["titulatec-pages-documents"])
@@ -371,9 +372,9 @@ def _to_int(raw):
 
 
 @router.get("", name="titulatec.pages.documents.home")
-async def home(request: Request, status: str = "pending", selected: str = "",
-               q: str = "", page: str = "",
-               user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
+def home(request: Request, status: str = "pending", selected: str = "",
+         q: str = "", page: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -385,9 +386,9 @@ async def home(request: Request, status: str = "pending", selected: str = "",
 
 
 @router.get("/body", name="titulatec.pages.documents.body")
-async def body(request: Request, status: str = "", selected: str = "",
-               q: str = "", page: str = "",
-               user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
+def body(request: Request, status: str = "", selected: str = "",
+         q: str = "", page: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -406,12 +407,18 @@ async def review(process_id: int, request: Request,
     resuelto por `DocumentService.initial_docs_all_approved` (Tarea 3), sin
     cambio de llamada aquí (Tarea 4).
     El tipo de documento llega en el form (type_code), no en la URL (panel de dictamen único)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_review, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_review(process_id, request, user, form):
+    """Cuerpo síncrono de `review`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     type_code = form.get("type_code") or ""
     if not type_code:
         return Response(status_code=400, headers={"X-Tt-Error": "Falta el documento a revisar."})
@@ -450,8 +457,8 @@ async def review(process_id: int, request: Request,
 
 
 @router.get("/{process_id}/document/{type_code}", name="titulatec.pages.documents.file")
-async def document_file(process_id: int, type_code: str, request: Request, download: int = 0,
-                        user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.all"]))):
+def document_file(process_id: int, type_code: str, request: Request, download: int = 0,
+                  user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.all"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope

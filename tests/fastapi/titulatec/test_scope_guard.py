@@ -506,7 +506,20 @@ def _cuerpo(endpoint):
     Se recorta a `body` a proposito: los decoradores (`@router.post(...)`) y los
     defaults (`Depends(require_page_app(...))`) tambien son `Call`, y contarlos
     ensuciaria tanto el censo de llamadas como el orden.
+
+    Convencion §3.8 (R7): una ruta que lee el form es `async def` y delega todo
+    en `return await run_in_threadpool(_cuerpo_<ruta>, ...)`. Esa delegacion NO
+    es un helper cualquiera: es el cuerpo REAL de la ruta, y el guard vive ahi.
+    Se sigue UNICAMENTE la delegacion a una funcion `_cuerpo_*` del mismo modulo
+    (`tests/fastapi/titulatec/_route_source.py`); si el cuerpo sincrono no llama
+    al guard, el censo sigue marcando la ruta en rojo.
     """
+    from tests.fastapi.titulatec._route_source import cuerpos_delegados
+
+    delegados = cuerpos_delegados(endpoint)
+    if delegados:
+        assert len(delegados) == 1, f"{endpoint.__name__}: delega en varios cuerpos"
+        endpoint = delegados[0]
     arbol = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
     return arbol.body[0].body
 

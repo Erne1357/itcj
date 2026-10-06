@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.officers")
 router = APIRouter(prefix="/admin/officers", tags=["titulatec-pages-officers"])
@@ -89,8 +90,8 @@ def _body_ctx(db, department_id: int, *, reactivated: list[dict] | None = None) 
 
 
 @router.get("", name="titulatec.pages.officers.home")
-async def home(request: Request,
-               user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.page.list"]))):
+def home(request: Request,
+         user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.page.list"]))):
     from itcj2.database import SessionLocal
     dep = _managed_department_id(int(user["sub"]))
     if dep is None:
@@ -106,9 +107,14 @@ async def home(request: Request,
 @router.post("", name="titulatec.pages.officers.create")
 async def create(request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+    form = await request.form()
+    return await run_in_threadpool(_cuerpo_create, request=request, user=user, form=form)
+
+
+def _cuerpo_create(request, user, form):
+    """Cuerpo síncrono de `create`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
-    form = await request.form()
     name = (form.get("name") or "").strip()
     program_ids = {int(x) for x in form.getlist("program_ids") if x}
     user_ids = {int(x) for x in form.getlist("user_ids") if x}
@@ -139,9 +145,15 @@ async def create(request: Request,
 @router.post("/{position_id}", name="titulatec.pages.officers.update")
 async def update(position_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_update, position_id=position_id, request=request, user=user, form=form)
+
+
+def _cuerpo_update(position_id, request, user, form):
+    """Cuerpo síncrono de `update`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
-    form = await request.form()
     program_ids = {int(x) for x in form.getlist("program_ids") if x}
     user_ids = {int(x) for x in form.getlist("user_ids") if x}
     dep = _managed_department_id(int(user["sub"]))
@@ -175,8 +187,8 @@ async def update(position_id: int, request: Request,
 
 
 @router.post("/{position_id}/deactivate", name="titulatec.pages.officers.deactivate")
-async def deactivate(position_id: int, request: Request,
-                     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+def deactivate(position_id: int, request: Request,
+               user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
     dep = _managed_department_id(int(user["sub"]))

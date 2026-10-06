@@ -87,6 +87,7 @@ from itcj2.apps.titulatec.services.certificate_service import (
     CERT_KINDS, FOLIO_ESTADOS, printing_enabled,
 )
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, normalize_q, parse_page
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.certificates_admin")
 router = APIRouter(prefix="/admin/constancias", tags=["titulatec-pages-certificates"])
@@ -295,7 +296,7 @@ def _body_ctx(db, *, user_id: int, pages: dict[str, int] | None = None,
 
 
 @router.get("", name="titulatec.pages.certificates.list")
-async def list_certificates(
+def list_certificates(
     request: Request,
     kind: str = "", q: str = "", estado: str = "vigentes", page: str = "1",
     page_library_clearance: str = "1", page_survey_release: str = "1",
@@ -321,7 +322,7 @@ async def list_certificates(
 
 
 @router.get("/body", name="titulatec.pages.certificates.body")
-async def body(
+def body(
     request: Request,
     kind: str = "", q: str = "", estado: str = "vigentes", page: str = "1",
     page_library_clearance: str = "1", page_survey_release: str = "1",
@@ -359,13 +360,19 @@ async def create_batch(
 
     Con el switch de impresión apagado (`printing_enabled()`) responde 404
     ANTES de cualquier otra cosa (spec folios 2026-10-05 §3.5)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_create_batch, kind=kind, request=request, user=user, form=form)
+
+
+def _cuerpo_create_batch(kind, request, user, form):
+    """Cuerpo síncrono de `create_batch`: corre en el threadpool, no en el event loop."""
     if not printing_enabled():
         return Response(status_code=404)
 
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 
-    form = await request.form()
     pages = _pages(form.get("page_library_clearance"), form.get("page_survey_release"))
 
     db = SessionLocal()

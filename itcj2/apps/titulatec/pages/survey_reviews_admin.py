@@ -31,6 +31,7 @@ from fastapi.responses import Response
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.survey_reviews_admin")
 router = APIRouter(prefix="/admin/liberaciones", tags=["titulatec-pages-survey-reviews"])
@@ -96,8 +97,8 @@ def _body_ctx(db, *, status, q, page, per_page: int = PAGE_SIZE):
 
 
 @router.get("", name="titulatec.pages.releases.list")
-async def list_releases(request: Request, status: str = "", q: str = "", page: str = "1",
-                        user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_releases(request: Request, status: str = "", q: str = "", page: str = "1",
+                  user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -108,8 +109,8 @@ async def list_releases(request: Request, status: str = "", q: str = "", page: s
 
 
 @router.get("/body", name="titulatec.pages.releases.body")
-async def body(request: Request, status: str = "", q: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, status: str = "", q: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -125,10 +126,16 @@ async def approve(review_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
     """Liberar: válido desde «En revisión» o «Con observaciones». Acredita
     `graduate_survey` (efecto del service, no de esta ruta)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_approve, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_approve(review_id, request, user, form):
+    """Cuerpo síncrono de `approve`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
     db = SessionLocal()
@@ -151,10 +158,16 @@ async def reject(review_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
     """Observar: motivo obligatorio (lo valida el service). Válido desde «En
     revisión» o «Con observaciones» (en este segundo caso, actualiza el texto)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reject, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reject(review_id, request, user, form):
+    """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -178,10 +191,16 @@ async def revoke(review_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
     """Revocar: solo desde «Liberada» y solo si la fase 2 de ese proceso
     todavía no está aprobada (`can_revoke`, calculado por el service)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_revoke, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_revoke(review_id, request, user, form):
+    """Cuerpo síncrono de `revoke`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -208,10 +227,16 @@ async def paper_delivered(review_id: int, request: Request,
     previa importada con `paper_pending`. Mismo permiso que Liberar: es GTV
     cerrando la liberación que ella misma expide. 400 si no tenía papel por
     recoger o ya se entregó (lo decide el service); sin correo (R10)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_paper_delivered, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_paper_delivered(review_id, request, user, form):
+    """Cuerpo síncrono de `paper_delivered`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
     db = SessionLocal()
