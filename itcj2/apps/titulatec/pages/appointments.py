@@ -38,6 +38,7 @@ from fastapi.responses import FileResponse, Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.appointments")
 
@@ -1562,7 +1563,7 @@ def _params(request):
 
 
 @router.get("", name="titulatec.pages.appointments.home")
-async def home(
+def home(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS)),
 ):
@@ -1578,7 +1579,7 @@ async def home(
 
 
 @router.get("/body", name="titulatec.pages.appointments.body")
-async def body(
+def body(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS)),
 ):
@@ -1618,13 +1619,19 @@ async def schedule(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.create"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_schedule, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_schedule(process_id, request, user, form):
+    """Cuerpo síncrono de `schedule`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
-    form = dict(await request.form())
     uid = int(user["sub"])
     db = SessionLocal()
     try:
@@ -1645,11 +1652,17 @@ async def reschedule(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.reschedule"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_reschedule, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reschedule(process_id, request, user, form):
+    """Cuerpo síncrono de `reschedule`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     uid = int(user["sub"])
     db = SessionLocal()
     try:
@@ -1668,7 +1681,7 @@ async def reschedule(
 
 
 @router.post("/{process_id}/start", name="titulatec.pages.appointments.start")
-async def start(
+def start(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.update"])),
@@ -1732,7 +1745,7 @@ def attend_now(
 
 
 @router.post("/{process_id}/attended", name="titulatec.pages.appointments.attended")
-async def attended(
+def attended(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.mark_attended"])),
@@ -1757,7 +1770,7 @@ async def attended(
 
 
 @router.post("/{process_id}/no-show", name="titulatec.pages.appointments.no_show")
-async def no_show(
+def no_show(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.update"])),
@@ -1869,12 +1882,18 @@ async def req_mark(
     manda», asi que normalizar el vacio a `None` dejaria al oficial sin forma de
     corregir una nota equivocada.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_req_mark, process_id=process_id, rid=rid, request=request, user=user, form=form)
+
+
+def _cuerpo_req_mark(process_id, rid, request, user, form):
+    """Cuerpo síncrono de `req_mark`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CotejoRequirement
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     accion = (form.get("action") or "mark").strip()
     nota = form["note"].strip() if "note" in form else None
 
@@ -1926,12 +1945,18 @@ async def library_prior(
     constancia previa de no adeudo (D9): `pending`/`awaiting_payment` ->
     `cleared/prior`, sin pasar por Caja. Gemela de `pages/admin.py::
     process_library_prior`."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_library_prior, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_library_prior(process_id, request, user, form):
+    """Cuerpo síncrono de `library_prior`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
 
-    form = dict(await request.form())
     note = form.get("note") or None
     uid = int(user["sub"])
     db = SessionLocal()
@@ -1963,11 +1988,17 @@ async def library_prior_undo(
 ):
     """Deshace la constancia previa (motivo obligatorio): `cleared/prior` ->
     `pending`. Gemela de `pages/admin.py::process_library_prior_undo`."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_library_prior_undo, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_library_prior_undo(process_id, request, user, form):
+    """Cuerpo síncrono de `library_prior_undo`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = form.get("reason") or ""
     uid = int(user["sub"])
     db = SessionLocal()
@@ -1988,7 +2019,7 @@ async def library_prior_undo(
 
 @router.post("/{process_id}/fase2/aprobar",
              name="titulatec.pages.appointments.fase2_approve")
-async def fase2_approve(
+def fase2_approve(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app(
@@ -2044,11 +2075,17 @@ async def fase2_reject(
     consulta. `reject_phase` NO consulta el checklist a proposito (Tarea 7):
     rechazar es justamente lo que se hace cuando falta algo.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_fase2_reject, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_fase2_reject(process_id, request, user, form):
+    """Cuerpo síncrono de `fase2_reject`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = (form.get("reason") or "").strip()
     if not reason:
         return Response(status_code=400, headers={"X-Tt-Error": _hdr(
@@ -2174,7 +2211,7 @@ def undo_no_show(
 
 
 @router.get("/{process_id}/document/{type_code}", name="titulatec.pages.appointments.document")
-async def document_file(
+def document_file(
     process_id: int,
     type_code: str,
     request: Request,
