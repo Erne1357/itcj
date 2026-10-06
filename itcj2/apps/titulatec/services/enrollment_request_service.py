@@ -102,7 +102,13 @@ CORREO E INVALIDACIÓN DE AUTHZ SIEMPRE DESPUÉS DEL COMMIT. `msgraph_mail` es u
 locks, y un correo mandado antes de un commit que falla habla de algo que no
 existe. Ningún método del helper lanza, así que un fallo de buzón no revierte
 nada ya commiteado. El caché de authz, tirado antes del commit, lo repoblaría
-una lectura concurrente con los roles de antes.
+una lectura concurrente con los roles de antes. Desde 2026-10-05 (spec
+`2026-10-05-titulatec-rendimiento-design.md` §3.7, P-D1) los correos SIN
+secreto de este módulo —el aviso con folio de `verify`, el rechazo de
+`reject` y el «ya tienes un proceso» de `create`— ni siquiera salen aquí: se
+ENCOLAN en `titulatec_email_outbox` dentro de la transacción (`StudentMail`) y
+los manda el despachador. Solo con el correo apagado salen en línea, después
+del commit, como antes. Los que llevan liga o NIP no cambian.
 
 VENTANA (D5, spec 2026-09-24). `opens_at`/`closes_at` solo filtran el formulario
 público (`CohortService.is_public_enrollment_open`, en la ruta). Todo lo que
@@ -505,12 +511,17 @@ class EnrollmentRequestService:
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
         from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
 
         control = (data.get("control_number") or "").strip()
         user = db.query(User).filter_by(control_number=control).first()
 
-        # (a) Proceso vivo en CUALQUIER convocatoria (D5): sin fila; se le avisa
-        #     a su institucional en cuál está. No hay escritura que commitear.
+        # (a) Proceso vivo en CUALQUIER convocatoria (D5): sin solicitud; se le
+        #     avisa a su institucional en cuál está. El aviso se ENCOLA (spec
+        #     2026-10-05 §3.7, P-D1): su fila es la única escritura y se
+        #     commitea aquí. Con el correo apagado, o si ese commit falla, cae
+        #     al envío en línea de siempre (invariante 5); la respuesta pública
+        #     es la misma en todas las ramas (E8).
         if user is not None:
             proc = (db.query(TitulationProcess)
                     .filter(TitulationProcess.student_id == user.id,
@@ -519,7 +530,21 @@ class EnrollmentRequestService:
                               TitulationProcess.id.desc())
                     .first())
             if proc is not None:
-                TitulaTecEmailHelper.send_already_enrolled(db, user, proc)
+                pid = proc.id
+                encolado = StudentMail.already_enrolled(db, proc)
+                if encolado:
+                    try:
+                        db.commit()
+                    except Exception:
+                        logger.warning("No se pudo encolar el aviso de proceso vivo del "
+                                       "proceso %s; sale en línea", pid)
+                        try:
+                            db.rollback()
+                        except Exception:      # pragma: no cover - sesión ya inservible
+                            pass
+                        encolado = False
+                if not encolado:
+                    TitulaTecEmailHelper.send_already_enrolled(db, user, proc)
                 return None, "existing_process"
 
         # (b) Solicitud viva en esta convocatoria: no se toca. Ni correo, ni
@@ -1416,11 +1441,14 @@ class EnrollmentRequestService:
         no es una revalidación: sube a la ruta, que hace `rollback()` y la
         solicitud sigue aprobada con la liga viva.
 
-        El aviso con folio (`send_enrollment_done`, al institucional) sale
-        después del commit.
+        El aviso con folio (al institucional) se ENCOLA en la misma transacción
+        de la conversión (`StudentMail.enrollment_verified`, spec 2026-10-05
+        §3.7) y lo manda el despachador. Con el correo apagado sale en línea
+        (`send_enrollment_done`) después del commit, como antes.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
 
         if not token:
             return None, "invalid"
@@ -1472,13 +1500,16 @@ class EnrollmentRequestService:
             return req, "pending_review"
 
         savepoint.commit()
+        proc = db.get(TitulationProcess, req.converted_process_id)
+        # La fila del aviso con folio entra en ESTE commit (P-D1).
+        encolado = proc is not None and StudentMail.enrollment_verified(db, req, proc)
         db.commit()
         # Después del commit, con los pares que dejó `import_rows` dentro de
         # `_convert` (ver `ImportService.invalidate_authz`).
         from itcj2.apps.titulatec.services.import_service import ImportService
         ImportService.invalidate_authz(touched)
-        proc = db.get(TitulationProcess, req.converted_process_id)
-        if proc is not None:
+        if not encolado and proc is not None:
+            # Correo apagado: en línea, como antes (invariante 5).
             TitulaTecEmailHelper.send_enrollment_done(db, req, proc)
         return req, "converted"
 
@@ -1581,17 +1612,24 @@ class EnrollmentRequestService:
 
         Aplica desde `pending_review`, `awaiting_access` (SE cancela una que
         esperaba a Centro de Cómputo), `approved` (cancela una liga en camino) y
-        el legado. La liga muere en BD y en Redis; el motivo se manda al correo
-        personal después del commit, firmado por `reviewer_label()`. El índice
-        parcial deja volver a intentar.
+        el legado. La liga muere en BD y en Redis. El índice parcial deja volver
+        a intentar.
 
-        Si el correo SALE, sella `rejection_sent_at` en un commit propio, mismo
-        patrón que `_mail_activation`/`verify_sent_at`: un fallo al sellar no
-        deshace nada (el correo ya salió). `NULL` es lo que la bandeja pinta
-        como "correo no enviado" en una fila `rejected`.
+        El correo con el motivo (al personal, firmado por `reviewer_label()`) se
+        ENCOLA en la misma transacción del rechazo (`StudentMail.
+        enrollment_rejected`, spec 2026-10-05 §3.7): lo manda el despachador,
+        que sella `rejection_sent_at` al salir. Mientras su fila esté `pending`
+        la bandeja dice «en cola»; `NULL` sin fila pendiente es «correo no
+        enviado».
+
+        Con el correo apagado sale en línea después del commit, como antes: si
+        SALE, sella `rejection_sent_at` en un commit propio (mismo patrón que
+        `_mail_activation`/`verify_sent_at`; un fallo al sellar no deshace
+        nada, el correo ya salió).
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
 
         motivo = (note or "").strip()
         if not motivo:
@@ -1612,9 +1650,11 @@ class EnrollmentRequestService:
         req.reviewed_at = datetime.now()
         req.verify_token_hash = None
         req.verify_expires_at = None
+        # La fila del correo entra en ESTE commit (P-D1).
+        encolado = StudentMail.enrollment_rejected(db, req)
         db.commit()
         _token_cache_delete(muerta)
-        if TitulaTecEmailHelper.send_enrollment_rejected(db, req):
+        if not encolado and TitulaTecEmailHelper.send_enrollment_rejected(db, req):
             try:
                 req.rejection_sent_at = datetime.now()
                 db.commit()

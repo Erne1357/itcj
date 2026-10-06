@@ -39,10 +39,21 @@ credencial en texto claro.
 No pasan por `TitulaTecEmailHelper`: los encola `StudentMail` en
 `titulatec_email_outbox` y los manda el despachador (`mail_dispatch`) con
 `deliver_detailed`, la misma tubería que `_deliver` pero con el motivo del
-fallo (para `last_error` y el reintento). `_deliver` delega en ella y los 6
-correos de arriba no cambian. Su E9 ampliado (`[TT-MAIL]`) lo escribe el
-despachador, que pasa `link=None`: `[TT-VERIFY-LINK]` queda solo para la liga
-de activación.
+fallo (para `last_error` y el reintento). `_deliver` delega en ella. Su E9
+ampliado (`[TT-MAIL]`) lo escribe el despachador, que pasa `link=None`:
+`[TT-VERIFY-LINK]` queda solo para la liga de activación.
+
+== Inscripción: 4 de los 6 por la bandeja (spec 2026-10-05 §3.7, P-D1) ==
+Los que NO llevan secreto —`send_enrollment_done`, `send_enrollment_rejected`,
+`send_already_enrolled` y `send_process_cancelled`— ya no se llaman en la
+petición: quien los origina los ENCOLA (`StudentMail.enrollment_verified` /
+`enrollment_rejected` / `already_enrolled` / `process_cancelled`) y los manda
+el despachador con la MISMA plantilla, el MISMO asunto (`SUBJECT_*`) y el
+MISMO destinatario de la tabla de arriba (`process_cancelled_recipients` es
+de los dos caminos). Estos métodos siguen vivos para UNA cosa: la caída en
+línea con `TITULATEC_EMAIL_ENABLED` apagado (invariante 5: ningún flujo de
+inscripción se queda sin correo). `send_verify_enrollment` y
+`send_enrollment_approved` (liga y NIP) no cambian de camino.
 """
 import logging
 
@@ -61,6 +72,42 @@ PUBLIC_ORIGIN = "https://enlinea.cdjuarez.tecnm.mx"
 
 _BASE_URL = f"{PUBLIC_ORIGIN}/titulatec"
 _STUDENT_URL = f"{_BASE_URL}/student/dashboard"
+# El botón «Ver mi proceso» de los correos de inscripción: lo usan el envío en
+# línea y el compositor del outbox (`mail_compose`), una sola fuente.
+STUDENT_URL = _STUDENT_URL
+
+# Asuntos de los 4 correos de inscripción que también pasan por el outbox: el
+# envío en línea y `mail_compose` leen ESTOS, así no pueden divergir.
+SUBJECT_ALREADY_ENROLLED = "[TitulaTec ITCJ] Ya tienes un proceso de titulación"
+SUBJECT_ENROLLMENT_DONE = "[TitulaTec ITCJ] Tu inscripción quedó registrada"
+SUBJECT_ENROLLMENT_REJECTED = "[TitulaTec ITCJ] Sobre tu solicitud de inscripción"
+SUBJECT_PROCESS_CANCELLED = "[TitulaTec ITCJ] Cambio en tu inscripción a titulación"
+
+
+def process_cancelled_recipients(db: Session, process, user) -> list[str]:
+    """A quién va el aviso de revocación: el INSTITUCIONAL de la cuenta y el
+    PERSONAL de la solicitud MÁS RECIENTE que convirtió el proceso (si la hubo
+    —un alta por CSV no tiene—), sin repetir (sin distinguir mayúsculas) ni
+    vacíos, en ese orden. Lo comparten `send_process_cancelled` (en línea) y el
+    despachador del outbox: el destinatario es el mismo por los dos caminos."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    from itcj2.core.utils.email_tools import student_email
+
+    destinos = [student_email(user)]
+    req = (db.query(EnrollmentRequest)
+           .filter_by(converted_process_id=process.id)
+           .order_by(EnrollmentRequest.id.desc())
+           .first())
+    if req is not None and req.contact_email:
+        destinos.append(req.contact_email)
+    vistos, salida = set(), []
+    for to in destinos:
+        clave = (to or "").strip().lower()
+        if not clave or clave in vistos:
+            continue
+        vistos.add(clave)
+        salida.append(to)
+    return salida
 
 
 def _get_templates():
@@ -207,7 +254,7 @@ class TitulaTecEmailHelper:
                 template="already_enrolled.html",
                 context={"user": user, "process": process, "cohort": cohort,
                          "app_url": _STUDENT_URL},
-                subject="[TitulaTec ITCJ] Ya tienes un proceso de titulación",
+                subject=SUBJECT_ALREADY_ENROLLED,
                 to=student_email(user), que="already_enrolled",
             )
         except Exception:
@@ -230,7 +277,7 @@ class TitulaTecEmailHelper:
                 template="enrollment_done.html",
                 context={"req": req, "process": process, "user": user,
                          "app_url": _STUDENT_URL},
-                subject="[TitulaTec ITCJ] Tu inscripción quedó registrada",
+                subject=SUBJECT_ENROLLMENT_DONE,
                 to=student_email(user), que="enrollment_done",
             )
         except Exception:
@@ -288,33 +335,22 @@ class TitulaTecEmailHelper:
         control. El personal lo tecleó quien llenó el formulario (riesgo
         aceptado del módulo), así que el correo solo dice que hubo un cambio y
         manda a la plataforma, donde el motivo se lee con sesión iniciada.
+
+        Los destinatarios los decide `process_cancelled_recipients`, el MISMO
+        que usa el despachador del outbox.
         """
         try:
             from itcj2.core.models.user import User
-            from itcj2.core.utils.email_tools import student_email
-            from itcj2.apps.titulatec.models import EnrollmentRequest
 
             user = db.get(User, process.student_id)
             if user is None:
                 return False
-            destinos = [student_email(user)]
-            req = (db.query(EnrollmentRequest)
-                   .filter_by(converted_process_id=process.id)
-                   .order_by(EnrollmentRequest.id.desc())
-                   .first())
-            if req is not None and req.contact_email:
-                destinos.append(req.contact_email)
-
-            vistos, enviado = set(), False
-            for to in destinos:
-                clave = (to or "").strip().lower()
-                if not clave or clave in vistos:
-                    continue
-                vistos.add(clave)
+            enviado = False
+            for to in process_cancelled_recipients(db, process, user):
                 enviado = _deliver(
                     template="process_cancelled.html",
                     context={"first_name": user.first_name, "app_url": _STUDENT_URL},
-                    subject="[TitulaTec ITCJ] Cambio en tu inscripción a titulación",
+                    subject=SUBJECT_PROCESS_CANCELLED,
                     to=to, que="process_cancelled",
                 ) or enviado
             return enviado
@@ -333,7 +369,7 @@ class TitulaTecEmailHelper:
             return _deliver(
                 template="enrollment_rejected.html",
                 context={"req": req, "revisor": EnrollmentRequestService.reviewer_label()},
-                subject="[TitulaTec ITCJ] Sobre tu solicitud de inscripción",
+                subject=SUBJECT_ENROLLMENT_REJECTED,
                 to=req.contact_email, que="enrollment_rejected",
             )
         except Exception:

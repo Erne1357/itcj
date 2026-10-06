@@ -27,6 +27,20 @@ recordatorios):
   agregada con `db.add` reventaría en el commit DEL LLAMADOR y tumbaría la
   acción que la originó.
 - `TITULATEC_EMAIL_ENABLED = false` → `False` sin escribir nada.
+- Toda fila lleva ALUMNO (`process=` → `user_id = process.student_id`) o
+  SOLICITUD (`enrollment_request=` → `enrollment_request_id`), o las dos: es la
+  regla de la aplicación de la spec 2026-10-05-titulatec-rendimiento §3.7 (la
+  BD no tiene CHECK). Sin ninguna, `False`.
+
+CORREOS DE INSCRIPCIÓN SIN SECRETO (spec 2026-10-05 §3.7, P-D1):
+`enrollment_verified`, `enrollment_rejected`, `already_enrolled` y
+`process_cancelled` los encolan `EnrollmentRequestService.verify` / `.reject` /
+`.create` y `ProcessService.cancel` dentro de su transacción. Si `enqueue`
+devuelve `False` (interruptor apagado, o una fila que no se pudo validar), ese
+llamador cae al envío EN LÍNEA de hoy (`TitulaTecEmailHelper.send_*`) después
+de su commit: ningún flujo de inscripción se queda sin correo (invariante 5).
+Su `payload` tampoco lleva token, liga, NIP ni contraseña: solo el folio o el
+motivo del rechazo y quién lo firma.
 
 El payload lleva solo hechos del evento, serializables (fechas en ISO; montos
 como texto «1200.00», porque JSON no serializa `Decimal`): nunca NIP, token,
@@ -123,7 +137,8 @@ class MailSettings:
 
 
 def _pid(process):
-    """Id del proceso para el log, sin arriesgar otra excepción al leerlo."""
+    """Id del proceso (o de la solicitud) para el log, sin arriesgar otra
+    excepción al leerlo."""
     try:
         return process.id
     except Exception:
@@ -138,9 +153,10 @@ def _best_effort(fn):
         try:
             return fn(*args, **kwargs)
         except Exception as exc:
-            process = kwargs.get("process", args[1] if len(args) > 1 else None)
-            logger.warning("[titulatec] No se encoló el correo %s del proceso %s: %s",
-                           kwargs.get("kind", fn.__name__), _pid(process), exc)
+            origen = kwargs.get("process") or kwargs.get("enrollment_request") or (
+                args[1] if len(args) > 1 else None)
+            logger.warning("[titulatec] No se encoló el correo %s (proceso o solicitud %s): %s",
+                           kwargs.get("kind", fn.__name__), _pid(origen), exc)
             return False
     return _wrapper
 
@@ -166,7 +182,7 @@ def _monto(value):
 
 
 def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
-                   not_before, created_at=None) -> dict:
+                   not_before, created_at=None, enrollment_request=None) -> dict:
     """Valida TODO antes de tocar la sesión y arma las columnas de la fila.
     Cualquier problema levanta aquí (y `_best_effort` lo convierte en `False`),
     nunca en el flush del llamador."""
@@ -178,9 +194,18 @@ def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
         raise ValueError("el payload debe ser un dict")
     # `allow_nan=False`: NaN/Infinity no son JSON y la columna los rechazaría.
     congelado = json.loads(json.dumps(payload, allow_nan=False))
-    pid, uid = process.id, process.student_id
-    if pid is None or uid is None:
-        raise ValueError("el proceso no tiene id o alumno")
+    if process is None and enrollment_request is None:
+        # La regla «alumno o solicitud» (spec 2026-10-05 §3.7).
+        raise ValueError("el correo no tiene proceso ni solicitud")
+    pid = uid = rid = None
+    if process is not None:
+        pid, uid = process.id, process.student_id
+        if pid is None or uid is None:
+            raise ValueError("el proceso no tiene id o alumno")
+    if enrollment_request is not None:
+        rid = enrollment_request.id
+        if rid is None:
+            raise ValueError("la solicitud no tiene id")
     columnas = model.__table__.c
     for nombre, valor in (("group_key", group_key), ("dedupe_key", dedupe_key)):
         if valor is not None and (not isinstance(valor, str) or not valor
@@ -191,6 +216,7 @@ def _outbox_values(model, *, kind, process, payload, group_key, dedupe_key,
             raise ValueError(f"{nombre} debe ser datetime")
 
     values = {"kind": kind, "process_id": pid, "user_id": uid,
+              "enrollment_request_id": rid,
               "group_key": group_key, "dedupe_key": dedupe_key, "payload": congelado}
     if not_before is not None:           # si no, el server_default NOW()
         values["not_before"] = not_before
@@ -222,6 +248,10 @@ class StudentMail:
         "library_reminder": "Recordatorio de pago en Caja",
         "library_observed": "Biblioteca registró observaciones",
         "library_reenabled": "Biblioteca lo rehabilitó",
+        "enrollment_verified": "Inscripción registrada (aviso con folio)",
+        "enrollment_rejected": "Solicitud de inscripción rechazada",
+        "already_enrolled": "Aviso de que ya tiene un proceso",
+        "process_cancelled": "Inscripción revocada",
     }
 
     # ------------------------------------------------------------------
@@ -296,21 +326,24 @@ class StudentMail:
     # ------------------------------------------------------------------
     @staticmethod
     @_best_effort
-    def enqueue(db: Session, *, kind: str, process, payload: dict,
+    def enqueue(db: Session, *, kind: str, payload: dict, process=None,
+                enrollment_request=None,
                 group_key: str | None = None, dedupe_key: str | None = None,
                 not_before: datetime | None = None,
                 created_at: datetime | None = None) -> bool:
         """Deja el correo `kind` pendiente para el alumno del proceso
-        (`user_id = process.student_id`). `True` = quedó en la transacción del
-        llamador. `not_before`/`created_at` en `None` = el `NOW()` de la BD;
-        `created_at` explícito solo lo usan los recordatorios de cadencia (el
-        reloj del barrido, ver `_reminder`). Contrato completo en el docstring
-        del módulo."""
+        (`user_id = process.student_id`) y/o la solicitud de inscripción
+        (`enrollment_request_id`; spec 2026-10-05 §3.7). Al menos uno de los
+        dos. `True` = quedó en la transacción del llamador. `not_before`/
+        `created_at` en `None` = el `NOW()` de la BD; `created_at` explícito
+        solo lo usan los recordatorios de cadencia (el reloj del barrido, ver
+        `_reminder`). Contrato completo en el docstring del módulo."""
         if not MailSettings.enabled():
             return False
         from itcj2.apps.titulatec.models import EmailOutbox
 
         values = _outbox_values(EmailOutbox, kind=kind, process=process,
+                                enrollment_request=enrollment_request,
                                 payload=payload, group_key=group_key,
                                 dedupe_key=dedupe_key, not_before=not_before,
                                 created_at=created_at)
@@ -512,6 +545,71 @@ class StudentMail:
         §3.3). Al ENVIAR no sale si lo volvieron a observar."""
         return StudentMail.enqueue(db, kind="library_reenabled", process=process,
                                    payload={})
+
+    # ---- Inscripción: los 4 correos SIN secreto (spec 2026-10-05-titulatec-
+    # rendimiento-design.md §3.7, P-D1). Individuales. `False` (interruptor
+    # apagado, o no se pudo validar) = el llamador manda en línea como antes.
+    @staticmethod
+    @_best_effort
+    def enrollment_verified(db: Session, req, process) -> bool:
+        """Se abrió la liga y la solicitud quedó inscrita: el aviso con folio al
+        INSTITUCIONAL (la alarma de la dueña de la cuenta). Cuelga del proceso y
+        de la solicitud. Nunca queda obsoleto."""
+        return StudentMail.enqueue(db, kind="enrollment_verified", process=process,
+                                   enrollment_request=req,
+                                   payload={"folio": process.folio})
+
+    @staticmethod
+    @_best_effort
+    def enrollment_rejected(db: Session, req) -> bool:
+        """Rechazo de la solicitud con su motivo, al correo PERSONAL de la
+        solicitud. Cuelga SOLO de la solicitud (puede no haber usuario). El
+        motivo y quién firma (`reviewer_label`, según el modo) van congelados;
+        al ENVIAR solo sale si la solicitud sigue rechazada (D8)."""
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+
+        return StudentMail.enqueue(
+            db, kind="enrollment_rejected", enrollment_request=req,
+            payload={"reason": req.review_note,
+                     "revisor": EnrollmentRequestService.reviewer_label()})
+
+    @staticmethod
+    @_best_effort
+    def already_enrolled(db: Session, process) -> bool:
+        """Alguien intentó inscribir el control de quien ya tiene un proceso
+        vivo: aviso a SU institucional (E8: nunca al correo tecleado). Cuelga
+        del proceso vivo; no hay solicitud (no se crea fila)."""
+        return StudentMail.enqueue(db, kind="already_enrolled", process=process,
+                                   payload={"folio": process.folio})
+
+    @staticmethod
+    @_best_effort
+    def process_cancelled(db: Session, process) -> bool:
+        """Inscripción revocada (`ProcessService.cancel`): institucional +
+        personal. El payload va VACÍO a propósito: el correo no lleva motivo,
+        folio ni número de control (va también al correo tecleado). Al ENVIAR
+        solo sale si el proceso sigue revocado (D8)."""
+        return StudentMail.enqueue(db, kind="process_cancelled", process=process,
+                                   payload={})
+
+    @staticmethod
+    def queued_requests(db: Session, request_ids, kind: str = "enrollment_rejected") -> set[int]:
+        """Ids de las solicitudes de `request_ids` con una fila `kind` todavía
+        `pending` en el outbox: la bandeja dice «en cola» en vez de «correo no
+        enviado» (spec 2026-10-05 §3.7). UNA consulta; sin ids, ninguna."""
+        from itcj2.apps.titulatec.models import EmailOutbox
+
+        ids = {i for i in request_ids if i is not None}
+        if not ids:
+            return set()
+        return {rid for (rid,) in
+                db.query(EmailOutbox.enrollment_request_id)
+                .filter(EmailOutbox.enrollment_request_id.in_(ids),
+                        EmailOutbox.kind == kind,
+                        EmailOutbox.status == "pending")
+                .distinct().all()}
 
     @staticmethod
     @_best_effort

@@ -16,9 +16,18 @@ UNA CORRIDA (`run`)
    (`MailSettings.digest_minutes()`) sigue recibiendo movimientos: no se toca
    (`waiting`, D7).
 4. Cada unidad, en este orden: proceso revocado → `obsolete` («inscripción
-   revocada»: ya salió `send_process_cancelled`); sin correo personal
+   revocada»: su aviso es la fila `process_cancelled`); sin correo personal
    (`StudentMail.contact_email`) → `no_recipient`; `MailComposer.compose` →
    `Obsolete` → `obsolete` con su motivo; si no, `email_helper.deliver_detailed`.
+   Las filas de INSCRIPCIÓN (`ENROLLMENT_KINDS`, spec 2026-10-05-titulatec-
+   rendimiento-design.md §3.7) van por su propio camino
+   (`_unidad_inscripcion`): sin el «revocado → obsoleto» del proceso (el aviso
+   de la revocación ES una de ellas, y el del folio sale aunque después la
+   revoquen), con el MISMO destinatario que su envío en línea
+   (`_destinatarios_inscripcion`: el personal de la solicitud para el rechazo,
+   el institucional para el folio y «ya inscrito», los dos para la revocación;
+   sin ninguno, `no_recipient`) y, al salir, el sello que hoy escribía el
+   servicio (`_SELLOS`: `rejection_sent_at`) en la MISMA transacción.
 5. Salió → `sent` con `sent_at`, `sent_to` y `subject`, y `last_error` vacío
    (el motivo de un intento anterior ya no describe el correo). No salió →
    `attempts + 1` y `not_before = now + backoff_minutes(attempts)`; al llegar a
@@ -105,6 +114,10 @@ _ERROR_INTERNO = "Error interno al preparar el correo"
 _TIEMPO_AGOTADO = "Tiempo agotado al enviar"
 _REVOCADA = "inscripción revocada"
 _SIN_PROCESO = "el proceso o su alumno ya no existe"
+
+# Correo de inscripción -> columna de la SOLICITUD que se sella al salir (la que
+# hoy escribía el servicio tras el envío en línea). Los otros tres no tienen.
+_SELLOS = {"enrollment_rejected": "rejection_sent_at"}
 
 
 def _unidades(candidatas: list) -> list[tuple[str, object]]:
@@ -204,6 +217,39 @@ def _primera(filas: list):
     return min(filas, key=lambda f: (f.created_at, f.id))
 
 
+def _marcar_enviado(filas: list, now: datetime, to: str, subject: str) -> str:
+    """Desenlace `sent`: `sent_at`, `sent_to`, `subject` y sin `last_error` (el
+    motivo de un intento anterior ya no describe el correo que llegó)."""
+    for fila in filas:
+        fila.status = "sent"
+        fila.sent_at = now
+        fila.sent_to = _cabe(to, "sent_to")
+        fila.subject = _cabe(subject, "subject")
+        fila.last_error = None
+    return "sent"
+
+
+def _destinatarios_inscripcion(db: Session, kind: str, *, req, process, user) -> list[str]:
+    """A quién va un correo de inscripción: EXACTAMENTE a quien lo mandaba
+    `TitulaTecEmailHelper` en línea (spec 2026-10-05 §3.7, «el mismo que hoy»;
+    tabla en el docstring de `email_helper`). El rechazo, al correo PERSONAL
+    de la solicitud; el folio y «ya inscrito», al INSTITUCIONAL de la cuenta
+    (E8: nunca al correo tecleado); la revocación, a los dos
+    (`process_cancelled_recipients`, compartido con el envío en línea)."""
+    from itcj2.apps.titulatec.services import email_helper
+    from itcj2.core.utils.email_tools import student_email
+
+    if kind == "enrollment_rejected":
+        correo = (req.contact_email or "").strip() if req is not None else ""
+        return [req.contact_email] if correo else []
+    if user is None:
+        return []
+    if kind == "process_cancelled":
+        return email_helper.process_cancelled_recipients(db, process, user)
+    correo = student_email(user)
+    return [correo] if correo else []
+
+
 class MailDispatcher:
     """Manda lo pendiente de la bandeja de salida. Contrato completo en el
     docstring del módulo."""
@@ -292,6 +338,7 @@ class MailDispatcher:
         """Decide el desenlace de la unidad y, si toca, manda su correo. No
         hace commit (lo hace `_despachar`); `None` = nada que hacer aquí."""
         from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.models.email_outbox import ENROLLMENT_KINDS
         from itcj2.apps.titulatec.services import email_helper
         from itcj2.apps.titulatec.services.mail_compose import MailComposer, Obsolete
         from itcj2.apps.titulatec.services.student_mail import MailSettings, StudentMail
@@ -304,6 +351,8 @@ class MailDispatcher:
             espera = timedelta(minutes=MailSettings.digest_minutes())
             if max(f.created_at for f in filas) > now - espera:
                 return "waiting"
+        if any(f.kind in ENROLLMENT_KINDS for f in filas):
+            return MailDispatcher._unidad_inscripcion(db, filas, now, procesos, alumnos)
 
         pid = filas[0].process_id
         process = None
@@ -330,15 +379,64 @@ class MailDispatcher:
             template=correo.template, context=correo.context, subject=correo.subject,
             to=to, que=f"mail:{kind}", link=None)
         if ok:
-            for fila in filas:
-                fila.status = "sent"
-                fila.sent_at = now
-                fila.sent_to = _cabe(to, "sent_to")
-                fila.subject = _cabe(correo.subject, "subject")
-                # El motivo de un intento anterior ya no describe este correo.
-                fila.last_error = None
-            return "sent"
+            return _marcar_enviado(filas, now, to, correo.subject)
         if error == "cuenta_no_conectada" and not email_helper._is_production():
             logger.warning("[TT-MAIL] %s -> %s · %s · %s",
                            kind, to, correo.subject, correo.link)
+        return _fallar(filas, now, _MOTIVOS.get(error, _MOTIVOS["envio"]))
+
+    @staticmethod
+    def _unidad_inscripcion(db: Session, filas: list, now: datetime,
+                            procesos: dict, alumnos: dict) -> str:
+        """Un correo de inscripción (spec 2026-10-05 §3.7; siempre fila
+        suelta). Resuelve la solicitud, el proceso y el alumno de la fila; el
+        compositor re-valida (D8); se manda a cada destinatario de
+        `_destinatarios_inscripcion` y basta con que salga a uno (como el envío
+        en línea de la revocación); al salir, `sent_to` lleva los buzones a los
+        que SÍ salió y la solicitud recibe su sello (`_SELLOS`) en esta misma
+        transacción. Sin salir a ninguno, intento fallido con el motivo del
+        primer error. No hace commit (lo hace `_despachar`)."""
+        from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+        from itcj2.apps.titulatec.services import email_helper
+        from itcj2.apps.titulatec.services.mail_compose import MailComposer, Obsolete
+        from itcj2.core.models.user import User
+
+        fila = filas[0]
+        process = user = req = None
+        if fila.process_id is not None:
+            process = procesos.get(fila.process_id) or db.get(TitulationProcess,
+                                                               fila.process_id)
+        if fila.user_id is not None:
+            user = alumnos.get(fila.user_id) or db.get(User, fila.user_id)
+        if fila.enrollment_request_id is not None:
+            req = db.get(EnrollmentRequest, fila.enrollment_request_id)
+        if ((fila.process_id is not None and process is None)
+                or (fila.user_id is not None and user is None)):
+            return _cerrar(filas, "obsolete", _SIN_PROCESO)
+
+        correo = MailComposer.compose(db, filas, process, user)
+        if isinstance(correo, Obsolete):
+            return _cerrar(filas, "obsolete", correo.reason)
+        destinos = _destinatarios_inscripcion(db, fila.kind, req=req, process=process,
+                                              user=user)
+        if not destinos:
+            return _cerrar(filas, "no_recipient")
+
+        enviados, error = [], None
+        for to in destinos:
+            ok, motivo = email_helper.deliver_detailed(
+                template=correo.template, context=correo.context, subject=correo.subject,
+                to=to, que=f"mail:{fila.kind}", link=None)
+            if ok:
+                enviados.append(to)
+            elif error is None:
+                error = motivo
+        if enviados:
+            columna = _SELLOS.get(fila.kind)
+            if columna is not None and req is not None:
+                setattr(req, columna, now)
+            return _marcar_enviado(filas, now, ", ".join(enviados), correo.subject)
+        if error == "cuenta_no_conectada" and not email_helper._is_production():
+            logger.warning("[TT-MAIL] %s -> %s · %s · %s", fila.kind, ", ".join(destinos),
+                           correo.subject, correo.link)
         return _fallar(filas, now, _MOTIVOS.get(error, _MOTIVOS["envio"]))

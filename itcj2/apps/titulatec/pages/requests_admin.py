@@ -80,6 +80,10 @@ _MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
 _MSG_NOTICE_RESENT = "Aviso reenviado."
+# Tras rechazar: el correo con el motivo quedó en el outbox (spec 2026-10-05
+# §3.7); sale con el despachador, no en la petición. Gemelo en
+# `access_admin._MSG_REJECT_QUEUED` (mismo texto).
+_MSG_REJECT_QUEUED = "Se enviará el correo al egresado."
 # Aviso tras aprobar en el modo `sii` (revisión final F9, `_approve_notice`):
 # la fila sale de «Por revisar» y sin él SE no sabría si el correo salió.
 _MSG_ACCOUNT_MAILED = "Cuenta creada (folio {folio}); se le avisó por correo."
@@ -632,6 +636,14 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
         db, [procs[r.converted_process_id] for r in reqs
              if r.status == "converted" and r.converted_process_id in procs])
 
+    # Rechazadas sin `rejection_sent_at` cuyo correo sigue en el outbox (spec
+    # 2026-10-05 §3.7): «en cola», no «correo no enviado». UNA consulta, y
+    # solo si en la página hay alguna rechazada sin sello.
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    queued = StudentMail.queued_requests(
+        db, [r.id for r in reqs if r.status == "rejected" and r.rejection_sent_at is None])
+
     for r in reqs:
         # Un control mal formado no se busca (ya viene en el lote, sin N+1):
         # `approve` tampoco lo haría, así que la fila no promete la liga.
@@ -714,8 +726,10 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
                          and r.status in _TAB_STATUSES["pending_review"]),
             "return_note": r.return_note or "",
             # Solo tiene sentido leerla en una fila `rejected`: el correo de
-            # rechazo es lo único que sella esta columna (`reject()`).
+            # rechazo es lo único que sella esta columna (el despachador del
+            # outbox, o `reject()` con el correo apagado).
             "rejection_sent": r.rejection_sent_at is not None,
+            "rejection_queued": r.id in queued,
             "prior_reject": prior_reject,
             # «Reenviar aviso» (spec 2026-09-27 D12): la cuenta nació con el
             # NIP del SII y su correo de acceso no salió. Lo mismo que exige
@@ -858,7 +872,13 @@ async def approve(req_id: int, request: Request,
 async def reject(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
     """Rechaza, o cancela una solicitud con la liga enviada o en Centro de
-    Cómputo. Motivo obligatorio: es lo que la persona lee en su correo."""
+    Cómputo. Motivo obligatorio: es lo que la persona lee en su correo.
+
+    El correo se encola (spec 2026-10-05 §3.7): la respuesta lleva
+    `X-Tt-Notice` «Se enviará el correo al egresado» (`_MSG_REJECT_QUEUED`)
+    mientras su fila siga en el outbox. Con el correo apagado ya salió en
+    línea, y la respuesta es la de siempre (sin aviso; la píldora dice si
+    salió)."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -866,6 +886,7 @@ async def reject(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
     form = await request.form()
     note = (form.get("note") or "").strip()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
@@ -883,11 +904,16 @@ async def reject(req_id: int, request: Request,
         if not EnrollmentRequestService.reject(db, req_id, note=note, actor_id=uid):
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("Esa solicitud ya se resolvió.")})
+        en_cola = req_id in StudentMail.queued_requests(db, [req_id])
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
                         q=tab_q, page=tab_page)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    if en_cola:
+        resp.headers["X-Tt-Notice"] = _hdr(_MSG_REJECT_QUEUED)
+        resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
 
 
 @router.post("/{req_id}/reenviar", name="titulatec.pages.requests.resend")

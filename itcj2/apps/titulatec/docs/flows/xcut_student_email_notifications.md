@@ -18,7 +18,8 @@
 Parte del spec `docs/superpowers/specs/2026-09-28-titulatec-correos-notificaciones-design.md`
 (no se commitea); los 4 `kind` del no adeudo de biblioteca son del spec
 `2026-10-01-titulatec-biblioteca-caja-design.md` §4.11 (D11/D12/D13/D14). Antecedentes:
-`services/email_helper.py` (los 6 correos de inscripción, que **no cambian** — D3),
+`services/email_helper.py` (los 6 correos de inscripción; desde 2026-10-05 los 4 que no llevan
+secreto también pasan por esta bandeja — ⤵ [§9](#9-correos-de-inscripción-sin-secreto-2026-10-05-p-d1)),
 `services/notify.py` (in-app, que tampoco cambia — solo gana tipos nuevos).
 
 ---
@@ -91,7 +92,7 @@ Subir/borrar documento, confirmar asistencia, solicitar cambio, **cancelación h
 alumno** (`AppointmentService.cancel` exige `int(actor_id) != int(proc.student_id)` para
 notificar — `appointment_service.py:872-873`), iniciar cotejo, «asistió» (lo cubre el avance de
 fase 2), revocación de inscripción (`ProcessService.cancel` llama `.cancel(..., notify=False)`,
-ya tiene su propio `PROCESS_CANCELLED`/`send_process_cancelled`), pausa/reanudación de
+ya tiene su propio `PROCESS_CANCELLED` y su correo `process_cancelled`, §9), pausa/reanudación de
 convocatoria.
 
 ### Barrido de escritores (test estructural)
@@ -341,8 +342,9 @@ del alta.
    queda nada `pending`, o si ninguna fila cumple `not_before <= now` todavía.
 4. **Espera del grupo (D7)**: si la fila más nueva del grupo tiene `created_at > now - espera`
    (`MailSettings.digest_minutes()`) → `"waiting"`, no se toca (`_unidad`, `:303-306`).
-5. Por unidad, en orden: proceso o alumno ya no existen → `obsolete`; proceso `cancelled` →
-   `obsolete` («inscripción revocada» — ya salió `send_process_cancelled`); sin correo personal
+5. Por unidad, en orden (las filas de inscripción van por su propio camino, §9): proceso o
+   alumno ya no existen → `obsolete`; proceso `cancelled` →
+   `obsolete` («inscripción revocada» — su aviso es la fila `process_cancelled`); sin correo personal
    (`StudentMail.contact_email`) → `no_recipient`; `MailComposer.compose` → `Obsolete` → `obsolete`
    con su motivo; si no, `email_helper.deliver_detailed` (`:319-331`).
 6. Salió → `sent` + `sent_at`/`sent_to`/`subject`, y `last_error` en blanco (el motivo de un
@@ -605,6 +607,44 @@ si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega
 
 ---
 
+## 9. Correos de inscripción sin secreto (2026-10-05, P-D1)
+
+Spec `docs/superpowers/specs/2026-10-05-titulatec-rendimiento-design.md` §3.7 (no se commitea);
+migración `tt20261005d`. Cuatro de los 6 correos de `TitulaTecEmailHelper` —los que NO llevan
+liga ni NIP— ya no salen dentro de la petición: quien los origina los ENCOLA en su transacción
+y los manda este despachador. Los de liga o NIP (aprobar, reenviar la liga, dar acceso,
+reasignar NIP, reenviar el aviso de acceso) siguen en línea.
+
+| `kind` | Encolado en | Ancla de la fila | Destinatario (el MISMO de hoy) | Obsoleto al enviar (D8) | Sello al salir |
+|---|---|---|---|---|---|
+| `enrollment_verified` | `EnrollmentRequestService.verify` → `StudentMail.enrollment_verified` | proceso + alumno + solicitud | institucional (`student_email`) | nunca (ni si después la revocan) | — |
+| `enrollment_rejected` | `EnrollmentRequestService.reject` → `StudentMail.enrollment_rejected` | SOLO la solicitud (`user_id` NULL) | `req.contact_email` (personal) | la solicitud ya no está `rejected` | `rejection_sent_at` |
+| `already_enrolled` | `EnrollmentRequestService.create` (rama del proceso vivo, `POST /inscripcion`) → `StudentMail.already_enrolled` | proceso vivo + alumno | institucional (E8: nunca el tecleado) | nunca | — |
+| `process_cancelled` | `ProcessService.cancel` → `StudentMail.process_cancelled` | proceso + alumno | institucional + personal (`email_helper.process_cancelled_recipients`, compartido con el envío en línea) | el proceso ya no está `cancelled` | — |
+
+- **Esquema**: `titulatec_email_outbox.enrollment_request_id` (BigInteger, FK, NULL, índice) y
+  `user_id` NULL-able. La regla «toda fila lleva alumno o solicitud» es de la aplicación
+  (`_outbox_values` + el `before_insert` del modelo), no un CHECK.
+- **Composición**: `MailComposer.ENROLLMENT_REGISTRY`, aparte de `REGISTRY` porque usan las
+  plantillas de `email_helper` (con su `app_url` directo, sin liga al login): el correo sale
+  idéntico por los dos caminos (lo fija `test_outbox_inscripcion.py`). Payload: el folio, o el
+  motivo del rechazo y quién lo firma; `process_cancelled` va vacío (el correo no lleva motivo).
+  Nunca token, liga, NIP ni contraseña.
+- **Despacho**: `MailDispatcher._unidad_inscripcion` — sin el «proceso revocado → obsoleto» del
+  resto (el aviso de la revocación ES una de estas filas). Basta con que salga a uno de los
+  destinatarios; `sent_to` lleva los buzones a los que salió.
+- **UI**: una `rejected` sin `rejection_sent_at` con su fila todavía `pending` dice «en cola» (no
+  «correo no enviado») en Solicitudes y en Accesos (`StudentMail.queued_requests`, una consulta).
+  Rechazar responde `X-Tt-Notice` «Se enviará el correo al egresado.» mientras la fila esté en
+  cola. No existe «reenviar rechazo». Las filas con proceso salen también en la bitácora del
+  expediente (§8), con su `KIND_LABELS`.
+- **Interruptor**: con `TITULATEC_EMAIL_ENABLED=false`, `enqueue` no escribe y los 4 caen al envío
+  en línea de siempre (`send_*` después del commit; el rechazo sella como antes). Ningún flujo de
+  inscripción se queda sin correo.
+- **Bajada** de `tt20261005d`: borra las filas sin `user_id` (rechazos encolados).
+
+---
+
 ## Flujos relacionados
 
 - ⤵ Encolado desde: [revisión de documentos](phase1_school_services_review_docs.md),
@@ -617,8 +657,9 @@ si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega
   la única fuente de «qué liberaciones le faltan».
 - ← De dónde sale el set de 3 vs. 7 que mide `docs_reminder`: [perfil de titulación por nivel de
   carrera](engine_process_track.md).
-- ← Antecedente (no cambia): los 6 correos de inscripción de
-  [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`).
+- ← Antecedente: los 6 correos de inscripción de
+  [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`); los 4
+  sin secreto pasan por esta bandeja desde 2026-10-05 (§9).
 - → Lo lee: [expediente del alumno](xcut_admin_process_expediente.md) (bitácora `#exp-correos`).
 - ↔ In-app (no cambia su mecánica, solo gana tipos):
   [el alumno en el shell mobile del core](xcut_student_shell_embed.md).

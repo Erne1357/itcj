@@ -48,8 +48,8 @@ def _correo_encendido(monkeypatch):
 @pytest.fixture(autouse=True)
 def _graph_espiado(monkeypatch):
     """Graph sin cuenta conectada (el estado real de titulatec en dev) y un
-    espía por si algo intentara enviar: la revocación sí llama a
-    `send_process_cancelled` después de su commit."""
+    espía por si algo intentara enviar: nada de aquí manda en la petición (la
+    revocación también encola su aviso desde la spec 2026-10-05 §3.7)."""
     enviados: list = []
     monkeypatch.setattr("itcj2.core.utils.msgraph_mail.acquire_token_silent",
                         lambda app_key: None)
@@ -352,8 +352,9 @@ def test_alumno_cancela_no_encola(db_session, cita_esc):
 def test_revocar_proceso_no_encola_cancelacion_de_cita(db_session, cita_esc,
                                                        _graph_espiado):
     """`ProcessService.cancel` cancela la cita con `notify=False`: el aviso al
-    alumno es el de la revocación (`send_process_cancelled`), no «tu cita fue
-    cancelada»."""
+    alumno es el de la revocación (la fila `process_cancelled`, que desde la
+    spec 2026-10-05-titulatec-rendimiento §3.7 también se encola), no «tu cita
+    fue cancelada»."""
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
     p1 = cita_esc["p1"]
@@ -364,8 +365,10 @@ def test_revocar_proceso_no_encola_cancelacion_de_cita(db_session, cita_esc,
 
     assert ok is True
     assert appt.status == "cancelled", "la revocación sí canceló la cita"
-    filas = _outbox(db_session, p1.id)
+    filas = _outbox(db_session, p1.id, kind="appt_changed")
     assert [f.payload["event"] for f in filas] == ["scheduled"]
+    assert [f.kind for f in _outbox(db_session, p1.id)] == ["appt_changed",
+                                                           "process_cancelled"]
     assert _graph_espiado == []
 
 

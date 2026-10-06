@@ -39,6 +39,9 @@
    «lo dicto por teléfono»).
    «Con acceso» también lista la D10 que SE canceló (`rejected`, sin acciones),
    pero no las cuentas que nacieron con el NIP del SII (`_tab_filter`).
+   Una `rejected` sin `rejection_sent_at` dice «correo no enviado», o «en
+   cola» mientras su correo siga `pending` en el outbox (`r.rejection_queued`,
+   spec 2026-10-05 §3.7).
 
    El NIP NUNCA se pinta: sus campos no llevan `value`.
    Sin hx-confirm: ninguna acción de aquí pide confirmación (si alguna la
@@ -266,7 +269,7 @@
             {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
-            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if r.rejection_sent %}{% elif r.rejection_queued %}<span class="tt-pill tt-pill--neutral">en cola</span>{% else %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
           {% elif r.reviewable %}
             <p class="small mb-0"><i class="bi bi-hourglass-split me-1" aria-hidden="true"></i>En
                revisión de Servicios Escolares</p>

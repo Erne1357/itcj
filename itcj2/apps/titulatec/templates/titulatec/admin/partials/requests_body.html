@@ -69,7 +69,9 @@
    búsqueda que la lista). `EnrollmentRequestService
    .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
    Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
-   `rejection_sent_at`, y «Rechazada antes» cuando hay una solicitud anterior
+   `rejection_sent_at` —o la neutra «en cola» mientras su correo siga
+   `pending` en el outbox (`r.rejection_queued`, spec 2026-10-05 §3.7)—,
+   y «Rechazada antes» cuando hay una solicitud anterior
    (mismo control, `rejected`, mismo alcance) — motivo truncado con CSS,
    completo en `title`.
    Sin JS ni CSS en línea. #}
@@ -439,7 +441,7 @@
             {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
-            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if r.rejection_sent %}{% elif r.rejection_queued %}<span class="tt-pill tt-pill--neutral">en cola</span>{% else %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
           {% endif %}
         </td>
       </tr>

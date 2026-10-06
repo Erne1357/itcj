@@ -80,6 +80,9 @@ EVENTO_A_CORREO = {
     # motivo) -> `library_observed`; rehabilitar -> `library_reenabled`.
     "library_observed": "library_observed",
     "library_reenabled": "library_reenabled",
+    # Revocar la inscripción (spec 2026-10-05-titulatec-rendimiento §3.7, P-D1):
+    # su aviso ya no sale en línea, se encola.
+    "process_cancelled": "process_cancelled",
 }
 
 # Escritores que SÍ encolan: función -> la de `StudentMail` que deben llamar.
@@ -106,6 +109,12 @@ MAPEO = {
     "LibraryClearanceService.undo_prior": "library_reverted",
     "LibraryClearanceService.observe": "library_observed",
     "LibraryClearanceService.reenable": "library_reenabled",
+    # Correos de inscripción sin secreto (spec 2026-10-05-titulatec-
+    # rendimiento §3.7, P-D1): ya no salen en línea, se encolan. El resto de
+    # sus escritores (`verify`, `create`) no escribe estados vigilados; su
+    # barrido propio vive en `test_outbox_inscripcion.py`.
+    "ProcessService.cancel": "process_cancelled",
+    "EnrollmentRequestService.reject": "enrollment_rejected",
 }
 
 # Escritores que NO encolan, cada uno con su motivo.
@@ -116,9 +125,6 @@ LISTA_BLANCA = {
     "PhaseService._auto_close_cotejo_appointment":
         "cierra la cita `in_progress` dentro de approve_phase/reject_phase de "
         "la fase 2: el correo es el del dictamen, en la misma transacción.",
-    "ProcessService.cancel":
-        "revocación: su aviso es `send_process_cancelled` (D3) y la cita la "
-        "cancela con notify=False, sin correo (spec §5, «Sin correo»).",
     "SlotService._open_new_attempt":
         "cierra la vigente (superseded) al abrir un intento nuevo; el correo "
         "lo encola quien abrió el intento (AppointmentService.create/.reschedule).",
@@ -132,11 +138,8 @@ LISTA_BLANCA = {
         "la abre el envío de la encuesta, acción del propio egresado: sin "
         "correo por sus propias acciones (spec §1.2).",
     "EnrollmentRequestService._issue_link_for_account":
-        "EnrollmentRequest (inscripción), no el proceso: sus correos son los 6 "
-        "de TitulaTecEmailHelper, que no se tocan (D3).",
-    "EnrollmentRequestService.reject":
-        "EnrollmentRequest (inscripción), no el proceso: sus correos son los 6 "
-        "de TitulaTecEmailHelper, que no se tocan (D3).",
+        "EnrollmentRequest (inscripción), no el proceso: manda la LIGA de "
+        "activación, un secreto, que sigue en línea (spec 2026-10-05 §3.7).",
     "ImportService.import_rows":
         "alta del proceso: la fase 0 (intake) nace `approved`; no es un "
         "dictamen y el alta tiene sus propios avisos.",

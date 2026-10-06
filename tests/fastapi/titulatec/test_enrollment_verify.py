@@ -44,7 +44,15 @@ def _plano(html: str) -> str:
 
 @pytest.fixture()
 def correo_falso(monkeypatch):
-    """Captura los envíos sin tocar Graph: `(asunto, destinatarios, html)`."""
+    """Captura los envíos sin tocar Graph: `(asunto, destinatarios, html)`.
+
+    Con el correo APAGADO: el aviso con folio cae al envío EN LÍNEA de siempre
+    (`send_enrollment_done`, después del commit), que es lo que fijan estas
+    pruebas. Encendido se ENCOLA (spec 2026-10-05-titulatec-rendimiento §3.7):
+    eso vive en `test_outbox_inscripcion.py`."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
     enviados = []
 
     class _Resp:

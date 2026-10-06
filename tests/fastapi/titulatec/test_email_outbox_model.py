@@ -23,10 +23,12 @@ class TestTablaYDominios:
     def test_dominio_de_status_es_el_del_spec(self):
         assert OUTBOX_STATUSES == ("pending", "sent", "failed", "no_recipient", "obsolete")
 
-    def test_dominio_de_kind_tiene_los_15_del_catalogo(self):
-        """Los 11 del catálogo de 2026-09-28 y, al final y en este orden, los 4
-        del no adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
-        design.md §4.11)."""
+    def test_dominio_de_kind_tiene_los_21_del_catalogo(self):
+        """Los 11 del catálogo de 2026-09-28; los 4 del no adeudo de biblioteca
+        (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11); los 2 de
+        «Con observaciones» (spec 2026-10-05-titulatec-biblioteca-observaciones)
+        y, al final y en este orden, los 4 correos de inscripción sin secreto
+        (spec 2026-10-05-titulatec-rendimiento-design.md §3.7)."""
         assert OUTBOX_KINDS == (
             "docs_review",
             "phase_approved",
@@ -45,6 +47,10 @@ class TestTablaYDominios:
             "library_reminder",
             "library_observed",
             "library_reenabled",
+            "enrollment_verified",
+            "enrollment_rejected",
+            "already_enrolled",
+            "process_cancelled",
         )
 
     def test_cada_kind_cabe_en_su_columna(self):
@@ -93,9 +99,14 @@ class TestDefaults:
         assert row.process_id is None
 
 
-class TestUserIdEsObligatorio:
-    def test_sin_user_id_truena(self, db_session, egresado):
-        with pytest.raises(IntegrityError):
+class TestAlumnoOSolicitud:
+    """Desde `tt20261005d` `user_id` es NULL-able en la BD (una fila de
+    solicitud puede no tener usuario) y la regla «alumno o solicitud» es de la
+    APLICACIÓN (spec 2026-10-05-titulatec-rendimiento §3.7). El detalle vive en
+    `test_outbox_inscripcion.py`."""
+
+    def test_sin_user_id_ni_solicitud_truena(self, db_session, egresado):
+        with pytest.raises(ValueError):
             with db_session.begin_nested():
                 db_session.add(EmailOutbox(
                     kind="docs_review",
@@ -103,6 +114,9 @@ class TestUserIdEsObligatorio:
                     payload={},
                 ))
                 db_session.flush()
+
+    def test_user_id_es_nullable_en_la_tabla(self):
+        assert EmailOutbox.__table__.c.user_id.nullable is True
 
 
 class TestDedupeKeyUnico:

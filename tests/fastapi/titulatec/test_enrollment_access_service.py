@@ -35,7 +35,15 @@ MSG_NIP = "El NIP debe ser exactamente 4 dígitos."
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def correo_falso(monkeypatch):
-    """Captura los envíos sin tocar Graph: `(asunto, destinatarios, html)`."""
+    """Captura los envíos sin tocar Graph: `(asunto, destinatarios, html)`.
+
+    Con el correo APAGADO: el rechazo y el aviso con folio caen al envío EN
+    LÍNEA de siempre, que es lo que fijan estas pruebas. Encendidos se ENCOLAN
+    (spec 2026-10-05-titulatec-rendimiento §3.7): eso vive en
+    `test_outbox_inscripcion.py`. La liga y el NIP no cambian de camino."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
     enviados = []
 
     class _Resp:

@@ -71,6 +71,9 @@ _MSG_ONLY_OFFICIAL = ("En este modo Centro de Cómputo revisa las solicitudes: y
                       "devuelven a Servicios Escolares.")
 _MSG_ONLY_ALTERNATE = "En este modo rechazar y reenviar la liga son de Servicios Escolares."
 _MSG_GRANT_FAILED = "No pudimos completar el acceso; intenta de nuevo."
+# Tras rechazar (modo alterno): el correo quedó en el outbox (spec 2026-10-05
+# §3.7). Gemelo de `requests_admin._MSG_REJECT_QUEUED` (mismo texto).
+_MSG_REJECT_QUEUED = "Se enviará el correo al egresado."
 _MSG_REASSIGN_FAILED = "No pudimos reasignar el NIP; intenta de nuevo."
 
 # Pestañas por modo, en el orden en que se pintan; la primera es la de omisión.
@@ -315,6 +318,13 @@ def _body_ctx(db, *, status, cohort_id, q=None, page=1, per_page: int = PAGE_SIZ
         for pid, control, created_at, note in pq.all():
             rejected_by_control.setdefault(control, []).append((created_at, pid, note))
 
+    # Rechazadas sin sello cuyo correo sigue en el outbox: «en cola» (spec
+    # 2026-10-05 §3.7). UNA consulta, solo si hay alguna en la página.
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    queued = StudentMail.queued_requests(
+        db, [r.id for r in reqs if r.status == "rejected" and r.rejection_sent_at is None])
+
     for r in reqs:
         u = users.get((r.control_number or "").strip())
         reviewable = r.status in _REVIEWABLE
@@ -384,6 +394,7 @@ def _body_ctx(db, *, status, cohort_id, q=None, page=1, per_page: int = PAGE_SIZ
             # de la cuenta, junto con la señal positiva de la solicitud.
             "can_reassign": EnrollmentRequestService.can_reassign_nip(r, u),
             "rejection_sent": r.rejection_sent_at is not None,
+            "rejection_queued": r.id in queued,
             # «Por revisar» del alterno mezcla las `awaiting_access` sobrantes (y
             # el legado): esas llevan su estado; la `pending_review` no.
             "show_status": (tab in _MIXED_TABS
@@ -581,7 +592,10 @@ async def return_to_review(req_id: int, request: Request,
 @router.post("/{req_id}/rechazar", name="titulatec.pages.access.reject")
 async def reject(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
-    """Rechaza o cancela (solo modo alterno). Motivo obligatorio: lo lee la persona."""
+    """Rechaza o cancela (solo modo alterno). Motivo obligatorio: lo lee la persona.
+    Con el correo en el outbox (spec 2026-10-05 §3.7) avisa «Se enviará el
+    correo al egresado»; con el correo apagado ya salió en línea y responde
+    como siempre."""
     bloqueo = _mode_block(_ALTERNATE)
     if bloqueo is not None:
         return bloqueo
@@ -589,6 +603,7 @@ async def reject(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
     form = await request.form()
     note = (form.get("note") or "").strip()
     if not note:
@@ -603,7 +618,10 @@ async def reject(req_id: int, request: Request,
                                                actor_id=int(user["sub"])):
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("Esa solicitud ya se resolvió.")})
-        return _render_body(request, db, form)
+        resp = _render_body(request, db, form)
+        if req_id in StudentMail.queued_requests(db, [req_id]):
+            resp = _with_notice(resp, _MSG_REJECT_QUEUED, "success")
+        return resp
     finally:
         db.close()
 

@@ -42,6 +42,20 @@ CONTRATO DE `MailComposer.compose(db, rows, process, user)`:
   sueltas, ninguna) → `ValueError`. Es un error del llamador, y adivinar podría
   mandarle a un egresado lo de otro.
 
+CORREOS DE INSCRIPCIÓN (spec 2026-10-05-titulatec-rendimiento-design.md §3.7,
+P-D1): los 4 `ENROLLMENT_KINDS` (`enrollment_verified`,
+`enrollment_rejected`, `already_enrolled`, `process_cancelled`) tienen su
+propio registro, `MailComposer.ENROLLMENT_REGISTRY`, porque NO siguen el
+contrato de arriba: usan las MISMAS plantillas de `email_helper` que su envío
+en línea (con su `app_url` directo, sin liga al login, y el saludo de esa
+plantilla), así que el correo sale idéntico por los dos caminos. Siempre una
+fila suelta. `process`/`user` pueden faltar: el rechazo cuelga solo de la
+solicitud. La re-validación al enviar (D8): `enrollment_rejected` es
+obsoleto si la solicitud ya no está `rejected`; `process_cancelled`, si el
+proceso ya no está `cancelled`; los otros dos no tienen forma de quedar
+obsoletos. El destinatario y el sello (`rejection_sent_at`) son del
+despachador.
+
 EXTENDER: escribir `_compose_<kind>(db, rows, process, user) -> Composed |
 Obsolete` en este módulo y darlo de alta en `MailComposer.REGISTRY`. Su
 re-validación al enviar (D8) va dentro de esa función: si el correo ya no
@@ -1043,6 +1057,118 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
 
 
 # ---------------------------------------------------------------------------
+# Inscripción: los 4 correos sin secreto (spec 2026-10-05 §3.7, P-D1). Mismas
+# plantillas, asuntos y contexto que `TitulaTecEmailHelper.send_*`, con datos
+# planos (dicts con los mismos nombres de atributo que la plantilla lee).
+# ---------------------------------------------------------------------------
+_SIN_PROCESO = "el proceso o su alumno ya no existe"
+
+
+def _inscripcion(subject: str, template: str, context: dict) -> Composed:
+    """`Composed` de un correo de inscripción. Su «liga» es el botón de la
+    plantilla (`app_url`), o vacía si no tiene (el rechazo)."""
+    return Composed(subject=subject, template=template, context=context,
+                    link=context.get("app_url") or "")
+
+
+def _solicitud(db: Session, fila):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    rid = fila.enrollment_request_id
+    return db.get(EnrollmentRequest, rid) if rid is not None else None
+
+
+def _compose_enrollment_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Rechazo de la solicitud (`send_enrollment_rejected`): el motivo y quién
+    firma, congelados en el payload; nombre y número de control de la
+    solicitud. Obsoleto si la solicitud ya no existe o ya no está rechazada."""
+    from itcj2.apps.titulatec.services import email_helper
+
+    fila = rows[-1]
+    req = _solicitud(db, fila)
+    if req is None:
+        return Obsolete("la solicitud ya no existe")
+    if req.status != "rejected":
+        return Obsolete("la solicitud ya no está rechazada")
+    datos = _datos(fila)
+    motivo = datos["reason"] if "reason" in datos else req.review_note
+    revisor = _texto(datos.get("revisor"))
+    if revisor is None:
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            EnrollmentRequestService,
+        )
+        revisor = EnrollmentRequestService.reviewer_label()
+    return _inscripcion(
+        email_helper.SUBJECT_ENROLLMENT_REJECTED, "enrollment_rejected.html",
+        {"req": {"first_name": req.first_name, "last_name": req.last_name,
+                 "control_number": req.control_number, "review_note": motivo},
+         "revisor": revisor})
+
+
+def _compose_enrollment_verified(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Aviso con folio al abrir la liga (`send_enrollment_done`). No tiene forma
+    de quedar obsoleto: ni la revocación posterior lo calla (es la alarma de
+    la dueña de la cuenta)."""
+    from itcj2.apps.titulatec.services import email_helper
+
+    if process is None or user is None:
+        return Obsolete(_SIN_PROCESO)
+    req = _solicitud(db, rows[-1])
+    control = req.control_number if req is not None else user.control_number
+    return _inscripcion(
+        email_helper.SUBJECT_ENROLLMENT_DONE, "enrollment_done.html",
+        {"req": {"control_number": control}, "process": {"folio": process.folio},
+         "user": {"full_name": user.full_name}, "app_url": email_helper.STUDENT_URL})
+
+
+def _compose_already_enrolled(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """«Ya tienes un proceso de titulación» (`send_already_enrolled`), con el
+    folio y la convocatoria de su proceso vivo. No queda obsoleto."""
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services import email_helper
+
+    if process is None or user is None:
+        return Obsolete(_SIN_PROCESO)
+    cohort = db.get(Cohort, process.cohort_id)
+    return _inscripcion(
+        email_helper.SUBJECT_ALREADY_ENROLLED, "already_enrolled.html",
+        {"user": {"full_name": user.full_name}, "process": {"folio": process.folio},
+         "cohort": {"name": cohort.name} if cohort is not None else None,
+         "app_url": email_helper.STUDENT_URL})
+
+
+def _compose_process_cancelled(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Inscripción revocada (`send_process_cancelled`): sin motivo, folio ni
+    número de control. Obsoleto si el proceso ya no está revocado (D8)."""
+    from itcj2.apps.titulatec.services import email_helper
+
+    if process is None or user is None:
+        return Obsolete(_SIN_PROCESO)
+    if process.status != "cancelled":
+        return Obsolete("la inscripción ya no está revocada")
+    return _inscripcion(
+        email_helper.SUBJECT_PROCESS_CANCELLED, "process_cancelled.html",
+        {"first_name": user.first_name, "app_url": email_helper.STUDENT_URL})
+
+
+def _compose_enrollment(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Entrada de los 4 de inscripción: una sola fila, coherente con el
+    proceso y el alumno que se pasan (cualquiera de los dos puede faltar)."""
+    if len(rows) != 1:
+        raise ValueError(f"MailComposer.compose: {len(rows)} filas de inscripción; "
+                         "siempre van sueltas")
+    fila = rows[0]
+    if fila.group_key:
+        raise ValueError("MailComposer.compose: un correo de inscripción no va en grupo")
+    if (process is not None and fila.process_id != process.id) or (
+            user is not None and fila.user_id != user.id):
+        raise ValueError(f"MailComposer.compose: fila de otro proceso o alumno: {[fila.id]}")
+    if process is not None and user is not None and user.id != process.student_id:
+        raise ValueError("MailComposer.compose: el alumno no es el del proceso")
+    return MailComposer.ENROLLMENT_REGISTRY[fila.kind](db, rows, process, user)
+
+
+# ---------------------------------------------------------------------------
 # Punto de entrada
 # ---------------------------------------------------------------------------
 class MailComposer:
@@ -1073,13 +1199,26 @@ class MailComposer:
         "library_reenabled": _compose_library_reenabled,
     }
 
+    # Los 4 correos de inscripción sin secreto (spec 2026-10-05 §3.7): con las
+    # plantillas de `email_helper`, fuera del contrato de `REGISTRY` (ver el
+    # docstring del módulo). Mismas llaves que `ENROLLMENT_KINDS`.
+    ENROLLMENT_REGISTRY: dict[str, Callable[..., Composed | Obsolete]] = {
+        "enrollment_verified": _compose_enrollment_verified,
+        "enrollment_rejected": _compose_enrollment_rejected,
+        "already_enrolled": _compose_already_enrolled,
+        "process_cancelled": _compose_process_cancelled,
+    }
+
     @staticmethod
     def compose(db: Session, rows: list[EmailOutbox], process, user) -> Composed | Obsolete:
         """El correo de `rows` (todas del proceso `process`, cuyo alumno es
-        `user`): un grupo entero o una fila suelta. Contrato completo en el
-        docstring del módulo."""
+        `user`): un grupo entero o una fila suelta. Una fila de inscripción
+        (`ENROLLMENT_REGISTRY`) admite `process`/`user` en `None`. Contrato
+        completo en el docstring del módulo."""
         if not rows:
             raise ValueError("MailComposer.compose: no hay filas que componer")
+        if any(r.kind in MailComposer.ENROLLMENT_REGISTRY for r in rows):
+            return _compose_enrollment(db, rows, process, user)
         if process is None or user is None or user.id != process.student_id:
             raise ValueError("MailComposer.compose: el alumno no es el del proceso")
         ajenas = [r.id for r in rows

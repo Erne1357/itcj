@@ -83,16 +83,21 @@ class ProcessService:
         y devuelve `(False, …)` para que la bandeja lo diga. `completed` no se
         revoca.
 
-        El aviso al alumno (correo personal + institucional) sale DESPUÉS del
-        commit y es best-effort: un buzón caído no deshace la revocación. El
-        aviso en la app va dentro de la transacción (es una fila más). No se le
-        quita el rol `graduate`: sigue entrando para leer el motivo y puede
-        inscribirse en otra convocatoria (D5 solo cuenta procesos vivos).
+        El aviso por correo (personal + institucional) se ENCOLA dentro de la
+        transacción (`StudentMail.process_cancelled`, spec 2026-10-05 §3.7) y lo
+        manda el despachador, que no lo envía si para entonces el proceso ya
+        no está revocado. Con el correo apagado sale en línea DESPUÉS del
+        commit, como antes, y es best-effort: un buzón caído no deshace la
+        revocación. El aviso en la app va dentro de la transacción (es una fila
+        más). No se le quita el rol `graduate`: sigue entrando para leer el
+        motivo y puede inscribirse en otra convocatoria (D5 solo cuenta
+        procesos vivos).
         """
         from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         from itcj2.apps.titulatec.services.notify import notify_student
         from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
         from itcj2.core.utils.timezone import db_now
 
         motivo = (reason or "").strip()
@@ -148,14 +153,18 @@ class ProcessService:
                        title="Tu inscripción a titulación fue revocada",
                        body="Entra a TitulaTec para ver el motivo.",
                        process_id=proc.id)
+        # El correo entra en ESTE commit (P-D1); sin motivo en el payload.
+        encolado = StudentMail.process_cancelled(db, proc)
         db.commit()
 
-        try:
-            from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
-            TitulaTecEmailHelper.send_process_cancelled(db, proc)
-        except Exception:
-            logger.exception("[titulatec] No se pudo avisar la revocación del proceso %s",
-                             proc.id)
+        if not encolado:
+            # Correo apagado: en línea, como antes (invariante 5).
+            try:
+                from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+                TitulaTecEmailHelper.send_process_cancelled(db, proc)
+            except Exception:
+                logger.exception("[titulatec] No se pudo avisar la revocación del proceso %s",
+                                 proc.id)
         return True, _MSG_OK
 
     @staticmethod

@@ -23,9 +23,21 @@ import pytest
 # ---------------------------------------------------------------------------
 # Captura de correo. Local a este archivo a propósito (mismo patrón que el resto
 # de la suite): no se importa de otro módulo de pruebas.
+#
+# Con el correo APAGADO (`MailSettings.enabled` -> False): el rechazo y el «ya
+# tienes un proceso» caen al envío EN LÍNEA de siempre, que es lo que fijan
+# estas pruebas (invariante 5 de la spec 2026-10-05-titulatec-rendimiento
+# §3.7). Encendidos se ENCOLAN: eso vive en `test_outbox_inscripcion.py`.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
-def correo_falso(monkeypatch):
+def correo_apagado(monkeypatch):
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
+
+
+@pytest.fixture()
+def correo_falso(monkeypatch, correo_apagado):
     """Captura los envíos de TitulaTecEmailHelper sin tocar Graph.
 
     Devuelve la lista de `(asunto, destinatarios, html)`, en el ORDEN en que se
@@ -65,7 +77,7 @@ def espia_helper(monkeypatch):
 
 
 @pytest.fixture()
-def orden_commit_correo(db_session, monkeypatch):
+def orden_commit_correo(db_session, monkeypatch, correo_apagado):
     """Registra, en orden, cada `db_session.commit()` y cada envío por Graph.
 
     Es la forma de probar "el correo sale DESPUÉS del commit" dentro de una sola
@@ -715,7 +727,9 @@ def test_el_downgrade_devuelve_las_awaiting_access_a_revision_antes_del_indice_v
 
 
 # ---------------------------------------------------------------------------
-# reject(): sella `rejection_sent_at` SOLO si el correo salió (2026-09-17)
+# reject(): sella `rejection_sent_at` SOLO si el correo salió (2026-09-17). Con
+# el correo apagado (en línea); encendido lo sella el despachador del outbox
+# (`test_outbox_inscripcion.py`).
 # ---------------------------------------------------------------------------
 def test_reject_sella_rejection_sent_at_si_el_correo_salio(
     db_session, make_cohort, make_user, correo_falso,
@@ -737,7 +751,7 @@ def test_reject_sella_rejection_sent_at_si_el_correo_salio(
 
 
 def test_reject_no_sella_rejection_sent_at_si_el_correo_no_salio(
-    db_session, make_cohort, make_user, monkeypatch,
+    db_session, make_cohort, make_user, monkeypatch, correo_apagado,
 ):
     from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
     from itcj2.apps.titulatec.services.enrollment_request_service import (

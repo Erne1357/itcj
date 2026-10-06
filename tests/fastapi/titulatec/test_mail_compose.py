@@ -2717,12 +2717,21 @@ def test_todo_kind_tiene_composicion():
     from itcj2.apps.titulatec.services.mail_compose import MailComposer
 
     # Los que viajan SIEMPRE en su grupo; el REGISTRY los cubre además por si
-    # una fila llegara sin él.
+    # una fila llegara sin él. Los 4 de inscripción (spec 2026-10-05-titulatec-
+    # rendimiento §3.7) tienen su propio registro: usan las plantillas de
+    # `email_helper`, fuera del contrato de ligas de este archivo (sus pruebas,
+    # en `test_outbox_inscripcion.py`).
+    from itcj2.apps.titulatec.models.email_outbox import ENROLLMENT_KINDS
+
     por_grupo = {"docs_review": "docs:", "appt_changed": "cita:"}
     sin_composicion = sorted(k for k in OUTBOX_KINDS
-                             if k not in MailComposer.REGISTRY and k not in por_grupo)
+                             if k not in MailComposer.REGISTRY
+                             and k not in MailComposer.ENROLLMENT_REGISTRY
+                             and k not in por_grupo)
     assert not sin_composicion, f"kinds sin composición: {sin_composicion}"
     assert set(MailComposer.REGISTRY) <= set(OUTBOX_KINDS), "REGISTRY con kinds que no existen"
+    assert set(MailComposer.ENROLLMENT_REGISTRY) == set(ENROLLMENT_KINDS)
+    assert not set(MailComposer.REGISTRY) & set(MailComposer.ENROLLMENT_REGISTRY)
     assert all(callable(fn) for fn in MailComposer.REGISTRY.values())
     for kind in ("appt_reminder", "docs_reminder", "survey_reminder",
                  "library_ready", "library_cleared", "library_reverted",
