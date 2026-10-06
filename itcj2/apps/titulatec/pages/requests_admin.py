@@ -190,6 +190,25 @@ def _alternate_mode_block():
     return None
 
 
+def _recheck_block():
+    """«Reintentar consulta»: el 400 con el motivo si el modo no es `sii` o el SII
+    no está configurado (D11); si no, `None`.
+
+    Solo lee configuración (nunca BD ni red) y, como el corte de modo, va ANTES de
+    leer el cuerpo y de abrir sesión: el corte es de la ruta, no de la plantilla.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.apps.titulatec.services import eligibility_service as elig
+
+    if EnrollmentRequestService.reviewer_mode() != "sii":
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_SII)})
+    if not elig.EligibilityService.sii_configured():
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII_OFF)})
+    return None
+
+
 def _to_int(raw):
     try:
         return int(raw) if raw not in (None, "") else None
@@ -796,6 +815,10 @@ async def approve(req_id: int, request: Request,
     La ruta no lee `nip`: un formulario viejo en caché que lo mande se ignora,
     y el NIP nunca aparece en un log ni en una cabecera (los motivos del
     servicio no lo llevan)."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_approve, req_id=req_id, request=request, user=user, form=form)
@@ -803,9 +826,6 @@ async def approve(req_id: int, request: Request,
 
 def _cuerpo_approve(req_id, request, user, form):
     """Cuerpo síncrono de `approve`: corre en el threadpool, no en el event loop."""
-    bloqueo = _alternate_mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -885,6 +905,10 @@ async def reject(req_id: int, request: Request,
     mientras su fila siga en el outbox. Con el correo apagado ya salió en
     línea, y la respuesta es la de siempre (sin aviso; la píldora dice si
     salió)."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_reject, req_id=req_id, request=request, user=user, form=form)
@@ -892,9 +916,6 @@ async def reject(req_id: int, request: Request,
 
 def _cuerpo_reject(req_id, request, user, form):
     """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
-    bloqueo = _alternate_mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -936,6 +957,10 @@ async def resend(req_id: int, request: Request,
     Aquí SÍ se identifica por id y se rota, porque el actor ya está autenticado
     y acotado por carrera; el veto al id y a rotar es del endpoint PÚBLICO.
     """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_resend, req_id=req_id, request=request, user=user, form=form)
@@ -943,9 +968,6 @@ async def resend(req_id: int, request: Request,
 
 def _cuerpo_resend(req_id, request, user, form):
     """Cuerpo síncrono de `resend`: corre en el threadpool, no en el event loop."""
-    bloqueo = _alternate_mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -981,6 +1003,10 @@ async def resend_notice(req_id: int, request: Request,
     aviso pendiente o si el correo no sale, 400 + `X-Tt-Error`; si sale, la
     bandeja re-pintada (la fila ya sin la marca) + `X-Tt-Notice`.
     """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_resend_notice, req_id=req_id, request=request, user=user, form=form)
@@ -988,9 +1014,6 @@ async def resend_notice(req_id: int, request: Request,
 
 def _cuerpo_resend_notice(req_id, request, user, form):
     """Cuerpo síncrono de `resend_notice`: corre en el threadpool, no en el event loop."""
-    bloqueo = _alternate_mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -1033,6 +1056,9 @@ async def reconsultar(req_id: int, request: Request,
     Con el SII sin configurar (spec 2026-09-27 D11) no hay a quién preguntar:
     400 `_MSG_SII_OFF` antes de abrir sesión, como el corte de modo.
     """
+    bloqueo = _recheck_block()
+    if bloqueo is not None:
+        return bloqueo
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_reconsultar, req_id=req_id, request=request, user=user, form=form)
@@ -1040,15 +1066,7 @@ async def reconsultar(req_id: int, request: Request,
 
 def _cuerpo_reconsultar(req_id, request, user, form):
     """Cuerpo síncrono de `reconsultar`: corre en el threadpool, no en el event loop."""
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        EnrollmentRequestService,
-    )
     from itcj2.apps.titulatec.services import eligibility_service as elig
-
-    if EnrollmentRequestService.reviewer_mode() != "sii":
-        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_SII)})
-    if not elig.EligibilityService.sii_configured():
-        return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII_OFF)})
     from itcj2.database import SessionLocal
 
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
@@ -1094,6 +1112,10 @@ async def revocar(req_id: int, request: Request,
     bandeja es de solo lectura, también para esto (`_alternate_mode_block`); ahí
     se revoca desde el expediente.
     """
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_revocar, req_id=req_id, request=request, user=user, form=form)
@@ -1101,9 +1123,6 @@ async def revocar(req_id: int, request: Request,
 
 def _cuerpo_revocar(req_id, request, user, form):
     """Cuerpo síncrono de `revocar`: corre en el threadpool, no en el event loop."""
-    bloqueo = _alternate_mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
 

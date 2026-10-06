@@ -359,7 +359,12 @@ async def create_batch(
     `page` del formulario; sin ellos, los valores por omisión).
 
     Con el switch de impresión apagado (`printing_enabled()`) responde 404
-    ANTES de cualquier otra cosa (spec folios 2026-10-05 §3.5)."""
+    ANTES de cualquier otra cosa, incluida la lectura del formulario (spec
+    folios 2026-10-05 §3.5): la guarda es una lectura de configuración y va
+    en el cuerpo `async`, antes del `await request.form()`."""
+    if not printing_enabled():
+        return Response(status_code=404)
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_create_batch, kind=kind, request=request, user=user, form=form)
@@ -367,9 +372,6 @@ async def create_batch(
 
 def _cuerpo_create_batch(kind, request, user, form):
     """Cuerpo síncrono de `create_batch`: corre en el threadpool, no en el event loop."""
-    if not printing_enabled():
-        return Response(status_code=404)
-
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.certificate_service import CertificateService
 

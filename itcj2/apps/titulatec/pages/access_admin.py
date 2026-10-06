@@ -524,6 +524,10 @@ async def grant(req_id: int, request: Request,
     — una `pending_review` sigue siendo de SE (Review Focus 3). Alterno: sobre
     una `awaiting_access` sobrante, `grant_access`; sobre el resto, `approve`.
     """
+    bloqueo = _mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_grant, req_id=req_id, request=request, user=user, form=form)
@@ -531,9 +535,6 @@ async def grant(req_id: int, request: Request,
 
 def _cuerpo_grant(req_id, request, user, form):
     """Cuerpo síncrono de `grant`: corre en el threadpool, no en el event loop."""
-    bloqueo = _mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -574,6 +575,10 @@ def _cuerpo_grant(req_id, request, user, form):
 async def return_to_review(req_id: int, request: Request,
                            user: dict = Depends(require_page_app("titulatec", perms=_RETURN))):
     """Devuelve a SE con nota (modo oficial y `sii`). Sin correo al alumno."""
+    bloqueo = _mode_block(_OFFICIAL)
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_return_to_review, req_id=req_id, request=request, user=user, form=form)
@@ -581,9 +586,6 @@ async def return_to_review(req_id: int, request: Request,
 
 def _cuerpo_return_to_review(req_id, request, user, form):
     """Cuerpo síncrono de `return_to_review`: corre en el threadpool, no en el event loop."""
-    bloqueo = _mode_block(_OFFICIAL)
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -609,6 +611,10 @@ async def reject(req_id: int, request: Request,
     Con el correo en el outbox (spec 2026-10-05 §3.7) avisa «Se enviará el
     correo al egresado»; con el correo apagado ya salió en línea y responde
     como siempre."""
+    bloqueo = _mode_block(_ALTERNATE)
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_reject, req_id=req_id, request=request, user=user, form=form)
@@ -616,9 +622,6 @@ async def reject(req_id: int, request: Request,
 
 def _cuerpo_reject(req_id, request, user, form):
     """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
-    bloqueo = _mode_block(_ALTERNATE)
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -649,15 +652,16 @@ def _cuerpo_reject(req_id, request, user, form):
 async def resend(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
     """Reenvía (ROTA) la liga de una aprobada (solo modo alterno)."""
+    bloqueo = _mode_block(_ALTERNATE)
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(_cuerpo_resend, req_id=req_id, request=request, form=form)
 
 
 def _cuerpo_resend(req_id, request, form):
     """Cuerpo síncrono de `resend`: corre en el threadpool, no en el event loop."""
-    bloqueo = _mode_block(_ALTERNATE)
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
@@ -684,6 +688,10 @@ async def reassign_nip(req_id: int, request: Request,
     `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo.
     Una cuenta que nació con el NIP del SII no es elegible
     (`must_change_password=False`)."""
+    bloqueo = _mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_reassign_nip, req_id=req_id, request=request, user=user, form=form)
@@ -691,9 +699,6 @@ async def reassign_nip(req_id: int, request: Request,
 
 def _cuerpo_reassign_nip(req_id, request, user, form):
     """Cuerpo síncrono de `reassign_nip`: corre en el threadpool, no en el event loop."""
-    bloqueo = _mode_block()
-    if bloqueo is not None:
-        return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
