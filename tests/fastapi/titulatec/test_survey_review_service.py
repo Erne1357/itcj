@@ -463,14 +463,18 @@ class TestRegisterPriorFolio:
 
         cuando = datetime(2091, 10, 5, 10, 0)
         monkeypatch.setattr(f"{self.SVC}.db_now", lambda: cuando)
-        antes = db_session.query(Certificate).count()
+        # Folios del proceso SEMBRADO, nunca el total de la tabla (la BD de dev
+        # es compartida: un escritor ajeno movería un `count()` global).
+        del_proceso = (db_session.query(Certificate)
+                       .filter_by(process_id=escenario["process"].id))
+        antes = del_proceso.count()
 
         with pytest.raises(ValueError):
             SurveyReviewService.register_prior(
                 db_session, escenario["process"],
                 issued_on=cuando.date() - timedelta(days=400))
 
-        assert db_session.query(Certificate).count() == antes
+        assert del_proceso.count() == antes
 
     def test_revocar_la_previa_anula_el_folio_antes_de_borrar_la_solicitud(
             self, db_session, escenario, monkeypatch):
@@ -705,13 +709,23 @@ class TestCountsByStatus:
 # ---------------------------------------------------------------------------
 # list_for_inbox
 # ---------------------------------------------------------------------------
+def _marca() -> str:
+    """Apellido ÚNICO por prueba: `list_for_inbox` es GLOBAL (toda la bandeja
+    de GTV) y la BD de dev compartida trae solicitudes reales «En revisión»,
+    así que las pruebas de total/orden/paginado siembran a sus alumnos con
+    esta marca y consultan con `q=marca` -- la pestaña, el orden y el paginado
+    se ejercen igual, solo que sobre las filas propias."""
+    return "ZQ" + uuid.uuid4().hex[:10].upper()
+
+
 class TestListForInbox:
     def test_filtra_por_pestana_y_ordena_in_review_mas_antiguas_primero(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
         cohort = make_cohort()
-        ana = make_student()
-        beto = make_student()
-        carla = make_student()
+        ana = make_student(last_name=marca)
+        beto = make_student(last_name=marca)
+        carla = make_student(last_name=marca)
         p1 = make_process(ana, cohort=cohort, current_phase=2)
         p2 = make_process(beto, cohort=cohort, current_phase=2)
         p3 = make_process(carla, cohort=cohort, current_phase=2)
@@ -719,7 +733,7 @@ class TestListForInbox:
         r2 = make_survey_review(p2, status="in_review")
         make_survey_review(p3, status="rejected")
 
-        pagina = SurveyReviewService.list_for_inbox(db_session, status="in_review")
+        pagina = SurveyReviewService.list_for_inbox(db_session, status="in_review", q=marca)
         filas = pagina.items
 
         assert pagina.has_next is False
@@ -771,17 +785,19 @@ class TestListForInbox:
 
     def test_paginado_con_has_more(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
         cohort = make_cohort()
         reviews = [
-            make_survey_review(make_process(make_student(), cohort=cohort, current_phase=2),
+            make_survey_review(make_process(make_student(last_name=marca), cohort=cohort,
+                                            current_phase=2),
                                status="in_review")
             for _ in range(3)
         ]
 
         p1 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=1, per_page=2)
+            db_session, status="in_review", q=marca, page=1, per_page=2)
         p2 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=2, per_page=2)
+            db_session, status="in_review", q=marca, page=2, per_page=2)
         pagina1, pagina2 = p1.items, p2.items
 
         assert len(pagina1) == 2
@@ -794,15 +810,17 @@ class TestListForInbox:
 
     def test_inbox_muestra_rango_de_total(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
         cohort = make_cohort()
         for _ in range(3):
-            make_survey_review(make_process(make_student(), cohort=cohort, current_phase=2),
+            make_survey_review(make_process(make_student(last_name=marca), cohort=cohort,
+                                            current_phase=2),
                                status="in_review")
 
         p2 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=2, per_page=2)
+            db_session, status="in_review", q=marca, page=2, per_page=2)
         p9 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=9, per_page=2)
+            db_session, status="in_review", q=marca, page=9, per_page=2)
 
         assert (p2.start, p2.end, p2.total) == (3, 3, 3)
         assert (p9.page, p9.start, p9.end) == (2, 3, 3)

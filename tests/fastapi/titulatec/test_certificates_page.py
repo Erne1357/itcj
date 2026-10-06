@@ -304,8 +304,13 @@ def test_pagina_y_body_responden_200_con_la_misma_raiz(client_as, make_library_c
 
 # ---------------------------------------------------------------------------
 # «Por imprimir (N)» y «Generar lote»
+#
+# Las cuentas de pendientes y de lotes son GLOBALES por `kind`: las pruebas que
+# afirman un número exacto (o la ausencia de una sección) piden también
+# `sin_constancias_de_dev` (conftest), que quita los lotes y pendientes REALES
+# de la BD de dev compartida dentro de la transacción del test.
 # ---------------------------------------------------------------------------
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_por_imprimir_refleja_las_pendientes(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -319,7 +324,7 @@ def test_por_imprimir_refleja_las_pendientes(
     assert "Generar lote (3)" in resp.text
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_generar_lote_crea_y_vacia_por_imprimir(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -363,7 +368,7 @@ def test_lote_generado_trae_los_dos_enlaces_de_pdf_y_el_de_3_va_primero(
     assert 'target="_blank"' in texto and 'rel="noopener"' in texto
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_generar_lote_no_duplica_ids_entre_la_tarjeta_y_la_fila(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -407,7 +412,7 @@ def test_cada_fila_de_lotes_trae_los_dos_enlaces_de_pdf_con_ids_estables(
             < resp.text.index(f'id="tt-cert-pdf-{batch.id}-2"'))
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_hx_confirm_usa_el_articulo_la_con_una_sola_pendiente(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -424,7 +429,7 @@ def test_hx_confirm_usa_el_articulo_la_con_una_sola_pendiente(
     assert "con las 1 constancia" not in resp.text
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_hx_confirm_usa_el_articulo_las_en_plural(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -491,7 +496,7 @@ def test_body_ctx_acepta_kinds_precalculado(db_session, make_library_cert_staff)
     assert [s["kind"] for s in ctx["sections"]] == ["library_clearance"]
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_generar_lote_sin_pendientes_responde_400(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).post(f"{URL}/library_clearance/lote", data={})
 
@@ -694,7 +699,7 @@ def test_anuladas_se_listan_en_el_lote(
 # ---------------------------------------------------------------------------
 # «Por imprimir» plegable y «Anuladas después de imprimir» (Tarea 2, E6/E7)
 # ---------------------------------------------------------------------------
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_detalle_de_pendientes_lista_fifo_y_sale_colapsado(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -724,7 +729,7 @@ def test_detalle_de_pendientes_lista_fifo_y_sale_colapsado(
     assert " open" not in etiqueta.group()
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_detalle_de_pendientes_no_se_pinta_con_0_pendientes(
     client_as, make_library_cert_staff,
 ):
@@ -734,7 +739,7 @@ def test_detalle_de_pendientes_no_se_pinta_con_0_pendientes(
     assert 'id="tt-cert-pending-library_clearance"' not in resp.text
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_seccion_de_anuladas_no_se_pinta_sin_filas(
     client_as, db_session, make_library_cert_staff, make_cert_process,
 ):
@@ -772,7 +777,7 @@ def test_seccion_de_anuladas_aparece_con_folio_lote_y_motivo(
     assert "se corrigió después de imprimir" in texto
 
 
-@pytest.mark.usefixtures("printing_on")
+@pytest.mark.usefixtures("printing_on", "sin_constancias_de_dev")
 def test_body_ctx_agrega_pending_rows_y_voided_rows(
     db_session, make_library_cert_staff, make_cert_process,
 ):

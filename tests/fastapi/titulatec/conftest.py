@@ -232,6 +232,37 @@ def printing_on(monkeypatch):
 
 
 @pytest.fixture()
+def sin_constancias_de_dev(db_session):
+    """Deja la tabla de constancias SIN lotes ni pendientes de dev, dentro de
+    la transacción del test (el rollback externo de `db_session` restaura todo).
+
+    `pending`/`pending_count`/`create_batch`/`list_batches`/
+    `voided_after_print` son GLOBALES por `kind`, y la BD de dev es compartida
+    (copia de prod): hoy trae el lote real #4 y folios GTV vigentes sin lote
+    (backfill de previas). Una prueba que afirma «2 pendientes», «1 lote» o
+    «4 ids de PDF» sale roja por filas que no sembró. Aquí:
+
+      1. se desligan TODAS las constancias de su lote y se anulan las vigentes
+         -- así ninguna fila ajena queda «por imprimir» (vigente sin lote) ni
+         «anulada tras imprimir» (anulada con lote);
+      2. se borran los lotes (ya sin referencias).
+
+    Luego `db_session.commit()` como CHECKPOINT: bajo
+    `join_transaction_mode="create_savepoint"` un `rollback()` de la app
+    desanda hasta el último commit, y sin él resucitaría las filas de dev.
+    Los contadores de folio no se tocan (la numeración no depende de esto).
+    """
+    from sqlalchemy import text
+
+    db_session.execute(text(
+        "UPDATE titulatec_certificates "
+        "SET batch_id = NULL, voided_at = COALESCE(voided_at, NOW()) "
+        "WHERE batch_id IS NOT NULL OR voided_at IS NULL"))
+    db_session.execute(text("DELETE FROM titulatec_certificate_batches"))
+    db_session.commit()          # checkpoint: el rollback de la app no resucita dev
+
+
+@pytest.fixture()
 def modo_alterno(monkeypatch):
     """Centro de Computo revisa todo: se parchea `reviewer_mode`, nunca
     `get_settings` (spec S5). UNICA copia (antes duplicada en 4 archivos de

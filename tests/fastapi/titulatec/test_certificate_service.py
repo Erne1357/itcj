@@ -333,10 +333,14 @@ class TestIssueNumeracion:
                                             process=proc, source_ref=_ref(),
                                             actor_id=actor.id).number
 
-        assert _emitir_en(datetime(2029, 3, 1, 8, 0, 0)) == "BIB-2029A-0001"
-        assert _emitir_en(datetime(2029, 6, 30, 23, 0, 0)) == "BIB-2029A-0002"
-        assert _emitir_en(datetime(2029, 7, 1, 8, 0, 0)) == "BIB-2029B-0001"   # reinicia en julio
-        assert _emitir_en(datetime(2030, 1, 15, 8, 0, 0)) == "BIB-2030A-0001"  # y en enero
+        # Años SINTÉTICOS (`_ANIO`, como el resto del archivo): con años reales
+        # cercanos (2029/2030) un contador de verdad en la BD de dev compartida
+        # movería el «-0001».
+        sig = _ANIO + 1
+        assert _emitir_en(datetime(_ANIO, 3, 1, 8, 0, 0)) == f"BIB-{_ANIO}A-0001"
+        assert _emitir_en(datetime(_ANIO, 6, 30, 23, 0, 0)) == f"BIB-{_ANIO}A-0002"
+        assert _emitir_en(datetime(_ANIO, 7, 1, 8, 0, 0)) == f"BIB-{_ANIO}B-0001"  # reinicia en julio
+        assert _emitir_en(datetime(sig, 1, 15, 8, 0, 0)) == f"BIB-{sig}A-0001"     # y en enero
 
     def test_anular_no_libera_el_numero(self, db_session, escenario, actor):
         proc = escenario["process"]
@@ -577,6 +581,10 @@ class TestVoid:
 # ---------------------------------------------------------------------------
 # pending / create_batch / list_batches / certificates_of
 # ---------------------------------------------------------------------------
+# `pending`/`create_batch`/`list_batches` son GLOBALES por `kind`: la fixture
+# `sin_constancias_de_dev` (conftest) quita, dentro de la transacción del test,
+# los lotes y las pendientes REALES de la BD de dev compartida.
+@pytest.mark.usefixtures("sin_constancias_de_dev")
 class TestLotes:
     def test_pending_count_y_pending_en_orden_fifo(self, db_session, escenario, actor):
         proc = escenario["process"]
@@ -978,6 +986,9 @@ class TestPrintStatusMap:
 # ---------------------------------------------------------------------------
 # voided_after_print -- anuladas que SÍ se imprimieron (Tarea 2, E6)
 # ---------------------------------------------------------------------------
+# `voided_after_print` es GLOBAL por `kind` (y `create_batch` mete al lote toda
+# pendiente): misma fixture que `TestLotes`.
+@pytest.mark.usefixtures("sin_constancias_de_dev")
 class TestVoidedAfterPrint:
     def test_trae_las_con_lote_mas_recientes_primero(self, db_session, escenario, actor):
         proc = escenario["process"]

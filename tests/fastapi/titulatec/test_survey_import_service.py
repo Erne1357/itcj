@@ -92,6 +92,15 @@ def _certs_de_proceso(db, process_id):
     return db.query(Certificate).filter_by(process_id=process_id).all()
 
 
+def _cuenta_certs(db, *procesos):
+    """Folios de LOS procesos sembrados por la prueba. Nunca el total de la
+    tabla: la BD de dev es compartida y cualquier escritor ajeno (otra
+    corrida, el backfill, la app) movería un `count()` global."""
+    from itcj2.apps.titulatec.models import Certificate
+    return (db.query(Certificate)
+            .filter(Certificate.process_id.in_([p.id for p in procesos])).count())
+
+
 def _answer(db, response_id, key):
     from itcj2.apps.titulatec.models import SurveyAnswer
     return db.query(SurveyAnswer).filter_by(response_id=response_id, field_key=key).one()
@@ -721,15 +730,13 @@ class TestFolios:
     def test_un_folio_por_fila_liberada_y_ninguno_por_las_demas(
             self, db_session, reloj, proceso, make_survey_review,
             make_survey_form):
-        from itcj2.apps.titulatec.models import Certificate
-
         a = proceso(control_number="99600201")
         b = proceso(control_number="99600202")
         c = proceso(control_number="99600203")            # vencida: guarda sin liberar
         d = proceso(control_number="99600204")            # conflicto: GTV decide
         make_survey_review(d, status="in_review")
         make_egresados_form(make_survey_form)   # el del import va DESPUÉS del de `make_survey_review`
-        antes = db_session.query(Certificate).count()
+        antes = _cuenta_certs(db_session, a, b, c, d)
 
         out = _importar(db_session, [
             fila(201, control="99600201"),
@@ -743,7 +750,7 @@ class TestFolios:
         assert _controles(out, "saved_unreleased") == ["99600203"]
         assert _controles(out, "conflicts") == ["99600204"]
         assert _controles(out, "deferred") == ["99600205"]
-        assert db_session.query(Certificate).count() == antes + 2
+        assert _cuenta_certs(db_session, a, b, c, d) == antes + 2
 
         reviews = [_review_svc().get_for_process(db_session, proc.id) for proc in (a, b)]
         folios = [_certs(db_session, review.id) for review in reviews]
@@ -755,27 +762,24 @@ class TestFolios:
         assert _certs_de_proceso(db_session, d.id) == []
 
     def test_dry_run_no_emite_folios(self, db_session, reloj, form, proceso):
-        from itcj2.apps.titulatec.models import Certificate
-
-        proceso(control_number="99600211")
-        antes = db_session.query(Certificate).count()
+        proc = proceso(control_number="99600211")
+        antes = _cuenta_certs(db_session, proc)
 
         out = _importar(db_session, [fila(211, control="99600211")], dry_run=True)
 
         assert _controles(out, "released") == ["99600211"]
-        assert db_session.query(Certificate).count() == antes
+        assert _cuenta_certs(db_session, proc) == antes
 
     def test_la_segunda_corrida_no_vuelve_a_emitir(self, db_session, reloj, form, proceso):
-        from itcj2.apps.titulatec.models import Certificate
-
-        proceso(control_number="99600212")
+        proc = proceso(control_number="99600212")
         _importar(db_session, [fila(212, control="99600212")])
-        despues_de_la_primera = db_session.query(Certificate).count()
+        despues_de_la_primera = _cuenta_certs(db_session, proc)
+        assert despues_de_la_primera == 1
 
         out = _importar(db_session, [fila(212, control="99600212")])
 
         assert _controles(out, "already_imported") == ["99600212"]
-        assert db_session.query(Certificate).count() == despues_de_la_primera
+        assert _cuenta_certs(db_session, proc) == despues_de_la_primera
 
 
 def test_prior_clearance_paper_pending_exige_true_literal(
