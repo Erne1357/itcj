@@ -472,8 +472,15 @@ def _approve_notice(db, req, detail: str):
     return None
 
 
+def _filters_from(form) -> dict:
+    """Los filtros de la bandeja que viajan en cada formulario de fila
+    (`tab_fields`): una acción re-pinta con la MISMA carrera y el MISMO año."""
+    return {"program": form.get("program"), "year": form.get("year")}
+
+
 def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
-              requested_id: int | None = None, per_page: int = PAGE_SIZE):
+              requested_id: int | None = None, per_page: int = PAGE_SIZE,
+              program=None, year=None):
     """Contexto del parcial. Distingue los DOS vacíos (riesgo 3 del diseño).
 
     Paginado (spec 2026-10-04 §4): `page` es un `Page` cuyas `items` son las
@@ -483,6 +490,17 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
     `tab_counts` = solicitudes por pestaña con el MISMO alcance, convocatoria
     y búsqueda que la lista (un `GROUP BY status`); los KPIs (`stats()`) siguen
     siendo el universo sin pestaña, sin búsqueda y sin página.
+
+    Filtros (2026-10-06): `program` (Carrera) y `year` (Año de ingreso, el
+    `slug` de `by_year`), con nombres propios porque `program_id` ya es la
+    carrera que se elige al APROBAR. Se normalizan contra las opciones que la
+    plantilla ofrece, como `status`: una carrera fuera del alcance (o que no
+    existe) o un año que no aparece cae a «todas», nunca amplía nada.
+    - La carrera acota TODO como si fuera el alcance: KPIs, «Por año de
+      ingreso», contadores de pestaña y lista.
+    - El año acota la lista y los contadores de pestaña (como `q`); KPIs y
+      «Por año de ingreso» siguen siendo el universo de la carrera, así que el
+      bloque por año muestra todos los años.
 
     «¿Tiene cuenta?» se calcula aquí igual que en `approve()`: el número de
     control contra `core_users`, HOY, y solo si casa `CONTROL_NUMBER_RE` (la
@@ -504,6 +522,7 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         APPROVAL_LABELS, EnrollmentRequestService, enrollment_request_search,
+        entry_year_filter,
     )
     from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
@@ -533,7 +552,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
            "link_days": EnrollmentRequestService.link_ttl_days(),
            "kpis": {"total": 0, "review": 0, "access": 0, "sent": 0, "converted": 0,
                     "rejected": 0},
-           "by_year": [], "year_max": 0, "years_summary": None}
+           "by_year": [], "year_max": 0, "years_summary": None,
+           # Filtros (ya normalizados abajo): `program_filter` es el id o None,
+           # `year_filter` el `slug` de `by_year` o "". `scope_all` cambia el
+           # texto de la opción vacía («Todas las carreras» / «Todas mis carreras»).
+           "program_filter": None, "year_filter": "", "scope_all": scope == "ALL"}
 
     if scope != "ALL" and not scope:
         # Conjunto vacío = no ve nada, EN SILENCIO. Se marca explícitamente para
@@ -547,35 +570,51 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
         ctx["can_revoke"] = _CANCEL[0] in cached_perms(
             db, user_id, "titulatec")
 
-    # KPIs y "por año de ingreso": MISMO alcance y convocatoria que el listado de
-    # abajo, pero sin filtro de pestaña, sin búsqueda y sin paginar — es el
-    # universo completo, no la página visible.
-    stats = EnrollmentRequestService.stats(db, scope=scope, cohort_id=cohort_id)
-    ctx["kpis"] = stats["counts"]
-    ctx["by_year"] = stats["by_year"]
-    ctx["year_max"] = stats["year_max"]
-    ctx["years_summary"] = stats["summary"]
-
     # El <select> del formulario de aprobar solo puede ofrecer carreras que la
-    # ruta vaya a aceptar (Finding 1, ronda 1 de revisión).
+    # ruta vaya a aceptar (Finding 1, ronda 1 de revisión). Es también la lista
+    # del filtro «Carrera»: lo que no está aquí no se puede filtrar.
     programs_q = db.query(Program).order_by(Program.name)
     if scope != "ALL":
         programs_q = programs_q.filter(Program.id.in_(scope))
     programs = [{"id": p.id, "name": p.name} for p in programs_q.all()]
     ctx["programs"] = programs
 
+    # Filtro «Carrera»: solo una de las opciones; acota todo como el alcance.
+    eff_scope = scope
+    pid = _to_int(program)
+    if pid is not None and any(p["id"] == pid for p in programs):
+        ctx["program_filter"] = pid
+        eff_scope = {pid}
+
+    # KPIs y "por año de ingreso": MISMO alcance (y carrera) y convocatoria que
+    # el listado de abajo, pero sin filtro de pestaña, sin búsqueda, sin año y
+    # sin paginar — es el universo completo, no la página visible.
+    stats = EnrollmentRequestService.stats(db, scope=eff_scope, cohort_id=cohort_id)
+    ctx["kpis"] = stats["counts"]
+    ctx["by_year"] = stats["by_year"]
+    ctx["year_max"] = stats["year_max"]
+    ctx["years_summary"] = stats["summary"]
+
+    # Filtro «Año de ingreso»: solo un año que el bloque de arriba cuenta (sus
+    # `slug`), así el filtro y el conteo salen de la misma regla (`entry_year`).
+    year_value = next((y["year"] for y in ctx["by_year"] if y["slug"] == year), None)
+    if year_value is not None:
+        ctx["year_filter"] = year
+
     # Alcance + convocatoria + búsqueda: lo comparten la lista y el contador por
     # pestaña (el alcance se aplica ANTES de contar y paginar, §3.3).
     base = db.query(EnrollmentRequest)
-    if scope != "ALL":
+    if eff_scope != "ALL":
         # Una solicitud sin `program_id` (carrera en texto libre) solo la ve
         # quien tiene alcance total: resolverla es justo lo que hace el jefe.
-        base = base.filter(EnrollmentRequest.program_id.in_(scope))
+        base = base.filter(EnrollmentRequest.program_id.in_(eff_scope))
     if cohort_id:
         base = base.filter(EnrollmentRequest.cohort_id == cohort_id)
     search = enrollment_request_search(q)
     if search is not None:
         base = base.filter(search)
+    if year_value is not None:
+        base = base.filter(entry_year_filter(EnrollmentRequest.control_number, year_value))
 
     # Contador por pestaña (D7): un GROUP BY status sobre el mismo universo.
     by_status = dict(base.with_entities(EnrollmentRequest.status, func.count())
@@ -771,13 +810,14 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
 
 @router.get("", name="titulatec.pages.requests.list")
 def list_requests(request: Request, status: str = "", cohort_id: str = "",
-                  q: str = "", page: str = "",
+                  q: str = "", page: str = "", program: str = "", year: str = "",
                   user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), status=status,
-                        cohort_id=_to_int(cohort_id), q=q, page=page)
+                        cohort_id=_to_int(cohort_id), q=q, page=page,
+                        program=program, year=year)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/requests.html", ctx)
@@ -785,14 +825,15 @@ def list_requests(request: Request, status: str = "", cohort_id: str = "",
 
 @router.get("/body", name="titulatec.pages.requests.body")
 def body(request: Request, status: str = "", cohort_id: str = "",
-         q: str = "", page: str = "",
+         q: str = "", page: str = "", program: str = "", year: str = "",
          user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), status=status,
-                        cohort_id=_to_int(cohort_id), q=q, page=page)
+                        cohort_id=_to_int(cohort_id), q=q, page=page,
+                        program=program, year=year)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -887,7 +928,7 @@ def _cuerpo_approve(req_id, request, user, form):
             db.refresh(req)
             aviso = _approve_notice(db, req, result.detail)
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -945,7 +986,7 @@ def _cuerpo_reject(req_id, request, user, form):
                 "X-Tt-Error": _hdr("Esa solicitud ya se resolvió.")})
         en_cola = req_id in StudentMail.queued_requests(db, [req_id])
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -991,7 +1032,7 @@ def _cuerpo_reopen(req_id, request, user, form):
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detalle)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -1036,7 +1077,7 @@ def _cuerpo_resend(req_id, request, user, form):
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -1082,7 +1123,7 @@ def _cuerpo_resend_notice(req_id, request, user, form):
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(detail)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -1140,7 +1181,7 @@ def _cuerpo_reconsultar(req_id, request, user, form):
             return Response(status_code=400,
                             headers={"X-Tt-Error": _hdr(_MSG_RECHECK_NOT_QUEUED)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page, requested_id=req.id)
+                        q=tab_q, page=tab_page, **_filters_from(form), requested_id=req.id)
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
@@ -1197,7 +1238,7 @@ def _cuerpo_revocar(req_id, request, user, form):
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
-                        q=tab_q, page=tab_page)
+                        q=tab_q, page=tab_page, **_filters_from(form))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)

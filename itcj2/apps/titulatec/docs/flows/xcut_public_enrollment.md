@@ -622,6 +622,17 @@ Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §4. Quita el tope
 
 **Medido (EXPLAIN ANALYZE, dev, 2026-10-04)**: bandeja «Por revisar» 0.27 ms (consulta de la página) y ≤0.04 ms con `q`; contadores ≤0.02 ms. La base de dev es chica (4 solicitudes, 2 procesos): el plan es `Seq Scan` y el tiempo no extrapola a producción; con volumen real, la búsqueda `ILIKE '%...%'` no usa índice (aceptado, ver spec). Sin índices ni migración en este cambio.
 
+### Filtros «Carrera» y «Año de ingreso» (2026-10-06)
+
+Junto a la búsqueda, en `#tt-req-filters`: dos `<select>` (`#tt-req-program`, `#tt-req-year`) con `hx-get` a `/body` + `hx-include="#tt-req-filters"`; cambiar uno vuelve a `page=1`. Todo en servidor (la bandeja pagina).
+
+- **Parámetros** nuevos de `GET /admin/solicitudes[/body]`: `program` (id de carrera) y `year` (el `slug` de una ficha de «Por año de ingreso»: `2018`, … o `sin-anio`). Nombres propios: `program_id` ya es la carrera que se elige al APROBAR, en el mismo formulario de fila.
+- **Carrera con alcance**: las opciones son `programs`, las MISMAS que acepta aprobar (`core_programs` acotado por `officer_programs`). La jefatura ve «Todas las carreras» y cualquiera; un encargado, «Todas mis carreras» y solo las suyas. `_body_ctx` normaliza: una carrera fuera de las opciones (ajena, inexistente, basura) cae a «todas», nunca amplía el alcance.
+- **Año de ingreso con la regla del bloque**: el año sale del número de control con `entry_year` (letra opcional + 2 dígitos, pivote sobre el año actual); en SQL lo aplica `entry_year_filter` (`services/enrollment_request_service.py`, `substring(control_number, '^\s*[A-Za-z]?([0-9]{2})')`), así filtro y conteo no discrepan (lo fija `test_requests_filters.py::test_el_filtro_sql_casa_con_entry_year_en_cada_control`). Opciones = los años del bloque; uno que no aparece cae a «todos».
+- **Qué acota cada uno**: la carrera acota TODO como si fuera el alcance (KPIs, «Por año de ingreso», contadores de pestaña y lista). El año acota la lista y los contadores de pestaña, como `q`; KPIs y el bloque «Por año de ingreso» siguen mostrando el universo de la carrera, con todos sus años.
+- **Viajan** como `q`: en `tab_fields` (campos ocultos `program`/`year` de cada formulario de fila: aprobar, rechazar, cancelar, reenviar, reenviar aviso, reconsultar, revocar y deshacer rechazo; `_filters_from(form)` en cada `_cuerpo_*`), en los links de pestaña (`qs_filters`) y en el pager (`hx-include`). Una acción de fila re-pinta con la misma carrera y el mismo año.
+- «Rechazada antes» sigue usando el alcance REAL del oficial, no la carrera del filtro: un antecedente en otra de sus carreras se sigue anunciando.
+
 ## Flujos relacionados
 
 - ⤵ [Alcance por carrera + encargados](engine_officer_scope.md) — quién ve y resuelve cada solicitud.

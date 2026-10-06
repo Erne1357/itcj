@@ -70,6 +70,15 @@
    pestaña lleva su contador (`tab_counts`: mismo alcance, convocatoria y
    búsqueda que la lista). `EnrollmentRequestService
    .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
+   Filtros (2026-10-06) en `#tt-req-filters`, junto a la búsqueda: «Carrera»
+   (`program`; opciones = `programs`, las del alcance, con «Todas las carreras»
+   o «Todas mis carreras» según `scope_all`) y «Año de ingreso» (`year`; los
+   `slug` de `by_year`). Nombres propios: `program_id` es la carrera que se
+   elige al aprobar. Viajan como `q`: en `tab_fields`, en los links de
+   pestaña (`qs_filters`) y en el pager (`hx-include`); cambiar uno vuelve a
+   la página 1. La carrera acota TODO (KPIs, «Por año de ingreso», pestañas y
+   lista); el año, solo pestañas y lista. `_body_ctx` los normaliza: fuera de
+   las opciones = «todas».
    Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
    `rejection_sent_at` —o la neutra «en cola» mientras su correo siga
    `pending` en el outbox (`r.rejection_queued`, spec 2026-10-05 §3.7)—,
@@ -83,9 +92,13 @@
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
 <input type="hidden" name="page" value="{{ page_no }}">
 <input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="program" value="{{ program_filter or '' }}">
+<input type="hidden" name="year" value="{{ year_filter }}">
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 {%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
+{%- set qs_filters = (('&program=' ~ program_filter) if program_filter else '')
+                     ~ (('&year=' ~ (year_filter | urlencode)) if year_filter else '') %}
 <div id="tt-requests-body" data-tt-view="requests-body">
 
   {% if not can_act %}
@@ -186,6 +199,27 @@
              hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
              hx-include="#tt-req-filters">
     </div>
+    {# Carrera: solo las del alcance (las mismas que acepta aprobar); la opción
+       vacía es «todas» — las de la jefatura o las del encargado. #}
+    <select id="tt-req-program" name="program" class="tt-field tt-field--xs"
+            aria-label="Filtrar por carrera"
+            hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-req-filters">
+      <option value="">{{ 'Todas las carreras' if scope_all else 'Todas mis carreras' }}</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}"{% if program_filter == p.id %} selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    {# Año de ingreso: los años que cuenta «Por año de ingreso» (misma regla). #}
+    <select id="tt-req-year" name="year" class="tt-field tt-field--xs"
+            aria-label="Filtrar por año de ingreso"
+            hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-req-filters">
+      <option value="">Todos los años</option>
+      {% for y in by_year %}
+      <option value="{{ y.slug }}"{% if year_filter == y.slug %} selected{% endif %}>{{ y.year }}</option>
+      {% endfor %}
+    </select>
   </div>
   {% endif %}
 
@@ -194,7 +228,7 @@
     <button id="tt-req-tab-{{ key }}" type="button"
             class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
             {% if status == key %}aria-current="true"{% endif %}
-            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}"
+            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}{{ qs_filters }}"
             hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
     {% endfor %}
   </div>

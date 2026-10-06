@@ -211,6 +211,34 @@ def entry_year(control: str | None, today: date | None = None) -> str:
     return str(2000 + yy if yy <= pivote else 1900 + yy)
 
 
+# La MISMA lectura que `_ENTRY_YEAR_RE`, en el dialecto de Postgres: el `\s*`
+# hace lo que el `.strip()` de `entry_year` (un espacio al frente no cambia el
+# año). `[0-9]` y no `\d`: los controles reales son ASCII (`CONTROL_NUMBER_RE`).
+_ENTRY_YEAR_SQL = r"^\s*[A-Za-z]?([0-9]{2})"
+
+
+def entry_year_filter(column, year: str | None, today: date | None = None):
+    """Predicado SQL «`entry_year(column) == year`», o `None` si `year` no sirve.
+
+    El filtro «Año de ingreso» de la bandeja: va en la consulta (la bandeja
+    pagina), con la MISMA regla que `entry_year`, que es la que cuenta el bloque
+    «Por año de ingreso» — si se separan, el filtro y el conteo discrepan
+    (lo fija `test_requests_filters.py`). `year` es un año de 4 dígitos que el
+    pivote de hoy produzca (con hoy=2026, «2090» no existe: 90 se lee 1990) o
+    `"Sin año"` (control que no empieza con 2 dígitos tras la letra opcional).
+    """
+    from sqlalchemy import func, not_, or_
+
+    if year == "Sin año":
+        return or_(column.is_(None), not_(column.op("~")(_ENTRY_YEAR_SQL)))
+    if not (isinstance(year, str) and len(year) == 4 and year.isascii() and year.isdigit()):
+        return None
+    yy = f"{int(year) % 100:02d}"
+    if entry_year(yy, today) != year:
+        return None
+    return func.substring(column, _ENTRY_YEAR_SQL) == yy
+
+
 def enrollment_request_search(q):
     """Predicado de búsqueda sobre `EnrollmentRequest`, o `None` sin búsqueda.
 
