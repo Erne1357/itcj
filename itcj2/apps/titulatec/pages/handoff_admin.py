@@ -112,9 +112,9 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
 
 
 @router.get("", name="titulatec.pages.handoff.list")
-async def list_released(request: Request, cohort_id: str = "", program_id: str = "",
-                        modality_id: str = "", q: str = "", page: str = "1",
-                        user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_released(request: Request, cohort_id: str = "", program_id: str = "",
+                  modality_id: str = "", q: str = "", page: str = "1",
+                  user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -127,9 +127,9 @@ async def list_released(request: Request, cohort_id: str = "", program_id: str =
 
 
 @router.get("/body", name="titulatec.pages.handoff.body")
-async def body(request: Request, cohort_id: str = "", program_id: str = "",
-               modality_id: str = "", q: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, cohort_id: str = "", program_id: str = "",
+         modality_id: str = "", q: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la pagina: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -143,9 +143,9 @@ async def body(request: Request, cohort_id: str = "", program_id: str = "",
 
 
 @router.get("/export.csv", name="titulatec.pages.handoff.export")
-async def export(request: Request, cohort_id: str = "", program_id: str = "",
-                 modality_id: str = "", q: str = "",
-                 user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+def export(request: Request, cohort_id: str = "", program_id: str = "",
+           modality_id: str = "", q: str = "",
+           user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
     """CSV de todos los liberados que caen en el alcance + filtros del actor.
 
     Las celdas se escapan con `escape_formula` (services/survey_service.py,

@@ -137,8 +137,8 @@ _EXTRA_LABELS = {
 
 
 @router.get("", name="titulatec.pages.surveys.list")
-async def list_responses(request: Request, form_id: str = "", page: str = "1",
-                         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_responses(request: Request, form_id: str = "", page: str = "1",
+                   user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -149,8 +149,8 @@ async def list_responses(request: Request, form_id: str = "", page: str = "1",
 
 
 @router.get("/body", name="titulatec.pages.surveys.body")
-async def body(request: Request, form_id: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, form_id: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -162,8 +162,8 @@ async def body(request: Request, form_id: str = "", page: str = "1",
 
 
 @router.get("/export.csv", name="titulatec.pages.surveys.export")
-async def export(request: Request, form_id: str = "",
-                 user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+def export(request: Request, form_id: str = "",
+           user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
     """CSV de todas las respuestas del formulario.
 
     Las celdas ya vienen escapadas contra inyección de fórmulas desde
@@ -200,8 +200,8 @@ async def export(request: Request, form_id: str = "",
 
 
 @router.get("/{response_id}", name="titulatec.pages.surveys.detail")
-async def detail(response_id: int, request: Request,
-                 user: dict = Depends(require_page_app("titulatec", perms=_READ))):
+def detail(response_id: int, request: Request,
+           user: dict = Depends(require_page_app("titulatec", perms=_READ))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import SurveyAnswer, SurveyForm, SurveyResponse
