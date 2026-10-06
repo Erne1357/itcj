@@ -1320,6 +1320,7 @@ _BACK_LABELS = (
     ("/titulatec/admin/appointments", "Citas de cotejo"),
     ("/titulatec/admin/cohorts", "Convocatoria"),
     ("/titulatec/admin/processes", "Procesos"),
+    ("/titulatec/admin/correos", "Correos"),
 )
 _BACK_DEFAULT = "/titulatec/admin/processes"
 
