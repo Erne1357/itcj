@@ -7,8 +7,10 @@ from fastapi import APIRouter, Depends, File, Form, Path, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 
 from itcj2.dependencies import require_page_app
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 from itcj2.apps.titulatec.pages.nav import render_titulatec, get_titulatec_roles
 from itcj2.core.utils.security import hash_nip
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.admin")
 
@@ -143,6 +145,29 @@ def _window_ctx(db, cohort, *, can_edit: bool) -> dict:
     }
 
 
+def _donation_ctx(cohort, *, can_edit: bool) -> dict:
+    """Contexto del parcial `cohort/cohort_donation.html` (D5, spec 2026-10-
+    01-titulatec-biblioteca-caja-design.md §4.9).
+
+    `amount_raw` precarga el campo del editor en formato de captura
+    («800.00»), vacío si la convocatoria no tiene donación capturada (legado
+    antes de esta tarea: el alta ya la exige, D19). `amount_label` es la
+    lectura de solo lectura (`format_amount`, «Sin capturar» si es `None`).
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
+
+    amount = cohort.book_donation_amount
+    return {
+        "cohort_id": cohort.id,
+        "donation": {
+            "amount_raw": (f"{amount:.2f}" if amount is not None else ""),
+            "amount_label": (format_amount(amount) if amount is not None
+                             else "Sin capturar"),
+        },
+        "can_edit_donation": can_edit,
+    }
+
+
 def _cohort_summary_ctx(db, cohort) -> dict:
     from itcj2.apps.titulatec.models import TitulationProcess, ReviewAppointment, PhaseDefinition
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -269,7 +294,7 @@ def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
 
 
 @router.get("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.cohort_students")
-async def cohort_students(
+def cohort_students(
     cohort_id: int,
     request: Request,
     q: str = "",
@@ -288,8 +313,8 @@ async def cohort_students(
 
 
 @router.get("/cohorts/{cohort_id}/students/lookup", name="titulatec.pages.admin.student_lookup")
-async def student_lookup(cohort_id: int, request: Request, control: str = "",
-                         user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def student_lookup(cohort_id: int, request: Request, control: str = "",
+                   user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
     # MAYÚSCULA antes de buscar: el lookup es un filter_by exacto y una letra
@@ -308,8 +333,8 @@ async def student_lookup(cohort_id: int, request: Request, control: str = "",
 
 
 @router.get("/cohorts/{cohort_id}/students/cancel", name="titulatec.pages.admin.student_add_cancel")
-async def student_add_cancel(cohort_id: int, request: Request,
-                            user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def student_add_cancel(cohort_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     """Restaura el botón colapsado del alta manual (#student-add)."""
     return render_titulatec(request, "titulatec/partials/cohort_student_addbtn.html", {"cohort_id": cohort_id})
 
@@ -317,11 +342,17 @@ async def student_add_cancel(cohort_id: int, request: Request,
 @router.post("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.student_add")
 async def student_add(cohort_id: int, request: Request,
                       user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"]))):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_student_add, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_student_add(cohort_id, request, user, form):
+    """Cuerpo síncrono de `student_add`: corre en el threadpool, no en el event loop."""
     from fastapi.responses import Response
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.models.user import User
-    form = dict(await request.form())
     # MAYÚSCULA antes de buscar/crear: `_add_student` -> `ImportService.
     # import_rows` hace el merge con un filter_by exacto, y una letra en
     # minúscula duplicaría la cuenta en vez de encontrar/adjuntar la existente.
@@ -346,8 +377,8 @@ async def student_add(cohort_id: int, request: Request,
 
 
 @router.get("/cohorts/{cohort_id}/review-days", name="titulatec.pages.admin.review_days")
-async def review_days(cohort_id: int, request: Request, month: str = "",
-                      user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+def review_days(cohort_id: int, request: Request, month: str = "",
+                user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
     from itcj2.database import SessionLocal
     y, m = _month_arg(month)
     db = SessionLocal()
@@ -361,10 +392,16 @@ async def review_days(cohort_id: int, request: Request, month: str = "",
 @router.post("/cohorts/{cohort_id}/review-days/toggle", name="titulatec.pages.admin.review_days_toggle")
 async def review_days_toggle(cohort_id: int, request: Request,
                              user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_review_days_toggle, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_review_days_toggle(cohort_id, request, user, form):
+    """Cuerpo síncrono de `review_days_toggle`: corre en el threadpool, no en el event loop."""
     from datetime import datetime
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    form = dict(await request.form())
     month = form.get("month") or ""
     try:
         day = datetime.strptime(form.get("date", ""), "%Y-%m-%d").date()
@@ -394,7 +431,7 @@ _ROLE_LABELS = {
 
 
 @router.get("/", name="titulatec.pages.admin.home")
-async def home(
+def home(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=[
         "titulatec.dashboard.titulaciones",
@@ -432,16 +469,17 @@ async def home(
 # ===========================================================================
 
 @router.get("/cohorts", name="titulatec.pages.admin.cohorts")
-async def cohorts(
+def cohorts(
     request: Request,
     error: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
 ):
-    """Lista de convocatorias + alta (período académico y ventana).
+    """Lista de convocatorias + alta (período académico, ventana y donación).
 
-    `?error=ventana` lo pone `cohort_create` cuando la ventana del alta no
-    sirve: la página pinta el aviso y deja el formulario desplegado. Cualquier
-    otro valor se ignora.
+    `?error=ventana` / `?error=donacion` los pone `cohort_create` cuando la
+    ventana o la donación del alta no sirven: la página pinta el aviso que
+    corresponda y deja el formulario desplegado. Cualquier otro valor se
+    ignora.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort, TitulationProcess
@@ -472,21 +510,23 @@ async def cohorts(
     return render_titulatec(request, "titulatec/admin/cohorts.html", {
         "cohorts": rows, "periods": periods, "kpis": kpis,
         "window_error": error == "ventana",
+        "donation_error": error == "donacion",
     })
 
 
 @router.post("/cohorts", name="titulatec.pages.admin.cohort_create")
-async def cohort_create(
+def cohort_create(
     request: Request,
     period_id: int = Form(...),
     opens_date: str = Form(""),
     opens_time: str = Form(""),
     closes_date: str = Form(""),
     closes_time: str = Form(""),
+    book_donation: str = Form(""),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.create"])),
 ):
-    """Alta de convocatoria: nace en `draft`, con su ventana y su lista de
-    requisitos.
+    """Alta de convocatoria: nace en `draft`, con su ventana, su donación y su
+    lista de requisitos.
 
     * **`status='draft'`, no `'open'`.** Toda convocatoria nacía abierta con
       `opens_at`/`closes_at` en NULL, así que el predicado de "convocatoria
@@ -498,6 +538,14 @@ async def cohort_create(
       ventana inventada por el servidor sería una fecha que nadie decidió.
       Si no sirve: 303 a `?error=ventana` ANTES de abrir sesión, sin crear
       nada; la lista pinta el aviso.
+    * **La donación voluntaria de libro es OBLIGATORIA al alta** (D19, spec
+      2026-10-01-titulatec-biblioteca-caja-design.md §4.9): sin ella,
+      Biblioteca no podría pasar ni un caso a Caja
+      (`LibraryClearanceService._prepare_registration`). `parse_amount` valida
+      el formato y el tope (0 a $100,000, mismas reglas que Biblioteca/Caja);
+      inválida o vacía: 303 a `?error=donacion`, ANTES de abrir sesión, igual
+      que la ventana —se revisa DESPUÉS de la ventana, así que un alta con las
+      dos cosas mal vuelve con el aviso de ventana primero.
     * **Siembra los requisitos de cotejo en la MISMA transacción.** `list_or_seed`
       es perezoso y solo se dispararía desde una página gateada por la fase 2:
       un alumno en fase 1 que contesta la encuesta no tendría requisito que
@@ -508,12 +556,17 @@ async def cohort_create(
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
+    from itcj2.apps.titulatec.services.library_clearance_service import parse_amount
     from itcj2.core.models.academic_period import AcademicPeriod
 
     apertura = _parse_window_dt(opens_date, opens_time, default=_OPENS_DEFAULT_TIME)
     cierre = _parse_window_dt(closes_date, closes_time, default=_CLOSES_DEFAULT_TIME)
     if apertura is None or cierre is None or cierre <= apertura:
         return RedirectResponse("/titulatec/admin/cohorts?error=ventana", status_code=303)
+    try:
+        donacion = parse_amount(book_donation)
+    except ValueError:
+        return RedirectResponse("/titulatec/admin/cohorts?error=donacion", status_code=303)
 
     db = SessionLocal()
     try:
@@ -524,6 +577,7 @@ async def cohort_create(
                 name=f"Convocatoria Titulación {period.code if period else period_id}",
                 status="draft", created_by_id=int(user["sub"]),
                 opens_at=apertura, closes_at=cierre,
+                book_donation_amount=donacion,
             )
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
@@ -535,18 +589,18 @@ async def cohort_create(
 
 
 @router.get("/cohorts/{cohort_id}", name="titulatec.pages.admin.cohort_detail")
-async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
-                        user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
+                  user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
     tab = tab if tab in ("resumen", "dias", "alumnos", "importar", "cotejo") else "resumen"
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
         if not cohort:
             return Response(status_code=404)
-        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
         ctx = {"cohort": cohort.to_dict(), "cohort_id": cohort_id, "tab": tab,
                "can_edit_days": "titulatec.cohort.api.review_days" in perms,
                "window_header": {"opens": _fecha_hora(cohort.opens_at),
@@ -555,6 +609,8 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx["summary"] = _cohort_summary_ctx(db, cohort)
             ctx.update(_window_ctx(
                 db, cohort, can_edit="titulatec.cohort.api.update" in perms))
+            ctx.update(_donation_ctx(
+                cohort, can_edit="titulatec.cohort.api.update" in perms))
         elif tab == "importar":
             pass  # el wizard de importación se sirve con el cohort ya en ctx
         elif tab == "dias":
@@ -565,9 +621,9 @@ async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
             ctx.update(_students_ctx(db, cohort_id, q="", phase=None, page=1))
         elif tab == "cotejo":
             # `_cotejo_reqs_ctx` vuelve a pedir los permisos (ya están en `perms`
-            # de arriba), pero `get_user_permissions_for_app` va por el caché de
-            # authz y la ruta suelta necesita el helper autocontenido: se deja la
-            # llamada tal cual para que el editor tenga UNA sola forma de armarse.
+            # de arriba), pero `cached_perms` es una lectura de Redis y la ruta
+            # suelta necesita el helper autocontenido: se deja la llamada tal
+            # cual para que el editor tenga UNA sola forma de armarse.
             ctx.update(_cotejo_reqs_ctx(db, cohort_id, int(user["sub"])))
     finally:
         db.close()
@@ -616,9 +672,9 @@ def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
-    perms = get_user_permissions_for_app(db, user_id, "titulatec")
+    perms = cached_perms(db, user_id, "titulatec")
     reqs = CotejoRequirementService.list(db, cohort_id, active_only=False)
     return {
         "reqs": reqs,
@@ -629,7 +685,7 @@ def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
 
 
 @router.get("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_reqs")
-async def cotejo_reqs(
+def cotejo_reqs(
     cohort_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
@@ -655,13 +711,19 @@ async def cotejo_req_create(
     sanitiza el servicio. Excederse del tope es 400 + `X-Tt-Error` sin escribir
     nada: htmx no swappea en 4xx, así que el editor conserva lo escrito.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cotejo_req_create, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_cotejo_req_create(cohort_id, request, user, form):
+    """Cuerpo síncrono de `cotejo_req_create`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
-    form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
@@ -706,13 +768,20 @@ async def cotejo_req_update(
     formulario sin editor —una pestaña abierta antes de este cambio— no borra la
     información. Excederse del tope es 400 + `X-Tt-Error` sin escribir nada.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cotejo_req_update, cohort_id=cohort_id, rid=rid, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_cotejo_req_update(cohort_id, rid, request, user, form):
+    """Cuerpo síncrono de `cotejo_req_update`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
-    form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
@@ -743,7 +812,7 @@ async def cotejo_req_update(
 
 @router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/delete",
              name="titulatec.pages.admin.cotejo_req_delete")
-async def cotejo_req_delete(
+def cotejo_req_delete(
     cohort_id: int,
     rid: int,
     request: Request,
@@ -787,7 +856,7 @@ async def cotejo_req_delete(
 
 
 @router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
-async def cohort_window(
+def cohort_window(
     cohort_id: int,
     request: Request,
     status: str = Form(...),
@@ -833,7 +902,7 @@ async def cohort_window(
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cohort_service import CohortService
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
     from itcj2.apps.titulatec.models import Cohort
 
     db = SessionLocal()
@@ -875,7 +944,7 @@ async def cohort_window(
             # transacción de Postgres, nunca en el `except` entero.
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
 
-        perms = get_user_permissions_for_app(db, int(user["sub"]), "titulatec")
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
         ctx = _window_ctx(db, cohort,
                           can_edit="titulatec.cohort.api.update" in perms)
     finally:
@@ -891,6 +960,66 @@ async def cohort_window(
     resp = render_titulatec(request, "titulatec/partials/cohort/cohort_window.html", ctx)
     resp.headers["X-Tt-Notice"] = _hdr(aviso)
     resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
+
+
+@router.post("/cohorts/{cohort_id}/donacion", name="titulatec.pages.admin.cohort_donation")
+def cohort_donation(
+    cohort_id: int,
+    request: Request,
+    book_donation: str = Form(""),
+    user: dict = Depends(require_page_app("titulatec",
+                                          perms=["titulatec.cohort.api.update"])),
+):
+    """Edita la donación voluntaria de libro de la convocatoria (D5, spec
+    2026-10-01-titulatec-biblioteca-caja-design.md §4.9), desde el panel
+    Resumen.
+
+    UN SOLO código en `perms`, y el específico: mismo motivo que
+    `cohort_window` (`require_page_app` evalúa la lista como OR,
+    `dependencies.py:131`).
+
+    `parse_amount` valida formato y tope (0 a $100,000); inválido → 400 +
+    `X-Tt-Error`, sin tocar la convocatoria. `CohortService.set_book_donation`
+    es la dueña de la transacción (UN commit) y devuelve cuántos
+    `LibraryClearance` de esta convocatoria YA tienen un monto congelado
+    (Review Focus #2): ese número arma el aviso «N egresados ya tienen monto
+    asignado; no cambia para ellos (Biblioteca puede corregir)» cuando es > 0,
+    o «Donación guardada.» a secas si nadie se ve afectado.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.library_clearance_service import parse_amount
+    from itcj2.core.services.authz_cache import cached_perms
+
+    db = SessionLocal()
+    try:
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            return Response(status_code=404)
+        try:
+            monto = parse_amount(book_donation)
+            result = CohortService.set_book_donation(db, cohort_id, amount=monto)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
+        ctx = _donation_ctx(cohort, can_edit="titulatec.cohort.api.update" in perms)
+    finally:
+        db.close()
+
+    n = result["affected"]
+    if n:
+        aviso = (f"Donación guardada. {n} egresado{'s' if n != 1 else ''} ya "
+                f"tiene{'n' if n != 1 else ''} monto asignado; no cambia para "
+                "ellos (Biblioteca puede corregir).")
+    else:
+        aviso = "Donación guardada."
+
+    resp = render_titulatec(request, "titulatec/partials/cohort/cohort_donation.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "warning" if n else "success"
     return resp
 
 
@@ -955,7 +1084,7 @@ def _wizard_state(form):
 
 
 @router.get("/cohorts/{cohort_id}/import", name="titulatec.pages.admin.import_page")
-async def import_page(
+def import_page(
     cohort_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
@@ -981,10 +1110,16 @@ async def import_upload(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Sube el CSV, auto-detecta el mapeo y devuelve el parcial de preview (HTMX)."""
+    raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_import_upload, cohort_id=cohort_id, request=request, raw=raw)
+
+
+def _cuerpo_import_upload(cohort_id, request, raw):
+    """Cuerpo síncrono de `import_upload`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    raw = await archivo.read()
     token = secrets.token_hex(8)
     ImportService.save_temp(raw, token)
     headers, rows = ImportService.parse(raw)
@@ -1005,10 +1140,16 @@ async def import_revalidate(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Reaplica el mapeo (ajuste manual) y devuelve preview actualizado (HTMX)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_import_revalidate, cohort_id=cohort_id, request=request, form=form)
+
+
+def _cuerpo_import_revalidate(cohort_id, request, form):
+    """Cuerpo síncrono de `import_revalidate`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    form = dict(await request.form())
     token, mapping, overrides, excluded = _wizard_state(form)
     raw = ImportService.read_temp(token)
     if not raw:
@@ -1031,11 +1172,17 @@ async def import_commit(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Crea usuarios/procesos a partir de las filas editadas del preview (HTMX)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_import_commit, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_import_commit(cohort_id, request, user, form):
+    """Cuerpo síncrono de `import_commit`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    form = dict(await request.form())
     token, mapping, overrides, excluded = _wizard_state(form)
 
     # Las filas NO vienen del formulario: se releen del CSV temporal y se les
@@ -1071,8 +1218,6 @@ async def import_commit(
 # ===========================================================================
 # Bandeja de procesos + revisión (aprobar/rechazar documentos y fases)
 # ===========================================================================
-
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
 
 # Cómo se lee cada suceso del expediente. La voz es la del PERSONAL, no la del
 # alumno: en `pages/student.py` el mismo evento dice «Confirmaste tu asistencia»
@@ -1120,6 +1265,25 @@ _EVENT_UI = {
     "survey_review_approved":       ("GTV liberó la encuesta",    "patch-check",            "success"),
     "survey_review_rejected":       ("GTV dejó observaciones",    "chat-left-text",         "amber"),
     "survey_review_revoked":        ("Se revocó la liberación",   "arrow-counterclockwise", "amber"),
+    # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
+    "survey_review_prior":          ("Se liberó por constancia previa", "file-earmark-check", "success"),
+    "survey_paper_delivered":       ("Se entregó la constancia de liberación en papel", "file-earmark-check", "success"),
+    # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
+    "library_debt_registered":      ("Biblioteca registró el adeudo", "cash-coin",          "amber"),
+    "library_no_charge":            ("Biblioteca registró sin adeudo", "check2-square",     "success"),
+    "library_amount_corrected":     ("Biblioteca corrigió el monto", "pencil-square",       "amber"),
+    "library_payment_registered":   ("Caja registró el pago",     "cash-stack",             "success"),
+    "library_prior_registered":     ("Se registró una constancia previa", "file-earmark-check", "success"),
+    "library_payment_reverted":     ("Caja revirtió el pago",     "arrow-counterclockwise", "amber"),
+    "library_clearance_reverted":   ("Biblioteca revirtió la liberación", "arrow-counterclockwise", "amber"),
+    "library_prior_undone":         ("Se deshizo la constancia previa", "arrow-counterclockwise", "amber"),
+    # «Con observaciones» (spec 2026-10-05 §3.4), gemelos de `survey_review_
+    # rejected`/`_revoked`. El motivo viaja en `reason` y `_evento_detalle` lo
+    # pinta; el de rehabilitar guarda el anterior como `previous_reason`, que
+    # a propósito no se repite (ya está en su `library_observed`).
+    "library_observed":             ("Biblioteca registró observaciones", "chat-left-text", "amber"),
+    "library_reenabled":            ("Biblioteca lo rehabilitó",  "arrow-clockwise",        "neutral"),
 }
 
 # Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la
@@ -1134,6 +1298,12 @@ _MAIL_STATUS_UI = {
     "no_recipient": ("Sin correo personal",  "amber"),
     "obsolete":     ("Ya no aplicaba",       "neutral"),
 }
+# `no_recipient` dice a QUÉ buzón le faltó, y eso depende del tipo: los correos
+# del proceso van SOLO al personal («Sin correo personal», arriba), pero los de
+# inscripción (`ENROLLMENT_KINDS`) van al institucional (folio, «ya inscrito»)
+# o a los dos (revocación) -`mail_dispatch._destinatarios_inscripcion`-, así
+# que ahí la píldora no nombra un buzón que quizá ni era el destino.
+_SIN_DESTINATARIO_INSCRIPCION = "Sin correo"
 
 # Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
 # nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
@@ -1198,6 +1368,7 @@ def _bitacora_correos(filas) -> list[dict]:
     expediente con un `KeyError` por una sola fila; test:
     `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`.
     """
+    from itcj2.apps.titulatec.models.email_outbox import ENROLLMENT_KINDS
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     entradas: list[dict] = []
@@ -1208,6 +1379,8 @@ def _bitacora_correos(filas) -> list[dict]:
             por_correo[llave]["n"] += 1
             continue
         etiqueta, tono = _MAIL_STATUS_UI.get(m.status, (m.status, "neutral"))
+        if m.status == "no_recipient" and m.kind in ENROLLMENT_KINDS:
+            etiqueta = _SIN_DESTINATARIO_INSCRIPCION
         enviado = m.status == "sent" and m.sent_at is not None
         entrada = {
             "id": m.id,
@@ -1318,8 +1491,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         PhaseDefinition, ProcessEvent, ProcessPhase, FormatB,
     )
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+    from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.track_service import TrackService
     from itcj2.apps.titulatec.utils import storage
 
     proc = db.get(TitulationProcess, process_id)
@@ -1330,6 +1505,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     modality = db.get(Modality, proc.modality_id) if proc.modality_id else None
     program = db.get(Program, proc.program_id) if proc.program_id else None
 
+    # Perfil del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # Tarea 4): licenciatura/"sin carrera" -> los 3 documentos de siempre;
+    # posgrado -> los 7. `program` ya está cargado arriba (para `program_name`),
+    # así que `for_level` reusa ese objeto en vez de que `TrackService.
+    # for_process` repita el `db.get(Program, ...)`.
+    track = TrackService.for_level(program.level if program else None)
+    initial_codes = DocumentService.initial_doc_types(track)
+
     # ---- catálogos y filas del proceso, por lote ----
     pdefs = (db.query(PhaseDefinition).filter_by(is_active=True)
              .order_by(PhaseDefinition.order_index).all())
@@ -1338,11 +1521,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # Sin `is_active`: si un tipo se desactiva, el documento ya subido tiene que
     # seguir mostrándose con su nombre y no con el código crudo.
     tipos = {t.code: t.name for t in db.query(DocumentType)
-             .filter(DocumentType.code.in_(_INITIAL_DOC_TYPES)).all()}
-    doc_names = {code: tipos.get(code, code) for code in _INITIAL_DOC_TYPES}
+             .filter(DocumentType.code.in_(initial_codes)).all()}
+    doc_names = {code: tipos.get(code, code) for code in initial_codes}
     docs_db = {d.type_code: d for d in db.query(Document)
                .filter(Document.process_id == process_id,
-                       Document.type_code.in_(_INITIAL_DOC_TYPES)).all()}
+                       Document.type_code.in_(initial_codes)).all()}
 
     eventos = (db.query(ProcessEvent).filter_by(process_id=process_id)
                .order_by(ProcessEvent.created_at, ProcessEvent.id).all())
@@ -1353,8 +1536,24 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                if actor_ids else {})
 
     # ---- documentos de la fase 1 (solo lectura) ----
+    # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5, invariante 8;
+    # Ruling R11, revisión final): `docs_db` YA es el lote completo (arriba),
+    # así que el `present_codes` de `excused_initial_docs` (predicado PURO,
+    # sin `db`) sale de ahí sin consulta extra. `initial_docs_phase` solo se
+    # pregunta si hace falta -- algún extra de posgrado sin fila -- para que
+    # un expediente de licenciatura (que nunca tiene codigos en
+    # `POSGRADO_EXTRA_DOCS`) no pague esa consulta.
+    present_codes = frozenset(docs_db.keys())
+    initial_docs_phase = None
+    if any(code in DocumentService.POSGRADO_EXTRA_DOCS and code not in present_codes
+           for code in initial_codes):
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        initial_docs_phase = PhaseService.phase_number_for_code(db, "initial_docs")
+    excused = DocumentService.excused_initial_docs(
+        proc, present_codes, initial_docs_phase=initial_docs_phase)
+
     docs = []
-    for code in _INITIAL_DOC_TYPES:
+    for code in initial_codes:
         doc = docs_db.get(code)
         # `missing` se resuelve EN EL SERVIDOR: un archivo que ya no está en
         # disco tiene que decirlo, no dejar un visor mudo.
@@ -1371,6 +1570,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                      "version": doc.version or 1,
                      "reviewed_by": actores.get(doc.reviewed_by_id)} if doc else None),
             "missing": bool(doc) and falta,
+            "excused": doc is None and code in excused,
             "view_url": f"/titulatec/admin/documents/{process_id}/document/{code}",
         })
     legibles = [d for d in docs if d["doc"] and not d["missing"]]
@@ -1481,9 +1681,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_dictaminar_fase = False
     can_dictaminar_fb = False
     can_revoke = False
+    can_register_prior = False
     if user_id is not None:
-        from itcj2.core.services.authz_service import get_user_permissions_for_app
-        _user_perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        from itcj2.core.services.authz_cache import cached_perms
+        _user_perms = cached_perms(db, user_id, "titulatec")
         # Sobre una inscripción revocada el checklist queda de solo lectura:
         # acreditarle un requisito ya no mueve nada.
         can_mark_reqs = ("titulatec.process.api.requirement.mark" in _user_perms
@@ -1498,6 +1699,13 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
                       and proc.status in ProcessService.REVOCABLE_STATUSES)
+        # Respaldo «Constancia previa…» / «Deshacer» (D9, spec 2026-10-01-
+        # titulatec-biblioteca-caja-design.md §4.9): mismo criterio que
+        # `can_mark_reqs` -sobre una inscripción revocada no hay nada que
+        # registrar-, pero con el permiso propio de SE
+        # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
+        can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
+                              and proc.status != "cancelled")
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -1517,6 +1725,33 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # DESPUÉS de su `db.close()`.
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process_id)
+
+    # Mismo trato para el no adeudo de biblioteca (D9, Tarea 11): dict plano
+    # de `LibraryClearanceService.summary_for_process`, MISMA fuente que el
+    # panel de atender (`pages/appointments.py::_detail_ctx`). `format_amount`
+    # va al contexto -no como texto ya formado- porque la fila también pinta
+    # el desglose del recibo/certificado, que varía según `via`.
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService, format_amount,
+    )
+    library = LibraryClearanceService.summary_for_process(db, process_id)
+
+    # Celda «Constancia» de las dos filas (Ruling R14, revisión final de
+    # `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4): UNA
+    # llamada a `print_status_map` para encuesta y no adeudo juntos -a lo más
+    # 2 consultas por vista, invariante 2- con los refs que EXISTAN (sin
+    # solicitud o sin fila no se pide nada), colgada como `certificate` en
+    # cada resumen (`None` si no aplica). Los `summary_for_process` no la
+    # consultan: también los usan el tablero del egresado, «Mi cita» y las
+    # páginas públicas. MISMO bloque que `pages/appointments.py::_detail_ctx`.
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    ref_encuesta = SurveyReviewService.certificate_ref(survey["review_id"])
+    ref_biblioteca = LibraryClearanceService.certificate_ref(library["clearance_id"])
+    impresion = CertificateService.print_status_map(
+        db, [ref for ref in (ref_encuesta, ref_biblioteca) if ref])
+    survey["certificate"] = impresion.get(ref_encuesta)
+    library["certificate"] = impresion.get(ref_biblioteca)
 
     # ---- bitácora de correos al egresado (spec 2026-09-28 §7, D11) ----
     #
@@ -1539,6 +1774,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "cohort_period": cohort.period_code if cohort else None,
         "cohort_id": proc.cohort_id,
         "program_name": program.name if program else None,
+        # Perfil ya resuelto arriba -- alimenta `track_pill` junto a la
+        # carrera en `_exp_shell.html:86`.
+        "track": track,
         "modality_name": modality.name if modality else None,
         "current_phase": current,
         "progress_pct": max(0, min(100, round(current / max_phase * 100))),
@@ -1566,145 +1804,277 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,
+        "library": library,
+        "can_register_prior": can_register_prior,
+        "format_amount": format_amount,
         "correos": correos,
     }
 
 
-@router.get("/processes", name="titulatec.pages.admin.processes")
-async def processes(
-    request: Request,
-    status: str = "",
-    view: str = "table",
-    stuck: int = 0,
-    user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
-):
-    """Bandeja de procesos (tabla densa o tablero kanban) con KPIs, funnel de
-    fases y señal de atoro (días sin moverse)."""
-    from datetime import datetime
-    from itcj2.config import get_settings
-    from itcj2.database import SessionLocal
-    from itcj2.core.models.user import User
-    from itcj2.core.models.program import Program
-    from itcj2.apps.titulatec.models import (
-        TitulationProcess, PhaseDefinition, ProcessPhase, Modality,
-    )
-    from itcj2.apps.titulatec.services.scope_service import officer_programs
+def _proc_universe(db, *, user_id, status="", q=None):
+    """PASADA 1 de Procesos: filas ligeras del universo + KPIs.
 
-    view = "table" if view != "board" else "board"
+    Una sola consulta: los procesos en alcance (`officer_programs`, ANTES de
+    contar) y del `status` pedido, con el `started_at` de su fase ACTUAL por
+    outer join (`uq_titulatec_phase_process_number` garantiza una fila como
+    mucho), en orden `created_at DESC, id DESC`. Con `q`, una consulta más
+    devuelve los ids que casan (`process_search`, que exige el join a `User`).
+
+    Devuelve `(ligeras, kpis)`:
+
+    * `ligeras` -- dicts `{"id", "created_at", "status", "current_phase",
+      "student_id", "program_id", "started_at_fase", "idle_days", "idle_level"}`
+      (+ `folio` y `modality_id`, que viajan de la misma fila para no volver a
+      leerlas en la pasada 2) del universo filtrado por estado y `q` (la fase la aplica `_proc_ctx`).
+      SIN el filtro «atorados»: ese lo aplica quien llama sobre `idle_level`.
+    * `kpis` -- con la lógica de siempre, sobre el universo filtrado por alcance
+      y `status` (como hoy: los KPIs son también los filtros de estado) pero
+      NUNCA por `q`, `phase`, `stuck` ni la página. `n_stuck` cuenta ese mismo
+      universo.
+    """
+    from datetime import datetime
+
+    from sqlalchemy import and_
+
+    from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
+    from itcj2.apps.titulatec.services.process_service import process_search
+    from itcj2.apps.titulatec.services.scope_service import officer_programs
+    from itcj2.config import get_settings
+    from itcj2.core.models.user import User
+
     settings = get_settings()
     warn_days = settings.TITULATEC_IDLE_WARN_DAYS
     crit_days = settings.TITULATEC_IDLE_CRIT_DAYS
+    kpis = {"total": 0, "active": 0, "completed": 0, "on_hold": 0,
+            "cancelled": 0, "pct_completed": 0, "n_stuck": 0}
 
-    def _empty(extra=None):
-        ctx = {
-            "rows": [], "status": status, "view": view, "stuck": stuck, "columns": [],
-            "kpis": {"total": 0, "active": 0, "completed": 0, "on_hold": 0,
-                     "cancelled": 0, "pct_completed": 0, "n_stuck": 0},
-            "idle_warn": warn_days, "idle_crit": crit_days,
-        }
-        if extra:
-            ctx.update(extra)
-        return ctx
+    scope = officer_programs(db, user_id)
+    if scope != "ALL" and not scope:
+        return [], kpis
+
+    def _alcance(query):
+        if scope != "ALL":
+            query = query.filter(TitulationProcess.program_id.in_(scope))
+        if status:
+            query = query.filter(TitulationProcess.status == status)
+        return query
+
+    TP = TitulationProcess
+    base = _alcance(
+        db.query(TP.id, TP.created_at, TP.status, TP.current_phase, TP.student_id,
+                 TP.program_id, TP.folio, TP.modality_id, TP.updated_at,
+                 ProcessPhase.started_at)
+        .outerjoin(ProcessPhase, and_(ProcessPhase.process_id == TP.id,
+                                      ProcessPhase.phase_number == TP.current_phase))
+    ).order_by(TP.created_at.desc(), TP.id.desc())
+
+    now = datetime.now()
+    universo = []
+    for (pid, created_at, st, current_phase, student_id, program_id, folio,
+         modality_id, updated_at, started_at) in base.all():
+        since = started_at or updated_at
+        idle_days = max(0, (now - since).days) if since else 0
+        idle_level = ("crit" if idle_days >= crit_days
+                      else "warn" if idle_days >= warn_days else "ok")
+        # Una inscripción revocada no está «atorada»: ya no espera nada.
+        if st == "cancelled":
+            idle_level = "ok"
+        universo.append({
+            "id": pid, "created_at": created_at, "status": st,
+            "current_phase": current_phase, "student_id": student_id,
+            "program_id": program_id, "started_at_fase": started_at,
+            "idle_days": idle_days, "idle_level": idle_level,
+            "folio": folio, "modality_id": modality_id,
+        })
+
+    # KPIs. Una inscripción revocada no es un alumno en proceso: fuera del total
+    # y del porcentaje, como en el Resumen de la convocatoria
+    # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
+    # aparte en `cancelled`.
+    vivos = (universo if status == "cancelled"
+             else [r for r in universo if r["status"] != "cancelled"])
+    kpis["total"] = len(vivos)
+    kpis["cancelled"] = sum(1 for r in universo if r["status"] == "cancelled")
+    for r in vivos:
+        if r["status"] in ("active", "completed", "on_hold"):
+            kpis[r["status"]] += 1
+    if kpis["total"]:
+        kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
+    kpis["n_stuck"] = sum(1 for r in universo if r["idle_level"] == "crit")
+
+    filtradas = universo
+    pred = process_search(q)
+    if pred is not None:
+        casan = {pid for (pid,) in _alcance(
+            db.query(TP.id).outerjoin(User, User.id == TP.student_id)).filter(pred)}
+        filtradas = [r for r in filtradas if r["id"] in casan]
+    return filtradas, kpis
+
+
+def _proc_present(db, ligeras, *, phase_names, max_phase):
+    """PASADA 2 de Procesos: arma la fila completa SOLO de las visibles.
+
+    Alumnos, carreras y modalidades en lote (una consulta cada uno, solo si hay
+    ids): quita el `db.get(User)` / `db.get(Program)` por fila de antes.
+    """
+    from itcj2.apps.titulatec.models import Modality
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.user import User
+
+    if not ligeras:
+        return []
+    user_ids = {r["student_id"] for r in ligeras}
+    prog_ids = {r["program_id"] for r in ligeras if r["program_id"]}
+    mod_ids = {r["modality_id"] for r in ligeras if r["modality_id"]}
+    users = {u.id: u for u in db.query(User).filter(User.id.in_(user_ids))}
+    progs = ({p.id: p.name for p in db.query(Program).filter(Program.id.in_(prog_ids))}
+             if prog_ids else {})
+    mods = ({m.id: m.name for m in db.query(Modality).filter(Modality.id.in_(mod_ids))}
+            if mod_ids else {})
+
+    rows = []
+    for r in ligeras:
+        u = users.get(r["student_id"])
+        phase = r["current_phase"]
+        rows.append({
+            "id": r["id"], "folio": r["folio"],
+            "student": u.full_name if u else "—",
+            "control": u.control_number if u else "—",
+            "program": progs.get(r["program_id"], "—"),
+            "modality": mods.get(r["modality_id"], "—"),
+            "phase": phase, "phase_name": phase_names.get(phase, ""),
+            "status": r["status"],
+            "idle_days": r["idle_days"], "idle_level": r["idle_level"],
+            "progress_pct": max(0, min(100, round(phase / max_phase * 100))),
+        })
+    return rows
+
+
+def _proc_url(view, status, stuck, q, phase=None) -> str:
+    """URL canónica de la bandeja con sus filtros (para `href`/`hx-get`)."""
+    from urllib.parse import urlencode
+
+    pares = [("view", view)]
+    if status:
+        pares.append(("status", status))
+    if stuck:
+        pares.append(("stuck", 1))
+    if phase is not None:
+        pares.append(("phase", phase))
+    if q:
+        pares.append(("q", q))
+    return "/titulatec/admin/processes?" + urlencode(pares)
+
+
+def _proc_ctx(db, *, user_id, status="", view="table", stuck=0, q=None, phase=None,
+              page=1, per_page: int = PAGE_SIZE) -> dict:
+    """Contexto completo de la bandeja de Procesos (dos pasadas).
+
+    Tabla: el universo filtrado (estado, `q`, «atorados», `phase`) se pagina en
+    Python (`paginate_list`, orden `created_at DESC, id DESC`) y solo la página
+    pasa a la pasada 2.
+
+    Tablero / funnel: el universo filtrado SIN `phase` (cada columna YA es una
+    fase) se agrupa por fase actual; cada columna conserva su conteo real y
+    presenta como mucho `per_page` tarjetas (las más recientes), con
+    `table_url` = «Ver las N en tabla» (`?view=table&phase=N` + filtros
+    vigentes). Sin las revocadas (salvo que se pidan): en el tablero se
+    leerían como alumnos parados en su fase.
+    """
+    from itcj2.apps.titulatec.models import PhaseDefinition
+    from itcj2.apps.titulatec.utils.paging import normalize_q, paginate_list
+    from itcj2.config import get_settings
+
+    settings = get_settings()
+    view = "board" if view == "board" else "table"
+    stuck = 1 if stuck else 0
+    q = normalize_q(q)
+
+    universo, kpis = _proc_universe(db, user_id=user_id, status=status, q=q)
+    if stuck:
+        universo = [r for r in universo if r["idle_level"] == "crit"]
+
+    todas = db.query(PhaseDefinition).order_by(PhaseDefinition.order_index).all()
+    phase_names = {d.number: d.name for d in todas}
+    phase_defs = [d for d in todas if d.is_active]
+    max_phase = max((d.number for d in phase_defs), default=0) or 1
+
+    buckets: dict[int, list] = {}
+    for r in universo:
+        if r["status"] == "cancelled" and status != "cancelled":
+            continue
+        buckets.setdefault(r["current_phase"], []).append(r)
+
+    columns = []
+    for d in phase_defs:
+        cards = buckets.get(d.number, [])
+        columns.append({
+            "phase": d.number, "label": d.name, "count": len(cards),
+            "n_stuck": sum(1 for c in cards if c["idle_level"] == "crit"),
+            "rows": cards[:per_page] if view == "board" else [],
+            "more": len(cards) > per_page,
+            "table_url": _proc_url("table", status, stuck, q, phase=d.number),
+        })
+
+    if view == "board":
+        visibles = [r for c in columns for r in c["rows"]]
+        presentadas = {r["id"]: r for r in _proc_present(
+            db, visibles, phase_names=phase_names, max_phase=max_phase)}
+        for c in columns:
+            c["rows"] = [presentadas[r["id"]] for r in c["rows"]]
+        pagina, rows = None, []
+    else:
+        en_fase = (universo if phase is None
+                   else [r for r in universo if r["current_phase"] == phase])
+        pagina = paginate_list(en_fase, page, per_page)
+        rows = _proc_present(db, pagina.items, phase_names=phase_names,
+                             max_phase=max_phase)
+
+    return {
+        "rows": rows, "page": pagina, "columns": columns, "kpis": kpis,
+        "status": status, "view": view, "stuck": stuck, "q": q or "", "phase": phase,
+        "idle_warn": settings.TITULATEC_IDLE_WARN_DAYS,
+        "idle_crit": settings.TITULATEC_IDLE_CRIT_DAYS,
+    }
+
+
+@router.get("/processes", name="titulatec.pages.admin.processes")
+def processes(
+    request: Request,
+    status: str = "",
+    view: str = "table",
+    stuck: str = "",
+    q: str = "",
+    phase: str = "",
+    page: str = "",
+    user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
+):
+    """Bandeja de procesos (tabla paginada o tablero kanban acotado) con KPIs,
+    funnel de fases, señal de atoro (días sin moverse) y búsqueda en servidor.
+
+    `stuck`, `phase` y `page` llegan como texto y se interpretan con
+    tolerancia (vacío / basura = sin filtro / página 1): el formulario de
+    filtros los manda siempre, a veces vacíos.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.utils.paging import parse_page
+
+    try:
+        stuck_on = 1 if int(stuck or 0) else 0
+    except ValueError:
+        stuck_on = 0
+    try:
+        fase = int(phase) if phase.strip() else None
+    except ValueError:
+        fase = None
 
     db = SessionLocal()
     try:
-        scope = officer_programs(db, int(user["sub"]))
-        q = db.query(TitulationProcess)
-        if scope != "ALL":
-            if not scope:
-                return render_titulatec(request, "titulatec/admin/processes.html", _empty())
-            q = q.filter(TitulationProcess.program_id.in_(scope))
-        if status:
-            q = q.filter_by(status=status)
-
-        procs = q.order_by(TitulationProcess.created_at.desc()).all()
-
-        # KPIs sobre el universo filtrado por status/scope (antes del filtro stuck).
-        # Una inscripción revocada no es un alumno en proceso: fuera del total y
-        # del porcentaje, como en el Resumen de la convocatoria
-        # (`_cohort_summary_ctx`), salvo que se pidan las revocadas; se cuentan
-        # aparte en `cancelled`.
-        universo = (procs if status == "cancelled"
-                    else [p for p in procs if p.status != "cancelled"])
-        kpis = {"total": len(universo), "active": 0, "completed": 0, "on_hold": 0,
-                "cancelled": sum(1 for p in procs if p.status == "cancelled"),
-                "pct_completed": 0, "n_stuck": 0}
-        for p in universo:
-            if p.status in ("active", "completed", "on_hold"):
-                kpis[p.status] += 1
-        if kpis["total"]:
-            kpis["pct_completed"] = round(kpis["completed"] / kpis["total"] * 100)
-
-        # Definiciones de fase + progreso.
-        phase_defs = (db.query(PhaseDefinition)
-                      .filter_by(is_active=True)
-                      .order_by(PhaseDefinition.order_index).all())
-        defs = {d.number: d.name for d in db.query(PhaseDefinition).all()}
-        max_phase = max((ph.number for ph in phase_defs), default=0) or 1
-
-        # Idle: started_at de la fase ACTUAL de cada proceso, en una sola query.
-        proc_ids = [p.id for p in procs]
-        phase_started = {}
-        if proc_ids:
-            for ph in (db.query(ProcessPhase)
-                       .filter(ProcessPhase.process_id.in_(proc_ids)).all()):
-                phase_started[(ph.process_id, ph.phase_number)] = ph.started_at
-
-        modalities = {m.id: m.name for m in db.query(Modality).all()}
-        now = datetime.now()
-
-        rows = []
-        for p in procs:
-            u = db.get(User, p.student_id)
-            prog = db.get(Program, p.program_id) if p.program_id else None
-            since = phase_started.get((p.id, p.current_phase)) or p.updated_at
-            idle_days = max(0, (now - since).days) if since else 0
-            idle_level = ("crit" if idle_days >= crit_days
-                          else "warn" if idle_days >= warn_days else "ok")
-            # Una inscripción revocada no está «atorada»: ya no espera nada.
-            if p.status == "cancelled":
-                idle_level = "ok"
-            progress_pct = max(0, min(100, round(p.current_phase / max_phase * 100)))
-            rows.append({
-                "id": p.id, "folio": p.folio,
-                "student": u.full_name if u else "—",
-                "control": u.control_number if u else "—",
-                "program": prog.name if prog else "—",
-                "modality": modalities.get(p.modality_id, "—"),
-                "phase": p.current_phase, "phase_name": defs.get(p.current_phase, ""),
-                "status": p.status,
-                "idle_days": idle_days, "idle_level": idle_level,
-                "progress_pct": progress_pct,
-            })
-
-        kpis["n_stuck"] = sum(1 for r in rows if r["idle_level"] == "crit")
-
-        if stuck:
-            rows = [r for r in rows if r["idle_level"] == "crit"]
-
-        # Columnas del kanban: agrupar por fase actual.
-        # Sin las revocadas (salvo que se pidan): en el tablero se leerían como
-        # alumnos parados en su fase.
-        buckets = {ph.number: [] for ph in phase_defs}
-        for r in rows:
-            if r["status"] == "cancelled" and status != "cancelled":
-                continue
-            buckets.setdefault(r["phase"], []).append(r)
-        columns = []
-        for ph in phase_defs:
-            cards = buckets.get(ph.number, [])
-            columns.append({
-                "number": ph.number, "name": ph.name, "cards": cards,
-                "count": len(cards),
-                "n_stuck": sum(1 for c in cards if c["idle_level"] == "crit"),
-            })
+        ctx = _proc_ctx(db, user_id=int(user["sub"]), status=status, view=view,
+                        stuck=stuck_on, q=q, phase=fase, page=parse_page(page))
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/processes.html", {
-        "rows": rows, "status": status, "view": view, "stuck": stuck,
-        "columns": columns, "kpis": kpis,
-        "idle_warn": warn_days, "idle_crit": crit_days,
-    })
+    return render_titulatec(request, "titulatec/admin/processes.html", ctx)
 
 
 def _exp_params(request) -> dict:
@@ -1738,7 +2108,7 @@ def _exp_query(params: dict) -> str:
 
 
 @router.get("/processes/{process_id}", name="titulatec.pages.admin.process_detail")
-async def process_detail(
+def process_detail(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
@@ -1775,12 +2145,18 @@ async def fb_review(
     user: dict = Depends(require_page_app("titulatec", perms=[
         "titulatec.format_b.api.approve", "titulatec.format_b.api.reject"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_fb_review, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_fb_review(process_id, request, user, form):
+    """Cuerpo síncrono de `fb_review`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import FormatB
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     action = form.get("action")
     note = form.get("note")
     status = "approved" if action == "approve" else "rejected"
@@ -1800,7 +2176,7 @@ async def fb_review(
 
 
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")
-async def phase_approve(
+def phase_approve(
     process_id: int,
     request: Request,
     n: int = Path(ge=0),
@@ -1831,11 +2207,17 @@ async def phase_reject(
     n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.reject_phase"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_phase_reject, process_id=process_id, request=request, n=n, user=user, form=form)
+
+
+def _cuerpo_phase_reject(process_id, request, n, user, form):
+    """Cuerpo síncrono de `phase_reject`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = (form.get("reason") or "").strip()
     # Sin motivo, al alumno le llega «Fase rechazada» a secas en su panel y tiene
     # que venir a preguntar qué falta. La bandeja de Documentos ya lo exige desde
@@ -1869,11 +2251,17 @@ async def process_cancel(
     aprobar/rechazar fase; los rechazos de `ProcessService.cancel` (ya
     revocada, completada) son 400 + `X-Tt-Error`.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_cancel, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_process_cancel(process_id, request, user, form):
+    """Cuerpo síncrono de `process_cancel`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = (form.get("reason") or "").strip()
     if not reason:
         return Response(status_code=400, headers={
@@ -1916,7 +2304,8 @@ async def process_requirement(
     escribe la identidad del oficial.
 
     Los requisitos con `auto_source` son de SOLO LECTURA aquí: los acredita el
-    sistema (hoy, la encuesta de egresados) y marcarlos a mano rompería la
+    sistema (la encuesta de egresados, que libera GTV, y el no adeudo de
+    biblioteca, que liberan Biblioteca y Caja) y marcarlos a mano rompería la
     trazabilidad de `external_ref`.
 
     Devuelve el cuerpo del expediente re-renderizado, igual que aprobar/rechazar
@@ -1924,12 +2313,19 @@ async def process_requirement(
     `_exp_shell.html` incluye por fase, y el swap es del shell entero, no de la
     fila.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_requirement, process_id=process_id, rid=rid, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_requirement(process_id, rid, request, user, form):
+    """Cuerpo síncrono de `process_requirement`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CotejoRequirement
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     accion = (form.get("action") or "mark").strip()
     # `note` AUSENTE = «no lo mandes, conserva lo que haya»; `note` VACÍO =
     # «borra la nota». La distinción es deliberada: `RequirementService.fulfill`
@@ -1964,6 +2360,106 @@ async def process_requirement(
                 checked_by_id=int(user["sub"]), note=nota,
                 status=("waived" if accion == "waive" else "fulfilled"),
             )
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Respaldo «Constancia previa…» / «Deshacer» del no adeudo de biblioteca (D9)
+# ===========================================================================
+# Servicios Escolares, desde el expediente (gemelas en `pages/appointments.py`
+# para el panel de atender). Van por `{process_id}` con `assert_process_in_
+# scope` como PRIMERA sentencia del `try` (censo de `test_scope_guard.py`,
+# spec §5 invariante 6) -- a diferencia de las de Biblioteca
+# (`pages/library_admin.py`), que van por `clearance_id` y ven todo.
+#
+# `LibraryClearanceService.for_process_locked` resuelve `process_id` ->
+# `LibraryClearance` (la abre `pending` si el proceso no tenía fila: alta
+# durante el blue/green) y la deja bloqueada; `register_prior`/`undo_prior`
+# vuelven a bloquearla por su `clearance_id` -misma transacción, el mismo
+# lock no se disputa a sí mismo- antes de aplicar la transición de verdad.
+
+@router.post("/processes/{process_id}/no-adeudo-previo",
+             name="titulatec.pages.admin.process_library_prior")
+async def process_library_prior(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """SE registra, desde el expediente, que el egresado YA trae su
+    constancia previa de no adeudo (D9): `pending`/`awaiting_payment` ->
+    `cleared/prior`, sin pasar por Caja. Respaldo para quien no tiene cita
+    todavía; Biblioteca tiene el mismo botón en su propia bandeja
+    (`pages/library_admin.py::prior`)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_library_prior, process_id=process_id, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_library_prior(process_id, request, user, form):
+    """Cuerpo síncrono de `process_library_prior`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
+
+    note = form.get("note") or None
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
+            issued_on = parse_issued_on(form.get("issued_on"))
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.register_prior(
+                db, clearance.id, int(user["sub"]), issued_on=issued_on, note=note,
+                by="school_services")
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/no-adeudo-previo/deshacer",
+             name="titulatec.pages.admin.process_library_prior_undo")
+async def process_library_prior_undo(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.library_clearance.api.prior"])),
+):
+    """Deshace la constancia previa (motivo obligatorio): `cleared/prior` ->
+    `pending`. Solo si la fase 2 todavía no está aprobada
+    (`LibraryClearanceService.can_revert`, parte del dict de
+    `summary_for_process` que ya trae la plantilla)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_library_prior_undo, process_id=process_id, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_library_prior_undo(process_id, request, user, form):
+    """Cuerpo síncrono de `process_library_prior_undo`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    reason = form.get("reason") or ""
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        try:
+            clearance = LibraryClearanceService.for_process_locked(db, process_id)
+            LibraryClearanceService.undo_prior(db, clearance.id, int(user["sub"]), reason)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         return _render_detail_body(request, db, process_id, int(user["sub"]))
     finally:
         db.close()

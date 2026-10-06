@@ -35,8 +35,13 @@
     {% else %}
     <button type="button" class="btn btn-sm tt-btn-ghost" aria-disabled="true">
       {{ d.name }}
+      {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
+         DISPENSADO por R-G (D9) -- se rotula "Se entrega en el cotejo" en vez
+         de "Falta", para que Servicios Escolares sepa qué pedirle EN el
+         cotejo en vez de leer que el alumno lo dejó pendiente. #}
       <span class="tt-pill tt-pill--neutral ms-1">
-        {{- 'Archivo perdido' if d.missing else 'Falta' -}}</span></button>
+        {{- 'Archivo perdido' if d.missing
+            else ('Se entrega en el cotejo' if d.excused else 'Falta') -}}</span></button>
     {% endif %}
     {% endfor %}
   </div>

@@ -4,6 +4,11 @@
    Contexto: dtype {code,name,file_kind} · doc (Document|None) · upload_url · delete_url
              · hint (ayuda de la casilla; la de PDF sale de la config vía
                `storage.pdf_upload_hint`, nunca escrita aquí) · error
+             · doc_hint (Tarea 5, spec 2026-09-30-titulatec-posgrado-design.md
+               §4.4: ayuda PROPIA del documento -- "de tu grado anterior",
+               "júntalos en un solo PDF", etc. -- SOLO en los 4 extras de
+               posgrado; `None` en los 3 base y en cualquier tipo de otra
+               fase, así que licenciatura no pinta esta línea)
              · sent_label (Tarea 2, 2026-09-28: "Enviado el ..." ya formateado,
                o None sin fecha o sin documento)
              · status_oob (Tarea 2, dict|None: cuando el CALLER lo define y es
@@ -19,6 +24,7 @@
     <label class="tt-label mb-0">{{ dtype.name }}</label>
     {% if doc %}{{ doc_pill_alumno(doc.review_status) }}{% endif %}
   </div>
+  {% if doc_hint %}<div class="tt-dropzone-hint mb-2">{{ doc_hint }}</div>{% endif %}
 
   {% if doc %}
     <div class="tt-doc">

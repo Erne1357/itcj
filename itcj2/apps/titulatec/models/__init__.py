@@ -29,6 +29,11 @@ from itcj2.apps.titulatec.models.enrollment_request import EnrollmentRequest  # 
 from itcj2.apps.titulatec.models.survey_review import SurveyReview  # noqa: F401
 from itcj2.apps.titulatec.models.eligibility_check import EligibilityCheck  # noqa: F401
 from itcj2.apps.titulatec.models.email_outbox import EmailOutbox  # noqa: F401
+from itcj2.apps.titulatec.models.library_clearance import LibraryClearance  # noqa: F401
+from itcj2.apps.titulatec.models.certificate import (  # noqa: F401
+    Certificate, CertificateBatch, CertificateCounter,
+)
+from itcj2.apps.titulatec.models.prior_clearance import PriorClearance  # noqa: F401
 
 __all__ = [
     "Modality",
@@ -58,4 +63,9 @@ __all__ = [
     "SurveyReview",
     "EligibilityCheck",
     "EmailOutbox",
+    "LibraryClearance",
+    "Certificate",
+    "CertificateBatch",
+    "CertificateCounter",
+    "PriorClearance",
 ]

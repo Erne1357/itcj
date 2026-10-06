@@ -238,9 +238,12 @@ class TestLaPuertaDeLaFase2:
         gana `approve_phase` de rebote: ninguna prueba de este archivo afirma
         que NO lo tenga, asi que el efecto es inocuo y queda dicho aqui.
 
-        El requisito con `auto_source` NO se puede marcar por la ruta (400): lo
-        acredita el sistema, y aqui se simula ese camino llamando al service,
-        que es lo que hara `SurveyService._credit`.
+        Los requisitos con `auto_source` NO se pueden marcar por la ruta (400):
+        los acredita el sistema, y aqui se simula ese camino llamando al
+        service con `source="system"`, que es lo que hacen
+        `SurveyReviewService.approve` (encuesta) y `LibraryClearanceService`
+        (no adeudo de biblioteca, automatico desde el Ruling R2 de la Tarea 5
+        del plan 2026-10-01-titulatec-biblioteca-caja).
         """
         from itcj2.apps.titulatec.models import CotejoRequirement
         from itcj2.apps.titulatec.services.cotejo_requirement_service import (
@@ -257,8 +260,9 @@ class TestLaPuertaDeLaFase2:
                             CotejoRequirement.auto_source.is_(None))
                     .order_by(CotejoRequirement.order_index)
                     .all())
-        assert len(manuales) == 7, (
-            "la lista por defecto de la Tarea 4 son 8 requisitos, 1 automatico")
+        assert len(manuales) == 6, (
+            "la lista por defecto son 8 requisitos, 2 automaticos (encuesta y "
+            "no adeudo de biblioteca)")
 
         cli = client_as(make_head(perm_codes=MARK_PERMS + (APPROVE,)))
         aprobar = f"/titulatec/admin/processes/{proc.id}/phase/2/approve"
@@ -273,12 +277,19 @@ class TestLaPuertaDeLaFase2:
                                follow_redirects=False)
             assert marcado.status_code == 200, marcado.text[:200]
 
-        auto = (db_session.query(CotejoRequirement)
-                .filter_by(cohort_id=esc["cohort"].id,
-                           auto_source="graduate_survey")
-                .first())
-        RequirementService.fulfill(db_session, proc.id, auto.id, source="system",
-                                   external_ref="survey_response:1")
+        autos = (db_session.query(CotejoRequirement)
+                 .filter(CotejoRequirement.cohort_id == esc["cohort"].id,
+                         CotejoRequirement.auto_source.is_not(None))
+                 .order_by(CotejoRequirement.order_index)
+                 .all())
+        assert sorted(r.auto_source for r in autos) == ["graduate_survey",
+                                                        "library_clearance"]
+        for auto in autos:
+            # El automatico tampoco se deja marcar a mano aqui (400).
+            assert cli.post(_url(proc.id, auto.id), data={"action": "mark"},
+                            follow_redirects=False).status_code == 400
+            RequirementService.fulfill(db_session, proc.id, auto.id, source="system",
+                                       external_ref=f"{auto.auto_source}:1")
 
         despues = cli.post(aprobar, follow_redirects=False)
         assert despues.status_code == 200, _msg(despues) or despues.text[:300]

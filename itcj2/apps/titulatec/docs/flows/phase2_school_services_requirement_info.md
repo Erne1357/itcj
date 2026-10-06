@@ -147,14 +147,31 @@ módulo admin del CLAUDE.md §4):
 - **Falla la descarga de Quill** → aviso en el bloque; no bloquea guardar el resto del formulario.
 - **Fila escrita por fuera del editor** (DML, `UPDATE` a mano) → se sanitiza igual al pintar, en
   las dos vistas — nunca se sirve HTML sin pasar por la lista blanca.
-- **Requisito automático** (`auto_source`, hoy solo `graduate_survey`): su información **sí** es
-  editable — el candado de D9 (`update()`) solo fuerza `is_required`/`is_active`, nunca toca
-  `info_html`. Lo que sí cambió (2026-09-15, D6 de la liberación GTV): el **envío** de la
-  encuesta ya no acredita el requisito por sí solo (antes sí, vía `SurveyService._credit`,
-  retirado) — abre una solicitud de liberación (`SurveyReview`) que decide Gestión Tecnológica y
-  Vinculación desde su propia bandeja, ⤵ ver
-  [liberación GTV de la encuesta](phase2_tech_management_survey_release.md). Este flujo (la nota
-  informativa del requisito) no cambia por eso: sigue siendo edición de texto, no de crédito.
+- **Requisito automático** (`auto_source`, dos códigos desde 2026-10-01: `graduate_survey` y
+  `library_clearance`): su información **sí** es editable en los dos — el candado de D9
+  (`update()`) solo fuerza `is_required`/`is_active`, nunca toca `info_html`. Lo que sí cambió
+  (2026-09-15, D6 de la liberación GTV): el **envío** de la encuesta ya no acredita el requisito
+  por sí solo (antes sí, vía `SurveyService._credit`, retirado) — abre una solicitud de
+  liberación (`SurveyReview`) que decide Gestión Tecnológica y Vinculación desde su propia
+  bandeja, ⤵ ver [liberación GTV de la encuesta](phase2_tech_management_survey_release.md).
+  Desde el 2026-10-01 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.3), el requisito
+  `library_clearance` («No-adeudo de biblioteca») pasa por el MISMO patrón: convocatoria por
+  convocatoria, `CotejoRequirementService.DEFAULTS` lo marca `auto_source='library_clearance'`
+  (las YA sembradas las pone al día `titulatec activar-biblioteca-caja` —el paso 2 del
+  despliegue, Ruling R19—, DML `biblioteca_2026_10/22_library_requirement_auto.sql`), y lo
+  acreditan Biblioteca y Caja —
+  ⤵ ver [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md). Las dos pistas
+  por defecto quedan fijas en el código (`CotejoRequirementService.DEFAULTS`): «La libera GTV; no
+  necesitas llevar nada: tu liberación queda registrada para Servicios Escolares.» (encuesta) y
+  «Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: tu liberación queda
+  registrada para Servicios Escolares.» (no adeudo) — desde el 2026-10-05 (ampliación C4 de
+  `2026-10-05-titulatec-folios-design.md`) ya no dicen que el área «envía la constancia»: no hay
+  constancia impresa que enviar, solo el folio. El DML solo las reemplaza si SE no las había
+  editado ya, así que una convocatoria que ya traía las pistas anteriores las conserva tal cual.
+  Este flujo (la nota
+  informativa del requisito) no cambia por ninguno de los dos: sigue siendo edición de texto, no
+  de crédito — el checklist del alumno (`/titulatec/student/cita`) muestra el botón «i» de
+  `library_clearance` exactamente igual que el de `graduate_survey`.
 - **Alumno fuera de la fase 2** → `/student/cita` ni siquiera llega a construir el checklist:
   `_phase_guard_page` redirige **302** al acordeón del dashboard (ver
   [guarda de fase](engine_student_phase_lock.md)).
@@ -172,4 +189,6 @@ módulo admin del CLAUDE.md §4):
   redirigir antes de mostrar el botón «i».
 - ⤵ [Liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md) —
   quién acredita hoy el requisito `graduate_survey` (D6, 2026-09-15).
+- ⤵ [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) — quién acredita
+  hoy el requisito `library_clearance` (D6, 2026-10-01), el segundo `auto_source`.
 - ← [Glosario: `CotejoRequirement`](_glossary.md).

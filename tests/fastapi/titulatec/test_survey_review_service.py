@@ -9,6 +9,8 @@ a notificar no necesitan el parche).
 from __future__ import annotations
 
 import re
+import uuid
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -277,7 +279,10 @@ class TestRevoke:
 
         assert resultado.status == "rejected"
         assert resultado.rejection_reason == "Aclaración"
-        assert len(_events(db_session, process.id, "survey_review_revoked")) == 1
+        eventos = _events(db_session, process.id, "survey_review_revoked")
+        assert len(eventos) == 1
+        assert eventos[0].payload == {"reason": "Aclaración", "origin": "submission",
+                                      "review_id": review.id}
         mock_notify.assert_called_once()
         assert mock_notify.call_args.kwargs["type"] == "SURVEY_REVIEW_REVOKED"
         assert mock_notify.call_args.kwargs["body"] == "Aclaración"
@@ -288,6 +293,54 @@ class TestRevoke:
         req = next(r for r in CotejoRequirementService.list(db_session, process.cohort_id)
                    if r.auto_source == AUTO_SURVEY)
         assert _fulfillment(db_session, process.id, req.id) is None
+
+    def test_revocar_una_previa_la_borra_y_vuelve_a_sin_enviar(
+            self, db_session, escenario, monkeypatch):
+        """Ruling R22 (I4 de la revisión final): una liberación por constancia
+        previa (D9) no tiene encuesta real detrás. Dejarla `rejected` atoraba
+        al egresado para siempre (`SurveyService.submit` corta mientras exista
+        CUALQUIER fila). Revocarla deja el evento (con `origin`) y el
+        `unfulfill`, y BORRA la fila: la solicitud vuelve a `missing`."""
+        from datetime import timedelta
+
+        from itcj2.apps.titulatec.models import EmailOutbox
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+        from itcj2.config import get_settings
+        from itcj2.core.utils.timezone import db_now
+
+        # Correo encendido sin depender del `.env` del contenedor.
+        monkeypatch.setattr(get_settings(), "TITULATEC_EMAIL_ENABLED", True)
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+        db_session.flush()
+        previa_id = previa.id
+        req = next(r for r in CotejoRequirementService.list(db_session, process.cohort_id)
+                   if r.auto_source == AUTO_SURVEY)
+        assert _fulfillment(db_session, process.id, req.id) is not None
+
+        with patch(NOTIFY) as aviso:
+            resultado = SurveyReviewService.revoke(
+                db_session, previa_id, gtv.id, "Número de control equivocado")
+
+        assert resultado is None, "la previa ya no existe: no hay solicitud que devolver"
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        assert SurveyReviewService.summary_for_process(db_session, process.id)["status"] == (
+            "missing")
+        assert _fulfillment(db_session, process.id, req.id) is None
+        eventos = _events(db_session, process.id, "survey_review_revoked")
+        assert [e.payload for e in eventos] == [
+            {"reason": "Número de control equivocado", "origin": "prior",
+             "review_id": previa_id}]
+        aviso.assert_called_once()
+        assert aviso.call_args.kwargs["type"] == "SURVEY_REVIEW_REVOKED"
+        db_session.flush()
+        correo = (db_session.query(EmailOutbox)
+                  .filter_by(process_id=process.id, kind="survey_revoked").one())
+        assert correo.payload["origin"] == "prior"
 
     def test_no_revoca_si_la_fase_2_ya_fue_aprobada(
             self, db_session, escenario, make_survey_review):
@@ -335,6 +388,274 @@ class TestRevoke:
     def test_id_inexistente(self, db_session, escenario):
         with pytest.raises(LookupError):
             SurveyReviewService.revoke(db_session, 1_357_924, escenario["gtv"].id, "Motivo")
+
+
+# ---------------------------------------------------------------------------
+# Folio de la constancia previa (spec folios 2026-10-05 §3.3)
+# ---------------------------------------------------------------------------
+class TestRegisterPriorFolio:
+    """La previa de encuesta TAMBIÉN folia (`survey_release`), en el semestre
+    ANTERIOR al del registro. Años sintéticos (2090+): la BD de dev es
+    compartida y ya trae contadores reales de 2026."""
+
+    SVC = "itcj2.apps.titulatec.services.survey_review_service"
+
+    @staticmethod
+    def _certs(db, review_id):
+        from itcj2.apps.titulatec.models import Certificate
+        return (db.query(Certificate)
+                .filter_by(source_ref=f"survey_review:{review_id}")
+                .order_by(Certificate.id).all())
+
+    def _registrar(self, db_session, process, cuando, monkeypatch, **kw):
+        monkeypatch.setattr(f"{self.SVC}.db_now", lambda: cuando)
+        with patch(NOTIFY):
+            return SurveyReviewService.register_prior(
+                db_session, process, issued_on=cuando.date(), **kw)
+
+    @pytest.mark.parametrize("cuando, semestre", [
+        (datetime(2091, 10, 5, 10, 0), "2091A"),      # B de Y -> A de Y
+        (datetime(2091, 7, 1, 8, 0), "2091A"),        # primer día de B
+        (datetime(2092, 2, 10, 10, 0), "2091B"),      # A de Y -> B de Y-1
+        (datetime(2091, 6, 30, 23, 0), "2090B"),      # último día de A
+    ])
+    def test_emite_el_folio_del_semestre_anterior(
+            self, db_session, escenario, monkeypatch, cuando, semestre):
+        process, gtv = escenario["process"], escenario["gtv"]
+
+        review = self._registrar(db_session, process, cuando, monkeypatch,
+                                 actor_id=gtv.id)
+
+        (cert,) = self._certs(db_session, review.id)
+        assert cert.kind == "survey_release"
+        assert re.fullmatch(rf"GTV-{semestre}-\d{{4}}", cert.number), cert.number
+        assert cert.source_ref == f"survey_review:{review.id}"
+        assert cert.process_id == process.id
+        assert cert.issued_by_id == gtv.id
+        assert cert.voided_at is None
+        assert cert.control_number == process.student.control_number
+
+    def test_sin_actor_el_folio_queda_sin_emisor(
+            self, db_session, escenario, monkeypatch):
+        """Importación/CLI: `actor_id=None` -> `issued_by_id` NULL."""
+        review = self._registrar(db_session, escenario["process"],
+                                 datetime(2091, 10, 5, 10, 0), monkeypatch,
+                                 actor_id=None)
+
+        (cert,) = self._certs(db_session, review.id)
+        assert cert.number.startswith("GTV-2091A-")
+        assert cert.issued_by_id is None
+
+    def test_no_commitea_y_el_folio_queda_en_la_transaccion_del_llamador(
+            self, db_session, escenario, monkeypatch):
+        monkeypatch.setattr(db_session, "commit",
+                            lambda: pytest.fail("register_prior no debe commitear"))
+
+        review = self._registrar(db_session, escenario["process"],
+                                 datetime(2091, 10, 5, 10, 0), monkeypatch)
+
+        assert len(self._certs(db_session, review.id)) == 1
+
+    def test_un_rechazo_no_deja_folio(self, db_session, escenario, monkeypatch):
+        """Toda la validación va ANTES de emitir: previa vencida, sin folio."""
+        from datetime import timedelta
+        from itcj2.apps.titulatec.models import Certificate
+
+        cuando = datetime(2091, 10, 5, 10, 0)
+        monkeypatch.setattr(f"{self.SVC}.db_now", lambda: cuando)
+        # Folios del proceso SEMBRADO, nunca el total de la tabla (la BD de dev
+        # es compartida: un escritor ajeno movería un `count()` global).
+        del_proceso = (db_session.query(Certificate)
+                       .filter_by(process_id=escenario["process"].id))
+        antes = del_proceso.count()
+
+        with pytest.raises(ValueError):
+            SurveyReviewService.register_prior(
+                db_session, escenario["process"],
+                issued_on=cuando.date() - timedelta(days=400))
+
+        assert del_proceso.count() == antes
+
+    def test_revocar_la_previa_anula_el_folio_antes_de_borrar_la_solicitud(
+            self, db_session, escenario, monkeypatch):
+        """Ruling R22: `revoke` borra la fila de la previa. El folio se anula
+        ANTES del `db.delete`, así que su fila queda con `voided_at` aunque la
+        solicitud ya no exista."""
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = self._registrar(db_session, process, datetime(2091, 10, 5, 10, 0),
+                                 monkeypatch, actor_id=gtv.id)
+        review_id = review.id
+        (cert,) = self._certs(db_session, review_id)
+        numero = cert.number
+        assert cert.voided_at is None
+
+        visto = {}
+        delete_original = db_session.delete
+
+        def _delete(obj, *a, **k):
+            visto["anulado_antes"] = cert.voided_at is not None
+            return delete_original(obj, *a, **k)
+
+        monkeypatch.setattr(db_session, "delete", _delete)
+        with patch(NOTIFY):
+            resultado = SurveyReviewService.revoke(
+                db_session, review_id, gtv.id, "Número de control equivocado")
+
+        assert resultado is None
+        assert visto == {"anulado_antes": True}
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        (cert,) = self._certs(db_session, review_id)
+        assert cert.number == numero                  # el folio no se borra
+        assert cert.voided_at is not None
+        assert cert.voided_by_id == gtv.id
+        assert cert.void_reason == "Número de control equivocado"
+
+    def test_registrar_otra_previa_tras_revocar_emite_un_folio_distinto(
+            self, db_session, escenario, monkeypatch):
+        process, gtv = escenario["process"], escenario["gtv"]
+        cuando = datetime(2091, 10, 5, 10, 0)
+        primera = self._registrar(db_session, process, cuando, monkeypatch,
+                                  actor_id=gtv.id)
+        primer_id = primera.id
+        with patch(NOTIFY):
+            SurveyReviewService.revoke(db_session, primer_id, gtv.id, "Equivocada")
+
+        segunda = self._registrar(db_session, process, cuando, monkeypatch,
+                                  actor_id=gtv.id)
+
+        assert segunda.id != primer_id
+        (vieja,) = self._certs(db_session, primer_id)
+        (nueva,) = self._certs(db_session, segunda.id)
+        assert vieja.voided_at is not None and nueva.voided_at is None
+        assert nueva.number != vieja.number           # un folio nunca se reutiliza
+        assert nueva.number.startswith("GTV-2091A-")
+
+
+class TestRegisterPriorAviso:
+    """D9 (spec folios 2026-10-05): el aviso in-app de una previa ya no pide
+    recoger ni llevar la constancia; dice lo mismo con o sin `paper_pending`
+    (el dato `paper_pending` se conserva: es de GTV)."""
+
+    ESPERADO = ("Se registró tu constancia previa. Para tu cita de cotejo no "
+                "necesitas llevar nada: tu liberación ya quedó registrada para "
+                "Servicios Escolares.")
+
+    @pytest.mark.parametrize("paper", [False, True])
+    def test_el_aviso_no_pide_llevar_ni_recoger_la_constancia(
+            self, db_session, escenario, paper):
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        with patch(NOTIFY) as aviso:
+            review = SurveyReviewService.register_prior(
+                db_session, escenario["process"],
+                issued_on=db_now().date() - timedelta(days=10), paper_pending=paper)
+
+        cuerpo = aviso.call_args.kwargs["body"]
+        assert aviso.call_args.kwargs["type"] == "SURVEY_REVIEW_APPROVED"
+        assert cuerpo == self.ESPERADO
+        for vieja in ("Recoge", "llévala", "Gestión Tecnológica"):
+            assert vieja not in cuerpo
+        assert review.paper_pending is paper          # el dato de GTV sigue intacto
+
+
+# ---------------------------------------------------------------------------
+# prior_outcome
+# ---------------------------------------------------------------------------
+class TestPriorOutcome:
+    def test_sin_fila_ni_revocacion_previa_es_apply(self, db_session, escenario):
+        assert SurveyReviewService.prior_outcome(
+            db_session, escenario["process"].id) == "apply"
+
+    def test_revocar_una_previa_deja_conflict_no_apply(self, db_session, escenario):
+        """Ruling R30 #2 (re-revisión de la ola final): `revoke` (Ruling R22)
+        BORRA la fila de una previa -sin este arreglo `prior_outcome` vería
+        `missing` (como si nunca hubiera pasado nada) y devolvería `apply`:
+        un re-import del mismo archivo la re-aprobaría sola, pisando la
+        decisión de GTV de revocarla-. El evento `survey_review_revoked` con
+        `origin='prior'` sobrevive al DELETE de la fila: mientras exista,
+        este proceso se queda en `conflict` (lo decide GTV, nunca una
+        importación), igual que una solicitud real `in_review`/`rejected`."""
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+            db_session.flush()
+            SurveyReviewService.revoke(
+                db_session, previa.id, gtv.id, "Número de control equivocado")
+
+        assert SurveyReviewService.get_for_process(db_session, process.id) is None
+        assert SurveyReviewService.prior_outcome(db_session, process.id) == "conflict"
+
+    def test_revocar_una_solicitud_real_no_dispara_la_marca_de_previa(
+            self, db_session, escenario, make_survey_review):
+        """Contraste: revocar una encuesta REAL (`origin='submission'`) NO
+        borra la fila -queda `rejected`- así que `prior_outcome` sigue
+        leyendo la fila de siempre (`conflict` por la fila, no por el
+        evento); el evento de esta revocación trae `origin='submission'`, no
+        `'prior'`, así que tampoco activaría la marca nueva aunque la fila se
+        borrara."""
+        review = make_survey_review(escenario["process"], status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, escenario["gtv"].id)
+            SurveyReviewService.revoke(db_session, review.id, escenario["gtv"].id, "Aclaración")
+
+        assert SurveyReviewService.get_for_process(db_session, review.process_id) is not None
+        assert SurveyReviewService.prior_outcome(db_session, review.process_id) == "conflict"
+
+
+# ---------------------------------------------------------------------------
+# prior_conflict_reason (m39)
+# ---------------------------------------------------------------------------
+class TestPriorConflictReason:
+    """Submotivo fino de `prior_outcome == "conflict"`: distingue «GTV
+    revocó la previa aquí» de «hay una solicitud real en revisión», para que
+    `PriorClearanceService.import_rows` (la CLI) imprima el mensaje correcto
+    sin leer `.status` ni eventos por su cuenta (§5, invariante 2)."""
+
+    def test_none_si_no_hay_conflicto(self, db_session, escenario):
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, escenario["process"].id) is None
+
+    def test_none_si_ya_esta_aprobada(self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="approved")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) is None
+
+    def test_revoked_si_gtv_revoco_una_previa_aqui(self, db_session, escenario):
+        """Mismo escenario que `test_revocar_una_previa_deja_conflict_no_apply`
+        de `TestPriorOutcome`, pero mirando el submotivo: debe ser `"revoked"`,
+        no `"in_review"` -son casos que la CLI debe anunciar distinto (m39)."""
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        with patch(NOTIFY):
+            previa = SurveyReviewService.register_prior(
+                db_session, process, issued_on=db_now().date() - timedelta(days=30))
+            db_session.flush()
+            SurveyReviewService.revoke(
+                db_session, previa.id, gtv.id, "Número de control equivocado")
+
+        assert SurveyReviewService.prior_conflict_reason(db_session, process.id) == "revoked"
+
+    def test_in_review_si_hay_una_solicitud_real_esperando(
+            self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="in_review")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) == "in_review"
+
+    def test_in_review_si_la_solicitud_real_fue_observada(
+            self, db_session, escenario, make_survey_review):
+        review = make_survey_review(escenario["process"], status="rejected")
+        assert SurveyReviewService.prior_conflict_reason(
+            db_session, review.process_id) == "in_review"
 
 
 # ---------------------------------------------------------------------------
@@ -417,13 +738,23 @@ class TestCountsByStatus:
 # ---------------------------------------------------------------------------
 # list_for_inbox
 # ---------------------------------------------------------------------------
+def _marca() -> str:
+    """Apellido ÚNICO por prueba: `list_for_inbox` es GLOBAL (toda la bandeja
+    de GTV) y la BD de dev compartida trae solicitudes reales «En revisión»,
+    así que las pruebas de total/orden/paginado siembran a sus alumnos con
+    esta marca y consultan con `q=marca` -- la pestaña, el orden y el paginado
+    se ejercen igual, solo que sobre las filas propias."""
+    return "ZQ" + uuid.uuid4().hex[:10].upper()
+
+
 class TestListForInbox:
     def test_filtra_por_pestana_y_ordena_in_review_mas_antiguas_primero(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
         cohort = make_cohort()
-        ana = make_student()
-        beto = make_student()
-        carla = make_student()
+        ana = make_student(last_name=marca)
+        beto = make_student(last_name=marca)
+        carla = make_student(last_name=marca)
         p1 = make_process(ana, cohort=cohort, current_phase=2)
         p2 = make_process(beto, cohort=cohort, current_phase=2)
         p3 = make_process(carla, cohort=cohort, current_phase=2)
@@ -431,9 +762,11 @@ class TestListForInbox:
         r2 = make_survey_review(p2, status="in_review")
         make_survey_review(p3, status="rejected")
 
-        filas, has_more = SurveyReviewService.list_for_inbox(db_session, status="in_review")
+        pagina = SurveyReviewService.list_for_inbox(db_session, status="in_review", q=marca)
+        filas = pagina.items
 
-        assert has_more is False
+        assert pagina.has_next is False
+        assert pagina.total == 2
         assert [f["id"] for f in filas] == [r1.id, r2.id]
         primera = filas[0]
         assert primera["process_id"] == p1.id
@@ -452,34 +785,74 @@ class TestListForInbox:
         make_survey_review(p1, status="in_review")
         make_survey_review(p2, status="in_review")
 
-        por_nombre, _ = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", q="ZAPATA")
+        por_nombre = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q="ZAPATA").items
         assert [f["process_id"] for f in por_nombre] == [p1.id]
 
-        por_control, _ = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", q=beto.control_number)
+        por_control = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=beto.control_number).items
         assert [f["process_id"] for f in por_control] == [p2.id]
+
+    def test_comodines_de_like_son_literales(
+            self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        """`%` y `_` del buscador no comodinean (lista ni contador)."""
+        marca = "ZQ" + uuid.uuid4().hex[:10].upper()
+        ana = make_student(last_name=marca)
+        p1 = make_process(ana, cohort=make_cohort(), current_phase=2)
+        make_survey_review(p1, status="in_review")
+        con_porciento = marca[:4] + "%" + marca[-3:]
+        con_guion = marca[:4] + "_" + marca[5:]
+
+        literal = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca).items
+        assert [f["process_id"] for f in literal] == [p1.id]
+        for q in (con_porciento, con_guion):
+            assert SurveyReviewService.list_for_inbox(
+                db_session, status="in_review", q=q).items == []
+            assert SurveyReviewService.counts_by_status(db_session, q)["in_review"] == 0
+        assert SurveyReviewService.counts_by_status(db_session, marca)["in_review"] == 1
 
     def test_paginado_con_has_more(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
         cohort = make_cohort()
         reviews = [
-            make_survey_review(make_process(make_student(), cohort=cohort, current_phase=2),
+            make_survey_review(make_process(make_student(last_name=marca), cohort=cohort,
+                                            current_phase=2),
                                status="in_review")
             for _ in range(3)
         ]
 
-        pagina1, has_more1 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=1, per_page=2)
-        pagina2, has_more2 = SurveyReviewService.list_for_inbox(
-            db_session, status="in_review", page=2, per_page=2)
+        p1 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca, page=1, per_page=2)
+        p2 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca, page=2, per_page=2)
+        pagina1, pagina2 = p1.items, p2.items
 
         assert len(pagina1) == 2
-        assert has_more1 is True
+        assert p1.has_next is True
         assert len(pagina2) == 1
-        assert has_more2 is False
+        assert p2.has_next is False
+        assert (p1.total, p2.total) == (3, 3)
         assert ({f["id"] for f in pagina1} | {f["id"] for f in pagina2}
                 == {r.id for r in reviews})
+
+    def test_inbox_muestra_rango_de_total(
+            self, db_session, make_student, make_cohort, make_process, make_survey_review):
+        marca = _marca()
+        cohort = make_cohort()
+        for _ in range(3):
+            make_survey_review(make_process(make_student(last_name=marca), cohort=cohort,
+                                            current_phase=2),
+                               status="in_review")
+
+        p2 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca, page=2, per_page=2)
+        p9 = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review", q=marca, page=9, per_page=2)
+
+        assert (p2.start, p2.end, p2.total) == (3, 3, 3)
+        assert (p9.page, p9.start, p9.end) == (2, 3, 3)
 
     def test_can_revoke_en_lote(
             self, db_session, make_student, make_cohort, make_process, make_survey_review):
@@ -495,22 +868,63 @@ class TestListForInbox:
         r_libre = make_survey_review(libre, status="approved")
         r_cerrada = make_survey_review(cerrada, status="approved")
 
-        filas, _ = SurveyReviewService.list_for_inbox(db_session, status="approved")
+        filas = SurveyReviewService.list_for_inbox(db_session, status="approved").items
 
         por_id = {f["id"]: f for f in filas}
         assert por_id[r_libre.id]["can_revoke"] is True
         assert por_id[r_cerrada.id]["can_revoke"] is False
+
+    def test_fila_trae_certificate_el_dict_de_print_status_map(
+            self, db_session, make_student, make_cohort, make_process,
+            make_survey_review, make_user):
+        """Tarea 3 (`2026-10-02-titulatec-constancias-y-pendientes-design.md`
+        §3.3): la fila agrega `certificate` -el dict de
+        `CertificateService.print_status_map` para `survey_review:{id}`,
+        UNA llamada por página- que la plantilla pinta con `certificate_cell`."""
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        cohort = make_cohort()
+        gtv = make_user(first_name="GTV", last_name="DE PRUEBA")
+        proc = make_process(make_student(), cohort=cohort, current_phase=2)
+        review = make_survey_review(proc, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+        batch = CertificateService.create_batch(db_session, kind="survey_release",
+                                                actor_id=gtv.id)
+        sin_liberar = make_survey_review(
+            make_process(make_student(), cohort=cohort, current_phase=2), status="in_review")
+
+        filas = SurveyReviewService.list_for_inbox(db_session, status="approved").items
+        fila = next(f for f in filas if f["id"] == review.id)
+        assert fila["certificate"]["printed"] is True
+        assert fila["certificate"]["batch_id"] == batch.id
+
+        filas_en_revision = SurveyReviewService.list_for_inbox(
+            db_session, status="in_review").items
+        fila_sin = next(f for f in filas_en_revision if f["id"] == sin_liberar.id)
+        assert fila_sin["certificate"] is None
 
 
 # ---------------------------------------------------------------------------
 # summary_for_process
 # ---------------------------------------------------------------------------
 class TestSummaryForProcess:
+    # Llaves del resumen. Sin `certificate` (Ruling R14, revisión final de
+    # `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4): el
+    # estado de impresión lo cuelgan las dos vistas de SE con UNA llamada a
+    # `print_status_map` para encuesta y no adeudo juntos.
+    # Sin `paper_to_collect` (D9, spec folios 2026-10-05): el egresado ya no
+    # ve «Recoge tu constancia…»; «Constancia por recoger» es solo de GTV
+    # (`list_for_inbox` y `SurveyReviewService.paper_to_collect(review)`).
+    LLAVES = {"status", "reason", "reviewed_by", "reviewed_at", "review_id",
+              "response_id", "origin"}
+
     def test_sin_solicitud(self, db_session, escenario):
         resumen = SurveyReviewService.summary_for_process(db_session, escenario["process"].id)
         assert resumen == {
             "status": "missing", "reason": None, "reviewed_by": None,
             "reviewed_at": None, "review_id": None, "response_id": None,
+            "origin": None,
         }
 
     def test_con_solicitud_en_revision(self, db_session, escenario, make_survey_review):
@@ -519,6 +933,7 @@ class TestSummaryForProcess:
 
         resumen = SurveyReviewService.summary_for_process(db_session, process.id)
 
+        assert set(resumen) == self.LLAVES
         assert resumen["status"] == "in_review"
         assert resumen["review_id"] == review.id
         assert resumen["response_id"] == review.response_id
@@ -542,3 +957,59 @@ class TestSummaryForProcess:
             db_session, "commit",
             lambda: pytest.fail("summary_for_process no debe commitear"))
         SurveyReviewService.summary_for_process(db_session, escenario["process"].id)
+
+    def test_no_consulta_constancias_ni_la_marca(
+            self, db_session, escenario, make_survey_review, monkeypatch):
+        """Ruling R14 (M3/P2 de la revisión final): este resumen lo usan
+        también el tablero del egresado, «Mi cita» y las páginas públicas de
+        la encuesta, que no pintan la constancia. Ya no llama
+        `print_status_map` ni toca `titulatec_certificates`/
+        `titulatec_certificate_batches`, aun con la constancia `survey_release`
+        emitida e impresa. Las variantes de la celda (sin imprimir, impresa,
+        anulada tras imprimir, previa) las cubren ahora las vistas de SE, que
+        cuelgan `certificate` ellas mismas con UNA llamada
+        (`test_se_library_views.py::TestCeldaDeConstanciaEncuesta`)."""
+        from sqlalchemy import event
+
+        from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = make_survey_review(process, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+        CertificateService.create_batch(db_session, kind="survey_release", actor_id=gtv.id)
+        llamadas = []
+        monkeypatch.setattr(CertificateService, "print_status_map", staticmethod(
+            lambda db, refs: llamadas.append(list(refs)) or {}))
+        sentencias = []
+
+        def _antes(_conn, _cursor, statement, *_a):
+            sentencias.append(statement)
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _antes)
+        try:
+            resumen = SurveyReviewService.summary_for_process(db_session, process.id)
+        finally:
+            event.remove(bind, "before_cursor_execute", _antes)
+
+        assert resumen["status"] == "approved" and set(resumen) == self.LLAVES
+        assert llamadas == []
+        assert not [s for s in sentencias if "titulatec_certificate" in s], sentencias
+
+    def test_certificate_ref_es_el_source_ref_de_su_constancia(
+            self, db_session, escenario, make_survey_review):
+        """`certificate_ref` (Ruling R14): el `source_ref` con el que
+        `approve()` emite la constancia `survey_release` -con él las vistas de
+        SE piden la marca de impresión-; `None` sin solicitud."""
+        from itcj2.apps.titulatec.models import Certificate
+
+        process, gtv = escenario["process"], escenario["gtv"]
+        review = make_survey_review(process, status="in_review")
+        with patch(NOTIFY):
+            SurveyReviewService.approve(db_session, review.id, gtv.id)
+
+        ref = SurveyReviewService.certificate_ref(review.id)
+        assert db_session.query(Certificate).filter_by(
+            source_ref=ref, voided_at=None).count() == 1
+        assert SurveyReviewService.certificate_ref(None) is None

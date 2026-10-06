@@ -52,7 +52,9 @@ Dos predicados, a propósito (D5, spec 2026-09-24)
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from itcj2.core.utils.timezone import db_now
@@ -229,3 +231,57 @@ class CohortService:
 
         db.commit()
         return {"paused": paused, "resumed": resumed}
+
+    @staticmethod
+    def set_book_donation(db: Session, cohort_id: int, *, amount: Decimal) -> dict:
+        """Escribe la donación voluntaria de libro de la convocatoria (D5,
+        D19 de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.9).
+
+        Servicios Escolares la edita en el panel Resumen
+        (`titulatec.cohort.api.update`); `amount` ya viene validado por la
+        ruta (`LibraryClearanceService.parse_amount`: 0 <= monto <=
+        $100,000). Este service NO toca ningún `LibraryClearance`: Biblioteca
+        congela la donación VIGENTE de la convocatoria al Registrar o
+        Corregir (`LibraryClearanceService._prepare_registration`), así que
+        cambiarla aquí nunca pisa un monto ya congelado (Review Focus #2,
+        D16) -- lo que ya pasó a Caja se queda con el valor de ese momento;
+        Corregir es lo único que lo vuelve a congelar con el vigente.
+
+        Devuelve `{"affected": N}`: cuántos `LibraryClearance` de esta
+        convocatoria YA tienen un monto congelado
+        (`donation_amount IS NOT NULL`: toda fila que pasó por Registrar y
+        no volvió a `pending` -- `awaiting_payment`, `cleared` vía pago o sin
+        cargo, y también `cleared/prior` si la constancia previa se registró
+        DESDE `awaiting_payment`, que conserva los montos como historia).
+        Nunca `pending` (volver ahí borra los montos) ni una previa
+        registrada desde `pending` (no tiene montos). m35 (triage-minors.md):
+        el conteo también exige `TitulationProcess.status` admitido
+        (`ADMITTED_PROCESS_STATUSES`, el MISMO filtro que ya usa
+        `LibraryClearanceService` para "casos vivos") -- un proceso revocado
+        o terminado con el monto ya congelado no es un caso que Biblioteca
+        vaya a corregir, así que no debe inflar el aviso. La ruta usa el
+        número para el aviso «N egresados ya tienen monto asignado; no
+        cambia para ellos».
+
+        `ValueError` si la convocatoria no existe. UN commit.
+        """
+        from itcj2.apps.titulatec.models import Cohort, LibraryClearance, TitulationProcess
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            ADMITTED_PROCESS_STATUSES,
+        )
+
+        cohort = db.get(Cohort, cohort_id)
+        if cohort is None:
+            raise ValueError("La convocatoria no existe.")
+        cohort.book_donation_amount = amount
+
+        afectados = (
+            db.query(func.count(LibraryClearance.id))
+            .join(TitulationProcess, TitulationProcess.id == LibraryClearance.process_id)
+            .filter(TitulationProcess.cohort_id == cohort_id,
+                    TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES),
+                    LibraryClearance.donation_amount.isnot(None))
+            .scalar()) or 0
+
+        db.commit()
+        return {"affected": int(afectados)}

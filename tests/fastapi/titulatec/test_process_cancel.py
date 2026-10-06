@@ -39,8 +39,20 @@ def _msg(resp) -> str:
 
 
 @pytest.fixture()
-def correos(monkeypatch):
-    """Captura los avisos de revocación sin tocar Graph."""
+def correo_apagado(monkeypatch):
+    """`TITULATEC_EMAIL_ENABLED = false`: el aviso de revocación cae al envío EN
+    LÍNEA de siempre (`send_process_cancelled`, después del commit), que es lo
+    que fijan las pruebas de este archivo. Con el correo encendido se ENCOLA
+    (spec 2026-10-05-titulatec-rendimiento §3.7): eso vive en
+    `test_outbox_inscripcion.py`."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
+
+
+@pytest.fixture()
+def correos(monkeypatch, correo_apagado):
+    """Captura los avisos de revocación (en línea, correo apagado) sin tocar Graph."""
     enviados = []
 
     def _fake(db, process):
@@ -135,7 +147,8 @@ class TestCancelar:
         ok, msg = _svc().cancel(db_session, 987654321, reason="x", actor_id=esc["actor"].id)
         assert not ok and msg
 
-    def test_el_correo_sale_despues_del_commit(self, db_session, esc, monkeypatch):
+    def test_el_correo_sale_despues_del_commit(self, db_session, esc, monkeypatch,
+                                                correo_apagado):
         proc = esc["proc"]()
         pasos = []
         commit_real = db_session.commit
@@ -150,7 +163,8 @@ class TestCancelar:
         assert ok
         assert pasos == ["commit", "correo"]
 
-    def test_un_correo_caido_no_revierte_la_revocacion(self, db_session, esc, monkeypatch):
+    def test_un_correo_caido_no_revierte_la_revocacion(self, db_session, esc, monkeypatch,
+                                                        correo_apagado):
         proc = esc["proc"]()
 
         def _explota(db, p):
@@ -474,8 +488,8 @@ class TestLectores:
         make_survey_review(proc, status="in_review")
 
         def _ids():
-            filas, _ = SurveyReviewService.list_for_inbox(db_session, status="in_review",
-                                                         per_page=500)
+            filas = SurveyReviewService.list_for_inbox(db_session, status="in_review",
+                                                         per_page=500).items
             return {f["process_id"] for f in filas}
 
         antes_n = SurveyReviewService.counts_by_status(db_session)["in_review"]
@@ -592,6 +606,7 @@ class TestCorreo:
         ok = TitulaTecEmailHelper.send_process_cancelled(db_session, proc)
 
         assert ok
+        assert len(enviados) == 1, "UN mensaje con los dos buzones (revisión final M2)"
         destinos = sorted(d for _, to, _ in enviados for d in to)
         assert destinos == sorted(["personal@example.invalid", student_email(esc["student"])])
         for _, _, html in enviados:
@@ -610,7 +625,7 @@ class TestCorreo:
 
         assert email_helper.TitulaTecEmailHelper.send_process_cancelled(
             db_session, proc)
-        assert len(destinos) == 1
+        assert len(destinos) == 1 and len(destinos[0]) == 1
 
     def test_nunca_lanza(self, db_session, esc, monkeypatch):
         from itcj2.apps.titulatec.services import email_helper

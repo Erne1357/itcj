@@ -13,7 +13,7 @@ router = APIRouter(tags=["titulatec-pages-landing"])
 
 
 @router.get("/", name="titulatec.pages.landing")
-async def landing(
+def landing(
     request: Request,
     user: dict = Depends(require_page_app("titulatec")),
 ):

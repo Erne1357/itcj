@@ -11,7 +11,7 @@
    otro documento abierto y con el botón Regresar apuntando a Procesos aunque
    hubieras llegado desde Citas.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill, proceso_pill %}
+{% from "titulatec/_macros.html" import estado_pill, proceso_pill, track_pill %}
 {% set BASE = '/titulatec/admin/processes/' ~ process.id %}
 {% set Q = ('?' ~ zona) if zona else '' %}
 
@@ -83,7 +83,13 @@
       <p class="tt-exp-meta">
         <span class="tt-mono">{{ student.control }}</span>
         {% if student.email %}<span class="tt-mono">{{ student.email }}</span>{% endif %}
-        <span>{{ program_name or 'Sin carrera' }}</span>
+        {# La píldora va DENTRO del `<span>` de la carrera (Menor #1, revisión
+           final 2026-09-30): `titulatec.css` mete un "·" con
+           `span + span::before` entre CADA `<span>` hermano de `.tt-exp-meta`.
+           `track_pill` imprime otro `<span>` -- como hermano suelto era un
+           QUINTO span que le metía un "·" extra antes (y después) de la
+           píldora "Posgrado". Anidado, no es hermano de nadie: sin CSS nuevo. #}
+        <span>{{ program_name or 'Sin carrera' }}{{ track_pill(track) }}</span>
         <span>{{ modality_name or 'Sin modalidad' }}</span>
       </p>
     </div>

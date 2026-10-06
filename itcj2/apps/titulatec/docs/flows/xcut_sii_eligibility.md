@@ -186,9 +186,9 @@ sequenceDiagram
 | 5b | 🏛️ | fila **sin cuenta**, `nip_status = available` | Aprobar y dar acceso | `POST …/{id}/aprobar` | `approve_detailed` → `_sii_nip_unlocked` (el NIP se pide **sin** lock) → revalida → `_approve_locked` → `_create_account_with_sii_nip` | `core_users` (`hash_nip(NIP del SII)`, `must_change_password=False`, `role_id = graduate`) + `import_rows` (proceso + roles `graduate`) + perfil; solicitud → `converted`, `nip_source = 'sii'`, `access_granted_by_id/at` = SE, `reviewed_by_id/at` | `ProcessEvent(enrollment_self_service)` con `activation=nip_personal_email`, `approved_by_id`, `granted_by_id` y `nip_source: "sii"`, sin el NIP; caché de authz tras el commit; `send_enrollment_approved(nip_source="sii")` → personal, **sin NIP** («Entra con tu número de control y tu NIP del SII»); sella `access_sent_at` si sale; 200 + `X-Tt-Notice` «Cuenta creada (folio X); se le avisó por correo.» (*warning* si no salió, `access_mail_unsent`: «Cuenta creada (folio X), pero el correo no salió: reenvíalo desde Inscritas.») |
 | 5c | 🏛️ | fila **sin cuenta**, cualquier otro caso | Aprobar y pasar a Accesos | `POST …/{id}/aprobar` con `to_access=1` | `approve_detailed(to_access=True)` → `_approve_locked` | → `awaiting_access`, `program_id`, `reviewed_by_id/at`; **sin** usuario ni correo; el SII **no** se consulta | 200 + `X-Tt-Notice` «Pasó a Accesos: Centro de Cómputo le capturará el NIP.» (Accesos le da el NIP: ⤵ [Accesos](xcut_computer_center_access.md)). Con el SII sin configurar, aprobar **sin** `to_access` es esto mismo (F8) |
 | 5d | 🏛️ | como 5b, pero el SII ya no da un NIP válido | (el mismo clic) | `POST …/{id}/aprobar` | `approve_detailed` → `ApproveResult(False, motivo, nip_failure)` → `EligibilityService.record_nip_status` | **nada** de la solicitud; la consulta vigente guarda el `nip_status` visto (transacción propia y corta, solo si `last_check_id` sigue siendo esa) | **200** + bandeja re-pintada (la fila ya ofrece «Aprobar y pasar a Accesos») + `X-Tt-Notice` *warning*: «<motivo> Puedes pasarla a Accesos o reintentar la consulta.» |
-| 6 | 🏛️ | Solicitudes | Rechazar | `POST …/{id}/rechazar` | `reject` | igual que el modo oficial | `send_enrollment_rejected`, firmado «Servicios Escolares» |
+| 6 | 🏛️ | Solicitudes | Rechazar | `POST …/{id}/rechazar` | `reject` | igual que el modo oficial | encola `enrollment_rejected` (outbox, 2026-10-05): correo al personal firmado «Servicios Escolares», lo manda el despachador; `X-Tt-Notice` «Se enviará el correo al egresado.» |
 | 7 | 🏛️ | Inscritas, «correo no enviado» | Reenviar aviso | `POST /titulatec/admin/solicitudes/{id}/reenviar-aviso` (`api.approve`, `_load_scoped_request`) | `resend_access_notice` (lock + refresh; exige `converted`, `nip_source = 'sii'`, `access_sent_at` nulo y que la cuenta del control sea la dueña de `converted_process_id`) | ninguna credencial; `access_sent_at` si el correo sale | `send_enrollment_approved(nip_source="sii")` → personal, sin NIP; 200 + `X-Tt-Notice` «Aviso reenviado.» |
-| 8 | 🏛️ | Inscritas / expediente | Revocar inscripción | `POST …/{id}/revocar` · `POST /titulatec/admin/processes/{pid}/cancelar` | `ProcessService.cancel` | ver [Revocar](#revocar-inscripción) | `send_process_cancelled` tras el commit |
+| 8 | 🏛️ | Inscritas / expediente | Revocar inscripción | `POST …/{id}/revocar` · `POST /titulatec/admin/processes/{pid}/cancelar` | `ProcessService.cancel` | ver [Revocar](#revocar-inscripción) | encola `process_cancelled` (outbox, 2026-10-05) en la misma transacción; con `TITULATEC_EMAIL_ENABLED=false` sale en línea (`send_process_cancelled`) tras el commit |
 
 ## Estado resultante
 
@@ -376,8 +376,9 @@ puede cancelarlo). Riesgo aceptado (spec §11, D1).
   cita vigente si está `scheduled`/`confirmed` (libera la franja, en la misma transacción, sin su
   propio aviso);
 - evento `process_cancelled` (payload `reason`, `previous_status`, `appointment_cancelled`), aviso en
-  la app («Tu inscripción a titulación fue revocada») y **después del commit**
-  `send_process_cancelled` al institucional y al personal — texto **neutro** («Tu inscripción al
+  la app («Tu inscripción a titulación fue revocada») y el correo `process_cancelled` al institucional y
+  al personal — **encolado en la misma transacción** (outbox, 2026-10-05; con `TITULATEC_EMAIL_ENABLED=false` sale
+  en línea con `send_process_cancelled` después del commit, como antes) — texto **neutro** («Tu inscripción al
   proceso de titulación fue revocada», sin atribuirla a un área), sin motivo, folio ni número de
   control (el motivo se lee en la plataforma con sesión);
 - el alumno conserva `graduate`: en su dashboard ve «Inscripción revocada» / «Tu inscripción fue

@@ -83,16 +83,21 @@ class ProcessService:
         y devuelve `(False, …)` para que la bandeja lo diga. `completed` no se
         revoca.
 
-        El aviso al alumno (correo personal + institucional) sale DESPUÉS del
-        commit y es best-effort: un buzón caído no deshace la revocación. El
-        aviso en la app va dentro de la transacción (es una fila más). No se le
-        quita el rol `graduate`: sigue entrando para leer el motivo y puede
-        inscribirse en otra convocatoria (D5 solo cuenta procesos vivos).
+        El aviso por correo (personal + institucional) se ENCOLA dentro de la
+        transacción (`StudentMail.process_cancelled`, spec 2026-10-05 §3.7) y lo
+        manda el despachador, que no lo envía si para entonces el proceso ya
+        no está revocado. Con el correo apagado sale en línea DESPUÉS del
+        commit, como antes, y es best-effort: un buzón caído no deshace la
+        revocación. El aviso en la app va dentro de la transacción (es una fila
+        más). No se le quita el rol `graduate`: sigue entrando para leer el
+        motivo y puede inscribirse en otra convocatoria (D5 solo cuenta
+        procesos vivos).
         """
         from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
         from itcj2.apps.titulatec.services.appointment_service import AppointmentService
         from itcj2.apps.titulatec.services.notify import notify_student
         from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
         from itcj2.core.utils.timezone import db_now
 
         motivo = (reason or "").strip()
@@ -148,14 +153,18 @@ class ProcessService:
                        title="Tu inscripción a titulación fue revocada",
                        body="Entra a TitulaTec para ver el motivo.",
                        process_id=proc.id)
+        # El correo entra en ESTE commit (P-D1); sin motivo en el payload.
+        encolado = StudentMail.process_cancelled(db, proc)
         db.commit()
 
-        try:
-            from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
-            TitulaTecEmailHelper.send_process_cancelled(db, proc)
-        except Exception:
-            logger.exception("[titulatec] No se pudo avisar la revocación del proceso %s",
-                             proc.id)
+        if not encolado:
+            # Correo apagado: en línea, como antes (invariante 5).
+            try:
+                from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+                TitulaTecEmailHelper.send_process_cancelled(db, proc)
+            except Exception:
+                logger.exception("[titulatec] No se pudo avisar la revocación del proceso %s",
+                                 proc.id)
         return True, _MSG_OK
 
     @staticmethod
@@ -178,3 +187,69 @@ class ProcessService:
             return {"reason": None, "at": None, "actor_id": None}
         return {"reason": (ev.payload or {}).get("reason"), "at": ev.created_at,
                 "actor_id": ev.actor_id}
+
+    @staticmethod
+    def cancellation_info_map(db: Session, processes) -> dict[int, dict | None]:
+        """`{process.id: cancellation_info(process)}` en UNA consulta.
+
+        Mismo resultado que `cancellation_info` proceso por proceso (mismo
+        evento: el ÚLTIMO `process_cancelled` por `created_at`, `id`; `None` si
+        el proceso no sigue `cancelled`), sin el N+1 de la bandeja de
+        solicitudes. Los `None` de `processes` se ignoran.
+        """
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        procs = [p for p in processes if p is not None]
+        out: dict[int, dict | None] = {p.id: None for p in procs}
+        cancelled = [p.id for p in procs if p.status == "cancelled"]
+        if not cancelled:
+            return out
+        for pid in cancelled:
+            out[pid] = {"reason": None, "at": None, "actor_id": None}
+        evs = (db.query(ProcessEvent)
+               .filter(ProcessEvent.process_id.in_(cancelled),
+                       ProcessEvent.event_type == "process_cancelled")
+               .order_by(ProcessEvent.process_id, ProcessEvent.created_at.desc(),
+                         ProcessEvent.id.desc())
+               .all())
+        seen: set[int] = set()
+        for ev in evs:
+            if ev.process_id in seen:
+                continue
+            seen.add(ev.process_id)
+            out[ev.process_id] = {"reason": (ev.payload or {}).get("reason"),
+                                  "at": ev.created_at, "actor_id": ev.actor_id}
+        return out
+
+
+def process_search(q):
+    """Predicado de búsqueda sobre `TitulationProcess` + `User`, o `None`.
+
+    Constructor ÚNICO de la búsqueda de procesos en las bandejas admin (spec
+    2026-10-04 §3.3 y §6): número de control del alumno (en `ILIKE` y, exacto,
+    en MAYÚSCULA: la forma de `CONTROL_NUMBER_RE`), su nombre en los dos órdenes
+    (nombre, paterno, materno / paterno, materno, nombre) y el folio del
+    proceso. `q` se normaliza aquí (`utils.paging.normalize_q`) y el patrón
+    escapa `\\`, `%` y `_` (`like_pattern`).
+
+    El LLAMADOR une `User` por `TitulationProcess.student_id`
+    (`outerjoin(User, User.id == TitulationProcess.student_id)`): sin alumno,
+    el proceso solo casa por folio.
+    """
+    from sqlalchemy import func, or_
+
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q
+    from itcj2.core.models.user import User
+
+    q = normalize_q(q)
+    if q is None:
+        return None
+    p = like_pattern(q)
+    return or_(
+        User.control_number.ilike(p, escape="\\"),
+        User.control_number == q.upper(),
+        func.concat_ws(" ", User.first_name, User.last_name, User.middle_name).ilike(p, escape="\\"),
+        func.concat_ws(" ", User.last_name, User.middle_name, User.first_name).ilike(p, escape="\\"),
+        TitulationProcess.folio.ilike(p, escape="\\"),
+    )

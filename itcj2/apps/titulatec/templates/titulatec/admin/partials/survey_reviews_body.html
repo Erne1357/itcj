@@ -16,10 +16,30 @@
      si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
    - Inscripción revocada (`r.revoked`, cualquier pestaña de historial): sin
      acciones (todas responderían 400), píldora «Revocada» y, en «Con
-     observaciones», el texto vigente.
-   Sin `hx-confirm` salvo Liberar/Revocar (Observar no destruye nada) y sin
+     observaciones», el texto vigente -la columna «Constancia» SÍ conserva
+     su celda (Review Focus #5 de
+     `2026-10-02-titulatec-constancias-y-pendientes-design.md`): «Impresa» y
+     «Anulada tras imprimir» no cambian, y una vigente SIN lote pinta «No se
+     imprimirá» + la nota «inscripción revocada» en vez de «Sin imprimir»
+     (Rulings R13 y R18,
+     `revoked=r.revoked`: «Por imprimir» ya no la toma, R26).
+   - Constancia por recoger (`r.paper_to_collect`, D3 de `2026-10-05-
+     titulatec-import-encuesta-xlsx-design.md` §4.4): píldora junto al
+     estado y, en «Liberadas» sin revocar, «Marcar constancia entregada»
+     (`/entregada`, con `hx-confirm`). «Ver respuestas» sale con
+     `r.response_id`, también en una previa del Excel de Forms (R7).
+   Sin `hx-confirm` salvo Liberar/Revocar/Marcar entregada (Observar no destruye nada) y sin
    JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
    (`static/js/shared/titulatec-utils.js:265`).
+
+   Columna «Folio» (antes «Constancia»; Tarea 3 de `2026-10-02-titulatec-
+   constancias-y-pendientes-design.md` §3.3/E1/E6, y spec folios 2026-10-05
+   §3.5 que la renombra), entre «Estado» y «Ver respuestas»/las acciones, en
+   las 3 pestañas: el folio y, solo con el switch de impresión encendido
+   (`tt_certificate_printing()`), si ya se imprimió (`certificate_cell`, con
+   el dict de `CertificateService.print_status_map` que `list_for_inbox`
+   agrega en `r.certificate`). `prior=True` con `r.origin == 'prior'` (D9,
+   §4.12); GTV no tiene legado (`legacy` queda en su valor por omisión).
 
    `hx-confirm` y `data-tt-confirm-ok` van en el `<form>` (el elemento que
    lleva `hx-post`), NUNCA en el `<button>` que dispara el submit: htmx
@@ -30,7 +50,7 @@
    con la petición sin confirmar nada (defecto real, detectado por E2E el
    2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
    titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
-{% from "titulatec/_macros.html" import survey_review_pill %}
+{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell, pager, pill %}
 {% macro tab_fields(tab, q, page) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="q" value="{{ q }}">
@@ -38,13 +58,13 @@
 {%- endmacro %}
 <div id="tt-releases-body" data-tt-view="survey-reviews-body">
 
-  <form class="d-flex flex-wrap align-items-center gap-2 mb-3"
+  <form id="tt-releases-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}"
         hx-get="/titulatec/admin/liberaciones/body" hx-target="#tt-releases-body" hx-swap="outerHTML">
     <input type="hidden" name="status" value="{{ status }}">
     <input type="hidden" name="page" value="1">
     <div class="tt-search">
       <i class="bi bi-search"></i>
-      <input type="search" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+      <input type="search" id="tt-releases-q" name="q" value="{{ q }}" hx-preserve="true" placeholder="Buscar control o nombre"
              aria-label="Buscar control o nombre" hx-get="/titulatec/admin/liberaciones/body"
              hx-target="#tt-releases-body" hx-swap="outerHTML"
              hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
@@ -72,7 +92,7 @@
     <table class="table table-sm align-middle">
       <thead><tr>
         <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
-        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th></th><th></th>
+        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th>Folio</th><th></th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
@@ -83,8 +103,10 @@
         <td>{{ r.cohort }}</td>
         <td class="tt-mono">{{ r.submitted }}</td>
         <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
-        <td>{{ survey_review_pill(r.status) }}</td>
-        <td><a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a></td>
+        <td>{{ survey_review_pill(r.status, origin=r.origin) }}
+          {%- if r.paper_to_collect and not r.revoked %} {{ pill("Constancia por recoger", "amber", "envelope-paper") }}{% endif %}</td>
+        <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior'), revoked=r.revoked) }}</td>
+        <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
         <td>
           {% if r.revoked %}
             {% if r.status == 'rejected' and r.reason %}<p class="small mb-1">{{ r.reason }}</p>{% endif %}
@@ -123,6 +145,15 @@
             </form>
           {% elif r.status == 'approved' %}
             <p class="small mb-1">Liberada por {{ r.reviewed_by or '—' }} el {{ r.reviewed_at or '—' }}</p>
+            {% if r.paper_to_collect %}
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/entregada"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Marcar entregada"
+                  hx-confirm="Marcar constancia entregada|¿Confirmas que {{ r.student }} ya recogió su constancia de liberación en papel?">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost mb-1">Marcar constancia entregada</button>
+            </form>
+            {% endif %}
             {% if r.can_revoke %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/revocar"
                   hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
@@ -143,19 +174,6 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page - 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-releases-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/liberaciones/body?status={{ status }}&page={{ page + 1 }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
-            hx-target="#tt-releases-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ pager(pg, '/titulatec/admin/liberaciones/body?status=' ~ status ~ (('&q=' ~ (q | urlencode)) if q else ''), '#tt-releases-body', prefix='tt-liberaciones') }}
   {% endif %}
 </div>

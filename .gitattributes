@@ -11,3 +11,7 @@ database/init-itcj.sh text eol=lf
 # Otros archivos que también deberían usar LF
 Dockerfile* text eol=lf
 docker-compose*.yml text eol=lf
+
+# JS de las apps: siempre LF (con core.autocrlf=true la copia de trabajo
+# salía CRLF y las pruebas que leen el fuente del módulo lo detectan)
+itcj2/apps/**/static/js/**/*.js text eol=lf

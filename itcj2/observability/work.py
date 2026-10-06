@@ -1,9 +1,9 @@
 """Cronómetro del trabajo pesado y de las llamadas salientes (plan Fase 4).
 
 Un solo sitio para medir lo que puede ocupar un hilo del threadpool durante
-segundos (LibreOffice, los Excel/CSV, MS Graph, la API de fútbol) sin repetir
-un `try/finally` en cada servicio. Cuando entre OpenTelemetry (Fase 7), el
-span va aquí mismo.
+segundos (LibreOffice, los Excel/CSV, MS Graph y su token MSAL, el SII, la API
+de fútbol) sin repetir un `try/finally` en cada servicio. Cuando entre
+OpenTelemetry (Fase 7), el span va aquí mismo.
 
     with measured("orden_trabajo", "libreoffice"):
         result = subprocess.run([...], timeout=60)
@@ -98,7 +98,10 @@ DOCUMENT_KIND_ENGINE = MappingProxyType({
 DOCUMENT_KINDS = frozenset(DOCUMENT_KIND_ENGINE)
 DOCUMENT_ENGINES = frozenset(DOCUMENT_KIND_ENGINE.values())
 _DOCUMENT_PAIRS = frozenset(DOCUMENT_KIND_ENGINE.items())
-OUTBOUND_TARGETS = frozenset({"msgraph", "football_api"})
+# `msal` (R1 del plan de rendimiento de TitulaTec): la renovación silenciosa del
+# token de MS Graph (`msgraph_mail.acquire_token_silent`). `sii`: la consulta del
+# NIP al SII (`eligibility_service.fetch_sii_nip`).
+OUTBOUND_TARGETS = frozenset({"msgraph", "football_api", "msal", "sii"})
 OUTCOMES = frozenset({"ok", "error", "timeout"})
 
 _RENDER_METRIC = "itcj_document_render_seconds"

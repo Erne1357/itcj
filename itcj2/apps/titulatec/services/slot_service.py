@@ -187,11 +187,42 @@ class SlotService:
         }
 
     # -------------------------------------------------------------- ocupación
+    #
+    # UNA sola implementación de la regla (spec 2026-10-05-titulatec-
+    # rendimiento §3.4, invariante 2): `_vivas` decide QUÉ cita ocupa lugar y
+    # `occupancy_map` DÓNDE cuenta, para muchas ventanas con un solo SELECT.
+    # Todo lo demás (`occupancy`, `window_occupancy`, `day_occupancy`, sus
+    # mapas y `out_of_grid`) delega aquí. Antes cada ventana pagaba su propia
+    # consulta y el carril de días hacía una por ventana de la convocatoria
+    # (H6). No vuelvas a escribir el filtro por estado en otro método: el
+    # test estructural de `test_slot_occupancy_batch.py` lo vigila.
     @staticmethod
-    def occupancy(db: Session, window, *, excluir_process_id: int | None = None,
-                  walkin: bool | None = None,
-                  inicio: time | None = None) -> dict[time, int]:
-        """{hora_de_inicio: cuántas citas} de esa ventana.
+    def _vivas(q):
+        """El filtro de «esta cita ocupa lugar». Definición ÚNICA del módulo.
+
+        Filtra por ESTADO, nunca por `is_current`. Una fila `no_show` o
+        `attended` que ya no es la vigente sigue ocupando su franja (D10/D5).
+        Añadir `is_current == True` aquí parece lo natural al leer esto por
+        primera vez tras introducir el historial de intentos, y ES EL ERROR:
+        reabre el defecto de la spec 2026-09-15 §0 (reagendar liberaba la
+        franja del no-show). `is_current` es del historial, no de la
+        ocupación.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        if _ESTADOS_QUE_LIBERAN:
+            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        return q
+
+    @staticmethod
+    def occupancy_map(db: Session, windows, *, excluir_process_id: int | None = None,
+                      walkin: bool | None = None,
+                      inicio: time | None = None) -> dict[int, dict[time, int]]:
+        """{window_id: {hora_de_inicio: cuántas citas}} de VARIAS ventanas, con
+        UN SELECT. Es LA regla de ocupación; `occupancy` es este mapa con una
+        sola ventana.
+
+        Toda ventana pedida (con id) sale en el mapa, con `{}` si no tiene
+        citas. Sin ventanas no consulta nada.
 
         `excluir_process_id` es para MOVER: al recolocar a un alumno dentro de
         su propia ventana, su cita actual no puede contarse contra el cupo de
@@ -200,46 +231,89 @@ class SlotService:
         En sin horario TODAS las citas vivas cuentan bajo la apertura, sea cual
         sea su hora (spec 2026-09-29 §3.1): la de legado sentada a las 10:30
         sigue ocupando un lugar del cupo total. `walkin=None` es el modo actual
-        de la ventana. `walkin` e `inicio` explícitos son para medir el modo
-        DESTINO antes de escribirlo (`ReviewWindowService.update`): con
-        `walkin=False`, cada cita a su hora real; con `walkin=True`, todas bajo
-        `inicio` (o la apertura actual). `inicio` solo cuenta en sin horario.
+        de CADA ventana. `walkin` e `inicio` explícitos son para medir el modo
+        DESTINO antes de escribirlo (`ReviewWindowService.update`, siempre con
+        una sola ventana): con `walkin=False`, cada cita a su hora real; con
+        `walkin=True`, todas bajo `inicio` (o la apertura actual). `inicio`
+        solo cuenta en sin horario.
+
+        Lee columnas, no filas completas: el conteo solo necesita la ventana y
+        la hora, y el carril de días pide TODAS las citas vivas de la
+        convocatoria de una vez.
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
-        if not window or not window.id:
+        ventanas = {w.id: w for w in (windows or []) if w is not None and w.id}
+        if not ventanas:
             return {}
-        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
-        # Filtra por ESTADO, nunca por `is_current`. Una fila `no_show` o
-        # `attended` que ya no es la vigente sigue ocupando su franja (D10/D5).
-        # Añadir `is_current == True` aquí parece lo natural al leer esto por
-        # primera vez tras introducir el historial de intentos, y ES EL ERROR:
-        # reabre el defecto de la spec 2026-09-15 §0 (reagendar liberaba la
-        # franja del no-show). `is_current` es del historial, no de la
-        # ocupación.
-        if _ESTADOS_QUE_LIBERAN:
-            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        q = SlotService._vivas(
+            db.query(ReviewAppointment.window_id, ReviewAppointment.scheduled_at)
+            .filter(ReviewAppointment.window_id.in_(list(ventanas))))
         if excluir_process_id:
             q = q.filter(ReviewAppointment.process_id != excluir_process_id)
-        if walkin is None:
-            walkin = window.visibility == "walkin"
-        apertura = inicio if inicio is not None else window.start_time
-        salida: dict[time, int] = {}
-        for a in q.all():
-            if a.scheduled_at:
-                hora = apertura if walkin else a.scheduled_at.time()
-                salida[hora] = salida.get(hora, 0) + 1
+        salida: dict[int, dict[time, int]] = {wid: {} for wid in ventanas}
+        for window_id, cuando in q.all():
+            if not cuando:
+                continue
+            w = ventanas[window_id]
+            en_apertura = (w.visibility == "walkin") if walkin is None else walkin
+            apertura = inicio if inicio is not None else w.start_time
+            hora = apertura if en_apertura else cuando.time()
+            cuenta = salida[window_id]
+            cuenta[hora] = cuenta.get(hora, 0) + 1
         return salida
+
+    @staticmethod
+    def occupancy(db: Session, window, *, excluir_process_id: int | None = None,
+                  walkin: bool | None = None,
+                  inicio: time | None = None) -> dict[time, int]:
+        """{hora_de_inicio: cuántas citas} de esa ventana.
+
+        Delega en `occupancy_map` (ver ahí `excluir_process_id`, `walkin` e
+        `inicio`): una sola implementación de la regla.
+        """
+        if not window or not window.id:
+            return {}
+        return SlotService.occupancy_map(
+            db, [window], excluir_process_id=excluir_process_id,
+            walkin=walkin, inicio=inicio)[window.id]
+
+    @staticmethod
+    def _totales(window, ocupacion: dict) -> tuple[int, int]:
+        """(ocupados, capacidad total) de una ventana a partir de SU ocupación.
+        Sin BD: es la cuenta que comparten la versión por ventana y los mapas.
+
+        Solo cuentan las citas que caen en una franja real: las que quedaron
+        fuera de la rejilla tras cambiar `slot_minutes` se muestran aparte y
+        no inflan el denominador.
+        """
+        franjas = SlotService.slots(window)
+        validas = set(franjas)
+        ocupados = sum(n for hora, n in ocupacion.items() if hora in validas)
+        return ocupados, len(franjas) * int(window.capacity or 1)
+
+    @staticmethod
+    def _sumar(windows, ocupacion: dict) -> tuple[int, int]:
+        """(ocupados, capacidad) de un conjunto de ventanas, con un mapa de
+        ocupación ya calculado."""
+        total_ocupados = total_capacidad = 0
+        for w in windows:
+            o, c = SlotService._totales(w, ocupacion.get(w.id, {}))
+            total_ocupados += o
+            total_capacidad += c
+        return total_ocupados, total_capacidad
 
     @staticmethod
     def window_occupancy(db: Session, window) -> tuple[int, int]:
         """(ocupados, capacidad total) de UNA ventana."""
-        franjas = SlotService.slots(window)
-        ocupacion = SlotService.occupancy(db, window)
-        # Solo cuentan las citas que caen en una franja real: las que quedaron
-        # fuera de la rejilla tras cambiar `slot_minutes` se muestran aparte y
-        # no inflan el denominador.
-        ocupados = sum(n for hora, n in ocupacion.items() if hora in set(franjas))
-        return ocupados, len(franjas) * int(window.capacity or 1)
+        return SlotService._totales(window, SlotService.occupancy(db, window))
+
+    @staticmethod
+    def window_occupancy_map(db: Session, windows) -> dict[int, tuple[int, int]]:
+        """{window_id: (ocupados, capacidad total)} de varias ventanas, con UN
+        SELECT. Lo usa el tablero para sus espacios y los ajenos."""
+        windows = [w for w in (windows or []) if w is not None and w.id]
+        ocupacion = SlotService.occupancy_map(db, windows)
+        return {w.id: SlotService._totales(w, ocupacion.get(w.id, {})) for w in windows}
 
     @staticmethod
     def day_occupancy(db: Session, windows) -> tuple[int, int]:
@@ -251,19 +325,36 @@ class SlotService:
         mientras el denominador no: la carrera decide qué NOMBRES se ven, nunca
         los conteos.
         """
-        total_ocupados = total_capacidad = 0
-        for w in windows or []:
-            o, c = SlotService.window_occupancy(db, w)
-            total_ocupados += o
-            total_capacidad += c
-        return total_ocupados, total_capacidad
+        windows = list(windows or [])
+        return SlotService._sumar(windows, SlotService.occupancy_map(db, windows))
+
+    @staticmethod
+    def day_occupancy_map(db: Session, windows_by_day: dict) -> dict:
+        """{día: (ocupados, capacidad)} de varios días, con UN SELECT.
+
+        `windows_by_day` es lo que devuelve `windows_for_days`. Es el carril de
+        días entero: antes, una consulta por cada ventana de la convocatoria.
+        """
+        todas = [w for ventanas in windows_by_day.values() for w in ventanas]
+        ocupacion = SlotService.occupancy_map(db, todas)
+        return {dia: SlotService._sumar(ventanas, ocupacion)
+                for dia, ventanas in windows_by_day.items()}
+
+    @staticmethod
+    def free_slots_from(window, ocupacion: dict) -> list[time]:
+        """Franjas con lugar libre, en orden, a partir de una ocupación YA
+        calculada (`occupancy` / un valor de `occupancy_map`). Sin BD: es la
+        comparación contra el cupo que comparten `free_slots` y quien ya leyó
+        la ocupación de varias ventanas de una vez (`SelfBookingService.offer`).
+        """
+        cupo = int(window.capacity or 1)
+        return [h for h in SlotService.slots(window) if ocupacion.get(h, 0) < cupo]
 
     @staticmethod
     def free_slots(db: Session, window, *, excluir_process_id: int | None = None) -> list[time]:
         """Franjas con lugar libre, en orden."""
-        ocupacion = SlotService.occupancy(db, window, excluir_process_id=excluir_process_id)
-        cupo = int(window.capacity or 1)
-        return [h for h in SlotService.slots(window) if ocupacion.get(h, 0) < cupo]
+        return SlotService.free_slots_from(
+            window, SlotService.occupancy(db, window, excluir_process_id=excluir_process_id))
 
     # ------------------------------------------------------------ asignación
     @staticmethod
@@ -533,16 +624,64 @@ class SlotService:
         Sin horario: siempre vacía. No tiene rejilla y `occupancy` cuenta toda
         cita viva bajo la apertura, así que la de legado de las 10:30 saldría
         en esta banda aunque sí ocupa su lugar.
+
+        Delega en `out_of_grid_map`.
+        """
+        return SlotService.out_of_grid_map(db, [window]).get(window.id, [])
+
+    @staticmethod
+    def out_of_grid_map(db: Session, windows) -> dict[int, list]:
+        """{window_id: [citas fuera de la rejilla]} de varias ventanas, con UN
+        SELECT (el tablero lo pedía una vez por espacio con franjas).
+
+        Mismo filtro que la ocupación (`_vivas`). Toda ventana pedida (con id)
+        sale en el mapa; las sin horario, siempre con `[]` y sin consultar.
+        Orden: (`scheduled_at`, `id`).
         """
         from itcj2.apps.titulatec.models import ReviewAppointment
-        if window.visibility == "walkin":
-            return []
-        validas = set(SlotService.slots(window))
-        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
-        if _ESTADOS_QUE_LIBERAN:
-            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
-        return [a for a in q.all()
-                if a.scheduled_at and a.scheduled_at.time() not in validas]
+        ventanas = {w.id: w for w in (windows or []) if w is not None and w.id}
+        salida: dict[int, list] = {wid: [] for wid in ventanas}
+        rejillas = {wid: set(SlotService.slots(w)) for wid, w in ventanas.items()
+                    if w.visibility != "walkin"}
+        if not rejillas:
+            return salida
+        # `window_id` como COLUMNA (lo que dice la base) y no el atributo del
+        # objeto: así se reparte por la misma ventana por la que se filtró.
+        q = SlotService._vivas(
+            db.query(ReviewAppointment, ReviewAppointment.window_id)
+            .filter(ReviewAppointment.window_id.in_(list(rejillas))))
+        for a, window_id in q.order_by(ReviewAppointment.scheduled_at,
+                                       ReviewAppointment.id).all():
+            if a.scheduled_at and a.scheduled_at.time() not in rejillas[window_id]:
+                salida[window_id].append(a)
+        return salida
+
+    @staticmethod
+    def vivas_de_ventanas(db: Session, window_ids) -> dict[int, list]:
+        """{window_id: [citas VIVAS]} de varias ventanas, con UN SELECT, en orden
+        de apartado `(scheduled_at, id)`.
+
+        Es la LISTA de lo que `occupancy_map` CUENTA: el mismo filtro por estado
+        (`_vivas`, nunca `is_current`), así que la lista y el contador de libres
+        de un espacio sin horario no pueden divergir. Ninguna página arma su
+        propio filtro por estado: pide esto (lo vigila
+        `test_slot_occupancy_batch.py`). Toda ventana pedida sale en el mapa
+        (`[]` si no tiene citas); sin ids no consulta.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        ids = [i for i in dict.fromkeys(window_ids or []) if i]
+        if not ids:
+            return {}
+        salida: dict[int, list] = {wid: [] for wid in ids}
+        # `window_id` como COLUMNA, igual que `out_of_grid_map`: se reparte por
+        # la misma ventana por la que se filtró.
+        q = SlotService._vivas(
+            db.query(ReviewAppointment, ReviewAppointment.window_id)
+            .filter(ReviewAppointment.window_id.in_(ids)))
+        for a, window_id in q.order_by(ReviewAppointment.scheduled_at,
+                                       ReviewAppointment.id).all():
+            salida[window_id].append(a)
+        return salida
 
     @staticmethod
     def is_walkin_reservation(appt) -> bool:
@@ -561,16 +700,38 @@ class SlotService:
 
     # ------------------------------------------------------------ resolución
     @staticmethod
-    def windows_for_day(db: Session, review_day_id: int, *, owner_id: int | None = None,
-                        solo_abiertas: bool = True) -> list:
-        """Ventanas de un día, opcionalmente solo las de un encargado."""
+    def windows_for_days(db: Session, day_ids, *, owner_id: int | None = None,
+                         solo_abiertas: bool = True) -> dict[int, list]:
+        """{review_day_id: [ventanas]} de varios días, con UN SELECT.
+
+        Dentro de cada día, el MISMO orden de siempre: (`start_time`, `id`).
+        Todo día pedido sale en el mapa, con `[]` si no tiene ventanas; sin
+        días no consulta nada. `windows_for_day` delega aquí.
+        """
         from itcj2.apps.titulatec.models import ReviewWindow
-        q = db.query(ReviewWindow).filter(ReviewWindow.review_day_id == review_day_id)
+        ids = list(dict.fromkeys(day_ids or []))
+        if not ids:
+            return {}
+        # `review_day_id` como COLUMNA: se reparte por el día por el que se
+        # filtró, no por un atributo que alguien pudo tocar en memoria.
+        q = (db.query(ReviewWindow, ReviewWindow.review_day_id)
+             .filter(ReviewWindow.review_day_id.in_(ids)))
         if owner_id is not None:
             q = q.filter(ReviewWindow.owner_user_id == owner_id)
         if solo_abiertas:
             q = q.filter(ReviewWindow.status == "open")
-        return q.order_by(ReviewWindow.start_time, ReviewWindow.id).all()
+        salida: dict[int, list] = {dia: [] for dia in ids}
+        for w, dia in q.order_by(ReviewWindow.start_time, ReviewWindow.id).all():
+            salida[dia].append(w)
+        return salida
+
+    @staticmethod
+    def windows_for_day(db: Session, review_day_id: int, *, owner_id: int | None = None,
+                        solo_abiertas: bool = True) -> list:
+        """Ventanas de un día, opcionalmente solo las de un encargado."""
+        return SlotService.windows_for_days(
+            db, [review_day_id], owner_id=owner_id,
+            solo_abiertas=solo_abiertas).get(review_day_id, [])
 
     @staticmethod
     def resolve(db: Session, cohort_id: int, day: date, hhmm: time,

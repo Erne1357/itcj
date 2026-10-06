@@ -831,6 +831,11 @@ a.tt-kpi.is-active { border-color: var(--tt-accent); box-shadow: inset 0 0 0 1px
   line-height: 26px; text-align: center; cursor: pointer;
 }
 .tt-funnel > .seg.is-empty { min-width: 6px; opacity: .35; }
+/* Las franjas con procesos son enlaces a la tabla filtrada por fase (?phase=N). */
+.tt-funnel > a.seg { color: #fff; text-decoration: none; }
+.tt-funnel > .seg.is-empty { cursor: default; }
+.tt-funnel > .seg.is-dim { opacity: .4; }
+.tt-funnel > .seg.is-sel { box-shadow: inset 0 -3px 0 rgba(0,0,0,.35); }
 .tt-funnel-legend { flex: 0 0 auto; font-size: .72rem; color: var(--tt-mute); white-space: nowrap; }
 /* En móvil los segmentos son además el filtro por fase: 10px no es tocable. */
 @media (max-width: 991.98px) {
@@ -925,6 +930,10 @@ th.sortable { cursor: pointer; user-select: none; }
 .tt-kanban-col .col-scroll > .body { height: 100%; overflow-y: auto; }
 .tt-kanban-col .health { height: 4px; border-radius: 2px; background: var(--tt-line); overflow: hidden; margin-bottom: 8px; }
 .tt-kanban-col .health > i { display: block; height: 100%; background: var(--tt-danger); }
+/* Pie de columna con tope (D5): «Ver las N en tabla». */
+.tt-kanban-col .tt-kanban-more { display: block; margin-top: 8px; font-size: .72rem; font-weight: 600;
+  color: var(--tt-accent); text-align: center; text-decoration: none; }
+.tt-kanban-col .tt-kanban-more:hover { text-decoration: underline; }
 .tt-kanban-card .meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 
 /* --- Visor de documentos (cotejo y revisión) ----------------------------- */
@@ -2731,3 +2740,89 @@ button.tt-seat--libre { pointer-events: auto; }
   min-width: 0;
 }
 .tt-off-edit[hidden] { display: none; }
+
+/* ---- Paginador compartido de las bandejas admin ------------------------- */
+.tt-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tt-sp-3, 0.75rem);
+  margin-top: var(--tt-sp-3, 0.75rem);
+  min-width: 0;
+}
+.tt-pager-range {
+  font-size: var(--tt-fs-200);
+  color: var(--tt-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Bandeja de Biblioteca: panel de dictamen bajo la fila -------------- */
+/* Spec 2026-10-05-titulatec-biblioteca-acciones. La celda de acciones lleva a
+   lo mas dos controles; el resto vive en una segunda fila (`tt-lib-panel-row`)
+   que abre el `data-tt-toggle` global. Empuja hacia abajo: no tapa ni encoge
+   nada. Vive bajo el bloque de Citas, asi que respeta sus reglas: solo tokens
+   de la escala tipografica, texto secundario con `--tt-text-2/3` y foco con
+   `--tt-focus`. */
+.tt-lib-th-check { width: 2rem; }
+.tt-lib-actions { display: flex; align-items: center; gap: var(--tt-sp-1); }
+.tt-lib-chev { display: inline-block; margin-left: var(--tt-sp-1);
+               transition: transform 200ms var(--tt-ease-out); }
+.tt-lib-toggle[aria-expanded="true"] .tt-lib-chev { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .tt-lib-chev { transition: none; } }
+
+/* La fila del panel NO hereda la columna de accion anclada (`position:
+   sticky` del ultimo td de `.tt-table-wrap`) ni el `nowrap` de la tabla: su
+   unico td abarca todas las columnas y su texto se parte. */
+.tt-table-wrap > table > tbody > tr.tt-lib-panel-row > td {
+  position: static; white-space: normal; background: var(--tt-mist);
+  padding: var(--tt-sp-3);
+}
+/* El panel mide lo que se VE del contenedor con scroll (no lo ancho de la
+   tabla) y se queda pegado a la izquierda al desplazarla: en 360 px los
+   campos caben en pantalla y el body nunca hace scroll horizontal. Sin
+   unidades de contenedor queda el tope de 60rem. */
+#tt-library-body .tt-table-wrap { container-type: inline-size; }
+.tt-lib-panel {
+  position: sticky; left: var(--tt-sp-3); box-sizing: border-box;
+  max-width: 60rem; width: calc(100cqi - 2 * var(--tt-sp-3));
+  display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0;
+}
+.tt-lib-panel-title { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+                      margin: 0 0 var(--tt-sp-1); padding: 0; }
+/* Las tarjetas en rejilla: una al lado de otra donde caben, una por fila en
+   movil. La leyenda y la pista abarcan toda la fila (medido en Chromium: sin
+   esto la leyenda ocupa la primera columna, junto a las tarjetas). */
+.tt-lib-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); }
+.tt-lib-opts > legend { grid-column: 1 / -1; }
+.tt-lib-hint { grid-column: 1 / -1; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-lib-forms { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+.tt-lib-fields { display: flex; flex-wrap: wrap; align-items: flex-end;
+                 gap: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }
+.tt-lib-field { display: flex; flex-direction: column; min-width: 0; }
+.tt-lib-field .tt-label { margin-bottom: var(--tt-sp-1); }
+.tt-lib-field--grow { flex: 1 1 16rem; }
+.tt-lib-field--grow > .tt-field { width: 100%; }
+.tt-lib-amount { width: 8rem; max-width: 100%; }
+
+/* Solo el formulario de la tarjeta elegida (por CLAVE, nunca por id: dos
+   paneles abiertos en filas distintas no se pisan). Un panel sin tarjetas
+   (opcion unica) muestra su formulario directo. Sin `:has()` esta regla se
+   descarta entera y se ven todos los formularios: degradacion aceptable. */
+.tt-lib-panel:has(.tt-lib-pick) .tt-lib-form { display: none; }
+.tt-lib-panel:has(.tt-lib-pick:checked) .tt-lib-hint { display: none; }
+.tt-lib-panel:has(.tt-lib-pick[value="debt"]:checked) .tt-lib-form--debt,
+.tt-lib-panel:has(.tt-lib-pick[value="prior"]:checked) .tt-lib-form--prior,
+.tt-lib-panel:has(.tt-lib-pick[value="observe"]:checked) .tt-lib-form--observe,
+.tt-lib-panel:has(.tt-lib-pick[value="fix"]:checked) .tt-lib-form--fix,
+.tt-lib-panel:has(.tt-lib-pick[value="update"]:checked) .tt-lib-form--update,
+.tt-lib-panel:has(.tt-lib-pick[value="revert"]:checked) .tt-lib-form--revert,
+.tt-lib-panel:has(.tt-lib-pick[value="undo"]:checked) .tt-lib-form--undo { display: block; }
+
+/* La tarjeta se distingue del fondo del panel (ambos eran --tt-mist): la no
+   elegida lleva borde --tt-text-3 (>=3:1 sobre el panel, WCAG 1.4.11) y la
+   elegida pasa a papel blanco con borde y anillo de acento. Texto sin cambio
+   de token (--tt-text-1/3 sobre blanco). */
+.tt-lib-opts .tt-vis-opt { background: transparent; border-color: var(--tt-text-3); }
+.tt-lib-opts .tt-vis-opt:has(input:checked) { background: var(--tt-paper);
+                                              border-color: var(--tt-accent-ink);
+                                              box-shadow: inset 0 0 0 1px var(--tt-accent-ink); }

@@ -132,24 +132,40 @@ class TestSubida:
 
     def test_comprimir_y_guardar_corren_en_el_threadpool(self, esc, client_as, db_session,
                                                          monkeypatch):
-        from itcj2.apps.titulatec.pages import student as student_pages
+        """R7 (spec §3.8): la ruta async solo lee el archivo; comprimir (CPU) y
+        guardar (BD) corren en un hilo del threadpool, nunca dentro del event loop.
+        Un hilo del pool no tiene loop corriendo; el loop del worker, si."""
+        import asyncio
+
         from itcj2.apps.titulatec.services.document_service import DocumentService
         from itcj2.apps.titulatec.utils import storage
 
+        def _hay_loop() -> bool:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return False
+            return True
+
         e = esc()
-        llamadas = []
-        real = student_pages.run_in_threadpool
+        en_el_loop: dict[str, bool] = {}
+        real_prepare, real_save = storage.prepare_document, DocumentService.save
 
-        async def _espia(fn, *args, **kwargs):
-            llamadas.append(fn)
-            return await real(fn, *args, **kwargs)
+        def _espia_prepare(**kwargs):
+            en_el_loop["comprimir"] = _hay_loop()
+            return real_prepare(**kwargs)
 
-        monkeypatch.setattr(student_pages, "run_in_threadpool", _espia)
+        def _espia_save(*args, **kwargs):
+            en_el_loop["guardar"] = _hay_loop()
+            return real_save(*args, **kwargs)
+
+        monkeypatch.setattr(storage, "prepare_document", _espia_prepare)
+        monkeypatch.setattr(DocumentService, "save", staticmethod(_espia_save))
 
         resp = _post(client_as(e.student), photo_pdf())
 
         assert resp.status_code == 200, resp.text[:300]
-        assert llamadas == [storage.prepare_document, DocumentService.save]
+        assert en_el_loop == {"comprimir": False, "guardar": False}
         assert _doc(db_session, e.process.id) is not None
 
     def test_comprime_sin_transaccion_abierta(self, esc, client_as, db_session, monkeypatch):

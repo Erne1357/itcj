@@ -267,33 +267,42 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Correo |
 |---|---|---|---|---|---|---|---|
 | 1 | 👤 | `/titulatec/inscripcion` | Ver el formulario | `GET /titulatec/inscripcion` | `CohortService.public_enrollment_cohort` | (lectura) | — |
-| 2 | 👤 | formulario | Enviar | `POST /titulatec/inscripcion` | `EnrollmentRequestService.create` | `titulatec_enrollment_requests` ← `pending_review`, `kind` (solo para mostrar), `created_ip_hash`; **sin token** | Solo si ya hay proceso vivo: `send_already_enrolled` → institucional, sin fila |
+| 2 | 👤 | formulario | Enviar | `POST /titulatec/inscripcion` | `EnrollmentRequestService.create` | `titulatec_enrollment_requests` ← `pending_review`, `kind` (solo para mostrar), `created_ip_hash`; **sin token** | Solo si ya hay proceso vivo: encola `already_enrolled` (outbox, 2026-10-05) → institucional, sin solicitud |
 | 3 | 🏛️ | Solicitudes | Ver una pestaña | `GET /titulatec/admin/solicitudes[/body]?status=&cohort_id=` | `_body_ctx` (KPIs y "por año" vía `EnrollmentRequestService.stats`) | (lectura; `account_inactive`, `rejection_sent`, `prior_reject` por fila) | — |
 | 4-sii | 🏛️ | Solicitudes, fila **Sin cuenta**, modo `sii` (por omisión) | Aprobar y dar acceso · Aprobar y pasar a Accesos (`to_access=1`) | `POST /titulatec/admin/solicitudes/{id}/aprobar` (en `run_in_threadpool`) | `approve_detailed` → `_approve_locked` | con el NIP del SII → `converted`, `nip_source = 'sii'` (cuenta con `hash_nip`, `must_change_password=False`); a Accesos → `awaiting_access`; si el SII ya no da un NIP válido, nada escrito de la solicitud (200 + aviso) | Detalle, textos y errores: ⤵ [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md) (pasos 5a-5d) |
 | 4a | 🏛️ | fila **Sin cuenta**, modo OFICIAL | Aprobar y pasar a Cómputo | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `awaiting_access`, `reviewed_by_id/at` | **Sin correo** — el alumno no se entera de este paso. El NIP lo da Centro de Cómputo: ⤵ [`xcut_computer_center_access.md`](xcut_computer_center_access.md) |
 | 4a-alt | 💻 | Accesos (⚠️ **NO** Solicitudes: en este modo su bandeja es de solo lectura y los POST de `requests_admin.py` responden 400 ANTES de abrir sesión — `_alternate_mode_block`), fila **Sin cuenta**, modo ALTERNO (`TITULATEC_ENROLLMENT_REVIEWER=computer_center`) | Aprobar y dar acceso (con el NIP tecleado) | `POST /titulatec/admin/accesos/{id}/dar-acceso` (`pages/access_admin.py`) | `approve` | `core_users` ← usuario = control, `hash_nip(nip)`, `must_change_password`, `role_id = graduate`; `core_user_app_roles` ← `graduate` en `itcj` y `titulatec`; `titulatec_processes` + 9 fases; `core_student_profile` con los datos del formulario; solicitud → `converted` | `ProcessEvent(enrollment_self_service, activation=nip_personal_email)` sin NIP; caché de authz invalidado tras el commit; `send_enrollment_approved` → **personal** |
 | 4b | 🏛️ | Solicitudes, fila **Con cuenta**, modos `sii` y OFICIAL | Aprobar y enviar liga | `POST /titulatec/admin/solicitudes/{id}/aprobar` | `approve` | solicitud → `approved`; `verify_token_hash`, `verify_expires_at` (+21 días, `_link_ttl_hours()`), `verify_sent_to`, `verify_send_count = 1`; claro en Redis. **La cuenta no se toca, ni se reactiva** | `send_verify_enrollment` → **personal**; si sale, `verify_sent_at` |
 | 4b-alt | 💻 | Accesos (misma salvedad que 4a-alt: NO es Solicitudes), fila **Con cuenta**, modo ALTERNO | Aprobar y enviar liga | `POST /titulatec/admin/accesos/{id}/dar-acceso` (`pages/access_admin.py`) | `approve` | mismo efecto que 4b | mismo correo que 4b |
-| 5 | 👤 | correo | Activar mi acceso | `GET /titulatec/inscripcion/verificar?t=` | `verify` → `_convert` | `core_user_app_roles`: `graduate` en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec`; `core_users.role_id` → `graduate` solo desde `student`/NULL; `core_users.is_active` → `true` **si estaba desactivada**; `titulatec_processes` + fases; solicitud → `converted`, `verified_at`. **Nada del perfil** | `ProcessEvent(activation=personal_email_link, reactivated)`; caché de authz invalidado tras el commit; `send_enrollment_done` → **institucional** |
+| 5 | 👤 | correo | Activar mi acceso | `GET /titulatec/inscripcion/verificar?t=` | `verify` → `_convert` | `core_user_app_roles`: `graduate` en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec`; `core_users.role_id` → `graduate` solo desde `student`/NULL; `core_users.is_active` → `true` **si estaba desactivada**; `titulatec_processes` + fases; solicitud → `converted`, `verified_at`. **Nada del perfil** | `ProcessEvent(activation=personal_email_link, reactivated)`; caché de authz invalidado tras el commit; encola `enrollment_verified` (outbox, 2026-10-05) → **institucional** |
 | 6 | 🏛️ | Liga enviada | Reenviar liga | `POST /titulatec/admin/solicitudes/{id}/reenviar` | `resend_link` | hash y vencimiento nuevos, `verify_send_count + 1`, `verified_at` y `verify_sent_at` a NULL; claro viejo borrado de Redis | `send_verify_enrollment` → personal |
-| 7 | 🏛️ | fila (`pending_review`, `approved` o, desde 2026-09-24, `awaiting_access`) | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado; si el correo sale, `rejection_sent_at` en un commit propio (2026-09-17) | `send_enrollment_rejected` → personal, firmado por `reviewer_label()` |
+| 7 | 🏛️ | fila (`pending_review`, `approved` o, desde 2026-09-24, `awaiting_access`) | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado; encola `enrollment_rejected` (outbox, 2026-10-05): el despachador sella `rejection_sent_at` al enviarlo | correo → personal, firmado por `reviewer_label()`; `X-Tt-Notice` «Se enviará el correo al egresado.» |
 | 8 | 👤 | (sin pantalla) | Reenvío público | `POST /titulatec/inscripcion/reenviar` | `resend` | `verify_send_count + 1`, mismo token | `send_verify_enrollment` → personal |
 | 9 (`sii`) | 🏛️ | Por revisar | Reintentar consulta | `POST /titulatec/admin/solicitudes/{id}/reconsultar` | `eligibility_service.enqueue_check(force=True)` | nada propio | ⤵ [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md) |
 | 10 (`sii`) | 🏛️ | Inscritas, «correo no enviado» | Reenviar aviso | `POST /titulatec/admin/solicitudes/{id}/reenviar-aviso` | `resend_access_notice` | ninguna credencial; `access_sent_at` si sale | `send_enrollment_approved(nip_source="sii")` → personal, sin NIP |
 
 ## A qué buzón va cada correo
 
-| Correo | Método | Destinatario |
-|---|---|---|
-| Liga de activación | `send_verify_enrollment` | correo **personal** de la solicitud |
-| Usuario + NIP (cuenta nueva) | `send_enrollment_approved` | correo **personal** |
-| Rechazo con motivo | `send_enrollment_rejected` | correo **personal** |
-| «Ya tienes un proceso» | `send_already_enrolled` | **institucional** (`student_email(user)`) |
-| Folio al activarse (alarma) | `send_enrollment_done` | **institucional** |
+| Correo | Método | Destinatario | Camino (2026-10-05) |
+|---|---|---|---|
+| Liga de activación | `send_verify_enrollment` | correo **personal** de la solicitud | en línea (lleva la liga) |
+| Usuario + NIP (cuenta nueva) | `send_enrollment_approved` | correo **personal** | en línea (lleva el NIP) |
+| Rechazo con motivo | `send_enrollment_rejected` | correo **personal** | outbox `enrollment_rejected` |
+| «Ya tienes un proceso» | `send_already_enrolled` | **institucional** (`student_email(user)`) | outbox `already_enrolled` |
+| Folio al activarse (alarma) | `send_enrollment_done` | **institucional** | outbox `enrollment_verified` |
+| Inscripción revocada (sin motivo) | `send_process_cancelled` | **institucional** + personal | outbox `process_cancelled` |
 
 El destinatario lo decide cada método del helper, nunca quien llama: ninguno recibe `to`. Lo fija
 `test_ningun_correo_de_la_solicitud_acepta_un_destinatario_del_llamador`. Sin token de Graph y fuera
 de producción, la liga se escribe al log con `[TT-VERIFY-LINK]` (E9).
+
+**Desde 2026-10-05 (spec `2026-10-05-titulatec-rendimiento-design.md` §3.7, P-D1)** el rechazo,
+«ya tienes un proceso», el folio al activarse y el aviso de revocación ya NO salen en la petición:
+se encolan en `titulatec_email_outbox` (`enrollment_rejected`, `already_enrolled`,
+`enrollment_verified`, `process_cancelled`) en la misma transacción y los manda el despachador cada
+5 minutos, al MISMO buzón de esta tabla y con la misma plantilla. Solo con
+`TITULATEC_EMAIL_ENABLED=false` salen en línea como antes. La liga y el NIP siguen en línea. Detalle:
+⤵ [correos del proceso, §9](xcut_student_email_notifications.md#9-correos-de-inscripción-sin-secreto-2026-10-05-p-d1).
 
 ## Bandeja: KPIs, por año de ingreso, correo de rechazo sin enviar y antecedentes (2026-09-17)
 
@@ -339,12 +348,14 @@ calcula nada y no se pinta nada de esto.
   y mínimo de 960 px, que cabe en los 977 px útiles del admin a 1280); los otros modos conservan
   sus cinco.
 - **Correo de rechazo no enviado**: columna `titulatec_enrollment_requests.rejection_sent_at`
-  (`DateTime`, nullable; migración `tt20260917a`). `reject()` la sella en un commit PROPIO, DESPUÉS
-  de mandar `send_enrollment_rejected`, solo si devolvió `True` — mismo patrón que
-  `verify_sent_at`/`_mail_activation`: un fallo al sellar no deshace el rechazo, que ya está
-  commiteado. Una fila `rejected` con `rejection_sent_at` NULL muestra la píldora ámbar «correo no
-  enviado» (pestañas Rechazadas y Todas). Sin botón de reenvío: a diferencia de la liga de activación,
-  no hay nada que reenviar automáticamente — el motivo ya se decidió y quedó en `review_note`.
+  (`DateTime`, nullable; migración `tt20260917a`). Desde 2026-10-05 la sella el DESPACHADOR del
+  outbox al mandar la fila `enrollment_rejected`, en su misma transacción; mientras esa fila siga
+  `pending` la fila dice «en cola» (píldora neutra) y rechazar responde `X-Tt-Notice` «Se enviará el
+  correo al egresado.». Con el correo apagado, `reject()` la sella como antes, en un commit PROPIO
+  DESPUÉS de mandar `send_enrollment_rejected`, solo si devolvió `True`. Una fila `rejected` con
+  `rejection_sent_at` NULL y sin fila pendiente muestra la píldora ámbar «correo no enviado»
+  (pestañas Rechazadas y Todas). Sin botón de reenvío: a diferencia de la liga de activación, no hay
+  nada que reenviar automáticamente — el motivo ya se decidió y quedó en `review_note`.
 - **Rechazada antes**: si existe una solicitud ANTERIOR (`id` menor) con el MISMO número de control,
   en estado `rejected` y dentro del MISMO alcance por carrera del oficial, la fila muestra «Rechazada
   antes · dd/mm/aaaa: motivo» (la más reciente de esas). `_body_ctx` lo resuelve en una sola consulta
@@ -498,7 +509,9 @@ aceptándola — solo el formulario público dejó de alimentarla.
 - Límite por IP (500/hora por omisión, `TITULATEC_ENROLL_RL_LIMIT_IP`; en prod todos comparten la IP de la puerta de enlace de Docker y el NAT del campus, así que es de hecho global — hotfix 2026-09-28) y por número de control (3/día): se **leen** antes y se **cobran** solo tras
   un `create` que termina; al agotarse, tarjeta «Demasiados intentos» con `Retry-After`. Redis
   caído → la misma tarjeta (`fail_open=False`).
-- Sin `Content-Length` → 411; cuerpo > 256 KB → 413.
+- Sin `Content-Length` → 411; cuerpo > 256 KB → 413. La guarda de tamaño corre en el cuerpo `async` de la ruta
+  ANTES de `request.form()` (que bufferea el cuerpo entero); el resto de la ruta corre en el threadpool
+  (`_cuerpo_*`, `CLAUDE.md` §1 de la app).
 - Más de una convocatoria abierta → GET 503 con tarjeta; POST 503 con `X-Tt-Error` (htmx no
   swappea en 5xx).
 - Excepción al escribir → `rollback` y la misma tarjeta de éxito (ninguna entrada produce un 500).
@@ -581,6 +594,21 @@ la liga vencida o sin el claro en Redis. Esa indistinción es un invariante, no 
 7. **Canal de tiempo en el reenvío público.** Cuando el correo sale hay una llamada síncrona a Graph;
    cuando no, la respuesta es inmediata. Solo confirma un par (control, correo) que quien pregunta ya
    escribió, con 10 intentos por hora por IP.
+
+## Bandeja de Solicitudes paginada y con búsqueda (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §4. Quita el tope de 300 filas del listado.
+
+- **50 por página** (`utils/paging.py:17`, `PAGE_SIZE`), pager compartido `‹ Anteriores · a–b de N · Siguientes ›` (macro `pager`, `templates/titulatec/_macros.html:308`; `requests_body.html:450`). `_body_ctx` (`pages/requests_admin.py:451`) pagina con `paginate_query` (`:581`) y conserva los tres órdenes con desempate por `id`: FIFO `created_at` en «Por revisar», FIFO `reviewed_at` en «En Cómputo», historial `created_at DESC`.
+- **Parámetros** de `GET /admin/solicitudes[/body]`: `status`, `cohort_id` y los nuevos `q` y `page` (`:734`, `:748`). Cambiar pestaña, convocatoria o búsqueda vuelve a `page=1`; una acción de fila (aprobar, rechazar, reenviar...) re-pinta la MISMA pestaña, página y búsqueda (hidden `page`/`q` en cada formulario), y si vació la última página cae en la última válida (nunca un vacío con pager «11»).
+- **Búsqueda** (`#tt-req-q`, `strip()`, máx. 100 caracteres): `enrollment_request_search(q)` (`services/enrollment_request_service.py:205`): nº de control (también en MAYÚSCULA), nombre en ambos órdenes, correo y folio; `%`, `_` y `\` escapados. Es el constructor ÚNICO: Accesos lo reutiliza. Sin resultados: «Sin resultados para "q"», sin pager.
+- **Contador por pestaña** (`tab_counts`, `pages/requests_admin.py:561`): un `GROUP BY status` con el mismo alcance, convocatoria y búsqueda que la lista.
+- **Alcance por carrera** (`officer_programs`) se aplica ANTES de contar y paginar: totales y contadores nunca incluyen otra carrera.
+- Los KPIs de arriba (`stats()`, sección anterior) siguen siendo el universo completo, sin cambios. Su nota «sin el límite de 300 filas» queda vacía: ya no hay tope.
+- Las revocadas leen su motivo con `ProcessService.cancellation_info_map` (`services/process_service.py:183`): una consulta, no una por fila.
+- **El buscador no pierde lo tecleado**: `#tt-req-q` lleva `hx-preserve="true"` (`requests_body.html:178`) y el contenedor `#tt-req-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` (`_syncPreservedSearch`) repone el texto cuando una navegación cambia `q` sin pasar por el input. Fix `545aab64`.
+
+**Medido (EXPLAIN ANALYZE, dev, 2026-10-04)**: bandeja «Por revisar» 0.27 ms (consulta de la página) y ≤0.04 ms con `q`; contadores ≤0.02 ms. La base de dev es chica (4 solicitudes, 2 procesos): el plan es `Seq Scan` y el tiempo no extrapola a producción; con volumen real, la búsqueda `ILIKE '%...%'` no usa índice (aceptado, ver spec). Sin índices ni migración en este cambio.
 
 ## Flujos relacionados
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -246,6 +247,16 @@ def test_un_evento_mal_formado_no_lanza(db_session, proceso, caplog):
                                      doc_name="CURP", status="pending", note=None),
             StudentMail.doc_reviewed(db_session, None, type_code="curp",
                                      doc_name="CURP", status="approved", note=None),
+            # No adeudo de biblioteca (spec 2026-10-01 §4.11): vía, estado de
+            # destino y montos fuera de dominio.
+            StudentMail.library_cleared(db_session, proc, via="legacy"),
+            StudentMail.library_reverted(db_session, proc, reason="x", to_status="cleared"),
+            StudentMail.library_ready(db_session, proc, debt=Decimal("1"),
+                                      donation=Decimal("2"), total="mil pesos",
+                                      note=None, updated=False),
+            StudentMail.library_ready(db_session, proc, debt=Decimal("1"),
+                                      donation=Decimal("NaN"), total=Decimal("1"),
+                                      note=None, updated=False),
         ]
 
     assert casos == [False] * len(casos)
@@ -451,6 +462,16 @@ def test_cada_evento_arma_su_payload_grupo_y_llave(db_session, proceso, make_app
         StudentMail.appointment_reminder(db_session, proc, appt=cita),
         StudentMail.docs_reminder(db_session, proc, anchor=ancla, index=1),
         StudentMail.survey_reminder(db_session, proc, anchor=ancla, index=0),
+        # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+        # design.md §4.11). Montos como TEXTO «1200.00»: JSON no serializa
+        # `Decimal`; un `int` entero también entra.
+        StudentMail.library_ready(db_session, proc, debt=Decimal("300.00"),
+                                  donation=800, total=Decimal("1100.00"),
+                                  note="Debe 2 libros", updated=False),
+        StudentMail.library_cleared(db_session, proc, via="payment"),
+        StudentMail.library_reverted(db_session, proc, reason="Pago duplicado",
+                                     to_status="awaiting_payment"),
+        StudentMail.library_reminder(db_session, proc, anchor=ancla, index=2),
     ]
     assert resultados == [True] * len(resultados)
 
@@ -464,9 +485,9 @@ def test_cada_evento_arma_su_payload_grupo_y_llave(db_session, proceso, make_app
         "phase_approved": ({"phase_number": 8, "phase_name": "Acto protocolario",
                             "next_phase": None, "next_name": None, "handoff": False,
                             "completed": True}, None, None),
-        "survey_approved": ({"reason": None}, None, None),
-        "survey_rejected": ({"reason": "Faltan respuestas"}, None, None),
-        "survey_revoked": ({"reason": "Se liberó por error"}, None, None),
+        "survey_approved": ({"reason": None, "origin": "submission"}, None, None),
+        "survey_rejected": ({"reason": "Faltan respuestas", "origin": "submission"}, None, None),
+        "survey_revoked": ({"reason": "Se liberó por error", "origin": "submission"}, None, None),
         "appt_changed": ({"event": "rescheduled", "by": "officer", "reason": None,
                           "appt_id": cita.id, "scheduled_at": iso, "location": lugar},
                          f"cita:{pid}", None),
@@ -477,6 +498,13 @@ def test_cada_evento_arma_su_payload_grupo_y_llave(db_session, proceso, make_app
                           f"docs_reminder:{pid}:20260920T083005:1"),
         "survey_reminder": ({"anchor": "2026-09-20T08:30:05", "index": 0}, None,
                             f"survey_reminder:{pid}:20260920T083005:0"),
+        "library_ready": ({"debt": "300.00", "donation": "800.00", "total": "1100.00",
+                           "note": "Debe 2 libros", "updated": False}, None, None),
+        "library_cleared": ({"via": "payment"}, None, None),
+        "library_reverted": ({"reason": "Pago duplicado", "to_status": "awaiting_payment"},
+                             None, None),
+        "library_reminder": ({"anchor": "2026-09-20T08:30:05", "index": 2}, None,
+                             f"library_reminder:{pid}:20260920T083005:2"),
     }
     por_kind = {f.kind: f for f in _filas(db_session, pid)}
     assert set(por_kind) == set(esperado)
@@ -485,6 +513,40 @@ def test_cada_evento_arma_su_payload_grupo_y_llave(db_session, proceso, make_app
         assert fila.payload == payload, kind
         assert (fila.group_key, fila.dedupe_key) == (grupo, llave), kind
         assert fila.user_id == proc.student_id, kind
+
+
+def test_recordatorio_de_pago_no_se_duplica_y_usa_el_reloj_del_barrido(db_session, proceso):
+    """`library_reminder` va por `_reminder` (spec 2026-10-01 §4.11): la llave
+    `{kind}:{pid}:{ancla}:{n}` no deja encolarlo dos veces, y su `created_at`
+    es el reloj del barrido (la cadencia del ruling 19 se mide con él)."""
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso()
+    ancla = datetime(2026, 9, 20, 8, 30, 5)
+    reloj = datetime(2026, 9, 23, 9, 0)
+
+    primera = StudentMail.library_reminder(db_session, proc, anchor=ancla, index=0,
+                                           created_at=reloj)
+    segunda = StudentMail.library_reminder(db_session, proc, anchor=ancla, index=0,
+                                           created_at=reloj)
+
+    assert (primera, segunda) == (True, False)
+    (fila,) = _filas(db_session, proc.id)
+    assert fila.kind == "library_reminder"
+    assert fila.created_at == reloj
+
+
+def test_correccion_del_monto_lleva_updated(db_session, proceso):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso()
+    assert StudentMail.library_ready(db_session, proc, debt=Decimal("0"),
+                                     donation=Decimal("800.5"), total=Decimal("800.5"),
+                                     note=None, updated=True) is True
+
+    (fila,) = _filas(db_session, proc.id)
+    assert fila.payload == {"debt": "0.00", "donation": "800.50", "total": "800.50",
+                            "note": None, "updated": True}
 
 
 def test_history_mas_nuevo_primero_y_solo_del_proceso(db_session, proceso):

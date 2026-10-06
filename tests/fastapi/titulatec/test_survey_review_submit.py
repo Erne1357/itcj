@@ -18,6 +18,8 @@ anonymous`. Desaparecen `credited`, `already` y `no_requirement`.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from itcj2.apps.titulatec.services.survey_service import SurveyService
 
 SURVEY_URL = "/titulatec/encuesta-egresados"
@@ -385,6 +387,156 @@ def test_GET_con_solicitud_pinta_tarjeta_de_estatus_sin_prellenado(
     assert "Debes Servicio Social." in resp.text
     assert _drafts(db_session, user_id=student.id) == []
     assert len(_responses(db_session, process_id=proc.id)) == 1   # la de la fixture
+
+
+def test_GET_con_solicitud_no_consulta_constancias(
+    client_as, make_student, make_process, make_cohort, make_survey_review, make_user,
+    db_session, monkeypatch,
+):
+    """Ruling R14 (M3 de la revisión final): la tarjeta de estatus pública
+    no pinta la constancia, así que `_solicitud_existente` ->
+    `SurveyReviewService.summary_for_process` ya no llama `print_status_map`
+    ni toca `titulatec_certificates`/`titulatec_certificate_batches`, aun con
+    la constancia `survey_release` emitida. Las otras tres rutas públicas de
+    la encuesta pasan por el MISMO `_solicitud_existente`."""
+    from sqlalchemy import event
+
+    from itcj2.apps.titulatec.services.certificate_service import CertificateService
+
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    review = make_survey_review(proc, status="approved")
+    CertificateService.issue(db_session, kind="survey_release", process=proc,
+                             source_ref=f"survey_review:{review.id}",
+                             actor_id=make_user(first_name="GTV", last_name="R14").id)
+    db_session.commit()
+    llamadas, sentencias = [], []
+    monkeypatch.setattr(CertificateService, "print_status_map", staticmethod(
+        lambda db, refs: llamadas.append(list(refs)) or {}))
+
+    def _antes(_conn, _cursor, statement, *_a):
+        sentencias.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _antes)
+    try:
+        resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+    finally:
+        event.remove(bind, "before_cursor_execute", _antes)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'data-tt-review-status="approved"' in resp.text, "control: tarjeta con solicitud"
+    assert llamadas == []
+    assert not [s for s in sentencias if "titulatec_certificate" in s], sentencias
+
+
+def test_GET_con_observaciones_da_el_contacto_de_servicio_externo(
+    client_as, make_student, make_process, make_cohort, make_survey_review,
+    db_session,
+):
+    """Ruling R27 (M4 de la revisión final): la tarjeta pública de una
+    encuesta con observaciones (o revocada) ya no manda «a su ventanilla
+    (Residencias, Prácticas o Servicio Social)»; da la MISMA línea de D12 que
+    los correos, con su `mailto:`."""
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    make_survey_review(proc, status="rejected", reason="Falta tu folio de Servicio Social.")
+    db_session.commit()
+
+    resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:500]
+    tarjeta = resp.text.split('id="tt-survey-status"', 1)[1]
+    texto = " ".join(tarjeta.split())
+    assert ("Para más información, contactar con "
+            '<a href="mailto:servicio_ext@cdjuarez.tecnm.mx"') in texto
+    assert ">servicio_ext@cdjuarez.tecnm.mx</a>" in tarjeta
+    assert "ventanilla" not in tarjeta
+    assert "Falta tu folio de Servicio Social." in tarjeta
+
+
+def test_GET_con_constancia_previa_pinta_la_tarjeta_y_no_deja_contestar(
+    client_as, make_student, make_process, make_cohort, make_survey_form, db_session,
+):
+    """D9 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.12): una
+    constancia previa (`SurveyReviewService.register_prior`, Tarea 6) deja
+    `origin='prior'`. La tarjeta de estatus es la MISMA ruta "con solicitud"
+    -nunca el formulario-, pero con su propio texto (nunca dice que GTV
+    revisó nada).
+
+    `make_survey_form()`: `register_prior` NO pasa por `SurveyService.submit`,
+    así que no deja ningún `SurveyForm` detrás -a diferencia de los demás
+    tests "con solicitud" de este archivo, que usan `make_survey_review` y
+    ESA fábrica sí crea uno (conftest.py)-. Sin un formulario abierto,
+    `form_for_user()` regresa `None` y la ruta pinta la tarjeta "La encuesta
+    no está abierta" en vez de la de estatus -en dev pasa colado porque ahí
+    existe la fila real `('egresados', 1)` de `load-survey-2026-09`; en CI
+    (réplica vacía) no hay ninguna. Mismo patrón que
+    `test_fallo_transitorio_en_solicitud_existente_no_produce_500`, más abajo
+    en este archivo."""
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
+
+    make_survey_form()
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort())
+    # R14 (fix round 1): relativa a `db_now()`, no un `date(...)` fijo -- una
+    # fecha absoluta vieja de más de 365 días vence sola contra el reloj real.
+    SurveyReviewService.register_prior(
+        db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
+    db_session.commit()
+
+    resp = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert 'id="tt-survey-status"' in resp.text
+    assert 'id="tt-survey-form"' not in resp.text
+    assert 'data-tt-review-status="approved"' in resp.text
+    assert "semestre anterior" in resp.text
+    assert "Gestión Tecnológica y Vinculación revisó" not in resp.text
+
+
+def test_revocar_una_previa_deja_contestar_la_encuesta(
+    client_as, make_student, make_process, make_cohort, make_survey_form, make_user,
+    db_session,
+):
+    """Ruling R22 (I4 de la revisión final): revocar una constancia previa la
+    BORRA (vuelve a `missing`), así que la página pública vuelve a ofrecer el
+    formulario -ya no la tarjeta de «ya quedó registrada»- y `submit` abre
+    una solicitud normal (`in_review`, `origin='submission'`) para GTV. Antes
+    quedaba `rejected`/`prior` sin respuesta y el egresado no podía avanzar."""
+    from unittest.mock import patch
+
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+    from itcj2.core.utils.timezone import db_now
+
+    form = make_survey_form()
+    student = make_student()
+    proc = make_process(student, cohort=make_cohort(), current_phase=2)
+    gtv = make_user(first_name="GTV", last_name="REVOCA")
+    with patch("itcj2.apps.titulatec.services.notify.notify_student"):
+        previa = SurveyReviewService.register_prior(
+            db_session, proc, issued_on=db_now().date() - timedelta(days=30), note=None)
+        db_session.flush()
+        SurveyReviewService.revoke(db_session, previa.id, gtv.id,
+                                   "La constancia era de otro egresado.")
+
+    pagina = client_as(student).get(SURVEY_URL, follow_redirects=False)
+
+    assert pagina.status_code == 200, pagina.text[:500]
+    assert 'id="tt-survey-form"' in pagina.text
+    assert 'id="tt-survey-status"' not in pagina.text
+
+    response, errors, credit = SurveyService.submit(
+        db_session, form, ENVIO_OK, user_id=student.id, client_ip=None, user_agent=None)
+
+    assert errors == {}
+    assert credit == "in_review"
+    solicitudes = _reviews(db_session, process_id=proc.id)
+    assert len(solicitudes) == 1
+    assert solicitudes[0].status == "in_review"
+    assert solicitudes[0].origin == "submission"
+    assert solicitudes[0].response_id == response.id
 
 
 def test_POST_paso_con_solicitud_pinta_tarjeta_de_estatus_sin_validar_ni_escribir(

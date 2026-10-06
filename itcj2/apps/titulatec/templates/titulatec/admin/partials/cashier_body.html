@@ -1,0 +1,267 @@
+{# Bandeja de Caja (cobro del no adeudo de biblioteca). Raíz `#tt-cashier-body`;
+   TODOS los controles (buscador, pestañas, selector de día, paginación y las
+   acciones de fila) apuntan a ella con `hx-swap="outerHTML"`, así que cada
+   handler devuelve este parcial completo. Mismo patrón que
+   `partials/library_body.html` (Tarea 7).
+
+   El buscador tiene PRECEDENCIA sobre las pestañas (spec
+   2026-10-01-titulatec-biblioteca-caja-design.md §4.8): con `q` no vacío
+   (`searching`) se listan resultados de `LibraryClearanceService.search` en
+   CUALQUIER estado, con la píldora PROPIA de Caja (`caja_pill`, abajo -- spec
+   2026-10-02-titulatec-constancias-y-pendientes-design.md, E11 en §2 y m27 en
+   la tabla de §3.7; NO la `library_clearance_pill` compartida), sin importar
+   la pestaña activa --
+   limpiar el buscador regresa a ella (las pestañas y el selector de día se
+   OCULTAN mientras se busca: no aplican a una lista que ya mezcla estados y
+   fechas). Sin `q`: «Por cobrar» (`awaiting_payment`, FIFO por `ready_at`,
+   Ruling R9: solo procesos admitidos) o «Corte del día» (`pagados`:
+   `LibraryClearanceService.day_cut`, selector de fecha, por omisión hoy, FIJO
+   una vez cerrado el día -- E3).
+
+   DOS formas de fila, una por tabla:
+   - búsqueda / «Por cobrar»: el dict de `LibraryClearanceService._rows`
+     (`status`/`via`/`can_revert`/`total`/...) -- mismo criterio que la
+     sección «Liberados» de `library_body.html`: las acciones se deciden por
+     fila, no por qué pestaña está activa.
+   - «Corte del día»: el dict de `day_cut` (`kind`/`amount` CON SIGNO/
+     `can_revert_here`/...) -- un cobro y su reversa son DOS renglones
+     distintos, nunca una fila que cambia de estado.
+
+   Acciones (spec §4.8):
+   - `awaiting_payment` (tabla de búsqueda/«Por cobrar»): «Registrar pago»
+     (recibo opcional, confirmación con el monto y el nombre); `expected_total`
+     oculto es el total que la cajera VIO (Ruling R8) -- si Biblioteca lo
+     corrigió mientras tanto, la ruta NO cobra y responde 200 con este parcial
+     RE-PINTADO (la fila ya con el monto vigente, para volver a confirmar) y
+     el motivo en `X-Tt-Notice` warning (Ruling R24; con un 400 htmx no hacía
+     swap y la fila seguía ofreciendo el monto viejo).
+   - `cleared` vía `payment` con `can_revert` (tabla de búsqueda/«Por
+     cobrar»): «Revertir pago…» (motivo).
+   - Renglón `charge` con `can_revert_here` (tabla «Corte del día»): el MISMO
+     «Revertir pago…» -- es el cobro VIGENTE de su fila; una reversa nunca
+     ofrece acciones.
+   - Cualquier otro caso: sin acciones -- esta bandeja no las posee; un pago
+     YA revertible lo revierte Caja, pero un «Sin adeudo» o una constancia
+     previa los revierte Biblioteca.
+
+   `hx-confirm` + `data-tt-confirm-ok` van en el `<form>` (no en el botón):
+   mismo idiom que `library_body.html` -- el puente hx-confirm -> modal ya
+   existe (`static/js/shared/titulatec-utils.js:265`). Sin `<script>` inline
+   ni `confirm()/alert()`. #}
+{% from "titulatec/_macros.html" import pill, pager %}
+{% macro tab_fields(tab, q, dia, page) -%}
+<input type="hidden" name="tab" value="{{ tab }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="dia" value="{{ dia }}">
+<input type="hidden" name="page" value="{{ page }}">
+{%- endmacro %}
+{# Píldora PROPIA de Caja (m27, E11) -- nunca `library_clearance_pill`
+   (`_macros.html`, la usan más de 12 vistas): `r` es la fila de `_rows`
+   (búsqueda / «Por cobrar»). `revoked` manda siempre, aunque el `status`
+   real siga diciendo «Por cobrar»/«Pagado»/etc. -- la columna de acciones ya
+   NO repite «Revocada» (dice «Sin acciones en Caja», como cualquier otra
+   fila sin acción), para no mostrarla dos veces en el mismo renglón.
+   `observed` (spec 2026-10-05 §3.4): «Con observaciones (Biblioteca)» -la
+   detuvo Biblioteca; Caja no tiene acción sobre ella. #}
+{% macro caja_pill(r) %}
+  {%- if r.revoked -%}
+    {{ pill("Revocada", "neutral") }}
+  {%- elif r.status == "awaiting_payment" -%}
+    {{ pill("Por cobrar " ~ format_amount(r.total), "navy", "cash-coin") }}
+  {%- elif r.status == "observed" -%}
+    {{ pill("Con observaciones (Biblioteca)", "danger", "exclamation-triangle") }}
+  {%- elif r.status == "cleared" and r.via == "payment" -%}
+    {{ pill("Pagado", "success", "cash-coin") }}
+  {%- elif r.status == "cleared" -%}
+    {{ pill("Liberado", "success", "book") }}
+  {%- else -%}
+    {{ pill("En Biblioteca", "amber", "book") }}
+  {%- endif -%}
+{% endmacro %}
+{% set mostrando_dia = (not searching) and tab == 'pagados' %}
+<div id="tt-cashier-body" data-tt-view="cashier-body">
+
+  <form id="tt-cashier-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}"
+        hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="dia" value="{{ dia }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search"></i>
+      <input type="search" id="tt-cashier-q" name="q" value="{{ q }}" placeholder="Buscar control o nombre"
+             hx-preserve="true" autofocus aria-label="Buscar control o nombre"
+             hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
+    </div>
+    {% if searching %}
+    <span class="tt-kicker">Resultados de la búsqueda, en cualquier estado</span>
+    {% endif %}
+  </form>
+
+  {% if not searching %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-cashier-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if tab == key else 'tt-btn-ghost' }}"
+            {% if tab == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/caja/body?tab={{ key }}{{ ('&dia=' ~ dia) if key == 'pagados' else '' }}"
+            hx-target="#tt-cashier-body" hx-swap="outerHTML">{{ label }}
+      {% if key == 'por_cobrar' %}<span class="tt-pill tt-pill--neutral">{{ por_cobrar_count }}</span>{% endif %}
+    </button>
+    {% endfor %}
+    {% if tab == 'pagados' %}
+    <form class="d-flex flex-wrap align-items-center gap-2 ms-auto"
+          hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML">
+      <input type="hidden" name="tab" value="pagados">
+      <label class="small text-body-secondary mb-0" for="tt-cashier-dia">Día</label>
+      <input class="tt-field tt-field--xs" type="date" id="tt-cashier-dia" name="dia"
+             value="{{ dia }}" aria-label="Día del corte de Caja"
+             hx-get="/titulatec/admin/caja/body" hx-target="#tt-cashier-body" hx-swap="outerHTML"
+             hx-trigger="change" hx-include="closest form">
+      <span class="tt-kicker">Cobrado {{ format_amount(day_cut.charged) }}
+        · Revertido {{ '−' if day_cut.reverted > 0 else '' }}{{ format_amount(day_cut.reverted) }}
+        · <strong>Total del día {{ '−' if day_cut.net < 0 else '' }}{{ format_amount(day_cut.net if day_cut.net >= 0 else -day_cut.net) }}</strong></span>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if mostrando_dia %}
+    {% if not day_cut.rows %}
+    <div class="tt-card">
+      <span class="tt-kicker"><i class="bi bi-patch-check me-1"></i>Bandeja limpia</span>
+      <p class="mb-0">No hay movimientos ese día.</p>
+    </div>
+    {% else %}
+    <div class="tt-table-wrap">
+      <table class="table table-sm align-middle">
+        <thead><tr>
+          <th>Hora</th><th>Egresado</th><th>Control</th><th>Carrera</th><th>Movimiento</th>
+          <th>Monto</th><th>Recibo</th><th>Quién</th><th>Motivo</th><th>Cobro original</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for r in day_cut.rows %}
+        <tr id="caja-mov-{{ r.id }}">
+          <td>{{ r.at.strftime('%H:%M') }}</td>
+          <td>{{ r.student }}</td>
+          <td class="tt-mono">{{ r.control }}</td>
+          <td>{{ r.program }}</td>
+          <td>
+            {% if r.kind == 'charge' %}{{ pill("Cobro", "success", "cash-coin") }}
+            {% else %}{{ pill("Reversa", "danger", "arrow-counterclockwise") }}{% endif %}
+          </td>
+          <td{% if r.amount < 0 %} class="text-danger"{% endif %}>
+            {%- if not r.amount -%}
+              —
+            {%- elif r.amount < 0 -%}
+              −{{ format_amount(-r.amount) }}
+            {%- else -%}
+              {{ format_amount(r.amount) }}
+            {%- endif -%}
+          </td>
+          <td>{{ r.receipt or '—' }}</td>
+          <td>{{ r.actor or '—' }}</td>
+          <td class="tt-td-wrap">{{ r.reason or '—' }}</td>
+          <td>{{ r.original_paid_at.strftime('%d/%m/%Y %H:%M') if r.original_paid_at else '—' }}</td>
+          <td>
+            {% if r.can_revert_here %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.clearance_id }}/revertir"
+                  hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revertir"
+                  hx-confirm="Revertir pago|¿Revertir el pago de {{ r.student }}? Vuelve a «Por cobrar».">
+              {{ tab_fields(tab, q, dia, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo para revertir el pago de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir…</button>
+            </form>
+            {% else %}
+            <span class="small text-body-secondary">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% else %}
+  {% if not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-patch-check me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">
+      {%- if searching -%}
+      Sin resultados para esa búsqueda.
+      {%- else -%}
+      No hay casos por cobrar en este momento.
+      {%- endif -%}
+    </p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>Egresado</th><th>Control</th><th>Carrera</th><th>Monto</th><th>Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="caja-{{ r.id }}">
+        <td>{{ r.student }}</td>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td>{{ r.program }}</td>
+        <td>
+          {% if r.status == 'awaiting_payment' %}
+            {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
+          {% elif r.total is not none %}
+            {{ format_amount(r.total) }}
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ caja_pill(r) }}
+          {% if r.status == 'cleared' and r.via == 'payment' %}
+          <br><span class="small text-body-secondary">Pagó el
+            {{ r.paid_at.strftime('%d/%m/%Y') if r.paid_at else '—' }}{% if r.receipt %} · Recibo {{ r.receipt }}{% endif %}</span>
+          {% if r.certificate_number %}<br><span class="tt-mono small">{{ r.certificate_number }}</span>{% endif %}
+          {% elif r.status == 'awaiting_payment' and r.ready_at %}
+          <br><span class="small text-body-secondary">En caja desde {{ r.ready_at.strftime('%d/%m/%Y') }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.revoked %}
+            <span class="small text-body-secondary">Sin acciones en Caja</span>
+          {% elif r.status == 'awaiting_payment' %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.id }}/pagar"
+                  hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Registrar pago"
+                  hx-confirm="Registrar pago|¿Registrar pago de {{ format_amount(r.total) }} de {{ r.student }}?">
+              {{ tab_fields(tab, q, dia, page) }}
+              <input type="hidden" name="expected_total" value="{{ r.total }}">
+              <input class="tt-field tt-field--xs" name="recibo" maxlength="40"
+                     placeholder="Recibo (opcional)" aria-label="Número de recibo de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-ink">Registrar pago</button>
+            </form>
+          {% elif r.can_revert and r.via == 'payment' %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.id }}/revertir"
+                  hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revertir"
+                  hx-confirm="Revertir pago|¿Revertir el pago de {{ r.student }}? Vuelve a «Por cobrar».">
+              {{ tab_fields(tab, q, dia, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo para revertir el pago de {{ r.student }}">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir…</button>
+            </form>
+          {% elif r.status == 'cleared' and r.via == 'payment' %}
+            <span class="tt-pill tt-pill--neutral">Fase 2 liberada</span>
+          {% else %}
+            <span class="small text-body-secondary">Sin acciones en Caja</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not searching and tab == 'por_cobrar' %}
+  {{ pager(pg, '/titulatec/admin/caja/body?tab=por_cobrar', '#tt-cashier-body', prefix='tt-cashier') }}
+  {% endif %}
+  {% endif %}
+  {% endif %}
+</div>

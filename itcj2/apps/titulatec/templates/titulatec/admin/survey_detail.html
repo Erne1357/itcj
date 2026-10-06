@@ -2,10 +2,12 @@
 {% block title %}Respuesta · TitulaTec{% endblock %}
 {% block admin_view %}surveys{% endblock %}
 {% block admin_main %}
+{% from "titulatec/_macros.html" import pill %}
 <div class="px-4 pt-4 pb-2">
   <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas">
     <i class="bi bi-arrow-left me-1"></i>Respuestas</a>
   <h1 class="tt-display tt-h1">{{ response.name }}</h1>
+  {% if response.imported %}<p class="mb-1">{{ pill("Importada", "violet", "file-earmark-arrow-up") }}</p>{% endif %}
   <p class="mb-0 tt-mono">
     {{ response.control }} · {{ response.identity }} ·
     v{{ response.form_version }} ·
@@ -15,10 +17,27 @@
   <div class="tt-card">
     {% for it in items %}
     <p class="tt-kicker mb-1">{{ it.label }}</p>
+    {% if it.raw %}
+    <div class="mb-3" data-tt-raw>
+      <p class="mb-1">{{ it.value }}</p>
+      {{ pill("Valor original, no coincide con las opciones actuales", "amber", "exclamation-circle") }}
+    </div>
+    {% else %}
     <p>{{ it.value }}</p>
+    {% endif %}
     {% else %}
     <p class="mb-0">Esta respuesta no trae campos.</p>
     {% endfor %}
   </div>
+  {% if extras %}
+  <div class="tt-card mt-3" id="tt-survey-extras">
+    <span class="tt-kicker"><i class="bi bi-file-earmark-arrow-up me-1"></i>Otros datos importados</span>
+    <p class="small mb-3">Vienen del Excel de Microsoft Forms y no son preguntas de este formulario.</p>
+    {% for it in extras %}
+    <p class="tt-kicker mb-1">{{ it.label }}</p>
+    <p>{{ it.value }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

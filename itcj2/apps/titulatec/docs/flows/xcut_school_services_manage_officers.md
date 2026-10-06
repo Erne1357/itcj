@@ -48,6 +48,13 @@ alcance de su ocupante, y colgarles usuarios les arrastraría sus `PositionAppRo
 las apps. Detalle en [`engine_officer_scope.md`](engine_officer_scope.md) y en la cabecera de
 `test_officers_authz.py`.
 
+**La lista no hace una consulta por encargado (2026-10-05).** `OfficerService.list_officers` lee los puestos, los
+usuarios de TODOS (`position_id IN`) y las carreras de TODOS en 3 consultas fijas y reparte en Python (antes, 2 por
+puesto); `pages/officers.py::_body_ctx` arma `dept_users` con un solo `User.id IN (...)` en vez de un `db.get` por
+usuario. En la copia de prod, `GET /titulatec/admin/officers` (9 encargados, 12 usuarios) pasó de 39 a 12 consultas.
+Mismos dicts y mismo orden de `dept_users`; el orden de usuarios y carreras DENTRO de un encargado sigue sin
+definirse (nunca hubo `ORDER BY`). Prueba: `test_officers_batch.py` (2 vs 5 encargados = mismas consultas).
+
 ---
 
 ## La reactivación de cuentas (2026-09-17)

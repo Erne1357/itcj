@@ -13,6 +13,9 @@ from sqlalchemy.sql import text
 
 from itcj2.models.base import Base
 
+# Dominio de `SurveyResponse.identity_source` (ver su docstring).
+IDENTITY_SOURCES = ("session", "anonymous", "import")
+
 
 class SurveyForm(Base):
     """Una VERSION de un cuestionario.
@@ -59,14 +62,35 @@ class SurveyResponse(Base):
     `form_version` es SNAPSHOT: cuando se abra la v2, las respuestas de la v1
     siguen siendo interpretables y comparables.
 
-    `identity_source` solo tiene dos valores, 'session' y 'anonymous'. NO existe
-    'self_declared': nunca se acredita por numero de control auto-declarado (D1).
+    `identity_source` tiene tres valores (`IDENTITY_SOURCES`): 'session',
+    'anonymous' e 'import'. NO existe 'self_declared': nunca se acredita por
+    numero de control auto-declarado (D1).
+
+    'import' (spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` §4.1)
+    NO rompe esa regla: es la respuesta que el PERSONAL carga desde el Excel de
+    Microsoft Forms con la CLI `titulatec import-survey-xlsx` (corrida por
+    staff, nunca una ruta publica). El control que trae es dato administrativo
+    del archivo, no una auto-declaracion en la plataforma; y aun asi esta fila
+    NO acredita nada por si sola: la liberacion va por `PriorClearanceService`
+    -> `SurveyReviewService.register_prior` con sus propias guardas. Solo las
+    filas 'import' llevan `import_ref` (`"msforms:{Id}:{Completion time ISO}"`,
+    ruling del controlador que sustituye el texto de R6: no depende del nombre
+    del archivo y no choca entre semestres aunque Forms reinicie los Id), unico por
+    formulario (indice parcial `uq_titulatec_survey_responses_form_import_ref`,
+    declarado aqui y en la migracion `tt20261005b` porque el CI usa
+    `create_all`): re-correr el mismo archivo no duplica (R6). Sus `answers`
+    son los valores NORMALIZADOS del import (sin pasar por el validador, D1).
 
     `answers` guarda la PROYECCION VALIDADA que devuelve el validador (llaves
     desconocidas ya descartadas), no el cuerpo crudo. La IP nunca se guarda en
     claro: `client_ip_hash` es sha256(ip + SECRET_KEY).
     """
     __tablename__ = "titulatec_survey_responses"
+    __table_args__ = (
+        Index("uq_titulatec_survey_responses_form_import_ref",
+              "form_id", "import_ref", unique=True,
+              postgresql_where=text("import_ref IS NOT NULL")),
+    )
 
     id = Column(BigInteger, primary_key=True)
     form_id = Column(Integer, ForeignKey("titulatec_survey_forms.id"),
@@ -78,13 +102,15 @@ class SurveyResponse(Base):
                         nullable=True, index=True)
     cohort_id = Column(Integer, ForeignKey("titulatec_cohorts.id"),
                        nullable=True, index=True)
-    identity_source = Column(String(20), nullable=False)           # session|anonymous
+    identity_source = Column(String(20), nullable=False)           # dominio: IDENTITY_SOURCES
     control_number = Column(String(20), nullable=True, index=True)
     answers = Column(JSON, nullable=False)
     client_ip_hash = Column(String(64), nullable=True)
     user_agent_hash = Column(String(64), nullable=True)
     submitted_at = Column(DateTime, nullable=False,
                           server_default=text("NOW()"), index=True)
+    # Solo con identity_source='import': "msforms:{Id}:{Completion time ISO}" (R6).
+    import_ref = Column(String(120), nullable=True)
 
     def __repr__(self) -> str:
         return f"<SurveyResponse {self.id} f{self.form_id} {self.identity_source}>"
@@ -96,6 +122,11 @@ class SurveyAnswer(Base):
 
     `field_type` es snapshot del tipo al momento de responder: si el schema
     cambia, la fila sigue diciendo como leerse.
+
+    `is_raw` (migracion `tt20261005b`, D1): solo una respuesta importada del
+    Excel lo prende -- el valor se guardo TAL CUAL porque no encajo con las
+    opciones/formato del campo. Las respuestas de la plataforma pasan por el
+    validador y siempre quedan en FALSE.
     """
     __tablename__ = "titulatec_survey_answers"
     __table_args__ = (
@@ -112,6 +143,7 @@ class SurveyAnswer(Base):
     value_text = Column(Text, nullable=True)
     value_num = Column(Numeric(12, 4), nullable=True)
     value_bool = Column(Boolean, nullable=True)
+    is_raw = Column(Boolean, nullable=False, server_default=text("FALSE"))
 
     def __repr__(self) -> str:
         return f"<SurveyAnswer r{self.response_id} {self.field_key}>"

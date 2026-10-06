@@ -28,12 +28,18 @@ class CotejoRequirement(Base):
 
     # Identidad estable del requisito, independiente del label que edite
     # Servicios Escolares. `auto_source` marca cual acredita el SISTEMA
-    # ('graduate_survey' = la encuesta de egresados): un requisito con
-    # `auto_source` no es borrable desde la UI ni editable en estos dos campos,
-    # porque `create()` no puede fijarlos y no habria forma de restaurarlo.
+    # ('graduate_survey' = la encuesta de egresados, la libera GTV;
+    # 'library_clearance' = el no adeudo de biblioteca, lo liberan Biblioteca
+    # y Caja via `LibraryClearanceService`): un requisito con `auto_source` no
+    # es borrable desde la UI ni editable en estos dos campos, porque
+    # `create()` no puede fijarlos y no habria forma de restaurarlo. El de
+    # 'library_clearance' ACTIVO es ademas lo que enciende el candado de
+    # biblioteca para agendar en su convocatoria (`ClearanceGate`, spec
+    # 2026-10-01-titulatec-biblioteca-caja-design.md §4.3/§4.4).
     # Ambas NULL: no necesitan `server_default` sobre la tabla existente.
     code = Column(String(40), nullable=True, index=True)
-    auto_source = Column(String(20), nullable=True)          # NULL | 'graduate_survey'
+    # Dominio: NULL | 'graduate_survey' | 'library_clearance'.
+    auto_source = Column(String(20), nullable=True)
 
     # «Información para el alumno»: HTML con formato que escribe Servicios
     # Escolares en el editor del requisito y el alumno abre con el botón «i» de

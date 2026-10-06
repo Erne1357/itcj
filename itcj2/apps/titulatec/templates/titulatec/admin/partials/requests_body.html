@@ -57,19 +57,33 @@
    Arriba de las pestañas: KPIs (`kpis`) y el bloque plegable «Por año de
    ingreso» (`by_year`/`year_max`/`years_summary`), ambos del MISMO alcance y
    convocatoria que la lista
-   pero SIN el filtro de pestaña ni el límite de 300 — se repintan solos en
-   cada acción porque viven en este mismo parcial. `EnrollmentRequestService
+   pero SIN el filtro de pestaña, sin búsqueda y sin paginar — se repintan
+   solos en cada acción porque viven en este mismo parcial.
+
+   Paginada (spec 2026-10-04 §4): `page` (`utils.paging.Page`, 50 por página)
+   y `q` viajan en `#tt-req-filters` (búsqueda por control, nombre, correo o
+   folio) y en cada formulario de fila (`tab_fields`), así que una acción
+   re-pinta la MISMA pestaña, página y búsqueda (o la última página válida si
+   la vació). Cambiar de pestaña o de búsqueda vuelve a la página 1. Cada
+   pestaña lleva su contador (`tab_counts`: mismo alcance, convocatoria y
+   búsqueda que la lista). `EnrollmentRequestService
    .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
    Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
-   `rejection_sent_at`, y «Rechazada antes» cuando hay una solicitud anterior
+   `rejection_sent_at` —o la neutra «en cola» mientras su correo siga
+   `pending` en el outbox (`r.rejection_queued`, spec 2026-10-05 §3.7)—,
+   y «Rechazada antes» cuando hay una solicitud anterior
    (mismo control, `rejected`, mismo alcance) — motivo truncado con CSS,
    completo en `title`.
    Sin JS ni CSS en línea. #}
-{% macro tab_fields(tab, cohort) -%}
+{% from "titulatec/_macros.html" import pager %}
+{% macro tab_fields(tab, cohort, page_no, q) -%}
 <input type="hidden" name="status" value="{{ tab }}">
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
+<input type="hidden" name="page" value="{{ page_no }}">
+<input type="hidden" name="q" value="{{ q }}">
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
+{%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
 <div id="tt-requests-body" data-tt-view="requests-body">
 
   {% if not can_act %}
@@ -153,13 +167,33 @@
   {% endif %}
   {% endif %}
 
+  {% if not no_programs %}
+  {# Un <div>, no un <form>: en el modo alterno la bandeja no lleva ni un
+     formulario (solo lectura), y buscar y paginar siguen sirviendo ahí.
+     `hx-include="#tt-req-filters"` toma los campos de dentro. #}
+  <div id="tt-req-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="cohort_id" value="{{ cohort_id or '' }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-req-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+             placeholder="Buscar control, nombre, correo o folio"
+             aria-label="Buscar control, nombre, correo o folio"
+             hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"
+             hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-req-filters">
+    </div>
+  </div>
+  {% endif %}
+
   <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
     {% for key, label in tabs %}
     <button id="tt-req-tab-{{ key }}" type="button"
             class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
             {% if status == key %}aria-current="true"{% endif %}
-            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}"
-            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }}</button>
+            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}"
+            hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
     {% endfor %}
   </div>
 
@@ -169,6 +203,11 @@
     <p class="mb-0">No tienes carreras asignadas, así que esta bandeja no te muestra
        ninguna solicitud. Pídele a la jefatura de Servicios Escolares que te asigne
        carreras en <strong>Encargados</strong>.</p>
+  </div>
+  {% elif not rows and q %}
+  <div class="tt-card" id="tt-req-no-results">
+    <span class="tt-kicker"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados</span>
+    <p class="mb-0">Sin resultados para "{{ q }}"</p>
   </div>
   {% elif not rows %}
   <div class="tt-card">
@@ -281,7 +320,7 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reconsultar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <button type="submit" class="btn btn-sm tt-btn-ghost">
                 <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>{{ 'Reintentar consulta' if s.attempt else 'Consultar al SII' }}</button>
             </form>
@@ -302,7 +341,7 @@
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button"{% if r.approve.confirm %}
                   hx-confirm="Aprobar solicitud|{{ r.approve.confirm }}" data-tt-confirm-ok="Aprobar"{% endif %}>
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               {% if r.approve.to_access %}<input type="hidden" name="to_access" value="1">{% endif %}
               <select class="tt-field tt-field--xs" name="program_id" aria-label="Carrera">
                 <option value="">Carrera…</option>
@@ -327,7 +366,7 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="note" required
                      placeholder="Motivo del rechazo" aria-label="Motivo del rechazo">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Rechazar</button>
@@ -341,7 +380,7 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="note" required
                      placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
@@ -356,14 +395,14 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar liga</button>
             </form>
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/rechazar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="note" required
                      placeholder="Motivo de la cancelación" aria-label="Motivo de la cancelación">
               <button type="submit" class="btn btn-sm tt-btn-ghost">Cancelar solicitud</button>
@@ -378,7 +417,7 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reenviar-aviso"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <button type="submit" class="btn btn-sm tt-btn-ghost">Reenviar aviso</button>
             </form>
             {% endif %}
@@ -391,7 +430,7 @@
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/revocar"
                   hx-target="#tt-requests-body" hx-swap="outerHTML"
                   hx-disabled-elt="find button">
-              {{ tab_fields(status, cohort_id) }}
+              {{ tab_fields(status, cohort_id, page.page, q) }}
               <input class="tt-field tt-field--xs" name="reason" required maxlength="2000"
                      placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
               <button type="submit" class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost">Revocar inscripción</button>
@@ -402,7 +441,7 @@
             {% endif %}
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
-            {% if not r.rejection_sent %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if r.rejection_sent %}{% elif r.rejection_queued %}<span class="tt-pill tt-pill--neutral">en cola</span>{% else %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
           {% endif %}
         </td>
       </tr>
@@ -410,5 +449,6 @@
       </tbody>
     </table>
   </div>
+  {{ pager(page, '/titulatec/admin/solicitudes/body', '#tt-requests-body', include='#tt-req-filters', prefix='tt-req') }}
   {% endif %}
 </div>

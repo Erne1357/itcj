@@ -12,6 +12,10 @@ from fastapi import Request
 from starlette.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+# Import a nivel de módulo SEGURO: `certificate_service` solo importa
+# `db_now` arriba (modelos y servicios son locales) y no toca páginas.
+from itcj2.apps.titulatec.services.certificate_service import printing_enabled
+
 logger = logging.getLogger("itcj2.apps.titulatec.pages")
 
 _HERE = Path(__file__).parent
@@ -19,6 +23,13 @@ _TEMPLATES_DIR = _HERE.parent / "templates"
 
 # Instancia propia de Jinja2Templates — no toca itcj2/templates.py
 titulatec_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Switch de impresión de constancias (spec folios 2026-10-05 §3.5): CALLABLE
+# global, no variable de contexto -los globales de Jinja SÍ llegan a las macros
+# importadas sin contexto (`{% from "titulatec/_macros.html" import
+# certificate_cell %}`); el contexto de la página no-. Se evalúa en cada
+# render: `printing_enabled()` lee `get_settings()` cada vez.
+titulatec_templates.env.globals["tt_certificate_printing"] = printing_enabled
 
 
 def sv(path: str) -> str:
@@ -66,6 +77,9 @@ _ROLE_DASHBOARD = [
     # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
     # ademas `admin` por su puesto (D2) y por eso aterriza arriba, en la Bandeja.
     ("titulatec_computer_center", "/titulatec/admin/accesos"),
+    # No adeudo de biblioteca (2026-10-01): bandejas propias de Biblioteca y Caja.
+    ("titulatec_library", "/titulatec/admin/biblioteca"),
+    ("titulatec_cashier", "/titulatec/admin/caja"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
     ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
@@ -119,18 +133,36 @@ _ADMIN_NAV = [
     # sin cuenta; en modo alterno, revisa todo.
     ("Accesos",             "bi-key",         "/titulatec/admin/accesos",      {"titulatec.enrollment_access.page.list"}),
     ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
+    # No adeudo de biblioteca (2026-10-01): bandejas de Biblioteca (Centro de
+    # Información) y Caja (Recursos Financieros).
+    ("Biblioteca",          "bi-book",        "/titulatec/admin/biblioteca",   {"titulatec.library_clearance.page.list"}),
+    ("Caja",                "bi-cash-coin",   "/titulatec/admin/caja",         {"titulatec.library_payment.page.list"}),
+    # Folios de liberación (2026-10-05): la pestaña que antes era «Constancias»
+    # (misma URL, mismo permiso); la impresión por lotes quedó tras un switch.
+    ("Folios",              "bi-hash",        "/titulatec/admin/constancias",  {"titulatec.certificate.page.list"}),
     ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 
 
-def admin_nav_items(user_id: int) -> list[dict]:
-    """Items del menú admin visibles según los permisos del usuario en titulatec."""
-    from itcj2.database import SessionLocal
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+def admin_nav_items(user_id: int, db=None) -> list[dict]:
+    """Items del menú admin visibles según los permisos del usuario en titulatec.
+
+    Los permisos salen de `cached_perms`, la MISMA fuente que el gate
+    (`require_page_app`): con la caché tibia no emite ninguna consulta. Con `db`
+    usa esa sesión; sin ella abre la suya (`SessionLocal` no toma conexión del
+    pool hasta la primera consulta, así que con la caché tibia ni eso cuesta) —
+    `render_titulatec` no tiene la sesión de la ruta (cada ruta la cierra antes
+    de renderizar) y no hay que abrir una tercera.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
     try:
-        with SessionLocal() as db:
-            perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        if db is not None:
+            perms = cached_perms(db, user_id, "titulatec")
+        else:
+            from itcj2.database import SessionLocal
+            with SessionLocal() as _db:
+                perms = cached_perms(_db, user_id, "titulatec")
     except Exception as exc:
         logger.warning("Error obteniendo permisos titulatec para admin_nav (user %s): %s", user_id, exc)
         return []
@@ -161,11 +193,19 @@ def render_titulatec(
         "current_route": request.url.path,
         **(context or {}),
     }
-    # Inyectar admin_nav solo si no viene ya en el contexto y hay usuario autenticado.
+    # `admin_nav` es un CALLABLE perezoso, no una lista: el menú cuesta (permisos
+    # efectivos del usuario) y solo lo pinta `admin/base_admin.html`, que lo
+    # invoca. Jinja evalúa un callable del contexto únicamente donde la plantilla
+    # lo llama: las vistas del alumno y los parciales HTMX (que no extienden esa
+    # base) ya no pagan nada. Si el llamador trae su propio `admin_nav` en el
+    # contexto, se respeta.
     if "admin_nav" not in ctx and user is not None:
         try:
-            ctx["admin_nav"] = admin_nav_items(int(user["sub"]))
+            uid = int(user["sub"])
         except Exception as exc:
             logger.warning("Error calculando admin_nav para user %s: %s", user.get("sub"), exc)
-            ctx["admin_nav"] = []
+            ctx["admin_nav"] = lambda: []
+        else:
+            # `admin_nav_items` se resuelve como global del módulo al invocar.
+            ctx["admin_nav"] = lambda: admin_nav_items(uid)
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)

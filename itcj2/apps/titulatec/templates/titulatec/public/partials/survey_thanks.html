@@ -4,8 +4,8 @@
    Sustituye al formulario por `outerHTML`, sin redirect: el visitante ve que su
    respuesta llego sin perder la pagina.
 
-   La copia CAMBIA con `credit_status`, y los CUATRO valores del dominio
-   (Tarea 3, spec 5.3, D6: `in_review | already_submitted | no_process |
+   La copia CAMBIA con `credit_status`, y los CINCO valores del dominio
+   (Tarea 3, spec 5.3, D6: `in_review | already_submitted | imported | no_process |
    anonymous`) tienen su rama. El envio YA NO acredita nada por si solo -eso
    lo retiro `SurveyReviewService`, que ahora abre una solicitud para que
    Gestion Tecnologica y Vinculacion decida despues-, asi que desaparecieron
@@ -36,6 +36,12 @@
   {% elif credit_status == 'already_submitted' %}
     <h2 class="tt-display h5 mt-1 mb-2">Gracias, ya teníamos tu respuesta</h2>
     <p class="mb-0">Ya habías enviado la encuesta de egresados. Tu solicitud de liberación sigue su curso con Gestión Tecnológica y Vinculación; no hace falta contestarla otra vez.</p>
+
+  {% elif credit_status == 'imported' %}
+    {# Su respuesta de Microsoft Forms ya se importó y espera la inscripción
+       (`SurveyService.submit` / `_solicitud_existente`): no se guardó nada. #}
+    <h2 class="tt-display h5 mt-1 mb-2">Ya recibimos tu encuesta</h2>
+    <p class="mb-0">Tu encuesta de Microsoft Forms ya está registrada; se liberará cuando completes tu inscripción.</p>
 
   {% elif credit_status == 'no_process' %}
     <h2 class="tt-display h5 mt-1 mb-2">Gracias por contestar</h2>

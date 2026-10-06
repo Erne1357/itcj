@@ -34,8 +34,8 @@ from itcj2.observability import metrics, work
 from itcj2.observability import spawn as spawn_mod
 from itcj2.observability.context import bind, current_request_id, reset
 from itcj2.observability.logging_config import ContextFilter, JsonFormatter
-from itcj2.observability.spawn import spawn
-from itcj2.utils import async_broadcast
+from itcj2.observability.spawn import spawn, spawn_threadsafe
+from itcj2.utils import async_broadcast, main_loop
 
 TASKS = "itcj_background_tasks_total"
 STATUSES = ("ok", "error", "dropped", "cancelled")
@@ -558,6 +558,95 @@ def test_async_broadcast_from_a_thread_spawns_in_the_main_loop_with_the_callers_
 
 
 # ---------------------------------------------------------------------------
+# spawn_threadsafe: el salto hilo -> loop de `async_broadcast`, reutilizable
+# (plan de rendimiento de TitulaTec, R5)
+# ---------------------------------------------------------------------------
+
+def test_spawn_threadsafe_spawns_in_the_given_loop_with_the_callers_context(spawn_log):
+    """Misma garantía que `async_broadcast` desde un hilo, con el sitio
+    `notify_websocket_push`: la tarea corre en el hilo del loop con el
+    `request_id` del que llama (el loop no tiene ninguno: si llega, vino de
+    ahí), se cuenta y su excepción sale con ese id."""
+    seen = {}
+    returned = {}
+
+    async def read_probe():
+        seen["request_id"] = current_request_id()
+        seen["thread"] = threading.get_ident()
+
+    def sync_caller(loop):
+        tokens = bind(request_id=ORIGIN)
+        try:
+            returned["ok"] = spawn_threadsafe(read_probe(), loop, name="notify_websocket_push")
+            returned["bad"] = spawn_threadsafe(failing_probe(), loop, name="notify_websocket_push")
+        finally:
+            reset(tokens)
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        loop_errors = _capture_loop_errors(loop)
+        assert current_request_id() == ""
+        caller = threading.Thread(target=sync_caller, args=(loop,))
+        caller.start()
+        await asyncio.to_thread(caller.join)
+        await _settle()
+        gc.collect()
+        return threading.get_ident(), loop_errors
+
+    before = _counts("notify_websocket_push")
+    loop_thread, loop_errors = asyncio.run(main())
+
+    assert returned == {"ok": True, "bad": True}
+    assert seen == {"request_id": ORIGIN, "thread": loop_thread}
+    assert _delta(before, _counts("notify_websocket_push")) == {
+        "ok": 1.0, "error": 1.0, "dropped": 0.0, "cancelled": 0.0,
+    }
+    _assert_origin_error_line(
+        spawn_log(), "notify_websocket_push", "failing_probe", "falla el broadcast"
+    )
+    assert loop_errors == []
+
+
+@pytest.mark.parametrize(
+    "make_loop",
+    [lambda: None, _closed_loop, _loop_closing_mid_call],
+    ids=["sin-loop", "loop-cerrado", "cierra-a-medio-camino"],
+)
+def test_spawn_threadsafe_without_a_usable_loop_returns_false_and_leaves_the_coroutine(
+    make_loop,
+):
+    """`False` y NADA contado: la corrutina sigue siendo del que llama (aquí
+    la cierra la prueba, como lo haría `discard`)."""
+    ran = []
+
+    async def probe():
+        ran.append(True)
+
+    coro = probe()
+    before = _family_total()
+    with _never_awaited() as unawaited:
+        assert spawn_threadsafe(coro, make_loop(), name="notify_websocket_push") is False
+        assert coro.cr_frame is not None  # sin tocar: no se cerró ni corrió
+        coro.close()
+
+    assert ran == []
+    assert _family_total() == before
+    assert unawaited == []
+
+
+def test_main_loop_returns_what_set_main_loop_registered(monkeypatch):
+    monkeypatch.setattr(itcj2.utils, "_main_loop", None)
+    assert main_loop() is None
+
+    loop = asyncio.new_event_loop()
+    try:
+        itcj2.utils.set_main_loop(loop)
+        assert main_loop() is loop
+    finally:
+        loop.close()
+
+
+# ---------------------------------------------------------------------------
 # NotificationService.broadcast_websocket (el `create_task` de :93)
 # ---------------------------------------------------------------------------
 
@@ -620,11 +709,15 @@ def test_a_failing_push_is_logged_with_the_origin_request_id(fake_push, spawn_lo
     assert loop_errors == []
 
 
-def test_broadcast_websocket_without_a_loop_still_skips_the_push(fake_push):
-    """Fuera de un loop (un servicio `def` en el threadpool) el push no se
-    intenta, como hasta hoy: ni se crea la corrutina ni se cuenta nada."""
+def test_broadcast_websocket_without_a_loop_still_skips_the_push(fake_push, monkeypatch):
+    """Sin loop en el hilo Y sin loop principal registrado (CLI, Celery) el
+    push no se intenta, como hasta hoy: ni se crea la corrutina ni se cuenta
+    nada. Con loop principal registrado el push sí sale (R5): lo prueba
+    `tests/fastapi/core/test_notification_push_thread.py`."""
     from itcj2.core.services.notification_service import NotificationService
 
+    # Sin esto el resultado dependería de un loop que dejara registrado otro test.
+    monkeypatch.setattr(itcj2.utils, "_main_loop", None)
     before = _family_total()
     with _never_awaited() as unawaited:
         NotificationService.broadcast_websocket(42, _notification())
@@ -632,3 +725,40 @@ def test_broadcast_websocket_without_a_loop_still_skips_the_push(fake_push):
     assert fake_push == []
     assert _family_total() == before
     assert unawaited == []
+
+
+def test_a_failing_push_from_a_thread_is_logged_with_the_callers_request_id(
+    fake_push, spawn_log, monkeypatch,
+):
+    """El caso de las rutas `def` de TitulaTec (R5/R7): el push sale desde un
+    hilo hacia el loop principal y, si Redis falla, el log lleva el
+    `request_id` de la petición, no el vacío del loop."""
+    from itcj2.core.services.notification_service import NotificationService
+
+    def sync_caller():
+        tokens = bind(request_id=ORIGIN)
+        try:
+            NotificationService.broadcast_websocket(42, _notification(explota=True))
+        finally:
+            reset(tokens)
+
+    async def main():
+        loop = asyncio.get_running_loop()
+        loop_errors = _capture_loop_errors(loop)
+        monkeypatch.setattr(itcj2.utils, "_main_loop", loop)
+        caller = threading.Thread(target=sync_caller)
+        caller.start()
+        await asyncio.to_thread(caller.join)
+        await _settle()
+        gc.collect()
+        return loop_errors
+
+    before = _counts("notify_websocket_push")
+    loop_errors = asyncio.run(main())
+
+    assert fake_push == [(42, {"id": 7, "explota": True})]
+    assert _delta(before, _counts("notify_websocket_push")) == _only("error")
+    _assert_origin_error_line(
+        spawn_log(), "notify_websocket_push", "push_notification", "Redis caído"
+    )
+    assert loop_errors == []

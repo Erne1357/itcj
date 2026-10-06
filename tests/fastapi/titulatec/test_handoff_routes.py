@@ -322,3 +322,19 @@ def test_el_boton_de_exportar_se_pinta_con_el_permiso_de_exportacion(
     assert resp.status_code == 200, resp.text[:500]
     assert "Exportar CSV" in resp.text
     assert "/liberados/export.csv" in resp.text
+
+
+def test_buscador_preservado_y_q_viaja(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """hx-preserve en el buscador: id estable, q sigue viajando por `closest form`."""
+    from tests.fastapi.titulatec.paging_asserts import assert_buscador_preservado
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+    _liberado(db_session, make_program, make_cohort, make_user, make_process,
+              control="99700091")
+    c = client_as(head)
+    for url in (URL, f"{URL}/body"):
+        html = c.get(url, params={"q": "99700091"}).text
+        assert_buscador_preservado(html, input_id="tt-handoff-q",
+                                   filters_id="tt-handoff-filters", q="99700091",
+                                   include="closest form")

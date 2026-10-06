@@ -18,7 +18,8 @@
 1. `/titulatec/admin/` → **Bandeja**: 4 tarjetas de conteo + aviso "En construcción"
    (`templates/titulatec/admin/dashboard.html`). Sin acciones.
 2. `/titulatec/admin/processes` → **Procesos**: 5 KPIs clicables, 5 chips de filtro por status,
-   toggle **Tabla / Tablero**, buscador (solo tabla) y funnel de fases (solo tabla).
+   toggle **Tabla / Tablero**, buscador **en servidor** (las dos vistas) y funnel de fases (solo
+   tabla). La tabla pagina de 50 en 50; el tablero pinta como mucho 50 tarjetas por columna.
 3. Tabla → última columna **Abrir** → `/titulatec/admin/processes/{id}`.
    Tablero → la card entera es el enlace al mismo detalle (`partials/processes_board.html:16`).
 4. El menú lateral navega por HTMX (`hx-target="#tt-admin-content"`, `hx-swap="morph:outerHTML"`,
@@ -62,6 +63,44 @@ Qué se anima ahora (ver [`docs/design/ui_motion.md`](../design/ui_motion.md)):
 | Cambio de pestaña por el sidebar | `tt-anim-in` sobre `#tt-admin-content`, como siempre (`data-tt-view` pasa de `documents` a `processes`) |
 | Pulsar la pestaña en la que ya estás | ninguno |
 
+## Paginación, búsqueda y fase en servidor (2026-10-04)
+
+Spec `2026-10-04-titulatec-paginacion-design.md` §7. La ruta (`pages/admin.py::processes`) es
+ahora una envoltura de `_proc_ctx`, que arma la vista en **dos pasadas**:
+
+1. **`_proc_universe(db, user_id, status, q)`** — UNA consulta: procesos en alcance
+   (`officer_programs`, antes de contar) y del `status` pedido, con el `started_at` de su fase
+   ACTUAL por outer join a `ProcessPhase` (único por `uq_titulatec_phase_process_number`), en orden
+   `created_at DESC, id DESC` (el desempate por `id` faltaba). Filas ligeras
+   (`id, created_at, status, current_phase, student_id, program_id, started_at_fase, idle_days,
+   idle_level` + `folio`, `modality_id`). Con `q`, una consulta más trae los ids que casan
+   (`process_search`: control —también en MAYÚSCULA—, nombre en los dos órdenes, folio). Sobre
+   eso, en Python y con la lógica de siempre: `idle_days`/`idle_level` y los KPIs.
+2. **`_proc_present(db, ligeras, …)`** — alumnos, carreras y modalidades **en lote** solo para las
+   filas visibles: la página de la tabla, o las ≤50 tarjetas de cada columna. Quita el N+1 de
+   `db.get(User)`/`db.get(Program)` por fila.
+
+Presupuesto medido (`test_sin_n_mas_1_usuario_y_carrera`): 8 sentencias con 3 y con 40 procesos,
+en tabla y en tablero (app + alcance ×2 + universo + fases + alumnos + carreras + modalidades);
++1 con `q`.
+
+| Qué | Regla |
+|---|---|
+| **KPIs** | Como antes: universo en alcance **y del `status` pedido** (los KPIs son también los filtros de estado). **Nunca** los mueven `q`, `phase`, `stuck` ni la página. |
+| **`?stuck=1`** | Filtra el universo por `idle_level == "crit"` ANTES de paginar: «1–50 de N» cuenta solo atorados. |
+| **`?phase=N`** (nuevo) | Filtra la TABLA por fase actual (vacío o basura = sin filtro). El tablero lo ignora (cada columna ya es una fase) y el funnel sigue mostrando todas las fases, con la elegida resaltada. |
+| **`?q=`** | Búsqueda en servidor (`strip()`, 100 caracteres, `%`/`_` escapados). Sin resultados → «Sin resultados para "q"», sin pager. |
+| **`?page=`** | 50 por página (`paginate_list`); fuera de rango → la última válida. |
+| **Kanban** | Columnas sobre el universo filtrado (estado, `q`, `stuck`; sin `phase`). Cada columna lleva su `count` REAL y pinta las 50 más recientes; si hay más, pie **«Ver las N en tabla»** → `?view=table&phase=N` + filtros vigentes. |
+
+Controles: `#proc-filters` guarda los filtros vigentes como hidden (`view`, `status`, `stuck`,
+`phase`, `page=1`) junto al buscador `#proc-q` (`hx-get` + `hx-include="#proc-filters"`,
+`keyup changed delay:400ms, search`). El pager (`prefix='tt-proc'`) incluye ese bloque y su
+`hx-vals` de página pisa el `page=1`. Buscador, pager, franjas del funnel y «Ver las N en tabla»
+usan el contrato de la vista (`hx-target`/`hx-select` `#tt-admin-content`, `morph:outerHTML`,
+`hx-push-url`): el macro `pager` aceptó un `select` opcional para esto. KPIs, chips y botones de
+vista conservan `q` y `phase` y vuelven a la página 1.
+
 ## Secuencia
 
 ```mermaid
@@ -78,10 +117,11 @@ sequenceDiagram
     alt set vacío
         P-->>FE: processes.html con contexto _empty() (0 filas, KPIs en 0)
     else
-        P->>DB: TitulationProcess filtrado por program_id + status
-        P->>DB: PhaseDefinition (is_active) + ProcessPhase de esos procesos
-        P->>DB: Modality (dict) + User y Program (por fila)
-        P-->>FE: processes.html (rows + columns + kpis + umbrales)
+        P->>DB: pasada 1: TitulationProcess (alcance + status) con la ProcessPhase actual
+        P->>DB: (con q) ids que casan con process_search
+        P->>DB: PhaseDefinition
+        P->>DB: pasada 2: User + Program + Modality en lote (solo visibles)
+        P-->>FE: processes.html (rows de la página + page + columns acotadas + kpis)
     end
 ```
 
@@ -169,36 +209,35 @@ y uno en fase 8 muestra 100 % **aunque la fase 8 no esté aprobada todavía**.
 
 - Bloque `{% else %}` de `processes.html:124-245`: 9 columnas (Folio, Alumno + control, Carrera,
   Modalidad, Progreso, Fase actual, Días en fase, Estado, acción **Abrir**).
-- Buscador cliente (`#proc-search`) sobre `data-search` = `alumno control folio` en minúsculas
-  y ordenamiento cliente por `progress` / `phase` / `idle` (`th.sortable`). El JS vive en
-  **`static/js/admin/processes.js`**, cargado una sola vez por `base_admin.html`.
-- **Funnel de fases** (`processes.html:63-80`, solo en esta vista): una franja por columna con
-  `flex-grow` = número de procesos y un `hue` interpolado; clic en una franja filtra las filas por
-  fase **en el cliente**, sin volver al servidor.
+- Buscador **en servidor** (`#proc-q`, ver «Paginación…» arriba). Desde 2026-10-04 ya no hay
+  filtro de cliente ni `data-search`: con la tabla paginada solo habría filtrado la página. Queda
+  el ordenamiento cliente por `progress` / `phase` / `idle` (`th.sortable`), que reordena **la
+  página visible**. El JS vive en **`static/js/admin/processes.js`**, cargado una sola vez por
+  `base_admin.html`.
+- **Funnel de fases** (solo en esta vista): una franja por columna con `flex-grow` = número de
+  procesos y un `hue` interpolado; cada franja con procesos es un enlace a `?phase=N` (filtro
+  **en servidor**, página 1); la seleccionada lleva `is-sel` y las demás `is-dim`, y pulsarla de
+  nuevo quita el filtro.
 - Ese módulo es morph-safe: **todos** sus listeners están delegados en `document` (nunca
   `data-tt-bound`, que Idiomorph borraría al sincronizar atributos, duplicando listeners) y el
-  estado de las tres lentes vive en el módulo, no en el DOM. Consecuencia buena: el texto del
-  buscador, el orden y la fase seleccionada **sobreviven** a un cambio de filtro del servidor.
+  estado del orden vive en el módulo, no en el DOM, así que **sobrevive** a un cambio de filtro o
+  de página del servidor.
   Hasta 2026-09-02 este archivo existía pero **ningún template lo cargaba**, y su lógica estaba
   duplicada inline dentro del fragmento que el morph reemplaza.
-- ⚠️ El buscador guarda **dos** copias de la consulta: `estado.q` (recortada y en minúsculas, que
-  es contra lo que se compara `data-search`) y `estado.qTexto` (lo que el usuario escribió, tal
-  cual). Al `<input>` solo puede volver `qTexto`: el morph le borra el `value` porque la respuesta
-  del servidor no trae ninguno, así que el módulo lo repone — y reponer la normalizada convertía
-  "ANDREA" en "andrea" delante del usuario en cuanto pulsaba un filtro. **Filtrar y mostrar son
-  cosas distintas**; cualquier lente futura que normalice su entrada necesita el mismo par.
+- El `value` del buscador ahora lo trae el servidor (`value="{{ q }}"`, el `q` recortado), así
+  que el módulo ya no lo repone.
 
 ### Tablero (`view=board`)
 
 - `templates/titulatec/admin/partials/processes_board.html`, incluido en `processes.html:83-86`:
   **una columna por `PhaseDefinition` activa** (hoy 9: `cohort_intake` … `ceremony`), ordenadas
   por `order_index`.
-- Las columnas se construyen agrupando `rows` por `r["phase"]` (`pages/admin.py:717-729`). Cada
-  columna lleva `count` y `n_stuck`; la barra `health` es el % de atorados de esa columna.
-- `buckets.setdefault(r["phase"], [])` (`pages/admin.py:719`) tolera un `current_phase` sin
-  `PhaseDefinition` activa, pero **esa columna extra nunca se renderiza**: el loop de salida itera
-  `phase_defs`, no `buckets` (`pages/admin.py:721`). Esos procesos desaparecen del kanban aunque
-  sí salgan en la tabla.
+- Las columnas (`phase`, `label`, `count`, `n_stuck`, `rows`, `more`, `table_url`) agrupan el
+  universo filtrado por fase actual (`_proc_ctx`). `count` es el total real; `rows` son las ≤50
+  más recientes; la barra `health` es el % de atorados de esa columna.
+- Un `current_phase` sin `PhaseDefinition` activa **no tiene columna**: el loop de salida itera
+  las definiciones activas, no los grupos. Esos procesos desaparecen del kanban aunque sí salgan
+  en la tabla.
 - Las cards son **solo lectura**: un `<a href>` al detalle (`partials/processes_board.html:16`).
   **No hay drag & drop** ni endpoint que cambie de fase desde el tablero; eso solo ocurre en el
   detalle vía [motor de avance](engine_approve_advance_phase.md).
@@ -211,15 +250,15 @@ No hay estado de sesión: **cada control reconstruye el querystring a mano** en 
 
 | Control | Href | Qué conserva |
 |---|---|---|
-| Botones Tabla / Tablero (`u_table` / `u_board`) | `?view=table\|board` + `&status=` + `&stuck=1` | `status` y `stuck` |
-| Chips de status (`u_chip`) | `?view=` + `&status=` + `&stuck=1` | `view` y `stuck` |
-| KPIs Total / Activos / Completados / En espera (`u_total`, `u_active`, `u_completed`, `u_hold`) | `?view=` (+ `&status=`) | solo `view`; **pierden `stuck`** |
-| KPI Atorados (`u_stuck`) | `?view=` + `&status=` + `&stuck=1` | `view` y `status` |
+| Botones Tabla / Tablero (`u_table` / `u_board`) | `?view=table\|board` + `&status=` + `&stuck=1` + `&phase=` + `&q=` | `status`, `stuck`, `phase`, `q` |
+| Chips de status (`u_chip`) | `?view=` + `&status=` + `&stuck=1` + `&phase=` + `&q=` | `view`, `stuck`, `phase`, `q` |
+| KPIs Total / Activos / Completados / En espera (`u_total`, `u_active`, `u_completed`, `u_hold`) | `?view=` (+ `&status=`) + `&phase=` + `&q=` | `view`, `phase`, `q`; **pierden `stuck`** |
+| KPI Atorados (`u_stuck`) | `?view=` + `&status=` + `&stuck=1` + `&phase=` + `&q=` | todo |
+| Buscador / pager | `#proc-filters` (hidden) + `q` (+ `page` del pager) | todo |
 
-Lo que **no** viaja en la URL: el texto del buscador, el orden de la tabla y el filtro por franja
-del funnel. Siguen siendo estado de cliente, pero desde 2026-09-02 los guarda
-`static/js/admin/processes.js` y **sobreviven a los filtros del servidor** (que ya no recargan
-la página). Se pierden en una recarga real (F5, deep link, `Abrir` → detalle → Atrás).
+Ningún control lleva `page`: cambiar un filtro vuelve a la página 1. El botón **Abrir** lleva en
+`?from=` la URL completa (filtros + página), así Regresar vuelve a la misma página. Lo único que
+sigue siendo estado de cliente es el orden de la tabla (`processes.js`).
 
 ## Dónde se aplica el scope por carrera (y dónde no)
 
@@ -287,14 +326,17 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
 7. ~~**Faltan estilos de la bandeja.**~~ **Saldado.** `.tt-kpis`, `.tt-kpi`, `.tt-search`,
    `.tt-funnel`, `.tt-progress`, `.tt-pill--idle-ok/warn/crit`, `th.sortable`, `.col-scroll`,
    `.health` y `tr.is-stuck` existen hoy en `static/css/titulatec.css` (verificado 2026-09-02).
-8. **N+1 al armar las filas.** `pages/admin.py:692-693` hace `db.get(User, …)` y
-   `db.get(Program, …)` por proceso dentro del loop, a diferencia de `Modality` y
-   `PhaseDefinition` que sí se precargan en diccionario (`pages/admin.py:675`, `:687`). Y no hay
-   paginación: se listan **todos** los procesos del scope.
+8. ~~**N+1 al armar las filas y sin paginación.**~~ **Saldado 2026-10-04**: dos pasadas
+   (`_proc_universe` / `_proc_present`), alumnos/carreras/modalidades en lote, tabla de 50 en 50
+   y kanban con tope de 50 por columna.
 9. ~~**`qbase` es código muerto.**~~ **Saldado.** La variable desapareció; ahora cada control sale
    de una variable Jinja propia (`u_total`…`u_board`) que alimenta a la vez `href` y `hx-get`.
    El `stuck` que pierden los 4 primeros KPIs **se conserva tal cual**: es la semántica de
    siempre, no un descuido de la migración a HTMX.
+
+## Buscador y medición (2026-10-04)
+
+`#proc-q` lleva `hx-preserve="true"` (`templates/titulatec/admin/processes.html:114`) y `#proc-filters` anuncia `data-tt-q-server`; `static/js/shared/titulatec-utils.js:414` repone el texto cuando la navegación cambia `q` sin pasar por el input (fix `545aab64`). Un tablero con búsqueda sin resultados dice «Sin resultados para "q"» en vez de nueve columnas de «—». Los KPIs conservan el filtro de estado y nunca se mueven con `q`/`phase`/`stuck`/página (se arman al final de `_proc_universe`, `pages/admin.py:1788-1843`). Medido en dev (EXPLAIN ANALYZE, 2026-10-04): pasada 1 de Procesos 0.027 ms (con `q` ≤0.03 ms); base de dev chica, Seq Scan.
 
 ## Flujos relacionados
 

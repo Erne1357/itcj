@@ -46,6 +46,19 @@ logger = logging.getLogger("itcj2.apps.titulatec.services.survey")
 
 # — Constantes compartidas (seccion 5 del contrato de interfaces) —
 SURVEY_CODE = "egresados"
+# Perfil de posgrado (spec 2026-09-30-titulatec-posgrado-design.md seccion 4.5, D3):
+# su contenido AUN NO EXISTE. Hasta que se publique una version 'open' con
+# este `code`, posgrado contesta la de licenciatura -- ver
+# `SURVEY_CODES_BY_TRACK` y `form_for_user`, junto a `open_form` mas abajo.
+SURVEY_CODE_POSGRADO = "egresados_posgrado"
+# Perfil (lo que devuelve `TrackService`, invariante 2) -> cadena de codigos a
+# probar EN ORDEN: gana el primero con formulario `open` (`form_for_user`).
+# Licenciatura es una cadena de UN solo elemento, asi que su comportamiento
+# queda IDENTICO al de `SURVEY_CODE` solo (invariante 3, spec seccion 6).
+SURVEY_CODES_BY_TRACK = {
+    "licenciatura": (SURVEY_CODE,),
+    "posgrado": (SURVEY_CODE_POSGRADO, SURVEY_CODE),
+}
 AUTO_SOURCE_SURVEY = "graduate_survey"
 MAX_PUBLIC_BODY_BYTES = 256 * 1024
 MAX_ANSWERS_JSON_BYTES = 128 * 1024
@@ -149,6 +162,96 @@ class SurveyService:
                 .order_by(SurveyForm.version.desc())
                 .first())
 
+    @staticmethod
+    def form_for_user(db: Session, user_id: int | None):
+        """Formulario que le toca contestar a ESTE visitante, por perfil.
+
+        Spec 2026-09-30-titulatec-posgrado-design.md seccion 4.5, invariante 5: el
+        formulario se resuelve por REQUEST, nunca por una constante fija. Es
+        el reemplazo directo de `open_form(db, SURVEY_CODE)` en las 4 rutas
+        publicas (GET, paso, borrador, envio).
+
+        Sin `user_id` (visitante anonimo) o sin proceso acreditable
+        (`ProcessService.creditable_process` -- el MISMO selector que ya usa
+        `_solicitud_existente` en `pages/public.py` para decidir "no hay nada
+        que congelar"), resuelve la cadena de licenciatura: invariante 3, la
+        licenciatura -y quien todavia no tiene proceso- ve exactamente lo que
+        veia antes de esta tarea.
+
+        Con proceso, `TrackService.for_process` da el perfil y
+        `SURVEY_CODES_BY_TRACK` la cadena de codigos a probar EN ORDEN: gana
+        el primero con `open_form(...)` no nulo. D3 (interino): mientras
+        `egresados_posgrado` no tenga ninguna version en `status='open'`, un
+        posgrado cae a `egresados` -exactamente como licenciatura-, y el
+        cambio a su propio formulario es automatico en cuanto alguien
+        publique esa version, sin tocar este metodo ni ningun llamador.
+
+        Fallo transitorio (ronda de revision R10): si resolver el proceso o
+        el perfil revienta -`ProcessService.creditable_process` o
+        `TrackService.for_process`-, esto degrada a la cadena de
+        licenciatura en vez de propagar la excepcion, el MISMO riesgo y el
+        MISMO criterio que ya usa `_solicitud_existente` en `pages/public.py`
+        para el mismo gate (BD/Redis caidos): la ley del modulo ("Ninguna
+        entrada del visitante puede producir un 500") tambien aplica aqui,
+        aunque este metodo viva en el service. Igual que `_solicitud_
+        existente`, este primer catch NO hace `db.rollback()`: un fallo que
+        nunca toco la BD (el `RuntimeError` que simulan las pruebas, o
+        cualquier error puramente de Python) deja la sesion tan sana como
+        estaba, y un `rollback()` a la fuerza aqui DESCARTARIA sin necesidad
+        todo lo que esa misma sesion ya tenia pendiente -en un test, las filas
+        que los fixtures acaban de insertar (incluido el propio `User` del
+        JWT en curso): se probo agregando un rollback incondicional en esta
+        rama y `test_fallo_transitorio_en_solicitud_existente_no_produce_500`
+        pasaba a fallar con `ForeignKeyViolation` sobre `core_student_profile`
+        -el `User` del alumno ya no estaba-, y la prueba nueva de este mismo
+        archivo resolvia el `egresados` sembrado en dev (id real) en vez del
+        que el propio test acababa de crear. La consulta de respaldo de abajo
+        SI necesita su propio rollback si de verdad hereda una transaccion
+        abortada (un `OperationalError` real no se recupera solo), pero eso
+        se resuelve REACTIVAMENTE, solo si esa consulta falla -nunca antes-.
+        """
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+        from itcj2.apps.titulatec.services.track_service import TRACK_LICENCIATURA, TrackService
+
+        track = TRACK_LICENCIATURA
+        if user_id is not None:
+            try:
+                process = ProcessService.creditable_process(db, user_id)
+                if process is not None:
+                    track = TrackService.for_process(db, process)
+            except Exception:
+                # `exc_info=True` (Menor #5, revisión final 2026-09-30): sin
+                # esto el log decía QUE algo falló pero nunca POR QUÉ -- la
+                # causa real (traceback) se perdía en cuanto el `except` la
+                # atrapaba.
+                logger.warning(
+                    "survey: fallo resolviendo el perfil del proceso (user_id=%s)", user_id,
+                    exc_info=True)
+                track = TRACK_LICENCIATURA
+
+        try:
+            for code in SURVEY_CODES_BY_TRACK[track]:
+                form = SurveyService.open_form(db, code)
+                if form is not None:
+                    return form
+            return None
+        except Exception:
+            # Solo se llega aqui si la consulta de arriba SI revento -nunca
+            # por el fallo ya atrapado arriba, que jamas toco la BD-: una
+            # transaccion de verdad abortada (`OperationalError`) no se
+            # recupera sin rollback, asi que aqui SI hace falta antes de
+            # reintentar UNA vez, con la cadena de licenciatura (el mismo
+            # respaldo de siempre).
+            logger.warning(
+                "survey: fallo consultando el formulario abierto; reintentando tras rollback "
+                "(user_id=%s)", user_id, exc_info=True)
+            try:
+                db.rollback()
+            except Exception:      # pragma: no cover - sesion ya inservible
+                logger.warning("survey: rollback fallido tras el fallo de consulta")
+                return None
+            return SurveyService.open_form(db, SURVEY_CODE)
+
     # -----------------------------------------------------------------
     # Borradores (solo con sesion)
     # -----------------------------------------------------------------
@@ -193,9 +296,12 @@ class SurveyService:
                ) -> tuple[object | None, dict[str, str], str]:
         """Escribe una respuesta completa. Devuelve `(response, errors, credit_status)`.
 
-        `credit_status` en {'in_review','already_submitted','no_process',
-        'anonymous'}. En cualquier rama sin respuesta escrita (incluida
-        `already_submitted`) `response` es `None`: el llamador no debe leerlo.
+        `credit_status` en {'in_review','already_submitted','imported',
+        'no_process','anonymous'}. En cualquier rama sin respuesta escrita
+        (incluidas `already_submitted` e `imported`) `response` es `None`: el
+        llamador no debe leerlo. `imported` = sin solicitud, pero su respuesta
+        de Microsoft Forms ya se importó y espera su inscripción
+        (`SurveyImportService.pending_import_for_user`): no se escribe nada.
 
         Tarea 3 (spec 5.3, D6): el proceso se resuelve ANTES de validar el
         formulario. Si el alumno tiene proceso acreditable y ESE proceso ya
@@ -250,6 +356,14 @@ class SurveyService:
             if (process is not None
                     and SurveyReviewService.get_for_process(db, process.id) is not None):
                 return None, {}, "already_submitted"
+            # Decisión del usuario (revisión final del import de Forms): sin
+            # solicitud, pero con su respuesta de Forms importada esperando
+            # la inscripción -> la encuesta también está congelada.
+            from itcj2.apps.titulatec.services.survey_import_service import (
+                SurveyImportService,
+            )
+            if SurveyImportService.pending_import_for_user(db, user_id) is not None:
+                return None, {}, "imported"
             user = db.get(User, user_id)
             control_number = getattr(user, "control_number", None)
 
@@ -335,24 +449,36 @@ class SurveyService:
                   if isinstance(f, dict)] if form is not None else []
         keys = [str(f.get("key")) for f in fields]
 
-        headers = ["id", "enviada_en", "identidad", "numero_control",
-                   "proceso_id", "convocatoria_id", "version"] + keys
+        respuestas = (db.query(SurveyResponse)
+                      .filter(SurveyResponse.form_id == form_id)
+                      .order_by(SurveyResponse.id)
+                      .all())
+        # M5 (revisión final del import de Forms): las llaves `extra_*` que
+        # trae una respuesta importada sin pregunta en el `schema` (R9, p. ej.
+        # `extra_aspecto_no_trabajo`) también van al CSV, al final y en orden
+        # alfabético; sin respuestas importadas no aparece ninguna columna.
+        extras = sorted({str(k) for r in respuestas for k in (r.answers or {})
+                         if str(k).startswith("extra_") and str(k) not in keys})
+
+        # `importada` (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4):
+        # «sí» para las respuestas cargadas del Excel de Forms
+        # (`identity_source='import'`), «no» para las de la plataforma.
+        headers = ["id", "enviada_en", "identidad", "importada", "numero_control",
+                   "proceso_id", "convocatoria_id", "version"] + keys + extras
 
         rows: list[list[str]] = []
-        for r in (db.query(SurveyResponse)
-                  .filter(SurveyResponse.form_id == form_id)
-                  .order_by(SurveyResponse.id)
-                  .all()):
+        for r in respuestas:
             answers = r.answers or {}
             crudas = [
                 r.id,
                 r.submitted_at.isoformat(sep=" ", timespec="seconds") if r.submitted_at else "",
                 r.identity_source or "",
+                "sí" if r.identity_source == "import" else "no",
                 r.control_number or "",
                 r.process_id or "",
                 r.cohort_id or "",
                 r.form_version,
-            ] + [_cell(answers.get(k)) for k in keys]
+            ] + [_cell(answers.get(k)) for k in keys + extras]
             # Escapado INCONDICIONAL y para TODA columna (seccion 8.2).
             rows.append([escape_formula(c) for c in crudas])
 

@@ -2,7 +2,11 @@
    encola el barrido diario a los 3 días de iniciada la fase de la cita de
    cotejo, luego cada 7, máximo 3. Se re-valida al enviar (D8): si ya la envió
    o ya salió de esa fase, no sale. Lleva a la encuesta.
-   Contexto: first_name, link. #}
+   `library_required` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+   §4.11): su convocatoria exige el no adeudo de biblioteca para agendar
+   (`ClearanceGate.library_required`); entonces podrá agendar en cuanto GTV
+   la libere Y tenga su no adeudo.
+   Contexto: first_name, link, library_required. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}Llena tu encuesta de egresados — TitulaTec ITCJ{% endblock %}
@@ -12,9 +16,12 @@
   <strong>Llena tu encuesta de egresados:</strong> sin ella no puedes agendar tu cita de cotejo.
 </p>
 <p style="margin:0 0 24px;">
-  Te toma unos minutos. Cuando la envíes, Gestión Tecnológica y Vinculación la revisa;
-  en cuanto la libere podrás agendar tu cita de cotejo: según tu convocatoria, la agendas
-  tú o Servicios Escolares te asigna la fecha.
+  Te toma unos minutos. Cuando la envíes, Gestión Tecnológica y Vinculación (GTV) la revisa;
+  {% if library_required -%}
+  en cuanto GTV la libere y tengas tu no adeudo, podrás agendar tu cita de cotejo:
+  {%- else -%}
+  en cuanto la libere podrás agendar tu cita de cotejo:
+  {%- endif %} según tu convocatoria, la agendas tú o Servicios Escolares te asigna la fecha.
 </p>
 {{ m.boton(link, "Llenar la encuesta") }}
 {% endblock %}

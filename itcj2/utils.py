@@ -4,11 +4,9 @@ Utilidades compartidas para itcj2 (FastAPI).
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import logging
-from functools import partial
 
-from itcj2.observability.spawn import discard, spawn
+from itcj2.observability.spawn import discard, spawn, spawn_threadsafe
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +19,24 @@ _BROADCAST = "async_broadcast"
 
 
 def set_main_loop(loop: asyncio.AbstractEventLoop) -> None:
-    """Guarda la referencia al event loop principal de la app."""
+    """Guarda la referencia al event loop principal de la app.
+
+    Lo llama el `lifespan` de `create_app` en TODOS los roles (`http`,
+    `sockets`, `all`): cualquier proceso que sirve peticiones tiene hilos de
+    threadpool que necesitan saltar a su loop. En Celery o en el CLI nadie lo
+    llama y `main_loop()` da `None`.
+    """
     global _main_loop
     _main_loop = loop
+
+
+def main_loop() -> asyncio.AbstractEventLoop | None:
+    """El event loop principal registrado con `set_main_loop`, o `None`.
+
+    Puede estar parado o cerrado (el apagado, o un loop de prueba que ya
+    terminó): quien lo use desde otro hilo comprueba `is_running()`.
+    """
+    return _main_loop
 
 
 def async_broadcast(coro) -> None:
@@ -52,25 +65,12 @@ def async_broadcast(coro) -> None:
         return
 
     # Caso 2: hilo sync (FastAPI def endpoints corriendo en threadpool).
-    # `call_soon_threadsafe` corre `spawn` en el hilo del loop: asyncio no es
-    # thread-safe y la tarea y su done-callback deben nacer ahí. El contexto
-    # del hilo que llama (el `request_id` de la petición, que anyio copió al
-    # threadpool) se copia de forma EXPLÍCITA: la tarea y su log de error lo
-    # heredan de ese callback. Una corrutina envoltorio también cruzaría el
-    # contexto, pero sería una tarea más por broadcast y repetiría la cuenta
-    # de `spawn`.
-    loop = _main_loop
-    if loop is not None and loop.is_running():
-        try:
-            loop.call_soon_threadsafe(
-                partial(spawn, coro, name=_BROADCAST),
-                context=contextvars.copy_context(),
-            )
-            return
-        except RuntimeError:
-            # El loop se cerró entre `is_running()` y aquí (apagado): se
-            # descarta como si no hubiera loop, sin lanzar al negocio.
-            pass
+    # `spawn_threadsafe` corre `spawn` en el hilo del loop principal, con el
+    # contexto (el `request_id`) del hilo que llama. Si el loop se cerró entre
+    # la comprobación y la programación (apagado) devuelve False y se descarta
+    # como si no hubiera loop, sin lanzar al negocio.
+    if spawn_threadsafe(coro, _main_loop, name=_BROADCAST):
+        return
 
     discard(coro, name=_BROADCAST)
     logger.warning("async_broadcast: no hay event loop disponible, broadcast descartado")

@@ -30,6 +30,8 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.survey_reviews_admin")
 router = APIRouter(prefix="/admin/liberaciones", tags=["titulatec-pages-survey-reviews"])
@@ -38,7 +40,6 @@ _LIST = ["titulatec.survey_review.page.list"]
 _APPROVE = ["titulatec.survey_review.api.approve"]
 _REJECT = ["titulatec.survey_review.api.reject"]
 
-_PAGE_SIZE = 50
 
 # Pestañas, en el orden en que se pintan. `in_review` es la que ve GTV al
 # entrar: es la cola de trabajo pendiente.
@@ -73,7 +74,7 @@ def _tab(raw) -> str:
     return raw if isinstance(raw, str) and raw in _TAB_KEYS else _DEFAULT_TAB
 
 
-def _body_ctx(db, *, status, q, page):
+def _body_ctx(db, *, status, q, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
     `None` AQUÍ: `SurveyReviewService.list_for_inbox` trataría "   " como un
     patrón `ILIKE '%%'` de verdad (coincide con todo por casualidad, no
@@ -86,18 +87,18 @@ def _body_ctx(db, *, status, q, page):
     page = max(1, _to_int(page) or 1)
 
     counts = SurveyReviewService.counts_by_status(db, q=q_clean)
-    rows, has_more = SurveyReviewService.list_for_inbox(
-        db, status=tab, q=q_clean, page=page, per_page=_PAGE_SIZE)
+    pagina = SurveyReviewService.list_for_inbox(
+        db, status=tab, q=q_clean, page=page, per_page=per_page)
 
     return {
-        "tabs": _TABS, "status": tab, "counts": counts, "rows": rows,
-        "q": q_clean or "", "page": page, "has_more": has_more,
+        "tabs": _TABS, "status": tab, "counts": counts, "rows": pagina.items,
+        "q": q_clean or "", "page": pagina.page, "pg": pagina,
     }
 
 
 @router.get("", name="titulatec.pages.releases.list")
-async def list_releases(request: Request, status: str = "", q: str = "", page: str = "1",
-                        user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_releases(request: Request, status: str = "", q: str = "", page: str = "1",
+                  user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -108,8 +109,8 @@ async def list_releases(request: Request, status: str = "", q: str = "", page: s
 
 
 @router.get("/body", name="titulatec.pages.releases.body")
-async def body(request: Request, status: str = "", q: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, status: str = "", q: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -125,10 +126,16 @@ async def approve(review_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
     """Liberar: válido desde «En revisión» o «Con observaciones». Acredita
     `graduate_survey` (efecto del service, no de esta ruta)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_approve, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_approve(review_id, request, user, form):
+    """Cuerpo síncrono de `approve`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
     db = SessionLocal()
@@ -151,10 +158,16 @@ async def reject(review_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
     """Observar: motivo obligatorio (lo valida el service). Válido desde «En
     revisión» o «Con observaciones» (en este segundo caso, actualiza el texto)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reject, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reject(review_id, request, user, form):
+    """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -178,10 +191,16 @@ async def revoke(review_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
     """Revocar: solo desde «Liberada» y solo si la fase 2 de ese proceso
     todavía no está aprobada (`can_revoke`, calculado por el service)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_revoke, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_revoke(review_id, request, user, form):
+    """Cuerpo síncrono de `revoke`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -190,6 +209,41 @@ async def revoke(review_id: int, request: Request,
         uid = int(user["sub"])
         try:
             SurveyReviewService.revoke(db, review_id, uid, reason)
+        except LookupError:
+            return Response(status_code=404)
+        except ValueError as e:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(e))})
+        ctx = _body_ctx(db, status=status, q=q, page=page)
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/survey_reviews_body.html", ctx)
+
+
+@router.post("/{review_id}/entregada", name="titulatec.pages.releases.paper_delivered")
+async def paper_delivered(review_id: int, request: Request,
+                          user: dict = Depends(require_page_app("titulatec", perms=_APPROVE))):
+    """«Marcar constancia entregada» (D3, spec `2026-10-05-titulatec-import-
+    encuesta-xlsx-design.md` §4.4): GTV entregó la constancia en papel de una
+    previa importada con `paper_pending`. Mismo permiso que Liberar: es GTV
+    cerrando la liberación que ella misma expide. 400 si no tenía papel por
+    recoger o ya se entregó (lo decide el service); sin correo (R10)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_paper_delivered, review_id=review_id, request=request, user=user, form=form)
+
+
+def _cuerpo_paper_delivered(review_id, request, user, form):
+    """Cuerpo síncrono de `paper_delivered`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+
+    status, q, page = form.get("status"), form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        try:
+            SurveyReviewService.mark_paper_delivered(db, review_id, actor_id=uid)
         except LookupError:
             return Response(status_code=404)
         except ValueError as e:

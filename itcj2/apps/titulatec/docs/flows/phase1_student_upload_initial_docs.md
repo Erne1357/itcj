@@ -1,7 +1,8 @@
 # El alumno sube sus documentos iniciales (Fase 1)
 
-> **Objetivo:** el alumno carga los 3 documentos iniciales; la fase 1 pasa sola a revisión
-> (Tarea 1, 2026-09-28: ya no hay un botón «Enviar a revisión» que tocar).
+> **Objetivo:** el alumno carga los documentos iniciales de SU PERFIL (3 en licenciatura, 7 en
+> posgrado); la fase 1 pasa sola a revisión (Tarea 1, 2026-09-28: ya no hay un botón «Enviar a
+> revisión» que tocar).
 
 | | |
 |---|---|
@@ -9,9 +10,28 @@
 | **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` |
 | **Trigger** | El alumno toca **«Ir a documentos»** en la tarjeta «Tu proceso» del dashboard (el CTA solo existe si la fase 1 es su fase actual, [acordeón de fases](xcut_student_phase_detail.md)), o entra por el menú del alumno (drawer/rail) |
 | **Precondiciones** | Tiene un `TitulationProcess` activo (creado en [import CSV](phase0_school_services_import_csv.md)); **la fase 1 es su `current_phase`** (`in_progress` o `rejected`). **Se valida** en [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) |
-| **Estado final** | 3 `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
+| **Estado final** | 3 (licenciatura) o 7 (posgrado) `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
 
-Documentos requeridos (`DocumentType.code`): `birth_certificate`, `high_school_cert`, `curp`.
+Documentos requeridos (`DocumentType.code`), **por perfil** (spec
+`2026-09-30-titulatec-posgrado-design.md` §4.4; el perfil sale de
+[`TrackService`](engine_process_track.md), nunca de una comparación propia): licenciatura —
+`birth_certificate`, `high_school_cert`, `curp` (`DocumentService.BASE_INITIAL_DOCS`); posgrado —
+esos 3 **más** `professional_license` (cédula profesional), `degree_title` (título),
+`postgrad_authorization` (oficios de autorización de la DEPI, **un solo PDF**) y `efirma_sat`
+(comprobante de e.firma o cita SAT) — `DocumentService.POSGRADO_EXTRA_DOCS`, con su propia línea de
+ayuda por casilla (`DocumentService.INITIAL_DOC_HINTS`, D6: cédula y título son del **grado
+anterior**). El set completo de un proceso sale SIEMPRE de
+`DocumentService.initial_doc_types_for(db, process)` (`pages/student.py:1039`) — nunca de un `3`
+fijo; con licenciatura el resultado es byte a byte el de siempre (invariante 3).
+
+**Hueco cerrado (spec §4.4, invariante 4):** `POST`/`DELETE
+/titulatec/student/documents/{type_code}` con un `type_code` de fase 1 que NO está en el set del
+perfil del proceso (licenciatura subiendo `professional_license`, o cualquiera subiendo
+`egel_proof`) responde `400` + `X-Tt-Error` («Este documento no aplica a tu proceso.»), **antes**
+de tocar storage o BD — `pages/student.py::_initial_docs_set_guard` (`:407-436`), invocado como
+primer guard tras `_phase_guard` en `document_upload` (`:1110`) y `document_delete` (`:1196`). Sin
+él, licenciatura podía subir los 4 extras de posgrado y cualquier perfil podía subir un tipo de
+fase 1 activo en el catálogo pero fuera de las dos listas de `DocumentService`.
 
 ## Ruta en la app (UI)
 
@@ -48,11 +68,12 @@ sequenceDiagram
     participant DB as Postgres
     U->>FE: elige archivo en el dropzone
     FE->>API: POST /titulatec/student/documents/{type_code}  (multipart)
-    API->>API: archivo.size > 20 MB? → error SIN leer el cuerpo
-    API->>DB: lecturas (tipo, proceso, guarda de fase, control) y commit: cierra la transacción
-    API->>ST: run_in_threadpool(prepare_document, raw, control, file_kind) (valida + comprime; sin disco ni BD)
+    API->>DB: (hilo 1, `_cuerpo_document_upload`) lecturas y guardas: tipo, proceso, fase, set de documentos, archivo.size > 20 MB → error SIN leer el cuerpo; commit: cierra la transacción
+    API->>API: await archivo.read() (lo único que hace la ruta async en el event loop)
+    API->>DB: (hilo 2) repite las guardas sobre el estado de AHORA
+    API->>ST: prepare_document(raw, control, file_kind) (valida + comprime; en el hilo, sin disco ni BD)
     ST-->>API: PreparedDocument (bytes a guardar)
-    API->>SVC: run_in_threadpool(save, db, process, type_code, ..., prepared=...)
+    API->>SVC: save(db, process, type_code, ..., prepared=...) (en el hilo)
     SVC->>ST: write_document(prepared, ...) (temporal + os.replace; luego borra versiones viejas)
     ST-->>SVC: {file_path, mime, size (del archivo GUARDADO)}
     SVC->>DB: UPSERT Document (review_status=pending, version++)
@@ -128,8 +149,12 @@ En cada pasada, cada imagen:
 Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
 BD.
 
-La compresión es CPU (segundos en un PDF de 20 MB): la ruta corre `prepare_document` y
-`DocumentService.save` con `run_in_threadpool`. Y la corre **sin transacción abierta**: antes de
+La compresión es CPU (segundos en un PDF de 20 MB): `prepare_document` y `DocumentService.save` corren
+en el threadpool. Desde 2026-10-05 (convención de TODAS las rutas, `CLAUDE.md` §1 de la app) lo hace toda la
+ruta: `document_upload` es `async` solo para `await archivo.read()` y delega en `_cuerpo_document_upload`, que
+corre en el hilo en DOS saltos —el primero valida y devuelve la respuesta final o `None`; la ruta lee el archivo;
+el segundo repite las guardas sobre el estado de AHORA, comprime, guarda y renderiza—, a costa de ~6 consultas
+de más por subida. Y lo corre **sin transacción abierta**: antes de
 leer el cuerpo hace `commit()` de la transacción de lectura (no hay nada pendiente), así la
 conexión no queda «idle in transaction» — con PgBouncer transaccional, un backend fijado —
 mientras se comprime; `DocumentService.save(..., prepared=...)` solo escribe el archivo y la fila
@@ -160,8 +185,10 @@ duda») (ver
 
 ## Estado resultante
 
-- 3 filas en `titulatec_documents` con `review_status=pending`.
-- `ProcessPhase[1].status = in_review` → aparece en la bandeja admin para revisión.
+- 3 (licenciatura) o 7 (posgrado) filas en `titulatec_documents` con `review_status=pending`.
+- `ProcessPhase[1].status = in_review` → aparece en la bandeja admin para revisión —
+  `DocumentService.sync_initial_phase` cuenta contra el set DEL proceso, así que un posgrado con
+  los 3 base pero sin los 4 extras se queda en `in_progress`, no en `in_review`.
 
 ## UI: píldora, fecha de envío y aviso de estado (Tarea 2, 2026-09-28)
 
@@ -214,9 +241,13 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
   `error` pintado dentro de la casilla, más `X-Tt-Error` (percent-codificado con `_hdr`, lo
   decodifica `student/errors.js`). Es 200 a propósito: htmx 2 no hace swap en un 4xx, y el error
   vive en el slot. No hay toast (ese canal es de `htmx:responseError`). No se guarda nada.
-- Faltan documentos → nada que hacer: `sync_initial_phase` solo actúa al completar los 3
-  (o al perder uno de una fase que ya estaba en revisión). No hay un paso de "enviar" que
-  pueda rechazarse por documentos faltantes.
+- Faltan documentos → nada que hacer: `sync_initial_phase` solo actúa al completar el set DEL
+  PERFIL (3 en licenciatura, 7 en posgrado) (o al perder uno de una fase que ya estaba en
+  revisión). No hay un paso de "enviar" que pueda rechazarse por documentos faltantes.
+- **Tipo fuera del set del perfil** (licenciatura sube `professional_license`, o cualquiera sube
+  `egel_proof`) → `400` + `X-Tt-Error` («Este documento no aplica a tu proceso.»), sin fila
+  `Document` ni archivo en disco — `_initial_docs_set_guard`, detalle arriba y en
+  [el perfil de titulación](engine_process_track.md).
 - Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe versión).
 - **Fuera de la fase 1** ([guarda de fase](engine_student_phase_lock.md)): `GET
   /student/documents` responde `302` a `/student/dashboard?fase=1` (el acordeón, que sí
@@ -232,6 +263,8 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
 
 - ← Previo: [import CSV](phase0_school_services_import_csv.md) (crea el proceso).
 - ⤵ Siguiente: [revisión admin de docs iniciales](phase1_admin_review_initial_docs.md).
+- ⤵ De dónde sale el set de 3 vs. 7 y el perfil del proceso: [perfil de titulación por nivel de
+  carrera](engine_process_track.md).
 - 🖥️ Entrada y seguimiento: [acordeón de fases del dashboard](xcut_student_phase_detail.md) — de
   ahí sale el CTA, y ahí se ve el avance documento a documento (aprobado / por corregir / en
   revisión / sin subir) sin abrir esta pantalla.

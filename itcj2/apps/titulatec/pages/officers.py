@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.officers")
 router = APIRouter(prefix="/admin/officers", tags=["titulatec-pages-officers"])
@@ -67,9 +68,14 @@ def _body_ctx(db, department_id: int, *, reactivated: list[dict] | None = None) 
     # marca. `auth_service` filtra por ese campo al entrar, asi que nombrar
     # encargado a uno de ellos producia un encargado que no podia iniciar
     # sesion. Ahora la vista lo dice y el alta lo arregla.
+    # Una consulta para TODOS los usuarios del departamento, no un `db.get` por
+    # cada uno (H10, spec 2026-10-05-titulatec-rendimiento §3.5).
+    ids = sorted(OfficerService.department_user_ids(db, department_id))
+    por_id = ({u.id: u for u in db.query(User).filter(User.id.in_(ids)).all()}
+              if ids else {})
     usuarios = []
-    for uid in sorted(OfficerService.department_user_ids(db, department_id)):
-        u = db.get(User, uid)
+    for uid in ids:
+        u = por_id.get(uid)
         if u is None:                       # fila huerfana: no se pinta
             continue
         usuarios.append({"id": uid, "name": u.full_name,
@@ -84,8 +90,8 @@ def _body_ctx(db, department_id: int, *, reactivated: list[dict] | None = None) 
 
 
 @router.get("", name="titulatec.pages.officers.home")
-async def home(request: Request,
-               user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.page.list"]))):
+def home(request: Request,
+         user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.page.list"]))):
     from itcj2.database import SessionLocal
     dep = _managed_department_id(int(user["sub"]))
     if dep is None:
@@ -101,9 +107,14 @@ async def home(request: Request,
 @router.post("", name="titulatec.pages.officers.create")
 async def create(request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+    form = await request.form()
+    return await run_in_threadpool(_cuerpo_create, request=request, user=user, form=form)
+
+
+def _cuerpo_create(request, user, form):
+    """Cuerpo síncrono de `create`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
-    form = await request.form()
     name = (form.get("name") or "").strip()
     program_ids = {int(x) for x in form.getlist("program_ids") if x}
     user_ids = {int(x) for x in form.getlist("user_ids") if x}
@@ -134,9 +145,15 @@ async def create(request: Request,
 @router.post("/{position_id}", name="titulatec.pages.officers.update")
 async def update(position_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_update, position_id=position_id, request=request, user=user, form=form)
+
+
+def _cuerpo_update(position_id, request, user, form):
+    """Cuerpo síncrono de `update`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
-    form = await request.form()
     program_ids = {int(x) for x in form.getlist("program_ids") if x}
     user_ids = {int(x) for x in form.getlist("user_ids") if x}
     dep = _managed_department_id(int(user["sub"]))
@@ -170,8 +187,8 @@ async def update(position_id: int, request: Request,
 
 
 @router.post("/{position_id}/deactivate", name="titulatec.pages.officers.deactivate")
-async def deactivate(position_id: int, request: Request,
-                     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
+def deactivate(position_id: int, request: Request,
+               user: dict = Depends(require_page_app("titulatec", perms=["titulatec.officers.api.manage"]))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.officer_service import OfficerService
     dep = _managed_department_id(int(user["sub"]))

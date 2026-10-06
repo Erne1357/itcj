@@ -36,6 +36,13 @@ def _catalogo(seed_phase_defs):
     seed_phase_defs()
 
 
+def _released(db, **kw):
+    """`list_released` devuelve un `Page`; los tests de filtros/alcance/orden
+    leen (filas, total) y los de paginado usan el `Page` directo."""
+    pagina = HandoffService.list_released(db, **kw)
+    return pagina.items, pagina.total
+
+
 def _release(db_session, process, when):
     """Marca la fase 2 (`review_appointment`) del proceso como aprobada."""
     from itcj2.apps.titulatec.models import ProcessPhase
@@ -66,7 +73,7 @@ def test_solo_aparecen_los_de_fase2_aprobada(db_session, make_program, make_coho
 
     # Acotado a `program`: la BD de dev ya trae un proceso real liberado
     # (contexto de la Tarea 4) y "ALL" sin acotar lo contaria de mas.
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id})
 
     assert total == 1
@@ -82,7 +89,7 @@ def test_fase2_en_progreso_no_aparece(db_session, make_program, make_cohort,
     # aprobar): estado DISTINTO de 'pending', y tambien debe quedar fuera.
     make_process(student, cohort=cohort, program=program, current_phase=2)
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id})
 
     assert rows == []
@@ -102,7 +109,7 @@ def test_dos_intentos_de_cita_no_duplican_la_fila(db_session, make_program, make
     make_appointment(proc, status="no_show", is_current=False, attempt_no=1)
     make_appointment(proc, status="attended", is_current=True, attempt_no=2)
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id})
 
     assert total == 1
@@ -121,7 +128,7 @@ def test_proceso_sin_carrera_nunca_aparece(db_session, make_cohort, make_user, m
 
     # Sin `program.id` que acotar (el proceso no tiene carrera): se acota por
     # `cohort_id`, propio y fresco, para no depender de lo que ya haya en dev.
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids="ALL", cohort_id=cohort.id)
 
     assert rows == []
@@ -140,7 +147,7 @@ def test_alcance_vacio_devuelve_cero(db_session, make_program, make_cohort,
     proc = make_process(student, cohort=cohort, program=program, current_phase=1)
     _release(db_session, proc, datetime(2026, 1, 13, 8, 0))
 
-    rows, total = HandoffService.list_released(db_session, allowed_program_ids=set())
+    rows, total = _released(db_session, allowed_program_ids=set())
 
     assert rows == []
     assert total == 0
@@ -160,12 +167,12 @@ def test_all_devuelve_de_todas_las_carreras_y_el_set_acota(
 
     # `cohort_id` acota a esta convocatoria: aisla del resto de la BD de dev
     # (que ya trae un proceso real liberado) sin tocar lo que "ALL" prueba.
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids="ALL", cohort_id=cohort.id)
     assert total == 2
     assert {r.process_id for r in rows} == {proc_a.id, proc_b.id}
 
-    rows_a, total_a = HandoffService.list_released(
+    rows_a, total_a = _released(
         db_session, allowed_program_ids={prog_a.id}, cohort_id=cohort.id)
     assert total_a == 1
     assert rows_a[0].process_id == proc_a.id
@@ -186,7 +193,7 @@ def test_filtro_por_convocatoria(db_session, make_program, make_cohort, make_use
     _release(db_session, proc_1, datetime(2026, 1, 15, 8, 0))
     _release(db_session, proc_2, datetime(2026, 1, 15, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids="ALL", cohort_id=cohort_1.id)
 
     assert total == 1
@@ -204,7 +211,7 @@ def test_filtro_por_programa(db_session, make_program, make_cohort, make_user, m
     _release(db_session, proc_a, datetime(2026, 1, 21, 8, 0))
     _release(db_session, proc_b, datetime(2026, 1, 21, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids="ALL", program_id=prog_a.id)
 
     assert total == 1
@@ -226,7 +233,7 @@ def test_filtro_por_modalidad(db_session, make_program, make_cohort, make_user, 
     _release(db_session, proc_a, datetime(2026, 1, 22, 8, 0))
     _release(db_session, proc_b, datetime(2026, 1, 22, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids="ALL", modality_id=mod_a.id)
 
     assert total == 1
@@ -242,7 +249,7 @@ def test_modalidad_ausente_da_modality_name_none(db_session, make_program, make_
     proc = make_process(alumno, cohort=cohort, program=program, modality=None, current_phase=1)
     _release(db_session, proc, datetime(2026, 1, 23, 8, 0))
 
-    rows, _total = HandoffService.list_released(
+    rows, _total = _released(
         db_session, allowed_program_ids={program.id})
 
     assert rows[0].modality_name is None
@@ -260,7 +267,7 @@ def test_q_busca_por_numero_de_control(db_session, make_program, make_cohort,
     _release(db_session, proc, datetime(2026, 1, 16, 8, 0))
     _release(db_session, proc_otro, datetime(2026, 1, 16, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id}, q=control)
 
     assert total == 1
@@ -278,7 +285,7 @@ def test_q_busca_por_nombre_insensible_a_mayusculas(db_session, make_program, ma
     _release(db_session, proc, datetime(2026, 1, 17, 8, 0))
     _release(db_session, proc_otro, datetime(2026, 1, 17, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id}, q="gabriela")
 
     assert total == 1
@@ -305,7 +312,7 @@ def test_q_escapa_el_comodin_porcentaje(db_session, make_program, make_cohort,
     proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
     _release(db_session, proc, datetime(2026, 1, 19, 8, 0))
 
-    rows, total = HandoffService.list_released(
+    rows, total = _released(
         db_session, allowed_program_ids={program.id}, q=f"{control}%")
 
     assert total == 0
@@ -325,7 +332,7 @@ def test_released_at_es_el_completed_at_de_la_fase(db_session, make_program, mak
     momento = datetime(2026, 2, 1, 13, 45)
     _release(db_session, proc, momento)
 
-    rows, _total = HandoffService.list_released(
+    rows, _total = _released(
         db_session, allowed_program_ids={program.id})
 
     assert rows[0].released_at == momento
@@ -345,7 +352,7 @@ def test_orden_por_released_at_desc_desempate_por_process_id_desc(
     _release(db_session, p_nuevo, datetime(2026, 1, 3, 8, 0))
     _release(db_session, p_empate, datetime(2026, 1, 3, 8, 0))  # mismo instante que p_nuevo
 
-    rows, _total = HandoffService.list_released(
+    rows, _total = _released(
         db_session, allowed_program_ids={program.id})
 
     empatados_desc = sorted([p_nuevo.id, p_empate.id], reverse=True)
@@ -360,16 +367,40 @@ def test_paginacion(db_session, make_program, make_cohort, make_user, make_proce
         proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
         _release(db_session, proc, datetime(2026, 1, 24, 8, i))
 
-    rows_p1, total_1 = HandoffService.list_released(
+    p1 = HandoffService.list_released(
         db_session, allowed_program_ids={program.id}, page=1, per_page=2)
-    rows_p2, total_2 = HandoffService.list_released(
+    p2 = HandoffService.list_released(
         db_session, allowed_program_ids={program.id}, page=2, per_page=2)
+    rows_p1, rows_p2 = p1.items, p2.items
 
-    assert total_1 == 3
-    assert total_2 == 3
+    assert (p1.total, p2.total) == (3, 3)
+    assert (p1.has_next, p2.has_next) == (True, False)
     assert len(rows_p1) == 2
     assert len(rows_p2) == 1
     assert {r.process_id for r in rows_p1} & {r.process_id for r in rows_p2} == set()
+    # Sigue el orden released_at desc: la pagina 2 continua a la 1.
+    assert [r.released_at for r in rows_p1 + rows_p2] == sorted(
+        (r.released_at for r in rows_p1 + rows_p2), reverse=True)
+
+
+def test_liberados_muestra_rango_de_total(db_session, make_program, make_cohort,
+                                          make_user, make_process):
+    program = make_program("Ingenieria en Sistemas (T4-RG)")
+    cohort = make_cohort()
+    for i in range(3):
+        alumno = make_user(first_name=f"R{i}", last_name="RANGO", control_number=_cn())
+        proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+        _release(db_session, proc, datetime(2026, 1, 24, 9, i))
+
+    p2 = HandoffService.list_released(
+        db_session, allowed_program_ids={program.id}, page=2, per_page=2)
+    p9 = HandoffService.list_released(
+        db_session, allowed_program_ids={program.id}, page=9, per_page=2)
+    vacio = HandoffService.list_released(db_session, allowed_program_ids=set())
+
+    assert (p2.start, p2.end, p2.total) == (3, 3, 3)
+    assert (p9.page, p9.start, p9.end) == (2, 3, 3)
+    assert (vacio.total, vacio.items, vacio.start, vacio.end) == (0, [], 0, 0)
 
 
 # =========================================================================

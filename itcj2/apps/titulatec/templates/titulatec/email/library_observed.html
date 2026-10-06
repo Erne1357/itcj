@@ -1,0 +1,24 @@
+{# Biblioteca registró observaciones en el no adeudo de biblioteca («Con
+   observaciones», spec 2026-10-05-titulatec-biblioteca-observaciones-
+   design.md §3.3): el motivo CONGELADO en el payload y «Acude a la
+   Biblioteca». Mientras esté así no puede agendar su cita de cotejo ni pagar
+   en Caja. Se re-valida al enviar (D8): si ya lo rehabilitaron, o hay una
+   observación más reciente, no sale (`mail_compose._compose_library_observed`).
+   Contexto: first_name, link, reason. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Biblioteca registró observaciones en tu no adeudo — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  El Centro de Información (Biblioteca) <strong>registró observaciones</strong> en tu no
+  adeudo de biblioteca.
+</p>
+{% if reason %}{{ m.motivo(reason, "Observaciones") }}{% endif %}
+<p style="margin:0 0 24px;">
+  Mientras tengas observaciones no podrás agendar tu cita de cotejo ni pagar en Caja.
+  Acude a la Biblioteca (Centro de Información) para aclararlas; en cuanto te rehabiliten
+  te avisaremos.
+</p>
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

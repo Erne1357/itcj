@@ -11,7 +11,7 @@
    Contexto: pages/student.py::_phases_ctx. JS: static/js/student/dashboard.js.
    =========================================================================== #}
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import pill, estado_pill, survey_review_pill %}
+{% from "titulatec/_macros.html" import pill, estado_pill, survey_review_pill, library_clearance_pill %}
 {% block student_title %}Mi proceso · TitulaTec{% endblock %}
 {% block student_active %}home{% endblock %}
 {% block student_page %}student_dashboard{% endblock %}
@@ -79,6 +79,7 @@
             <span class="tt-kicker">Tu proceso · Fase {{ '%02d'|format(current.number) }}</span>
             <div class="d-flex align-items-center gap-2">
               {% if current.survey %}{{ survey_review_pill(current.survey.status) }}{% endif %}
+              {% if current.library %}{{ library_clearance_pill(current.library.status, current.library.via) }}{% endif %}
               {{ estado_pill(current.status) }}
             </div>
           </div>
@@ -95,6 +96,13 @@
 
           {% if current.desc %}
           <p class="tt-prose mt-3 mb-0" style="font-size:.86rem;color:var(--tt-slate);line-height:1.55">{{ current.desc }}</p>
+          {% endif %}
+
+          {% if current.survey and current.survey.status == 'approved' and current.survey.origin == 'prior' %}
+          {# D9 (spec folios 2026-10-05): en la fase actual el acordeón no se
+             despliega, así que el aviso de la previa va aquí. Ya no pide llevar
+             ni recoger el papel. #}
+          <p class="tt-prose mt-3 mb-0">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
           {% endif %}
 
           {% if current.status == 'rejected' and current.rejection_reason %}
@@ -202,6 +210,7 @@
                     {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                   </span>
                   {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
+                  {% if ph.library %}{{ library_clearance_pill(ph.library.status, ph.library.via) }}{% endif %}
                   {% if ph.status != 'pending' %}{{ estado_pill(ph.status) }}{% endif %}
                   <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
                 </button>
@@ -245,9 +254,49 @@
                     {% if ph.survey.status == 'rejected' and ph.survey.reason %}
                     <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
                     {% endif %}
+                    {% if ph.survey.status == 'approved' and ph.survey.origin == 'prior' %}
+                    {# D9 (spec folios 2026-10-05): gemelo del no adeudo previo de abajo. #}
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
+                    {% endif %}
                     {% if ph.survey.status == 'missing' and ph.survey.url %}
                     <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">
                       <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+                    {% endif %}
+                  </div>
+                  {% endif %}
+
+                  {% if ph.library %}
+                  {# No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+                     design.md §4.10): bloque gemelo al de arriba, SOLO si la convocatoria
+                     exige el requisito (`ph.library` es `None` si no -- `_phases_ctx`).
+                     Visible desde que llegues a esta pantalla, igual que la encuesta:
+                     tampoco está sujeto a la guarda de fase del alumno. Los 4 textos son
+                     los de la spec, literales. #}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-journal-bookmark"></i>No adeudo de biblioteca</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {{ library_clearance_pill(ph.library.status, ph.library.via) }}
+                    </div>
+                    {% if ph.library.status in ('missing', 'pending') %}
+                    <p class="tt-prose mb-0 mt-2">El Centro de Información está revisando tu adeudo.</p>
+                    {% elif ph.library.status == 'awaiting_payment' %}
+                    <p class="tt-prose mb-0 mt-2">
+                      Pasa a Caja (Recursos Financieros) a pagar {{ ph.library.total_fmt }}{% if ph.library.breakdown %} ({{ ph.library.breakdown }}){% endif %},
+                      sin cita, con tu número de control.</p>
+                    {% if ph.library.note %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.note }}</p>
+                    {% endif %}
+                    {% elif ph.library.status == 'observed' %}
+                    {# Spec 2026-10-05 §3.4: igual que la encuesta `rejected` de
+                       arriba -- el aviso y, debajo, el motivo de Biblioteca. #}
+                    <p class="tt-prose mb-0 mt-2">Biblioteca registró observaciones en tu no adeudo. Acude a la Biblioteca (Centro de Información) para resolverlas.</p>
+                    {% if ph.library.observation %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
+                    {% endif %}
+                    {% elif ph.library.status == 'cleared' and ph.library.via == 'prior' %}
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
+                    {% elif ph.library.status == 'cleared' %}
+                    <p class="tt-prose mb-0 mt-2">Liberado.</p>
                     {% endif %}
                   </div>
                   {% endif %}
@@ -314,6 +363,7 @@
                   {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
                 </span>
                 {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
+                {% if ph.library %}{{ library_clearance_pill(ph.library.status, ph.library.via) }}{% endif %}
                 {% if not cancelled %}{{ pill('Actual', 'amber') }}{% endif %}
               </div>
               {% if not cancelled %}

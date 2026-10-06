@@ -10,7 +10,7 @@
    auto-avanza la fase al aprobar el tercero; tener dos caminos con dos reglas
    era la razón de quitarlo de aquí.
    =========================================================================== #}
-{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill %}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill, library_clearance_pill, certificate_cell %}
 {% set VOLVER = '&from=' ~ (back.url | urlencode) %}
 
 {# — Datos de la fase, comunes a todas — #}
@@ -53,6 +53,11 @@
           {{ d.doc.original_name }} · {{ (d.doc.size_bytes / 1024) | round | int }} KB
           {%- if d.doc.version and d.doc.version > 1 %} · v{{ d.doc.version }}{% endif %}</span>
         {% if d.doc.review_note %}<span class="meta">{{ d.doc.review_note }}</span>{% endif %}
+        {% elif d.excused %}
+        {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
+           DISPENSADO por R-G (D9) -- no está "sin subir", se entrega en el
+           cotejo (así lo sabe pedir Servicios Escolares). #}
+        <span class="meta">Se entrega en el cotejo</span>
         {% else %}
         <span class="meta">Sin subir</span>
         {% endif %}
@@ -60,6 +65,8 @@
       {% if d.doc %}{{ estado_pill(d.doc.review_status) }}{% endif %}
       {% if d.missing %}
       <span class="tt-pill tt-pill--neutral">Archivo perdido</span>
+      {% elif d.excused %}
+      <span class="tt-pill tt-pill--neutral">Se entrega en el cotejo</span>
       {% elif d.doc %}
       {# Abrir un documento es ESTADO DE SERVIDOR (`?doc=`): Idiomorph conserva
          el nodo del iframe pero sincroniza sus atributos, y `src` es uno. Con
@@ -154,7 +161,14 @@
           {# D3: aqui ya NO manda "lo acredita el sistema" -- el requisito lo
              libera GTV, no el envio de la encuesta. `survey` es el dict plano
              de `SurveyReviewService.summary_for_process`, igual que en el
-             panel de atender (`_appt_attend.html`, Tarea 4). #}
+             panel de atender (`_appt_attend.html`, Tarea 4). `certificate_cell`
+             (Tarea 4, §3.4) pinta si la constancia `survey_release` ya se
+             imprimió -- MISMA fuente (`print_status_map`) que la bandeja de
+             GTV: `survey.certificate` lo cuelga `pages/admin.py::_detail_ctx`
+             con UNA llamada para las dos filas (Ruling R14). Con el proceso
+             `cancelled`, una vigente sin lote pinta «No se imprimirá» + la
+             nota «inscripción revocada» (Rulings R13 y R18,
+             `revoked=`). #}
           <div class="tt-req-meta">
             {{ survey_review_pill(survey.status) }}
             {%- if survey.status == 'rejected' and survey.reason %}
@@ -162,7 +176,74 @@
             {%- elif survey.status == 'approved' %}
               — Liberada por GTV · {{ survey.reviewed_at }}
             {%- endif %}
+            <br>{{ certificate_cell(survey.certificate, prior=(survey.origin == 'prior'), revoked=(process.status == 'cancelled')) }}
           </div>
+          {% elif r.auto_source == 'library_clearance' %}
+          {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
+             marca a mano. `library` es el dict plano de
+             `LibraryClearanceService.summary_for_process`, MISMA fuente que
+             el panel de atender (`_appt_attend.html`). Respaldo D9:
+             «Constancia previa…» / «Deshacer», SOLO con
+             `library_clearance.api.prior` (`can_register_prior`), y la
+             previa SOLO mientras el trámite sigue abierto: con
+             `not_applicable` (Ruling R21, ya pasó su cotejo) la píldora dice
+             «No aplica (cotejo ya liberado)» y no se ofrece nada.
+             `certificate_cell` (Tarea 4, §3.4) pinta si la constancia BIB ya
+             se imprimió y reemplaza el folio suelto que antes salía bajo
+             «Liberado»; con el proceso `cancelled`, una vigente sin lote pinta
+             «No se imprimirá» + la nota «inscripción revocada» (Rulings R13 y
+             R18,
+             `revoked=`). m42 (`triage-minors.md`): con el proceso `cancelled`
+             y el no adeudo todavía `missing`/`pending`, o `awaiting_payment`
+             (Ruling R15: Caja ya no lo cobraría -`register_payment` lo
+             rechaza-), la píldora propia dice «Revocada» y el renglón NO
+             lleva el sufijo «— Por cobrar $X en Caja» --
+             `library_clearance_pill` no mira `TitulationProcess.status`; aquí
+             sí porque esta vista YA tiene `process` a la mano (no se toca la
+             macro compartida, la usan +12 vistas). #}
+          <div class="tt-req-meta">
+            {%- set no_adeudo_revocado = process.status == 'cancelled' and library.status in ('missing', 'pending', 'awaiting_payment', 'observed') -%}
+            {%- if no_adeudo_revocado -%}
+              <span class="tt-pill tt-pill--neutral">Revocada</span>
+            {%- else -%}
+              {{ library_clearance_pill(library.status, via=library.via) }}
+            {%- endif %}
+            {%- if library.status == 'awaiting_payment' and not no_adeudo_revocado %}
+              — Por cobrar {{ format_amount(library.total) }} en Caja
+            {%- elif library.status == 'observed' and not no_adeudo_revocado and library.observation %}
+              — {{ library.observation }}
+            {%- elif library.status == 'cleared' and library.via == 'prior' %}
+              — Constancia previa{% if library.prior_issued_on %} del {{ library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if library.prior_note %} — {{ library.prior_note }}{% endif %}
+            {%- elif library.status == 'cleared' and library.via == 'legacy' %}
+              — Liberado antes de este sistema
+            {%- elif library.status == 'cleared' %}
+              — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}
+            {%- endif %}
+            <br>{{ certificate_cell(library.certificate, prior=(library.via == 'prior'), legacy=(library.via == 'legacy'), revoked=(process.status == 'cancelled')) }}
+          </div>
+          {% if can_register_prior and library.status in ('missing', 'pending', 'awaiting_payment') %}
+          <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
+                hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo{{ ('?' ~ zona) if zona }}"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML"
+                hx-confirm="Constancia previa|¿Registrar que {{ student.name }} ya pagó y trae su constancia de no adeudo? Queda liberado sin pasar por Caja."
+                data-tt-confirm-ok="Registrar">
+            <input type="date" name="issued_on" required class="form-control form-control-sm"
+                   style="max-width:150px" aria-label="Fecha de la constancia previa de {{ student.name }}">
+            <input name="note" maxlength="1000" placeholder="Nota (opcional)" class="form-control form-control-sm"
+                   style="max-width:180px" aria-label="Nota de la constancia previa de {{ student.name }}">
+            <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
+          </form>
+          {% elif can_register_prior and library.can_revert and library.via == 'prior' %}
+          <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
+                hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo/deshacer{{ ('?' ~ zona) if zona }}"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML"
+                hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ student.name }}? Vuelve a pendiente."
+                data-tt-confirm-ok="Deshacer">
+            <input name="reason" required maxlength="1000" placeholder="Motivo" class="form-control form-control-sm"
+                   style="max-width:220px" aria-label="Motivo para deshacer la constancia de {{ student.name }}">
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
+          </form>
+          {% endif %}
           {% elif r.auto_source %}
           <div style="font-size:.76rem;color:var(--tt-mute)">
             Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>

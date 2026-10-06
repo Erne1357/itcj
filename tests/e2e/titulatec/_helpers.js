@@ -437,12 +437,25 @@ TAG = "${E2E_TAG}"
 
 db = SessionLocal()
 try:
-    # titulatec_survey_reviews PRIMERO: referencia tanto a
-    # titulatec_survey_responses (mas abajo) como a titulatec_processes
-    # (via cohort_id), y NINGUNA de las dos FK lleva ondelete=CASCADE --
-    # borrar cualquiera de esos dos padres antes reventaria con
-    # IntegrityError. Cubre tanto las solicitudes reales (public-survey.spec.js)
-    # como las sembradas directo con seedSurveyReview (admin-releases.spec.js).
+    # titulatec_certificates / titulatec_library_clearances PRIMERO (spec
+    # 2026-10-01-titulatec-biblioteca-caja-design.md, migracion tt20261001a):
+    # ambas referencian a titulatec_processes sin ondelete=CASCADE -- borrar
+    # el proceso antes reventaria con IntegrityError. certificates antes que
+    # library_clearances nada mas por orden de lectura, ninguna de las dos
+    # depende de la otra.
+    db.execute(text("DELETE FROM titulatec_certificates WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+    db.execute(text("DELETE FROM titulatec_library_clearances WHERE process_id IN "
+                    "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
+
+    # titulatec_survey_reviews: referencia tanto a titulatec_survey_responses
+    # (mas abajo) como a titulatec_processes (via cohort_id), y NINGUNA de las
+    # dos FK lleva ondelete=CASCADE -- borrar cualquiera de esos dos padres
+    # antes reventaria con IntegrityError. Cubre tanto las solicitudes reales
+    # (public-survey.spec.js) como las sembradas directo con seedSurveyReview
+    # (admin-releases.spec.js).
     db.execute(text("DELETE FROM titulatec_survey_reviews WHERE process_id IN "
                     "(SELECT id FROM titulatec_processes WHERE cohort_id = :c)"),
                {"c": ${ctx.cohortId}})
@@ -487,6 +500,13 @@ try:
     db.execute(text("DELETE FROM titulatec_email_outbox WHERE user_id IN "
                     "(SELECT id FROM core_users WHERE first_name = :t OR username LIKE '2999%')"),
                {"t": TAG})
+    # Correos de INSCRIPCION (tt20261005d): el del rechazo cuelga SOLO de la
+    # solicitud (\`enrollment_request_id\`, sin proceso ni alumno) y los demas
+    # tambien la llevan; FK sin cascade: sin esto el DELETE de solicitudes de
+    # abajo revienta con ForeignKeyViolation.
+    db.execute(text("DELETE FROM titulatec_email_outbox WHERE enrollment_request_id IN "
+                    "(SELECT id FROM titulatec_enrollment_requests WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
     # DOCUMENTOS de los procesos del escenario (FK a \`titulatec_processes\`).
     # Hoy ninguna spec sube archivos; si alguna lo hace, sus archivos se
     # borran abajo, después del commit.
@@ -819,6 +839,16 @@ finally:
  * por `process_id` ANTES que `titulatec_survey_responses`/`titulatec_processes`
  * (ninguna de las dos FK tiene `ondelete=CASCADE`).
  *
+ * `status: 'approved'` (liberada) además asegura una `LibraryClearance`
+ * `cleared`/`cleared_via='legacy'` para `ctx.processId` (Ruling R1, spec
+ * 2026-10-01-titulatec-biblioteca-caja-design.md): sin ella, el proceso
+ * quedaría "por agendar" según la encuesta pero bloqueado por el candado de
+ * biblioteca en cuanto la Tarea 5 lo encienda, y los specs de cotejo que
+ * liberan la encuesta a medio flujo (`status: 'approved'` sobre el proceso
+ * del escenario) dejarían de poder agendar sin que el spec cambie una sola
+ * línea. Idempotente por `process_id` (UNIQUE): si ya existe fila (p. ej. una
+ * llamada previa con otro `status`), no inserta una segunda.
+ *
  * Devuelve el id de la solicitud creada.
  */
 function seedSurveyReview(ctx, { status = 'in_review', reason = null } = {}) {
@@ -826,7 +856,7 @@ function seedSurveyReview(ctx, { status = 'in_review', reason = null } = {}) {
   const out = runInContainer(`
 from itcj2.database import SessionLocal
 from itcj2.core.utils.timezone import db_now
-from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
+from itcj2.apps.titulatec.models import LibraryClearance, SurveyResponse, SurveyReview
 db = SessionLocal()
 try:
     response = SurveyResponse(
@@ -841,6 +871,13 @@ try:
         submitted_at=db_now(), updated_at=db_now())
     db.add(review)
     db.flush()
+    if "${status}" == "approved":
+        ya = (db.query(LibraryClearance)
+              .filter_by(process_id=${ctx.processId}).first())
+        if ya is None:
+            db.add(LibraryClearance(process_id=${ctx.processId}, status="cleared",
+                                    cleared_via="legacy"))
+            db.flush()
     rid = review.id
     db.commit()
     print(rid)
@@ -1058,7 +1095,7 @@ finally:
  *
  * Nace en fase 2 (cotejo), con los 3 documentos iniciales YA aprobados y la
  * encuesta de egresados YA LIBERADA (D1): las tres cosas que
- * `AppointmentService._pending_candidates` exige para que un proceso entre a
+ * `AppointmentService.queue_candidates` exige para que un proceso entre a
  * «Por agendar» (`_shell_ctx.visibles`) — sin ellas `?selected=` se
  * descartaría en silencio y la ficha del alumno no abriría. Mismos requisitos
  * que exige `AppointmentService.create`, que es lo que hace `attend_now` por
@@ -1068,14 +1105,23 @@ finally:
  * mira y lo atiende el encargado. Cae en el borrado del escenario SIN tocar
  * `deletePy`: comparte `cohort_id`/`form_id` con el proceso principal, y esos
  * DELETE (incluido el de `titulatec_documents`) filtran por esas columnas, no
- * por proceso; el usuario nuevo cae por `first_name = TAG`.
+ * por proceso; el usuario nuevo cae por `first_name = TAG`. La
+ * `LibraryClearance` que se agrega abajo también cae por `process_id IN
+ * (... cohort_id = ...)` (Ruling R1): no necesita DELETE propio.
+ *
+ * También recibe una `LibraryClearance` `cleared`/`cleared_via='legacy'`
+ * (Ruling R1, spec 2026-10-01-titulatec-biblioteca-caja-design.md): este
+ * proceso nace YA agendable (fase 2 + docs aprobados + encuesta liberada), y
+ * sin la fila quedaría bloqueado en cuanto la Tarea 5 encienda el candado de
+ * biblioteca, aunque ningún spec de esta suite pruebe esa pantalla.
  */
 function seedSecondPendingProcess(ctx, { control = '29990102' } = {}) {
   const out = runInContainer(`
 from itcj2.database import SessionLocal
 from itcj2.core.utils.timezone import db_now
 from itcj2.apps.titulatec.models import (
-    Document, ProcessPhase, SurveyResponse, SurveyReview, TitulationProcess,
+    Document, LibraryClearance, ProcessPhase, SurveyResponse, SurveyReview,
+    TitulationProcess,
 )
 from itcj2.apps.titulatec.services.document_service import DocumentService
 from itcj2.core.models.user import User
@@ -1096,7 +1142,7 @@ try:
         st = "approved" if n < 2 else "in_progress" if n == 2 else "pending"
         db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
 
-    for code in DocumentService.INITIAL_DOC_TYPES:
+    for code in DocumentService.BASE_INITIAL_DOCS:
         db.add(Document(process_id=proc.id, phase_number=1, type_code=code,
                         file_path=f"e2e/{code}.pdf", review_status="approved",
                         uploaded_by_id=student.id))
@@ -1110,6 +1156,8 @@ try:
     db.add(SurveyReview(process_id=proc.id, response_id=response.id,
                         status="approved", rejection_reason=None,
                         submitted_at=db_now(), updated_at=db_now()))
+    db.add(LibraryClearance(process_id=proc.id, status="cleared",
+                            cleared_via="legacy"))
     db.flush()
     pid = proc.id
     db.commit()

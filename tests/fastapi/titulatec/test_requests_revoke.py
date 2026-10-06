@@ -46,7 +46,14 @@ OFFICER_REVOKE_PERMS = (
 
 @pytest.fixture(autouse=True)
 def correos(monkeypatch):
-    """El aviso de revocación nunca toca Graph aquí; se registra cada envío."""
+    """El aviso de revocación nunca toca Graph aquí; se registra cada envío.
+
+    Con el correo APAGADO, para que caiga al envío en línea que estas pruebas
+    cuentan: encendido se encola (spec 2026-10-05-titulatec-rendimiento §3.7,
+    `test_outbox_inscripcion.py`)."""
+    from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+    monkeypatch.setattr(MailSettings, "enabled", staticmethod(lambda: False))
     enviados = []
     monkeypatch.setattr(
         "itcj2.apps.titulatec.services.email_helper.TitulaTecEmailHelper.send_process_cancelled",

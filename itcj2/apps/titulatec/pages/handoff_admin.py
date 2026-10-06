@@ -32,14 +32,13 @@ from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.handoff_admin")
 router = APIRouter(prefix="/admin/liberados", tags=["titulatec-pages-handoff"])
 
 _LIST = ["titulatec.handoff.page.list"]
 _EXPORT = ["titulatec.handoff.api.export"]
-
-_PAGE_SIZE = 50
 
 _CSV_HEADERS = ("No. control", "Nombre", "Correo", "Carrera", "Modalidad",
                 "Convocatoria", "Liberado el")
@@ -58,14 +57,15 @@ def _officer_scope(db, user_id: int):
     return officer_programs(db, user_id)
 
 
-def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: int) -> dict:
+def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: int,
+               per_page: int = PAGE_SIZE) -> dict:
     """Contexto del parcial. Distingue el alcance vacio (fail-closed, en
     silencio) de "sin resultados con este filtro" -- mismo riesgo que
     `requests_admin.py:_body_ctx` para la bandeja de Solicitudes."""
     from itcj2.core.models.program import Program
     from itcj2.apps.titulatec.models import Cohort, Modality
     from itcj2.apps.titulatec.services.handoff_service import HandoffService
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+    from itcj2.core.services.authz_cache import cached_perms
 
     # Arreglo A5 (revision final 2026-09-21): el boton «Exportar CSV» se
     # pintaba sin comprobar `titulatec.handoff.api.export` -- justo el
@@ -73,12 +73,12 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
     # querer soportar ("alguien puede ver la bandeja sin poder descargarla").
     # Mismo criterio que `can_mark_reqs` (`pages/admin.py:1285-1291`): un
     # boton que dispara un GET que responde 403 es peor que no estar.
-    can_export = "titulatec.handoff.api.export" in get_user_permissions_for_app(
+    can_export = "titulatec.handoff.api.export" in cached_perms(
         db, user_id, "titulatec")
 
     scope = _officer_scope(db, user_id)
     ctx = {
-        "rows": [], "total": 0, "page": max(1, page or 1), "has_more": False,
+        "rows": [], "total": 0, "page": max(1, page or 1), "pg": None,
         "cohort_id": cohort_id, "program_id": program_id, "modality_id": modality_id,
         "q": q or "", "no_programs": False,
         "cohorts": [], "programs": [], "modalities": [],
@@ -100,22 +100,21 @@ def _body_ctx(db, *, user_id: int, cohort_id, program_id, modality_id, q, page: 
 
     q_clean = (q or "").strip() or None
     page = max(1, page or 1)
-    rows, total = HandoffService.list_released(
+    pagina = HandoffService.list_released(
         db, allowed_program_ids=scope, cohort_id=cohort_id, program_id=program_id,
-        modality_id=modality_id, q=q_clean, page=page, per_page=_PAGE_SIZE,
+        modality_id=modality_id, q=q_clean, page=page, per_page=per_page,
     )
     ctx.update({
-        "rows": rows, "total": total, "page": page,
-        "has_more": (page * _PAGE_SIZE) < total,
+        "rows": pagina.items, "total": pagina.total, "page": pagina.page, "pg": pagina,
         "q": q_clean or "",
     })
     return ctx
 
 
 @router.get("", name="titulatec.pages.handoff.list")
-async def list_released(request: Request, cohort_id: str = "", program_id: str = "",
-                        modality_id: str = "", q: str = "", page: str = "1",
-                        user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_released(request: Request, cohort_id: str = "", program_id: str = "",
+                  modality_id: str = "", q: str = "", page: str = "1",
+                  user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -128,9 +127,9 @@ async def list_released(request: Request, cohort_id: str = "", program_id: str =
 
 
 @router.get("/body", name="titulatec.pages.handoff.body")
-async def body(request: Request, cohort_id: str = "", program_id: str = "",
-               modality_id: str = "", q: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, cohort_id: str = "", program_id: str = "",
+         modality_id: str = "", q: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la pagina: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -144,9 +143,9 @@ async def body(request: Request, cohort_id: str = "", program_id: str = "",
 
 
 @router.get("/export.csv", name="titulatec.pages.handoff.export")
-async def export(request: Request, cohort_id: str = "", program_id: str = "",
-                 modality_id: str = "", q: str = "",
-                 user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+def export(request: Request, cohort_id: str = "", program_id: str = "",
+           modality_id: str = "", q: str = "",
+           user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
     """CSV de todos los liberados que caen en el alcance + filtros del actor.
 
     Las celdas se escapan con `escape_formula` (services/survey_service.py,

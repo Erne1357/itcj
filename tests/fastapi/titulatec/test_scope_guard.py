@@ -506,7 +506,20 @@ def _cuerpo(endpoint):
     Se recorta a `body` a proposito: los decoradores (`@router.post(...)`) y los
     defaults (`Depends(require_page_app(...))`) tambien son `Call`, y contarlos
     ensuciaria tanto el censo de llamadas como el orden.
+
+    Convencion §3.8 (R7): una ruta que lee el form es `async def` y delega todo
+    en `return await run_in_threadpool(_cuerpo_<ruta>, ...)`. Esa delegacion NO
+    es un helper cualquiera: es el cuerpo REAL de la ruta, y el guard vive ahi.
+    Se sigue UNICAMENTE la delegacion a una funcion `_cuerpo_*` del mismo modulo
+    (`tests/fastapi/titulatec/_route_source.py`); si el cuerpo sincrono no llama
+    al guard, el censo sigue marcando la ruta en rojo.
     """
+    from tests.fastapi.titulatec._route_source import cuerpos_delegados
+
+    delegados = cuerpos_delegados(endpoint)
+    if delegados:
+        assert len(delegados) == 1, f"{endpoint.__name__}: delega en varios cuerpos"
+        endpoint = delegados[0]
     arbol = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
     return arbol.body[0].body
 
@@ -625,7 +638,11 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
 
     # 20 desde 2026-09-25: + `POST /admin/processes/{id}/cancelar` (revocar).
     # 21 desde 2026-09-29: + `POST /admin/appointments/{id}/atender-ahora` (D7).
-    assert revisadas == 21, (
+    # 25 desde 2026-10-01: + 4 rutas de respaldo «constancia previa» (D9, Tarea 11):
+    # registrar/deshacer no-adeudo-previo desde el expediente
+    # (`POST /admin/processes/{id}/no-adeudo-previo[/deshacer]`) y desde el panel
+    # de atender (`POST /admin/appointments/{id}/no-adeudo-previo[/deshacer]`).
+    assert revisadas == 25, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

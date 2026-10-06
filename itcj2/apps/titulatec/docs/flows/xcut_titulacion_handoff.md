@@ -349,6 +349,12 @@ el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
 
 ---
 
+## Bandeja «Liberados» paginada (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `HandoffService.list_released` (`services/handoff_service.py:148`, `paginate_query` en `:164`) devuelve un `Page`; `pages/handoff_admin.py:60` y `handoff_table.html:102` usan la macro `pager` (prefijo `tt-liberados`) con los filtros vigentes (`cohort_id`, `program_id`, `modality_id`, `q`) en la URL del pager. Parámetros: los de siempre más `page` (`:116`, `:131`). El **export CSV** no se pagina: sigue usando `HandoffService.export_rows` (`:171`, consulta completa y el mismo alcance por carrera).
+
+**Buscador sin pérdida de tecleo**: `#tt-handoff-q` con `hx-preserve="true"` y `data-tt-q-server` en `#tt-handoff-filters` (`handoff_table.html`, commit `b2ce954a`).
+
 ## Flujos relacionados
 
 - ⇄ Gemelas: [motor de avance de fase (dictamen del admin)](engine_approve_advance_phase.md),

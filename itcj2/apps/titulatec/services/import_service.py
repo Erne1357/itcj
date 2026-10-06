@@ -468,7 +468,8 @@ class ImportService:
     def import_rows(db: Session, cohort, rows: list[dict], *,
                     actor_id: int | None = None, source: str = "csv",
                     commit: bool = True, repair_credentials: bool = True) -> dict:
-        """Crea User (merge por control_number) + Process + phases + rol `graduate`.
+        """Crea User (merge por control_number) + Process + phases + no adeudo
+        de biblioteca (`pending`) + rol `graduate`.
 
         `rows` = lista de dicts ya resueltos (del preview/override del admin):
         {control_number, full_name, email, program_id, modality_id}.
@@ -523,6 +524,9 @@ class ImportService:
         from itcj2.core.models.user import User
         from itcj2.core.models.role import Role
         from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase, ProcessEvent
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.core.services.authz_service import get_or_404_app
 
@@ -649,6 +653,29 @@ class ImportService:
                           else "in_progress" if n == proc.current_phase else "pending")
                     db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
                 processes_created += 1
+
+                # No adeudo de biblioteca (spec 2026-10-01 biblioteca-caja §4.2,
+                # D3): la fila nace `pending` con el proceso y entra a la
+                # bandeja de Biblioteca. El proceso es NUEVO en esta misma
+                # transaccion y no puede tener fila: `just_created` inserta sin
+                # SELECT previo (costo del lote: test_import_scale.py). Un
+                # proceso que ya existia (re-importacion) no pasa por aqui.
+                LibraryClearanceService.open_for_process(db, proc, just_created=True)
+
+                # Constancias previas (D9, spec 2026-10-01-biblioteca-caja
+                # §4.12, Tarea 6): si Servicios Escolares (o el desarrollador,
+                # para la encuesta) ya habia cargado una `PriorClearance` de
+                # este numero de control ANTES de que el alumno se inscribiera
+                # -diferida por `PriorClearanceService.import_rows`-, se aplica
+                # AHORA que el proceso existe: encuesta -> `SurveyReview`
+                # aprobada; biblioteca -> `cleared/prior`. Va DESPUES del
+                # `open_for_process` de arriba (necesita la fila de biblioteca
+                # ya abierta) y sin commit propio, dentro de esta misma
+                # transaccion del lote.
+                from itcj2.apps.titulatec.services.prior_clearance_service import (
+                    PriorClearanceService,
+                )
+                PriorClearanceService.apply_pending(db, proc, control)
 
                 # Alta del alumno = el unico suceso de la fase 0. Sin el, el
                 # expediente empieza en blanco y no dice ni como entro.

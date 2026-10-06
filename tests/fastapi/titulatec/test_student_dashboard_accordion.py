@@ -408,7 +408,10 @@ def test_subprogreso_fase_1_cuenta_aprobados_rechazados_y_faltantes(
     prog = _card(_phases_ctx(db_session, proc), 1)["progress"]
 
     assert prog["kind"] == "documents"
-    assert prog["counts"] == {"approved": 1, "rejected": 1, "pending": 0, "missing": 1}
+    # "excused" (Ruling R11, revision final 2026-09-30): `initial_docs_summary`
+    # ahora siempre trae esa clave (0 aqui -- licenciatura nunca dispensa nada).
+    assert prog["counts"] == {"approved": 1, "rejected": 1, "pending": 0, "missing": 1,
+                              "excused": 0}
     assert prog["uploaded"] == 2 and prog["total"] == 3
     assert prog["tone"] == "danger"            # hay algo que corregir: manda eso
     assert {i["code"]: i["status"] for i in prog["items"]} == {

@@ -9,8 +9,11 @@ recorre las tres cosas que el harness debe resolver a la vez:
   1. el gate `require_page_app(..., perms=_VIEW_PERMS)` -> `Depends(get_db)`;
   2. el cuerpo, que abre su propia sesion con `SessionLocal()`
      (`documents.py:84-85`) y filtra por `officer_programs()`;
-  3. `render_titulatec` -> `admin_nav_items`, que usa `with SessionLocal() as db:`
-     (`nav.py:111`) y por tanto exige que el proxy soporte el context manager.
+  3. `admin/base_admin.html` invoca `admin_nav()`, el callable perezoso que
+     deja `render_titulatec` (R2, 2026-10-05: ya no lo calcula el render), y
+     `admin_nav_items` sin `db` usa `with SessionLocal() as _db:`
+     (`nav.py::admin_nav_items`), por eso el proxy tiene que soportar el
+     context manager.
 
 Todos los datos los crea el test. Cero dependencia de la BD de dev.
 """

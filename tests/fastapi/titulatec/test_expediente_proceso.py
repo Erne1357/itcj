@@ -170,7 +170,9 @@ def test_dictaminar_deja_evento_con_el_motivo(db_session, expediente, make_docum
     PISA. Sin evento, el historial no puede decir por que se rechazo la vez
     anterior."""
     from itcj2.apps.titulatec.services.document_service import DocumentService
-    esc = expediente()
+    # Fase 1 en curso: con la fase ya aprobada el rechazo esta congelado
+    # (`DocumentService.PHASE_CLOSED_MSG`, `test_documents_phase_lock.py`).
+    esc = expediente(current_phase=1)
     make_document(esc["proc"], type_code="curp")
 
     DocumentService.review(db_session, esc["proc"].id, "curp", status="rejected",
@@ -666,6 +668,7 @@ def test_la_ruta_de_dictamen_de_documentos_del_expediente_ya_no_existe():
     assert "titulatec.pages.documents.review" in nombres, (
         "se quito el dictamen del expediente Y el de la bandeja: nadie puede "
         "aprobar un documento")
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_el_expediente_no_hace_una_consulta_por_documento(expediente, client_as,
                                                           make_document, db_session):
     """`_detail_ctx` consultaba `DocumentType` UNA VEZ POR CODIGO. Con el

@@ -19,6 +19,7 @@
 {% endblock %}
 
 {% block modals %}
+{{ super() }}{# `#tt-doc-modal` de base_admin: sin esto, llegar a Documentos desde aquí por el menú lateral lo dejaba sin modal. #}
 {# Mover de fase. Vive AQUÍ, a nivel <body>, y no dentro del expediente.
 
    Medido en Chromium: dentro de `#exp-shell` el diálogo salía de 1630 px en una

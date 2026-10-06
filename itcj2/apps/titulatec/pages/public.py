@@ -32,6 +32,7 @@ from fastapi.responses import RedirectResponse, Response
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.config import get_settings
 from itcj2.dependencies import get_current_user_optional
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.public")
 
@@ -596,7 +597,9 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
 
     Con solicitud, el dict que devuelve `SurveyReviewService.
     summary_for_process` (llaves `status`, `reason`, `reviewed_by`,
-    `reviewed_at`, `review_id`, `response_id`) es SIEMPRE verdadero -nunca
+    `reviewed_at`, `review_id`, `response_id`, `origin` -D9, §4.12: "prior"
+    es una constancia previa del semestre anterior, sin encuesta real detrás-)
+    es SIEMPRE verdadero -nunca
     vacio-, asi que las rutas de abajo lo usan directo como condicion. Es el
     UNICO punto que consultan `survey` (GET), `survey_step` y `survey_draft`
     para cortar ANTES del presupuesto y de la validacion, y pintar la
@@ -624,11 +627,21 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         process = ProcessService.creditable_process(db, int(user["sub"]))
-        if process is None:
+        if (process is not None
+                and SurveyReviewService.get_for_process(db, process.id) is not None):
+            return SurveyReviewService.summary_for_process(db, process.id)
+        # Sin solicitud: ¿su respuesta de Microsoft Forms ya se importó y
+        # espera la inscripción? (decisión del usuario, revisión final del
+        # import). Pseudo-estado `imported`: tarjeta de estatus, no formulario.
+        from itcj2.apps.titulatec.services.survey_import_service import (
+            SurveyImportService,
+        )
+        importada = SurveyImportService.pending_import_for_user(db, int(user["sub"]))
+        if importada is None:
             return None
-        if SurveyReviewService.get_for_process(db, process.id) is None:
-            return None
-        return SurveyReviewService.summary_for_process(db, process.id)
+        return {"status": "imported", "origin": "import", "reason": None,
+                "reviewed_by": None, "reviewed_at": None, "review_id": None,
+                "response_id": importada["response_id"]}
     except Exception:
         logger.warning("survey: fallo comprobando la solicitud existente (user=%s)",
                        user.get("sub"))
@@ -640,7 +653,7 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
 # ---------------------------------------------------------------------------
 @router.get("/encuesta-egresados", name="titulatec.pages.public.survey",
             response_model=None)
-async def survey(
+def survey(
     request: Request,
     user: dict | None = Depends(get_current_user_optional),
 ):
@@ -663,11 +676,16 @@ async def survey(
     aquí mismo) y del mapa de visibilidad, nunca de un índice guardado aparte.
     """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE, SurveyService
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
 
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: el formulario se resuelve POR PERFIL, no por una constante
+        # fija (spec 2026-09-30-titulatec-posgrado-design.md §4.5, invariante
+        # 5). Sin sesión, `form_for_user` resuelve la cadena de licenciatura
+        # -- el `_requiere_sesion(form)` de abajo sigue mandando al login
+        # exactamente igual que antes.
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         # Tarea F: UNA sola vez, antes de cualquier rama -la barra lo necesita
         # tanto si hay formulario abierto como si no-. Sin sesion no cuesta
         # nada (`_back_link` devuelve `None` sin tocar Redis ni BD), asi que
@@ -807,11 +825,7 @@ async def survey_submit(
     que pasen los dos esta comprobación antes de que el primero termine de
     escribir), así que ese valor también puede llegar desde ahí.
     """
-    from itcj2.database import SessionLocal
-    from itcj2.core.utils.client_ip import client_ip
-    from itcj2.apps.titulatec.services.survey_service import (
-        MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
-    )
+    from itcj2.apps.titulatec.services.survey_service import MAX_PUBLIC_BODY_BYTES
 
     # 1) Tamaño ANTES de `request.form()`: esa llamada bufferea el cuerpo ENTERO
     #    en memoria, así que rechazar después ya pagó el coste que el tope existe
@@ -827,6 +841,15 @@ async def survey_submit(
                                "inténtalo de nuevo.")})
 
     data = await request.form()
+    return await run_in_threadpool(_cuerpo_survey_submit, request=request, user=user, data=data)
+
+
+def _cuerpo_survey_submit(request, user, data):
+    """Cuerpo síncrono de `survey_submit`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+
     ip = client_ip(request)   # obligatorio: nunca `request.client.host`, que
                               # detrás de nginx es nginx y mete a todo internet
                               # en un solo cubo.
@@ -847,7 +870,9 @@ async def survey_submit(
     cabeceras: dict[str, str] = {}
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: por perfil, no por constante fija (ver el docstring de
+        # `SurveyService.form_for_user`).
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         if form is None:
             # Único 400 público: no hay formulario que re-renderizar (§6.1).
             return Response(status_code=400, headers={
@@ -869,10 +894,13 @@ async def survey_submit(
         # Corta AQUÍ -antes de armar `submitted`, el presupuesto o
         # `SurveyService.submit`- y responde la tarjeta de gracias de
         # siempre con `already_submitted`, sin cobrar el limitador.
-        if _solicitud_existente(db, user) is not None:
+        existente = _solicitud_existente(db, user)
+        if existente is not None:
             return render_titulatec(
                 request, "titulatec/public/partials/survey_thanks.html",
-                {"credit_status": "already_submitted", "back_link": _back_link(db, user)})
+                {"credit_status": ("imported" if existente.get("status") == "imported"
+                                   else "already_submitted"),
+                 "back_link": _back_link(db, user)})
 
         # Instantánea plana ANTES de escribir: el camino de recuperación hace
         # `rollback()` y ahí toda instancia ORM queda expirada.
@@ -1011,11 +1039,7 @@ async def survey_step(
     paso: la encuesta está CONGELADA, no hay paso al que avanzar ni
     retroceder.
     """
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.survey_service import (
-        MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
-    )
-    from itcj2.apps.titulatec.utils.survey_validator import validate_answers
+    from itcj2.apps.titulatec.services.survey_service import MAX_PUBLIC_BODY_BYTES
 
     tamano = _declared_body_size(request.headers)
     if tamano is None:
@@ -1028,10 +1052,19 @@ async def survey_step(
                                "inténtalo de nuevo.")})
 
     data = await request.form()
+    return await run_in_threadpool(_cuerpo_survey_step, request=request, user=user, data=data)
+
+
+def _cuerpo_survey_step(request, user, data):
+    """Cuerpo síncrono de `survey_step`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+    from itcj2.apps.titulatec.utils.survey_validator import validate_answers
 
     db = SessionLocal()
     try:
-        form = SurveyService.open_form(db, SURVEY_CODE)
+        # Tarea 6: por perfil, no por constante fija.
+        form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
         if form is None:
             return Response(status_code=400, headers={
                 "X-Tt-Error": _hdr("La encuesta ya no está disponible. "
@@ -1167,10 +1200,7 @@ async def survey_draft(
     MISMO camino "no escribe" de la rama sin sesión-: la encuesta está
     CONGELADA y no hay nada que autoguardar.
     """
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.survey_service import (
-        MAX_ANSWERS_JSON_BYTES, MAX_PUBLIC_BODY_BYTES, SURVEY_CODE, SurveyService,
-    )
+    from itcj2.apps.titulatec.services.survey_service import MAX_PUBLIC_BODY_BYTES
 
     # 1) Tamaño ANTES de `request.form()`, igual que en `survey_submit`: esa
     #    llamada bufferea el cuerpo ENTERO en memoria.
@@ -1188,21 +1218,45 @@ async def survey_draft(
     if not user:
         return Response(status_code=204)
 
+    # Tarea 3 (D6, spec 5.3): la encuesta queda CONGELADA tras el primer
+    # envío. Mismo camino "no escribe" que la rama sin sesión de arriba
+    # -204, sin `X-Tt-Draft-Saved`, sin siquiera leer el cuerpo-: un
+    # autosave para un cuestionario que ya no se puede volver a enviar
+    # no tiene destino. Hace falta la BD para comprobarlo ANTES de leer el
+    # cuerpo, así que la comprobación es su propio salto al threadpool
+    # (`_draft_congelada`) y el `await` del form va después (spec 3.8).
+    if await run_in_threadpool(_draft_congelada, user):
+        return Response(status_code=204)
+
+    data = await request.form()
+    return await run_in_threadpool(_cuerpo_survey_draft, user=user, data=data)
+
+
+def _draft_congelada(user) -> bool:
+    """¿La encuesta ya está congelada (solicitud abierta)? Sesión propia, síncrona."""
+    from itcj2.database import SessionLocal
+
     db = SessionLocal()
     try:
-        # Tarea 3 (D6, spec 5.3): la encuesta queda CONGELADA tras el primer
-        # envío. Mismo camino "no escribe" que la rama sin sesión de arriba
-        # -204, sin `X-Tt-Draft-Saved`, sin siquiera leer el cuerpo-: un
-        # autosave para un cuestionario que ya no se puede volver a enviar
-        # no tiene destino. Aquí sí hace falta abrir la sesión para
-        # comprobarlo.
-        if _solicitud_existente(db, user) is not None:
-            return Response(status_code=204)
+        return _solicitud_existente(db, user) is not None
+    finally:
+        db.close()
 
-        data = await request.form()
+
+def _cuerpo_survey_draft(user, data):
+    """Cuerpo síncrono de `survey_draft`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_service import (
+        MAX_ANSWERS_JSON_BYTES, SurveyService,
+    )
+
+    db = SessionLocal()
+    try:
         guardado = False
         try:
-            form = SurveyService.open_form(db, SURVEY_CODE)
+            # Tarea 6: por perfil, no por constante fija. Aquí `user` ya es
+            # verdadero (la rama `if not user` de arriba corta antes).
+            form = SurveyService.form_for_user(db, int(user["sub"]) if user else None)
             if form is None:
                 return Response(status_code=204)
 
@@ -1443,7 +1497,7 @@ def _enroll_closed_ctx(db) -> dict:
 
 
 @router.get("/inscripcion", name="titulatec.pages.public.enroll")
-async def enroll(request: Request):
+def enroll(request: Request):
     """Formulario público, gateado por la ventana de la convocatoria (§6.6)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cohort_service import CohortService
@@ -1492,14 +1546,7 @@ async def enroll_submit(request: Request):
     `EnrollmentRequestService.create`. Ninguna rama le dice a la pantalla si el
     número de control existe o si esa persona se está titulando.
     """
-    from itcj2.database import SessionLocal
-    from itcj2.core.models.program import Program
-    from itcj2.core.utils.client_ip import client_ip
-    from itcj2.core.utils.email_tools import is_valid_email, normalize_email
-    from itcj2.apps.titulatec.services.cohort_service import CohortService
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        CONTROL_NUMBER_RE, MAX_PUBLIC_BODY_BYTES, EnrollmentRequestService,
-    )
+    from itcj2.apps.titulatec.services.enrollment_request_service import MAX_PUBLIC_BODY_BYTES
 
     # 1) Tamaño ANTES de `request.form()`, que bufferea el cuerpo ENTERO en
     #    memoria. RULING R3: se reutiliza `_declared_body_size` (§1 de este
@@ -1516,6 +1563,20 @@ async def enroll_submit(request: Request):
                         headers={"X-Tt-Error": _hdr("El formulario es demasiado grande.")})
 
     form = await request.form()
+    return await run_in_threadpool(_cuerpo_enroll_submit, request=request, form=form)
+
+
+def _cuerpo_enroll_submit(request, form):
+    """Cuerpo síncrono de `enroll_submit`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.models.program import Program
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.core.utils.email_tools import is_valid_email, normalize_email
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        CONTROL_NUMBER_RE, EnrollmentRequestService,
+    )
+
     if (form.get("website") or "").strip():
         # Trampa (E3). RULING R4: usa `.tt-public-hp`, ya definida; ver la
         # plantilla. Misma tarjeta genérica, cero escritura, cero cobro.
@@ -1712,7 +1773,7 @@ def _verify_card(outcome: str, folio: str) -> dict:
 
 
 @router.get("/inscripcion/verificar", name="titulatec.pages.public.enroll_verify")
-async def enroll_verify(request: Request, t: str = ""):
+def enroll_verify(request: Request, t: str = ""):
     """Abre la liga de activación. IDEMPOTENTE (§6.8).
 
     DESVIACIÓN DEL BORRADOR DEL BRIEF: el cuerpo va en un `try/except` que el
@@ -1836,12 +1897,7 @@ async def enroll_resend(request: Request):
     RULING R2: usa `_declared_body_size` (§1 de este módulo) en vez de un
     parser nuevo — `_enroll_too_big` no existe, nunca existió.
     """
-    from itcj2.database import SessionLocal
-    from itcj2.core.utils.client_ip import client_ip
-    from itcj2.core.utils.rate_limit import check_and_count
-    from itcj2.apps.titulatec.services.enrollment_request_service import (
-        MAX_PUBLIC_BODY_BYTES, EnrollmentRequestService,
-    )
+    from itcj2.apps.titulatec.services.enrollment_request_service import MAX_PUBLIC_BODY_BYTES
 
     # 1) Tamaño ANTES de `request.form()`, que bufferea el cuerpo ENTERO en
     #    memoria. Mismo patrón que `enroll_submit`/`survey_submit`.
@@ -1855,6 +1911,16 @@ async def enroll_resend(request: Request):
                         headers={"X-Tt-Error": _hdr("El formulario es demasiado grande.")})
 
     form = await request.form()
+    return await run_in_threadpool(_cuerpo_enroll_resend, request=request, form=form)
+
+
+def _cuerpo_enroll_resend(request, form):
+    """Cuerpo síncrono de `enroll_resend`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.client_ip import client_ip
+    from itcj2.core.utils.rate_limit import check_and_count
+    from itcj2.apps.titulatec.services.enrollment_request_service import EnrollmentRequestService
+
     if (form.get("website") or "").strip():
         # Trampa (E3): tercera salida indistinguible (RULING R4). MISMA tarjeta,
         # cero escritura, cero cobro — igual que la trampa de `enroll_submit`.

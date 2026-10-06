@@ -6,10 +6,11 @@ del spec 2026-09-29-titulatec-cotejo-espacios-design.md-) parte las guardas en
 dos capas, y esa partición decide dónde vive cada regla:
 
 * **Duras**, en `AppointmentService` / `SlotService`, para TODOS (encargado
-  incluido): una sola cita vigente por proceso, encuesta LIBERADA por GTV (D1
-  de 2026-09-29, revierte D2 del 2026-09-15: enviarla ya no basta), día
-  habilitado, franja real de la rejilla, cupo libre, lock de ventana y
-  advisory lock del proceso.
+  incluido): una sola cita vigente por proceso, liberaciones completas según
+  `ClearanceGate` —encuesta LIBERADA por GTV (D1 de 2026-09-29, revierte D2
+  del 2026-09-15: enviarla ya no basta) y, donde la convocatoria lo exige, no
+  adeudo de biblioteca liberado (D6 de 2026-10-01)—, día habilitado, franja
+  real de la rejilla, cupo libre, lock de ventana y advisory lock del proceso.
 * **Del alumno**, aquí: fase 2 aprobada, tope de cancelaciones propias,
   anticipación mínima, que la ventana esté publicada y sea de su carrera, y
   -desde el 2026-09-30- que una `attended` vigente no deje la fase 2 sin
@@ -57,6 +58,13 @@ from itcj2.core.utils.timezone import db_now
 # revalidación de `book`, así que publicar sigue siendo un acto deliberado.
 _VISIBLES: tuple[str, ...] = ("bookable", "walkin")
 
+# Centinela privado de `cita_ocupa_el_cotejo` (m37, Tarea 9 de
+# 2026-10-02-titulatec-constancias-y-pendientes): «no me pasaron el status de
+# fase 2, consúltalo tú». No puede ser `None` -ese SÍ es un valor real y
+# distinto: el proceso todavía no tiene fila de `ProcessPhase` para el cotejo
+# (ver `_fase_cotejo_status`)-.
+_FASE2_NO_PROVISTA = object()
+
 
 def _nombre(user) -> str:
     """Nombre del encargado para el anuncio del espacio.
@@ -87,6 +95,23 @@ class SelfBookingService:
         "encuesta_con_observaciones": ("Gestión Tecnológica y Vinculación dejó observaciones "
                                        "en tu encuesta de egresados. Podrás agendar en cuanto "
                                        "la liberen."),
+        # Spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4, literal:
+        # el no adeudo de biblioteca (D6), SOLO donde la convocatoria lo exige.
+        # `{total}` es el total congelado YA formateado («$1,200.00»): lo pone
+        # `message_for`, que lo recibe por parámetro igual que `{n}`.
+        "biblioteca_en_revision": ("El Centro de Información está revisando si tienes "
+                                   "adeudo con la biblioteca. Podrás agendar en cuanto se "
+                                   "libere tu no adeudo."),
+        "pago_pendiente": ("Pasa a Caja (Recursos Financieros) a pagar {total}; no "
+                           "necesitas cita. Podrás agendar en cuanto se libere tu no "
+                           "adeudo."),
+        # Spec 2026-10-05-titulatec-biblioteca-observaciones §3.4: Biblioteca
+        # lo detuvo con un motivo («Con observaciones»). Lo resuelve EN la
+        # Biblioteca; el motivo lo ve en su tablero y en «Mi cita».
+        "biblioteca_con_observaciones": ("Biblioteca registró observaciones en tu no "
+                                         "adeudo: acude a la Biblioteca (Centro de "
+                                         "Información) para resolverlas. Podrás agendar "
+                                         "en cuanto se libere tu no adeudo."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
         # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
         # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.
@@ -102,14 +127,18 @@ class SelfBookingService:
                                         "encargado de carrera."),
     }
 
-    # Traduce `SurveyReviewService.release_status` (missing | in_review |
-    # rejected -- 'approved' nunca llega aquí, la regla 3 lo descarta antes)
-    # al código de razón de la tabla de §3. Vive junto a `MENSAJES` porque
-    # las tres llaves de este dict SON llaves de `MENSAJES`.
-    _SURVEY_REASONS: dict[str, str] = {
-        "missing": "sin_encuesta",
-        "in_review": "encuesta_en_revision",
-        "rejected": "encuesta_con_observaciones",
+    # Traduce el PRIMER bloqueo de `ClearanceGate.blockers` (regla 3: la
+    # encuesta primero, luego el no adeudo de biblioteca) al código de razón
+    # de la tabla de §3. Vive junto a `MENSAJES` porque los seis valores de
+    # este dict SON llaves de `MENSAJES`, y sus llaves son el conjunto cerrado
+    # `clearance_gate.BLOCKERS` (lo cruza `test_clearance_gate.py`).
+    _CLEARANCE_REASONS: dict[str, str] = {
+        "survey_missing": "sin_encuesta",
+        "survey_in_review": "encuesta_en_revision",
+        "survey_rejected": "encuesta_con_observaciones",
+        "library_pending": "biblioteca_en_revision",
+        "library_awaiting_payment": "pago_pendiente",
+        "library_observed": "biblioteca_con_observaciones",
     }
 
     # ------------------------------------------------------------- utilería
@@ -120,12 +149,18 @@ class SelfBookingService:
         return get_settings()
 
     @staticmethod
-    def message_for(reason: str | None, *, cancellations: int | None = None) -> str | None:
+    def message_for(reason: str | None, *, cancellations: int | None = None,
+                    total=None) -> str | None:
         """La frase que ve el alumno para ese `reason`, o None si puede agendar.
 
         El conteo entra por parámetro para que el mensaje diga las veces REALES
         que canceló y no el tope configurado (son iguales en el caso normal, y
         dejan de serlo en cuanto alguien baje el tope con gente ya bloqueada).
+
+        `total` (`Decimal`, el `library_total` de `eligibility`) entra igual,
+        para `pago_pendiente`: el monto CONGELADO de su fila de no adeudo, que
+        se formatea aquí («$1,200.00», `format_amount`). Sin él, la frase sale
+        sin la cifra en vez de con un hueco.
         """
         if not reason:
             return None
@@ -136,6 +171,13 @@ class SelfBookingService:
             n = (cancellations if cancellations is not None
                  else SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX)
             return plantilla.format(n=n)
+        if "{total}" in plantilla:
+            if total is None:
+                return plantilla.replace(" {total}", "")
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                format_amount,
+            )
+            return plantilla.format(total=format_amount(total))
         return plantilla
 
     # -------------------------------------------------------- D9: el contador
@@ -150,26 +192,65 @@ class SelfBookingService:
         `student_id` y `cancelled_by_id` son las dos `BigInteger` con FK a
         `core_users.id`, así que la comparación es directa y no pasa por
         ninguna otra tabla.
+
+        Delega en `cancellations_map` (Tarea 7): una sola implementación del
+        conteo para el alumno y para la cola.
         """
-        from itcj2.apps.titulatec.models import ReviewAppointment
         if proc is None:
             return 0
-        return (db.query(ReviewAppointment)
-                .filter(ReviewAppointment.process_id == proc.id,
-                        ReviewAppointment.status == "cancelled",
-                        ReviewAppointment.cancelled_by_id == proc.student_id)
-                .count())
+        return SelfBookingService.cancellations_map(db, [proc])[proc.id]
+
+    @staticmethod
+    def cancellations_map(db: Session, processes) -> dict[int, int]:
+        """`cancellations` de VARIOS procesos YA CARGADOS en UNA consulta
+        (`GROUP BY process_id, cancelled_by_id`; Tarea 7, spec 2026-10-04-
+        titulatec-paginacion-design.md §8). El cruce con `student_id` se hace
+        aquí contra el proceso en memoria -- mismo predicado que el COUNT por
+        proceso de antes: solo cuentan las que canceló ÉL. Lista vacía -> `{}`
+        sin consultar; un proceso sin cancelaciones sale con 0.
+        """
+        from sqlalchemy import func
+
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        processes = [p for p in processes if p is not None]
+        if not processes:
+            return {}
+        por_proceso: dict[tuple[int, int], int] = {
+            (pid, quien): n for pid, quien, n in
+            db.query(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id,
+                     func.count(ReviewAppointment.id))
+            .filter(ReviewAppointment.process_id.in_({p.id for p in processes}),
+                    ReviewAppointment.status == "cancelled",
+                    ReviewAppointment.cancelled_by_id.isnot(None))
+            .group_by(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id)
+            .all()
+        }
+        return {p.id: por_proceso.get((p.id, p.student_id), 0) for p in processes}
+
+    @staticmethod
+    def blocked_map(db: Session, processes, *, cancellations: dict | None = None
+                    ) -> dict[int, bool]:
+        """`is_blocked_by_cancellations` en lote (D9). `cancellations` (el
+        resultado de `cancellations_map`, opcional) evita repetir la consulta
+        a quien ya tiene los conteos en mano."""
+        processes = [p for p in processes if p is not None]
+        if cancellations is None:
+            cancellations = SelfBookingService.cancellations_map(db, processes)
+        tope = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX
+        return {p.id: cancellations[p.id] >= tope for p in processes}
 
     @staticmethod
     def is_blocked_by_cancellations(db: Session, proc) -> bool:
         """El predicado de D9, aislado.
 
         Lo comparten la regla 6 de `eligibility` y el cubo de D10
-        (`AppointmentService.list_self_blocked_processes`), que así no puede
-        discrepar de lo que ve el alumno en su pantalla.
+        (`AppointmentService.list_self_blocked_processes`, vía `blocked_map`),
+        que así no puede discrepar de lo que ve el alumno en su pantalla.
         """
-        return (SelfBookingService.cancellations(db, proc)
-                >= SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX)
+        if proc is None:
+            return False
+        return SelfBookingService.blocked_map(db, [proc])[proc.id]
 
     # ------------------------------------------------------------ §3: la puerta
     @staticmethod
@@ -204,27 +285,91 @@ class SelfBookingService:
         return fila.status if fila is not None else None
 
     @staticmethod
+    def cita_ocupa_el_cotejo(db: Session, proc, current, fase2_status=_FASE2_NO_PROVISTA) -> bool:
+        """¿La cita VIGENTE (`current`, el resultado de `AppointmentService.
+        get_for_process`, o `None`) sigue OCUPANDO el cotejo -el egresado NO
+        necesita (ni puede) agendar otra ahora mismo-?
+
+        Ruling R18 (revisión de la Tarea 12, spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md): extrae a UN predicado público el que ya
+        vivía DUPLICADO e inline en `mail_compose.py::_que_falta` (D11,
+        Ruling R17 de la Tarea 10) -las mismas reglas 4/5 de `eligibility`,
+        leídas aparte-: `current` en uno de `_ESTADOS_ACTIVOS` (scheduled/
+        confirmed/in_progress, regla 4, D17) o `attended` mientras la fase 2
+        sigue SIN veredicto (regla 5, `cotejo_en_dictamen`, D13 2026-09-30:
+        `approved` ya cerró el proceso antes de llegar aquí en los dos
+        llamadores, así que basta excluir `rejected`). `None` (sin cita),
+        `no_show` y `attended` con la fase 2 YA `rejected` devuelven
+        `False` -esos SÍ agendan otra, y decirles «ya tienes una cita» sería
+        tan falso como prometerles «podrás agendar» estando `scheduled`-.
+
+        Dos llamadores, MISMA pregunta, cada uno con su propio «y entonces
+        qué digo»: `mail_compose.py::_que_falta` (si ocupa el cotejo, no hay
+        frase de agendado que mandar en el correo de liberación) y
+        `pages/student.py::_agenda_ctx` (Ruling R12: si ocupa el cotejo Y el
+        motivo es de biblioteca, la cara 4 no promete agendar). Recibe
+        `current` YA resuelto -no vuelve a consultar `ReviewAppointment`-
+        porque los dos llamadores (y `eligibility`) ya lo tienen a mano; una
+        tercera consulta por el mismo dato sería puro N+1.
+
+        `fase2_status`, opcional (m37, Tarea 9 de 2026-10-02-titulatec-
+        constancias-y-pendientes): el status de `ProcessPhase` del cotejo YA
+        LEÍDO por el llamador (`_fase_cotejo_status`), para el único camino
+        que lo necesita -`current.status == "attended"`-. `eligibility` ya lo
+        lee SIEMPRE (reglas 2/5) y lo expone en su dict de retorno
+        (`elig["fase2_status"]`); `_agenda_ctx` se lo pasa aquí para no
+        volver a consultar la MISMA fila de `ProcessPhase` que `eligibility`
+        acaba de leer -el N+1 que describe m37-. Por omisión -el centinela
+        `_FASE2_NO_PROVISTA`, nunca `None`: un proceso SIN fila de fase 2 es
+        un caso real y distinto de «no me lo pasaron»- se consulta aquí
+        mismo, como siempre: `mail_compose.py::_que_falta` y cualquier otro
+        llamador que no lo tenga a mano siguen funcionando IGUAL, sin tocar
+        su firma.
+        """
+        from itcj2.apps.titulatec.services.appointment_service import _ESTADOS_ACTIVOS
+
+        if current is None:
+            return False
+        if current.status in _ESTADOS_ACTIVOS:
+            return True
+        if current.status != "attended":
+            return False
+        if fase2_status is _FASE2_NO_PROVISTA:
+            fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
+        return fase2_status != "rejected"
+
+    @staticmethod
     def eligibility(db: Session, process_id: int) -> dict:
         """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
         por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que
-        revierte D2 del 2026-09-15; regla 5 nueva por D13 del mismo spec §1,
-        2026-09-30, que revierte EN PARTE la regla del auto-agendado del
-        2026-09-15)
+        revierte D2 del 2026-09-15, y ampliada a las LIBERACIONES por la spec
+        2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4; regla 5 nueva
+        por D13 del spec 2026-09-29 §1, 2026-09-30, que revierte EN PARTE la
+        regla del auto-agendado del 2026-09-15)
 
         Devuelve `{can_book, can_walkin, reason, cancellations,
-        blocked_by_cancellations, current}`.
+        blocked_by_cancellations, current, library_total, fase2_status}`.
+        `fase2_status` es el status de `ProcessPhase` del cotejo que las
+        reglas 2/5 YA leyeron (`_fase_cotejo_status`): se expone para que
+        `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin releerlo (m37,
+        Tarea 9 de 2026-10-02-titulatec-constancias-y-pendientes).
 
         **El ORDEN de evaluación es parte del contrato**: la primera regla que
         falla es la que se reporta, así que un proceso inactivo **y** sin
         encuesta dice `proceso_inactivo`, no `sin_encuesta`. Reordenar la
         cadena le cambia el mensaje al alumno aunque las siete sigan estando.
 
-        La regla 3 ya no es un booleano (¿existe la solicitud?) sino un
-        `SurveyReviewService.release_status` de tres caras: `sin_encuesta`
-        (nunca la envió), `encuesta_en_revision` (la envió, GTV la revisa) y
-        `encuesta_con_observaciones` (GTV dejó observaciones). Las tres
-        bloquean `can_book` por igual —enviarla ya no basta, hace falta que
-        GTV la LIBERE (`status == 'approved'`)—, pero cada una le dice al
+        La regla 3 son las LIBERACIONES y las decide `ClearanceGate` (único
+        lector, invariante 2): se reporta su PRIMER bloqueo, y el gate los
+        ordena con la encuesta primero y luego el no adeudo de biblioteca.
+        Cinco caras (`_CLEARANCE_REASONS`): `sin_encuesta` (nunca la envió),
+        `encuesta_en_revision` (la envió, GTV la revisa),
+        `encuesta_con_observaciones` (GTV dejó observaciones) y, SOLO donde la
+        convocatoria exige el no adeudo, `biblioteca_en_revision` (el Centro
+        de Información lo revisa, o el proceso aún no tiene fila) y
+        `pago_pendiente` (pasa a Caja; `library_total` trae el total
+        CONGELADO de su fila para el mensaje, `None` en cualquier otro caso).
+        Las cinco bloquean `can_book` por igual, pero cada una le dice al
         alumno algo distinto sobre qué falta.
 
         **Regla 5, `cotejo_en_dictamen` (D13, 2026-09-30).** La cita vigente
@@ -252,7 +397,7 @@ class SelfBookingService:
         from itcj2.apps.titulatec.services.appointment_service import (
             _ESTADOS_ACTIVOS, AppointmentService,
         )
-        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
+        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
 
         proc = db.get(TitulationProcess, int(process_id))
         if proc is None:
@@ -260,12 +405,13 @@ class SelfBookingService:
             # pasar; se reporta como proceso inactivo en vez de reventar.
             return {"can_book": False, "can_walkin": False,
                     "reason": "proceso_inactivo", "cancellations": 0,
-                    "blocked_by_cancellations": False, "current": None}
+                    "blocked_by_cancellations": False, "current": None,
+                    "library_total": None, "fase2_status": None}
 
         current = AppointmentService.get_for_process(db, proc.id)
         cancelaciones = SelfBookingService.cancellations(db, proc)
         bloqueado = SelfBookingService.is_blocked_by_cancellations(db, proc)
-        estado_encuesta = SurveyReviewService.release_status(db, proc.id)
+        bloqueos = ClearanceGate.blockers(ClearanceGate.status(db, proc.id))
         # Consulta ÚNICA para las reglas 2 y 5 -ver `_fase_cotejo_status`-.
         fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
 
@@ -275,8 +421,8 @@ class SelfBookingService:
             reason = "proceso_inactivo"
         elif fase2_status == "approved":
             reason = "fase_aprobada"
-        elif estado_encuesta != "approved":
-            reason = SelfBookingService._SURVEY_REASONS[estado_encuesta]
+        elif bloqueos:
+            reason = SelfBookingService._CLEARANCE_REASONS[bloqueos[0]]
         elif current is not None and current.status in _ESTADOS_ACTIVOS:
             reason = "tiene_cita"
         elif (current is not None and current.status == "attended"
@@ -288,6 +434,17 @@ class SelfBookingService:
         elif bloqueado:
             reason = "bloqueado_por_cancelaciones"
 
+        # El total congelado de su fila de no adeudo, SOLO para el mensaje de
+        # `pago_pendiente` («Pasa a Caja … a pagar $X»). Leerlo no decide
+        # nada: el estado ya lo decidió el gate.
+        total = None
+        if reason == "pago_pendiente":
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                LibraryClearanceService,
+            )
+            fila = LibraryClearanceService.get_for_process(db, proc.id)
+            total = fila.total_amount if fila is not None else None
+
         return {
             "can_book": reason is None,
             # Reglas 1 a 5 sí lo apagan; la 6 no. Escrito como una sola
@@ -297,6 +454,12 @@ class SelfBookingService:
             "cancellations": cancelaciones,
             "blocked_by_cancellations": bloqueado,
             "current": current,
+            "library_total": total,
+            # El status de fase 2 YA LEÍDO arriba (reglas 2/5), para que
+            # `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin volver a
+            # consultar la MISMA fila de `ProcessPhase` (m37, Tarea 9 de
+            # 2026-10-02-titulatec-constancias-y-pendientes).
+            "fase2_status": fase2_status,
         }
 
     # ------------------------------------------------------------ §4.1: oferta
@@ -306,22 +469,24 @@ class SelfBookingService:
 
         Es el predicado de alcance de `scope_service._program_ids_for_user`
         recorrido al revés (carrera -> encargados), y se resuelve **llamando a
-        la función que ya existe** para cada dueño candidato, no reescribiendo
-        su join (`ProgramPosition` ⋈ `Position` ⋈ `PositionAppRole` /
-        `PositionAppPerm` ⋈ `UserPosition` con `_active_position_filter()`).
-        Una segunda implementación de ese join diverge en tres meses y nadie se
-        entera: el día que alguien añada una vía de asignación, el alcance del
-        encargado la respetaría y la oferta del alumno no.
+        la función que ya existe**, no reescribiendo su join (`ProgramPosition`
+        ⋈ `Position` ⋈ `PositionAppRole` / `PositionAppPerm` ⋈ `UserPosition`
+        con `_active_position_filter()`). Una segunda implementación de ese
+        join diverge en tres meses y nadie se entera: el día que alguien añada
+        una vía de asignación, el alcance del encargado la respetaría y la
+        oferta del alumno no.
 
-        El conjunto candidato es pequeño —solo los dueños de ventanas
-        PUBLICADAS de esos días—, así que preguntar uno por uno sale barato.
+        Llama a la versión EN LOTE, `_program_ids_for_users` (de la que la
+        singular es el caso de un usuario): dos consultas para todos los dueños
+        de la oferta, no dos por dueño (H10, spec 2026-10-05-titulatec-
+        rendimiento §3.5).
         """
-        from itcj2.apps.titulatec.services.scope_service import _program_ids_for_user
+        from itcj2.apps.titulatec.services.scope_service import _program_ids_for_users
 
         if not owner_ids or not program_id:
             return set()
-        return {uid for uid in owner_ids
-                if program_id in _program_ids_for_user(db, uid)}
+        carreras = _program_ids_for_users(db, owner_ids)
+        return {uid for uid in owner_ids if program_id in carreras.get(uid, ())}
 
     @staticmethod
     def _offerable_windows(db: Session, proc, *, ahora: datetime) -> list:
@@ -371,7 +536,8 @@ class SelfBookingService:
             minutes=SelfBookingService._settings().TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES)
 
     @staticmethod
-    def _offerable_slots(db: Session, window, *, ahora: datetime | None = None) -> list:
+    def _offerable_slots(db: Session, window, *, ahora: datetime | None = None,
+                         ocupacion: dict | None = None) -> list:
         """Franjas -o lugar- LIBRES de una ventana `bookable`/`walkin` que
         todavía admiten reserva.
 
@@ -380,19 +546,25 @@ class SelfBookingService:
         pulsaría un botón que siempre falla y no sabría por qué.
 
         Sin horario (D5, spec 2026-09-29-titulatec-cotejo-espacios-design.md
-        §3.3): `SlotService.free_slots` ya dice si queda lugar -una sola
+        §3.3): `SlotService.free_slots_from` ya dice si queda lugar -una sola
         franja, la apertura, con TODAS las citas vivas contando contra
         `capacity`-, y aquí la anticipación mínima se mide contra el CIERRE
         del espacio, no contra la apertura: es apartar lugar, no elegir hora.
         Devuelve `[start_time]` o `[]`, nunca la apertura si el espacio está
         lleno o cierra en menos del lapso mínimo.
+
+        `ocupacion` es la de ESTA ventana (`SlotService.occupancy_map`) cuando
+        quien llama ya la leyó para todas de una vez (`offer`); sin ella la
+        consulta aquí, una ventana.
         """
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         ahora = ahora or db_now()
         minimo = SelfBookingService._min_bookable_at(ahora)
         dia = window.review_day.date
-        libres = SlotService.free_slots(db, window)
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy(db, window)
+        libres = SlotService.free_slots_from(window, ocupacion)
         if window.visibility == "walkin":
             if not libres or datetime.combine(dia, window.end_time) < minimo:
                 return []
@@ -423,7 +595,7 @@ class SelfBookingService:
 
         Un `walkin` (D3: «sin horario · apartan lugar») viaja con `capacity`
         (el total del espacio), `places_left` (nunca negativo: `capacity`
-        menos la ocupación TOTAL de `SlotService.occupancy`, que en `walkin`
+        menos la ocupación TOTAL de `SlotService.occupancy_map`, que en `walkin`
         cuenta toda cita viva bajo la apertura) y `reservable` -derivado de
         `slots`, nunca de una cuenta aparte, para que las dos no puedan
         divergir-. `slots` es `[start_time]` si se puede apartar lugar, `[]`
@@ -460,6 +632,11 @@ class SelfBookingService:
         duenos = {w.owner_user_id for _, w in pares}
         nombres = {u.id: u for u in
                    db.query(User).filter(User.id.in_(duenos)).all()}
+        # La ocupación de TODAS las ventanas ofrecidas con UN SELECT (H10,
+        # Ampliación de la spec 2026-10-05-titulatec-rendimiento §3.5): antes,
+        # una consulta por ventana -dos en un sin horario-. Es la regla única
+        # de `SlotService.occupancy_map`; aquí no se filtra por estado.
+        ocupacion = SlotService.occupancy_map(db, [w for _, w in pares])
 
         por_dia: dict = {}
         for dia, w in pares:
@@ -467,7 +644,8 @@ class SelfBookingService:
                     "start_time": w.start_time, "end_time": w.end_time,
                     "location": w.location, "slots": []}
             if w.visibility == "bookable":
-                item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
                 if not item["slots"]:
                     continue
             else:
@@ -480,9 +658,10 @@ class SelfBookingService:
                     # aquí —en la oferta— y no en la plantilla: la UI pinta lo
                     # que recibe, no filtra datos.
                     continue
-                item["slots"] = SelfBookingService._offerable_slots(db, w, ahora=ahora)
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
                 capacidad = int(w.capacity or 1)
-                ocupados = SlotService.occupancy(db, w).get(w.start_time, 0)
+                ocupados = ocupacion.get(w.id, {}).get(w.start_time, 0)
                 item["capacity"] = capacidad
                 item["places_left"] = max(0, capacidad - ocupados)
                 # Derivado de `slots` -que ya decidió lugar libre Y anticipación
@@ -560,11 +739,12 @@ class SelfBookingService:
            `MissingSchedule`- y se reemplaza por `ventana.start_time`, la
            misma franja única que ya usa `SlotService.slots` para un `walkin`.
         4. Se delega en `AppointmentService.create(..., booked_by='student')`,
-           que aporta las guardas duras —encuesta enviada, día habilitado,
-           franja real, cupo, lock de ventana y advisory lock del proceso, con
-           la re-comprobación de D4 DENTRO del lock que cierra el TOCTOU del
-           doble clic—. **No se reimplementan aquí.** Es también quien decide
-           `SlotFull` si dos egresados apartan el último lugar a la vez.
+           que aporta las guardas duras —liberaciones (`ClearanceGate`), día
+           habilitado, franja real, cupo, lock de ventana y advisory lock del
+           proceso, con la re-comprobación de D4 DENTRO del lock que cierra el
+           TOCTOU del doble clic—. **No se reimplementan aquí.** Es también
+           quien decide `SlotFull` si dos egresados apartan el último lugar a
+           la vez.
         5. No notifica a nadie: al alumno porque acaba de pulsar el botón
            (`create` lo calla cuando el actor es el propio alumno) y al
            encargado porque D11 dice que se entera por su tablero.
@@ -594,7 +774,8 @@ class SelfBookingService:
             raise SelfBookingNotAllowed(
                 elig["reason"],
                 SelfBookingService.message_for(elig["reason"],
-                                               cancellations=elig["cancellations"]))
+                                               cancellations=elig["cancellations"],
+                                               total=elig.get("library_total")))
 
         ventana = SelfBookingService._window_in_offer(db, process_id, window_id)
         if ventana is None:

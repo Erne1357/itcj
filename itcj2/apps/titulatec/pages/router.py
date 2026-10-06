@@ -20,6 +20,9 @@ from .surveys_admin import router as surveys_admin_router
 from .survey_reviews_admin import router as survey_reviews_admin_router
 from .handoff_admin import router as handoff_admin_router
 from .access_admin import router as access_admin_router
+from .library_admin import router as library_admin_router
+from .cashier_admin import router as cashier_admin_router
+from .certificates_admin import router as certificates_admin_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -38,3 +41,6 @@ titulatec_pages_router.include_router(surveys_admin_router)
 titulatec_pages_router.include_router(survey_reviews_admin_router)
 titulatec_pages_router.include_router(handoff_admin_router)
 titulatec_pages_router.include_router(access_admin_router)
+titulatec_pages_router.include_router(library_admin_router)
+titulatec_pages_router.include_router(cashier_admin_router)
+titulatec_pages_router.include_router(certificates_admin_router)

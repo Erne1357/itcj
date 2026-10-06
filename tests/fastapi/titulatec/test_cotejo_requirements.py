@@ -34,6 +34,16 @@ from itcj2.apps.titulatec.utils.rich_text import (
 from tests.fastapi.titulatec.conftest import HEAD_PERMS
 
 AUTO_SURVEY = "graduate_survey"
+# Ruling R2 (Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja): el no
+# adeudo lo acredita el sistema (Biblioteca y Caja), ya no el encargado.
+AUTO_LIBRARY = "library_clearance"
+
+# Pistas de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.3, literal.
+# El DML `biblioteca_2026_10/22_library_requirement_auto.sql` repite las dos.
+HINT_SURVEY = ("La libera GTV; no necesitas llevar nada: tu liberación queda "
+               "registrada para Servicios Escolares.")
+HINT_LIBRARY = ("Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: "
+                "tu liberación queda registrada para Servicios Escolares.")
 
 # Copia APROBADA por el usuario (diseno 2026-09-15). Se fija aqui a proposito y no
 # se importa del servicio: cambiarla es una decision de producto, no un refactor.
@@ -51,10 +61,28 @@ class TestDefaults:
             "e `info_html` es la informacion enriquecida por defecto."
         )
 
-    def test_solo_la_encuesta_trae_auto_source(self):
+    def test_la_encuesta_y_el_no_adeudo_traen_auto_source(self):
+        """Ruling R2: el no adeudo pasó a ser automático. `'library_clearance'`
+        cabe en `String(20)` y es el `AUTO_SOURCE_LIBRARY` del service dueño."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            AUTO_SOURCE_LIBRARY,
+        )
+
         autos = {code: auto for (_i, _l, _h, code, auto, _info) in DEFAULTS if auto}
 
-        assert autos == {AUTO_SURVEY: AUTO_SURVEY}
+        assert autos == {AUTO_SURVEY: AUTO_SURVEY, AUTO_LIBRARY: AUTO_LIBRARY}
+        assert AUTO_LIBRARY == AUTO_SOURCE_LIBRARY and len(AUTO_LIBRARY) <= 20
+
+    def test_las_pistas_de_las_liberaciones_son_las_de_la_spec(self):
+        """Ninguna de las dos pide llevar un papel: la liberación queda
+        registrada para Servicios Escolares (spec §4.3, con la ampliación C4 de
+        `2026-10-05-titulatec-folios-design.md`: ya no se «envía» una constancia)."""
+        pistas = {code: hint for (_i, _l, hint, code, _a, _info) in DEFAULTS}
+
+        assert pistas[AUTO_SURVEY] == HINT_SURVEY
+        assert pistas[AUTO_LIBRARY] == HINT_LIBRARY
+        assert all(len(pistas[c]) <= 255 for c in (AUTO_SURVEY, AUTO_LIBRARY)), (
+            "`hint` es String(255)")
 
     def test_todos_los_codes_son_unicos_y_no_vacios(self):
         codes = [code for (_i, _l, _h, code, _a, _info) in DEFAULTS]
@@ -99,6 +127,10 @@ class TestSeedDefaults:
         encuesta = [r for r in filas if r.auto_source == AUTO_SURVEY]
         assert len(encuesta) == 1
         assert encuesta[0].code == AUTO_SURVEY
+        biblioteca = [r for r in filas if r.auto_source == AUTO_LIBRARY]
+        assert len(biblioteca) == 1
+        assert biblioteca[0].code == AUTO_LIBRARY
+        assert biblioteca[0].is_required and biblioteca[0].is_active
 
     def test_sin_commit_no_commitea(self, db_session, make_cohort, monkeypatch):
         cohort = make_cohort()
@@ -333,8 +365,14 @@ class TestInfoHtmlEnEscritura:
 
 # El alta pide la ventana (spec 2026-09-27 §B2): fecha obligatoria + hora
 # opcional por extremo, igual que el panel. Hora vacía = 00:00 / 23:59:59.
+# `book_donation` (spec 2026-10-01-titulatec-biblioteca-caja-design.md D19,
+# Tarea 11): la donación voluntaria de libro es OBLIGATORIA desde esa tarea;
+# sin ella `cohort_create` ya no llega a crear nada (ver
+# `test_se_library_views.py::TestDonacionAlAlta`). Estos tests prueban la
+# ventana, no la donación, así que viaja ya válida.
 VENTANA_ALTA = {"opens_date": "2031-03-10", "opens_time": "09:30",
-                "closes_date": "2031-03-20", "closes_time": ""}
+                "closes_date": "2031-03-20", "closes_time": "",
+                "book_donation": "800.00"}
 AVISO_VENTANA = "Indica apertura y cierre (el cierre después de la apertura)."
 
 

@@ -1,6 +1,8 @@
 """Puerta de agendar sin la encuesta de egresados LIBERADA por GTV, cola
-"Encuesta sin liberar" del panel de citas y sufijo de estatus de GTV en la
-guarda de la fase 2.
+«Liberaciones pendientes» del panel de citas (antes «Encuesta sin liberar»;
+renombrada por la Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja, que
+suma el no adeudo de biblioteca al mismo candado -- `ClearanceGate`) y sufijo
+de estatus de GTV en la guarda de la fase 2.
 
 Tarea 1 de
 `docs/superpowers/specs/2026-09-29-titulatec-cotejo-espacios-design.md` (D1,
@@ -201,9 +203,12 @@ class TestRutaSchedule:
 
 # ---------------------------------------------------------------------------
 # La cola: `list_pending_processes` exige la encuesta LIBERADA;
-# `list_missing_survey_processes` es su complemento en el MISMO universo
-# (activos, sin cita, 3 documentos iniciales aprobados) — ahora incluye tanto
-# a quien nunca la envió como a quien la envió pero GTV no la ha liberado.
+# `list_missing_clearance_processes` es su complemento en el MISMO universo
+# (activos, sin cita, 3 documentos iniciales aprobados) — incluye tanto a
+# quien nunca la envió como a quien la envió pero GTV no la ha liberado. Estas
+# convocatorias no traen el requisito automático de no adeudo (sin
+# `seed_defaults`), así que la biblioteca no cuenta: eso lo prueba
+# `test_clearance_gate.py`.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def tres_procesos(seed_phase_defs, seed_document_types, make_program, make_cohort,
@@ -211,8 +216,8 @@ def tres_procesos(seed_phase_defs, seed_document_types, make_program, make_cohor
     """Tres procesos gemelos, listos salvo por la encuesta:
 
         con         GTV ya la liberó                  -> "Por agendar"
-        en_revision la envió, GTV todavía la revisa    -> "Encuesta sin liberar"
-        sin         nunca la envió                     -> "Encuesta sin liberar"
+        en_revision la envió, GTV todavía la revisa    -> "Liberaciones pendientes"
+        sin         nunca la envió                     -> "Liberaciones pendientes"
     """
     seed_phase_defs()
     seed_document_types()
@@ -239,7 +244,7 @@ class TestColaEncuestaSinLiberar:
 
         pendientes = [p.id for p in AppointmentService.list_pending_processes(db_session)]
         sin_liberar = [p.id for p in
-                      AppointmentService.list_missing_survey_processes(db_session)]
+                      AppointmentService.list_missing_clearance_processes(db_session)]
 
         assert esc["procesos"]["con"].id in pendientes
         assert esc["procesos"]["en_revision"].id not in pendientes
@@ -248,7 +253,7 @@ class TestColaEncuestaSinLiberar:
         assert esc["procesos"]["sin"].id in sin_liberar
         assert esc["procesos"]["con"].id not in sin_liberar
 
-    def test_alcance_por_carrera_en_list_missing_survey_processes(
+    def test_alcance_por_carrera_en_list_missing_clearance_processes(
         self, db_session, tres_procesos, make_program, make_student, make_process,
         make_document,
     ):
@@ -262,21 +267,21 @@ class TestColaEncuestaSinLiberar:
         for code in ("birth_certificate", "high_school_cert", "curp"):
             make_document(proc_ajeno, type_code=code, review_status="approved")
 
-        solo_prog = [p.id for p in AppointmentService.list_missing_survey_processes(
+        solo_prog = [p.id for p in AppointmentService.list_missing_clearance_processes(
             db_session, allowed_program_ids={esc["prog"].id})]
 
         assert esc["procesos"]["sin"].id in solo_prog
         assert proc_ajeno.id not in solo_prog
-        assert AppointmentService.list_missing_survey_processes(
+        assert AppointmentService.list_missing_clearance_processes(
             db_session, allowed_program_ids=set()) == []
 
     def test_la_agenda_pinta_el_cubo_renombrado_con_la_pildora_por_fila(
         self, client_as, db_session, tres_procesos, make_officer, make_survey_review,
     ):
-        """A nivel de página: el cubo se llama «Encuesta sin liberar», la fila
-        de quien nunca envió NO lleva ni arrastre ni `appt_nav` (D1: nada que
-        hacer con ella todavía) y cada fila lleva la píldora de su estado real
-        (`survey_review_pill`, `_macros.html:71-77`)."""
+        """A nivel de página: el cubo se llama «Liberaciones pendientes» (antes
+        «Encuesta sin liberar»), la fila de quien nunca envió NO lleva ni
+        arrastre ni `appt_nav` (D1: nada que hacer con ella todavía) y cada
+        fila lleva la píldora de su estado real (`survey_review_pill`)."""
         esc = tres_procesos
         make_survey_review(esc["procesos"]["en_revision"], status="in_review")
         officer, _pos = make_officer([esc["prog"]])
@@ -284,10 +289,11 @@ class TestColaEncuestaSinLiberar:
         resp = client_as(officer).get("/titulatec/admin/appointments")
 
         assert resp.status_code == 200
-        assert "Encuesta sin liberar" in resp.text
+        assert "Liberaciones pendientes" in resp.text
+        assert "Encuesta sin liberar" not in resp.text, "se quedó el rótulo viejo"
         assert "Sin encuesta" not in resp.text, "se quedó el rótulo viejo"
-        assert f'id="appt-nosurvey-{esc["procesos"]["sin"].id}"' in resp.text
-        assert f'id="appt-nosurvey-{esc["procesos"]["en_revision"].id}"' in resp.text
+        assert f'id="appt-clearance-{esc["procesos"]["sin"].id}"' in resp.text
+        assert f'id="appt-clearance-{esc["procesos"]["en_revision"].id}"' in resp.text
         assert f'data-tt-drag="{esc["procesos"]["sin"].id}"' not in resp.text
         assert f'data-tt-drag="{esc["procesos"]["en_revision"].id}"' not in resp.text
         # La píldora distingue "nunca la envió" (Encuesta pendiente) de "la
@@ -345,8 +351,9 @@ class TestReleaseStatusHelpers:
 
 # ---------------------------------------------------------------------------
 # La guarda de la fase 2: sufijo por estatus de la encuesta (D3 del plan del
-# 2026-09-15). NO la toca esta tarea: sigue leyendo `summary_for_process`
-# (existencia + estado real), no `release_status`.
+# 2026-09-15). Desde la Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja
+# el estado sale de `ClearanceGate.status` (los mismos cuatro de la encuesta);
+# el sufijo del no adeudo lo prueba `test_clearance_gate.py`.
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def escenario_fase2(db_session, seed_phase_defs, make_student, make_cohort, make_process):
@@ -436,3 +443,112 @@ class TestRevocarNoTocaLaCitaVigente:
         del_dia = {a.id for a in AppointmentService.list_for_day(
             db_session, esc["w"].review_day.date)}
         assert appt.id in del_dia, "la cita sigue en la agenda del día"
+
+
+# ---------------------------------------------------------------------------
+# Ruling R11 (revisión de la Tarea 5, spec 2026-10-01-titulatec-biblioteca-
+# caja-design.md): `AppointmentService.reschedule` sobre una cita vigente
+# `no_show` abre un intento NUEVO (`SlotService.assign` cierra la fila vieja
+# e inserta la siguiente) y por eso debe pasar por el MISMO candado que
+# `create` -- antes no lo hacía, ni siquiera revisaba la encuesta. Una cita
+# `scheduled`/`confirmed` que se MUEVE no abre un intento nuevo en el sentido
+# de D17 y sigue sin pasar por aquí
+# (`test_la_cita_ya_agendada_sigue_vigente_y_se_puede_mover`,
+# test_clearance_gate.py, sección 4).
+# ---------------------------------------------------------------------------
+class TestRescheduleDesdeNoShowExigeLiberaciones:
+    def test_sin_encuesta_no_reagenda_y_no_abre_intento(
+        self, db_session, agenda_slots, make_appointment,
+    ):
+        esc = agenda_slots
+        appt = make_appointment(esc["p1"], status="no_show", is_current=True)
+
+        with pytest.raises(err.SurveyNotSubmitted):
+            AppointmentService.reschedule(db_session, appt, window_id=esc["w"].id,
+                                          slot_start=time(9, 30), actor_id=esc["off"].id)
+
+        vigente = AppointmentService.get_for_process(db_session, esc["p1"].id)
+        assert vigente.id == appt.id and vigente.status == "no_show", (
+            "no debió abrir un intento nuevo")
+
+    def test_con_todo_liberado_si_reagenda(
+        self, db_session, agenda_slots, make_appointment, make_survey_review,
+    ):
+        esc = agenda_slots
+        make_survey_review(esc["p1"], status="approved")
+        appt = make_appointment(esc["p1"], status="no_show", is_current=True)
+
+        movida = AppointmentService.reschedule(db_session, appt, window_id=esc["w"].id,
+                                               slot_start=time(9, 30), actor_id=esc["off"].id)
+
+        assert movida.status == "scheduled" and movida.is_current is True
+        assert movida.id != appt.id, "reagendar desde no_show abre un intento NUEVO"
+
+    def test_con_biblioteca_pendiente_no_reagenda(
+        self, db_session, seed_phase_defs, seed_document_types, make_program,
+        make_cohort, make_review_day, make_review_window, make_officer,
+        make_student, make_process, make_survey_review, make_appointment,
+    ):
+        """Con la convocatoria exigiendo el no adeudo (`seed_defaults`) y
+        biblioteca `pending`, reagendar desde `no_show` levanta
+        `LibraryNotCleared` -- el hueco que cierra R11."""
+        from itcj2.apps.titulatec.services.cotejo_requirement_service import (
+            CotejoRequirementService,
+        )
+
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria R11")
+        cohort = make_cohort()
+        CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
+        db_session.flush()
+        dia = make_review_day(cohort, day=date(2029, 5, 7))
+        officer, pos = make_officer([prog])
+        window = make_review_window(dia, officer, start="09:00", end="11:00",
+                                    slot=30, cap=1, position=pos)
+        proc = make_process(make_student(), cohort=cohort, program=prog,
+                            current_phase=2, library_clearance="pending")
+        make_survey_review(proc, status="approved")
+        appt = make_appointment(proc, status="no_show", is_current=True)
+
+        with pytest.raises(err.LibraryNotCleared) as exc:
+            AppointmentService.reschedule(db_session, appt, window_id=window.id,
+                                          slot_start=time(9, 30), actor_id=officer.id)
+
+        assert exc.value.status == "pending"
+        vigente = AppointmentService.get_for_process(db_session, proc.id)
+        assert vigente.id == appt.id
+
+
+class TestRutaRescheduleDesdeNoShow:
+    """El hueco real: `POST .../reschedule` resuelve la vigente con
+    `get_for_process` (que SÍ devuelve un `no_show`, sigue siendo vigente
+    hasta que algo lo reemplaza) y llama a `AppointmentService.reschedule`
+    directo, sin el branch de `pages/appointments.py::move` que para un
+    `no_show` -fuera de `_ESTADOS_ACTIVOS`- ya pasaba por `create`."""
+
+    def test_sin_encuesta_400_con_x_tt_error(
+        self, client_as, db_session, seed_phase_defs, seed_document_types,
+        make_program, make_cohort, make_review_day, make_review_window,
+        make_officer, make_student, make_process, make_appointment,
+    ):
+        seed_phase_defs()
+        seed_document_types()
+        prog = make_program("Ingenieria R11 Ruta")
+        cohort = make_cohort()
+        dia = make_review_day(cohort, day=date(2029, 5, 7))
+        officer, pos = make_officer(
+            [prog], perm_codes=OFFICER_PERMS + ("titulatec.appointment.api.reschedule",))
+        window = make_review_window(dia, officer, start="09:00", end="11:00",
+                                    slot=30, cap=1, position=pos)
+        proc = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+        appt = make_appointment(proc, status="no_show", is_current=True)
+
+        resp = client_as(officer).post(
+            f"/titulatec/admin/appointments/{proc.id}/reschedule",
+            data={"window_id": window.id, "slot_start": "09:30"})
+
+        assert resp.status_code == 400, resp.text[:300]
+        assert "encuesta de egresados" in _msg(resp)
+        vigente = AppointmentService.get_for_process(db_session, proc.id)
+        assert vigente.id == appt.id and vigente.status == "no_show"

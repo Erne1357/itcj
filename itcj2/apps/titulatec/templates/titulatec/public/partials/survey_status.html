@@ -18,9 +18,18 @@
 
    Raiz `#tt-survey-status`, ctx {"review": <SurveyReviewService.
    summary_for_process>, "back_link": ...}. `review.status` es SIEMPRE uno
-   de `in_review|rejected|approved` -esta plantilla nunca se pinta para el
+   de `in_review|rejected|approved`, o el pseudo-estado `imported` (respuesta
+   de Forms importada que espera la inscripción; ver `pages/public.py::
+   _solicitud_existente`) -esta plantilla nunca se pinta para el
    pseudo-estado `missing` (ausencia de solicitud), que es justo el caso en
    el que se pinta el formulario en su lugar-.
+
+   `review.origin` (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md
+   §4.12): con `approved`, "prior" significa que no hubo encuesta real -SE (o
+   el desarrollador) cargó la constancia del semestre anterior por la CLI
+   `import-prior-clearances`-, así que el texto es otro y nunca menciona que
+   "GTV revisó" nada. Una previa REVOCADA no se pinta aquí: `revoke` la borra
+   y el egresado vuelve a ver el formulario (Ruling R22).
    =========================================================================== #}
 <div id="tt-survey-status" class="tt-card tt-card--hero tt-anim-in"
      role="status" data-tt-review-status="{{ review.status }}">
@@ -28,12 +37,31 @@
 
   {% if review.status == 'approved' %}
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta ya fue liberada</h2>
+    {% if review.origin == 'prior' %}
+    {# D9 (spec folios 2026-10-05): la previa tampoco pide llevar ni recoger el
+       papel; la constancia en papel (si la hay) es asunto de GTV, no del egresado. #}
+    <p class="mb-0">Tu encuesta del semestre anterior quedó registrada como liberada. Para tu cita de cotejo no necesitas llevar nada: tu liberación ya quedó registrada para Servicios Escolares; no tienes nada más que hacer aquí.</p>
+    {% else %}
     <p class="mb-0">Gestión Tecnológica y Vinculación revisó tu encuesta y la liberó{% if review.reviewed_at %} el {{ review.reviewed_at }}{% endif %}. No tienes nada más que hacer aquí; continúa con tu proceso de titulación en TitulaTec.</p>
+    {% endif %}
 
   {% elif review.status == 'rejected' %}
+    {# Observaciones o revocación de una encuesta REAL (una previa revocada ya
+       no llega aquí: se borra y vuelve el formulario, Ruling R22). Contacto =
+       la MISMA línea de D12 que los correos (Ruling R27), nunca «su
+       ventanilla». #}
     <h2 class="tt-display h5 mt-1 mb-2">Tienes observaciones de Gestión Tecnológica y Vinculación</h2>
     {% if review.reason %}<p class="mb-2" data-tt-review-reason>{{ review.reason }}</p>{% endif %}
-    <p class="mb-0">Resuélvelo directamente en su ventanilla (Residencias, Prácticas o Servicio Social); no necesitas volver a contestar esta encuesta, ya quedó registrada.</p>
+    <p class="mb-2">Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez.tecnm.mx">servicio_ext@cdjuarez.tecnm.mx</a></p>
+    <p class="mb-0">No necesitas volver a contestar esta encuesta: tu respuesta ya quedó registrada.</p>
+
+  {% elif review.status == 'imported' %}
+    {# Pseudo-estado `imported` (decisión del usuario, revisión final del
+       import de Forms): sin solicitud todavía, pero su respuesta de Microsoft
+       Forms ya se importó y su liberación espera la inscripción
+       (`SurveyImportService.pending_import_for_user`). #}
+    <h2 class="tt-display h5 mt-1 mb-2">Ya recibimos tu encuesta</h2>
+    <p class="mb-0" data-tt-imported-pending>Tu encuesta de Microsoft Forms ya está registrada; se liberará cuando completes tu inscripción.</p>
 
   {% else %}
     <h2 class="tt-display h5 mt-1 mb-2">Tu encuesta está en revisión</h2>

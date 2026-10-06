@@ -34,6 +34,10 @@ from itcj2.cli.titulatec import (
     _DML_MAIL_2026_09_FILES,
     init_email_tasks_command,
 )
+from tests.fastapi.titulatec._dml_texts import (
+    periodica_de_recordatorios_del_17,
+    unir_literales,
+)
 
 _MAIL_SQL_NAME = "17_insert_email_tasks.sql"
 
@@ -115,13 +119,26 @@ def test_el_despacho_corre_cada_5_minutos_y_se_describe_igual_que_en_el_worker()
     assert cron, "no se encontró el cron de titulatec.email_dispatch en el DML"
     assert cron.group(1) == "*/5 * * * *"
     # Literales de SQL adyacentes (separados por un salto de línea) son UNA cadena.
-    unido = re.sub(r"'\s*\n\s*'", "", sql)
+    unido = unir_literales(sql)
     for definicion in titulatec_tasks.TASK_DEFINITIONS:
         if definicion["task_name"].startswith("titulatec.email_"):
             assert f"'{definicion['description']}'" in unido, (
                 f"{definicion['task_name']}: la descripción del DML no es la de "
                 "TASK_DEFINITIONS")
     assert "cada minuto" not in sql.lower()
+
+
+@requires_dml
+def test_la_periodica_de_recordatorios_menciona_el_pago_en_caja():
+    """m33 (spec 2026-10-02 §3.7): la descripción de la fila de
+    `core_periodic_tasks` de los recordatorios (una variante corta, no atada a
+    `TASK_DEFINITIONS`) también dice que encola el del pago pendiente en Caja.
+    Una base ya sembrada la recibe con el delta
+    `biblioteca_2026_10/23_update_email_reminders_description.sql` (este
+    archivo viejo no se re-corre en producción); que el 23 escriba este MISMO
+    texto lo fija `test_cli_biblioteca_caja.py`, con el mismo lector
+    (`_dml_texts.periodica_de_recordatorios_del_17`)."""
+    assert "pago pendiente en Caja" in periodica_de_recordatorios_del_17()
 
 
 @requires_dml

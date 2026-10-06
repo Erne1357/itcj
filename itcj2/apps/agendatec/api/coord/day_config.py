@@ -118,7 +118,6 @@ def _post_commit_effects(db, d, plan, result):
     """
     from itcj2.core.services.notification_service import NotificationService
     from itcj2.core.utils.redis_conn import get_redis
-    from itcj2.sockets.notifications import push_notification
     from itcj2.sockets.slots import broadcast_slots_window_changed
 
     # Los slots borrados pueden tener un hold vivo; sin barrerlo, el alumno
@@ -141,7 +140,7 @@ def _post_commit_effects(db, d, plan, result):
 
     for aff in result.affected:
         try:
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=aff.student_id,
                 app_name="agendatec",
@@ -164,8 +163,8 @@ def _post_commit_effects(db, d, plan, result):
                 source_appointment_id=aff.appointment_id,
             )
             db.commit()
-            # Endpoint sync: el broadcast interno del service no encuentra loop.
-            _async_broadcast(push_notification(aff.student_id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (también desde este hilo, vía el loop principal).
         except Exception:
             db.rollback()   # no dejar la sesión abortada para el siguiente alumno
             logger.exception("No se pudo notificar la reagenda al alumno %s", aff.student_id)

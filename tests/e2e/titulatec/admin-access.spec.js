@@ -141,6 +141,10 @@ test('la fila "Accesos" existe en el menú, es la única que ve Centro de Cómpu
   await expect(page.locator('#tt-acc-tab-granted')).toBeVisible();
   await expect(page.locator('#tt-acc-tab-returned')).toBeVisible();
 
+  // Bandeja paginada de 50 en 50 y FIFO: la sembrada es la mas nueva, asi que
+  // se abre la pestana buscando su control (29990777) y no depende del largo.
+  await page.goto('/titulatec/admin/accesos?q=29990777', { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('#tt-acc-tab-awaiting_access[aria-current="true"]')).toBeVisible();
   const fila = page.locator(`#tt-acc-${reqParaAcceso}`);
   await expect(fila).toContainText('Sin cuenta');
   const form = fila.locator(`form[hx-post="/titulatec/admin/accesos/${reqParaAcceso}/dar-acceso"]`);

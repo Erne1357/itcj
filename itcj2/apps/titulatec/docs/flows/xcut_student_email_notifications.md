@@ -2,21 +2,25 @@
 
 > **Objetivo:** el egresado recibe correo, con liga directa a la pantalla que le toca, en los
 > momentos que importan del proceso de titulación (dictamen de documentos, avance/rechazo de
-> fase, resultado de GTV, su cita de cotejo, y tres recordatorios) — sin correo por sus propias
-> acciones triviales (subir, borrar, confirmar asistencia, cancelar su propia cita).
+> fase, resultado de GTV, su cita de cotejo, el no adeudo de biblioteca Biblioteca → Caja, y
+> cuatro recordatorios) — sin correo por sus propias acciones triviales (subir, borrar, confirmar
+> asistencia, cancelar su propia cita).
 
 | | |
 |---|---|
 | **Actor(es)** | 🤖 Sistema (encolado dentro de la transacción del evento; envío por Celery) |
 | **Permiso(s)** | ninguno nuevo (D12): el destinatario es siempre el alumno del proceso, resuelto por `student_id`, no por sesión |
-| **Trigger** | dictamen de documentos, avance/rechazo de fase, dictamen de GTV sobre la encuesta, agendar/mover/cancelar la cita de cotejo, y el barrido diario de recordatorios |
+| **Trigger** | dictamen de documentos, avance/rechazo de fase, dictamen de GTV sobre la encuesta, agendar/mover/cancelar la cita de cotejo, cada transición del no adeudo de biblioteca (Biblioteca/Caja), y el barrido diario de recordatorios |
 | **Precondiciones** | `TITULATEC_EMAIL_ENABLED=true` (encolar) y proceso con destinatario resoluble (`StudentMail.contact_email`) para que salga de verdad |
-| **Sub-flujos** | ⤵ compone [dictamen de documentos](phase1_school_services_review_docs.md), [motor de avance de fase](engine_approve_advance_phase.md), [liberación GTV](phase2_tech_management_survey_release.md), [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md) · lo lee [expediente del alumno](xcut_admin_process_expediente.md) |
+| **Sub-flujos** | ⤵ compone [dictamen de documentos](phase1_school_services_review_docs.md), [motor de avance de fase](engine_approve_advance_phase.md), [liberación GTV](phase2_tech_management_survey_release.md), [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md), [no adeudo de biblioteca](phase2_library_clearance.md) · lo lee [expediente del alumno](xcut_admin_process_expediente.md) |
 | **Estado final** | filas en `titulatec_email_outbox`: `pending → sent\|failed\|no_recipient\|obsolete` |
 
 Parte del spec `docs/superpowers/specs/2026-09-28-titulatec-correos-notificaciones-design.md`
-(no se commitea). Antecedentes: `services/email_helper.py` (los 6 correos de inscripción, que
-**no cambian** — D3), `services/notify.py` (in-app, que tampoco cambia — solo gana tipos nuevos).
+(no se commitea); los 4 `kind` del no adeudo de biblioteca son del spec
+`2026-10-01-titulatec-biblioteca-caja-design.md` §4.11 (D11/D12/D13/D14). Antecedentes:
+`services/email_helper.py` (los 6 correos de inscripción; desde 2026-10-05 los 4 que no llevan
+secreto también pasan por esta bandeja — ⤵ [§9](#9-correos-de-inscripción-sin-secreto-2026-10-05-p-d1)),
+`services/notify.py` (in-app, que tampoco cambia — solo gana tipos nuevos).
 
 ---
 
@@ -24,7 +28,7 @@ Parte del spec `docs/superpowers/specs/2026-09-28-titulatec-correos-notificacion
 
 ```mermaid
 flowchart LR
-  E["Evento del proceso\n(dictamen, avance, GTV, cita)"] -->|"StudentMail.<evento>()\nMISMA transacción"| O[("titulatec_email_outbox\nstatus=pending")]
+  E["Evento del proceso\n(dictamen, avance, GTV, cita, no adeudo)"] -->|"StudentMail.<evento>()\nMISMA transacción"| O[("titulatec_email_outbox\nstatus=pending")]
   R["Barrido diario 9:00\ntitulatec.email_reminders"] -->|"MailReminders.run\nON CONFLICT DO NOTHING"| O
   O -->|"cada 5 minutos\ntitulatec.email_dispatch"| D["MailDispatcher.run\nFOR UPDATE SKIP LOCKED"]
   D -->|"MailComposer.compose"| C{"Composed\no Obsolete"}
@@ -45,11 +49,11 @@ Cuatro piezas, cada una responsable de una sola cosa:
 
 ---
 
-## 1. Catálogo (spec §5) — 11 `kind`, con los nombres reales
+## 1. Catálogo (spec §5 + spec 2026-10-01 §4.11) — 15 `kind`, con los nombres reales
 
-`OUTBOX_KINDS` (`models/email_outbox.py:64-76`). Todos: `_base_email.html`, asunto con prefijo
-exacto `[TitulaTec ITCJ] ` (`mail_compose.py:60`), saludo con `first_name`, un botón con la liga
-y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
+`OUTBOX_KINDS` (`models/email_outbox.py`, 11 → 15 el 2026-10-01). Todos: `_base_email.html`,
+asunto con prefijo exacto `[TitulaTec ITCJ] ` (`mail_compose.py:60`), saludo con `first_name`, un
+botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
 
 | # | `kind` | Grupo/llave | Encolado en (escritor real) | Compuesto por | Plantilla | Liga (`next`) | In-app |
 |---|---|---|---|---|---|---|---|
@@ -59,16 +63,27 @@ y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
 | 3 | `phase_rejected` | individual | `PhaseService.reject_phase` → `StudentMail.phase_rejected` (`phase_service.py:485-489`, `student_mail.py:342-350`) | `_compose_phase_rejected` (`:310-316`) | `phase_rejected.html` | `/titulatec/student/dashboard?fase=N` | sin cambio (`PHASE_REJECTED`, `phase_service.py:477-481`) |
 | 4 | `survey_approved` | individual | `SurveyReviewService.approve` → `StudentMail.survey_result(result="approved")` (`survey_review_service.py:196-203`) | `_compose_survey` (`:319-327`) | `survey_result.html` | `/titulatec/student/dashboard?fase=2` | sin cambio (`SURVEY_REVIEW_APPROVED`, `:196-199`) |
 | 5 | `survey_rejected` | individual | `SurveyReviewService.reject` → `StudentMail.survey_result(result="rejected", reason=motivo)` (`survey_review_service.py:231-238`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REJECTED`, `:231-234`) |
-| 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo)` (`survey_review_service.py:271-278`) | `_compose_survey` | `survey_result.html` | idem | sin cambio (`SURVEY_REVIEW_REVOKED`, `:271-274`) |
+| 6 | `survey_revoked` | individual | `SurveyReviewService.revoke` → `StudentMail.survey_result(result="revoked", reason=motivo, origin=...)` (`survey_review_service.py`) | `_compose_survey` | `survey_result.html` | idem; con `origin='prior'` (Ruling R22: la previa se borró) `/titulatec/encuesta-egresados` | sin cambio (`SURVEY_REVIEW_REVOKED`) |
 | 7 | `appt_changed` | `cita:{pid}` | `AppointmentService.create` (`appointment_service.py:662-677`, D9: **siempre**, incluso si agenda el propio alumno), `.reschedule` (`:741-747`), `.cancel` (`:868-885`, **solo** si `notify=True` **y** el actor no es el alumno) → `StudentMail.appointment_changed` (`student_mail.py:363-379`) | `_compose_appt_group` (`:219-282`) | `appt_changed.html` (vigente) **o** `appt_cancelled.html` (sin vigente) | `/titulatec/student/cita` | sin cambio |
 | 8 | `appt_reminder` | `appt_reminder:{appt_id}` | `MailReminders._citas` → `_recordar_cita` → `StudentMail.appointment_reminder` (`mail_reminders.py:261-292`, `:151-161`, `student_mail.py:391-401`) | `_compose_appt_reminder` (`:399-436`) | `appt_reminder.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_REMINDER`, `mail_reminders.py:159`) |
 | 9 | `appt_no_show` | individual, `not_before = +digest_minutes` | `AppointmentService.mark_no_show` → `StudentMail.appointment_no_show` (`appointment_service.py:787-792`, `student_mail.py:381-389`) | `_compose_appt_no_show` (`:330-359`) | `appt_no_show.html` | `/titulatec/student/cita` | **nuevo** (`APPOINTMENT_NO_SHOW`, `:793-795`) + `undo_no_show` solo in-app (`APPOINTMENT_NO_SHOW_UNDONE`, `:813-815`, sin correo propio: el de «no se presentó» que siga en su gracia lo da por obsoleto el despachador) |
 | 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:439-460`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
 | 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:463-478`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
+| 12 | `library_ready` | individual | `LibraryClearanceService._mark_ready` → `StudentMail.library_ready` (Registrar con adeudo > 0, o Corregir el monto) | `_compose_library_ready` (`mail_compose.py:630-679`) | `library_ready.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_READY`) |
+| 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9; desde 2026-10-05 la rama de pago/sin cargo dice «tu liberación ya quedó registrada para Servicios Escolares» en vez de «el Centro de Información envía tu constancia», y desde D9, el mismo día, también la rama de la previa: «Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación ya quedó registrada…» en lugar de «Lleva tu constancia física») | `_compose_library_cleared` (`:682-722`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
+| 14 | `library_reverted` | individual | `LibraryClearanceService.revert_payment`/`.revert_clearance`/`.undo_prior` → `StudentMail.library_reverted(to_status=)` | `_compose_library_reverted` (`:725-801`) | `library_reverted.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REVERTED`) |
+| 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:945-974`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
+| 16 | `library_observed` (2026-10-05) | individual | `LibraryClearanceService.observe` → `StudentMail.library_observed(reason=)` (`library_clearance_service.py:940`, `student_mail.py:491`) | `_compose_library_observed` (`mail_compose.py:809`) | `library_observed.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_OBSERVED`, con el motivo) |
+| 17 | `library_reenabled` (2026-10-05) | individual | `LibraryClearanceService.reenable` → `StudentMail.library_reenabled` (`library_clearance_service.py:988`, `student_mail.py:500`) | `_compose_library_reenabled` (`mail_compose.py:838`) | `library_reenabled.html` | idem | **nuevo** (`LIBRARY_REENABLED`) |
 
-`MailComposer.REGISTRY` (`mail_compose.py:491-503`) es el mapeo `kind → función` para una fila
+Los 4 del no adeudo (12-15) cuelgan de la fase 2, como los de GTV; ninguno lleva grupo —cada
+transición de Biblioteca/Caja es un correo propio, no se agrupan entre sí como `docs:`/`cita:`—.
+Detalle completo de QUÉ dispara cada uno: ⤵ [no adeudo de biblioteca: Biblioteca →
+Caja](phase2_library_clearance.md).
+
+`MailComposer.REGISTRY` (`mail_compose.py:850-...`) es el mapeo `kind → función` para una fila
 SUELTA; los grupos (`docs:`/`cita:`) se reconocen antes por su `group_key`
-(`MailComposer.compose`, `:505-539`). Un `kind` sin composición registrada queda `obsolete` con
+(`MailComposer.compose`). Un `kind` sin composición registrada queda `obsolete` con
 error en el log — no se reintenta sin fin.
 
 ### Sin correo (a propósito)
@@ -77,7 +92,7 @@ Subir/borrar documento, confirmar asistencia, solicitar cambio, **cancelación h
 alumno** (`AppointmentService.cancel` exige `int(actor_id) != int(proc.student_id)` para
 notificar — `appointment_service.py:872-873`), iniciar cotejo, «asistió» (lo cubre el avance de
 fase 2), revocación de inscripción (`ProcessService.cancel` llama `.cancel(..., notify=False)`,
-ya tiene su propio `PROCESS_CANCELLED`/`send_process_cancelled`), pausa/reanudación de
+ya tiene su propio `PROCESS_CANCELLED` y su correo `process_cancelled`, §9), pausa/reanudación de
 convocatoria.
 
 ### Barrido de escritores (test estructural)
@@ -87,7 +102,10 @@ debería encolar correo (toda creación de `ReviewAppointment` pasa por `SlotSer
 `SlotService.assign_batch` sigue sin llamadores —
 `test_assign_batch_sigue_sin_llamadores`) y falla si aparece uno nuevo sin registrar
 (`test_ningun_escritor_sin_registrar_ni_entradas_muertas`) o si una rama "sin correo" pierde su
-prueba de comportamiento (`test_las_ramas_sin_correo_tienen_prueba_de_comportamiento`).
+prueba de comportamiento (`test_las_ramas_sin_correo_tienen_prueba_de_comportamiento`). Desde el
+2026-10-01 también mapea los 7 métodos de `LibraryClearanceService` que escriben correo (3
+`kind` sin contar el recordatorio, que no pasa por aquí porque lo encola el barrido, no un
+"estado nuevo" de una fila).
 
 ---
 
@@ -102,12 +120,13 @@ Contrato completo en el docstring del módulo (líneas 1-44); resumen:
   armar el correo nunca tumba la acción que lo origina — log + `False`.
 - `TITULATEC_EMAIL_ENABLED = false` → `enqueue` no escribe nada (`:281-282`); tampoco el
   despachador ni el barrido tocan la BD entonces.
-- **Recordatorios** (`dedupe_key`, solo los tres): `INSERT … ON CONFLICT (dedupe_key) DO NOTHING`
+- **Recordatorios** (`dedupe_key`, los cuatro — cita, documentos, encuesta y, desde 2026-10-01,
+  pago en Caja): `INSERT … ON CONFLICT (dedupe_key) DO NOTHING`
   dentro de un `SAVEPOINT` de la conexión (`:289-301`) — correr el barrido dos veces no duplica, y
-  un choque no aborta la transacción entera del llamador. Los de documentos y encuesta nacen con
-  `created_at` = el reloj del barrido que los encola (`StudentMail._reminder`, `:419-433`; sin él,
-  el `NOW()` de la BD): la cadencia del ruling 19 (§5) mide con ESE valor la separación con el
-  recordatorio anterior.
+  un choque no aborta la transacción entera del llamador. Los de documentos, encuesta y pago
+  nacen con `created_at` = el reloj del barrido que los encola (`StudentMail._reminder`,
+  `:419-433`; sin él, el `NOW()` de la BD): la cadencia del ruling 19 (§5) mide con ESE valor la
+  separación con el recordatorio anterior.
 - **Payload congelado**: `json.loads(json.dumps(payload))` (`_outbox_values`, `:146-177`) — lo que
   el llamador cambie después en su dict no llega a la fila. Solo hechos del evento; **nunca** NIP,
   token, liga de activación ni contraseña.
@@ -181,8 +200,29 @@ historial de cada fila — mover tres veces en el tablero es un solo correo con 
 
 `_compose_phase_approved` (`:288-307`, «¡Proceso completado!» / «Concluiste tu trámite con
 Servicios Escolares» si la siguiente fase ya es del corte a T-soft / «Avanzaste a {fase}»),
-`_compose_phase_rejected` (`:310-316`), `_compose_survey` (`:319-327`, usa `_GTV` — `:82-86` — para
-el asunto sin prefijo de cada resultado).
+`_compose_phase_rejected` (`:310-316`), `_compose_survey` (`:485-517`, usa `_GTV` para el asunto
+sin prefijo de cada resultado; desde el 2026-10-01 trae además `origin` —`prior`, D9, cambia
+texto y asunto— y, al liberar, ya NO dice «Ya puedes agendar» fijo: lo resuelve `_que_falta`,
+D11/D13, ver abajo). La revocación de una constancia previa (`result="revoked"`,
+`origin="prior"`, Ruling R22) BORRÓ la solicitud: el correo dice que se revocó la liberación
+registrada con su constancia del semestre anterior, le pide **contestar la encuesta de
+egresados en la plataforma**, conserva el motivo y la línea D12, y su liga/botón («Contestar la
+encuesta») lleva a `/titulatec/encuesta-egresados` en vez del tablero.
+
+### Línea «Recoge tu constancia» en el correo de la previa (2026-10-05, RETIRADA por D9)
+
+La spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` (R10) añadió a `survey_approved` con
+`origin='prior'` una línea «Recoge tu constancia de liberación en Gestión Tecnológica y
+Vinculación.» cuando la previa importada del Excel traía la constancia en papel por recoger. Ese mismo
+día la decisión D9 de la spec de folios (`2026-10-05-titulatec-folios-design.md`) la **retiró**,
+junto con el «Lleva tu constancia física a tu cita de cotejo» de la variante de previa: el correo
+de la previa dice igual con o sin papel por recoger —«Para tu cita de cotejo no necesitas llevar
+nada: tu liberación ya quedó registrada para Servicios Escolares.»—. Código: `StudentMail.
+survey_result` ya no recibe `paper_pending` ni lo mete al payload, `mail_compose._papel_por_recoger`
+se borró y `email/survey_result.html` ya no lee `paper_pending`; una fila vieja del outbox que lo
+traiga se ignora al componer. «Marcar constancia entregada» sigue sin enviar correo. ⤵
+[liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
+
 
 `_compose_appt_no_show` (`:330-359`, #9): re-validado al enviar (D8) — si el encargado deshizo la
 inasistencia dentro de la gracia, `Obsolete("se corrigió la asistencia")`; si hay OTRA fila
@@ -193,9 +233,94 @@ agendó otra o se reagendó: el intento nuevo le quita `is_current` y la vieja c
 `no_show`—, `Obsolete("ya hay una cita nueva")`: «Agenda una nueva» sería falso (B3, ronda final
 2026-09-29).
 
-Los tres recordatorios (`_compose_appt_reminder` `:399-436`, `_compose_docs_reminder` `:439-460`,
-`_compose_survey_reminder` `:463-478`) se re-validan al enviar contra el estado ACTUAL, no el del
-payload — ver §4.
+**No adeudo de biblioteca (2026-10-01, #12-15) — `_compose_library_ready`/`_cleared`/`_reverted`/
+`_reminder` (`:630-679`/`:682-722`/`:725-801`/`:945-974`).** Las cuatro se re-validan al enviar
+contra `LibraryClearanceService.payment_due`/`.reviewable`/`ClearanceGate` (D8, igual que el
+resto) y pintan los montos VIGENTES de la fila, no los del payload — ni una corrección doble
+(`library_ready` más nuevo del mismo proceso → obsoleto) ni un correo de liberación tras una
+reversión posterior (`_hay_posterior`, `:275-285`, mismo patrón que `appt_no_show`). Detalle
+completo de cuándo dispara cada uno: ⤵ [no adeudo de biblioteca: Biblioteca →
+Caja](phase2_library_clearance.md).
+
+**«Con observaciones» (2026-10-05, #16-17) — `_compose_library_observed`/`_compose_library_reenabled` (`mail_compose.py:809`/`:838`, registro en `:1057`).** El motivo del `library_observed` va CONGELADO en el payload (lo que Biblioteca escribió al observar); nadie compara el estado de la fila aquí, se pregunta al dueño (`LibraryClearanceService.observation`). Reglas de obsolescencia al ENVIAR:
+
+- `library_observed` es obsoleto si hay un `library_observed` MÁS NUEVO del proceso (actualizaron el motivo en la espera: sale ese, con el motivo vigente), si hay un `library_reenabled` más nuevo, o si la fila ya no está observada. Review Focus 4: observado y rehabilitado antes del despacho no manda un aviso falso («tienes observaciones» sería mentira).
+- `library_reenabled` es obsoleto si hay otro `library_reenabled` más nuevo o si la fila está OTRA VEZ observada (sale el aviso de observación); en `pending` o cualquier estado posterior sale.
+- **Decisión (libro mayor 2026-10-05, spec §3.3): el correo «te rehabilitó» SÍ sale aunque su par «observaciones» haya salido `Obsolete`.** Observar y rehabilitar dentro de la misma espera deja al egresado con UN solo correo, «Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo», neto cero y potencialmente confuso, pero su texto es verdadero y no se suprime para no esconder un cambio de estado real. Costo conocido: un correo sin contexto previo.
+- Los recordatorios de pago (`library_reminder`) no cambian: el barrido filtra por `awaiting_payment` (`awaiting_payment_clause`) y `observe` limpia `ready_at`, así que un observado deja de recibirlos.
+
+**`_compose_library_reverted` re-valida en CUATRO pasos, en este orden** (spec 2026-10-02 §2,
+m30/m40; Ruling R8 de la revisión de la Tarea 8, afinado por los Rulings R12 y R17 de la revisión
+final):
+
+1. Se volvió a liberar DESPUÉS (`_hay_posterior(db, fila, "library_cleared")`) → obsoleto.
+2. **E10/R12/R17 — anclado en lo ÚLTIMO que el egresado recibió por correo**, no en «el
+   `library_cleared` más reciente, saliera o no» (ese ancla, la PRIMERA versión de E10, perdía
+   una reversión legítima cuando liberar/revertir se repetía varias veces dentro de la misma
+   espera del despachador — el motivo del Ruling R8). Sea **S** la fila `sent` MÁS RECIENTE del
+   proceso, de la familia `library_cleared`/`library_reverted`, encolada ANTES que esta reversión
+   (`_ultimo_enviado`, que devuelve su `id` y su `kind`).
+   - **S es un `library_cleared`** → sale: es la noticia que corrige el «quedó liberado» que sí
+     le llegó.
+   - **Si no** (S es una reversión, o no hay S), lo que cuenta es la ventana del ciclo VIGENTE:
+     de **W** a esta reversión. W es el más reciente de S y la reversión anterior del proceso en
+     CUALQUIER estado (`_ultima_antes(db, fila, "library_reverted")`, Ruling R17): una reversión,
+     salga o no, cierra el ciclo viejo. Obsoleto SOLO si en esa ventana hay un
+     `library_cleared` encolado, en cualquier estado (`_hay_entre(db, fila, "library_cleared",
+     despues_de=W)`, la gemela acotada de `_hay_posterior`): se liberó y se revirtió dentro de la
+     misma espera, o Caja se equivocó de renglón, y ese «quedó liberado» nunca le llegó — «Se
+     revirtió tu no adeudo…» sería ruido o, peor, falso. Motivo en `last_error`: «no salió el
+     aviso de la liberación que revierte».
+   - **Si no hay ese `library_cleared`** → sale: un no adeudo legado (backfill de `tt20261001a` o
+     promoción D17), una liberación con `TITULATEC_EMAIL_ENABLED=false` o una re-liberación sin
+     correo no encolaron ningún «quedó liberado» en el ciclo vigente, pero el egresado SÍ vio
+     «Liberado» en la app, y este correo es el único aviso que le llega por fuera (Ruling R12; con
+     R8 estos casos salían obsoletos y solo quedaba el aviso in-app). Con R17 esto vale también
+     después de un ciclo abortado. Ejemplo: liberado y revertido en la misma espera (los dos
+     obsoletos), re-liberado sin correo y revertido otra vez; esta última sale, porque el liberado
+     sin salir del ciclo cerrado ya no la calla.
+
+   Así, liberado (sale) → revertido → re-liberado → revertido en una sola espera manda la
+   reversión FINAL (S es aquel liberado; los dos pasos de en medio salen obsoletos, por la regla 1
+   y por `_compose_library_cleared`); y liberar y revertir dentro de la misma espera, sin un
+   liberado enviado antes, no manda ninguno de los dos.
+3. Regresó a Caja (`to_status == "awaiting_payment"`) y ya no tiene pago pendiente
+   (`LibraryClearanceService.payment_due`, también `None` con la fase 2 ya aprobada, Ruling R30
+   #4) → obsoleto.
+4. Regresó a Biblioteca y **`LibraryClearanceService.reviewable(db, process_id)`** (m40, gemela de
+   `_reviewable_clause`: el proceso admitido Y su fase 2 NO `approved`) es falsa → obsoleto: «El
+   Centro de Información volverá a revisar tu caso» sería falso. Al componer, en la práctica
+   siempre es la fase 2 ya aprobada (el despachador descarta un proceso `cancelled` antes de
+   componer). Cada rama le pregunta al dueño (`payment_due`/`reviewable`); `mail_compose.py` no
+   compara ningún estado de liberación por su cuenta (invariante 2).
+
+`_ultimo_enviado` SUPONE que las filas `sent` del outbox nunca se purgan (hoy no hay ninguna tarea
+de retención — un futuro job de retención tendría que conservar la última `sent`
+`library_cleared`/`library_reverted` de cada proceso y, por el Ruling R17, también su última
+`library_reverted` en cualquier estado, que fija dónde empieza el ciclo vigente) y documenta en su
+propio docstring dos
+carreras angostas, sin cambio en el despachador: (a) dos corridas de `MailDispatcher` encimadas
+sobre el mismo proceso (cada una toma sus filas con `FOR UPDATE SKIP LOCKED`, §4) pueden hacer que
+una reversión salga obsoleta aunque el «quedó liberado» que la antecede SÍ se esté entregando en
+ese momento; (b) Graph aceptó el envío pero el commit que lo marca `sent` falló (entrega «al menos
+una vez»). Revertir un `library_cleared/legacy` —el backfill de `tt20261001a`— o cualquier
+liberación hecha con `TITULATEC_EMAIL_ENABLED=false` SÍ manda el correo de reversión desde el
+Ruling R12: no hay ningún `library_cleared` encolado en su ciclo vigente que vuelva obsoleta la
+reversión (con R8 no salía y solo quedaba el aviso in-app `LIBRARY_REVERTED`).
+
+**D11 — `_que_falta(db, process, bloqueos=None)` (`:224-272`).** Función compartida por
+`_compose_survey` (liberar) y `_compose_library_cleared`: arma, con el estado VIVO al componer,
+«qué le falta para agendar su cita de cotejo» — `None` si no aplica ninguna frase (proceso no
+`active`, fase 2 ya aprobada, o su cita vigente YA OCUPA el cotejo —
+`SelfBookingService.cita_ocupa_el_cotejo`, Ruling R18, ⤵ [auto-agendado](phase2_student_self_booking.md)—),
+`[]` si ya puede agendar («Ya puedes agendar tu cita de cotejo»), o una frase por pendiente —la
+fase 1 si sigue sin aprobar, y cada bloqueo de `ClearanceGate.blockers` en su orden (encuesta
+primero; el de Caja lleva el total congelado). Reemplaza el «Ya puedes agendar tu cita de
+cotejo.» fijo que traía `survey_approved` hasta el 2026-09-29 (D13).
+
+Los cuatro recordatorios (`_compose_appt_reminder` `:853-893`, `_compose_docs_reminder` `:896-917`,
+`_compose_survey_reminder` `:920-942`, `_compose_library_reminder` `:945-974`, el último nuevo
+2026-10-01) se re-validan al enviar contra el estado ACTUAL, no el del payload — ver §4.
 
 ---
 
@@ -217,8 +342,9 @@ del alta.
    queda nada `pending`, o si ninguna fila cumple `not_before <= now` todavía.
 4. **Espera del grupo (D7)**: si la fila más nueva del grupo tiene `created_at > now - espera`
    (`MailSettings.digest_minutes()`) → `"waiting"`, no se toca (`_unidad`, `:303-306`).
-5. Por unidad, en orden: proceso o alumno ya no existen → `obsolete`; proceso `cancelled` →
-   `obsolete` («inscripción revocada» — ya salió `send_process_cancelled`); sin correo personal
+5. Por unidad, en orden (las filas de inscripción van por su propio camino, §9): proceso o
+   alumno ya no existen → `obsolete`; proceso `cancelled` →
+   `obsolete` («inscripción revocada» — su aviso es la fila `process_cancelled`); sin correo personal
    (`StudentMail.contact_email`) → `no_recipient`; `MailComposer.compose` → `Obsolete` → `obsolete`
    con su motivo; si no, `email_helper.deliver_detailed` (`:319-331`).
 6. Salió → `sent` + `sent_at`/`sent_to`/`subject`, y `last_error` en blanco (el motivo de un
@@ -281,17 +407,36 @@ zona `APP_TZ`; `tasks/titulatec_tasks.py:214-231`, `soft_time_limit=540`).
 y crea su in-app (misma transacción); el despachador los manda en su corrida siguiente (cada 5
 minutos) y los
 RE-VALIDA al enviar (D8, §3 arriba). Solo procesos `status = 'active'`. Commit al terminar cada
-tipo (cita, documentos, encuesta) — lo de uno queda firme aunque el siguiente reviente. Si celery
-corta la tarea (`SoftTimeLimitExceeded`), `_aislado` NO se lo traga como la falla de un candidato:
-el candidato a medias se deshace con su SAVEPOINT, `run` commitea lo encolado antes del corte y
-vuelve a lanzar la excepción (mismo patrón del despachador, §4); el barrido termina ahí y lo que
-faltó lo toma la corrida siguiente (las llaves no dejan duplicar).
+tipo (cita, documentos, encuesta, **y desde 2026-10-01 pago en Caja**) — lo de uno queda firme
+aunque el siguiente reviente. Si celery corta la tarea (`SoftTimeLimitExceeded`), `_aislado` NO se
+lo traga como la falla de un candidato: el candidato a medias se deshace con su SAVEPOINT, `run`
+commitea lo encolado antes del corte y vuelve a lanzar la excepción (mismo patrón del despachador,
+§4); el barrido termina ahí y lo que faltó lo toma la corrida siguiente (las llaves no dejan
+duplicar). `run` devuelve `{"appt": n, "docs": n, "survey": n, "library": n}`.
 
 | Recordatorio | Candidato | Ancla | Cuándo toca |
 |---|---|---|---|
 | `appt_reminder` | cita **VIGENTE** (`is_current`) `scheduled`/`confirmed` cuya FECHA es hoy + `TITULATEC_APPT_REMINDER_DAYS_BEFORE` (`_citas`, `:261-292`) | — | una vez por cita (`appt_id`); se omite si se agendó/cambió hace < 24 h (`_CITA_RECIENTE`, `:83`) — acaba de recibir el correo #7 |
-| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected` (`_documentos`, `:294-363`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:205-232`) |
+| `docs_reminder` | `current_phase` = fase `initial_docs` con documentos que faltan o `rejected`, **contra el set DEL PERFIL del proceso** (`_documentos`, `:294-363`) | `max(inicio de la fase 1 —o el alta del proceso—, última `document_uploaded`, última `document_rejected`)` | `MailReminders.due_index` (`:205-232`) |
 | `survey_reminder` | `current_phase` = `PhaseService.PHASE_COTEJO` sin fila en `titulatec_survey_reviews` (`_encuestas`, `:365-399`) | `started_at` de la fase 2 (sin él, se omite) | idem |
+| `library_reminder` (2026-10-01, D14) | proceso `active` con `LibraryClearance.status == 'awaiting_payment'` (`LibraryClearanceService.awaiting_payment_clause`, `_pagos`, `:443-476`) | `ready_at` (la entrada VIGENTE a Caja, Ruling R10 — sin ella, se omite: `_mark_ready` siempre la fija) | idem |
+
+**`library_reminder` reusa `max_reminders()`/`due_index()`**, los MISMOS `TITULATEC_REMINDER_*`
+de documentos y encuesta — sin setting propio. `_pagos` trae el `TitulationProcess`,
+`LibraryClearance.ready_at` y `.total_amount` de TODOS los candidatos en una sola consulta
+(`JOIN`), nunca N+1; el total viaja al asunto (`asunto_recordatorio_pago`, `mail_compose.py`) y al
+cuerpo del aviso in-app (`LIBRARY_REMINDER`).
+
+**`docs_reminder` por perfil (2026-09-30, spec `titulatec-posgrado-design.md` §4.4).** `_documentos`
+resuelve el set de TODOS los procesos candidatos en una sola llamada
+(`DocumentService.initial_doc_types_by_process`, `mail_reminders.py:336`) y mide "falta"/"por
+corregir" de cada proceso contra SU PROPIO set (3 en licenciatura, 7 en posgrado) — nunca contra un
+`3` fijo; R-G (⤵ [perfil de titulación](engine_process_track.md)) no aplica aquí porque este
+recordatorio solo mira procesos que SIGUEN en la fase `initial_docs`
+(`current_phase == fase`), y esa regla es para quien ya la pasó. Los nombres que lista el correo
+(«te falta: ...») salen del catálogo con la misma consulta de unión de códigos que usa la bandeja
+admin, así que un extra de posgrado aparece con su nombre real («Cédula profesional»), no con el
+código crudo.
 
 **Fórmula común** (`due_index(anchor, now, sent, last_sent_at)`, `:205-232`): toca el índice
 `sent` si `sent < max_reminders()` y `now >= anchor + first_days() + sent · every_days()` (días)
@@ -358,6 +503,16 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
   SOLO lee `core_periodic_tasks` — sin esta fila ninguna de las dos tareas se programa, aunque el
   worker ya las tenga registradas. Las descripciones de `core_task_definitions` son copia literal
   de `TASK_DEFINITIONS` (lo fija `test_cli_mail_tasks.py`).
+- **Resuelto el 2026-10-02 (m33).** El residual del 2026-10-01 —`TASK_DEFINITIONS["titulatec.
+  email_reminders"].description` seguía listando solo cita, documentos y encuesta, aunque
+  `email_reminders()` ya contaba el pago en su dict de retorno y el barrido YA lo mandaba— quedó
+  cerrado: la descripción (`itcj2/tasks/titulatec_tasks.py:118-127`) ya menciona «el pago
+  pendiente en Caja del no adeudo de biblioteca». El DML de alta desde cero
+  (`mail_2026_09/17_insert_email_tasks.sql`) se editó con el mismo texto (fresh installs); una
+  base YA sembrada lo recibe de `database/DML/titulatec/biblioteca_2026_10/
+  23_update_email_reminders_description.sql` (dos `UPDATE … WHERE … IS DISTINCT FROM`,
+  idempotente), que corre el primer paso del despliegue (`titulatec init-biblioteca-caja`) — ⤵
+  [no adeudo de biblioteca: despliegue](phase2_library_clearance.md#despliegue-en-dos-pasos-ruling-r19).
 - **Base que ya sembró el despachador con `* * * * *`** (antes del ruling 18): como el `ON CONFLICT`
   no pisa `cron_expression`, re-sembrar NO lo cambia. Pasarlo a mano —
   `UPDATE core_periodic_tasks SET cron_expression = '*/5 * * * *' WHERE task_name =
@@ -432,14 +587,14 @@ Cada entrada: fecha larga · `subject` (o `StudentMail.KIND_LABELS[kind]` — `s
 o «—» si aún no salió; partible —`#exp-correos .quien { overflow-wrap: anywhere; }` en
 `titulatec.css`—: un correo personal largo y sin espacios no rompe `scrollWidth <= innerWidth` a
 360px) · «N avisos agrupados» si junta más de uno · píldora de estado,
-`_MAIL_STATUS_UI` (`pages/admin.py:1130-1136`):
+`_MAIL_STATUS_UI` (`pages/admin.py`):
 
 | `status` | Píldora | Tono |
 |---|---|---|
 | `sent` | Enviado | success |
 | `pending` | En cola | neutral |
 | `failed` | Falló (+ `last_error`) | danger |
-| `no_recipient` | Sin correo personal | amber |
+| `no_recipient` | Sin correo personal (correos del proceso) · «Sin correo» en los de inscripción (`ENROLLMENT_KINDS`: van al institucional o a los dos buzones, `_SIN_DESTINATARIO_INSCRIPCION`) | amber |
 | `obsolete` | Ya no aplicaba | neutral |
 
 El motivo (`last_error`) se pinta solo en `failed`, `pending` (el reintento en espera dice por qué)
@@ -452,14 +607,70 @@ si falló — no repetir el envío desde aquí (fuera de alcance de esta entrega
 
 ---
 
+## 9. Correos de inscripción sin secreto (2026-10-05, P-D1)
+
+Spec `docs/superpowers/specs/2026-10-05-titulatec-rendimiento-design.md` §3.7 (no se commitea);
+migración `tt20261005d`. Cuatro de los 6 correos de `TitulaTecEmailHelper` —los que NO llevan
+liga ni NIP— ya no salen dentro de la petición: quien los origina los ENCOLA en su transacción
+y los manda este despachador. Los de liga o NIP (aprobar, reenviar la liga, dar acceso,
+reasignar NIP, reenviar el aviso de acceso) siguen en línea.
+
+| `kind` | Encolado en | Ancla de la fila | Destinatario (el MISMO de hoy) | Obsoleto al enviar (D8) | Sello al salir |
+|---|---|---|---|---|---|
+| `enrollment_verified` | `EnrollmentRequestService.verify` → `StudentMail.enrollment_verified` | proceso + alumno + solicitud | institucional (`student_email`) | nunca (ni si después la revocan) | — |
+| `enrollment_rejected` | `EnrollmentRequestService.reject` → `StudentMail.enrollment_rejected` | SOLO la solicitud (`user_id` NULL) | `req.contact_email` (personal) | la solicitud ya no está `rejected` | `rejection_sent_at` |
+| `already_enrolled` | `EnrollmentRequestService.create` (rama del proceso vivo, `POST /inscripcion`) → `StudentMail.already_enrolled` | proceso vivo + alumno | institucional (E8: nunca el tecleado) | nunca | — |
+| `process_cancelled` | `ProcessService.cancel` → `StudentMail.process_cancelled` | proceso + alumno | institucional + personal (`email_helper.process_cancelled_recipients`, compartido con el envío en línea) | el proceso ya no está `cancelled` | — |
+
+- **Esquema**: `titulatec_email_outbox.enrollment_request_id` (BigInteger, FK, NULL, índice) y
+  `user_id` NULL-able. La regla «toda fila lleva alumno o solicitud» es de la aplicación
+  (`_outbox_values` + el `before_insert` del modelo), no un CHECK.
+- **Composición**: `MailComposer.ENROLLMENT_REGISTRY`, aparte de `REGISTRY` porque usan las
+  plantillas de `email_helper` (con su `app_url` directo, sin liga al login): el correo sale
+  idéntico por los dos caminos (lo fija `test_outbox_inscripcion.py`). Payload: el folio, o el
+  motivo del rechazo y quién lo firma; `process_cancelled` va vacío (el correo no lleva motivo).
+  Nunca token, liga, NIP ni contraseña.
+- **Despacho**: `MailDispatcher._unidad_inscripcion` — sin el «proceso revocado → obsoleto» del
+  resto (el aviso de la revocación ES una de estas filas). Sale UN solo mensaje de Graph con todos
+  los destinatarios en «Para» (la revocación: institucional + personal, la misma persona): una
+  llamada, un desenlace, sin dos esperas de hasta 30 s contra `soft_time_limit=50` ni un reintento
+  que repita el correo a quien ya lo recibió (revisión final M2). `sent_to` lleva esos buzones. El
+  envío en línea (`send_process_cancelled`) hace lo mismo.
+- **UI**: una `rejected` sin `rejection_sent_at` con su fila todavía `pending` dice «en cola» (no
+  «correo no enviado») en Solicitudes y en Accesos (`StudentMail.queued_requests`, una consulta).
+  Rechazar responde `X-Tt-Notice` «Se enviará el correo al egresado.» mientras la fila esté en
+  cola. No existe «reenviar rechazo». Las filas con proceso salen también en la bitácora del
+  expediente (§8), con su `KIND_LABELS`.
+- **Interruptor**: con `TITULATEC_EMAIL_ENABLED=false`, `enqueue` no escribe y los 4 caen al envío
+  en línea de siempre (`send_*` después del commit; el rechazo sella como antes). Ningún flujo de
+  inscripción se queda sin correo.
+- **Bajada** de `tt20261005d`: borra las filas sin `user_id` (rechazos encolados).
+- **Despliegue y ventana**: `alembic upgrade head` (`tt20261005d`) y recrear el celery worker y el beat SIN demora
+  (`deploy.sh`, paso 11.1). Entre que el backend nuevo encola y el worker nuevo despacha, el despachador VIEJO no
+  sabe componer estos 4 kinds y los cierra sin enviar, cada uno por su razón (verificado contra el despachador de
+  `5928197b`): `enrollment_rejected` → `obsolete` «el proceso o su alumno ya no existe» (cuelga solo de la
+  solicitud); `process_cancelled` → `obsolete` «inscripción revocada»; `enrollment_verified` y `already_enrolled` →
+  `obsolete` «sin composición para el tipo …», o `no_recipient` sin correo personal. Ese correo no sale (la bandeja
+  de Solicitudes dice «correo no enviado», que es cierto). La reversa tiene la misma ventana invertida, y bajar la
+  migración pierde los rechazos encolados. Procedimiento completo: `CLAUDE.md` §14 de la app.
+
+---
+
 ## Flujos relacionados
 
 - ⤵ Encolado desde: [revisión de documentos](phase1_school_services_review_docs.md),
   [motor de avance de fase](engine_approve_advance_phase.md),
   [liberación GTV de la encuesta](phase2_tech_management_survey_release.md),
-  [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md).
-- ← Antecedente (no cambia): los 6 correos de inscripción de
-  [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`).
+  [cita de cotejo](phase2_appointment_loop.md), [auto-agendado](phase2_student_self_booking.md),
+  [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) (los 4 `kind` nuevos,
+  D11/D14; 2026-10-05, `library_observed`/`library_reenabled`: ⤵ [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05)).
+- ⤵ D11/D13: `_que_falta` consulta [`ClearanceGate`](phase2_library_clearance.md#el-candado-único-clearancegate),
+  la única fuente de «qué liberaciones le faltan».
+- ← De dónde sale el set de 3 vs. 7 que mide `docs_reminder`: [perfil de titulación por nivel de
+  carrera](engine_process_track.md).
+- ← Antecedente: los 6 correos de inscripción de
+  [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`); los 4
+  sin secreto pasan por esta bandeja desde 2026-10-05 (§9).
 - → Lo lee: [expediente del alumno](xcut_admin_process_expediente.md) (bitácora `#exp-correos`).
 - ↔ In-app (no cambia su mecánica, solo gana tipos):
   [el alumno en el shell mobile del core](xcut_student_shell_embed.md).

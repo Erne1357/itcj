@@ -1,5 +1,6 @@
 """Barrido diario de recordatorios por correo al egresado (spec 2026-09-28 §5
-#8/#10/#11 y §6 C4).
+#8/#10/#11 y §6 C4; el del pago pendiente en Caja, spec 2026-10-01-titulatec-
+biblioteca-caja-design.md §4.11 y D14).
 
 La tarea periódica `titulatec.email_reminders` (diaria, 9:00) llama a
 `MailReminders.run`: encola en `titulatec_email_outbox` los recordatorios que
@@ -25,7 +26,19 @@ QUÉ TOCA (solo procesos `status = 'active'`; cadencia moderada, D6)
 - Encuesta (#11): `current_phase` = `PhaseService.PHASE_COTEJO`, sin fila en
   `titulatec_survey_reviews`. Ancla = `started_at` de la fase 2 (sin él, se
   omite).
-- Documentos y encuesta: `due_index(ancla, now, enviados, anterior)`, con
+- Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): su no adeudo de
+  biblioteca está `awaiting_payment` Y su fase 2 TODAVÍA no se aprobó
+  (`LibraryClearanceService.awaiting_payment_clause`: las dos comparaciones
+  viven en el dueño), en CUALQUIER fase —Biblioteca lo revisa desde la fase
+  1, D3— SALVO que su fase 2 ya se haya aprobado (Ruling R30 #4, re-revisión
+  de la ola final: p. ej. durante la transición D17, SE marcó el requisito a
+  mano): ahí el dueño lo clasifica `NOT_APPLICABLE` (Ruling R21) y TitulaTec
+  deja de PERSEGUIR el pago por correo —Caja sigue pudiendo cobrarlo si el
+  egresado se presenta; esto solo apaga el recordatorio—. Ancla = `ready_at`,
+  la entrada VIGENTE a Caja (Ruling R10: revertir un pago la vuelve a fijar y
+  la cuenta empieza de cero). Al liberarse (o volverse `NOT_APPLICABLE`) deja
+  de ser candidato.
+- Documentos, encuesta y pago: `due_index(ancla, now, enviados, anterior)`, con
   `enviados` = las filas del outbox de ESA ancla (el prefijo de su
   `dedupe_key`, salieran o no) y `anterior` = el `created_at` de la más nueva de
   ellas. Toca a los `first_days()` del ancla, luego cada `every_days()`, hasta
@@ -50,7 +63,7 @@ TRANSACCIONES Y LECTURAS
   `notify_student` se traga, pero que ya deshizo el SAVEPOINT— queda en el log,
   no cuenta y el barrido sigue: la llave deja reintentarlo en la corrida
   siguiente.
-- Commit al terminar cada tipo (cita, documentos, encuesta).
+- Commit al terminar cada tipo (cita, documentos, encuesta, pago).
 - Que celery corte la tarea (`SoftTimeLimitExceeded`) no es la falla de un
   candidato: `_aislado` no se lo traga. El candidato a medias se deshace con
   su SAVEPOINT, `run` commitea lo encolado antes del corte y vuelve a lanzar la
@@ -86,6 +99,9 @@ _CITA_RECIENTE = timedelta(hours=24)
 _ACTIVIDAD_DOCS = ("document_uploaded", "document_rejected")
 
 _CUERPO_ENCUESTA = "Sin ella no puedes agendar tu cita de cotejo."
+
+_CUERPO_PAGO = ("Acude a Caja (Recursos Financieros) con tu número de control; "
+                "no necesitas cita.")
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +213,24 @@ def _recordar_encuesta(db: Session, proc, ancla: datetime, indice: int,
     return True
 
 
+def _recordar_pago(db: Session, proc, ancla: datetime, indice: int, total,
+                   now: datetime) -> bool:
+    """Pago pendiente en Caja: el aviso dice cuánto (el total congelado de su
+    fila) y dónde. Cuelga de la fase 2, como el resto del no adeudo."""
+    from itcj2.apps.titulatec.services.mail_compose import asunto_recordatorio_pago
+    from itcj2.apps.titulatec.services.notify import notify_student
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    if not StudentMail.library_reminder(db, proc, anchor=ancla, index=indice,
+                                        created_at=now):
+        return False
+    notify_student(db, proc.student_id, type="LIBRARY_REMINDER",
+                   title=asunto_recordatorio_pago(total), body=_CUERPO_PAGO,
+                   process_id=proc.id, phase_number=PhaseService.PHASE_COTEJO)
+    return True
+
+
 class MailReminders:
     """Barrido diario de recordatorios. Contrato completo en el docstring del
     módulo."""
@@ -234,7 +268,7 @@ class MailReminders:
     def run(db: Session, *, now: datetime | None = None) -> dict:
         """Una corrida: `{"disabled": True}` con el correo apagado; si no,
         cuántos recordatorios NUEVOS encoló de cada tipo:
-        `{"appt": n, "docs": n, "survey": n}`."""
+        `{"appt": n, "docs": n, "survey": n, "library": n}`."""
         from itcj2.apps.titulatec.services.student_mail import MailSettings
 
         if not MailSettings.enabled():
@@ -243,7 +277,8 @@ class MailReminders:
         out = {}
         for clave, barrido in (("appt", MailReminders._citas),
                                ("docs", MailReminders._documentos),
-                               ("survey", MailReminders._encuestas)):
+                               ("survey", MailReminders._encuestas),
+                               ("library", MailReminders._pagos)):
             try:
                 out[clave] = barrido(db, now)
             except SoftTimeLimitExceeded:
@@ -292,8 +327,11 @@ class MailReminders:
 
     @staticmethod
     def _documentos(db: Session, now: datetime) -> int:
-        """#10: procesos con su inicio de fase, documentos, nombres, actividad y
-        llaves, cinco consultas para todos."""
+        """#10: procesos con su inicio de fase, documentos, nombres, perfil,
+        actividad y llaves -- cinco consultas fijas, más la del perfil
+        (`DocumentService.initial_doc_types_by_process`, una sola para todo
+        el lote y NINGUNA si nadie trae carrera) cuando hace falta resolver
+        el set de posgrado."""
         from sqlalchemy import and_, func
 
         from itcj2.apps.titulatec.models import (
@@ -319,21 +357,31 @@ class MailReminders:
         if not filas:
             return 0
 
-        # El criterio de `initial_docs_summary` para todos a la vez: sin fila =
-        # falta; `rejected` = por corregir. Nombres del catálogo (sin
-        # `is_active`, como allá), o el código si no hay fila.
-        codigos = DocumentService.INITIAL_DOC_TYPES
+        # Todos aquí siguen EN la fase de documentos (`current_phase == fase`):
+        # R-G (spec 2026-09-30-titulatec-posgrado-design.md §5) no aplica --
+        # esa regla es para quien YA la pasó. El set es el DE CADA PROCESO
+        # (licenciatura: 3; posgrado: 7), resuelto en LOTE
+        # (`initial_doc_types_by_process`); la consulta de estados usa la
+        # UNIÓN de todos los sets para no repetir un SELECT por perfil
+        # distinto, y cada proceso decide "falta"/"corregir" contra el SUYO.
+        # El criterio es el de `initial_docs_summary`: sin fila = falta;
+        # `rejected` = por corregir. Nombres del catálogo (sin `is_active`,
+        # como allá), o el código si no hay fila.
+        procesos = [p for p, _ in filas]
+        codes_by_process = DocumentService.initial_doc_types_by_process(db, procesos)
+        union_codigos = sorted({c for codigos in codes_by_process.values() for c in codigos})
         estados: dict[int, dict[str, str]] = defaultdict(dict)
         for pid, codigo, estado in (db.query(Document.process_id, Document.type_code,
                                              Document.review_status)
-                                    .filter(Document.process_id.in_([p.id for p, _ in filas]),
-                                            Document.type_code.in_(codigos))):
+                                    .filter(Document.process_id.in_([p.id for p in procesos]),
+                                            Document.type_code.in_(union_codigos))):
             estados[pid][codigo] = estado
         nombres = dict(db.query(DocumentType.code, DocumentType.name)
-                       .filter(DocumentType.code.in_(codigos)).all())
+                       .filter(DocumentType.code.in_(union_codigos)).all())
 
         pendientes = {}
         for proc, inicio in filas:
+            codigos = codes_by_process.get(proc.id, DocumentService.BASE_INITIAL_DOCS)
             docs = estados.get(proc.id, {})
             faltan = [nombres.get(c, c) for c in codigos if c not in docs]
             corregir = [nombres.get(c, c) for c in codigos if docs.get(c) == "rejected"]
@@ -395,4 +443,54 @@ class MailReminders:
             if indice is not None:
                 n += _aislado(db, "survey_reminder", proc.id, _recordar_encuesta,
                               db, proc, ancla, indice, now)
+        return n
+
+    @staticmethod
+    def _pagos(db: Session, now: datetime) -> int:
+        """Pago pendiente en Caja (spec 2026-10-01 §4.11, D14): procesos
+        `active` de cualquier fase con su no adeudo `awaiting_payment` DE
+        VERDAD (`LibraryClearanceService.awaiting_payment_clause`: la
+        comparación vive en el dueño), su entrada a Caja (`ready_at`, el
+        ancla) y su total congelado (para el aviso), y sus llaves: dos
+        consultas -el número no crece con los candidatos-. Una fila sin
+        `ready_at` no tiene ancla y se omite (`_mark_ready` siempre lo fija).
+
+        Ruling R30 #4 (re-revisión de la ola final, ronda 2): `LibraryClearance.
+        status == "awaiting_payment"` NO basta -si la fase 2 de ese proceso
+        ya se aprobó (p. ej. durante la transición D17), el dueño lo
+        clasifica `NOT_APPLICABLE` (Ruling R21) y TitulaTec deja de perseguir
+        el pago por correo; Caja sigue pudiendo cobrarlo si el egresado se
+        presenta-. `awaiting_payment_clause` YA descarta esos procesos en la
+        MISMA consulta (exige la fase 2 sin aprobar, `_phase2_open_clause`
+        del dueño): nunca se compara `ProcessPhase.status` a mano aquí, ni se
+        llama `release_status_map` desde fuera del dueño (invariante 2,
+        `test_clearance_gate.py::test_solo_el_gate_pregunta_a_los_duenos_
+        por_la_liberacion`)."""
+        from itcj2.apps.titulatec.models import LibraryClearance, TitulationProcess
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        from itcj2.apps.titulatec.services.student_mail import MailSettings
+
+        if MailSettings.max_reminders() <= 0:
+            return 0
+        filas = (db.query(TitulationProcess, LibraryClearance.ready_at,
+                          LibraryClearance.total_amount)
+                 .join(LibraryClearance, LibraryClearance.process_id == TitulationProcess.id)
+                 .filter(TitulationProcess.status == "active",
+                         LibraryClearanceService.awaiting_payment_clause(),
+                         LibraryClearance.ready_at.isnot(None))
+                 .order_by(TitulationProcess.id)
+                 .all())
+        if not filas:
+            return 0
+
+        llaves = _llaves(db, "library_reminder", [p.id for p, _, _ in filas])
+        n = 0
+        for proc, ancla, total in filas:
+            indice = MailReminders.due_index(
+                ancla, now, *_enviados(llaves, "library_reminder", proc.id, ancla))
+            if indice is not None:
+                n += _aislado(db, "library_reminder", proc.id, _recordar_pago,
+                              db, proc, ancla, indice, total, now)
         return n

@@ -321,5 +321,130 @@
     }
   }
 
+  // ————————————————————————————————— `data-tt-count-into` — contador de lote
+  //
+  // Barras de accion en lote (p. ej. «Sin adeudo» de la bandeja de Biblioteca,
+  // spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.7) quieren mostrar
+  // «(N)» con cuantas filas estan marcadas, sin que cada bandeja reinvente el
+  // contador. Contrato, generico y reutilizable por cualquier bandeja futura:
+  //
+  //   <input type="checkbox" data-tt-count-into="#mi-badge" ...>
+  //   <button>Accion<span id="mi-badge"></span></button>
+  //
+  // Las casillas con el atributo se agrupan por el SELECTOR al que apuntan
+  // (varias barras en la misma pagina no se pisan entre si). El badge que ese
+  // selector resuelve recibe « (N)» cuando N > 0 y queda VACIO en N = 0 -nunca
+  // «(0)»: el servidor YA renderiza el badge vacio por la misma razon
+  // (degradacion con JS viejo en cache, ver abajo: un «(0)» fijo mentiria para
+  // siempre). Si el badge vive DENTRO de un <button>, ese boton se deshabilita
+  // en 0 y se vuelve a habilitar en cuanto hay alguno marcado.
+  //
+  // Grado de degradacion: el servidor NUNCA manda el boton deshabilitado -sin
+  // este script (JS viejo en cache, o que no llegue a cargar), el boton sigue
+  // sirviendo igual que siempre, nada mas sin el contador ni el
+  // auto-deshabilitado; la ruta ya responde 400 legible si se manda sin nada
+  // marcado.
+  //
+  // Se re-sincroniza en cada `change` de una casilla y en `htmx:afterSettle`:
+  // las bandejas re-pintan su parcial ENTERO en cada accion (pestana,
+  // busqueda, paginacion, la propia accion de lote) y el servidor manda las
+  // casillas siempre sin marcar -sin este segundo enganche el contador se
+  // quedaria pegado en el numero de ANTES del swap.
+  //
+  // m22 (triage-minors.md): el boton de lote lleva `hx-disabled-elt="this"`
+  // -htmx lo deshabilita y le agrega la clase `htmx-request` mientras su
+  // peticion esta en vuelo-, pero las casillas NO se deshabilitan. Si el
+  // usuario desmarca/marca una mientras espera, el `change` de arriba vuelve
+  // a llamar esta funcion, y sin la guarda de abajo reescribiria
+  // `boton.disabled` con el conteo actual -reactivando un boton que htmx
+  // apago a proposito y abriendo la puerta a un doble envio-. Con la guarda,
+  // una peticion en vuelo manda sobre el conteo; `htmx:afterRequest` (exito
+  // o error, sin importar si hubo swap) vuelve a llamar esta funcion al
+  // terminar, para que el boton quede disabled/enabled segun el conteo
+  // VIGENTE y no el restaurado a ciegas por htmx.
+  function _syncCountGroups() {
+    var casillas = document.querySelectorAll('[data-tt-count-into]');
+    if (!casillas.length) return;
+    var porDestino = {};
+    casillas.forEach(function (cb) {
+      var sel = cb.getAttribute('data-tt-count-into');
+      if (!sel) return;
+      if (!(sel in porDestino)) porDestino[sel] = 0;
+      if (cb.checked) porDestino[sel]++;
+    });
+    Object.keys(porDestino).forEach(function (sel) {
+      var badge = document.querySelector(sel);
+      if (!badge) return;
+      var n = porDestino[sel];
+      badge.textContent = n > 0 ? ' (' + n + ')' : '';
+      var boton = badge.closest('button');
+      if (!boton) return;
+      if (boton.classList.contains('htmx-request')) return;
+      boton.disabled = (n === 0);
+    });
+  }
+  document.body.addEventListener('change', function (e) {
+    if (e.target && e.target.matches && e.target.matches('[data-tt-count-into]')) {
+      _syncCountGroups();
+    }
+  });
+  document.body.addEventListener('htmx:afterSettle', function () { _syncCountGroups(); });
+  document.body.addEventListener('htmx:afterRequest', function () { _syncCountGroups(); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _syncCountGroups);
+  } else {
+    _syncCountGroups();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Buscadores con `hx-preserve` (bandejas paginadas, spec 2026-10-04).
+  //
+  // El `<input name="q">` lleva `hx-preserve="true"`: htmx re-inserta el MISMO
+  // nodo tras el swap, así lo tecleado mientras viaja la petición no se pierde y
+  // el `strip()` del servidor no le come el espacio final ("maria " + "lopez").
+  // Precio: el nodo conservado no recibe el `q` del servidor nunca. Si una
+  // navegación cambia `q` sin pasar por el input (re-clic en el menú lateral,
+  // que llega sin `q`), el texto quedaría viejo y lo arrastrarían las pestañas
+  // y el pager vía `hx-include`. Por eso el contenedor de filtros (que NO se
+  // conserva, así que su atributo sí es fresco) anuncia en `data-tt-q-server`
+  // el `q` con el que se pintó, y aquí se repone SOLO si el input no tiene el
+  // foco (si lo tiene, el usuario está escribiendo y manda él) y difiere sin
+  // contar espacios de los extremos.
+  // ---------------------------------------------------------------------------
+  function _syncPreservedSearch() {
+    document.querySelectorAll('[data-tt-q-server]').forEach(function (box) {
+      var input = box.querySelector('input[name="q"][hx-preserve]');
+      if (!input || input === document.activeElement) return;
+      var server = box.getAttribute('data-tt-q-server') || '';
+      if (input.value.trim() !== server) input.value = server;
+    });
+  }
+  document.body.addEventListener('htmx:afterSettle', _syncPreservedSearch);
+
+  // Foco del buscador conservado. htmx 2.0.3 conserva el nodo con
+  // `moveBefore` donde existe (Chromium) y el foco sobrevive; sin esa API
+  // (Firefox/Safari) cae a `replaceChild`, el nodo sale y vuelve al DOM y PIERDE
+  // el foco, y htmx no lo repone porque su restauración solo actúa si el nodo
+  // enfocado ya no está en el documento (aquí sí está: es el mismo). Medido en
+  // Chromium borrando `Element.prototype.moveBefore`: valor intacto, foco
+  // perdido. Se repone aquí, con el cursor, ANTES del settle (para que
+  // `_syncPreservedSearch` lo vea enfocado y no le toque el texto).
+  var _qFoco = null;
+  document.body.addEventListener('htmx:beforeSwap', function () {
+    var a = document.activeElement;
+    _qFoco = (a && a.id && a.matches && a.matches('input[name="q"][hx-preserve]'))
+      ? { id: a.id, start: a.selectionStart, end: a.selectionEnd } : null;
+  });
+  document.body.addEventListener('htmx:afterSwap', function () {
+    if (!_qFoco) return;
+    var f = _qFoco;
+    _qFoco = null;
+    var el = document.getElementById(f.id);
+    if (el && el !== document.activeElement) {
+      el.focus({ preventScroll: true });
+      try { el.setSelectionRange(f.start, f.end); } catch (e) { /* type sin selección */ }
+    }
+  });
+
   window.TitulaTecUtils = { showToast, confirmDialog, escapeHtml, decodeHeaderMsg };
 })();

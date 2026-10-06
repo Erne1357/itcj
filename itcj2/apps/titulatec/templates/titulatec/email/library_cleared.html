@@ -1,0 +1,40 @@
+{# El no adeudo de biblioteca quedó liberado (spec 2026-10-01-titulatec-
+   biblioteca-caja-design.md §4.11): por pago en Caja (`pagado` = lo que cobró),
+   sin cargo (total $0, D18) o por constancia previa (D9). En las tres ya no se
+   imprime ni se envía una constancia (spec folios 2026-10-05, C4 y D9): solo
+   queda el folio y la liberación ya está registrada para Servicios Escolares,
+   que lo resuelve internamente; la previa tampoco lleva su papel al cotejo.
+   D11 (`m.agenda(falta)`): si ya puede agendar o
+   qué le falta, con el estado VIVO. Se re-valida al enviar (D8): si ya se
+   revirtió, no sale, y la reversión que lo desmiente tampoco, salvo que lo
+   último que recibió por correo del no adeudo fuera un «quedó liberado»
+   (E10/Ruling R12: un liberado encolado que no salió vuelve obsoleta la
+   reversión que lo deshace).
+   Contexto: first_name, link, via (payment|no_charge|prior; None si no se
+   reconoce), pagado, falta. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Tu no adeudo de biblioteca quedó liberado — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  {% if via == "payment" -%}
+  Caja (Recursos Financieros) registró tu pago{% if pagado %} de <strong>{{ pagado|e }}</strong>{% endif %}:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- elif via == "no_charge" -%}
+  El Centro de Información (Biblioteca) registró que no tienes nada que pagar:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- elif via == "prior" -%}
+  Tu constancia de no adeudo previa quedó registrada:
+  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- else -%}
+  <strong>Tu no adeudo de biblioteca quedó liberado</strong>.
+  {%- endif %}
+</p>
+<p style="margin:0 0 24px;">
+  Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación ya quedó
+  registrada para Servicios Escolares.
+</p>
+{{ m.agenda(falta) }}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

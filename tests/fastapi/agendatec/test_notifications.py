@@ -56,9 +56,9 @@ def test_coord_status_change_creates_exactly_one_notification(client, db_session
     """PATCH /coord/requests/{id}/status debe dejar UNA fila en core_notifications.
 
     Antes dejaba cero: create_notification() se llamaba sin db=.
-    Y al arreglarlo hay que cuidar no dejar dos: el endpoint es `async def`, así
-    que NotificationService.broadcast_websocket SÍ encuentra event loop y ya
-    agenda el push; un `await push_notification()` extra lo duplicaría.
+    Y al arreglarlo hay que cuidar no dejar dos: `NotificationService.create`
+    deja el push pendiente y lo emite solo al commitear la transacción raíz; un
+    `await push_notification()` extra lo duplicaría.
     """
     resp = client.patch(
         f"/api/agendatec/v2/coord/requests/{scenario['request'].id}/status",

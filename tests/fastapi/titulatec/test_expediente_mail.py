@@ -113,6 +113,23 @@ def test_pinta_los_cinco_estados_con_su_etiqueta(expediente, client_as, db_sessi
     assert "alumno@example.com" in html, "el destinatario del enviado no salió"
 
 
+@pytest.mark.parametrize("kind", ["enrollment_verified", "already_enrolled",
+                                  "process_cancelled"])
+def test_sin_destinatario_de_inscripcion_no_dice_correo_personal(
+        expediente, client_as, db_session, kind):
+    """Revisión final (m de R6): el folio y «ya inscrito» van al INSTITUCIONAL
+    y la revocación a los dos buzones; su `no_recipient` no puede decir «Sin
+    correo personal» (no era ese el destino). El de un correo del proceso, sí."""
+    esc = expediente()
+    _fila(db_session, esc["proc"], kind=kind, status="no_recipient")
+    _fila(db_session, esc["proc"], kind="phase_approved", status="no_recipient")
+
+    zona = _zona(client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text)
+
+    assert zona.count("Sin correo personal") == 1, "solo la del correo del proceso"
+    assert zona.count("Sin correo") == 2
+
+
 @pytest.mark.parametrize("status, se_ve", [
     ("failed", True), ("pending", True), ("obsolete", True),
     ("sent", False), ("no_recipient", False),
@@ -349,6 +366,7 @@ def test_fuera_de_alcance_404(expediente, client_as, make_program, make_officer,
 # ===========================================================================
 # 5. Sin N+1: UNA consulta para toda la bitácora, no una por fila
 # ===========================================================================
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_una_sola_consulta_para_correos(expediente, client_as, db_session):
     from sqlalchemy import event
 

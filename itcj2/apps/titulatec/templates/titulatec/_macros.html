@@ -13,7 +13,10 @@
   </span>
 {% endmacro %}
 
-{# — Mapea un estado de fase/documento (códigos en inglés) a (texto, tono, icono) — #}
+{# — Mapea un estado de fase/documento (códigos en inglés) a (texto, tono, icono) —
+   "excused" (Ruling R11, revisión final 2026-09-30): pseudo-estado de la UI de un
+   extra de posgrado DISPENSADO por R-G (spec §5, invariante 8) -- nunca un valor
+   de `Document.review_status`, igual que "missing" no lo es. #}
 {% macro estado_pill(estado) %}
   {% if estado == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
   {% elif estado == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
@@ -21,6 +24,7 @@
   {% elif estado == "in_progress" %}{{ pill("En curso", "amber", "clock") }}
   {% elif estado == "pending" %}{{ pill("Pendiente", "neutral", "hourglass-split") }}
   {% elif estado == "skipped" %}{{ pill("No aplica", "neutral", "dash-circle") }}
+  {% elif estado == "excused" %}{{ pill("En cotejo", "neutral", "calendar-check") }}
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 
@@ -67,14 +71,180 @@
    egresados (`SurveyReviewService`) a (texto, tono, icono). Incluye el
    PSEUDO-estado "missing" (el egresado todavía no envía la encuesta).
    NO reusa `estado_pill`: esa dice "Rechazado"/"Aprobado", y aquí GTV
-   "libera" u "observa" — vocabulario distinto para la misma forma visual. #}
-{% macro survey_review_pill(status) %}
+   "libera" u "observa" — vocabulario distinto para la misma forma visual.
+
+   `origin` (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.12):
+   gemelo de `library_clearance_pill(status, via=None)` — una solicitud
+   `approved`/`origin='prior'` (el egresado trae su constancia del semestre
+   anterior, sin encuesta real detrás) se distingue con su propia píldora en
+   vez de "Liberada" (D9, folios 2026-10-05: tampoco lleva el papel al cotejo). #}
+{% macro survey_review_pill(status, origin=None) %}
   {% if status == "missing" %}{{ pill("Encuesta pendiente", "neutral", "clipboard") }}
   {% elif status == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
   {% elif status == "rejected" %}{{ pill("Con observaciones", "danger", "exclamation-triangle") }}
+  {% elif status == "approved" and origin == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
   {% elif status == "approved" %}{{ pill("Liberada", "success", "check-lg") }}
   {% else %}{{ pill(status, "neutral") }}{% endif %}
 {% endmacro %}
+
+{# — Gemela de la anterior para el no adeudo de biblioteca (spec
+   2026-10-01-titulatec-biblioteca-caja-design.md §4.4/§4.9): mapea el `library`
+   de `ClearanceGate.status` (o el `status` de `LibraryClearanceService`) a
+   (texto, tono, icono). `missing` (sin fila) se dice igual que `pending`:
+   Biblioteca todavía no lo revisa. `via` es `cleared_via` y solo distingue la
+   constancia previa (D9); `payment`, `no_charge`
+   y `legacy` son «Liberado». `not_required` (convocatoria sin el requisito
+   automático) NO pinta nada: no hay liberación que mostrar. `not_applicable`
+   (Ruling R21: ya pasó su cotejo sin un no adeudo liberado) es una píldora
+   NEUTRA «No aplica (cotejo ya liberado)» -la ven SE y la cola; las vistas
+   del egresado ni siquiera la piden-. Las dos de «liberado» llevan el libro y
+   no la palomita de «Liberada»: puestas lado a lado en la cola, se
+   distinguen de un vistazo. `observed` (spec 2026-10-05 §3.4): Biblioteca lo
+   detuvo con un motivo -«Con observaciones», tono danger, igual que la
+   encuesta `rejected`-; el motivo lo pinta cada vista junto a la píldora. #}
+{% macro library_clearance_pill(status, via=None) %}
+  {% if status in ("missing", "pending") %}{{ pill("En Biblioteca", "amber", "book") }}
+  {% elif status == "awaiting_payment" %}{{ pill("Por pagar en Caja", "navy", "cash-coin") }}
+  {% elif status == "observed" %}{{ pill("Con observaciones", "danger", "exclamation-triangle") }}
+  {% elif status == "cleared" and via == "prior" %}{{ pill("Constancia previa", "success", "file-earmark-check") }}
+  {% elif status == "cleared" %}{{ pill("Liberado", "success", "book") }}
+  {% elif status == "not_applicable" %}{{ pill("No aplica (cotejo ya liberado)", "neutral", "dash-circle") }}
+  {% elif status == "not_required" %}
+  {% else %}{{ pill(status, "neutral") }}{% endif %}
+{% endmacro %}
+
+{# — Celda «Folio» (antes «Constancia») de las bandejas de Biblioteca/GTV, y
+   (Tarea 4) del panel de atender cotejo y el expediente de SE — Tarea 3 de
+   `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.3, E1/E6.
+
+   SWITCH DE IMPRESIÓN (spec `2026-10-05-titulatec-folios-design.md` §3.5): UNA
+   sola condición, `tt_certificate_printing()`, global de Jinja de
+   `titulatec_templates` (`pages/nav.py`, llega a esta macro aunque se importe
+   sin contexto; es `certificate_service.printing_enabled`, que lee
+   `get_settings()` en cada render), separa las dos celdas. ENCENDIDO: todo lo de abajo, EXACTO a
+   la ronda del 2026-10-02 (impresa, sin imprimir, no se imprimirá, anulada tras
+   imprimir). APAGADO (el default; ya no se imprime, solo hay folio): con folio
+   vigente, el folio (`tt-mono`) y, tras un espacio, una nota tenue «previa»
+   (`prior`) o «previo al sistema» (`legacy`); sin folio vigente, `prior` pinta
+   «Constancia previa (papel del egresado)» y todo lo demás «—» -también una
+   fila con constancia anulada tras imprimir: ya no hay papel que retirar ni
+   que mencionar, y la celda nunca queda en blanco-. Apagado NUNCA salen
+   «Impresa», «Sin imprimir», «No se imprimirá» ni «Anulada tras imprimir»;
+   `info.printed`, `info.batch_*` e `info.voided_printed` no se leen.
+   `revoked` (D8, 2026-10-05, inscripción revocada) SÍ se lee, pero solo con
+   folio vigente: agrega la nota tenue «inscripción revocada» junto al folio
+   (sin píldora; con `prior`/`legacy` en su propio renglón, porque pegada a
+   «previa» se leería «previa inscripción revocada»). Whitespace: apagado, la
+   celda es EXACTAMENTE el `<span>` del folio (más las notas), sin espacios
+   ni `<br>` sueltos.
+
+   `info` es el dict de `CertificateService.print_status_map` para el origen
+   de esa fila (`library_clearance:{id}` / `survey_review:{id}`), o `None`
+   -nunca tuvo constancia ni una anulada que alcanzara a entrar a un lote-.
+   NUNCA truena con `info=None`.
+
+   `prior` (`via`/`origin` == 'prior') y `legacy` (`via` == 'legacy', solo
+   Biblioteca: GTV no tiene legado) dicen POR QUÉ no hay constancia vigente
+   cuando `info.number` no trae folio. Desde 2026-10-05 las previas y el
+   legado SÍ llevan folio (lo emite `register_prior` o el backfill de
+   `FolioBackfillService`), así que sin vigente solo quedan las registradas
+   antes que el backfill aún no folia o las de folio anulado: `prior` pinta
+   «Constancia previa (papel del egresado)» y `legacy` «—» (la tabla del spec
+   junta el legado con «nunca tuvo constancia»). Son parámetros separados, y
+   no un solo «motivo», porque el aviso de abajo es ADITIVO, no parte de esta
+   rama: una fila `prior` o `legacy` puede además tener una constancia VIEJA
+   anulada-tras-imprimir que retirar (pagó, se imprimió, Caja revirtió el
+   pago, y luego Biblioteca registró su constancia previa).
+
+   `revoked` (Ruling R13 de la revisión final): la inscripción está revocada
+   (`TitulationProcess.status == 'cancelled'`). Solo cambia la vigente SIN
+   lote: «Por imprimir» ya no la toma (`CertificateService.
+   _pending_criteria`, Ruling R26), así que en vez de «Sin imprimir» (ámbar)
+   pinta la píldora neutra «No se imprimirá» y, FUERA de ella, la nota tenue
+   «inscripción revocada» (Ruling R18: la píldora no parte renglón -`nowrap`-
+   y con el motivo adentro desbordaba en celular; la nota sí se parte).
+   «Impresa» y «Anulada tras imprimir» no cambian: ese papel existe. Las
+   bandejas pasan `r.revoked`; las dos vistas de SE, el estado del proceso.
+
+   Orden de pintado: (1) con folio vigente, el folio y, según `info.printed`,
+   «Impresa · lote #N · fecha», o -sin lote- «No se imprimirá» + «inscripción
+   revocada» con `revoked` y «Sin imprimir» sin él; (2) si no hay vigente, el
+   motivo: `prior` pinta «Constancia previa (papel del egresado)» y `legacy`
+   «—»; sin ninguno de los dos, «—» (nunca tuvo constancia) SALVO que
+   `info.voided_printed` exista -ahí no pinta nada (M1 de la revisión
+   final): la fila SÍ tuvo constancia, y un «—» encima del aviso decía lo
+   contrario-; (3) ADEMÁS, siempre que no haya vigente Y
+   `info.voided_printed` exista, el aviso de retirar el papel: debajo del
+   texto de (2) cuando lo hay (`prior`/`legacy`, con `<br>`), o como lo
+   PRIMERO de la celda cuando no.
+
+   Respaldo final (Ruling R4, revisión de la Tarea 3): un `info` que es un
+   dict (no `None`) sin folio vigente, sin `voided_printed` y ni `prior` ni
+   `legacy` es CONTRACTUALMENTE IMPOSIBLE hoy -`print_status_map` solo
+   regresa folio vigente, `voided_printed` o `None`-, pero la celda nunca
+   debe quedar en blanco si ese contrato cambiara: pinta «—». #}
+{% macro certificate_cell(info, prior=False, legacy=False, revoked=False) %}
+  {%- set vigente = info and info.number -%}
+  {%- set retirar = not vigente and info and info.voided_printed -%}
+  {%- if tt_certificate_printing() -%}
+  {#- Encendido: exactamente la ronda del 2026-10-02 (sin sangrar a propósito, para que el diff sea solo el `if`). -#}
+  {%- if vigente -%}
+    <span class="tt-mono small">{{ info.number }}</span><br>
+    {%- if info.printed %}
+      {{ pill("Impresa", "success", "printer") }}
+      <span class="small text-body-secondary">lote #{{ info.batch_id }} · {{ info.batch_at.strftime('%d/%m/%Y') if info.batch_at else '—' }}</span>
+    {%- elif revoked %}
+      {{ pill("No se imprimirá", "neutral", "slash-circle") }}
+      <span class="small text-body-secondary">inscripción revocada</span>
+    {%- else %}
+      {{ pill("Sin imprimir", "amber", "hourglass-split") }}
+    {%- endif %}
+  {%- elif prior -%}
+    <span class="small text-body-secondary">Constancia previa (papel del egresado)</span>
+  {%- elif legacy -%}
+    —
+  {%- elif retirar -%}
+    {#- M1: nada antes del aviso de (3), que abre la celda. -#}
+  {%- else -%}
+    —
+  {%- endif -%}
+  {%- if retirar -%}
+    {%- if prior or legacy %}<br>{% endif -%}
+    {{ pill("Anulada tras imprimir", "danger", "exclamation-octagon") }}
+    <span class="tt-mono small">{{ info.voided_printed.number }}</span>
+    <span class="small text-body-secondary">lote #{{ info.voided_printed.batch_id }} — retira ese papel</span>
+  {%- endif -%}
+  {%- else -%}
+    {#- Apagado (spec folios 2026-10-05 §3.5): solo el folio; nada de impresión. -#}
+    {%- if vigente -%}
+      <span class="tt-mono small">{{ info.number }}</span>
+      {%- if prior %} <span class="small text-body-secondary">previa</span>
+      {%- elif legacy %} <span class="small text-body-secondary">previo al sistema</span>
+      {%- endif -%}
+      {#- D8: inscripción revocada = el folio sigue vigente; solo la nota tenue (sin píldora). -#}
+      {%- if revoked %}{% if prior or legacy %}<br>{% else %} {% endif %}<span class="small text-body-secondary">inscripción revocada</span>{% endif -%}
+    {%- elif prior -%}
+      <span class="small text-body-secondary">Constancia previa (papel del egresado)</span>
+    {%- else -%}
+      —
+    {%- endif -%}
+  {%- endif -%}
+{% endmacro %}
+
+{# — Píldora "Posgrado" junto a la carrera (bandeja de Documentos, expediente,
+   ficha de cotejo — spec 2026-09-30-titulatec-posgrado-design.md §4.4). `track`
+   ya viene resuelto por `TrackService` (invariante 2: aquí no se compara nada
+   de `Program.level` ni nombres de carrera, solo el string que devolvió el
+   servicio). Licenciatura (o cualquier otro valor) no pinta nada -- es el caso
+   de siempre y no lleva distintivo.
+
+   Todo en UNA línea a propósito: un `if` de varias líneas deja indentación
+   como salida del macro incluso cuando la condición es falsa, y eso le
+   agregaría un espacio de más al lado de la carrera en CADA fila de
+   licenciatura -- justo lo que la invariante 3 (licenciatura queda idéntica)
+   prohíbe. El espacio antes de `pill(...)` sí es intencional: así el llamador
+   no necesita poner uno y para licenciatura el macro entero es `""`. #}
+{% macro track_pill(track) %}{% if track == "posgrado" %} {{ pill("Posgrado", tone="violet", icon="mortarboard") }}{% endif %}{% endmacro %}
 
 {# — SKELETON de carga — úsalo en regiones que cargan vía HTMX (clase htmx-indicator) #}
 {% macro skel_line(w="") %}<div class="tt-skel tt-skel-line {{ w }}"></div>{% endmacro %}
@@ -170,4 +340,31 @@
   <a href="/titulatec/student/perfil" class="app-sidebar-item tt-standalone-only {{ 'active' if activo=='perfil' }}">
     <i class="bi bi-person{{ '-fill' if activo=='perfil' }}"></i><span>Perfil</span>
   </a>
+{% endmacro %}
+
+{# Paginador compartido de las bandejas admin. `page` es un utils.paging.Page.
+   Sin filas no pinta nada; con una sola pagina, solo el rango; con mas, prev/next.
+   include: selector CSS con los filtros a conservar al cambiar de pagina.
+   select: `hx-select` opcional, para vistas que repintan una pagina COMPLETA
+   recortando su contenedor (Procesos: `#tt-admin-content`). Si select == target,
+   el swap tiene que ser de la familia outerHTML (CLAUDE.md de la app, §4). #}
+{% macro pager(page, url, target, include=None, swap="outerHTML", push_url=False, prefix="tt", select=None) %}
+{% if page.total > 0 %}
+  {% set _range %}<span class="tt-pager-range">{{ page.start }}–{{ page.end }} de {{ page.total }}</span>{% endset %}
+  {% if page.pages <= 1 %}
+  {{ _range }}
+  {% else %}
+  <nav id="{{ prefix }}-pager" class="tt-pager" aria-label="Paginación">
+    <button type="button" id="{{ prefix }}-pager-prev" class="btn btn-sm tt-btn-ghost"
+            {% if page.has_prev %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page - 1 }}}' hx-target="{{ target }}"{% if select %} hx-select="{{ select }}"{% endif %} hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
+      <i class="bi bi-chevron-left"></i><span class="d-none d-sm-inline"> Anteriores</span>
+    </button>
+    {{ _range }}
+    <button type="button" id="{{ prefix }}-pager-next" class="btn btn-sm tt-btn-ghost"
+            {% if page.has_next %}hx-get="{{ url }}" hx-vals='{"page": {{ page.page + 1 }}}' hx-target="{{ target }}"{% if select %} hx-select="{{ select }}"{% endif %} hx-swap="{{ swap }}"{% if include %} hx-include="{{ include }}"{% endif %}{% if push_url %} hx-push-url="true"{% endif %}{% else %}disabled aria-disabled="true"{% endif %}>
+      <span class="d-none d-sm-inline">Siguientes </span><i class="bi bi-chevron-right"></i>
+    </button>
+  </nav>
+  {% endif %}
+{% endif %}
 {% endmacro %}

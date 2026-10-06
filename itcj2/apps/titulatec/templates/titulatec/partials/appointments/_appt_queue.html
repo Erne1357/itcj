@@ -22,10 +22,14 @@
                                propio y no una fila más del montón: nadie los
                                va a agendar si nadie sabe que están esperando.
    «Reagendar»                 alumnos que no se presentaron.
-   «Encuesta sin liberar»      nunca la enviaron, o la enviaron y Gestión
-                               Tecnológica y Vinculación todavía no la libera
-                               (D1, 2026-09-29 — revierte D2 del 2026-09-15,
-                               que se conformaba con que la hubieran enviado).
+   «Liberaciones pendientes»   les falta alguna liberación según
+                               `ClearanceGate` (spec 2026-10-01-titulatec-
+                               biblioteca-caja §4.4.5; antes «Encuesta sin
+                               liberar»): la encuesta (nunca la enviaron, o
+                               Gestión Tecnológica y Vinculación todavía no la
+                               libera — D1, 2026-09-29) o, donde la
+                               convocatoria lo exige, el no adeudo de
+                               biblioteca (en Biblioteca o por pagar en Caja).
 
    No se mezclan a propósito. Su lugar NO se libera cuando alguien no llega
    («si no se presentó es que ya pasó», decisión del usuario), así que conservan
@@ -44,10 +48,10 @@
    La FILA ENTERA es el objetivo táctil (`<label>` de 44 px), no la casilla de
    20 px que había que acertar con el pulgar. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
-{% from "titulatec/_macros.html" import appt_pill, survey_review_pill %}
+{% from "titulatec/_macros.html" import appt_pill, library_clearance_pill, survey_review_pill %}
 
 <aside id="appt-queue" aria-label="Cola de trabajo"
-       data-tt-fade-key="queue:{{ pending_count }}|{{ rechazados_count }}|{{ bloqueados_count }}|{{ reagendar_count }}|{{ sin_encuesta_count }}|{{ seleccion|join(',') }}">
+       data-tt-fade-key="queue:{{ pending_count }}|{{ rechazados_count }}|{{ bloqueados_count }}|{{ reagendar_count }}|{{ liberaciones_count }}|{{ seleccion|join(',') }}">
 
   {# «Por agendar» es la PRIORIDAD de la cola: primera cita, nadie mas que el
      encargado (o el propio alumno) puede resolverla. `.tt-card--accent` (fondo
@@ -112,22 +116,23 @@
      `visibles` (`_shell_ctx` los suma a mano cuando no tienen cita vigente que
      los meta por `agenda_process_ids`). El arrastre es CONDICIONAL:
 
-     * `encuesta_sin_liberar` (D1, revierte D2 del 2026-09-15: nunca la
-       enviaron, o la enviaron y GTV no la ha liberado) — SIN
-       `draggable`/`data-tt-drag*`: arrastrarlo revienta en
-       `SurveyNotSubmitted`/`SurveyNotReleased`, un error que no explica nada
-       en el contexto de "solo le rechazaron la fase". Pildora de su estado
-       real (`survey_review_pill(r.survey_status)`, `_macros.html:71-77`) en
-       su lugar; la ficha se sigue pudiendo abrir para ver el motivo y dar
-       seguimiento.
-     * con la encuesta LIBERADA — arrastrable como cualquier otro cubo: `move`
+     * `liberaciones_pendientes` (`ClearanceGate`: la encuesta sin enviar o
+       sin liberar, o el no adeudo de biblioteca pendiente donde la
+       convocatoria lo exige) — SIN `draggable`/`data-tt-drag*`: arrastrarlo
+       revienta en `SurveyNotSubmitted`/`SurveyNotReleased`/
+       `LibraryNotCleared`, un error que no explica nada en el contexto de
+       "solo le rechazaron la fase". En su lugar, las pildoras de su estado
+       real (`survey_review_pill`, `library_clearance_pill`; la de biblioteca
+       no pinta nada si la convocatoria no la exige); la ficha se sigue
+       pudiendo abrir para ver el motivo y dar seguimiento.
+     * con todo LIBERADO — arrastrable como cualquier otro cubo: `move`
        decide por `_ESTADOS_ACTIVOS`, y un `attended` (o ninguna cita) no es
        cita VIVA, asi que abre un intento NUEVO en vez de mover el anterior,
        que borraria la evidencia de que el cotejo ocurrio.
 
      `motivo` es el `rejection_reason` de la fase 02: el porque, sin abrir la
-     ficha. `bloqueado` (D9) puede coincidir con `encuesta_sin_liberar` en la
-     MISMA fila — no son excluyentes, y la plantilla pinta las dos senales. #}
+     ficha. `bloqueado` (D9) puede coincidir con `liberaciones_pendientes` en
+     la MISMA fila — no son excluyentes, y la plantilla pinta las dos senales. #}
   {% if rechazados_count %}
   <div class="tt-card mt-3">
     <div class="tt-queue-head">
@@ -139,7 +144,7 @@
     <div class="tt-queue-list">
       {% for r in rechazados %}
       <a class="tt-appt-item" id="appt-rejected-{{ r.process_id }}"
-         {% if not r.encuesta_sin_liberar %}
+         {% if not r.liberaciones_pendientes %}
          draggable="true" data-tt-drag="{{ r.process_id }}" data-tt-drag-name="{{ r.student }}"
          {% endif %}
          {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ r.process_id) }}>
@@ -153,8 +158,11 @@
           <span class="meta d-block text-truncate">Agotó sus cancelaciones: solo tú puedes agendarle</span>
           {% endif %}
         </span>
-        {% if r.encuesta_sin_liberar %}
-        {{ survey_review_pill(r.survey_status) }}
+        {% if r.liberaciones_pendientes %}
+        <span class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+          {{ survey_review_pill(r.survey_status) }}
+          {{ library_clearance_pill(r.library_status) }}
+        </span>
         {% endif %}
       </a>
       {% endfor %}
@@ -167,8 +175,9 @@
      pueden agendarse solos, así que si el encargado no los ve, se quedan
      esperando indefinidamente a que pase algo que no puede pasar.
 
-     Filas CON arrastre y CON selección, al revés que «Sin encuesta»: aquí sí
-     hay algo que hacer, y es exactamente lo que el cubo pide. Sus procesos
+     Filas CON arrastre y CON selección, al revés que «Liberaciones
+     pendientes»: aquí sí hay algo que hacer, y es exactamente lo que el cubo
+     pide. Sus procesos
      entran a `visibles` en `_shell_ctx`, o el `?selected=` los descartaría y
      el encargado vería el cubo sin poder abrirle la ficha a nadie. #}
   {% if bloqueados_count %}
@@ -207,12 +216,12 @@
   </div>
   {% endif %}
 
-  {# «Reagendar»: un `no_show` puede seguir aquí mucho después de que GTV
-     liberó la encuesta la primera vez (D2: su cita vieja no se toca), pero
-     REAGENDAR abre un intento NUEVO y esa vuelve a pasar por la guarda dura
-     de `AppointmentService.create` (D1). El arrastre es CONDICIONAL, mismo
-     criterio que «Fase 02 rechazada» arriba: con `encuesta_sin_liberar` SIN
-     `draggable`/`data-tt-drag*` (revisión final, I-3) y con la píldora de su
+  {# «Reagendar»: un `no_show` puede seguir aquí mucho después de que se
+     liberaron la encuesta y el no adeudo (D2/D17: su cita vieja no se toca),
+     pero REAGENDAR abre un intento NUEVO y esa vuelve a pasar por la guarda
+     dura de `AppointmentService.create`. El arrastre es CONDICIONAL, mismo
+     criterio que «Fase 02 rechazada» arriba: con `liberaciones_pendientes` SIN
+     `draggable`/`data-tt-drag*` (revisión final, I-3) y con las píldoras de su
      estado real en su lugar; la ficha se sigue pudiendo abrir. #}
   {% if reagendar_count %}
   <div class="tt-card mt-3">
@@ -225,7 +234,7 @@
     <div class="tt-queue-list">
       {% for r in reagendar %}
       <a class="tt-appt-item" id="appt-requeue-{{ r.process_id }}"
-         {% if not r.encuesta_sin_liberar %}
+         {% if not r.liberaciones_pendientes %}
          draggable="true" data-tt-drag="{{ r.process_id }}"
          data-tt-drag-name="{{ r.student }}"
          {% endif %}
@@ -237,8 +246,11 @@
           <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
           <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
         </span>
-        {% if r.encuesta_sin_liberar %}
-        {{ survey_review_pill(r.survey_status) }}
+        {% if r.liberaciones_pendientes %}
+        <span class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+          {{ survey_review_pill(r.survey_status) }}
+          {{ library_clearance_pill(r.library_status) }}
+        </span>
         {% endif %}
       </a>
       {% endfor %}
@@ -246,30 +258,38 @@
   </div>
   {% endif %}
 
-  {# «Encuesta sin liberar» (D1, revierte D2 del 2026-09-15): documentos
-     aprobados, pero la encuesta de egresados no está LIBERADA por Gestión
-     Tecnológica y Vinculación — nunca la enviaron, o la enviaron y GTV
-     todavía la revisa o dejó observaciones. Sin ella liberada,
-     `AppointmentService.create` rechaza la cita. Filas SIN arrastre, SIN
-     selección y SIN `appt_nav`: no hay nada que hacer con ellas todavía,
-     solo informan — la píldora (`survey_review_pill`) dice en qué va cada
-     una. No suman al badge de la pestaña Agenda (contador "por atender"). #}
-  {% if sin_encuesta_count %}
+  {# «Liberaciones pendientes» (spec 2026-10-01-titulatec-biblioteca-caja
+     §4.4.5; antes «Encuesta sin liberar», D1 de 2026-09-29): documentos
+     aprobados, pero le falta alguna liberación según `ClearanceGate` — la
+     encuesta de egresados (nunca la enviaron, o Gestión Tecnológica y
+     Vinculación todavía la revisa o dejó observaciones) o, donde la
+     convocatoria lo exige, el no adeudo de biblioteca (en Biblioteca o por
+     pagar en Caja). Sin ellas, `AppointmentService.create` rechaza la cita.
+     Filas SIN arrastre, SIN selección y SIN `appt_nav`: no hay nada que hacer
+     con ellas todavía, solo informan. DOS píldoras por fila — la de la
+     encuesta (`survey_review_pill`) y la del no adeudo
+     (`library_clearance_pill`, que no pinta nada si la convocatoria no lo
+     exige) — dicen en qué va cada una. No suman al badge de la pestaña Agenda
+     (contador "por atender"). #}
+  {% if liberaciones_count %}
   <div class="tt-card mt-3">
     <div class="tt-queue-head">
-      <h2 class="tt-h-sec">Encuesta sin liberar
-        <span class="n">{{ sin_encuesta_count }}</span>
+      <h2 class="tt-h-sec">Liberaciones pendientes
+        <span class="n">{{ liberaciones_count }}</span>
       </h2>
     </div>
-    <p class="tt-appt-empty mb-2">Documentos aprobados; falta que Gestión Tecnológica y Vinculación libere su encuesta.</p>
+    <p class="tt-appt-empty mb-2">Documentos aprobados; falta que se libere su encuesta de egresados o su no adeudo de biblioteca.</p>
     <div class="tt-queue-list">
-      {% for r in sin_encuesta %}
-      <div class="tt-appt-item" id="appt-nosurvey-{{ r.process_id }}">
+      {% for r in liberaciones %}
+      <div class="tt-appt-item" id="appt-clearance-{{ r.process_id }}">
         <span class="flex-grow-1 min-w-0">
           <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
           <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
         </span>
-        {{ survey_review_pill(r.survey_status) }}
+        <span class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+          {{ survey_review_pill(r.survey_status) }}
+          {{ library_clearance_pill(r.library_status) }}
+        </span>
       </div>
       {% endfor %}
     </div>

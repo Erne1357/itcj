@@ -161,6 +161,8 @@ class AppointmentService:
         `allowed_program_ids`: None = sin restricción de carrera; set vacío = [].
         `q`: busca por nombre del alumno o número de control, DENTRO del alcance.
         """
+        from sqlalchemy.orm import contains_eager
+
         from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
         from itcj2.core.models.user import User
         if allowed_program_ids is not None and len(allowed_program_ids) == 0:
@@ -172,6 +174,9 @@ class AppointmentService:
             # cada intento superado como una cita más y el mismo alumno sale
             # repetido.
             .filter(ReviewAppointment.is_current.is_(True))
+            # `_appt_rows` lee `a.process` por fila: con el JOIN ya hecho, se
+            # puebla desde él (Tarea 7, sin una consulta por cita).
+            .options(contains_eager(ReviewAppointment.process))
         )
         if allowed_program_ids is not None:
             query = query.filter(TitulationProcess.program_id.in_(allowed_program_ids))
@@ -271,11 +276,13 @@ class AppointmentService:
     def _unscheduled_query(db: Session, *, program_id: int | None,
                            allowed_program_ids: set | None):
         """Base compartida de `list_pending_processes`,
-        `list_self_blocked_processes` y `list_missing_survey_processes`:
-        procesos activos, SIN cita, acotados por carrera. Cada llamador le
-        agrega su propio predicado de la solicitud (existe / no existe), el
-        filtro de documentos y el de D9, para no arriesgarse a que los cubos
-        se desincronicen del universo que comparten.
+        `list_self_blocked_processes` y `list_missing_clearance_processes`:
+        procesos activos, SIN cita, acotados por carrera, SIN fase 2
+        `rejected` (bandeja propia) ni YA `approved` (m41: no necesita que se
+        le agende, con cita vigente o sin ella). Cada llamador le agrega su
+        propio predicado de liberaciones (`ClearanceGate.released_clause` /
+        su negación), el filtro de documentos y el de D9, para no arriesgarse
+        a que los cubos se desincronicen del universo que comparten.
 
         `None` si `allowed_program_ids` cerró el alcance (set vacío): el
         llamador debe leerlo así y devolver `[]` sin más consultas.
@@ -307,7 +314,8 @@ class AppointmentService:
         # rechazaron" en el MISMO cubo, que es justo lo que rompía que «Por
         # agendar» significara una sola cosa. Se resta en la base COMPARTIDA
         # y no en cada cubo por separado, para que «Por agendar», «Requieren
-        # que les agendes» y «Sin encuesta» no puedan desincronizarse entre sí.
+        # que les agendes» y «Liberaciones pendientes» no puedan
+        # desincronizarse entre sí.
         rechazados_ids = [pid for (pid,) in
                           db.query(ProcessPhase.process_id)
                           .filter(ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
@@ -315,6 +323,25 @@ class AppointmentService:
                           .distinct()]
         if rechazados_ids:
             q = q.filter(~TitulationProcess.id.in_(rechazados_ids))
+        # m41 (Tarea 9, 2026-10-02-titulatec-constancias-y-pendientes): la fase
+        # 2 YA aprobada -por otra vía, sin pasar por una cita aquí: excepción
+        # manual, dato heredado- tampoco necesita que se le agende -es el
+        # mismo caso terminal de §3 (`fase_aprobada`) que ya corta el
+        # auto-agendado del alumno-. Sin esta resta, un proceso así -nunca
+        # tuvo cita, o se le canceló la única que tuvo- seguía contando como
+        # "sin cita" en la base COMPARTIDA y podía reaparecer en "Por
+        # agendar", "Requieren que les agendes" o "Liberaciones pendientes"
+        # como si le faltara algo. Misma forma que `rechazados_ids`, A
+        # PROPÓSITO: una consulta aparte y no un `.in_(("rejected",
+        # "approved"))` fusionado, para que cada resta documente su propio
+        # motivo por separado.
+        aprobados_ids = [pid for (pid,) in
+                         db.query(ProcessPhase.process_id)
+                         .filter(ProcessPhase.phase_number == PhaseService.PHASE_COTEJO,
+                                 ProcessPhase.status == "approved")
+                         .distinct()]
+        if aprobados_ids:
+            q = q.filter(~TitulationProcess.id.in_(aprobados_ids))
         if allowed_program_ids is not None:
             q = q.filter(TitulationProcess.program_id.in_(allowed_program_ids))
         if program_id:
@@ -322,44 +349,83 @@ class AppointmentService:
         return q
 
     @staticmethod
-    def _pending_candidates(db: Session, *, program_id: int | None,
-                            allowed_program_ids: set | None) -> list:
-        """Procesos activos, SIN cita vigente, con los 3 documentos iniciales
-        aprobados y con la encuesta de egresados ya LIBERADA por Gestión
-        Tecnológica y Vinculación (D1, spec 2026-09-29-titulatec-cotejo-
-        espacios-design.md §2 — revierte D2 del 2026-09-15: antes bastaba con
-        que la solicitud existiera, sin importar su estado).
+    def queue_candidates(db: Session, *, program_id: int | None = None,
+                         allowed_program_ids: set | None = None) -> dict:
+        """Los TRES cubos que salen del universo «sin cita»
+        (`_unscheduled_query`), calculados UNA vez y en consultas FIJAS
+        (Tarea 7, spec 2026-10-04-titulatec-paginacion-design.md §8):
 
-        De aquí salen DOS cubos que se reparten el conjunto sin solaparse
-        (§6): «Por agendar» y «Requieren que les agendes» (los bloqueados por
-        D9). Se calcula en un solo sitio para que no puedan desincronizarse:
-        con dos consultas gemelas, un proceso acabaría en los dos cubos o en
-        ninguno según cuál se tocara primero.
+        * ``pending`` -- «Por agendar».
+        * ``blocked`` -- «Requieren que les agendes» (D10: bloqueados por D9).
+        * ``missing_clearance`` -- «Liberaciones pendientes».
+        * ``docs_ok`` -- {process_id: bool} de los candidatos de ambos lados
+          (`DocumentService.initial_docs_approved_map`).
+        * ``blocked_map`` / ``cancellations`` -- {process_id: bool/int} de
+          los candidatos con liberaciones completas y documentos aprobados
+          (`SelfBookingService.blocked_map` / `cancellations_map`), para que
+          la fila de «Requieren» pinte su conteo sin volver a preguntar.
 
-        Los `no_show` NO entran: conservan su cita y su lugar («si no se
-        presentó es que ya pasó») y viven en `list_reschedule_processes`.
-        Quien SÍ tiene los 3 documentos pero cuya encuesta no está liberada
-        (nunca la envió, o la envió y GTV todavía no la libera) vive en
-        `list_missing_survey_processes`.
+        El universo: procesos activos, SIN cita vigente, con los documentos
+        iniciales DE SU PERFIL aprobados (licenciatura: 3; posgrado: 7 --
+        `DocumentService.initial_doc_types_for`, con la excepción R-G de un
+        proceso cuya fase 1 ya cerró: spec 2026-09-30-titulatec-posgrado-
+        design.md §5, invariante 8). Lo parte `ClearanceGate`: con TODAS sus
+        liberaciones (`released_clause`, spec 2026-10-01-titulatec-biblioteca-
+        caja-design.md §4.4.2 -- la encuesta LIBERADA por GTV, D1 de
+        2026-09-29, y donde la convocatoria lo exige el no adeudo de
+        biblioteca, D6) van a «Por agendar»/«Requieren»; a quien le falta
+        alguna (`not_released_clause`, la negación exacta) va a
+        «Liberaciones pendientes» (§4.4.3). Un proceso cae en uno o en otro,
+        nunca en los dos ni en ninguno.
+
+        «Por agendar» y «Requieren que les agendes» se reparten el lado
+        liberado con UN predicado (`SelfBookingService.blocked_map`, la regla
+        6 de §3 que ve el alumno): mutuamente excluyentes (§6). Se calcula en
+        un solo sitio para que no puedan desincronizarse.
+
+        Los `no_show` NO entran: conservan su cita y su lugar y viven en
+        `list_reschedule_processes`. Orden de cada lista:
+        `TitulationProcess.created_at`, el de siempre.
+
+        Antes eran tres llamadas (`list_pending_processes`,
+        `list_self_blocked_processes`, `list_missing_clearance_processes`),
+        cada una con su universo y su consulta de documentos POR código POR
+        candidato, y un COUNT de cancelaciones por candidato: cientos de
+        consultas con unas decenas de candidatos.
         """
-        from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
         from itcj2.apps.titulatec.services.document_service import DocumentService
+        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
+
         q = AppointmentService._unscheduled_query(
             db, program_id=program_id, allowed_program_ids=allowed_program_ids)
         if q is None:
-            return []
-        q = q.filter(db.query(SurveyReview.id)
-                    .filter(SurveyReview.process_id == TitulationProcess.id,
-                            SurveyReview.status == "approved")
-                    .exists())
-        candidates = q.order_by(TitulationProcess.created_at).all()
-        return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+            return {"pending": [], "blocked": [], "missing_clearance": [],
+                    "docs_ok": {}, "blocked_map": {}, "cancellations": {}}
+        liberados = (q.filter(ClearanceGate.released_clause())
+                     .order_by(TitulationProcess.created_at).all())
+        faltan = (q.filter(ClearanceGate.not_released_clause())
+                  .order_by(TitulationProcess.created_at).all())
+        docs_ok = DocumentService.initial_docs_approved_map(db, liberados + faltan)
+        con_docs = [p for p in liberados if docs_ok[p.id]]
+        cancelaciones = SelfBookingService.cancellations_map(db, con_docs)
+        bloqueado = SelfBookingService.blocked_map(db, con_docs,
+                                                   cancellations=cancelaciones)
+        return {
+            "pending": [p for p in con_docs if not bloqueado[p.id]],
+            "blocked": [p for p in con_docs if bloqueado[p.id]],
+            "missing_clearance": [p for p in faltan if docs_ok[p.id]],
+            "docs_ok": docs_ok,
+            "blocked_map": bloqueado,
+            "cancellations": cancelaciones,
+        }
 
     @staticmethod
     def list_pending_processes(db: Session, *, program_id: int | None = None,
                                allowed_program_ids: set | None = None) -> list:
-        """«Por agendar»: los del universo de arriba que TODAVÍA pueden
-        agendarse solos (o esperar a que el encargado los siente).
+        """«Por agendar»: los del universo de `queue_candidates` que TODAVÍA
+        pueden agendarse solos (o esperar a que el encargado los siente).
 
         **Excluye a los bloqueados por D9**, que se van a su propio cubo
         (`list_self_blocked_processes`). Los cinco cubos de la cola son
@@ -374,12 +440,11 @@ class AppointmentService:
         rechazaron».
 
         El tope lo decide `SelfBookingService`, que es donde vive la regla del
-        alumno (D13), en vez de una consulta propia aquí.
+        alumno (D13), en vez de una consulta propia aquí. Quien necesite
+        también los otros dos cubos llama a `queue_candidates` UNA vez.
         """
-        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-        return [p for p in AppointmentService._pending_candidates(
-                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-                if not SelfBookingService.is_blocked_by_cancellations(db, p)]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)["pending"]
 
     @staticmethod
     def list_self_blocked_processes(db: Session, *, program_id: int | None = None,
@@ -393,44 +458,30 @@ class AppointmentService:
         están esperando a que alguien lo haga por ellos.
 
         El criterio es el mismo objeto que usa la pantalla del alumno
-        (`SelfBookingService.is_blocked_by_cancellations`, la regla 6 de §3):
-        con dos implementaciones, este cubo diría una cosa y el alumno vería
-        otra.
+        (`SelfBookingService.blocked_map`, la regla 6 de §3): con dos
+        implementaciones, este cubo diría una cosa y el alumno vería otra.
         """
-        from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
-        return [p for p in AppointmentService._pending_candidates(
-                    db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-                if SelfBookingService.is_blocked_by_cancellations(db, p)]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id, allowed_program_ids=allowed_program_ids)["blocked"]
 
     @staticmethod
-    def list_missing_survey_processes(db: Session, *, program_id: int | None = None,
-                                      allowed_program_ids: set | None = None) -> list:
-        """Procesos activos, SIN cita, con los 3 documentos aprobados, pero
-        SIN la encuesta de egresados LIBERADA (D1, revierte D2 del
-        2026-09-15).
+    def list_missing_clearance_processes(db: Session, *, program_id: int | None = None,
+                                         allowed_program_ids: set | None = None) -> list:
+        """Procesos activos, SIN cita, con los documentos iniciales de su
+        perfil aprobados (ver `queue_candidates`), a los que les FALTA
+        alguna liberación (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+        §4.4.3; antes `list_missing_survey_processes`, solo la encuesta).
 
-        Mismo universo y alcance que `list_pending_processes` — misma base
-        (`_unscheduled_query`) y mismo filtro de documentos — con el ÚNICO
-        predicado invertido: aquí NO existe una solicitud `approved`. Eso
-        cubre a la vez a quien nunca la envió y a quien la envió pero sigue
-        `in_review`/`rejected` — las dos filas del pseudo-estado que muestra
-        `SurveyReviewService.release_status`. Alimenta el cubo «Encuesta sin
-        liberar» de la cola: nadie se agenda sin ella liberada, así que a
-        este grupo no le sirve un lugar libre, le sirve saber en qué va su
-        solicitud (`survey_status` por fila, ver `pages/appointments.py`).
+        Mismo universo y alcance que `list_pending_processes` con el ÚNICO
+        predicado invertido: `ClearanceGate.not_released_clause()`. Cubre a
+        quien nunca envió la encuesta, a quien la tiene `in_review`/`rejected`
+        y, donde la convocatoria exige el no adeudo de biblioteca, a quien lo
+        tiene en Biblioteca o por pagar en Caja. Alimenta el cubo
+        «Liberaciones pendientes» de la cola.
         """
-        from itcj2.apps.titulatec.models import SurveyReview, TitulationProcess
-        from itcj2.apps.titulatec.services.document_service import DocumentService
-        q = AppointmentService._unscheduled_query(
-            db, program_id=program_id, allowed_program_ids=allowed_program_ids)
-        if q is None:
-            return []
-        q = q.filter(~db.query(SurveyReview.id)
-                    .filter(SurveyReview.process_id == TitulationProcess.id,
-                            SurveyReview.status == "approved")
-                    .exists())
-        candidates = q.order_by(TitulationProcess.created_at).all()
-        return [p for p in candidates if DocumentService.initial_docs_all_approved(db, p.id)]
+        return AppointmentService.queue_candidates(
+            db, program_id=program_id,
+            allowed_program_ids=allowed_program_ids)["missing_clearance"]
 
     @staticmethod
     def list_reschedule_processes(db: Session, *,
@@ -476,7 +527,8 @@ class AppointmentService:
         **D5 se había quedado sin bandeja**. Un proceso con cita vigente `attended` al
         que el encargado le RECHAZA la fase 2 caía en CERO cubos: conserva una
         cita vigente, así que `_unscheduled_query` lo saca de «Por agendar»,
-        «Requieren que les agendes» y «Sin encuesta»; y no es `no_show`, así que
+        «Requieren que les agendes» y «Liberaciones pendientes» (antes «Sin
+        encuesta»); y no es `no_show`, así que
         «Reagendar» tampoco lo veía. Podía auto-agendarse —eso sí funcionaba—,
         pero solo si alguien había publicado un espacio `bookable`, y `private`
         es el `server_default`: el día uno, con todos los espacios privados, ese
@@ -566,6 +618,38 @@ class AppointmentService:
             raise EnrollmentRevoked()
 
     @staticmethod
+    def _assert_cleared(db: Session, process_id: int) -> None:
+        """Las liberaciones del alumno (`ClearanceGate`), en el MISMO orden y
+        con los MISMOS errores que `create` (spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md §4.4.1; Ruling R11 de la revisión de la
+        Tarea 5): encuesta ENVIADA, encuesta LIBERADA y, donde la
+        convocatoria lo exige, no adeudo de biblioteca liberado.
+
+        Única copia de esa comparación (reutilizada, no reimplementada): la
+        llama `create` para todo intento nuevo y `reschedule` SOLO cuando
+        `appt.status == 'no_show'` -- ese camino abre un intento nuevo
+        (`SlotService.assign` inserta la fila siguiente) igual que `create`,
+        hueco que antes no pasaba por aquí (tampoco revisaba la encuesta). Un
+        `scheduled`/`confirmed` que se MUEVE no pasa por aquí: D17 dice que la
+        cita vigente no se vuelve a mirar.
+        """
+        from itcj2.apps.titulatec.services.appointment_errors import (
+            LibraryNotCleared, SurveyNotReleased, SurveyNotSubmitted,
+        )
+        from itcj2.apps.titulatec.services.clearance_gate import (
+            SURVEY_BLOCKERS, ClearanceGate,
+        )
+
+        liberaciones = ClearanceGate.status(db, process_id)
+        bloqueos = ClearanceGate.blockers(liberaciones)
+        if bloqueos:
+            if bloqueos[0] == "survey_missing":
+                raise SurveyNotSubmitted()
+            if bloqueos[0] in SURVEY_BLOCKERS:
+                raise SurveyNotReleased(liberaciones["survey"])
+            raise LibraryNotCleared(liberaciones["library"])
+
+    @staticmethod
     def _log(db: Session, process_id: int, actor_id: int, event_type: str, payload: dict | None = None):
         from itcj2.apps.titulatec.models import ProcessEvent
         db.add(ProcessEvent(
@@ -635,16 +719,27 @@ class AppointmentService:
                start_now: bool = False):
         """Abre un intento de cita en una franja concreta. Dueña de la transacción.
 
-        Valida, en este orden: que el alumno YA HAYA ENVIADO la encuesta de
-        egresados (`SurveyNotSubmitted` si no existe solicitud) Y que Gestión
+        Valida, en este orden: las LIBERACIONES del alumno (`_assert_cleared`,
+        que pregunta a `ClearanceGate` -- spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md §4.4.1; el primer bloqueo es el que se
+        reporta, encuesta primero) —que YA HAYA ENVIADO la encuesta de
+        egresados (`SurveyNotSubmitted` si no existe solicitud), que Gestión
         Tecnológica y Vinculación ya la haya LIBERADO (`SurveyNotReleased` si
-        sigue `in_review`/`rejected` — D1, revierte D2 del 2026-09-15: enviarla
-        YA NO basta), que haya ventana y franja (`MissingSchedule`), que no
-        haya ya una cita ACTIVA (`AppointmentConflict`, D4), que el día siga
-        habilitado (`DayNotAllowed`), que la hora sea una franja real
-        (`InvalidSlot`) y que quede lugar (`SlotFull`). La guarda de la
-        encuesta va PRIMERO y aplica a todo `create`: sin ella no hay nada más
-        que validar.
+        sigue `in_review`/`rejected` — D1, revierte D2 del 2026-09-15:
+        enviarla YA NO basta) y, donde la convocatoria lo exige, que su no
+        adeudo de biblioteca esté liberado (`LibraryNotCleared` si sigue en
+        Biblioteca o por pagar en Caja, D6)—; luego que haya ventana y franja
+        (`MissingSchedule`), que no haya ya una cita ACTIVA
+        (`AppointmentConflict`, D4), que el día siga habilitado
+        (`DayNotAllowed`), que la hora sea una franja real (`InvalidSlot`) y
+        que quede lugar (`SlotFull`). La guarda de las liberaciones va PRIMERO
+        y aplica a todo `create` (también tras un `no_show`, una `attended`
+        rechazada o una `cancelled`): sin ellas no hay nada más que validar.
+        Una cita VIVA (`scheduled`/`confirmed`/`in_progress`) no la vuelve a
+        mirar nadie (D17): `reschedule` la mueve sin pasar por aquí. Un
+        `no_show`, en cambio, SÍ pasa por el mismo candado al reagendar
+        (`_assert_cleared`, Ruling R11 de la revisión de la Tarea 5): mover
+        desde ahí abre un intento nuevo, igual que `create`.
 
         `booked_by` ∈ {officer, student} es el distintivo «Agendada por el
         alumno» del tablero (D11). Lo pone quien llama, no se adivina del
@@ -660,23 +755,16 @@ class AppointmentService:
         transacción (`scheduled -> in_progress` por la matriz, con sus dos
         eventos) y SIN aviso in-app ni correo de «agendada» — acaba de llegar a
         la ventanilla. Es un parámetro y no otra función para que las guardas de
-        arriba sigan siendo UNA (regla D13): encuesta, revocación, cita viva,
-        día y cupo valen igual para esta cita que para cualquier otra.
+        arriba sigan siendo UNA (regla D13): liberaciones, revocación, cita
+        viva, día y cupo valen igual para esta cita que para cualquier otra.
         """
         from itcj2.apps.titulatec.models import ReviewWindow
-        from itcj2.apps.titulatec.services.appointment_errors import (
-            MissingSchedule, SurveyNotReleased, SurveyNotSubmitted,
-        )
+        from itcj2.apps.titulatec.services.appointment_errors import MissingSchedule
         from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
         from itcj2.apps.titulatec.services.slot_service import SlotService
-        from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
         AppointmentService._assert_not_revoked(db, process_id)
-        estado_encuesta = SurveyReviewService.release_status(db, process_id)
-        if estado_encuesta == "missing":
-            raise SurveyNotSubmitted()
-        if estado_encuesta != "approved":
-            raise SurveyNotReleased(estado_encuesta)
+        AppointmentService._assert_cleared(db, process_id)
 
         if not window_id or slot_start is None:
             raise MissingSchedule()
@@ -769,9 +857,9 @@ class AppointmentService:
         (`owner_user_id`; quien tenga `manage.all` tampoco atiende aquí con el
         espacio de otro) y con día == hoy (`db_now()`). Si no, `NotWalkinToday`,
         con la MISMA frase para el espacio que no existe. Lo demás —revocación,
-        encuesta liberada, cita viva, día habilitado, cupo— lo decide `create`
-        y NO se repite aquí (D13): dos copias de una guarda acaban diciendo
-        cosas distintas.
+        liberaciones (`ClearanceGate`), cita viva, día habilitado, cupo— lo
+        decide `create` y NO se repite aquí (D13): dos copias de una guarda
+        acaban diciendo cosas distintas.
 
         Esta comprobación corre antes de los locks, como las rápidas de
         `create`. Lo que decide el cupo y la cita viva va dentro, en
@@ -809,6 +897,20 @@ class AppointmentService:
         `_REAGENDABLES` deja fuera `in_progress` (un cotejo empezado se cierra
         con `attended` o `no_show`) y los tres terminales.
 
+        Ruling R11 (revisión de la Tarea 5, spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md): reagendar desde un `no_show` abre un
+        intento NUEVO -igual que `create`, la fila vieja se queda atrás y
+        `SlotService.assign` inserta la siguiente- así que pasa por el MISMO
+        candado de liberaciones (`AppointmentService._assert_cleared`, los
+        MISMOS errores que `create`: `SurveyNotSubmitted`/`SurveyNotReleased`/
+        `LibraryNotCleared`). Es el hueco que esta revisión cierra: antes
+        `reschedule` nunca lo consultaba, ni siquiera la encuesta. Mover una
+        cita VIVA (`scheduled`/`confirmed`) NO pasa por el candado (D17: una
+        cita ya agendada no se vuelve a mirar aunque una liberación quede
+        pendiente mientras tanto) -- por eso la llamada es condicional al
+        estado de LA FILA QUE LLEGÓ, antes de que `SlotService.assign` la
+        reemplace.
+
         **No toca `change_request`.** Antes hacía `appt.note = note`, así que la
         solicitud del alumno se perdía justo al atenderla; ahora se queda en el
         intento al que pertenecía y la cita nueva nace limpia.
@@ -821,6 +923,8 @@ class AppointmentService:
         from itcj2.apps.titulatec.services.slot_service import SlotService
 
         AppointmentService._assert_not_revoked(db, appt.process_id)
+        if appt.status == "no_show":
+            AppointmentService._assert_cleared(db, appt.process_id)
         if not window_id or slot_start is None:
             raise MissingSchedule()
         if appt.status not in _REAGENDABLES:
@@ -983,7 +1087,8 @@ class AppointmentService:
                 "Tu cita de cotejo fue cancelada", appt)
             # El correo, bajo la MISMA condición (spec 2026-09-28 §5 #7): ni
             # por la cancelación del propio alumno (D9) ni por la de la
-            # revocación (`notify=False`: su aviso es `send_process_cancelled`).
+            # revocación (`notify=False`: su aviso es el correo `process_cancelled`,
+            # que `ProcessService.cancel` encola).
             # Aquí el actor nunca es el alumno, así que `by` es el encargado.
             from itcj2.apps.titulatec.services.student_mail import StudentMail
             StudentMail.appointment_changed(

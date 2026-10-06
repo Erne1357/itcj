@@ -49,11 +49,12 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         Periódica, diaria a las 9:00 (spec 2026-09-28 §6 C4/C5; su alta en
         `core_periodic_tasks` es un DML aparte). Encola los recordatorios que
         tocan hoy —la cita de cotejo del día siguiente, los documentos que
-        faltan o hay que corregir, la encuesta de egresados— con su aviso
-        in-app (`MailReminders.run`); los manda `email_dispatch`. Idempotente:
+        faltan o hay que corregir, la encuesta de egresados y el pago
+        pendiente del no adeudo en Caja— con su aviso in-app
+        (`MailReminders.run`); los manda `email_dispatch`. Idempotente:
         correrla dos veces no duplica correos ni avisos. Devuelve
-        `{"appt", "docs", "survey"}` (recordatorios nuevos de cada tipo) o
-        `{"disabled": True}` con el correo apagado.
+        `{"appt", "docs", "survey", "library"}` (recordatorios nuevos de cada
+        tipo) o `{"disabled": True}` con el correo apagado.
 
 La lógica vive en los services (`EligibilityService`, `MailDispatcher`,
 `MailReminders`); aquí solo sesión, reintento y resultado. `SessionLocal` se
@@ -110,14 +111,19 @@ TASK_DEFINITIONS = [
     {
         "task_name": "titulatec.email_reminders",
         "display_name": "Recordatorios por correo al egresado (TitulaTec)",
+        # Copia LITERAL en `database/DML/titulatec/mail_2026_09/17_insert_email_tasks.sql`
+        # (instalación desde cero; lo fija test_cli_mail_tasks.py) y en
+        # `biblioteca_2026_10/23_update_email_reminders_description.sql` (base ya
+        # sembrada; lo fija test_cli_biblioteca_caja.py).
         "description": (
             "Diario: encola los recordatorios del proceso de titulación con su aviso en "
             "la app — la cita de cotejo del día siguiente "
             "(TITULATEC_APPT_REMINDER_DAYS_BEFORE), los documentos iniciales que faltan "
-            "o hay que corregir y la encuesta de egresados (a los "
-            "TITULATEC_REMINDER_FIRST_DAYS días, luego cada TITULATEC_REMINDER_EVERY_DAYS, "
-            "hasta TITULATEC_REMINDER_MAX). No duplica si corre dos veces; los manda el "
-            "despacho de correos. Con TITULATEC_EMAIL_ENABLED=false no hace nada."
+            "o hay que corregir, la encuesta de egresados y el pago pendiente en Caja del "
+            "no adeudo de biblioteca (a los TITULATEC_REMINDER_FIRST_DAYS días, luego cada "
+            "TITULATEC_REMINDER_EVERY_DAYS, hasta TITULATEC_REMINDER_MAX). No duplica si "
+            "corre dos veces; los manda el despacho de correos. Con "
+            "TITULATEC_EMAIL_ENABLED=false no hace nada."
         ),
         "app_name": "titulatec",
         "category": "notification",
@@ -220,8 +226,9 @@ def email_dispatch(self, task_run_id: int | None = None) -> dict:
 )
 def email_reminders(self, task_run_id: int | None = None) -> dict:
     """Barrido diario de recordatorios (`MailReminders.run`, con su reloj
-    `db_now()`). Devuelve `{"appt", "docs", "survey"}` —recordatorios nuevos
-    de cada tipo— o `{"disabled": True}` con el correo apagado."""
+    `db_now()`). Devuelve `{"appt", "docs", "survey", "library"}`
+    —recordatorios nuevos de cada tipo— o `{"disabled": True}` con el correo
+    apagado."""
     from itcj2.apps.titulatec.services.mail_reminders import MailReminders
     from itcj2.database import SessionLocal
 

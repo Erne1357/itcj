@@ -4,7 +4,7 @@
    cambio de pestaña: con el egresado enfrente diciendo su nombre, el camino era
    adivinar el día, abrirlo y leer la lista. Ahora se teclea y aparece. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav %}
-{% from "titulatec/_macros.html" import appt_pill, survey_review_pill %}
+{% from "titulatec/_macros.html" import appt_pill, library_clearance_pill, survey_review_pill %}
 
 <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-2">
   <h2 class="tt-h-sec">Resultados <span class="n">{{ rows|length }}</span></h2>
@@ -35,7 +35,7 @@
 
 {# «Sin cita» (D8, spec §4): el buscador también encuentra a quien NO tiene
    cita — el universo de la cola (pendientes, bloqueados, rechazados sin cita
-   viva, sin encuesta liberada) que calza con `q`. Solo aparece con `q` sin
+   viva, liberaciones pendientes) que calza con `q`. Solo aparece con `q` sin
    vacío y sin filtro de `estado` (`_shell_ctx` ya lo decide: un estado de
    CITA no puede casar con quien no tiene ninguna). #}
 {% if sin_cita_rows %}
@@ -53,14 +53,19 @@
       <i class="bi bi-chevron-right" aria-hidden="true"></i>
     </a>
     {% else %}
-    {# Encuesta sin liberar (D1): no está en `visibles`, no hay ficha que
-       darle todavía — fila SIN enlace, con la píldora de su estado real. #}
+    {# Liberaciones pendientes (`ClearanceGate`; antes «Encuesta sin
+       liberar», D1): no está en `visibles`, no hay ficha que darle todavía —
+       fila SIN enlace, con las píldoras de su estado real (la del no adeudo
+       no pinta nada si la convocatoria no lo exige). #}
     <div class="tt-appt-item" id="appt-sincita-{{ r.process_id }}">
       <span class="flex-grow-1 min-w-0">
         <span class="who d-block text-truncate" title="{{ r.student }}">{{ r.student }}</span>
         <span class="meta d-block text-truncate">{{ r.control }} · {{ r.program }}</span>
       </span>
-      {{ survey_review_pill(r.survey_status) }}
+      <span class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+        {{ survey_review_pill(r.survey_status) }}
+        {{ library_clearance_pill(r.library_status) }}
+      </span>
     </div>
     {% endif %}
     {% endfor %}

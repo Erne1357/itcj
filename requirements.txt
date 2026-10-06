@@ -48,6 +48,13 @@ msal>=1.24.0
 # sin el driver instalado (solo hace falta la librería Python).
 pyodbc>=5.1.0
 
+# Constancias de TitulaTec (no adeudo de biblioteca / liberación de encuesta):
+# PDF con WeasyPrint sobre HTML/CSS propio. 70.0 verificado en el contenedor
+# de dev (Ruling R4, spec 2026-10-01-titulatec-biblioteca-caja-design.md §6);
+# system libs: `libpango-1.0-0 libpangoft2-1.0-0` en
+# `docker/backend/Dockerfile.fastapi` (cairo/gdk-pixbuf ya los trae LibreOffice).
+weasyprint>=70,<71
+
 # Observabilidad (métricas de Prometheus en GET /metrics). Piso 0.26: la
 # versión verificada (CONTENT_TYPE_LATEST, set_exemplar no-op en multiproceso,
 # tolera ficheros gauge_live* borrados por el reaper a mitad del scrape).

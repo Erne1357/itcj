@@ -1,32 +1,66 @@
 {# Dictamen de GTV sobre la encuesta de egresados (spec 2026-09-28 §5,
    #4-#6). `result`: approved (liberada), rejected (observaciones) o revoked
-   (se revocó la liberación). Con observaciones o revocada: el motivo y
-   «acude a la ventanilla de GTV». Contexto: first_name, link, result, reason. #}
+   (se revocó la liberación). Contexto: first_name, link, result, reason,
+   origin y falta.
+   Liberada (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11):
+   `origin` = "prior" es una constancia previa del semestre anterior (D9), sin
+   encuesta real ni dictamen de GTV detrás; "submission" es la de siempre (el
+   compositor la pone si el payload no la trae). D13: ya no dice «Ya puedes
+   agendar tu cita de cotejo» fijo: lo decide D11 (`m.agenda(falta)`, con el
+   estado VIVO del `ClearanceGate`).
+   Observaciones o revocada: el motivo y, D12, «Para más información,
+   contactar con servicio_ext@cdjuarez.tecnm.mx» (con su `mailto:`), en vez de
+   mandarlo a la ventanilla de GTV.
+   Revocada con `origin` = "prior" (Ruling R22): la solicitud se BORRÓ -no
+   había encuesta real detrás-, así que le pide contestar la encuesta en la
+   plataforma; `link` ya apunta a la encuesta y el botón lo dice.
+   D9 (spec folios 2026-10-05): la previa liberada ya NO pide llevar ni recoger
+   la constancia en papel (se retiró `paper_pending`, R10 del import de Forms):
+   dice que no necesita llevar nada porque su liberación ya quedó registrada
+   para Servicios Escolares. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}{% if result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block titulo %}{% if result == "approved" and origin == "prior" %}Tu encuesta de egresados quedó registrada como liberada{% elif result == "approved" %}GTV liberó tu encuesta de egresados{% elif result == "rejected" %}GTV dejó observaciones en tu encuesta{% else %}Se revocó la liberación de tu encuesta{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
+{% set previa_revocada = result == "revoked" and origin == "prior" %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 {% if result == "approved" %}
+{% if origin == "prior" %}
+<p style="margin:0 0 24px;">
+  Tu encuesta de egresados del semestre anterior <strong>quedó registrada como liberada</strong>.
+  Para tu cita de cotejo no necesitas llevar nada: tu liberación ya quedó registrada para
+  Servicios Escolares.
+</p>
+{% else %}
 <p style="margin:0 0 24px;">
   Gestión Tecnológica y Vinculación (GTV) <strong>liberó tu encuesta de egresados</strong>.
   Ya quedó acreditada en tu proceso como requisito de tu cita de cotejo.
-  Ya puedes agendar tu cita de cotejo.
 </p>
+{% endif %}
+{{ m.agenda(falta) }}
 {% else %}
 <p style="margin:0 0 20px;">
   {% if result == "rejected" -%}
   Gestión Tecnológica y Vinculación (GTV) revisó tu encuesta de egresados y
   <strong>dejó observaciones</strong>.
+  {%- elif previa_revocada -%}
+  Gestión Tecnológica y Vinculación (GTV) <strong>revocó la liberación</strong> que se
+  había registrado con tu constancia del semestre anterior.
   {%- else -%}
   Gestión Tecnológica y Vinculación (GTV) <strong>revocó la liberación de tu encuesta
   de egresados</strong>.
   {%- endif %}
 </p>
 {% if reason %}{{ m.motivo(reason, "Observaciones" if result == "rejected" else "Motivo") }}{% endif %}
-<p style="margin:0 0 24px;">
-  <strong>Acude a la ventanilla de GTV</strong> para resolverlo.
+{% if previa_revocada %}
+<p style="margin:0 0 20px;">
+  Para continuar, <strong>contesta la encuesta de egresados en la plataforma</strong>; GTV
+  la revisará como cualquier otra.
 </p>
 {% endif %}
-{{ m.boton(link, "Ver mi proceso") }}
+<p style="margin:0 0 24px;">
+  Para más información, contactar con <a href="mailto:servicio_ext@cdjuarez.tecnm.mx" style="color:#1F3D7A;">servicio_ext@cdjuarez.tecnm.mx</a>
+</p>
+{% endif %}
+{{ m.boton(link, "Contestar la encuesta" if previa_revocada else "Ver mi proceso") }}
 {% endblock %}

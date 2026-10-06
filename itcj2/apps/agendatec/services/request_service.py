@@ -29,7 +29,6 @@ from itcj2.core.models.user import User
 from itcj2.core.services import period_service
 from itcj2.core.services.notification_service import NotificationService
 from itcj2.core.utils.redis_conn import get_redis
-from itcj2.sockets.notifications import push_notification
 from itcj2.sockets.requests import (
     broadcast_appointment_created,
     broadcast_drop_created,
@@ -557,7 +556,7 @@ class RequestService:
     def _notify_student_drop_created(self, db: Session, request: Request, student: User) -> None:
         """Notifica al estudiante que su solicitud de baja fue creada."""
         try:
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=student.id,
                 app_name="agendatec",
@@ -569,7 +568,9 @@ class RequestService:
                 program_id=request.program_id,
             )
             db.commit()
-            _async_broadcast(push_notification(student.id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (desde un loop o desde un hilo); otra vez duplicaría
+            # el toast.
         except Exception:
             logger.exception("Failed to create/push DROP notification")
 
@@ -623,7 +624,7 @@ class RequestService:
         """Notifica al estudiante que su cita fue creada."""
         try:
             slot_day = str(slot.day)
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=student.id,
                 app_name="agendatec",
@@ -641,7 +642,9 @@ class RequestService:
                 program_id=appointment.program_id,
             )
             db.commit()
-            _async_broadcast(push_notification(student.id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (desde un loop o desde un hilo); otra vez duplicaría
+            # el toast.
         except Exception:
             logger.exception("Failed to create/push APPOINTMENT notification")
 
@@ -700,7 +703,7 @@ class RequestService:
     def _notify_student_canceled(self, db: Session, request: Request, student: User) -> None:
         """Notifica al estudiante sobre la cancelación."""
         try:
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=student.id,
                 app_name="agendatec",
@@ -712,7 +715,9 @@ class RequestService:
                 program_id=request.program_id,
             )
             db.commit()
-            _async_broadcast(push_notification(student.id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (desde un loop o desde un hilo); otra vez duplicaría
+            # el toast.
         except Exception:
             logger.exception("Failed to create/push CANCEL notification")
 

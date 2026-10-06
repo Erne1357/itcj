@@ -37,11 +37,20 @@ INFO_CURP = (
 #   * `auto_source` marca los que acredita el SISTEMA. Es la única fuente de ese
 #     valor: `create()` no puede fijarlo desde la UI a propósito, porque un
 #     requisito automático borrado a media convocatoria dejaría a la encuesta sin
-#     nada que acreditar y sin forma de restaurarlo.
+#     nada que acreditar y sin forma de restaurarlo. Hoy son dos: la encuesta de
+#     egresados (`'graduate_survey'`, la libera GTV) y el no adeudo de biblioteca
+#     (`'library_clearance'`, lo liberan Biblioteca y Caja; Ruling R2 de la
+#     Tarea 5 del plan 2026-10-01-titulatec-biblioteca-caja). Ese segundo es
+#     además el que enciende el candado de biblioteca para agendar en la
+#     convocatoria (`ClearanceGate.library_required`): una convocatoria nueva
+#     ya nace con él.
 #   * `info_html` es la información enriquecida por defecto (None = sin botón
 #     «i»). `database/DML/titulatec/survey_2026_09/13_seed_cotejo_reqs_all_cohorts.sql`
 #     repite estos textos y el 12 los aplica a las filas que ya existían:
-#     cambiar uno obliga a cambiar los tres.
+#     cambiar uno obliga a cambiar los tres. Las pistas de la encuesta y del no
+#     adeudo son las de spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.3,
+#     y las lleva a las filas existentes `database/DML/titulatec/biblioteca_2026_10/
+#     22_library_requirement_auto.sql` (solo donde seguían idénticas a la vieja).
 DEFAULTS = [
     ("file-earmark-text", "Actas de nacimiento", "Original + copias.",
      "birth_certificates", None, INFO_BIRTH_CERTIFICATES),
@@ -49,10 +58,14 @@ DEFAULTS = [
      "curp", None, INFO_CURP),
     ("shield-check", "e.Firma (SAT)", "Constancia de situación fiscal con e.Firma vigente.",
      "efirma", None, None),
-    ("clipboard-check", "Encuesta de egresados", "Comprobante de haberla contestado.",
+    ("clipboard-check", "Encuesta de egresados",
+     "La libera GTV; no necesitas llevar nada: tu liberación queda registrada para "
+     "Servicios Escolares.",
      "graduate_survey", "graduate_survey", None),
-    ("book", "No-adeudo de biblioteca", "Constancia de no adeudo vigente.",
-     "library_clearance", None, None),
+    ("book", "No-adeudo de biblioteca",
+     "Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: tu liberación "
+     "queda registrada para Servicios Escolares.",
+     "library_clearance", "library_clearance", None),
     ("camera", "12 fotografías", "Tamaño credencial, ovaladas, B/N, fondo blanco, papel mate.",
      "photos", None, None),
     ("heart-pulse", "Vigencia de derechos IMSS", "Documento que acredite vigencia.",
@@ -135,8 +148,9 @@ class CotejoRequirementService:
     def update(db: Session, req_id: int, cohort_id: int, **fields):
         """Actualiza el requisito. Candado para el automático (D9).
 
-        Un requisito con `auto_source` (hoy solo 'graduate_survey') es el que
-        ACREDITA el sistema, y `RequirementService.missing_required` —la
+        Un requisito con `auto_source` (hoy 'graduate_survey' y
+        'library_clearance') es el que ACREDITA el sistema, y
+        `RequirementService.missing_required` —la
         guarda que bloquea el dictamen de la fase 2— solo mira filas
         `is_active=True AND is_required=True`. Si el editor pudiera volverlo
         opcional o inactivo, esa guarda se desarmaría en silencio (pasó en

@@ -39,7 +39,25 @@ def _user_perms(db: Session, user_id: int) -> set[str]:
 
 
 def _program_ids_for_user(db: Session, user_id: int) -> set[int]:
-    """Carreras de los puestos VIGENTES del usuario que otorgan acceso a ESTA app.
+    """Carreras de los puestos VIGENTES de UN usuario que otorgan acceso a ESTA app.
+
+    Delega en `_program_ids_for_users`: el join vive UNA vez (invariante 2 de la
+    spec 2026-10-05-titulatec-rendimiento §3.5), y su docstring explica el
+    predicado.
+    """
+    return _program_ids_for_users(db, [user_id]).get(user_id, set())
+
+
+def _program_ids_for_users(db: Session, user_ids) -> dict[int, set[int]]:
+    """`{user_id: carreras}` de los puestos VIGENTES de VARIOS usuarios que
+    otorgan acceso a ESTA app, con dos consultas (por rol y por permiso) sin
+    importar cuántos usuarios sean. Todo usuario pedido sale en el mapa, con
+    `set()` si no tiene alcance; sin usuarios no consulta nada.
+
+    Es el join de siempre, con `UserPosition.user_id IN (...)` en lugar de `=`
+    y la columna del usuario en el SELECT: `_program_ids_for_user` es esta
+    función con un solo usuario, y `SelfBookingService._owners_serving` la
+    llama una vez para todos los dueños de la oferta (antes, una vez por dueño).
 
     El ancla del alcance es el PUESTO. Un rol o permiso concedido DIRECTAMENTE al
     usuario (`core_user_app_roles` / `core_user_app_perms`) no tiene puesto y por
@@ -67,14 +85,19 @@ def _program_ids_for_user(db: Session, user_id: int) -> set[int]:
     )
     from itcj2.core.services.authz_service import _active_position_filter, get_or_404_app
 
+    ids = list(dict.fromkeys(user_ids or ()))
+    if not ids:
+        return {}
+
     app = get_or_404_app(db, _APP_KEY)
 
     base = (
-        db.query(ProgramPosition.program_id)
+        db.query(UserPosition.user_id, ProgramPosition.program_id)
+        .select_from(ProgramPosition)
         .join(Position, Position.id == ProgramPosition.position_id)
         .join(UserPosition, UserPosition.position_id == ProgramPosition.position_id)
         .filter(
-            UserPosition.user_id == user_id,
+            UserPosition.user_id.in_(ids),
             _active_position_filter(),
             Position.is_active.is_(True),
         )
@@ -89,8 +112,10 @@ def _program_ids_for_user(db: Session, user_id: int) -> set[int]:
                   PositionAppPerm.position_id == ProgramPosition.position_id)
         .filter(PositionAppPerm.app_id == app.id, PositionAppPerm.allow.is_(True))
     )
-    rows = via_role.distinct().all() + via_perm.distinct().all()
-    return {r[0] for r in rows}
+    salida: dict[int, set[int]] = {uid: set() for uid in ids}
+    for user_id, program_id in via_role.distinct().all() + via_perm.distinct().all():
+        salida[user_id].add(program_id)
+    return salida
 
 
 def officer_programs(db: Session, user_id: int):

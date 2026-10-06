@@ -8,9 +8,9 @@
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado de la carrera) · 👤 Alumno |
 | **Permiso(s)** | **Ver la agenda:** `appointment.page.list` ∨ `dashboard.school_services` ∨ `dashboard.admin`. **Actuar:** `appointment.api.create` (agendar) · `.reschedule` (reagendar / mover) · `.update` (iniciar, no-show, deshacer, **cancelar**) · `.mark_attended` · `process.api.requirement.mark` (checklist) · `process.api.approve_phase` / `.reject_phase`. **Espacios:** `review_window.api.manage` ∨ `.manage.all`. **Alumno:** `appointment.page.my` · `.api.confirm.own` · `.api.book.own` · `.api.cancel.own` |
-| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los 3 documentos iniciales aprobados y la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) |
-| **Precondiciones** | `DocumentService.initial_docs_all_approved(db, process_id)` y `SurveyReviewService.release_status(db, process_id) == "approved"` (guarda dura de `AppointmentService.create`: `SurveyNotSubmitted` si nunca la envió, `SurveyNotReleased` si la envió pero GTV no la ha liberado) |
-| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) · ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ [el egresado agenda solo](phase2_student_self_booking.md) |
+| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los documentos iniciales de SU PERFIL aprobados (3 en licenciatura, 7 en posgrado — [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si la fase 1 ya cerró antes del despliegue de ese perfil), la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) y, donde la convocatoria lo exige, el **no adeudo de biblioteca ya LIBERADO** (2026-10-01, D6 — ⤵ [no adeudo de biblioteca](phase2_library_clearance.md)) |
+| **Precondiciones** | `DocumentService.initial_docs_all_approved(db, process_id)` y `ClearanceGate.is_clear(db, process_id)` (guarda dura de `AppointmentService.create`, spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.1: `SurveyNotSubmitted`/`SurveyNotReleased` si falta la encuesta, `LibraryNotCleared` si falta el no adeudo donde la convocatoria lo exige — el PRIMER bloqueo de `ClearanceGate.blockers` es el que se levanta, encuesta primero) |
+| **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) · ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ [el egresado agenda solo](phase2_student_self_booking.md) · ⤵ [no adeudo de biblioteca](phase2_library_clearance.md) (`ClearanceGate`, segunda liberación) |
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
 
 > **Por carrera:** cada encargado ve y atiende solo los procesos de **sus** carreras.
@@ -23,10 +23,12 @@
 
 > **Elegibilidad — corrección (jun-2026).** «Por agendar» **no** es `current_phase == 2`: el commit
 > `ae0dfe1` quitó ese filtro de `AppointmentService.list_pending_processes`. El criterio es
-> `status == "active"` + sin cita vigente + los **3 documentos iniciales aprobados**
-> (`birth_certificate`, `high_school_cert`, `curp`). En la práctica coinciden —aprobar el 3.er
-> documento aprueba la fase 1 y deja `current_phase=2`—, pero **la fase (en el sentido de
-> `current_phase`) ya no se consulta**.
+> `status == "active"` + sin cita vigente + los **documentos iniciales de SU PERFIL aprobados** — 3
+> en licenciatura (`birth_certificate`, `high_school_cert`, `curp`), 7 en posgrado (ver
+> [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si
+> la fase 1 ya cerró, 2026-09-30). En la práctica coinciden —aprobar el último documento aprueba la
+> fase 1 y deja `current_phase=2`—, pero **la fase (en el sentido de `current_phase`) ya no se
+> consulta**.
 >
 > **Corrección (2026-09-17): la fase SÍ vuelve a consultarse, pero por otra columna.** Desde el
 > cubo «Fase 02 rechazada» (más abajo), «Por agendar» también excluye a quien tenga una
@@ -35,26 +37,38 @@
 > ya pasó por cotejo, se lo rechazaron y luego canceló su cita (D6 la devuelve a «sin cita»)
 > reaparecería aquí mezclado con quien nunca tuvo cita.
 
-> **Puerta de la encuesta de egresados — de ENVIADA a LIBERADA (2026-09-29, D1).**
-> **D2 del 2026-09-15 queda REVERTIDA.** Hasta el 2026-09-29 bastaba con que el egresado hubiera
-> **ENVIADO** la encuesta (D2: «no liberada — GTV puede seguir revisando en paralelo»). Desde D1,
-> «Por agendar» exige que Gestión Tecnológica y Vinculación ya la haya **LIBERADO**
-> (`SurveyReview.status == 'approved'`; fuente única `SurveyReviewService.release_status`/
-> `.is_released` — nadie más compara contra `'approved'` para esta regla). Quien tiene los 3
-> documentos pero la encuesta no está liberada —nunca la envió, o la envió y sigue `in_review`
-> (GTV la revisa) o `rejected` (GTV dejó observaciones)— cae en el cubo **«Encuesta sin
-> liberar»**: filas sin arrastre, sin selección y sin navegación
-> (`AppointmentService.list_missing_survey_processes`), que solo informan con la píldora de su
-> estado real (`survey_review_pill`, ver la cola de trabajo más abajo). La guarda dura vive en
-> `AppointmentService.create`, **no** en la página: `SurveyNotSubmitted` si nunca la envió,
-> **`SurveyNotReleased`** (nueva, con un mensaje por estado) si la envió pero sigue
-> `in_review`/`rejected`; aplica a **todo** `create`, incluido el intento nuevo tras un `no_show`
-> y «Atender ahora» (D7, más abajo — reusa `create` y por tanto reusa esta misma guarda).
+> **Puerta de las LIBERACIONES — de ENVIADA a LIBERADA (2026-09-29, D1) y ampliada al no adeudo
+> de biblioteca (2026-10-01, D6).** **D2 del 2026-09-15 queda REVERTIDA.** Hasta el 2026-09-29
+> bastaba con que el egresado hubiera **ENVIADO** la encuesta (D2: «no liberada — GTV puede
+> seguir revisando en paralelo»). Desde D1, «Por agendar» exige que Gestión Tecnológica y
+> Vinculación ya la haya **LIBERADO** la encuesta, y desde el 2026-10-01 —donde la convocatoria
+> tiene el requisito automático— exige ADEMÁS que Biblioteca y Caja hayan liberado el no adeudo.
+> La única fuente de las dos es **`ClearanceGate`** (`services/clearance_gate.py`, spec
+> `2026-10-01-titulatec-biblioteca-caja-design.md` §4.4): `status(db, pid)` da
+> `{"survey": ..., "library": ...}` y `blockers(status)` la lista ORDENADA (encuesta primero) de
+> lo que falta — por dentro usa `SurveyReviewService.release_status`/`.is_released` y
+> `LibraryClearanceService.release_status`, las ÚNICAS comparaciones contra `'approved'`/
+> `'cleared'` para esta regla (§5 invariante 2; nadie fuera del gate y de los dos dueños compara
+> esos estados, prueba estructural en `test_clearance_gate.py`). Quien tiene los 3/7 documentos
+> pero le falta alguna liberación —encuesta nunca enviada, `in_review`, `rejected`, o no adeudo
+> `pending`/`missing`/`awaiting_payment` donde aplica— cae en el cubo **«Liberaciones
+> pendientes»** (antes «Encuesta sin liberar»): filas sin arrastre, sin selección y sin
+> navegación (`AppointmentService.list_missing_clearance_processes`, renombrada de
+> `list_missing_survey_processes`), que solo informan con las píldoras de su estado real
+> (`survey_review_pill` + `library_clearance_pill`, ver la cola de trabajo más abajo). La guarda
+> dura vive en `AppointmentService.create`, **no** en la página: `SurveyNotSubmitted` si nunca
+> envió la encuesta, `SurveyNotReleased` si la envió pero sigue `in_review`/`rejected`,
+> `LibraryNotCleared` si le falta el no adeudo donde la convocatoria lo exige (el PRIMER bloqueo
+> de `ClearanceGate.blockers` es el que se reporta) — aplica a **todo** `create`, incluido el
+> intento nuevo tras un `no_show` y «Atender ahora» (D7, más abajo — reusa `create` y por tanto
+> reusa esta misma guarda). Detalle completo del no adeudo: ⤵
+> [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md).
 >
 > ⚠️ **`SlotService.assign_batch` NO pasa por `AppointmentService.create`**: inserta directo, así
-> que **se saltaría esta puerta** si alguna vista futura lo invoca sobre un proceso sin la
-> encuesta liberada. Hoy no tiene llamadores en producción. Quien cablee esa vista debe tomar los
-> candidatos de `list_pending_processes` o duplicar la guarda dentro de `assign_batch`.
+> que **se saltaría esta puerta** (las dos liberaciones) si alguna vista futura lo invoca sobre
+> un proceso con alguna pendiente. Hoy no tiene llamadores en producción. Quien cablee esa vista
+> debe tomar los candidatos de `list_pending_processes` o duplicar la guarda dentro de
+> `assign_batch`.
 
 ---
 
@@ -77,7 +91,8 @@ la rejilla; la UI las muestra en una banda **«Fuera de la rejilla»** en vez de
 
 **Sin horario, en corto (2026-09-29, D3/D4 — detalle completo en el flujo del egresado):** el
 egresado **aparta lugar sin elegir hora** — su cita guarda día + hora de apertura — hasta llenar
-`capacity`, que en este modo es el cupo TOTAL del espacio. `SlotService.occupancy` cuenta **toda**
+`capacity`, que en este modo es el cupo TOTAL del espacio. `SlotService.occupancy_map` (la regla;
+`occupancy` es su caso de una sola ventana) cuenta **toda**
 cita viva de la ventana bajo la apertura, sea cual sea su hora real: una cita de legado que un
 encargado sentó a mano a otra hora (p. ej. 10:30) dentro de un `walkin` sigue ocupando un lugar y
 se sigue anunciando con **su** hora, nunca el rango (regla de legado, D11 — ver
@@ -131,9 +146,12 @@ cita **nueva** a los que solo necesitan *seguimiento*:
 3. **Requieren que les agendes** — agotaron su tope de cancelaciones: **solo el encargado** puede
    sacarlos de ahí. Cada fila dice el conteo («3 cancelaciones · ya no puede agendar solo»).
 4. **Reagendar** — no se presentaron (`no_show`).
-5. **Encuesta sin liberar** — documentos aprobados, pero la encuesta de egresados no está
-   **liberada** por Gestión Tecnológica y Vinculación: nunca la enviaron, o la enviaron y sigue
-   `in_review` o `rejected` (D1, revierte D2 del 2026-09-15). Solo informan.
+5. **Liberaciones pendientes** (antes «Encuesta sin liberar», ampliado 2026-10-01) — documentos
+   aprobados, pero `ClearanceGate` ve que le falta alguna liberación: la encuesta de egresados
+   —nunca la enviaron, o la enviaron y sigue `in_review` o `rejected` (D1, revierte D2 del
+   2026-09-15)— o, donde la convocatoria lo exige, el no adeudo de biblioteca —en Biblioteca o
+   por pagar en Caja (D6, ⤵ [no adeudo de biblioteca](phase2_library_clearance.md))—. Solo
+   informan, con las dos píldoras (`survey_review_pill` + `library_clearance_pill`).
 
 > **El cubo 2 se añadió el 2026-09-16, cerrando un agujero: D5 no tenía bandeja.** Un proceso
 > atendido al que le rechazaban la fase 02 caía en **cero** cubos — conserva cita vigente, así que
@@ -156,15 +174,29 @@ cita **nueva** a los que solo necesitan *seguimiento*:
 > **Caso real que motivó el fix (dev, proceso #39):** fase 02 `rejected` + cita vigente `attended`,
 > pero **sin** `SurveyReview` (nunca se sembró/migró correctamente). Arrastrarlo a un lugar libre
 > reventaba con `SurveyNotSubmitted` — un error que no dice nada en el contexto de «nada más le
-> rechazaron la fase». La fila del cubo 2 resuelve `encuesta_sin_liberar`
-> (`survey_status != "approved"`, D1: cubre el nunca-enviada Y el enviada-pero-sin-liberar) **por
-> fila**: con la encuesta sin liberar pierde `draggable`/`data-tt-drag*` y muestra la píldora de su
-> estado real (`survey_review_pill(r.survey_status)` — «Encuesta pendiente» / «En revisión» / «Con
-> observaciones») en su lugar, pero conserva la navegación (`appt_nav`) para poder ver el motivo y
-> dar seguimiento. Con la encuesta liberada, arrastrable como cualquier otro cubo. También muestra
-> `motivo` (`rejection_reason` de la fase 02, en una línea truncada con `title` completo) y, si
-> aplica, **la misma línea de D9** que el cubo 3 («Agotó sus cancelaciones…») —
-> `encuesta_sin_liberar` y bloqueado por D9 no son excluyentes entre sí.
+> rechazaron la fase». La fila del cubo 2 resuelve `liberaciones_pendientes`
+> (`bool(ClearanceGate.blockers(estado))`, `pages/appointments.py:1195`, consultas FIJAS vía
+> `ClearanceGate.status_map` — D1: cubre el nunca-enviada Y el enviada-pero-sin-liberar, y desde
+> 2026-10-01 también el no adeudo donde aplica) **por fila**: con alguna liberación pendiente
+> pierde `draggable`/`data-tt-drag*` y muestra las píldoras de su estado real
+> (`survey_review_pill(r.survey_status)` + `library_clearance_pill(r.library_status)` — «Encuesta
+> pendiente» / «En revisión» / «Con observaciones» / «En Biblioteca» / «Por pagar en Caja») en su
+> lugar, pero conserva la navegación (`appt_nav`) para poder ver el motivo y dar seguimiento. Con
+> las dos liberaciones, arrastrable como cualquier otro cubo. También muestra `motivo`
+> (`rejection_reason` de la fase 02, en una línea truncada con `title` completo) y, si aplica,
+> **la misma línea de D9** que el cubo 3 («Agotó sus cancelaciones…») — `liberaciones_pendientes`
+> y bloqueado por D9 no son excluyentes entre sí.
+
+> **Ensanchado el 2026-10-02 (m41): la fase 02 YA `approved` por otra vía también se resta.**
+> `_unscheduled_query` ya restaba la fase 02 `rejected` (cubo propio); le faltaba una resta
+> ANÁLOGA para la fase 02 ya `approved` sin pasar por una cita aquí —una excepción manual, un dato
+> heredado—: sin ella, ese proceso (nunca tuvo cita, o se le canceló la única que tuvo) seguía
+> contando como «sin cita» en la base COMPARTIDA y podía reaparecer en «Por agendar», «Requieren
+> que les agendes» o «Liberaciones pendientes» como si le faltara algo, cuando ya terminó su
+> cotejo (mismo caso terminal que `fase_aprobada` corta del lado del auto-agendado, §3 de ⤵
+> [auto-agendado](phase2_student_self_booking.md)). La resta es una consulta APARTE —a propósito,
+> no fusionada con `rechazados_ids` en un solo `.in_(("rejected", "approved"))`—: cada resta
+> documenta su propio motivo por separado.
 
 La exclusión de los cubos 1 y 3 **no** se resuelve en la plantilla: la resta la hace
 `list_pending_processes`, que excluye a los del cubo 3. Filtrar en el template dejaría los
@@ -176,10 +208,10 @@ falta cita, le falta que el encargado se pronuncie), y el que la tiene **aprobad
 terminó, §3 `fase_aprobada`).
 
 El badge «por atender» del segmento suma los cubos 1+2+3+4 (por posición de pantalla: por agendar +
-fase 02 rechazada + requieren que les agendes + reagendar); el de «Encuesta sin liberar» **no**
+fase 02 rechazada + requieren que les agendes + reagendar); el de «Liberaciones pendientes» **no**
 suma, porque ahí no hay nada que el encargado pueda hacer todavía. La suma no distingue si una fila
-del cubo 2 tiene `encuesta_sin_liberar=true` (esa sigue sin poder agendarse hasta que la encuesta se
-libere) — es una imprecisión conocida y no una que este cambio haya intentado cerrar.
+del cubo 2 tiene `liberaciones_pendientes=true` (esa sigue sin poder agendarse hasta que se libere)
+— es una imprecisión conocida y no una que este cambio haya intentado cerrar.
 
 **👤 Alumno** → tarjeta «Tu proceso» del dashboard → **«Ver mi cita»**, o menú del alumno →
 **Cita de cotejo** (`/titulatec/student/cita`): tarjeta de estado + checklist de requisitos de su
@@ -197,7 +229,7 @@ sequenceDiagram
     participant DB as Postgres
     S->>API: POST /admin/appointments/{pid}/move?window_id=&slot=
     API->>SVC: create(...) (o reschedule si ya hay cita VIVA)
-    SVC->>SVC: encuesta LIBERADA? → si no, SurveyNotSubmitted / SurveyNotReleased
+    SVC->>SVC: ClearanceGate.blockers() → si falta algo, SurveyNotSubmitted / SurveyNotReleased / LibraryNotCleared
     SVC->>SLOT: assign() — lock de ventana + advisory lock del proceso
     SLOT->>DB: cierra la vigente (si la hay) + INSERT intento nuevo
     SVC->>DB: ProcessEvent(appointment_scheduled) + notif al alumno
@@ -411,14 +443,14 @@ Con `q` sin vacío y **sin** `estado` (un estado de CITA no puede casar con quie
 así que con los dos puestos la lista siempre saldría vacía), el modo «resultados» agrega una
 segunda sección **«Sin cita»** debajo de los resultados normales
 (`_sin_cita_rows`, `pages/appointments.py`): el universo de la cola —«Por agendar», «Requieren que
-les agendes», «Fase 02 rechazada» **sin** cita vigente y «Encuesta sin liberar»— que casa con `q`
+les agendes», «Fase 02 rechazada» **sin** cita vigente y «Liberaciones pendientes»— que casa con `q`
 (nombre completo, número de control o folio, `casefold`, sin mayúsculas), dentro del alcance ya
 resuelto por `_shell_ctx` y respetando `program_id`. Reusa las listas que `_shell_ctx` YA calculó
 para la cola: ninguna consulta nueva de citas.
 
-Cada fila enlaza a la ficha (`abrible=True`) **salvo** la de «Encuesta sin liberar»: esa no está en
-`visibles` (no hay ficha que darle todavía), así que sale sin enlace, solo con la píldora de su
-estado real (`survey_review_pill`) — mismo criterio que la cola.
+Cada fila enlaza a la ficha (`abrible=True`) **salvo** la de «Liberaciones pendientes»: esa no está
+en `visibles` (no hay ficha que darle todavía), así que sale sin enlace, solo con las píldoras de
+su estado real (`survey_review_pill` + `library_clearance_pill`) — mismo criterio que la cola.
 
 Es la MISMA sub-vista Agenda, no una ruta nueva: `ctx["rows"]` (resultados con cita) y
 `ctx["sin_cita_rows"]` (sin cita) se calculan en el mismo `_shell_ctx` y se pintan en
@@ -430,6 +462,44 @@ Es la MISMA sub-vista Agenda, no una ruta nueva: `ctx["rows"]` (resultados con c
 re-anima el shell entero en sus propios swaps. Cada zona declara un `data-tt-fade-key` con la clave
 de su contenido y `static/js/admin/appointments.js` marca con `.tt-enter` solo las que cambiaron.
 El indicador (`#appt-skel`) vive **fuera** del shell: dentro se destruiría estando visible.
+
+## Cola del encargado sin consultas por candidato (2026-10-04)
+
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §8, sin cambio de listas, orden, contadores ni UI. Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les agendes», «Liberaciones pendientes») salen de `AppointmentService.queue_candidates` (`services/appointment_service.py:352`, antes `_pending_candidates`), calculado UNA vez por `_shell_ctx` (`pages/appointments.py:959`, uso en `:1017`) con mapas en lote: `DocumentService.initial_docs_approved_map` (`services/document_service.py:208`, misma regla perfil + R-G) y `SelfBookingService.cancellations_map` / `blocked_map` (`services/self_booking_service.py:196`, `:224`, `GROUP BY`). Los métodos por proceso y los `list_*` conservan firma y delegan. `list_appointments` puebla `process` desde su JOIN (`contains_eager`). `_shell_ctx` pasó de 252 a 40 consultas con 3 candidatos por clase y de 2115 a 40 con 30 (test de equivalencia contra el algoritmo por fila congelado). El buscador `#appt-q` ya llevaba `hx-preserve` (es el patrón que copiaron las demás bandejas).
+
+## Ocupación en lote (2026-10-05)
+
+Cambio de la spec `2026-10-05-titulatec-rendimiento-design.md` §3.4/§3.5 (R3/R4), sin cambio de listas, orden,
+chips, textos ni UI. La regla «¿esta cita ocupa lugar?» tiene **UNA implementación, en lote**, y todo lo demás
+delega en ella (invariante 2 de la spec). Todo en `services/slot_service.py`:
+
+| Función | Qué hace |
+|---|---|
+| `_vivas(q)` | El filtro: `status NOT IN _ESTADOS_QUE_LIBERAN`, nunca `is_current` (⤵ [máquina de estados](00_state_machine.md)). Es la ÚNICA función que lee `_ESTADOS_QUE_LIBERAN`, en `slot_service.py` y en todo `itcj2/apps/titulatec`: lo fijan dos AST de `test_slot_occupancy_batch.py` (uno dentro del módulo, otro a lo ancho que prohíbe importarlo o citarlo en cualquier otro) |
+| `occupancy_map(db, windows, *, excluir_process_id=None, walkin=None, inicio=None)` | `{window_id: {hora: n}}` con UN `SELECT window_id, scheduled_at` y `window_id IN (...)`; reparte en Python (walkin → la apertura o `inicio`; si no, la hora real). Toda ventana pedida con id sale en el mapa (`{}` sin citas); sin ventanas no consulta |
+| `occupancy(db, window, ...)` | `occupancy_map(db, [window], ...)[window.id]` |
+| `window_occupancy` · `window_occupancy_map(db, windows)` | (ocupados en franja real, capacidad = franjas × cupo), por ventana; `window_occupancy` = `_totales(window, occupancy(db, window))` y la de lote = un `occupancy_map` + `_totales` por ventana |
+| `day_occupancy` · `day_occupancy_map(db, windows_by_day)` | lo mismo sumado por día (`_sumar`); `day_occupancy` = `_sumar(windows, occupancy_map(db, windows))` |
+| `vivas_de_ventanas(db, window_ids)` | `{window_id: [citas VIVAS]}` en orden de apartado `(scheduled_at, id)`, UN SELECT con `_vivas`: la LISTA de lo que `occupancy_map` cuenta. La usa `_board_ctx` para los espacios sin horario míos (la lista numerada), así la lista y el contador de libres no divergen y la página no escribe su propio filtro por estado |
+| `out_of_grid` · `out_of_grid_map(db, windows)` | la banda «Fuera de la rejilla»: un SELECT con `_vivas`; un `walkin` da `[]` sin consultar; orden `(scheduled_at, id)` (antes sin `ORDER BY`) |
+| `windows_for_day` · `windows_for_days(db, day_ids, *, owner_id=None, solo_abiertas=True)` | las ventanas de varios días en un `IN`, mismo orden `(start_time, id)`; todo día pedido sale (`[]` si no tiene) |
+| `free_slots` · `free_slots_from(window, ocupacion)` | la comparación contra el cupo, pura (sin BD); la usa también `SelfBookingService.offer` |
+
+**Quién las usa** (`pages/appointments.py`): `_dias_ctx` (el carril de días) = `list_rows` → `windows_for_days` →
+`day_occupancy_map`: **3 consultas fijas** para todo el carril. `_board_ctx` (el tablero) arma
+`window_occupancy_map(mías + ajenas)` y `out_of_grid_map(mías con franjas)` UNA vez antes del bucle, y la lista
+numerada de cada espacio sin horario mío sale de `vivas_de_ventanas` (una consulta para todos; antes la página
+reescribía el filtro por estado); las ajenas ya no llaman dos veces a `window_occupancy` por ventana. **Presupuesto medido** (convocatoria sembrada, días ×
+ventanas 3×2 vs 6×4, `test_slot_occupancy_batch.py`): `_dias_ctx` 10 / 31 → 3 / 3; `_board_ctx` 13 / 17 → 12 / 12;
+vista completa `agenda`/día 38 / 63 → 30 / 30. En la copia de prod, `GET /titulatec/admin/appointments` pasó de 94 a
+28 consultas (con la caché de authz tibia de R2). Equivalencia: oráculo congelado por ventana (`_viejo_*`) contra
+los mapas — walkin, franjas, canceladas/no_show/attended, ventanas sin citas, exclusión de un proceso en dos
+ventanas del mismo lote.
+
+**Lo que sigue con una consulta por ventana** (baja frecuencia; ya delegan en la regla única, solo pagan una
+consulta cada una): `_espacios_ctx` (pestaña Espacios) y `_detail_ctx` (walk-ins de hoy del encargado). La
+oferta del egresado (`SelfBookingService.offer`) también pasó a lote: ⤵
+[el egresado agenda su propia cita](phase2_student_self_booking.md#la-oferta-en-lote-2026-10-05).
 
 ## Limitaciones conocidas
 
@@ -471,6 +541,9 @@ comportamiento actual, documentado para que nadie asuma otra cosa.
   panel de la fase 2 resume fecha, lugar y si falta confirmar, **sin** dejar confirmar desde ahí.
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
 - ⤵ Alcance: [días/encargados por carrera](engine_officer_scope.md).
-- ⤵ Puerta previa: [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md).
+- ⤵ Puerta previa (encuesta): [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md).
+- ⤵ Puerta previa (no adeudo): [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md)
+  — fila de solo lectura en la ficha de atender, botón de constancia previa (D9) y el cubo
+  «Liberaciones pendientes».
 - 📐 [Máquina de estados](00_state_machine.md) — los 7 estados y el eje `is_current`.
 - → Siguiente: [Formato B](phase3_student_formato_b.md).

@@ -228,6 +228,20 @@ class WindowsDesktop {
     window.dataset.appId = appId
     window.classList.add("maximized") // Iniciar maximizado
 
+    // Sandbox solo si el iframe es cross-origin (p. ej. app_prueba en :8090).
+    // Same-origin: scripts+same-origin lo vuelve evadible (el hijo puede quitarse
+    // el atributo), y Chromium bloquea el visor PDF en documentos con sandbox,
+    // asi que ahi no se pone. Cross-origin: el hijo NO puede levantar su propio
+    // sandbox, es una frontera real; los permisos conservan scripts, cookies,
+    // forms, popups y descargas, pero sin navegar el top ni modales.
+    let iframeIsCrossOrigin = false
+    try {
+      iframeIsCrossOrigin = new URL(config.iframeSrc, globalThis.location.href).origin !== globalThis.location.origin
+    } catch (e) { /* URL invalida: se trata como same-origin */ }
+    const iframeSandbox = iframeIsCrossOrigin
+      ? 'sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads"'
+      : ""
+
     window.innerHTML = `
         <div class="window-titlebar">
             <div class="window-title">
@@ -249,8 +263,10 @@ class WindowsDesktop {
         <div class="window-content">
             <iframe class="window-iframe"
                     src="${config.iframeSrc}"
+                    ${iframeSandbox}
                     title="${config.name} Application"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads">
+                    allow="fullscreen"
+                    referrerpolicy="same-origin">
             </iframe>
         </div>
     `

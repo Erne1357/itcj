@@ -1,7 +1,7 @@
 """Convocatoria de titulación (una por periodo)."""
 from sqlalchemy import (
     BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey,
-    Integer, String, Time,
+    Integer, Numeric, String, Time,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -15,6 +15,10 @@ class Cohort(Base):
     __table_args__ = (
         CheckConstraint("default_end_time > default_start_time",
                         name="ck_titulatec_cohorts_default_time_order"),
+        # Tolerante a NULL (patron de `cohort_review_day.py`): un CHECK solo
+        # falla con FALSE, y NULL >= 0 es NULL.
+        CheckConstraint("book_donation_amount IS NULL OR book_donation_amount >= 0",
+                        name="ck_titulatec_cohorts_book_donation"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -48,6 +52,14 @@ class Cohort(Base):
     # columna queda sin uso. No quitar del modelo: el autogenerate propondría
     # borrarla.
     sii_auto_approve = Column(Boolean, nullable=False, server_default=text("true"))
+
+    # NULL = sin configurar (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    # §4.1.2): Biblioteca no puede registrar un adeudo con donación hasta que
+    # Servicios Escolares fije este monto para la convocatoria. Lo que ya
+    # registró Biblioteca con el valor vigente de ese momento queda CONGELADO
+    # en `LibraryClearance.donation_amount`: cambiar este campo después no
+    # mueve montos ya registrados (Review Focus #2).
+    book_donation_amount = Column(Numeric(10, 2), nullable=True)
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))

@@ -11,6 +11,12 @@ Comandos:
     titulatec sii-check <control>         Dry-run de las reglas del SII (NIP enmascarado).
     titulatec sii-sweep [--cohort ID]     Barrido manual del SII (consulta y reintenta).
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
+    titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
+    titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja + descripción de recordatorios (no enciende el candado).
+    titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17 + folios de previas y legado.
+    titulatec emitir-folios-previos [--dry-run]  Folia las previas y el legado que quedaron sin folio vigente (idempotente).
+    titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
+    titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -92,12 +98,48 @@ SEED_FILES = [
     # `init-titulatec` completo NUNCA se re-ejecuta, así que ese comando es el
     # único camino de despliegue para este archivo.
     "mail_2026_09/17_insert_email_tasks.sql",
+    # --- Delta 2026-10: egresados de posgrado (perfil de titulación) --------
+    # Clasifica las 4 carreras de posgrado (2 maestrías + la de industrial +
+    # el doctorado) por NOMBRE NORMALIZADO -- nunca por id ni "las últimas 4"
+    # (spec 2026-09-30-titulatec-posgrado-design.md, D2) -- y da de alta los
+    # 4 tipos de documento extra de fase 1 (`DocumentService.
+    # POSGRADO_EXTRA_DOCS`). El 18 aborta SIN escribir ante cualquier
+    # ambigüedad o carrera de posgrado a medias: nunca duplica (invariante 7).
+    # No inserta permisos, así que va antes del 15 sin problema. También
+    # corre SOLA con `titulatec init-posgrado` (D10, mismo patrón que el 17 de
+    # arriba): en producción las 4 carreras YA EXISTEN (tecleadas a mano) e
+    # `init-titulatec` completo NUNCA se re-ejecuta allí, así que ese comando
+    # es el único camino de despliegue para este delta.
+    "posgrado_2026_10/18_classify_posgrado_programs.sql",
+    "posgrado_2026_10/19_insert_posgrado_doc_types.sql",
+    # --- Delta 2026-10-01: no adeudo de biblioteca (Biblioteca -> Caja) -----
+    # Spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.6/§6: puestos
+    # library_clearance_info_center/cashier_financial_resources (20), roles
+    # titulatec_library/titulatec_cashier + los 10 permisos nuevos y TODAS sus
+    # concesiones, incluido admin EXPLICITO (21), y el requisito automatico de
+    # `library_clearance` sobre las convocatorias YA sembradas (22). No
+    # inserta nada que el 03 pudiera revocar, asi que va antes del 15 sin
+    # problema. En una instalacion desde cero los tres van juntos (no hay
+    # procesos que proteger). En produccion `init-titulatec` completo NUNCA se
+    # re-ejecuta: ahi corren en DOS pasos (Ruling R19) -- `titulatec
+    # init-biblioteca-caja` (20, 21 y 23, no enciende nada) y, ya con
+    # ocupantes y donaciones, `titulatec activar-biblioteca-caja` (22 +
+    # re-backfill + promocion D17).
+    "biblioteca_2026_10/20_insert_library_cashier_positions.sql",
+    "biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql",
+    "biblioteca_2026_10/22_library_requirement_auto.sql",
+    # El 23 (m33, spec 2026-10-02 §6) pone al dia la descripcion de
+    # `titulatec.email_reminders` (ahora menciona el pago pendiente en Caja)
+    # en una base YA sembrada. Aqui, despues del 17, no cambia nada (el 17 ya
+    # siembra ese texto); va para que el delta siga completo en `SEED_FILES`.
+    "biblioteca_2026_10/23_update_email_reminders_description.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
-    # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08 y
-    # survey_2026_09/09) para que "todos" sea de verdad todos. Solo concede
-    # (ON CONFLICT DO NOTHING): re-correrlo nunca revoca nada.
+    # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08,
+    # survey_2026_09/09 y biblioteca_2026_10/21) para que "todos" sea de
+    # verdad todos. Solo concede (ON CONFLICT DO NOTHING): re-correrlo nunca
+    # revoca nada.
     "15_grant_admin_all_perms.sql",
 ]
 
@@ -1194,6 +1236,1738 @@ def init_email_tasks_command(dry_run):
         "solo en ~30 s (el worker ya las conoce si corrió el deploy).",
         fg="green",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Egresados de posgrado / perfil de titulación (2026-10, spec
+# 2026-09-30-titulatec-posgrado-design.md): las 4 carreras de posgrado del
+# ITCJ (2 maestrías + la de industrial + el doctorado) YA EXISTEN en
+# producción -- tecleadas a mano, ortografía desconocida -- pero NO en dev/CI.
+# `18_classify_posgrado_programs.sql` las ubica por NOMBRE NORMALIZADO (D2:
+# nunca por id ni "las últimas 4", que en dev/CI marcaría licenciatura) y les
+# marca `core_programs.level`; aborta SIN escribir ante cualquier ambigüedad
+# o carrera de posgrado a medias (invariante 7). El 19 da de alta los 4
+# tipos de documento extra de fase 1 (`DocumentService.POSGRADO_EXTRA_DOCS`).
+# Mismo patrón D10 que el correo
+# (`init-email-tasks`): producción ya corrió `init-titulatec` y ese comando
+# nunca se re-ejecuta allí, así que este comando es el único camino de
+# despliegue para este delta -- además de sumarse a `SEED_FILES` arriba.
+# ---------------------------------------------------------------------------
+_DML_POSGRADO_2026_10_DIR = "posgrado_2026_10"
+# Debe listar TODOS los .sql del directorio (mismo contrato que
+# `_DML_MAIL_2026_09_FILES`/`_DML_SURVEY_2026_09_FILES`): lo fija
+# `test_directorio_lista_exactamente_los_dos_archivos`
+# (tests/fastapi/titulatec/test_cli_posgrado.py). Un archivo que se cae de
+# aquí no lo corre nadie y nada se pone rojo.
+_DML_POSGRADO_2026_10_FILES = [
+    "18_classify_posgrado_programs.sql",
+    "19_insert_posgrado_doc_types.sql",
+]
+
+# Normalización y patrones EXACTOS de `18_classify_posgrado_programs.sql`.
+# FUENTE ÚNICA para `_verify_posgrado` Y `_precheck_posgrado` (revisión de la
+# Tarea 7, ronda 1): antes cada función traía su propia copia de los 4
+# patrones -- un cambio en el 18 que no se replicara en AMBAS las
+# desincronizaría del SQL real sin que nada lo señalara.
+_POSGRADO_NORM = "upper(translate(name, 'áéíóúüÁÉÍÓÚÜ', 'aeiouuAEIOUU'))"
+# (nivel esperado, patrón1, patrón2-o-None).
+_POSGRADO_PATRONES = (
+    ("maestria", "MAESTRIA%", "%NEGOCIOS%"),
+    ("maestria", "MAESTRIA%", "%ADMINISTRATIVA%"),
+    ("maestria", "MAESTRIA%", "%INDUSTRIAL%"),
+    ("doctorado", "DOCTORADO%", None),
+)
+
+
+def _verify_posgrado() -> list[str]:
+    """Comprueba que el delta de posgrado ATERRIZÓ. Devuelve la lista de problemas.
+
+    Mismo contrato que `_verify_survey_2026_09`/`_verify_titulacion`/
+    `_verify_computer_center`: abre su propia conexión, arma sets contra la
+    BD y devuelve strings de problema en vez de levantar -- los `RAISE
+    NOTICE` del 18/19 son INVISIBLES para `itcj2/` (nada lee
+    `connection.notices`), así que sin esto el operador vería "OK" aunque,
+    por ejemplo, el 19 no hubiera activado un tipo por un `ON CONFLICT` mal
+    resuelto.
+
+    Comprueba:
+      - las 4 carreras de posgrado, cada una por SU patrón exacto del 18
+        (spec §4.2, `_POSGRADO_PATRONES`): las 3 de `MAESTRIA%` con nivel
+        `maestria`, y la de `DOCTORADO%` con nivel `doctorado`. Un patrón con
+        0 o 2+ carreras es un problema (el 18 debería haber abortado antes de
+        llegar aquí, pero esta verificación no confía en eso -- mismo
+        espíritu que el resto de los `_verify_*`).
+      - los 4 tipos de `DocumentService.POSGRADO_EXTRA_DOCS` existen,
+        ACTIVOS y en fase 1 (`titulatec_document_types`).
+    """
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.cli.core import _get_engine
+
+    problemas: list[str] = []
+
+    with _get_engine().connect() as conn:
+        for nivel, patron1, patron2 in _POSGRADO_PATRONES:
+            condicion = f"{_POSGRADO_NORM} LIKE :p1"
+            params = {"p1": patron1}
+            if patron2:
+                condicion += f" AND {_POSGRADO_NORM} LIKE :p2"
+                params["p2"] = patron2
+            filas = conn.execute(
+                text(f"SELECT id, name, level FROM core_programs WHERE {condicion}"),
+                params,
+            ).fetchall()
+            etiqueta = patron1 + (f" + {patron2}" if patron2 else "")
+            if len(filas) != 1:
+                problemas.append(
+                    f"carrera de posgrado ({etiqueta}): se esperaba exactamente 1, hay {len(filas)}"
+                )
+            elif filas[0][2] != nivel:
+                problemas.append(
+                    f"carrera '{filas[0][1]}' (id {filas[0][0]}): nivel es "
+                    f"'{filas[0][2]}', se esperaba '{nivel}'"
+                )
+
+        codigos = list(DocumentService.POSGRADO_EXTRA_DOCS)
+        activos = {
+            row[0]
+            for row in conn.execute(
+                text(
+                    "SELECT code FROM titulatec_document_types "
+                    " WHERE code = ANY(:codes) AND is_active = TRUE AND phase_number = 1"
+                ),
+                {"codes": codigos},
+            )
+        }
+        for code in codigos:
+            if code not in activos:
+                problemas.append(f"tipo de documento ausente o inactivo en fase 1: {code}")
+
+    return problemas
+
+
+def _precheck_posgrado(conn=None) -> dict:
+    """Lee (SIN escribir) qué rama tomaría `18_classify_posgrado_programs.sql`
+    si corriera AHORA MISMO. Ronda 1 de revisión de la Tarea 7: sin esto, el
+    operador no podía saber -- ni antes (`--dry-run`) ni después de la
+    corrida real -- si el 18 clasificó las 4 filas tecleadas a mano o insertó
+    4 canónicas nuevas (posible duplicado silencioso si los nombres reales
+    usan abreviaturas como «Mtría.»/«Dr.», que no contienen ni MAESTR ni
+    DOCTOR).
+
+    Usa la MISMA normalización y los MISMOS 4 patrones que el 18
+    (`_POSGRADO_NORM`/`_POSGRADO_PATRONES`, también usados por
+    `_verify_posgrado`): un cambio en el SQL que no se replique aquí
+    desincroniza el pre-chequeo del comportamiento real.
+
+    Devuelve un dict:
+      - `branch`: `"update"` (cada patrón casa EXACTAMENTE 1 fila y las 4 son
+        ids DISTINTOS -- el 18 solo actualizaría `level`), `"insert"`
+        (ninguna carrera normalizada contiene MAESTR ni DOCTOR -- el 18
+        insertaría las 4 canónicas) o `"abort"` (el 18 fallaría con
+        `RAISE EXCEPTION`: algún patrón con 0 o 2+ coincidencias mientras
+        existen raíces, O el mismo id casando más de un patrón -- esto
+        último el propio SQL no lo comprueba, se detecta aquí ANTES de
+        correrlo: revisión minor #1, "nothing checks that the 4 matched ids
+        are distinct").
+      - `matches`: solo con sentido si `branch == "update"` -- lista de
+        `{"pattern": str, "level": str, "id": int, "name": str}`, una por
+        patrón.
+      - `reasons`: solo con sentido si `branch == "abort"` -- lista de
+        strings, uno por problema (puede haber más de uno).
+
+    `conn` (opcional): conexión o `Session` YA ABIERTA para leer -- permite
+    probar esta función DENTRO del mismo savepoint que `db_session`
+    (`_precheck_posgrado(conn=db_session)`), sin que la lectura se pierda por
+    vivir en una conexión aparte (ver harness de
+    tests/fastapi/titulatec/conftest.py: una conexión nueva vía `_get_engine`
+    NUNCA vería los datos sin comitear del savepoint de la prueba). `None`
+    (uso normal, CLI real): abre su propia conexión contra el engine de
+    producción, como el resto de los `_verify_*` de este archivo.
+    """
+    from sqlalchemy import text
+
+    def _leer(c):
+        resultados = []  # (nivel, etiqueta, filas)
+        for nivel, patron1, patron2 in _POSGRADO_PATRONES:
+            condicion = f"{_POSGRADO_NORM} LIKE :p1"
+            params = {"p1": patron1}
+            if patron2:
+                condicion += f" AND {_POSGRADO_NORM} LIKE :p2"
+                params["p2"] = patron2
+            filas = c.execute(
+                text(f"SELECT id, name FROM core_programs WHERE {condicion}"), params
+            ).fetchall()
+            etiqueta = patron1 + (f" + {patron2}" if patron2 else "")
+            resultados.append((nivel, etiqueta, filas))
+
+        hay_raiz = c.execute(text(
+            f"SELECT count(*) FROM core_programs "
+            f" WHERE {_POSGRADO_NORM} LIKE '%MAESTR%' OR {_POSGRADO_NORM} LIKE '%DOCTOR%'"
+        )).scalar()
+        return resultados, hay_raiz
+
+    if conn is not None:
+        resultados, hay_raiz = _leer(conn)
+    else:
+        from itcj2.cli.core import _get_engine
+        with _get_engine().connect() as c:
+            resultados, hay_raiz = _leer(c)
+
+    reasons: list[str] = []
+    for _nivel, etiqueta, filas in resultados:
+        if len(filas) >= 2:
+            nombres = " | ".join(f"{r[1]} (id {r[0]})" for r in filas)
+            reasons.append(
+                f"{etiqueta}: {len(filas)} carreras casan (se esperaba 1): {nombres}"
+            )
+    if reasons:
+        return {"branch": "abort", "matches": [], "reasons": reasons}
+
+    if hay_raiz == 0:
+        return {"branch": "insert", "matches": [], "reasons": []}
+
+    matches = []
+    for nivel, etiqueta, filas in resultados:
+        if len(filas) == 0:
+            reasons.append(
+                f"{etiqueta}: 0 carreras casan, pero hay carreras con MAESTR/DOCTOR "
+                "en el nombre en otro lado"
+            )
+        else:
+            row = filas[0]
+            matches.append({"pattern": etiqueta, "level": nivel, "id": row[0], "name": row[1]})
+    if reasons:
+        return {"branch": "abort", "matches": [], "reasons": reasons}
+
+    ids = [m["id"] for m in matches]
+    if len(set(ids)) != len(ids):
+        from collections import Counter
+        repetidos = sorted({pid for pid, n in Counter(ids).items() if n > 1})
+        reasons.append(
+            "el mismo id casa más de un patrón (no son 4 carreras distintas): "
+            f"{repetidos}"
+        )
+        return {"branch": "abort", "matches": [], "reasons": reasons}
+
+    return {"branch": "update", "matches": matches, "reasons": []}
+
+
+def _posgrado_resync_preview(db, program_ids: set[int]) -> list[tuple[int, str, str | None]]:
+    """Vista previa de la resincronización, ANTES de correr el 18 de verdad.
+
+    `_resync_posgrado_phase1` decide el perfil vía `TrackService`, que mira
+    `Program.level` -- inútil aquí porque, antes de correr el 18, las 4
+    carreras SIGUEN en `licenciatura` (revisión de la Tarea 7, ronda 1: sin
+    esto el `--dry-run` en producción imprimía SIEMPRE «0 procesos», aunque
+    hubiera posgrados esperando en `in_review`). En su lugar, el perfil
+    posgrado sale DIRECTO de `program_ids` (los ids que `_precheck_posgrado`
+    ya identificó): un proceso cuyo `program_id` está ahí es de posgrado sin
+    necesidad de preguntarle a `TrackService`.
+
+    Replica LITERALMENTE la lógica de transición de
+    `DocumentService.sync_initial_phase` (mismas 3 reglas) con el set de
+    posgrado FIJO (`DocumentService.initial_doc_types(TRACK_POSGRADO)`, los 7
+    códigos) -- pero de SOLO LECTURA: nunca llama a la función real (que SÍ
+    escribe en el objeto ORM), así que ni siquiera hace falta un rollback
+    para que esto sea inofensivo. `program_ids` vacío -> `[]` sin consultar.
+    """
+    from itcj2.apps.titulatec.models import Document, ProcessPhase, TitulationProcess
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO
+
+    if not program_ids:
+        return []
+
+    n = PhaseService.phase_number_for_code(db, "initial_docs")
+    if n is None:
+        return []
+
+    codes = DocumentService.initial_doc_types(TRACK_POSGRADO)
+    procesos = (
+        db.query(TitulationProcess)
+        .filter(
+            TitulationProcess.status == "active",
+            TitulationProcess.current_phase == n,
+            TitulationProcess.program_id.in_(program_ids),
+        )
+        .all()
+    )
+
+    resultados: list[tuple[int, str, str | None]] = []
+    for proceso in procesos:
+        count = (
+            db.query(Document)
+            .filter(Document.process_id == proceso.id, Document.type_code.in_(codes))
+            .count()
+        )
+        completo = count >= len(codes)
+        fase = db.query(ProcessPhase).filter_by(process_id=proceso.id, phase_number=n).first()
+        actual = fase.status if fase else "pending"
+        if completo:
+            nuevo = "in_review" if actual in ("pending", "in_progress", "rejected") else None
+        else:
+            nuevo = "in_progress" if actual == "in_review" else None
+        resultados.append((proceso.id, proceso.folio, nuevo))
+    return resultados
+
+
+def _posgrado_rg_population(db, program_ids: set[int]) -> list[tuple[int, str, int, str]]:
+    """Población R-G (D9 sin herramienta, Tarea 8, revisión final 2026-09-30):
+    procesos de posgrado que YA PASARON la fase de `initial_docs` con ALGÚN
+    extra de `DocumentService.POSGRADO_EXTRA_DOCS` todavía sin fila.
+
+    `initial_docs_all_approved` (vía `DocumentService.excused_initial_docs`,
+    R-G) los exceptúa de por vida -- no se regresan a Documentos (D9) -- así
+    que nunca vuelven a aparecer por su cuenta en ninguna bandeja. Sin esta
+    lista, nadie en Servicios Escolares se entera de pedirles los 4 extras EN
+    el cotejo: el checklist de despliegue (`engine_process_track.md`, spec §9)
+    es la única otra forma, y es manual.
+
+    SOLO LECTURA -- no escribe ni sincroniza nada (eso lo hace
+    `_resync_posgrado_phase1`, que es justo lo contrario: fase 1 TODAVÍA
+    abierta). `program_ids` es el mismo criterio que `_posgrado_resync_
+    preview`: en el `--dry-run`, los ids que `_precheck_posgrado` ya casó
+    (`level` real todavía sin marcar); en la corrida real, los que
+    `_posgrado_clasificadas` acaba de confirmar. `program_ids` vacío -> `[]`
+    sin consultar (ni el catálogo de fases).
+
+    Devuelve `(process_id, folio, current_phase, program_name)`, uno por
+    proceso en alcance, ordenado por folio -- un proceso con los 4 extras YA
+    subidos (nada que pedir) no aparece, aunque su fase 1 también haya
+    cerrado.
+    """
+    from itcj2.apps.titulatec.models import Document, TitulationProcess
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.core.models.program import Program
+
+    if not program_ids:
+        return []
+
+    n = PhaseService.phase_number_for_code(db, "initial_docs")
+    if n is None:
+        return []
+
+    procesos = (
+        db.query(TitulationProcess)
+        .filter(
+            TitulationProcess.status == "active",
+            TitulationProcess.program_id.in_(program_ids),
+            TitulationProcess.current_phase > n,
+        )
+        .order_by(TitulationProcess.folio)
+        .all()
+    )
+    if not procesos:
+        return []
+
+    extras = set(DocumentService.POSGRADO_EXTRA_DOCS)
+    presentes_por_proceso: dict[int, set[str]] = {}
+    for pid, code in (
+        db.query(Document.process_id, Document.type_code)
+        .filter(Document.process_id.in_([p.id for p in procesos]),
+                Document.type_code.in_(extras))
+        .all()
+    ):
+        presentes_por_proceso.setdefault(pid, set()).add(code)
+
+    nombres = {p.id: p.name for p in db.query(Program).filter(Program.id.in_(program_ids)).all()}
+
+    resultados: list[tuple[int, str, int, str]] = []
+    for proceso in procesos:
+        presentes = presentes_por_proceso.get(proceso.id, set())
+        if len(presentes) >= len(extras):
+            continue        # ya tiene los 4 extras: nada que pedir en el cotejo
+        resultados.append((
+            proceso.id, proceso.folio, proceso.current_phase,
+            nombres.get(proceso.program_id, "—"),
+        ))
+    return resultados
+
+
+def _posgrado_clasificadas(conn) -> list[tuple[int, str, str]]:
+    """`id, name, level` de las carreras YA clasificadas como posgrado.
+
+    Extraída a función propia (antes vivía inline en el comando) para que las
+    pruebas del comando puedan parchear esta única llamada en vez de
+    `_get_engine` completo -- mismo motivo que `_posgrado_warn_unclassified`.
+    """
+    from sqlalchemy import text
+
+    return conn.execute(text(
+        "SELECT id, name, level FROM core_programs "
+        " WHERE level IN ('maestria', 'doctorado') ORDER BY id"
+    )).fetchall()
+
+
+def _posgrado_warn_unclassified(conn) -> list[tuple[int, str]]:
+    """`id, name` de carreras con MAESTR/DOCTOR en el nombre que SIGUEN en
+    `licenciatura` tras correr el 18 (revisión minor #2: antes quedaban en
+    silencio). Puede pasar con la rama `insert` (`--allow-insert`): si los
+    nombres reales usan una abreviatura que el 18 no reconoce (p. ej.
+    «Mtría.»), el 18 inserta 4 canónicas NUEVAS y deja las originales
+    intactas -- esta advertencia solo atrapa el caso en que el nombre SÍ
+    contiene la raíz completa pero, por lo que sea, ningún patrón la marcó.
+    """
+    from sqlalchemy import text
+
+    return conn.execute(text(
+        f"SELECT id, name FROM core_programs "
+        f" WHERE ({_POSGRADO_NORM} LIKE '%MAESTR%' OR {_POSGRADO_NORM} LIKE '%DOCTOR%') "
+        f"   AND level = 'licenciatura'"
+    )).fetchall()
+
+
+def _resync_posgrado_phase1(dry_run: bool) -> list[tuple[int, str, str | None]]:
+    """Re-sincroniza `ProcessPhase(1)` de los procesos de posgrado ACTIVOS que
+    siguen en esa fase, tras clasificar las 4 carreras (spec
+    2026-09-30-titulatec-posgrado-design.md §5).
+
+    Por qué hace falta
+    -------------------
+    `DocumentService.sync_initial_phase` solo corre HOY MISMO como efecto
+    secundario de `DocumentService.save`/`delete` (subir o borrar un
+    documento). Un proceso de posgrado que YA TENÍA sus 3 documentos base
+    ANTES de este despliegue quedó en `in_review` esperando revisión con
+    SOLO 3 -- clasificar la carrera (18) no dispara por sí sola ese
+    recálculo, y sin este resync el proceso se vería atorado en Documentos
+    hasta que alguien subiera o borrara uno por casualidad.
+
+    Alcance: proceso `status == 'active'` y `current_phase` igual al número
+    de fase `initial_docs` en el catálogo, filtrado a perfil posgrado
+    (`TrackService.for_processes`, invariante 2: el perfil sale SOLO de
+    ahí). Sin el catálogo de fases (BD nueva sin `init-titulatec`), no hay
+    nada que resincronizar -- devuelve `[]` sin abrir más consultas.
+
+    R-G (invariante 8, spec §5/§6, deriva de D9): un proceso que YA PASÓ la
+    fase 1 no entra aquí (su `current_phase` ya no es el de `initial_docs`),
+    y `sync_initial_phase` en sí mismo nunca toca `approved`/`skipped` -- no
+    se regresa.
+
+    `dry_run=True`: calcula todo igual (incluidas las mutaciones en memoria
+    de `sync_initial_phase`) y termina en ROLLBACK -- nunca escribe.
+    `dry_run=False` hace COMMIT una sola vez, al final.
+
+    Devuelve una tupla `(process_id, folio, nuevo_estado)` por proceso en
+    alcance; `nuevo_estado` es lo que devolvió `sync_initial_phase` (`None`
+    si no cambió nada -- p. ej. ya estaba `in_progress` con menos de 7).
+    """
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO, TrackService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    resultados: list[tuple[int, str, str | None]] = []
+    try:
+        n = PhaseService.phase_number_for_code(db, "initial_docs")
+        if n is None:
+            return resultados
+
+        procesos = (
+            db.query(TitulationProcess)
+            .filter(TitulationProcess.status == "active", TitulationProcess.current_phase == n)
+            .all()
+        )
+        if procesos:
+            tracks = TrackService.for_processes(db, procesos)
+            for proceso in procesos:
+                if tracks.get(proceso.id) != TRACK_POSGRADO:
+                    continue
+                nuevo_estado = DocumentService.sync_initial_phase(db, proceso)
+                resultados.append((proceso.id, proceso.folio, nuevo_estado))
+
+        if dry_run:
+            db.rollback()
+        else:
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    return resultados
+
+
+@titulatec_cli.command("init-posgrado")
+@click.option("--dry-run", is_flag=True,
+              help="Muestra la rama que tomaría el 18 y los procesos a re-sincronizar, sin escribir.")
+@click.option("--allow-insert", is_flag=True,
+              help="Permite insertar las 4 carreras canónicas cuando NINGUNA existente casa "
+                   "MAESTR/DOCTOR (bases nuevas/vacías). Sin esta bandera esa rama aborta: "
+                   "evita duplicar carreras si los nombres reales usan una abreviatura "
+                   "(p. ej. «Mtría.») que el 18 no reconoce.")
+def init_posgrado_command(dry_run, allow_insert):
+    """Clasifica las 4 carreras de posgrado y da de alta sus 4 documentos de fase 1.
+
+    Corre SOLO `database/DML/titulatec/posgrado_2026_10/`
+    (`_DML_POSGRADO_2026_10_FILES`, D10): producción ya corrió
+    `init-titulatec` y ese comando nunca se re-ejecuta allí, así que este es
+    el único camino de despliegue para este delta -- además de sumarse a
+    `SEED_FILES` para una instalación desde cero.
+
+    `18_classify_posgrado_programs.sql` ubica las 4 carreras (2 maestrías +
+    la de industrial + el doctorado) POR NOMBRE NORMALIZADO (D2), nunca por
+    id ni "las últimas 4": en una base sin posgrados tecleados a mano (dev,
+    CI, instalación nueva) inserta las 4 con nombres canónicos; en una base
+    con posgrado ya tecleado a mano (prod) las ubica y marca su nivel. Aborta
+    SIN escribir ante cualquier ambigüedad (2+ carreras casan un mismo
+    patrón) o ante una carrera de posgrado a medias (alguna raíz
+    MAESTR/DOCTOR existe pero un patrón no casa) -- nunca duplica
+    (invariante 7). `19_insert_posgrado_doc_types.sql` da de alta los 4 tipos
+    de documento extra de fase 1 (`DocumentService.POSGRADO_EXTRA_DOCS`).
+
+    Ronda 1 de revisión: antes de escribir NADA, `_precheck_posgrado()` lee
+    (sin escribir) qué rama tomaría el 18. `abort` -> se detiene, nada se
+    ejecuta. `insert` -> se detiene salvo que se pase `--allow-insert` (sin
+    ella, un nombre real con una abreviatura que el 18 no reconoce insertaría
+    4 canónicas DUPLICADAS en silencio -- exactamente lo que este pre-chequeo
+    existe para impedir). `update` -> procede igual que antes.
+
+    Al terminar VERIFICA con `_verify_posgrado()` (los `RAISE NOTICE` del SQL
+    son invisibles, mismo motivo que el resto de los `_verify_*` de este
+    archivo), imprime la RAMA que de verdad se tomó, e imprime id/nombre/nivel
+    de las 4 carreras -- más una ADVERTENCIA (amarilla) si alguna carrera con
+    MAESTR/DOCTOR en el nombre sigue en `licenciatura` (revisión minor #2).
+    Después RE-SINCRONIZA la fase 1 de los procesos de posgrado ACTIVOS que
+    siguen en esa fase (spec §5): uno que llevaba los 3 documentos base y
+    estaba `in_review` esperando revisión pasa a `in_progress` (le faltan los
+    4 nuevos) -- sin avisos ni correos, `sync_initial_phase` solo escribe
+    estado. R-G (invariante 8): un proceso que YA PASÓ la fase 1 no se toca,
+    aunque le falten los 4 extras -- no se regresa (D9). Por último, SOLO
+    LECTURA, imprime la población R-G (D9 sin herramienta, Tarea 8): los
+    procesos de posgrado que YA PASARON la fase 1 con algún extra todavía sin
+    fila, bajo «Pedir en el cotejo (fase 1 ya cerrada): N» -- esos nunca
+    vuelven a aparecer solos en ninguna bandeja (`initial_docs_all_approved`
+    los exceptúa de por vida), así que esta es la única forma de que
+    Servicios Escolares se entere de pedírselos EN el cotejo.
+
+    `--dry-run`: corre `_precheck_posgrado()` e imprime la rama (con los
+    ids/nombres que quedarían, o los motivos del abort), y lista los procesos
+    que se re-sincronizarían (con el estado que resultaría) usando
+    `_posgrado_resync_preview` -- que identifica candidatos por `program_id`,
+    NUNCA por `Program.level` (que en este punto sigue en `licenciatura` para
+    los 4) -- y, con el mismo criterio, la población R-G
+    (`_posgrado_rg_population`) que se vería tras correr el 18 de verdad.
+    También dice si los 2 archivos existen en disco (y en ese caso sale
+    distinto de 0, aunque el resto del reporte se imprime igual: el precheck
+    lee `core_programs` directo, no necesita los archivos). Nunca escribe
+    nada. Sale 0 solo si los 2 archivos existen Y la rama no es `abort`.
+    """
+    if dry_run:
+        faltan = [
+            nombre for nombre in _DML_POSGRADO_2026_10_FILES
+            if not (DML_TITULATEC / _DML_POSGRADO_2026_10_DIR / nombre).exists()
+        ]
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarían:")
+            for nombre in _DML_POSGRADO_2026_10_FILES:
+                click.echo(f"  {_DML_POSGRADO_2026_10_DIR}/{nombre}")
+
+        precheck = _precheck_posgrado()
+        click.echo(f"[dry-run] Rama que tomaría el 18: {precheck['branch']}")
+
+        if precheck["branch"] == "abort":
+            for r in precheck["reasons"]:
+                click.echo(click.style(f"  ERROR: {r}", fg="red"))
+        elif precheck["branch"] == "insert":
+            click.echo(
+                "  Ninguna carrera existente casa MAESTR/DOCTOR: insertaría las 4 "
+                "canónicas (la corrida real necesitaría --allow-insert)."
+            )
+        else:
+            for m in precheck["matches"]:
+                click.echo(f"  {m['id']} · {m['name']} · quedaría en {m['level']}")
+
+        resultados = []
+        rg = []
+        if precheck["branch"] == "update":
+            from itcj2.database import SessionLocal
+
+            program_ids = {m["id"] for m in precheck["matches"]}
+            db = SessionLocal()
+            try:
+                resultados = _posgrado_resync_preview(db, program_ids)
+                rg = _posgrado_rg_population(db, program_ids)
+            finally:
+                db.rollback()
+                db.close()
+
+        click.echo(
+            f"[dry-run] Procesos de posgrado a re-sincronizar en fase 1: {len(resultados)}"
+        )
+        for pid, folio, nuevo_estado in resultados:
+            click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+
+        # D9 sin herramienta (Tarea 8): poblacion R-G -- procesos que YA
+        # pasaron la fase 1 con algun extra sin fila. `initial_docs_all_
+        # approved` los exceptua de por vida (no se regresan, D9), asi que
+        # SE no se entera de pedirselos en el cotejo si nadie se lo dice.
+        click.echo(f"[dry-run] Pedir en el cotejo (fase 1 ya cerrada): {len(rg)}")
+        for pid, folio, fase, carrera in rg:
+            click.echo(f"  {folio} (id {pid}): fase {fase:02d} · {carrera}")
+
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan or precheck["branch"] == "abort":
+            raise click.Abort()
+        return
+
+    precheck = _precheck_posgrado()
+    if precheck["branch"] == "abort":
+        click.echo()
+        for r in precheck["reasons"]:
+            click.echo(click.style(f"ERROR: {r}", fg="red"), err=True)
+        raise click.Abort()
+    if precheck["branch"] == "insert" and not allow_insert:
+        click.echo(click.style(
+            "ERROR: ninguna carrera existente casa con MAESTR/DOCTOR -- no se encontró "
+            "ninguna carrera de posgrado tecleada a mano. Si esto es una base nueva o "
+            "vacía (dev/CI), vuelve a correr con --allow-insert para insertar las 4 "
+            "canónicas. Si esto es producción, revisa los nombres en core_programs "
+            "antes de continuar: el 18 duplicaría carreras si los nombres reales usan "
+            "una abreviatura que no reconoce.",
+            fg="red",
+        ), err=True)
+        raise click.Abort()
+
+    _run_sql_files(
+        [f"{_DML_POSGRADO_2026_10_DIR}/{nombre}" for nombre in _DML_POSGRADO_2026_10_FILES]
+    )
+
+    problemas = _verify_posgrado()
+    if problemas:
+        click.echo()
+        for p in problemas:
+            click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+        raise click.Abort()
+
+    click.echo(f"Rama tomada: {precheck['branch']}")
+
+    from itcj2.cli.core import _get_engine
+
+    with _get_engine().connect() as conn:
+        carreras = _posgrado_clasificadas(conn)
+        sin_clasificar = _posgrado_warn_unclassified(conn)
+
+    click.echo("Carreras de posgrado clasificadas:")
+    for pid, name, level in carreras:
+        click.echo(f"  {pid} · {name} · {level}")
+
+    if sin_clasificar:
+        click.echo(click.style(
+            "ADVERTENCIA: estas carreras contienen MAESTR/DOCTOR en el nombre pero "
+            "siguen en nivel 'licenciatura' (revísalas a mano):",
+            fg="yellow",
+        ))
+        for pid, name in sin_clasificar:
+            click.echo(click.style(f"  {pid} · {name}", fg="yellow"))
+
+    resultados = _resync_posgrado_phase1(dry_run=False)
+    click.echo(f"Procesos de posgrado re-sincronizados en fase 1: {len(resultados)}")
+    for pid, folio, nuevo_estado in resultados:
+        click.echo(f"  {folio} (id {pid}): -> {nuevo_estado or '(sin cambio)'}")
+
+    # D9 sin herramienta (Tarea 8, revisión final): población R-G -- procesos
+    # que YA pasaron la fase 1 con algún extra sin fila. `initial_docs_all_
+    # approved` los exceptúa de por vida (no se regresan, D9): sin este
+    # aviso, nadie en Servicios Escolares se entera de pedírselos en el
+    # cotejo. Mismos ids que `carreras` -- las recién clasificadas -- no
+    # `Program.level` (ya coinciden en este punto, pero es la misma fuente
+    # que ya trajo `_posgrado_clasificadas` arriba, sin una segunda lectura).
+    from itcj2.database import SessionLocal
+
+    program_ids = {pid for pid, _name, _level in carreras}
+    db = SessionLocal()
+    try:
+        rg = _posgrado_rg_population(db, program_ids)
+    finally:
+        db.rollback()
+        db.close()
+
+    click.echo(f"Pedir en el cotejo (fase 1 ya cerrada): {len(rg)}")
+    for pid, folio, fase, carrera in rg:
+        click.echo(f"  {folio} (id {pid}): fase {fase:02d} · {carrera}")
+
+    click.echo(click.style(
+        "OK: 4 carreras de posgrado clasificadas y 4 tipos de documento de "
+        "fase 1 dados de alta/actualizados.",
+        fg="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# No adeudo de biblioteca (Biblioteca -> Caja), 2026-10-01 (spec
+# 2026-10-01-titulatec-biblioteca-caja-design.md, §4.6/§6): Biblioteca revisa
+# en FIFO a todo inscrito y registra si debe (y cuanto); el egresado va
+# directo a Caja a pagar adeudo + "Donacion voluntaria de libro"; Caja
+# registra el pago y eso libera el requisito `library_clearance`. Puesto
+# nuevo por area, rol nuevo por puesto, 10 permisos nuevos (88 -> 98).
+# ---------------------------------------------------------------------------
+_DML_BIBLIOTECA_2026_10_DIR = "biblioteca_2026_10"
+# Despliegue en DOS pasos (Ruling R19, I1 de la revision final): el comando
+# que crea los puestos ya no puede ser el mismo que enciende el candado, o
+# «asignar ocupantes antes» es imposible (los puestos no existen hasta el 20,
+# y el 22 bloquea a todos en el mismo paso).
+#   - `init-biblioteca-caja` corre SOLO estos: puestos (20); roles,
+#     permisos, mapeo y concesiones (21), y la descripcion nueva de la tarea
+#     de recordatorios por correo, que ahora menciona el pago pendiente en
+#     Caja (23, m33 de 2026-10-02: el 17 de `mail_2026_09/` no se re-corre en
+#     produccion). NO enciende nada.
+#   - `activar-biblioteca-caja` corre SOLO el 22 (requisito automatico =
+#     candado encendido), tras sus pre-chequeos, y luego el re-backfill y la
+#     promocion de los marcados a mano (Ruling R20).
+# Entre las DOS listas deben estar TODOS los .sql del directorio (mismo
+# contrato que `_DML_POSGRADO_2026_10_FILES`/`_DML_MAIL_2026_09_FILES`/
+# `_DML_SURVEY_2026_09_FILES`): lo fija
+# `test_todo_sql_del_delta_esta_en_una_lista_de_comando`
+# (tests/fastapi/titulatec/test_cli_biblioteca_caja.py). Un archivo que se
+# caiga de las dos no lo corre nadie y nada se pone rojo. `SEED_FILES` (alta
+# desde cero con `init-titulatec`) conserva los CUATRO: ahi no hay procesos
+# que proteger y encender de inmediato esta bien (el 23, ahi, no cambia nada).
+_DML_BIBLIOTECA_2026_10_FILES = [
+    "20_insert_library_cashier_positions.sql",
+    "21_insert_library_cashier_roles_perms.sql",
+    "23_update_email_reminders_description.sql",
+]
+_DML_BIBLIOTECA_2026_10_ACTIVAR_FILES = [
+    "22_library_requirement_auto.sql",
+]
+
+_ROL_LIBRARY = "titulatec_library"
+_ROL_CASHIER = "titulatec_cashier"
+_PUESTO_LIBRARY = "library_clearance_info_center"      # depto info_center, "Biblioteca · No adeudo"
+_PUESTO_CASHIER = "cashier_financial_resources"         # depto financial_resources, "Caja"
+
+# Los 5 de la bandeja de Biblioteca.
+_PERMISOS_LIBRARY_CLEARANCE = (
+    "titulatec.library_clearance.page.list",
+    "titulatec.library_clearance.api.register",
+    "titulatec.library_clearance.api.prior",
+    "titulatec.library_clearance.api.revert",
+    "titulatec.library_clearance.api.print_certificates",
+)
+# Los 3 de la bandeja de Caja.
+_PERMISOS_LIBRARY_PAYMENT = (
+    "titulatec.library_payment.page.list",
+    "titulatec.library_payment.api.register",
+    "titulatec.library_payment.api.revert",
+)
+# Los 2 sueltos del delta: imprimir constancias de la encuesta (GTV) y la
+# bandeja de Constancias (comun a encuesta y no adeudo).
+_PERM_SURVEY_PRINT_CERTIFICATES = "titulatec.survey_review.api.print_certificates"
+_PERM_CERTIFICATE_PAGE_LIST = "titulatec.certificate.page.list"
+
+# Los 10 del delta (spec §4.6, tabla). FUENTE UNICA para `_verify_biblioteca_
+# caja` y para `test_los_diez_codigos_del_delta_son_los_del_contrato`.
+_PERMISOS_BIBLIOTECA_CAJA_2026_10 = (
+    _PERMISOS_LIBRARY_CLEARANCE
+    + _PERMISOS_LIBRARY_PAYMENT
+    + (_PERM_SURVEY_PRINT_CERTIFICATES, _PERM_CERTIFICATE_PAGE_LIST)
+)
+
+# Reparto EXACTO de los dos roles nuevos (spec §4.6): titulatec_library son
+# los 5 de Biblioteca MAS certificate.page.list (ve la bandeja de
+# Constancias); titulatec_cashier son SOLO los 3 de Caja.
+_PERMISOS_ROL_LIBRARY = _PERMISOS_LIBRARY_CLEARANCE + (_PERM_CERTIFICATE_PAGE_LIST,)
+_PERMISOS_ROL_CASHIER = _PERMISOS_LIBRARY_PAYMENT
+
+# Puestos que deben tener ocupante antes de encender el candado (pre-chequeo
+# de `activar-biblioteca-caja`): sin ellos nadie salvo `admin` libera a nadie.
+_PUESTOS_BIBLIOTECA_CAJA = (_PUESTO_LIBRARY, _PUESTO_CASHIER)
+
+
+# --- Re-backfill de `titulatec_library_clearances` --------------------------
+# MISMO predicado que el backfill de la migracion `tt20261001a`
+# (migrations/versions/tt20261001a_titulatec_biblioteca_caja.py,
+# BACKFILL_SQL): por cada proceso activo/en pausa cuya fase 2 NO este
+# aprobada (sin fila cuenta como NO aprobada) y que TODAVIA no tenga fila en
+# `titulatec_library_clearances`, inserta 'cleared'/cleared_via='legacy' si
+# ya tiene un `RequirementFulfillment` fulfilled|waived del requisito
+# `library_clearance` de SU convocatoria; si no, 'pending'. Existe para
+# alcanzar los procesos que se crearon durante la ventana blue/green, entre
+# que corrio la migracion y que corre `activar-biblioteca-caja` (Review Focus
+# #5 del plan; Ruling R19: lo corre la ACTIVACION, ya no
+# `init-biblioteca-caja`) -- la migracion por si sola solo ve los procesos
+# que existian AL MOMENTO de aplicarse.
+#
+# El fragmento de predicado es el MISMO texto Python para el INSERT real y
+# para el COUNT de la vista previa (`--dry-run`): no hay forma de que
+# diverjan sin que el propio archivo deje de compilar.
+_LIBRARY_CLEARANCE_BACKFILL_PREDICATE = """
+  FROM titulatec_processes p
+ WHERE p.status IN ('active', 'on_hold')
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_process_phases ph
+        WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+   )
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_library_clearances lc WHERE lc.process_id = p.id
+   )
+"""
+
+_LIBRARY_CLEARANCE_REBACKFILL_SQL = """
+INSERT INTO titulatec_library_clearances
+    (process_id, status, cleared_via, created_at, updated_at)
+SELECT
+    p.id,
+    CASE WHEN EXISTS (
+        SELECT 1
+          FROM titulatec_requirement_fulfillments rf
+          JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+         WHERE rf.process_id = p.id
+           AND req.cohort_id = p.cohort_id
+           AND req.code = 'library_clearance'
+           AND rf.status IN ('fulfilled', 'waived')
+    ) THEN 'cleared' ELSE 'pending' END,
+    CASE WHEN EXISTS (
+        SELECT 1
+          FROM titulatec_requirement_fulfillments rf
+          JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+         WHERE rf.process_id = p.id
+           AND req.cohort_id = p.cohort_id
+           AND req.code = 'library_clearance'
+           AND rf.status IN ('fulfilled', 'waived')
+    ) THEN 'legacy' ELSE NULL END,
+    NOW(),
+    NOW()
+""" + _LIBRARY_CLEARANCE_BACKFILL_PREDICATE
+
+_LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL = "SELECT COUNT(*)" + _LIBRARY_CLEARANCE_BACKFILL_PREDICATE
+
+
+def _library_clearance_rebackfill(dry_run: bool) -> int:
+    """Re-backfill idempotente de `titulatec_library_clearances`.
+
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` pueda interceptarla en los
+    tests -- mismo patron que `_resync_posgrado_phase1`. `dry_run=True` solo
+    CUENTA (SELECT, nunca escribe); `dry_run=False` inserta y hace UN commit.
+    Idempotente por construccion: el `NOT EXISTS` sobre la propia tabla hace
+    que una segunda corrida inserte 0 filas.
+
+    Devuelve cuantas filas creo (o crearia, en dry-run).
+    """
+    return _run_counted_sql(_LIBRARY_CLEARANCE_REBACKFILL_SQL,
+                            _LIBRARY_CLEARANCE_REBACKFILL_COUNT_SQL, dry_run)
+
+
+def _run_counted_sql(sql: str, count_sql: str, dry_run: bool) -> int:
+    """Corre `sql` (un INSERT/UPDATE de datos) y devuelve cuantas filas tocó,
+    o, con `dry_run`, solo cuenta con `count_sql` (SELECT, nunca escribe).
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` la intercepte en las pruebas;
+    UN commit en la corrida real."""
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        if dry_run:
+            count = db.execute(text(count_sql)).scalar() or 0
+            db.rollback()
+        else:
+            result = db.execute(text(sql))
+            count = result.rowcount or 0
+            db.commit()
+        return count
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+# --- Promocion D17 de la ventana de transicion (Ruling R20, I2) ------------
+# El backfill decide `legacy` vs `pending` cuando corre (migracion o
+# re-backfill). Hasta que la activacion enciende el candado, el requisito
+# `library_clearance` sigue siendo MANUAL (`auto_source` NULL) y Servicios
+# Escolares lo sigue marcando a mano -con el codigo viejo (blue/green) y con
+# el nuevo-; el re-backfill nunca revisita una fila que YA existe. Sin esto,
+# quien entrego su papel DESPUES de la migracion quedaria bloqueado
+# (`library_pending`) y en la cola de Biblioteca, contra D17.
+#
+# Promueve a `cleared`/`cleared_via='legacy'` SOLO filas `pending` que
+# Biblioteca no ha tocado (`library_at IS NULL`) cuando su convocatoria tiene
+# el requisito `library_clearance` cumplido (`fulfilled|waived`) para ese
+# proceso, o cuando su fase 2 ya esta `approved` (ya paso su cotejo). Es DATO
+# como el backfill: sin eventos, sin avisos, sin correos, sin constancia EN ESTE
+# PASO (el folio del legado lo saca el paso siguiente de `activar-biblioteca-caja`,
+# `FolioBackfillService`). Idempotente: una fila promovida deja de ser `pending`.
+# El predicado es el MISMO texto para el UPDATE real y el COUNT de la vista
+# previa.
+_LIBRARY_CLEARANCE_PROMOTE_CONDITIONS = """
+       p.id = lc.process_id
+   AND lc.status = 'pending'
+   AND lc.library_at IS NULL
+   AND (
+       EXISTS (
+           SELECT 1
+             FROM titulatec_requirement_fulfillments rf
+             JOIN titulatec_cotejo_requirements req ON req.id = rf.requirement_id
+            WHERE rf.process_id = p.id
+              AND req.cohort_id = p.cohort_id
+              AND req.code = 'library_clearance'
+              AND rf.status IN ('fulfilled', 'waived')
+       )
+       OR EXISTS (
+           SELECT 1 FROM titulatec_process_phases ph
+            WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+       )
+   )
+"""
+
+_LIBRARY_CLEARANCE_PROMOTE_SQL = (
+    "UPDATE titulatec_library_clearances lc "
+    "   SET status = 'cleared', cleared_via = 'legacy', updated_at = NOW() "
+    "  FROM titulatec_processes p "
+    " WHERE" + _LIBRARY_CLEARANCE_PROMOTE_CONDITIONS
+)
+
+_LIBRARY_CLEARANCE_PROMOTE_COUNT_SQL = (
+    "SELECT COUNT(*) FROM titulatec_library_clearances lc, titulatec_processes p "
+    " WHERE" + _LIBRARY_CLEARANCE_PROMOTE_CONDITIONS
+)
+
+
+def _library_clearance_promote(dry_run: bool) -> int:
+    """Promocion D17 de la ventana de transicion (Ruling R20): `pending` no
+    tocadas por Biblioteca -> `cleared/legacy` si el requisito ya esta
+    cumplido a mano o la fase 2 ya esta aprobada. Devuelve cuantas promovio
+    (o promoveria, en dry-run). Idempotente; sin eventos."""
+    return _run_counted_sql(_LIBRARY_CLEARANCE_PROMOTE_SQL,
+                            _LIBRARY_CLEARANCE_PROMOTE_COUNT_SQL, dry_run)
+
+
+def _verify_biblioteca_caja() -> list[str]:
+    """Comprueba que el 20 y el 21 ATERRIZARON (lo que corre
+    `init-biblioteca-caja`). Devuelve problemas.
+
+    Mismo contrato de SALIDA que el resto de los `_verify_*` de este archivo:
+    arma sets contra la BD y devuelve strings de problema en vez de levantar
+    -- los `RAISE NOTICE` del 20/21/22 son INVISIBLES para `itcj2/` (nada lee
+    `connection.notices`). A diferencia de esos otros `_verify_*` (que abren
+    `_get_engine().connect()` crudo), este abre su PROPIA sesión (import
+    local de `SessionLocal`, convención del proyecto) para que
+    `patched_session_local` pueda interceptarla en las pruebas -- mismo
+    patrón que `_precheck_activar_biblioteca`/`_run_counted_sql` en este
+    archivo (m04: antes usaba `_get_engine()` directo, intestable sin pegarle
+    a la BD de dev de verdad). Solo lectura: no hace falta `commit`/
+    `rollback` explícito, cerrar basta.
+
+    Seis chequeos (spec §4.6):
+      - los 2 puestos nuevos existen;
+      - los 10 permisos existen;
+      - `titulatec_library` concede EXACTAMENTE sus 6 (los 5 de Biblioteca +
+        certificate.page.list) y `titulatec_cashier` EXACTAMENTE sus 3 --
+        mismo patron "exacto" que `_verify_computer_center`;
+      - GTV (`titulatec_tech_management`), Servicios Escolares operativo y su
+        jefatura CONTIENEN sus concesiones nuevas -- semantica "al menos",
+        porque ya traian otros permisos de antes (patron A7, igual que
+        `_verify_titulacion`/`_verify_computer_center`);
+      - `admin` CONTIENE los 10 (concesion EXPLICITA del 21: en produccion
+        nunca se re-corre el 15, que es quien normalmente se lo daria
+        dinamicamente);
+      - el mapeo puesto->rol: cada puesto nuevo INCLUYE su rol nuevo.
+
+    El requisito automatico (el 22) NO es de aqui: lo verifica
+    `_verify_candado_biblioteca`, en `activar-biblioteca-caja` (Ruling R19).
+
+    Si algun puesto no existe en la base (0 filas), el mensaje lo dice
+    explicitamente -- igual que `_verify_computer_center` con Centro de
+    Computo -- en vez de solo reportar que falta el mapeo.
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    problemas: list[str] = []
+
+    db = SessionLocal()
+    try:
+        puestos = {
+            row[0]
+            for row in db.execute(
+                text("SELECT code FROM core_positions WHERE code = ANY(:codes)"),
+                {"codes": [_PUESTO_LIBRARY, _PUESTO_CASHIER]},
+            )
+        }
+        for code in (_PUESTO_LIBRARY, _PUESTO_CASHIER):
+            if code not in puestos:
+                problemas.append(
+                    f"puesto ausente: {code} (el organigrama de Biblioteca/Caja "
+                    "no esta sembrado en esta base)"
+                )
+
+        permisos = {
+            row[0]
+            for row in db.execute(
+                text(
+                    "SELECT p.code FROM core_permissions p "
+                    "JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    "WHERE p.code = ANY(:codes)"
+                ),
+                {"codes": list(_PERMISOS_BIBLIOTECA_CAJA_2026_10)},
+            )
+        }
+        for code in _PERMISOS_BIBLIOTECA_CAJA_2026_10:
+            if code not in permisos:
+                problemas.append(f"permiso ausente: {code}")
+
+        concedidos = {
+            (row[0], row[1])
+            for row in db.execute(
+                text(
+                    "SELECT r.name, p.code "
+                    "  FROM core_role_permissions rp "
+                    "  JOIN core_roles r ON r.id = rp.role_id "
+                    "  JOIN core_permissions p ON p.id = rp.perm_id "
+                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                    " WHERE p.code = ANY(:codes)"
+                ),
+                {"codes": list(_PERMISOS_BIBLIOTECA_CAJA_2026_10)},
+            )
+        }
+
+        concedidos_library = {c for (r, c) in concedidos if r == _ROL_LIBRARY}
+        if concedidos_library != set(_PERMISOS_ROL_LIBRARY):
+            faltan = set(_PERMISOS_ROL_LIBRARY) - concedidos_library
+            sobran = concedidos_library - set(_PERMISOS_ROL_LIBRARY)
+            problemas.append(
+                f"{_ROL_LIBRARY} no tiene exactamente sus 6 permisos "
+                f"(faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        concedidos_cashier = {c for (r, c) in concedidos if r == _ROL_CASHIER}
+        if concedidos_cashier != set(_PERMISOS_ROL_CASHIER):
+            faltan = set(_PERMISOS_ROL_CASHIER) - concedidos_cashier
+            sobran = concedidos_cashier - set(_PERMISOS_ROL_CASHIER)
+            problemas.append(
+                f"{_ROL_CASHIER} no tiene exactamente sus 3 permisos "
+                f"(faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+            )
+
+        for code in (_PERM_SURVEY_PRINT_CERTIFICATES, _PERM_CERTIFICATE_PAGE_LIST):
+            if (_ROL_GTV, code) not in concedidos:
+                problemas.append(f"sin grant a GTV ({_ROL_GTV}): {code}")
+
+        for rol in (_ROL_OPERATIVO_ESCOLARES, _ROL_JEFATURA_ESCOLARES):
+            if (rol, "titulatec.library_clearance.api.prior") not in concedidos:
+                problemas.append(
+                    f"sin grant a {rol}: titulatec.library_clearance.api.prior "
+                    "(respaldo D9)"
+                )
+
+        for code in _PERMISOS_BIBLIOTECA_CAJA_2026_10:
+            if (_ROL_ADMIN, code) not in concedidos:
+                problemas.append(f"sin grant a {_ROL_ADMIN}: {code}")
+
+        puestos_de_rol = {}
+        for rol in (_ROL_LIBRARY, _ROL_CASHIER):
+            puestos_de_rol[rol] = {
+                row[0]
+                for row in db.execute(
+                    text(
+                        "SELECT pos.code FROM core_position_app_roles par "
+                        "  JOIN core_apps a ON a.id = par.app_id AND a.key = 'titulatec' "
+                        "  JOIN core_roles r ON r.id = par.role_id "
+                        "  JOIN core_positions pos ON pos.id = par.position_id "
+                        " WHERE r.name = :rol"
+                    ),
+                    {"rol": rol},
+                )
+            }
+        if _PUESTO_LIBRARY not in puestos_de_rol[_ROL_LIBRARY]:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_LIBRARY}: falta {_PUESTO_LIBRARY} "
+                f"(hay {sorted(puestos_de_rol[_ROL_LIBRARY])})"
+            )
+        if _PUESTO_CASHIER not in puestos_de_rol[_ROL_CASHIER]:
+            problemas.append(
+                f"mapeo puesto→rol de {_ROL_CASHIER}: falta {_PUESTO_CASHIER} "
+                f"(hay {sorted(puestos_de_rol[_ROL_CASHIER])})"
+            )
+    finally:
+        db.close()
+
+    return problemas
+
+
+# Requisitos `library_clearance` que el 22 todavia tiene que poner al dia
+# (automatico + obligatorio + activo). Mismo predicado para el conteo de la
+# vista previa de la activacion y para su verificacion final (debe dar 0).
+_LIBRARY_REQUIREMENT_OFF_COUNT_SQL = """
+SELECT COUNT(*) FROM titulatec_cotejo_requirements
+ WHERE code = 'library_clearance'
+   AND (auto_source IS DISTINCT FROM 'library_clearance'
+        OR is_required IS DISTINCT FROM TRUE
+        OR is_active IS DISTINCT FROM TRUE)
+"""
+
+
+def _library_requirements_off() -> tuple[int, int]:
+    """`(por_encender, total)`: cuantas filas `code='library_clearance'`
+    siguen sin el requisito automatico/obligatorio/activo, de cuantas.
+    Solo lectura, conexion propia (como los `_verify_*`)."""
+    from sqlalchemy import text
+
+    from itcj2.cli.core import _get_engine
+
+    with _get_engine().connect() as conn:
+        por_encender = conn.execute(text(_LIBRARY_REQUIREMENT_OFF_COUNT_SQL)).scalar() or 0
+        total = conn.execute(text(
+            "SELECT COUNT(*) FROM titulatec_cotejo_requirements "
+            " WHERE code = 'library_clearance'")).scalar() or 0
+    return por_encender, total
+
+
+# --- Pre-chequeos de `activar-biblioteca-caja` (Ruling R19) ----------------
+# Ocupante VIGENTE: mismo criterio que `authz_service._active_position_filter`
+# (activo, `start_date <= hoy`, `end_date` NULL o >= hoy) y usuario activo.
+_OCUPANTES_SQL = """
+SELECT pos.code, COUNT(u.id)
+  FROM core_positions pos
+  LEFT JOIN core_user_positions up
+         ON up.position_id = pos.id
+        AND up.is_active
+        AND up.start_date <= CURRENT_DATE
+        AND (up.end_date IS NULL OR up.end_date >= CURRENT_DATE)
+  LEFT JOIN core_users u ON u.id = up.user_id AND u.is_active
+ WHERE pos.code = ANY(:codes)
+ GROUP BY pos.code
+"""
+
+# Convocatorias que QUEDARAN con candado (tienen fila `code='library_clearance'`:
+# el 22 las pone TODAS automaticas) con procesos admitidos que todavia no
+# pasan su cotejo (`active|on_hold`, fase 2 sin aprobar) y SIN donacion
+# capturada: ahi Biblioteca no puede pasar a nadie a Caja (D19).
+_SIN_DONACION_SQL = """
+SELECT c.id, c.name, COUNT(DISTINCT p.id)
+  FROM titulatec_cohorts c
+  JOIN titulatec_processes p ON p.cohort_id = c.id
+ WHERE c.book_donation_amount IS NULL
+   AND p.status IN ('active', 'on_hold')
+   AND NOT EXISTS (
+       SELECT 1 FROM titulatec_process_phases ph
+        WHERE ph.process_id = p.id AND ph.phase_number = 2 AND ph.status = 'approved'
+   )
+   AND EXISTS (
+       SELECT 1 FROM titulatec_cotejo_requirements req
+        WHERE req.cohort_id = c.id AND req.code = 'library_clearance'
+   )
+ GROUP BY c.id, c.name
+ ORDER BY c.name, c.id
+"""
+
+
+def _precheck_activar_biblioteca() -> dict:
+    """Pre-chequeos de SOLO LECTURA de `activar-biblioteca-caja` (Ruling R19).
+
+    Devuelve `{"ocupantes": {codigo_de_puesto: N | None}, "sin_donacion":
+    [{"cohort_id", "name", "pending"}], "problemas": [str, ...]}`:
+
+    * cada puesto nuevo (`library_clearance_info_center`,
+      `cashier_financial_resources`) con al menos UN ocupante vigente --
+      `None` si el puesto ni existe (falta `init-biblioteca-caja`);
+    * toda convocatoria que quedará con candado y tenga procesos admitidos
+      sin la fase 2 aprobada, con `book_donation_amount` capturada.
+
+    `problemas` vacío = se puede encender. Abre su PROPIA sesión
+    (`SessionLocal`, import local) para que `patched_session_local` la
+    intercepte en las pruebas; solo hace SELECT y la cierra (cerrar termina
+    la transacción de lectura -- sin `rollback` explícito, que en las
+    pruebas desharía los datos sembrados desde el último commit).
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        ocupantes: dict[str, int | None] = {code: None for code in _PUESTOS_BIBLIOTECA_CAJA}
+        for code, n in db.execute(text(_OCUPANTES_SQL),
+                                  {"codes": list(_PUESTOS_BIBLIOTECA_CAJA)}):
+            ocupantes[code] = int(n)
+        sin_donacion = [{"cohort_id": cid, "name": nombre, "pending": int(n)}
+                        for cid, nombre, n in db.execute(text(_SIN_DONACION_SQL))]
+    finally:
+        db.close()
+
+    problemas: list[str] = []
+    for code in _PUESTOS_BIBLIOTECA_CAJA:
+        if ocupantes[code] is None:
+            problemas.append(
+                f"puesto ausente: {code} (corre primero `titulatec init-biblioteca-caja`)")
+        elif ocupantes[code] == 0:
+            problemas.append(
+                f"puesto {code} sin ocupante vigente: asígnalo en /itcj/config/positions "
+                "antes de encender el candado (sin él nadie libera a nadie)")
+    for c in sin_donacion:
+        problemas.append(
+            f"convocatoria «{c['name']}» (id {c['cohort_id']}) sin donación voluntaria de "
+            f"libro y con {c['pending']} proceso(s) que aún no pasan su cotejo: Servicios "
+            "Escolares debe capturarla (panel Resumen) o Biblioteca no podrá pasarlos a "
+            "Caja (D19)")
+    return {"ocupantes": ocupantes, "sin_donacion": sin_donacion, "problemas": problemas}
+
+
+def _verify_candado_biblioteca() -> list[str]:
+    """Comprueba que el 22 ATERRIZO (lo que corre `activar-biblioteca-caja`):
+    NINGUNA fila `titulatec_cotejo_requirements` con `code='library_clearance'`
+    se quedo sin `auto_source='library_clearance'`/`is_required=TRUE`/
+    `is_active=TRUE` (el 22 las corrige TODAS, sin condicion sobre el valor
+    anterior). Devuelve problemas, mismo contrato que los demas `_verify_*`."""
+    por_encender, _total = _library_requirements_off()
+    if por_encender:
+        return [
+            f"{por_encender} fila(s) de titulatec_cotejo_requirements con "
+            "code='library_clearance' sin auto_source/is_required/is_active "
+            "correctos (el 22_library_requirement_auto.sql no aterrizo)"
+        ]
+    return []
+
+
+def _faltan_en_disco(nombres: list[str]) -> list[str]:
+    """Los archivos de `biblioteca_2026_10/` de `nombres` que NO están en disco."""
+    dml_dir = DML_TITULATEC / _DML_BIBLIOTECA_2026_10_DIR
+    return [nombre for nombre in nombres if not (dml_dir / nombre).exists()]
+
+
+def _abortar_con(problemas: list[str]) -> None:
+    """Imprime cada problema en rojo (stderr) y sale distinto de 0."""
+    click.echo()
+    for p in problemas:
+        click.echo(click.style(f"ERROR: {p}", fg="red"), err=True)
+    raise click.Abort()
+
+
+@titulatec_cli.command("init-biblioteca-caja")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
+def init_biblioteca_caja_command(dry_run):
+    """Paso 1 del despliegue de Biblioteca/Caja: puestos, roles y permisos.
+    NO enciende el candado (eso es `activar-biblioteca-caja`, Ruling R19).
+
+    Corre SOLO el 20, el 21 y el 23 de
+    `database/DML/titulatec/biblioteca_2026_10/`
+    (`_DML_BIBLIOTECA_2026_10_FILES`, D10 -- mismo patron que
+    `init-posgrado`/`init-email-tasks`): produccion ya corrio
+    `init-titulatec` y ese comando nunca se re-ejecuta alli, asi que este
+    (con `activar-biblioteca-caja`) es el unico camino de despliegue para
+    este delta -- ademas de sumarse a `SEED_FILES` para una instalacion desde
+    cero, que si corre los cuatro de una vez.
+
+    `20_insert_library_cashier_positions.sql` crea los 2 puestos NUEVOS
+    (nacen SIN OCUPANTE: asignarlos es el paso siguiente del lanzamiento).
+    `21_insert_library_cashier_roles_perms.sql` crea los roles
+    `titulatec_library`/`titulatec_cashier`, el mapeo puesto→rol y los 10
+    permisos con TODAS sus concesiones (incluido `admin` EXPLICITO: en
+    produccion nunca se re-corre `15_grant_admin_all_perms.sql`).
+    `23_update_email_reminders_description.sql` (m33, spec 2026-10-02 §6)
+    pone al dia las dos descripciones de `titulatec.email_reminders`
+    (`core_task_definitions` y su fila de `core_periodic_tasks`): ahora
+    mencionan el recordatorio del pago pendiente en Caja. Solo UPDATE e
+    idempotente; si la tarea todavia no esta sembrada (falta
+    `init-email-tasks`), no hace nada y el 17 la sembrara ya con ese texto.
+
+    Al terminar VERIFICA con `_verify_biblioteca_caja()` (los `RAISE NOTICE`
+    del SQL son invisibles, mismo motivo que el resto de los `_verify_*` de
+    este archivo): puestos, los 10 permisos, las concesiones EXACTAS de los
+    2 roles nuevos, las concesiones nuevas de GTV/Servicios Escolares/admin y
+    el mapeo puesto→rol. Aborta si algo no aterrizo. El 23 no se verifica
+    (una base sin la tarea sembrada es valida). No toca convocatorias,
+    requisitos ni filas de no adeudo: nadie queda bloqueado por correrlo.
+
+    `--dry-run`: comprueba que los 3 archivos existen en disco y los lista,
+    sin escribir nada.
+
+    Despues: asignar ocupantes a «Biblioteca · No adeudo» y «Caja»
+    (`/itcj/config/positions`), que Servicios Escolares capture la donacion
+    de cada convocatoria que quedara con candado, y entonces
+    `titulatec activar-biblioteca-caja --dry-run` (sus pre-chequeos dicen
+    que falta).
+    """
+    faltan = _faltan_en_disco(_DML_BIBLIOTECA_2026_10_FILES)
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarían:")
+            for nombre in _DML_BIBLIOTECA_2026_10_FILES:
+                click.echo(f"  {_DML_BIBLIOTECA_2026_10_DIR}/{nombre}")
+        click.echo("[dry-run] El requisito automático (el candado) NO se toca aquí: "
+                   "es `titulatec activar-biblioteca-caja`.")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files(
+        [f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}" for nombre in _DML_BIBLIOTECA_2026_10_FILES]
+    )
+
+    problemas = _verify_biblioteca_caja()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        "OK: 2 puestos, 2 roles, 10 permisos (88 → 98) con sus concesiones y "
+        "mapeo puesto→rol verificados en la base. El candado sigue APAGADO.",
+        fg="green",
+    ))
+    click.echo(
+        "Descripción de titulatec.email_reminders al día (23), si la tarea ya "
+        "estaba sembrada."
+    )
+    click.echo(
+        "Siguiente: asignar ocupantes a «Biblioteca · No adeudo» y «Caja», capturar "
+        "la donación de cada convocatoria con procesos por revisar y correr "
+        "`titulatec activar-biblioteca-caja --dry-run`."
+    )
+
+
+@titulatec_cli.command("activar-biblioteca-caja")
+@click.option("--dry-run", is_flag=True,
+              help="Corre los pre-chequeos y cuenta lo que haría cada paso, sin escribir nada.")
+@click.option("--force", is_flag=True,
+              help="Enciende el candado AUNQUE fallen los pre-chequeos (ocupantes, donación).")
+def activar_biblioteca_caja_command(dry_run, force):
+    """Paso 2 del despliegue de Biblioteca/Caja: ENCIENDE el candado del no
+    adeudo (Ruling R19). Desde que termina, nadie agenda ni es agendado sin no
+    adeudo donde la convocatoria lo exige (salvo legado, quien ya pasó su
+    cotejo y las citas ya agendadas, D17).
+
+    1. Pre-chequeos de SOLO LECTURA (`_precheck_activar_biblioteca`): los 2
+       puestos nuevos con al menos un ocupante vigente, y toda convocatoria
+       que quedará con candado (tiene fila `code='library_clearance'`) con
+       procesos que aún no pasan su cotejo y SIN donación capturada. Si algo
+       falla, ABORTA (exit 1) listando lo que falta, sin escribir nada --
+       salvo `--force`, que lo imprime como advertencia y sigue.
+    2. `22_library_requirement_auto.sql` (`_DML_BIBLIOTECA_2026_10_ACTIVAR_
+       FILES`): requisito `library_clearance` automático, obligatorio y
+       activo en TODA convocatoria ya sembrada (y sus pistas, solo donde
+       seguían en el default viejo).
+    3. Re-backfill (`_library_clearance_rebackfill`, MISMO predicado que el
+       backfill de `tt20261001a`): fila para los procesos creados en el
+       blue/green. Idempotente.
+    4. Promoción D17 (`_library_clearance_promote`, Ruling R20): `pending`
+       sin tocar por Biblioteca -> `cleared/legacy` si su requisito ya está
+       cumplido a mano o su fase 2 ya está aprobada. Idempotente, sin
+       eventos.
+    5. Folios de previas y legado (`_emitir_folios_previos`, spec
+       `2026-10-05-titulatec-folios-design.md` §3.4): le saca su folio (GTV o
+       BIB, del semestre ANTERIOR al de su fecha de registro) a toda previa
+       y a todo `cleared/legacy` -el recién promovido incluido- que aún no
+       tenga uno vigente (`FolioBackfillService.run`, UN commit). Va DESPUÉS
+       de la promoción porque el legado nace ahí. Idempotente: es el mismo
+       paso de `titulatec emitir-folios-previos`.
+    6. Verificación (`_verify_candado_biblioteca`): ninguna fila
+       `library_clearance` quedó sin el requisito automático. Aborta si algo
+       no aterrizó.
+
+    Imprime los conteos de cada paso. Correrlo dos veces no cambia nada la
+    segunda (todos los pasos son idempotentes). `--dry-run`: pre-chequeos +
+    lo que haría cada paso (requisitos por encender, filas del re-backfill,
+    filas de la promoción, folios por emitir), sin escribir nada; sale
+    distinto de 0 si faltan archivos o si los pre-chequeos fallan sin
+    `--force` -- igual que la corrida real. Los folios del dry-run NO cuentan
+    el legado que el re-backfill y la promoción crearían en la corrida real
+    (el dry-run no escribe esas filas): la corrida real puede emitir más.
+
+    Correrlo FUERA de horario y que Biblioteca haga ese mismo día su lote
+    «Sin adeudo»: quien no tenga no adeudo liberado queda bloqueado desde
+    este momento.
+    """
+    faltan = _faltan_en_disco(_DML_BIBLIOTECA_2026_10_ACTIVAR_FILES)
+    pre = _precheck_activar_biblioteca()
+
+    for code in _PUESTOS_BIBLIOTECA_CAJA:
+        n = pre["ocupantes"][code]
+        click.echo(f"Puesto {code}: "
+                   + ("NO EXISTE" if n is None else f"{n} ocupante(s) vigente(s)"))
+    click.echo(f"Convocatorias con candado sin donación y procesos por revisar: "
+               f"{len(pre['sin_donacion'])}")
+    for c in pre["sin_donacion"]:
+        click.echo(f"  · {c['name']} (id {c['cohort_id']}): {c['pending']} proceso(s)")
+
+    bloquea = bool(pre["problemas"]) and not force
+    if pre["problemas"] and force:
+        accion = "la corrida real encendería" if dry_run else "se enciende"
+        click.echo(click.style(
+            f"ADVERTENCIA: --force: {accion} el candado aunque fallen los pre-chequeos:",
+            fg="yellow"))
+        for p in pre["problemas"]:
+            click.echo(click.style(f"  · {p}", fg="yellow"))
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES:
+                click.echo(f"  {_DML_BIBLIOTECA_2026_10_DIR}/{nombre}")
+        por_encender, total = _library_requirements_off()
+        click.echo(f"[dry-run] Requisitos de no adeudo por encender: {por_encender} "
+                   f"de {total}")
+        click.echo(f"[dry-run] Re-backfill: {_library_clearance_rebackfill(dry_run=True)} "
+                   "fila(s) que crearía (pending/legacy)")
+        click.echo(f"[dry-run] Promoción D17: {_library_clearance_promote(dry_run=True)} "
+                   "fila(s) pending que pasarían a cleared/legacy")
+        folios = _emitir_folios_previos(dry_run=True)
+        click.echo(f"[dry-run] Folios de previas y legado: {sum(folios.values())} "
+                   "folio(s) por emitir (sin contar el legado que el re-backfill y la "
+                   "promoción crearían en la corrida real)")
+        _echo_folios_por_tipo_y_semestre(folios)
+        click.echo("Dry-run: no se ejecutó nada.")
+        if bloquea:
+            _abortar_con(pre["problemas"] + [
+                "la corrida real abortaría: resuélvelo o pasa --force"])
+        if faltan:
+            raise click.Abort()
+        return
+
+    if faltan:
+        _abortar_con([f"faltan archivos en disco: {faltan}"])
+    if bloquea:
+        _abortar_con(pre["problemas"] + [
+            "no se encendió nada: resuélvelo o pasa --force"])
+
+    por_encender, total = _library_requirements_off()
+    _run_sql_files([f"{_DML_BIBLIOTECA_2026_10_DIR}/{nombre}"
+                    for nombre in _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES])
+    click.echo(f"Requisito automático de no adeudo: {por_encender} fila(s) encendida(s) "
+               f"de {total}.")
+
+    creadas = _library_clearance_rebackfill(dry_run=False)
+    click.echo(f"Re-backfill de no adeudo: {creadas} fila(s) creada(s) "
+               "(pending/legacy) para procesos sin fila todavía.")
+
+    promovidas = _library_clearance_promote(dry_run=False)
+    click.echo(f"Promoción D17: {promovidas} fila(s) pending -> cleared/legacy "
+               "(requisito ya cumplido a mano o fase 2 ya aprobada).")
+
+    folios = _emitir_folios_previos(dry_run=False)
+    click.echo(f"Folios de previas y legado: {sum(folios.values())} folio(s) emitido(s) "
+               "(previas y legado sin folio vigente).")
+    _echo_folios_por_tipo_y_semestre(folios)
+
+    problemas = _verify_candado_biblioteca()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        "OK: candado de no adeudo ENCENDIDO y verificado (requisito automático en "
+        "toda convocatoria con la fila).",
+        fg="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Constancias previas (D9, spec 2026-10-01-titulatec-biblioteca-caja-design.md
+# §4.12, Tarea 6): base de encuestas del semestre anterior (`--tipo encuesta`)
+# o no adeudo de biblioteca ya pagado (`--tipo biblioteca`), por número de
+# control. TODA la lógica vive en `PriorClearanceService.import_rows`; este
+# comando solo lee el archivo y la imprime.
+# ---------------------------------------------------------------------------
+_IMPORT_PRIOR_ETIQUETAS = {
+    "applied": "Aplicadas",
+    "deferred": "Registradas para después",
+    "already": "Ya liberadas",
+    "conflicts": "Conflictos",
+    "expired": "Vencidas",
+    "invalid": "Inválidas",
+}
+_IMPORT_PRIOR_KIND = {"encuesta": "survey", "biblioteca": "library"}
+
+
+@titulatec_cli.command("import-prior-clearances")
+@click.argument("archivo", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--tipo", "tipo", type=click.Choice(["encuesta", "biblioteca"]),
+              required=True,
+              help="encuesta: liberación previa de GTV | biblioteca: no adeudo previo.")
+@click.option("--fecha", "fecha_fija", default=None,
+              help="Fecha de emisión para TODAS las filas, si el archivo no trae "
+                   "columna (AAAA-MM-DD o DD/MM/AAAA, con hora opcional).")
+@click.option("--columna-control", "columna_control", default=None,
+              help="Encabezado de la columna del número de control "
+                   "(si no se da, se autodetecta como en la importación de alumnos).")
+@click.option("--columna-fecha", "columna_fecha", default=None,
+              help="Encabezado de la columna con la fecha de emisión de cada fila.")
+@click.option("--dry-run", is_flag=True, help="Solo clasifica cada fila; no escribe nada.")
+def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
+                                    columna_fecha, dry_run):
+    """Carga constancias previas de no adeudo o de encuesta de egresados (D9).
+
+    El egresado YA traía, de ANTES de este sistema, su liberación -otro
+    semestre, en papel, en el sistema legado-: Servicios Escolares (o el
+    desarrollador, para la base completa de encuestas del semestre anterior)
+    entrega un CSV con el número de control y la fecha de emisión de cada
+    constancia. Por fila (`PriorClearanceService.import_rows`):
+
+    \b
+    - con un proceso ABIERTO (activo/en pausa, fase 2 sin aprobar) para ese
+      control -> se aplica YA (Aplicadas).
+    - sin proceso -> se difiere; se aplica sola cuando el alumno se inscriba
+      (Registradas para después).
+    - ya estaba liberado -> Ya liberadas.
+    - encuesta con una solicitud en revisión u observada -> Conflictos (lo
+      decide GTV desde su bandeja, no esta CLI).
+    - `issued_on` con más de 365 días -> Vencidas.
+    - número de control o fecha inválidos -> Inválidas.
+
+    La columna del número de control se autodetecta (mismo heurístico que la
+    importación de alumnos) o se fija con `--columna-control`. La fecha sale
+    de `--columna-fecha` (una por fila) o de `--fecha` (fija para todas);
+    falta una de las dos -> error, sin leer ni clasificar ninguna fila. Formatos
+    de fecha aceptados (Ruling R13): `AAAA-MM-DD`, `DD/MM/AAAA`, o cualquiera de
+    los dos con hora (`15/03/2026 10:22:33`, como exporta Google Forms es-MX);
+    cualquier otro formato cae en Inválidas con su motivo.
+
+    `--dry-run`: clasifica TODO -incluida la búsqueda del proceso abierto-
+    pero no escribe nada, ni siquiera un alta idempotente de la fila de
+    biblioteca.
+
+    `--fecha` y `--columna-fecha` son MUTUAMENTE EXCLUSIVAS: pasar las dos a
+    la vez rechaza el comando (m16; antes `--columna-fecha` ganaba en
+    silencio, sin avisar que `--fecha` se ignoraba).
+    """
+    from itcj2.apps.titulatec.services.import_service import ImportService
+    from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
+    from itcj2.database import SessionLocal
+
+    if columna_fecha and fecha_fija:
+        raise click.UsageError(
+            "No uses --fecha y --columna-fecha a la vez: --fecha fija la misma "
+            "fecha para TODAS las filas y --columna-fecha trae una por fila; "
+            "juntas, una de las dos se estaría ignorando en silencio. Elige una.")
+
+    kind = _IMPORT_PRIOR_KIND[tipo]
+    ruta = Path(archivo)
+    headers, raw_rows = ImportService.parse(ruta.read_bytes())
+    if not headers:
+        raise click.ClickException(f"{archivo}: no se pudo leer ningún encabezado.")
+
+    col_control = columna_control or ImportService.autodetect_mapping(headers).get(
+        "control_number")
+    if not col_control or col_control not in headers:
+        raise click.ClickException(
+            "No se pudo detectar la columna del número de control; "
+            "pásala con --columna-control.")
+    if columna_fecha and columna_fecha not in headers:
+        raise click.ClickException(
+            f"La columna de fecha {columna_fecha!r} no existe en el archivo.")
+    if not columna_fecha and not fecha_fija:
+        raise click.ClickException(
+            "Falta la fecha de emisión: pasa --columna-fecha (una por fila) "
+            "o --fecha AAAA-MM-DD (fija para todas las filas).")
+
+    rows = [
+        {"control_number": r.get(col_control, ""),
+         "issued_on": (r.get(columna_fecha) if columna_fecha else fecha_fija)}
+        for r in raw_rows
+    ]
+
+    db = SessionLocal()
+    try:
+        resultado = PriorClearanceService.import_rows(
+            db, kind=kind, rows=rows, source=ruta.name, dry_run=dry_run)
+    finally:
+        db.close()
+
+    prefijo = "[dry-run] " if dry_run else ""
+    click.echo(f"{prefijo}{tipo}: {len(rows)} fila(s) de {ruta.name}.")
+    for bote, etiqueta in _IMPORT_PRIOR_ETIQUETAS.items():
+        filas = resultado[bote]
+        click.echo(f"  {etiqueta}: {len(filas)}")
+        for fila in filas:
+            click.echo(f"    · {fila['control_number']}: {fila['reason']}")
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
+
+
+# ---------------------------------------------------------------------------
+# Folios de las previas y del legado (spec 2026-10-05-titulatec-folios-design.md
+# §3.4, D5/D6). Las previas registradas desde la Tarea 2 de ese plan ya emiten su
+# folio solas; esto cubre las que se registraron ANTES (las importadas de Forms
+# en dev) y el no adeudo `cleared/legacy`, que escribe el SQL y no un service.
+# TODA la lógica vive en `FolioBackfillService`; el comando solo la imprime y
+# `activar-biblioteca-caja` la corre como su paso 5.
+# ---------------------------------------------------------------------------
+_FOLIOS_PREVIOS_ETIQUETAS = {
+    "survey_release": "Encuesta (GTV)",
+    "library_clearance": "No adeudo (BIB)",
+}
+
+
+def _emitir_folios_previos(dry_run: bool) -> dict[tuple[str, str], int]:
+    """Folia las previas y el legado que aún no tienen folio vigente
+    (`FolioBackfillService.run`) y devuelve el conteo por `(tipo, semestre)`.
+
+    Abre su PROPIA sesion (import local de `SessionLocal`, convencion del
+    proyecto) para que `patched_session_local` pueda interceptarla en los
+    tests -- mismo patron que `_library_clearance_promote`. `dry_run=True`
+    solo cuenta; `dry_run=False` emite y hace UN commit. Si algo falla, no
+    queda ningun folio a medias: se deshace todo y se relanza el error.
+    Idempotente: una segunda corrida devuelve un conteo vacio.
+    """
+    from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return FolioBackfillService.run(db, dry_run=dry_run)
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _echo_folios_por_tipo_y_semestre(conteo: dict[tuple[str, str], int]) -> None:
+    """Una línea por `(tipo, semestre)`: `  Encuesta (GTV) · 2026A: 372`."""
+    for (kind, semestre), n in sorted(conteo.items()):
+        click.echo(f"  {_FOLIOS_PREVIOS_ETIQUETAS.get(kind, kind)} · {semestre}: {n}")
+
+
+@titulatec_cli.command("emitir-folios-previos")
+@click.option("--dry-run", is_flag=True,
+              help="Cuenta los folios que emitiría (por tipo y semestre); no escribe nada.")
+def emitir_folios_previos_command(dry_run):
+    """Emite el folio de las previas y del legado que aún no lo tienen.
+
+    Lista toda liberación VIGENTE sin folio vigente de un proceso no
+    `cancelled` -encuesta previa aprobada (`origin='prior'`) y no adeudo
+    `cleared` por constancia previa o legado- y le saca su folio, sin emisor
+    (`issued_by_id` NULL), en el semestre ANTERIOR al de su fecha de registro
+    (registrada en 2026B da 2026A; D5/D6) y en orden de esa fecha, así que la
+    numeración de cada semestre sigue el orden en que se registraron. Imprime
+    los folios por tipo y semestre.
+
+    \b
+    - Las previas que se registren DESDE el código nuevo ya salen con su folio:
+      esto es para las anteriores (p. ej. las importadas del Excel de Forms) y
+      para el legado, que lo escribe el SQL, no un service.
+    - Idempotente: una liberación con folio vigente no se toca, así que
+      correrlo dos veces no emite nada la segunda. Un folio ANULADO no cuenta
+      como vigente (nunca se reutiliza: sale uno nuevo).
+    - `activar-biblioteca-caja` ya corre este mismo paso.
+
+    `--dry-run`: solo cuenta; no escribe nada.
+    """
+    conteo = _emitir_folios_previos(dry_run)
+    total = sum(conteo.values())
+    prefijo = "[dry-run] " if dry_run else ""
+
+    if not total:
+        click.echo(f"{prefijo}No hay previas ni legado sin folio vigente: nada que emitir.")
+    else:
+        click.echo(f"{prefijo}Folios {'por emitir' if dry_run else 'emitidos'}: {total}")
+        _echo_folios_por_tipo_y_semestre(conteo)
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
+
+
+# ---------------------------------------------------------------------------
+# Encuesta de egresados desde el Excel de Microsoft Forms (spec
+# 2026-10-05-titulatec-import-encuesta-xlsx-design.md R1/§4.3). TODA la lógica
+# vive en `SurveyImportService`; este comando lee el archivo y la imprime.
+# ---------------------------------------------------------------------------
+_IMPORT_SURVEY_ETIQUETAS = {
+    "released": "Guardadas y liberadas",
+    "deferred": "Guardadas, liberación diferida",
+    "already_released": "Guardadas (ya liberadas)",
+    "conflicts": "Guardadas (conflicto)",
+    "saved_unreleased": "Guardadas sin liberar",
+    "duplicates": "Duplicadas (no guardadas)",
+    "already_imported": "Ya importadas",
+    "invalid": "Inválidas (no guardadas)",
+}
+
+
+@titulatec_cli.command("import-survey-xlsx")
+@click.argument("archivo", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--hoja", "hoja", default="Sheet1", show_default=True,
+              help="Hoja del libro con las respuestas de Forms.")
+@click.option("--dry-run", is_flag=True,
+              help="Clasifica cada fila (incluida la liberación); no escribe nada.")
+def import_survey_xlsx_command(archivo, hoja, dry_run):
+    """Importa la encuesta de egresados desde el Excel de Microsoft Forms.
+
+    Guarda cada respuesta (marcada como importada) ligada a su pregunta de la
+    encuesta `egresados` abierta, y libera al egresado por la maquinaria de
+    constancias previas (fecha = «Completion time»; Id en naranja = constancia
+    en papel por recoger).
+
+    \b
+    - Guardadas y liberadas: tenía proceso abierto; se liberó y se ligó.
+    - Guardadas, liberación diferida: sin proceso; se libera al inscribirse.
+    - Guardadas (ya liberadas): ya tenía liberación (se le liga la respuesta
+      si era una previa sin respuesta).
+    - Guardadas (conflicto): ya envió la encuesta aquí o GTV revocó; lo decide GTV.
+    - Guardadas sin liberar: control inválido/vacío o constancia vencida.
+    - Duplicadas: mismo control repetido; solo se importa la más reciente.
+    - Ya importadas: re-correr el archivo no duplica nada.
+    - Inválidas (no guardadas): «Completion time» vacío o ilegible.
+
+    Un encabezado desconocido o faltante aborta sin escribir nada.
+    """
+    from zipfile import BadZipFile
+
+    from openpyxl.utils.exceptions import InvalidFileException
+    from sqlalchemy.exc import IntegrityError
+
+    from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
+    from itcj2.database import SessionLocal
+
+    ruta = Path(archivo)
+    try:
+        rows = SurveyImportService.read_xlsx(ruta.read_bytes(), sheet=hoja)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+    except (BadZipFile, InvalidFileException):
+        raise click.ClickException(
+            f"{ruta.name} no es un libro .xlsx válido (¿archivo dañado o de otro "
+            "formato? Expórtalo de nuevo desde Forms).") from None
+
+    db = SessionLocal()
+    stats: dict = {}
+    try:
+        resultado = SurveyImportService.import_rows(
+            db, rows, source=ruta.name, dry_run=dry_run, stats=stats)
+    except ValueError as exc:
+        db.rollback()
+        raise click.ClickException(str(exc)) from None
+    except IntegrityError:
+        db.rollback()
+        raise click.ClickException(
+            "Otra importación guardó estas mismas respuestas al mismo tiempo; no se "
+            "escribió nada en esta corrida. Vuelve a correrla: lo ya guardado saldrá "
+            "como «Ya importadas».") from None
+    finally:
+        db.close()
+
+    prefijo = "[dry-run] " if dry_run else ""
+    click.echo(f"{prefijo}encuesta de egresados: {len(rows)} fila(s) de {ruta.name} "
+               f"(hoja {hoja}).")
+    for bote, etiqueta in _IMPORT_SURVEY_ETIQUETAS.items():
+        filas = resultado[bote]
+        click.echo(f"  {etiqueta}: {len(filas)}")
+        for fila in filas:
+            click.echo(f"    · {fila['control_number']} (Id {fila['ms_id']}): "
+                       f"{fila['reason']}")
+    click.echo(f"  Celdas guardadas: {stats.get('cells', 0)} · con valor original "
+               f"(raw): {stats.get('raw', 0)} · ocultas con valor real (guardadas; "
+               f"informativo): {stats.get('hidden_kept', 0)}")
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
 
 
 # ---------------------------------------------------------------------------

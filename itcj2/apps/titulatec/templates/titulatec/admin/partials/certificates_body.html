@@ -1,0 +1,135 @@
+{# Página «Folios» (`pages/certificates_admin.py`, spec folios 2026-10-05 §3.6).
+   Raíz `#tt-cert-body`; TODOS los controles (pestañas, chips, buscador, pager y,
+   con el switch de impresión encendido, «Generar lote» y «Lotes») apuntan a ella
+   con `hx-swap="outerHTML"`, así que cada handler devuelve este parcial
+   completo. Mismo patrón que `partials/access_body.html` (div de filtros con
+   `hx-preserve`) y `partials/library_body.html`.
+
+   Una TABLA por `kind` -la del `kind` activo-: `tabs` ya viene filtrado y
+   ordenado por `_visible_kinds` (Biblioteca solo ve «No adeudo de biblioteca»,
+   GTV solo «Liberación de encuesta de egresados», admin ve las dos). Las
+   pestañas por `kind` solo se pintan si hay más de uno; con uno solo, su
+   etiqueta sale como encabezado. Sin ningún tipo -caso límite, D15- la raíz
+   queda con el aviso «Sin tipos asignados».
+
+   `#tt-folio-filters` lleva los campos del filtro (`kind`, `estado`, `page`=1) y
+   el buscador `#tt-folio-q`: §18 de la guía de la app. El buscador lleva
+   `hx-preserve="true"` y `hx-include="#tt-folio-filters"` (así `kind`/`estado`
+   siguen viajando con `q`); el contenedor anuncia `data-tt-q-server` para que
+   `titulatec-utils.js::_syncPreservedSearch` reponga el texto cuando una
+   navegación cambia `q` sin pasar por el input. Pestañas y chips hornean el
+   `q` del SERVIDOR (el último buscado) en su URL, así que cambiar de pestaña,
+   de estado o de búsqueda vuelve a la página 1; el pager incluye el contenedor
+   y su `hx-vals` pone el `page`.
+
+   Tabla: Folio · Egresado · No. de control · Carrera · Emitido (dd/mm/aaaa) ·
+   Estado. Estado = píldora «Vigente», o «Anulado» + fecha de anulación +
+   motivo. D8: la inscripción REVOCADA (`r.revoked`) se MARCA, no se anula:
+   junto al folio va la nota tenue «inscripción revocada» (sin píldora) y el
+   estado sigue siendo el del folio; se apaga sola si el proceso se reactiva.
+   Filas con id estable `tt-folio-row-{número de folio}` (único por
+   folio, igual que un id numérico: el morph empareja por id). Vacío: «Sin
+   folios todavía», o «Sin resultados para "{q}"» si hubo búsqueda (`q` va
+   escapado por Jinja).
+
+   Con el switch `TITULATEC_CERTIFICATE_PRINTING` encendido, debajo de la
+   tabla se incluye la parte de impresión de la ronda del 2026-10-02
+   (`_certificates_print.html`); apagado ni se incluye (invariante 6). Sin JS
+   ni CSS en línea. #}
+{% from "titulatec/_macros.html" import pager %}
+{%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
+<div id="tt-cert-body" data-tt-view="certificates-body">
+
+  {% if not tabs %}
+  <div class="tt-card mb-4" id="tt-folio-no-kinds">
+    <span class="tt-kicker"><i class="bi bi-hash me-1" aria-hidden="true"></i>Sin tipos asignados</span>
+    <p class="mb-0">No tienes asignado ningún tipo de folio.</p>
+  </div>
+  {% else %}
+  <div class="tt-card mb-4" id="tt-folio-card">
+    {% if tabs|length > 1 %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3" id="tt-folio-tabs">
+      {% for key, label in tabs %}
+      <button id="tt-folio-tab-{{ key }}" type="button"
+              class="btn btn-sm {{ 'tt-btn-ink' if kind == key else 'tt-btn-ghost' }}"
+              {% if kind == key %}aria-current="true"{% endif %}
+              hx-get="/titulatec/admin/constancias/body?kind={{ key }}&estado={{ estado }}{{ qs_q }}"
+              hx-target="#tt-cert-body" hx-swap="outerHTML">{{ label }}</button>
+      {% endfor %}
+    </div>
+    {% else %}
+    <span class="tt-kicker d-block mb-2">{{ kind_label }}</span>
+    {% endif %}
+
+    <div id="tt-folio-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
+      <input type="hidden" name="kind" value="{{ kind }}">
+      <input type="hidden" name="estado" value="{{ estado }}">
+      <input type="hidden" name="page" value="1">
+      <div class="tt-search">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <input type="search" id="tt-folio-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+               placeholder="Folio, control o nombre"
+               aria-label="Buscar folio, control o nombre"
+               hx-get="/titulatec/admin/constancias/body" hx-target="#tt-cert-body"
+               hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
+               hx-include="#tt-folio-filters">
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-3" id="tt-folio-estados" role="group" aria-label="Estado del folio">
+      {% for key, label in estados %}
+      <button id="tt-folio-estado-{{ key }}" type="button"
+              class="btn btn-sm {{ 'tt-btn-ink' if estado == key else 'tt-btn-ghost' }}"
+              {% if estado == key %}aria-current="true"{% endif %}
+              hx-get="/titulatec/admin/constancias/body?kind={{ kind }}&estado={{ key }}{{ qs_q }}"
+              hx-target="#tt-cert-body" hx-swap="outerHTML">{{ label }}</button>
+      {% endfor %}
+    </div>
+
+    {% if not rows and q %}
+    <div class="tt-card" id="tt-folio-no-results">
+      <span class="tt-kicker"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados</span>
+      <p class="mb-0">Sin resultados para "{{ q }}"</p>
+    </div>
+    {% elif not rows %}
+    <div class="tt-card" id="tt-folio-empty">
+      <span class="tt-kicker"><i class="bi bi-hash me-1" aria-hidden="true"></i>Sin folios</span>
+      <p class="mb-0">Sin folios todavía</p>
+    </div>
+    {% else %}
+    <div class="tt-table-wrap">
+      <table class="table table-sm align-middle" id="tt-folio-table">
+        <thead><tr>
+          <th>Folio</th><th>Egresado</th><th>No. de control</th><th>Carrera</th><th>Emitido</th><th>Estado</th>
+        </tr></thead>
+        <tbody>
+        {% for r in rows %}
+        <tr id="tt-folio-row-{{ r.number }}">
+          <td><span class="tt-mono">{{ r.number }}</span>{% if r.revoked %} <span class="small text-body-secondary">inscripción revocada</span>{% endif %}</td>
+          <td>{{ r.student_name }}</td>
+          <td class="tt-mono">{{ r.control_number }}</td>
+          <td>{{ r.program_name or '—' }}</td>
+          <td>{{ r.issued_at.strftime('%d/%m/%Y') if r.issued_at else '—' }}</td>
+          <td>
+            {% if r.voided_at %}
+            <span class="tt-pill tt-pill--danger">Anulado</span>
+            <span class="small text-body-secondary">{{ r.voided_at.strftime('%d/%m/%Y') }}</span>
+            {% if r.void_reason %}<span class="d-block small text-body-secondary text-wrap text-break">{{ r.void_reason }}</span>{% endif %}
+            {% else %}
+            <span class="tt-pill tt-pill--success">Vigente</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {{ pager(pg, '/titulatec/admin/constancias/body', '#tt-cert-body', include='#tt-folio-filters', prefix='tt-folio') }}
+  </div>
+  {% endif %}
+
+  {% if tt_certificate_printing() %}
+  {% include "titulatec/admin/partials/_certificates_print.html" %}
+  {% endif %}
+</div>

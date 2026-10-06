@@ -1,39 +1,70 @@
 {# Bandeja de revisión de documentos. Re-render en #docs-body (HTMX).
    Visor con PDF.js (renderiza a canvas → inmune al bloqueo del visor PDF del
-   navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO. #}
-{% from "titulatec/_macros.html" import estado_pill %}
+   navegador). El dictamen (aprobar/rechazar + comentario) aplica al doc ACTIVO.
 
-<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+   Paginada en dos pasadas (spec 2026-10-04 §6, `pages/documents.py::_body_ctx`):
+   `page` (`utils.paging.Page`, 50 por página) y `q` (nombre, nº de control o
+   folio) viajan en `#docs-filters` -- un <div>, como en Solicitudes: sus
+   hidden los toman las pestañas, las filas, la búsqueda y el pager con
+   `hx-include`, y `hx-vals` pisa lo que cambia (pestaña, fila, página).
+   Cambiar de pestaña o de búsqueda vuelve a la página 1 (hidden `page=1`).
+   El dictamen re-envía `page`/`q` desde `#tt-review-form`. «Procesos (N)» y
+   «N por evaluar» son del universo filtrado, no de la página; el detalle se
+   pinta aunque su proceso caiga en otra página. #}
+{% from "titulatec/_macros.html" import estado_pill, track_pill, pager %}
+
+<div id="docs-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
+  <input type="hidden" name="status" value="{{ status_filter }}">
+  <input type="hidden" name="selected" value="{{ selected_id or '' }}">
+  <input type="hidden" name="page" value="1">
   <span class="tt-pill tt-pill--amber"><i class="bi bi-hourglass-split me-1"></i>{{ total_pending }} por evaluar</span>
   {% for f, lbl in [('', 'Todos'), ('pending', 'Por evaluar'), ('rejected', 'Con rechazo'), ('approved', 'Completos')] %}
   <button class="btn btn-sm {{ 'tt-btn-ink' if status_filter==f else 'tt-btn-ghost' }}" type="button"
-          hx-get="/titulatec/admin/documents/body?status={{ f }}{{ '&selected=' ~ selected_id if selected_id }}"
+          hx-get="/titulatec/admin/documents/body" hx-vals='{"status": "{{ f }}"}'
+          hx-include="#docs-filters"
           hx-target="#docs-body" hx-swap="innerHTML" hx-indicator="#docs-skel">{{ lbl }}</button>
   {% endfor %}
+  <div class="tt-search">
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <input type="search" id="tt-docs-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+           placeholder="Buscar nombre, control o folio"
+           aria-label="Buscar nombre, control o folio"
+           hx-get="/titulatec/admin/documents/body" hx-target="#docs-body"
+           hx-swap="innerHTML" hx-trigger="keyup changed delay:400ms, search"
+           hx-include="#docs-filters" hx-indicator="#docs-skel">
+  </div>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-5">
     <div class="tt-card">
-      <span class="tt-kicker"><i class="bi bi-people me-1"></i>Procesos ({{ rows|length }})</span>
+      <span class="tt-kicker"><i class="bi bi-people me-1"></i>Procesos ({{ page.total }})</span>
       <div class="mt-2 d-flex flex-column gap-1">
         {% for r in rows %}
         <a href="#" class="d-flex align-items-center gap-2 p-2 text-decoration-none tt-hover-lift"
            style="border-radius:9px;border:1px solid var(--tt-line-soft);{{ 'background:var(--tt-mist)' if selected_id==r.process_id }}"
-           hx-get="/titulatec/admin/documents/body?status={{ status_filter }}&selected={{ r.process_id }}"
+           data-tt-docs-row="{{ r.process_id }}"
+           hx-get="/titulatec/admin/documents/body"
+           hx-vals='{"selected": {{ r.process_id }}, "page": {{ page.page }}}'
+           hx-include="#docs-filters"
            hx-target="#docs-body" hx-swap="innerHTML" hx-indicator="#docs-skel">
           <div class="flex-grow-1 min-w-0">
             <div style="font-size:.85rem;font-weight:600;color:var(--tt-ink)">{{ r.student }}</div>
-            <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }} · {{ r.program }}</div>
+            <div class="tt-mono" style="font-size:.7rem;color:var(--tt-mute)">{{ r.control }} · {{ r.program }}{{ track_pill(r.track) }}</div>
           </div>
           {% if r.all_approved %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i></span>
           {% elif r.pending %}<span class="tt-pill tt-pill--amber">{{ r.pending }}</span>
           {% else %}<span class="tt-pill tt-pill--neutral">rev</span>{% endif %}
         </a>
         {% else %}
+        {% if q %}
+        <p class="mb-0" id="tt-docs-no-results"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados para "{{ q }}"</p>
+        {% else %}
         <p class="mb-0" style="font-size:.82rem;color:var(--tt-mute)">Sin documentos por revisar.</p>
+        {% endif %}
         {% endfor %}
       </div>
+      {{ pager(page, '/titulatec/admin/documents/body', '#docs-body', include='#docs-filters', swap='innerHTML', prefix='tt-docs') }}
     </div>
   </div>
 
@@ -45,18 +76,27 @@
     </div>
     {% else %}
     {% set viewable = detail.docs | selectattr('has_file') | list %}
-    <div id="tt-doc-review" data-process="{{ detail.process_id }}">
+    {# R-G (Ruling R11, revisión final 2026-09-30): los extras de posgrado
+       DISPENSADOS (spec §5, invariante 8) no tienen archivo -- `has_file` es
+       False, igual que uno realmente `missing` -- pero SE deben distinguir:
+       Servicios Escolares tiene que saber que a ESTE alumno se le piden en
+       el cotejo, no que "le falta subirlo". Un `missing` de verdad se queda
+       SIN pintar aquí, como siempre. #}
+    {% set en_cotejo = detail.docs | selectattr('status', 'equalto', 'excused') | list %}
+    <div id="tt-doc-review" data-process="{{ detail.process_id }}"
+         data-phase-closed="{{ '1' if detail.phase_closed else '0' }}">
       {# El expediente contesta lo que esta bandeja no puede: si este documento
          ya se habia rechazado antes y por que. El `from` lleva la URL CANONICA
          de la pestana (no la del parcial `/body`) con su filtro y su alumno,
          para que el Regresar del expediente devuelva aqui mismo. #}
       {% set VOLVER = ('/titulatec/admin/documents?status=' ~ (status_filter or '')
-                       ~ '&selected=' ~ detail.process_id) | urlencode %}
+                       ~ '&selected=' ~ detail.process_id ~ '&page=' ~ page.page
+                       ~ (('&q=' ~ (q | urlencode)) if q else '')) | urlencode %}
       <div class="tt-card mb-3 d-flex flex-wrap align-items-start justify-content-between gap-2">
         <div class="min-w-0">
           <span class="tt-kicker">{{ detail.folio }}</span>
           <div class="tt-display" style="font-size:1.1rem;font-weight:600">{{ detail.student }}</div>
-          <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}</div>
+          <div class="tt-mono" style="font-size:.72rem;color:var(--tt-mute)">{{ detail.control }} · {{ detail.program }}{{ track_pill(detail.track) }}</div>
         </div>
         <a class="btn btn-sm tt-btn-ghost"
            href="/titulatec/admin/processes/{{ detail.process_id }}?fase=1&from={{ VOLVER }}">
@@ -69,9 +109,17 @@
           {% for d in viewable %}
           <button type="button" class="btn btn-sm tt-docpick tt-btn-ghost"
                   data-type="{{ d.type_code }}" data-url="{{ d.view_url }}" data-name="{{ d.name|e }}"
-                  data-mime="{{ d.mime }}" data-status="{{ d.status }}" data-note="{{ d.note|e if d.note }}">
+                  data-mime="{{ d.mime }}" data-status="{{ d.status }}" data-note="{{ d.note|e if d.note }}"
+                  data-closes="{{ '1' if d.closes_phase else '0' }}">
             {{ d.name }} {{ estado_pill(d.status) }}
           </button>
+          {% endfor %}
+          {# Sin archivo que abrir (nada que picar): un span, no un button --
+             no hay `data-url` que llevarlo a ningun lado. #}
+          {% for d in en_cotejo %}
+          <span class="btn btn-sm tt-btn-ghost" aria-disabled="true">
+            {{ d.name }} {{ estado_pill(d.status) }}
+          </span>
           {% endfor %}
           {% if viewable %}
           <button type="button" id="tt-doc-expand" class="btn btn-sm tt-btn-soft ms-auto" title="Expandir">
@@ -104,14 +152,24 @@
           <div class="tt-kicker" style="color:var(--tt-danger)">Último motivo de rechazo</div>
           <div id="tt-doc-note-text" class="p-2 mt-1" style="font-size:.82rem;background:var(--tt-danger-soft);border-radius:8px;color:#991B1B"></div>
         </div>
+        {% if detail.phase_closed %}
+        {# Fase 1 ya aprobada (2026-10-04): el dictamen queda congelado --
+           `DocumentService.review` lo hace cumplir. Sin Rechazar; Aprobar solo
+           aparece para un documento que todavia no lo esta (JS, `setActive`). #}
+        <div id="tt-review-locked" class="mt-2 p-2" style="font-size:.8rem;background:var(--tt-mist);border-radius:8px;color:var(--tt-slate)">
+          <i class="bi bi-lock me-1" aria-hidden="true"></i>La fase 1 ya fue aprobada: los dictámenes de estos documentos ya no se pueden cambiar.
+        </div>
+        {% endif %}
         {% if can_review_docs %}
         {# `can_review_docs` (arreglo A2, revision final 2026-09-21): sin el
            permiso, aprobar/rechazar responderia 403 -- se oculta el FORM
            entero (botones Y el comentario, que sin ellos no tiene a donde
            ir), no solo los botones. Ver `pages/documents.py::_body_ctx`. #}
-        <form id="tt-review-form" class="mt-2">
+        <form id="tt-review-form" class="mt-2"{% if detail.phase_closed %} data-phase-closed="1"{% endif %}>
           <input type="hidden" name="type_code" id="tt-review-type">
           <input type="hidden" name="status" value="{{ status_filter }}">
+          <input type="hidden" name="page" value="{{ page.page }}">
+          <input type="hidden" name="q" value="{{ q }}">
           <label class="tt-label">Comentario <span style="color:var(--tt-mute);font-weight:400">(obligatorio si rechazas)</span></label>
           <textarea name="note" id="tt-review-note" class="tt-field" rows="2" style="width:100%"
                     placeholder="Motivo del rechazo y la corrección esperada…"></textarea>
@@ -121,16 +179,29 @@
                     hx-vals='{"action":"approve"}' hx-include="#tt-review-form"
                     hx-target="#docs-body" hx-swap="innerHTML">
               <i class="bi bi-check-lg me-1"></i>Aprobar</button>
+            {% if not detail.phase_closed %}
             <button type="button" id="tt-inline-reject" class="btn btn-sm tt-btn-ghost" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"
                     hx-post="/titulatec/admin/documents/{{ detail.process_id }}/document/review"
                     hx-vals='{"action":"reject"}' hx-include="#tt-review-form"
                     hx-target="#docs-body" hx-swap="innerHTML">
               <i class="bi bi-x-lg me-1"></i>Rechazar</button>
+            {% endif %}
           </div>
         </form>
         {% endif %}
         {% if detail.all_approved %}
-        <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los 3 aprobados · listo para agendar cotejo</span></div>
+        {# Controller ruling R6 (pre-review fix, Tarea 4): el numero sale del
+           set PROPIO de esta fila (`detail.docs`, ya resuelto por perfil en
+           `_doc_row` -- 3 en licenciatura/sin carrera, 7 en posgrado), no un
+           "3" fijo. Licenciatura sigue viendo "Los 3 aprobados" tal cual.
+
+           Ruling R11 (revisión final): cuenta `viewable` (con archivo), NO
+           `detail.docs` a secas -- un posgrado con la fase 1 cerrada y sus 4
+           extras dispensados (R-G) tiene `all_approved=True` con solo 3 CON
+           archivo; "Los 7 aprobados" ahi seria falso (4 nunca se subieron,
+           se entregan en el cotejo). En cualquier otro caso `viewable ==
+           detail.docs` y el numero no cambia. #}
+        <div class="mt-3"><span class="tt-pill tt-pill--success"><i class="bi bi-check-lg"></i> Los {{ viewable|length }} aprobados · listo para agendar cotejo</span></div>
         {% endif %}
       </div>
       {% endif %}
@@ -138,179 +209,3 @@
     {% endif %}
   </div>
 </div>
-
-<script>
-(function () {
-  var root = document.getElementById('tt-doc-review');
-  if (!root) return;
-  var picks = Array.prototype.slice.call(root.querySelectorAll('.tt-docpick'));
-  if (!picks.length) return;
-
-  // ---- PDF.js (carga perezosa; renderiza a canvas, inmune al bloqueo del navegador) ----
-  function pdfjs() {
-    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-    if (window._ttPdfjsP) return window._ttPdfjsP;
-    window._ttPdfjsP = new Promise(function (res, rej) {
-      var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js';
-      s.onload = function () {
-        try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; } catch (e) {}
-        res(window.pdfjsLib);
-      };
-      s.onerror = function () { rej(new Error('pdfjs load failed')); };
-      document.head.appendChild(s);
-    });
-    return window._ttPdfjsP;
-  }
-
-  function fallback(el, url) {
-    el.innerHTML = '<div class="tt-doc-empty">No se pudo previsualizar aquí. '
-      + '<a href="' + url + '" target="_blank" rel="noopener">Abrir</a> · '
-      + '<a href="' + url + '?download=1">Descargar</a></div>';
-  }
-
-  function renderInto(el, url, mime) {
-    el.innerHTML = '<div class="tt-doc-loading"><span class="tt-spinner"></span> Cargando…</div>';
-    if (mime && mime.indexOf('pdf') === -1) {           // imagen
-      el.innerHTML = '';
-      var img = document.createElement('img');
-      img.src = url; img.alt = 'Documento'; img.className = 'tt-doc-img';
-      img.onerror = function () { fallback(el, url); };
-      el.appendChild(img);
-      return;
-    }
-    pdfjs().then(function (lib) {
-      return lib.getDocument(url).promise.then(function (pdf) {
-        el.innerHTML = '';
-        var width = el.clientWidth || 600;
-        var dpr = window.devicePixelRatio || 1;
-        var chain = Promise.resolve();
-        for (var n = 1; n <= pdf.numPages; n++) {
-          (function (pageNum) {
-            chain = chain.then(function () {
-              return pdf.getPage(pageNum).then(function (page) {
-                var vp = page.getViewport({ scale: 1 });
-                var scale = width / vp.width;
-                var svp = page.getViewport({ scale: scale * dpr });
-                var canvas = document.createElement('canvas');
-                canvas.className = 'tt-pdf-page';
-                canvas.width = svp.width; canvas.height = svp.height;
-                canvas.style.width = '100%';
-                el.appendChild(canvas);
-                return page.render({ canvasContext: canvas.getContext('2d'), viewport: svp }).promise;
-              });
-            });
-          })(n);
-        }
-        return chain;
-      });
-    }).catch(function () { fallback(el, url); });
-  }
-
-  // ---- Estado del doc activo ----
-  var stage = document.getElementById('tt-doc-stage');
-  var nameEl = document.getElementById('tt-review-name');
-  var statusEl = document.getElementById('tt-review-status');
-  var typeInput = document.getElementById('tt-review-type');
-  var noteWrap = document.getElementById('tt-doc-note');
-  var noteText = document.getElementById('tt-doc-note-text');
-  var openLink = document.getElementById('tt-doc-open');
-  var dlLink = document.getElementById('tt-doc-download');
-  var activeBtn = null;
-
-  function setActive(btn, intoModal) {
-    activeBtn = btn;
-    picks.forEach(function (p) { p.classList.toggle('tt-btn-ink', p === btn); p.classList.toggle('tt-btn-ghost', p !== btn); });
-    if (typeInput) typeInput.value = btn.dataset.type;
-    if (nameEl) nameEl.textContent = btn.dataset.name;
-    if (statusEl) statusEl.innerHTML = btn.querySelector('.tt-pill') ? btn.querySelector('.tt-pill').outerHTML : '';
-    if (openLink) openLink.href = btn.dataset.url;
-    if (dlLink) dlLink.href = btn.dataset.url + '?download=1';
-    if (noteWrap) {
-      if (btn.dataset.status === 'rejected' && btn.dataset.note) { noteText.textContent = btn.dataset.note; noteWrap.style.display = ''; }
-      else { noteWrap.style.display = 'none'; }
-    }
-    renderInto(stage, btn.dataset.url, btn.dataset.mime);
-    if (intoModal) renderModal(btn);
-  }
-
-  picks.forEach(function (p) { p.addEventListener('click', function () { setActive(p, false); }); });
-
-  // ---- Modal (visor grande + dictamen) ----
-  var modalEl = document.getElementById('tt-doc-modal');
-  var modalStage = document.getElementById('tt-modal-stage');
-  var modalPicks = document.getElementById('tt-modal-picks');
-  var modalOpen = document.getElementById('tt-modal-open');
-  var modalNote = document.getElementById('tt-modal-note');
-  var modalName = document.getElementById('tt-modal-name');
-  var modalApprove = document.getElementById('tt-modal-approve');
-  var modalReject = document.getElementById('tt-modal-reject');
-  var noteBox = document.getElementById('tt-review-note');
-  var inlineApprove = document.getElementById('tt-inline-approve');
-  var inlineReject = document.getElementById('tt-inline-reject');
-  var modalActive = null;  // pick actualmente mostrado en el modal
-
-  function renderModal(btn) {
-    if (!modalStage) return;
-    modalActive = btn;
-    if (modalOpen) modalOpen.href = btn.dataset.url;
-    if (modalName) modalName.textContent = btn.dataset.name;
-    if (modalPicks) Array.prototype.forEach.call(modalPicks.children, function (mb) {
-      var on = mb.dataset.type === btn.dataset.type;
-      mb.classList.toggle('tt-btn-ink', on); mb.classList.toggle('tt-btn-ghost', !on);
-    });
-    renderInto(modalStage, btn.dataset.url, btn.dataset.mime);
-  }
-
-  // Sincroniza la nota del modal hacia el form inline (fuente de verdad de HTMX).
-  function syncNoteToInline() { if (modalNote && noteBox) noteBox.value = modalNote.value; }
-  if (modalNote) modalNote.addEventListener('input', syncNoteToInline);
-
-  // Acción desde el modal: copia nota + fija el tipo activo del modal en el form
-  // inline y dispara su botón HTMX (reusa el mismo POST). Luego cierra el modal.
-  function actFromModal(action) {
-    if (!modalActive) return;
-    if (action === 'reject' && modalNote && !modalNote.value.trim()) {
-      if (window.TitulaTecUtils) TitulaTecUtils.showToast('Indica el motivo del rechazo.', 'danger');
-      modalNote.focus();
-      return;
-    }
-    if (typeInput) typeInput.value = modalActive.dataset.type;  // el doc activo es el del modal
-    syncNoteToInline();
-    var btn = action === 'approve' ? inlineApprove : inlineReject;
-    if (modalEl && window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-    if (btn) btn.click();
-  }
-  if (modalApprove) modalApprove.addEventListener('click', function () { actFromModal('approve'); });
-  if (modalReject) modalReject.addEventListener('click', function () { actFromModal('reject'); });
-
-  var expandBtn = document.getElementById('tt-doc-expand');
-  if (expandBtn && modalEl && window.bootstrap) {
-    expandBtn.addEventListener('click', function () {
-      // (re)construye los picks del modal a partir de los actuales
-      if (modalPicks) {
-        modalPicks.innerHTML = '';
-        picks.forEach(function (p) {
-          var mb = document.createElement('button');
-          mb.type = 'button'; mb.className = 'btn btn-sm tt-btn-ghost';
-          mb.dataset.type = p.dataset.type; mb.dataset.url = p.dataset.url; mb.dataset.mime = p.dataset.mime;
-          mb.dataset.name = p.dataset.name;
-          mb.innerHTML = p.innerHTML;
-          mb.addEventListener('click', function () { renderModal(mb); });
-          modalPicks.appendChild(mb);
-        });
-      }
-      // arranca el modal en el mismo doc que el visor inline y con la misma nota
-      if (modalNote && noteBox) modalNote.value = noteBox.value;
-      var inst = window.bootstrap.Modal.getOrCreateInstance(modalEl);
-      inst.show();
-      setTimeout(function () { if (activeBtn) renderModal(activeBtn); }, 180);
-    });
-    // Al cerrar el modal, vuelca la nota del modal al panel normal.
-    modalEl.addEventListener('hidden.bs.modal', syncNoteToInline);
-  }
-
-  // init: primer doc
-  setActive(picks[0], false);
-})();
-</script>

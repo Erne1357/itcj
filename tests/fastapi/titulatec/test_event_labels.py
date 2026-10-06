@@ -155,7 +155,7 @@ def test_todo_event_type_que_el_codigo_escribe_esta_en_el_dominio():
     el codigo crudo. Aqui la fuente es el codigo.
     """
     prefijos = ("process", "document", "phase", "requirement", "appointment",
-                "survey_review", "enrollment")
+                "survey_review", "enrollment", "library")
     patron = re.compile(r'"((?:' + "|".join(prefijos) + r')_[a-z_]+)"')
     # Claves de payload y nombres de campo que comparten prefijo con un evento.
     no_son_eventos = {

@@ -85,6 +85,12 @@ def correo_falso(monkeypatch):
 # `modo_alterno` vive en conftest.py (C7/I-1 de la revision final: una sola
 # copia compartida en vez de 4 duplicadas por archivo).
 
+# La BD de dev es COMPARTIDA (copia de prod) y el jefe ve TODAS las
+# solicitudes: «Por revisar» y «En Cómputo» son FIFO (las más viejas primero),
+# así que una solicitud recién sembrada cae fuera de la página 1 de 50. Toda
+# prueba que busca su fila filtra por SU convocatoria (`cohort_id`), igual que
+# lo haría el oficial; lo que se afirma de la fila no cambia.
+
 
 def _make_req(db_session, cohort, *, control, status="pending_review", kind="unknown",
               email="egresado@example.invalid", **kw):
@@ -140,7 +146,7 @@ def test_la_bandeja_abre_en_por_revisar_con_las_seis_pestanas(
     por_revisar = _make_req(db_session, cohort, control="99551001")
     aprobada = _make_req(db_session, cohort, control="99551002", status="approved")
 
-    resp = client_as(head).get(URL)
+    resp = client_as(head).get(f"{URL}?cohort_id={cohort.id}")
 
     assert resp.status_code == 200, resp.text[:500]
     texto = _plano(resp.text)
@@ -170,7 +176,7 @@ def test_cada_pestana_muestra_solo_sus_estados(
                                          "awaiting_access", "approved", "converted",
                                          "rejected"), start=1100)}
 
-    resp = client_as(head).get(f"{URL}/body?status={pestana}")
+    resp = client_as(head).get(f"{URL}/body?status={pestana}&cohort_id={cohort.id}")
 
     assert resp.status_code == 200
     assert _pestana_activa(resp.text) == pestana
@@ -185,7 +191,7 @@ def test_una_pestana_desconocida_cae_en_por_revisar(
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99551003")
 
-    resp = client_as(head).get(f"{URL}/body?status=cualquier-cosa")
+    resp = client_as(head).get(f"{URL}/body?status=cualquier-cosa&cohort_id={cohort.id}")
 
     assert resp.status_code == 200
     assert _pestana_activa(resp.text) == "pending_review"
@@ -203,7 +209,7 @@ def test_la_fila_por_revisar_sin_cuenta_se_aprueba_sin_nip_y_pasa_a_computo(
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99551010")
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "Sin cuenta" in fila
     assert f'hx-post="/titulatec/admin/solicitudes/{req.id}/aprobar"' in fila
@@ -224,7 +230,7 @@ def test_la_fila_por_revisar_con_cuenta_no_pide_nip_y_avisa_a_donde_va_la_liga(
     _cuenta(db_session, "99551011")
     req = _make_req(db_session, cohort, control="99551011", email="lo.tecleo@example.invalid")
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "Con cuenta" in fila
     assert 'name="nip"' not in fila, "a una cuenta existente no se le fija NIP"
@@ -245,7 +251,7 @@ def test_una_cuenta_sin_contrasena_se_marca_antes_de_intentar_aprobar(
     _cuenta(db_session, "99551012", password=False)
     req = _make_req(db_session, cohort, control="99551012")
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "Con cuenta" in fila
     assert "sin contraseña" in fila
@@ -271,7 +277,7 @@ def test_una_cuenta_desactivada_se_avisa_en_la_fila(
              if estado == "approved" else {})
     req = _make_req(db_session, cohort, control=control, status=estado, **extra)
 
-    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}&cohort_id={cohort.id}").text, req)
 
     assert PILDORA_DESACTIVADA in _plano(fila)
 
@@ -293,7 +299,7 @@ def test_la_pildora_de_desactivada_no_sale_si_no_aplica(
     db_session.flush()
     req = _make_req(db_session, cohort, control=control, status=estado)
 
-    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?status={estado}&cohort_id={cohort.id}").text, req)
 
     assert PILDORA_DESACTIVADA not in _plano(fila)
 
@@ -305,7 +311,7 @@ def test_la_fila_legado_se_revisa_igual_que_una_nueva(
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99551013", status="unverified")
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert f'/solicitudes/{req.id}/aprobar' in fila
     assert f'/solicitudes/{req.id}/rechazar' in fila
@@ -385,7 +391,7 @@ def test_la_fila_muestra_telefono_convocatoria_y_fecha(
     req = _make_req(db_session, cohort, control="99551018")
     db_session.refresh(req)
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "6561234567" in fila
     assert "Convocatoria Ficticia De Prueba" in fila
@@ -443,7 +449,7 @@ def test_tras_aprobar_se_vuelve_a_pintar_la_pestana_donde_estaba_el_oficial(
 
     resp = c.post(f"{URL}/{req.id}/aprobar",
                   data={"nip": "4917", "program_id": "", "status": "pending_review",
-                        "cohort_id": ""})
+                        "cohort_id": str(cohort.id)})
 
     assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
     assert _pestana_activa(resp.text) == "pending_review"
@@ -698,7 +704,7 @@ def test_rechazada_antes_muestra_fecha_y_motivo_de_la_mas_reciente(
     nueva = _make_req(db_session, cohort, control="99604001", status="pending_review")
     assert nueva.id > vieja.id
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, nueva)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, nueva)
     texto = _plano(fila)
 
     assert "Rechazada antes" in texto
@@ -735,7 +741,7 @@ def test_rechazada_antes_no_aparece_para_una_solicitud_sin_antecedente(
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99604005")
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "Rechazada antes" not in fila
 
@@ -919,7 +925,7 @@ def test_la_fila_en_computo_dice_desde_cuando_y_solo_ofrece_cancelar(
     req = _make_req(db_session, cohort, control="99620001", status="awaiting_access",
                     reviewed_at=datetime(2026, 9, 20, 11, 45))
 
-    html = client_as(head).get(f"{URL}/body?status=awaiting_access").text
+    html = client_as(head).get(f"{URL}/body?status=awaiting_access&cohort_id={cohort.id}").text
     fila = _fila(html, req)
     texto = _plano(fila)
 
@@ -941,7 +947,7 @@ def test_la_fila_en_computo_sin_fecha_de_aprobacion_no_dice_desde_vacio(
     req = _make_req(db_session, cohort, control="99620007", status="awaiting_access",
                     reviewed_at=None)
 
-    texto = _plano(_fila(client_as(head).get(f"{URL}/body?status=awaiting_access").text, req))
+    texto = _plano(_fila(client_as(head).get(f"{URL}/body?status=awaiting_access&cohort_id={cohort.id}").text, req))
 
     assert "En Centro de Cómputo" in texto
     assert "desde" not in texto
@@ -1206,7 +1212,7 @@ def test_fuera_del_modo_sii_la_fila_no_habla_del_sii(
     # Una consulta vieja (p. ej. de antes de cambiar de modo) no se anuncia.
     _consulta(db_session, req, status="not_apt", results=REGLAS_NO_APTA)
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert f'id="tt-req-sii-{req.id}"' not in fila
     assert "/reconsultar" not in fila
@@ -1222,7 +1228,7 @@ def test_en_modo_sii_se_actua_como_en_el_oficial(
     _cuenta(db_session, "99640003")
     con_cuenta = _make_req(db_session, cohort, control="99640003")
 
-    html = client_as(head).get(f"{URL}/body").text
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
     fila_sin, fila_con = _fila(html, sin_cuenta), _fila(html, con_cuenta)
 
     assert "Solo lectura" not in html
@@ -1314,7 +1320,7 @@ def test_no_apta_muestra_cada_regla_que_fallo_con_su_motivo(
     req = _make_req(db_session, cohort, control="99640004")
     _consulta(db_session, req, status="not_apt", attempt=2, results=REGLAS_NO_APTA)
 
-    bloque = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+    bloque = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req))
 
     assert "No apta" in bloque
     assert "Le faltan créditos: 200 de 260." in bloque
@@ -1332,7 +1338,7 @@ def test_error_muestra_el_motivo_y_ofrece_reintentar(
     _consulta(db_session, req, status="error", attempt=3,
               error="El SII no respondió a tiempo.")
 
-    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req)
+    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req)
     texto = _plano(bloque)
 
     assert "Error" in texto
@@ -1354,7 +1360,7 @@ def test_un_error_que_ya_no_se_reintenta_solo_no_lo_promete(
     _consulta(db_session, req, status="error", attempt=attempt, retryable=retryable,
               error="Falla.")
 
-    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req))
 
     assert "Se reintenta sola" not in texto
 
@@ -1375,7 +1381,7 @@ def test_sin_sii_configurado_un_error_viejo_no_promete_reintento(
     _consulta(db_session, req, status="error", attempt=2, retryable=True,
               error="El SII no respondió a tiempo.")
 
-    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req)
+    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req)
     texto = _plano(bloque)
 
     assert "El SII no respondió a tiempo." in texto
@@ -1394,7 +1400,7 @@ def test_consultando_no_ofrece_reintentar_hasta_que_la_consulta_se_cuelga(
     _consulta(db_session, colgada, status="pending",
               started_at=datetime.now() - timedelta(hours=1))
 
-    html = client_as(head).get(f"{URL}/body").text
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
     b_curso = _bloque_sii(_fila(html, en_curso), en_curso)
     b_colgada = _bloque_sii(_fila(html, colgada), colgada)
 
@@ -1411,7 +1417,7 @@ def test_sin_consulta_todavia_se_puede_pedir(
     cohort = make_cohort(status="open")
     req = _make_req(db_session, cohort, control="99640011")
 
-    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req)
+    bloque = _bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req)
 
     assert "Sin consultar" in _plano(bloque)
     assert f"/solicitudes/{req.id}/reconsultar" in bloque
@@ -1429,7 +1435,7 @@ def test_las_diferencias_con_el_sii_se_muestran(
         "program": {"form": "Ingenieria de 2005", "sii": "ING. SISTEMAS (PLAN 2010)"},
     })
 
-    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body").text, req), req))
+    texto = _plano(_bloque_sii(_fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req), req))
 
     assert "Diferencias con el SII" in texto
     assert "Nombre: «EGRESADO» en el formulario, «OTRA PERSONA» en el SII" in texto
@@ -1447,7 +1453,7 @@ def test_lo_que_viene_del_sii_se_escapa(
         {"rule": "x", "ok": False, "message": "<img src=x onerror=alert(1)>"}],
         identity_mismatch={"last_name": {"form": "A", "sii": "<b>B</b>"}})
 
-    fila = _fila(client_as(head).get(f"{URL}/body").text, req)
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
 
     assert "<img src=x" not in fila and "<b>B</b>" not in fila
     assert "&lt;img src=x onerror=alert(1)&gt;" in fila

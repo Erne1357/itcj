@@ -355,7 +355,11 @@ class Settings(BaseSettings):
     # «Ver N horas más» y el resto de `.tt-cita-*`/`.tt-slotblock-*` nuevos).
     # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
     # `<details>` se ven sin su cabecera ni su chevron.
-    STATIC_VERSION: str = "1.0.1111583"
+    #
+    # Bump 2026-10-05: `titulatec/js/admin/doc-viewer.js` (estado de revision
+    # tras cerrar el modal, guarda expando, historyRestore) y
+    # `core/js/dashboard/dashboard.js` (sandbox solo en iframes cross-origin).
+    STATIC_VERSION: str = "1.0.1111593"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -482,6 +486,8 @@ class Settings(BaseSettings):
     TITULATEC_MAX_PDF_UPLOAD_SIZE: int = 20 * 1024 * 1024
     TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    # Impresión de constancias (lotes/PDF) oculta tras este switch: apagado solo se ve el folio (spec folios 2026-10-05 §3.5).
+    TITULATEC_CERTIFICATE_PRINTING: bool = False
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí

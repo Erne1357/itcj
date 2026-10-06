@@ -301,14 +301,25 @@ def fetch_sii_nip(control: str):
     envuelto en `Secret` (repr `****`) hasta que quien lo recibe lo hashea o
     lo clasifica (`EligibilityService.classify_sii_nip`); aquí solo se
     registra el TIPO del error.
+
+    Observabilidad (R1 del plan de rendimiento): la consulta se mide como
+    `itcj_outbound_request_seconds{target="sii"}`. El `with` va DENTRO del `try`
+    y envuelve solo la consulta: una falla del SII la clasifica (`error`, o
+    `timeout`) y sigue su camino al `except` de siempre, que la vuelve `falla`.
+    Quedan FUERA lo que no es una llamada saliente: leer las reglas del disco y
+    pedir el cliente (con `TITULATEC_SII_BACKEND=disabled`, el caso de producción
+    hoy, `get_sii_client()` lanza antes de cualquier petición); contarlos haría
+    del panel una alarma permanente.
     """
     from itcj2.apps.titulatec.services.sii import client as sii_client
     from itcj2.apps.titulatec.services.sii.rules import RuleSet
+    from itcj2.observability.work import measured_outbound
 
     try:
         rules = RuleSet.load(sii_client.SiiConfig.rules_dir())
         with sii_client.get_sii_client() as client:
-            return rules.fetch_credential(client, control), None
+            with measured_outbound("sii"):
+                return rules.fetch_credential(client, control), None
     except Exception as exc:  # noqa: BLE001 — «no se pudo preguntar»
         logger.warning("SII: no se pudo consultar el NIP (%s)", type(exc).__name__)
         return None, nip_failure(exc)

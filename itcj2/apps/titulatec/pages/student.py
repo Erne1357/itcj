@@ -12,9 +12,6 @@ logger = logging.getLogger("itcj2.apps.titulatec.pages.student")
 
 router = APIRouter(prefix="/student", tags=["titulatec-pages-student"])
 
-# Documentos de la fase 1 (iniciales). egel_proof solo aplica a modalidad EGEL.
-_INITIAL_DOC_TYPES = ["birth_certificate", "high_school_cert", "curp"]
-
 # --- Contenido del acordeón de fase (alumno) -------------------------------
 # Una entrada por código de fase (titulatec_phase_definitions.code):
 #   desc  : qué es la fase, en 1-2 frases.
@@ -63,7 +60,8 @@ _PHASE_INFO = {
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
-            "No-adeudo de biblioteca y comprobante de la encuesta de egresados.",
+            "No necesitas llevar nada del no adeudo ni de la encuesta: tus liberaciones "
+            "quedan registradas para Servicios Escolares.",
             "12 fotografías tamaño credencial: ovaladas, B/N, fondo blanco, papel mate.",
             "$1,900 en efectivo para el pago del proceso.",
         ],
@@ -144,7 +142,57 @@ _PHASE_INFO = {
     },
 }
 
-# Compatibilidad: la instrucción breve sigue disponible como antes.
+# Variante de `_PHASE_INFO` SOLO para "initial_docs" en perfil posgrado (spec
+# 2026-09-30-titulatec-posgrado-design.md §4.4, invariante 1): un egresado de
+# posgrado sube 7 documentos en la fase 1 (los 3 de siempre + 4 extras), no 3,
+# y el acordeón del dashboard tiene que decirlo. No es un dict de 9 fases:
+# solo trae la ÚNICA que cambia por perfil -- el resto es igual para
+# cualquier egresado (D8, spec §2).
+_PHASE_INFO_POSGRADO = {
+    "initial_docs": {
+        "desc": "Sube tu acta de nacimiento, tu certificado de bachillerato, tu CURP "
+                "certificada y los 4 documentos adicionales de posgrado. Son los mismos "
+                "que vas a llevar en físico a la cita de cotejo.",
+        "needs": [
+            "Acta de nacimiento (PDF).",
+            "Certificado de bachillerato (PDF).",
+            "CURP certificada (PDF): la impresión certificada, no la simple.",
+            "Cédula profesional y título de tu grado anterior (licenciatura si "
+            "cursaste maestría; maestría si cursaste doctorado).",
+            "Oficios de autorización de la División de Estudios de Posgrado e "
+            "Investigación (DEPI), en un solo PDF.",
+            "Comprobante de tu e.firma o de tu cita con el SAT.",
+            "Cada archivo va en PDF de hasta {pdf_max_mb} MB. Si pesa más "
+            "(hasta {pdf_upload_mb} MB), lo comprimimos automáticamente.",
+            "Al subir los 7, tu fase pasa sola a revisión: no hay que enviarla a mano.",
+        ],
+        "who": "Tú subes los siete archivos; Servicios Escolares los revisa y los "
+               "aprueba o te pide corregir.",
+    },
+}
+
+
+def _phase_info(code: str, track: str) -> dict:
+    """`_PHASE_INFO[code]`, con la variante de posgrado SOLO en `initial_docs`.
+
+    `track` es lo que devuelve `TrackService` (invariante 2: el perfil sale
+    SOLO de ahí). Fuera de `initial_docs` -- y para licenciatura siempre -- es
+    exactamente `_PHASE_INFO.get(code, {})`: ninguna otra fase distingue
+    perfil (D8, spec §2).
+    """
+    from itcj2.apps.titulatec.services.track_service import TRACK_POSGRADO
+
+    if track == TRACK_POSGRADO:
+        override = _PHASE_INFO_POSGRADO.get(code)
+        if override is not None:
+            return override
+    return _PHASE_INFO.get(code, {})
+
+
+# Compatibilidad: la instrucción breve sigue disponible como antes. SIEMPRE
+# derivado de `_PHASE_INFO` (licenciatura): nada aquí distingue perfil -- un
+# consumidor que algún día necesite la variante de posgrado debe pedirla vía
+# `_phase_info`, no aquí.
 _PHASE_HELP = {code: info["desc"] for code, info in _PHASE_INFO.items()}
 
 
@@ -267,6 +315,22 @@ _EVENT_LABELS = {
     "survey_review_approved":      "Gestión Tecnológica y Vinculación liberó tu encuesta",
     "survey_review_rejected":      "Gestión Tecnológica y Vinculación dejó observaciones",
     "survey_review_revoked":       "Se revocó la liberación de tu encuesta",
+    # Constancia previa de la encuesta (D9, spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.12): `SurveyReviewService.register_prior`.
+    "survey_review_prior":         "Tu encuesta quedó liberada por tu constancia previa",
+    "survey_paper_delivered":      "Recogiste tu constancia de liberación en Gestión Tecnológica y Vinculación",
+    # ---- No adeudo de biblioteca (Biblioteca -> Caja), spec 2026-10-01 ----
+    "library_debt_registered":     "Biblioteca registró tu adeudo",
+    "library_no_charge":           "Biblioteca registró que no debes nada",
+    "library_amount_corrected":    "Biblioteca corrigió tu monto",
+    "library_payment_registered":  "Pagaste tu no adeudo en Caja",
+    "library_prior_registered":    "Registraste tu constancia previa de biblioteca",
+    "library_payment_reverted":    "Se revirtió tu pago de biblioteca",
+    "library_clearance_reverted":  "Se revirtió tu no adeudo de biblioteca",
+    "library_prior_undone":        "Se deshizo tu constancia previa de biblioteca",
+    # «Con observaciones» (spec 2026-10-05 §3.4).
+    "library_observed":            "Biblioteca registró observaciones en tu no adeudo",
+    "library_reenabled":           "Biblioteca te rehabilitó; volverá a revisar tu no adeudo",
 }
 
 
@@ -286,6 +350,38 @@ _SURVEY_URL = "/titulatec/encuesta-egresados"
 # cadena, en vez de repetirla a mano.
 _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el sistema "
                  "T-soft. El departamento te contactará por correo para darte tu usuario.")
+
+# Ruling R12 (revisión de T5, spec 2026-10-01-titulatec-biblioteca-caja-
+# design.md §4.4.4/§4.10, D17): la regla 3 de `SelfBookingService.eligibility`
+# (liberaciones) corre ANTES que la 4/5 (`tiene_cita`/`cotejo_en_dictamen`)
+# -- es CONTRATO, no se reordena --, así que un egresado cuya cita vigente
+# OCUPA el cotejo (D17: las citas previas no se tocan) y le falta el no
+# adeudo reporta el motivo de biblioteca (`biblioteca_en_revision`/
+# `pago_pendiente`), nunca `tiene_cita`/`cotejo_en_dictamen`. El texto de
+# `SelfBookingService.MENSAJES` para esos dos motivos promete "Podrás agendar
+# en cuanto se libere tu no adeudo", que es FALSO con una cita que ocupa el
+# cotejo: no le falta agendar, le falta que Servicios Escolares pueda
+# LIBERAR su cotejo -el mismo verbo que ya usa `PhaseService._cotejo_gate_
+# error`, "No se puede liberar la fase 02" mientras falte algún requisito
+# ACTIVO y OBLIGATORIO (biblioteca incluida, una vez que la convocatoria la
+# exige) -, porque el no adeudo es uno de esos requisitos. `_agenda_ctx`
+# sustituye el texto SOLO para esta pantalla (`agenda.message`, cara 4 de
+# `_cita_panel.html`); `SelfBookingService.MENSAJES` no cambia -lo sigue
+# usando quien SÍ puede agendar, el cubo D10 de la cola y los correos (D11)-.
+#
+# Ruling R18 (revisión de la Tarea 12): "OCUPA el cotejo" NO es "tiene una
+# cita vigente" a secas -una `no_show`, o una `attended` con la fase 2 YA
+# `rejected`, SÍ van a agendar otra, y ahí el mensaje correcto sigue siendo
+# el de `MENSAJES`-. El predicado exacto es `SelfBookingService.
+# cita_ocupa_el_cotejo` (gemelo del que ya usaba `mail_compose.py::
+# _que_falta`, D11/Ruling R17).
+_LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente",
+                             "biblioteca_con_observaciones")
+_LIBRARY_BLOCK_WITH_CITA_MSG = (
+    "Ya tienes una cita de cotejo. Tu no adeudo de biblioteca debe quedar "
+    "liberado (Biblioteca y, si corresponde, Caja) para que Servicios "
+    "Escolares pueda liberar tu cotejo."
+)
 
 
 # ===========================================================================
@@ -357,6 +453,38 @@ def _phase_guard_page(db, process, phase_number) -> Response | None:
     return RedirectResponse(destino, status_code=302)
 
 
+def _initial_docs_set_guard(db, process, dtype) -> Response | None:
+    """400 + `X-Tt-Error` si `dtype` es de la fase `initial_docs` pero su código
+    NO está en el set del PERFIL de `process` (spec 2026-09-30-titulatec-
+    posgrado-design.md §4.4, "hueco cerrado"; invariante 4).
+
+    Cierra el hueco que `_phase_guard` no tapa: esa guarda solo compara
+    `dtype.phase_number` contra `process.current_phase` (CUALQUIER tipo de la
+    fase 1 la pasa), así que sin esto licenciatura podía subir los 4 extras de
+    posgrado (`professional_license`, `degree_title`, `postgrad_authorization`,
+    `efirma_sat`) y CUALQUIER perfil podía subir un tipo de fase 1 activo en el
+    catálogo pero fuera de las dos listas de `DocumentService` (p. ej.
+    `egel_proof`).
+
+    Solo opina sobre `initial_docs`: el resto de fases no tiene sets por
+    perfil y sigue dependiendo nada más de `_phase_guard`. Sin proceso, `None`
+    (nada que guardar aquí; cada ruta ya resuelve "no tienes proceso" por su
+    cuenta) -- mismo criterio que `_phase_guard`.
+    """
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process is None:
+        return None
+    if dtype.phase_number != PhaseService.phase_number_for_code(db, "initial_docs"):
+        return None
+    if dtype.code in DocumentService.initial_doc_types_for(db, process):
+        return None
+    return Response(status_code=400, headers={
+        "X-Tt-Error": _hdr("Este documento no aplica a tu proceso."),
+    })
+
+
 def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None) -> dict:
     """Contexto autónomo de un slot de documento para el parcial.
 
@@ -397,19 +525,23 @@ def _docs_status_ctx(db, process) -> dict:
     2026-09-28, spec §4 A4).
 
     Prioridad YA resuelta aquí (rechazados > faltantes > aprobados >
-    enviados): `initial_docs_summary` reparte los 3 documentos iniciales entre
-    exactamente un `status` cada uno (`approved|rejected|pending|missing`),
-    así que los 4 estados de salida son mutuamente excluyentes.
+    enviados): `initial_docs_summary` reparte los documentos iniciales DEL
+    PERFIL del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4:
+    licenciatura, 3; posgrado, 7) entre exactamente un `status` cada uno
+    (`approved|rejected|pending|missing`), así que los 4 estados de salida son
+    mutuamente excluyentes.
 
     `contact_email` solo se resuelve para `state == "sent"` (el único texto
     que lo usa, spec A4 #4): evita la consulta de respaldo a
     `EnrollmentRequest` cuando no hace falta. `next_url` solo para
-    `state == "approved"` (spec A4 #3, liga a la cita de cotejo).
+    `state == "approved"` (spec A4 #3, liga a la cita de cotejo). `total` es
+    el tamaño del set del PROPIO proceso -- lo usa `_docs_status.html` para
+    "Tus N documentos..." (con N=3 el texto de licenciatura queda igual).
     """
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    summary = DocumentService.initial_docs_summary(db, process.id)
+    summary = DocumentService.initial_docs_summary(db, process.id, process=process)
     counts = summary["counts"]
     if counts["rejected"]:
         state = "rejected"
@@ -425,6 +557,7 @@ def _docs_status_ctx(db, process) -> dict:
         "missing_names": [it["name"] for it in summary["items"] if it["status"] == "missing"],
         "contact_email": (StudentMail.contact_email(db, process) if state == "sent" else None),
         "next_url": ("/titulatec/student/cita" if state == "approved" else None),
+        "total": summary["total"],
     }
 
 
@@ -537,6 +670,34 @@ def _format_b_progress(fb) -> dict:
     return {**prog, "kind": "format_b", "started": started, "label": label, "tone": tone}
 
 
+def _library_block_ctx(summary: dict) -> dict:
+    """Shapea `LibraryClearanceService.summary_for_process` para el bloque del
+    dashboard y la fila de «Mi cita» (spec 2026-10-01-titulatec-biblioteca-
+    caja-design.md §4.10): mismas llaves, más `total_fmt` y `breakdown` YA
+    FORMATEADOS -- la plantilla no hace aritmética ni decide moneda
+    (`format_amount`, nunca `float`).
+
+    `breakdown` es el MISMO texto que ya arma `LibraryClearanceService.
+    _mark_ready` para el aviso in-app del alumno («adeudo $800.00 + donación
+    voluntaria de libro $200.00»): solo las partes > 0 -- Biblioteca puede
+    registrar adeudo 0 con donación > 0 (D18: total 0, las DOS en 0, es lo
+    único que libera sin pasar por Caja; adeudo 0 con donación sí pasa).
+    """
+    from itcj2.apps.titulatec.services.library_clearance_service import format_amount
+
+    out = dict(summary)
+    out["total_fmt"] = format_amount(summary.get("total"))
+    debt = summary.get("debt") or 0
+    donation = summary.get("donation") or 0
+    partes = []
+    if debt > 0:
+        partes.append(f"adeudo {format_amount(debt)}")
+    if donation > 0:
+        partes.append(f"donación voluntaria de libro {format_amount(donation)}")
+    out["breakdown"] = " + ".join(partes)
+    return out
+
+
 def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict | None:
     """CTA de una fase. `_PHASE_CTA` sigue siendo la ÚNICA fuente de los enlaces.
 
@@ -619,6 +780,17 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         survey            dict | None       SOLO en la card `review_appointment`
                                              (dict plano de `summary_for_process`
                                              + `url`, D3, spec §6.1)
+        library           dict | None       SOLO en la card `review_appointment`,
+                                             Y SOLO si la convocatoria exige el no
+                                             adeudo (`ClearanceGate.library_required`,
+                                             spec 2026-10-01-titulatec-biblioteca-
+                                             caja-design.md §4.4/§4.10): dict plano
+                                             de `_library_block_ctx` (= `summary_for_
+                                             process` + `total_fmt`/`breakdown`). Sin
+                                             el requisito, `None` -- no hay bloque que
+                                             pintar, igual que `not_required` del gate.
+                                             También `None` con `not_applicable`
+                                             (Ruling R21: ya pasó su cotejo).
     """
     from itcj2.apps.titulatec.models import (
         FormatB, PhaseDefinition, ProcessEvent, ProcessPhase,
@@ -626,12 +798,19 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
     # Corte a T-soft (Tarea 3): se LEE aquí, en cada llamada a `_phases_ctx`
     # (una por carga del dashboard) -- nunca una constante de módulo ni un
     # valor de import time, o la reversibilidad por env var / monkeypatch de
     # `PhaseService._handoff_phase` deja de funcionar (ver su propio docstring).
     handoff_phase = PhaseService._handoff_phase()
+    # Perfil del proceso (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
+    # invariante 2: el perfil sale SOLO de `TrackService`): decide la variante
+    # de `initial_docs` en `_phase_info`. Sin proceso, licenciatura -- mismo
+    # criterio que `TrackService.for_process`, sin reventar por `process is
+    # None` (esa función exige un proceso real).
+    track = TrackService.for_process(db, process) if process is not None else TRACK_LICENCIATURA
 
     pdefs = (
         db.query(PhaseDefinition)
@@ -641,7 +820,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     )
 
     def _base_card(pd, **over) -> dict:
-        info = _PHASE_INFO.get(pd.code, {})
+        info = _phase_info(pd.code, track)
         resp_label = _RESPONSIBLE_LABEL.get(pd.responsible, "el área responsable")
         card = {
             "number": pd.number,
@@ -666,6 +845,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "events": [],
             "progress": None,
             "survey": None,
+            "library": None,
         }
         card.update(over)
         return card
@@ -687,6 +867,28 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     survey = SurveyReviewService.summary_for_process(db, process.id)
     survey["url"] = _SURVEY_URL if survey["status"] == "missing" else None
+
+    # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+    # design.md §4.10): UNA consulta fija más -- `ClearanceGate.library_required`
+    # nunca siembra (su propio docstring) -- y, SOLO si la convocatoria exige el
+    # no adeudo, otra para la foto plana. Convocatoria sin el requisito ACTIVO
+    # (incluida toda convocatoria hasta que corra `activar-biblioteca-caja`, §4.4):
+    # `library` se queda `None` y el bloque no existe, igual que `survey` nunca
+    # se apaga (la encuesta es incondicional, D6) pero el no adeudo sí puede
+    # estarlo.
+    #
+    # Ruling R21 (I3 de la revisión final): quien YA pasó su cotejo sin un no
+    # adeudo liberado (`NOT_APPLICABLE`) tampoco ve el bloque -decirle «El
+    # Centro de Información está revisando tu adeudo» sería falso-.
+    from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
+    library = None
+    if ClearanceGate.library_required(db, process.cohort_id):
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            NOT_APPLICABLE, LibraryClearanceService,
+        )
+        resumen = LibraryClearanceService.summary_for_process(db, process.id)
+        if resumen["status"] != NOT_APPLICABLE:
+            library = _library_block_ctx(resumen)
 
     ph_by_number = {
         ph.phase_number: ph for ph in
@@ -712,7 +914,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         })
 
     progress_by_code = {
-        "initial_docs": _docs_progress(DocumentService.initial_docs_summary(db, process.id)),
+        "initial_docs": _docs_progress(
+            DocumentService.initial_docs_summary(db, process.id, process=process)),
         "review_appointment": _appt_progress(AppointmentService.get_for_process(db, process.id)),
         "format_b": _format_b_progress(db.get(FormatB, process.id)),
     }
@@ -750,6 +953,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             events=events_by_phase.get(pd.number, []),
             progress=progress,
             survey=(survey if pd.code == "review_appointment" else None),
+            library=(library if pd.code == "review_appointment" else None),
         ))
 
     total = len(pdefs) or 9
@@ -780,7 +984,7 @@ def _parse_open_phase(raw) -> int | None:
 
 
 @router.get("/dashboard", name="titulatec.pages.student.dashboard")
-async def dashboard(
+def dashboard(
     request: Request,
     fase: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.student"])),
@@ -822,7 +1026,7 @@ async def dashboard(
 
 
 @router.get("/perfil", name="titulatec.pages.student.perfil")
-async def perfil(
+def perfil(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.student"])),
 ):
@@ -871,7 +1075,7 @@ async def perfil(
 
 
 @router.get("/fase/{n}", name="titulatec.pages.student.phase_detail")
-async def phase_detail(
+def phase_detail(
     n: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=[
@@ -915,14 +1119,25 @@ async def phase_detail(
 
 
 @router.get("/documents", name="titulatec.pages.student.documents")
-async def documents(
+def documents(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.own"])),
 ):
-    """Página de documentos iniciales (fase 1) con dropzones HTMX."""
+    """Página de documentos iniciales (fase 1) con dropzones HTMX.
+
+    El set de espacios sale del PERFIL del proceso
+    (`DocumentService.initial_doc_types_for`, spec 2026-09-30-titulatec-
+    posgrado-design.md §4.4, invariante 1): licenciatura, 3; posgrado, 7 (los
+    3 de siempre + 4 extras). Los 4 extras traen su propia línea de ayuda
+    (`DocumentService.INITIAL_DOC_HINTS`, `doc_hint` en el contexto del slot)
+    -- ADEMÁS de la ayuda de formato (PDF/imagen) que ya trae `_slot_ctx`, no
+    en su lugar. Con licenciatura (`docs_total == 3`) los textos dinámicos de
+    la plantilla quedan byte a byte como antes (Controller ruling R1).
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
     db = SessionLocal()
     try:
@@ -930,20 +1145,24 @@ async def documents(
         fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "initial_docs"))
         if fuera_de_fase:
             return fuera_de_fase
+        track = TrackService.for_process(db, process) if process else TRACK_LICENCIATURA
         slots = []
         status_ctx = None
         if process:
-            # UN lote para los 3 slots (Tarea 2, spec A3): "Enviado el ..." es
+            codes = DocumentService.initial_doc_types_for(db, process)
+            # UN lote para todos los slots (Tarea 2, spec A3): "Enviado el ..." es
             # la ULTIMA subida real de cada tipo, no `doc.created_at` (que no
             # se resetea al resubir).
-            sent_map = DocumentService.last_uploads(db, [process.id], codes=_INITIAL_DOC_TYPES)
-            for code in _INITIAL_DOC_TYPES:
+            sent_map = DocumentService.last_uploads(db, [process.id], codes=codes)
+            for code in codes:
                 dtype = db.query(DocumentType).filter_by(code=code, is_active=True).first()
                 if not dtype:
                     continue
                 doc = DocumentService.get_document(db, process.id, code)
                 sent_at = sent_map.get((process.id, code)) or (doc.created_at if doc else None)
-                slots.append(_slot_ctx(dtype, doc, sent_at=sent_at))
+                slot = _slot_ctx(dtype, doc, sent_at=sent_at)
+                slot["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(code)
+                slots.append(slot)
             status_ctx = _docs_status_ctx(db, process)
         all_uploaded = bool(slots) and all(s["doc"] for s in slots)
         ctx = {
@@ -951,6 +1170,8 @@ async def documents(
             "slots": slots,
             "all_uploaded": all_uploaded,
             "status": status_ctx,
+            "track": track,
+            "docs_total": len(slots),
         }
     finally:
         db.close()
@@ -973,6 +1194,31 @@ async def document_upload(
     aparte, en la MISMA respuesta (también cuando hay error: 200 +
     `X-Tt-Error`, el estado del proceso no cambió pero el aviso puede seguir
     diciendo lo mismo que antes de intentar)."""
+    # Spec rendimiento §3.8: el trabajo (consultas, compresión, plantilla) corre
+    # en el threadpool; el event loop solo espera. Van DOS saltos porque las
+    # guardas (404/409, fase, set de documentos, tope del PDF) tienen que
+    # resolverse ANTES de leer el cuerpo del archivo: lo que se va a rechazar no
+    # se sube a memoria. El primero valida y devuelve la respuesta final si algo
+    # falla, o `None` si toca leer; el segundo repite esa validación sobre el
+    # estado de AHORA (leer tarda segundos), comprime, guarda y responde.
+    respuesta = await run_in_threadpool(
+        _cuerpo_document_upload,
+        type_code=type_code, request=request, archivo=archivo, user=user)
+    if respuesta is not None:
+        return respuesta
+    raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_document_upload,
+        type_code=type_code, request=request, archivo=archivo, user=user, raw=raw)
+
+
+def _cuerpo_document_upload(type_code, request, archivo, user, raw=None):
+    """Cuerpo síncrono de `document_upload`: corre en el threadpool, no en el event loop.
+
+    Sin `raw` (primer salto) solo valida: devuelve la `Response` final si algo
+    se rechaza (404/409/fase/set/tope del PDF), o `None` si el archivo se puede
+    leer. Con `raw` (segundo salto) valida otra vez, comprime, guarda y
+    devuelve la `Response` del slot."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -993,6 +1239,15 @@ async def document_upload(
         fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
         if fuera_de_fase:
             return fuera_de_fase
+        # Hueco cerrado (spec §4.4): `_phase_guard` solo mira la FASE del tipo,
+        # no si el CÓDIGO aplica al perfil del proceso -- sin esto, licenciatura
+        # subía los 4 extras de posgrado y cualquiera subía un tipo de fase 1
+        # activo pero fuera de las dos listas de `DocumentService`. Antes de
+        # leer el cuerpo o tocar storage (orden: dtype -> proceso ->
+        # `_phase_guard` -> set -> storage).
+        fuera_del_set = _initial_docs_set_guard(db, process, dtype)
+        if fuera_del_set:
+            return fuera_del_set
 
         error = None
         doc = DocumentService.get_document(db, process.id, type_code)
@@ -1010,15 +1265,18 @@ async def document_upload(
             # No hay nada pendiente (solo se leyó); al volver a tocar `process`
             # o `dtype`, la sesión abre otra transacción, ya corta.
             db.commit()
-            raw = await archivo.read()
-            # En el threadpool: comprimir un PDF escaneado es CPU (segundos) y
-            # en el event loop congelaría el worker entero.
-            prepared = await run_in_threadpool(
-                storage.prepare_document, raw=raw, original_name=archivo.filename,
+            if raw is None:
+                # Primer salto: todo lo anterior pasó, no hay nada que rechazar.
+                # La ruta async lee el cuerpo y vuelve con `raw`.
+                return None
+            # Comprimir un PDF escaneado es CPU (segundos): aquí corre en el
+            # threadpool, nunca en el event loop.
+            prepared = storage.prepare_document(
+                raw=raw, original_name=archivo.filename,
                 control_number=control, file_kind=file_kind,
             )
-            doc = await run_in_threadpool(
-                DocumentService.save, db, process, type_code,
+            doc = DocumentService.save(
+                db, process, type_code,
                 raw=raw, original_name=archivo.filename,
                 content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
                 prepared=prepared,
@@ -1031,6 +1289,7 @@ async def document_upload(
         sent_map = DocumentService.last_uploads(db, [process.id], codes=[type_code])
         sent_at = sent_map.get((process.id, type_code)) or (doc.created_at if doc else None)
         ctx = _slot_ctx(dtype, doc, error=error, sent_at=sent_at)
+        ctx["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(type_code)
         ctx["status_oob"] = _docs_status_ctx(db, process)
         resp = render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
         if error:
@@ -1044,7 +1303,7 @@ async def document_upload(
 
 
 @router.delete("/documents/{type_code}", name="titulatec.pages.student.document_delete")
-async def document_delete(
+def document_delete(
     type_code: str,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.delete.own"])),
@@ -1071,9 +1330,17 @@ async def document_delete(
         fuera_de_fase = _phase_guard(db, process, dtype.phase_number)
         if fuera_de_fase:
             return fuera_de_fase
+        # Mismo hueco que en la subida (spec §4.4): un código de fase 1 que no
+        # aplica al perfil del proceso tampoco se BORRA -- da igual que la fila
+        # exista o no (`DocumentService.delete` ya no-opea sin fila). Orden:
+        # dtype -> proceso -> `_phase_guard` -> set -> storage.
+        fuera_del_set = _initial_docs_set_guard(db, process, dtype)
+        if fuera_del_set:
+            return fuera_del_set
         if process:
             DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
         ctx = _slot_ctx(dtype, None)
+        ctx["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(type_code)
         if process:
             ctx["status_oob"] = _docs_status_ctx(db, process)
         return render_titulatec(request, "titulatec/partials/document_slot.html", ctx)
@@ -1087,7 +1354,7 @@ def _programs(db):
 
 
 @router.get("/formato-b", name="titulatec.pages.student.formato_b")
-async def formato_b(
+def formato_b(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
 ):
@@ -1114,7 +1381,7 @@ async def formato_b(
 
 
 @router.get("/formato-b/step/{n}", name="titulatec.pages.student.formato_b_step")
-async def formato_b_step(
+def formato_b_step(
     n: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
@@ -1151,14 +1418,21 @@ async def formato_b_save(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.api.save"])),
 ):
     """Guarda el paso n y devuelve el parcial del siguiente (o 'done' al enviar)."""
+    if n not in (1, 2, 3):
+        return Response(status_code=404)
+
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_formato_b_save, n=n, request=request, user=user, form=form)
+
+
+def _cuerpo_formato_b_save(n, request, user, form):
+    """Cuerpo síncrono de `formato_b_save`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from fastapi.responses import Response
 
-    if n not in (1, 2, 3):
-        return Response(status_code=404)
-    form = dict(await request.form())
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
@@ -1208,6 +1482,9 @@ def _checklist_ctx(db, process) -> list[dict]:
     """
     if process is None:
         return []
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        AUTO_SOURCE_LIBRARY, NOT_APPLICABLE, LibraryClearanceService,
+    )
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
     from itcj2.apps.titulatec.utils.rich_text import sanitize_info_html
@@ -1216,11 +1493,23 @@ def _checklist_ctx(db, process) -> list[dict]:
     # consulta fija, igual que `_phases_ctx`, aunque solo la use la fila con
     # `auto_source == "graduate_survey"`.
     survey = SurveyReviewService.summary_for_process(db, process.id)
+    # Gemela para el no adeudo de biblioteca (spec 2026-10-01-titulatec-
+    # biblioteca-caja-design.md §4.10, "Mi cita"): otra consulta fija, aunque
+    # solo la use la fila `auto_source == AUTO_SOURCE_LIBRARY` -esa fila solo
+    # existe en `list_with_status` si la convocatoria tiene el requisito
+    # ACTIVO (`list_or_seed(..., active_only=True)`), así que no hace falta
+    # volver a preguntarle a `ClearanceGate`: su sola presencia ya lo dice.
+    # Con `NOT_APPLICABLE` (Ruling R21: ya pasó su cotejo) la fila se queda
+    # SIN píldora: «Listo»/«Dispensado» si se acreditó a mano, nada si no.
+    resumen = LibraryClearanceService.summary_for_process(db, process.id)
+    library = (_library_block_ctx(resumen) if resumen["status"] != NOT_APPLICABLE
+               else None)
 
     out = []
     for it in RequirementService.list_with_status(db, process.id):
         req, ful = it["requirement"], it["fulfillment"]
         es_encuesta = req.auto_source == "graduate_survey"
+        es_biblioteca = req.auto_source == AUTO_SOURCE_LIBRARY
         out.append({
             # Ancla del botón «i» con SU modal (`#tt-reqinfo-modal-{id}`).
             "id": req.id,
@@ -1247,6 +1536,11 @@ def _checklist_ctx(db, process) -> list[dict]:
             # "missing" = sin fila en `titulatec_survey_reviews`).
             "survey_url": (_SURVEY_URL if es_encuesta and survey["status"] == "missing"
                            else None),
+            # Gemela de "survey" (§4.10): lo liberan Biblioteca y Caja, no el
+            # alumno -- MISMA píldora que el dashboard (`library_clearance_pill`),
+            # sin liga propia: a diferencia de la encuesta, aquí no hay nada que
+            # el alumno pueda resolver desde esta pantalla.
+            "library": (library if es_biblioteca else None),
         })
     return out
 
@@ -1322,6 +1616,15 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     La 3 y la 4 conviven a propósito en el único caso donde eso importa: el
     bloqueado por D9 no puede reservar pero sí presentarse, y `message` no se
     apaga por `modo == "presentarse"`.
+
+    Ruling R12 (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4/
+    §4.10), refinada por Ruling R18: con un motivo de biblioteca Y una cita
+    vigente que OCUPA el cotejo (`SelfBookingService.cita_ocupa_el_cotejo`
+    -scheduled/confirmed/in_progress, o `attended` sin veredicto de fase 2-),
+    `message` NO es el de `SelfBookingService.MENSAJES` -ese promete
+    agendar-, sino `_LIBRARY_BLOCK_WITH_CITA_MSG` (constante de módulo). Una
+    cita `no_show`, o `attended` con la fase 2 ya `rejected`, NO ocupa el
+    cotejo -el egresado sí va a agendar otra- y sigue con el mensaje normal.
     """
     vacio = {"can_book": False, "can_walkin": False, "reason": None,
              "message": None, "modo": None, "dias": [], "dia_sel": None,
@@ -1406,9 +1709,34 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
     # explica el porqué, con la tarjeta de la cita justo encima. Repetirlo
     # debajo sería decirle dos veces lo mismo al alumno. Las demás razones no
     # tienen ninguna otra señal en pantalla, y sin la frase quedaría un hueco.
-    message = (None if elig["reason"] == "tiene_cita"
-               else SelfBookingService.message_for(
-                   elig["reason"], cancellations=elig["cancellations"]))
+    #
+    # Ruling R12: con una cita VIGENTE que OCUPA el cotejo (D17) el motivo
+    # reportado puede ser de biblioteca -la regla 3 de `eligibility` corre
+    # antes que la 4/5, es contrato- y el texto normal de `SelfBookingService.
+    # MENSAJES` prometería "podrás agendar" bajo la cita que ya tiene, que es
+    # falso. Se sustituye SOLO aquí, sin tocar `eligibility` ni `MENSAJES`
+    # (constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`).
+    #
+    # Ruling R18 (revisión de la Tarea 12): "OCUPA el cotejo" es
+    # `SelfBookingService.cita_ocupa_el_cotejo`, NO un simple `elig["current"]
+    # is not None` -ese blanco también atrapaba `no_show` y `attended` con la
+    # fase 2 YA `rejected`, los dos casos en que el egresado SÍ tiene que
+    # agendar otra y el mensaje correcto vuelve a ser el de `MENSAJES`
+    # ("Podrás agendar en cuanto se libere tu no adeudo"), no este.
+    #
+    # `elig["fase2_status"]` (m37, Tarea 9): `eligibility` YA leyó la fase 2
+    # (reglas 2/5); pasárselo a `cita_ocupa_el_cotejo` evita que vuelva a
+    # consultar la MISMA fila de `ProcessPhase` -el N+1 acotado a este caso-.
+    if elig["reason"] == "tiene_cita":
+        message = None
+    elif (elig["reason"] in _LIBRARY_REASONS_CON_CITA
+          and SelfBookingService.cita_ocupa_el_cotejo(
+              db, process, elig["current"], elig["fase2_status"])):
+        message = _LIBRARY_BLOCK_WITH_CITA_MSG
+    else:
+        message = SelfBookingService.message_for(
+            elig["reason"], cancellations=elig["cancellations"],
+            total=elig.get("library_total"))
 
     return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
             "reason": elig["reason"], "message": message, "modo": modo,
@@ -1525,7 +1853,7 @@ def _cita_panel(request, db, user_id: int, *, dia: str | None = None):
 
 
 @router.get("/cita", name="titulatec.pages.student.cita")
-async def cita(
+def cita(
     request: Request,
     dia: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
@@ -1600,7 +1928,7 @@ async def cita(
 
 
 @router.post("/cita/confirmar", name="titulatec.pages.student.cita_confirm")
-async def cita_confirm(
+def cita_confirm(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
@@ -1639,11 +1967,17 @@ async def cita_request_change(
     Mismo selector que `cita_confirm` y que la página, por lo mismo: los dos
     botones de la tarjeta tienen que hablar del proceso que la tarjeta pinta.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cita_request_change, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_request_change(request, user, form):
+    """Cuerpo síncrono de `cita_request_change`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
-    form = dict(await request.form())
     reason = form.get("reason", "")
     db = SessionLocal()
     try:
@@ -1730,11 +2064,16 @@ async def cita_book(
     esa comparación depende en silencio que `create` calle la notificación del
     propio clic del alumno.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(_cuerpo_cita_book, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_book(request, user, form):
+    """Cuerpo síncrono de `cita_book`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
 
-    form = dict(await request.form())
     window_id = _to_int(form.get("window_id"))
     slot = _parse_hhmm(form.get("slot"))
     db = SessionLocal()
@@ -1766,12 +2105,17 @@ async def cita_cancel(
     La franja vuelve al pozo en el acto (D12), así que el panel que se devuelve
     ya trae el selector de agendado otra vez.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(_cuerpo_cita_cancel, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_cancel(request, user, form):
+    """Cuerpo síncrono de `cita_cancel`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
 
-    form = dict(await request.form())
     motivo = (form.get("motivo") or "").strip() or None
     db = SessionLocal()
     try:

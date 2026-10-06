@@ -242,8 +242,11 @@ nunca por vigencia.** Una fila `no_show` que ya no es la vigente **sigue ocupand
 | `cancelled` | no | canceló a tiempo: el lugar vuelve al pozo |
 | `superseded` | no | su ocupación la heredó la fila nueva |
 
-Lo implementa `SlotService._ESTADOS_QUE_LIBERAN = {"cancelled", "superseded"}`, y `occupancy`
-filtra por ese conjunto y **no** por `is_current`. Añadirle `is_current == True` parece lo natural
+Lo implementa `SlotService._ESTADOS_QUE_LIBERAN = {"cancelled", "superseded"}`, y desde 2026-10-05 la
+regla vive en UN solo sitio: `SlotService._vivas` filtra por ese conjunto y **no** por `is_current`; solo
+`occupancy_map` (el conteo en lote), `out_of_grid_map` (la banda fuera de rejilla) y `vivas_de_ventanas` (la lista
+de un sin horario en el tablero) la aplican, y `occupancy`, `window_occupancy` y `day_occupancy` delegan en el mapa
+(ningún otro módulo puede leer el conjunto: lo fija un AST) (⤵ [ocupación en lote](phase2_appointment_loop.md#ocupación-en-lote-2026-10-05)). Añadirle `is_current == True` parece lo natural
 al leer el historial por primera vez, y vuelve a liberar los `no_show`: es el defecto que el
 auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
 (`test_slot_service.py::test_la_ocupacion_cuenta_los_no_show`).
@@ -286,12 +289,19 @@ stateDiagram-v2
     rejected --> approved: 🛠️ GTV libera (sin acción del egresado)
     rejected --> rejected: 🛠️ GTV observa de nuevo (actualiza el motivo)
     approved --> rejected: 🛠️ GTV revoca (motivo) — solo si la fase 2 no está `approved`
-    approved --> [*]
+    [*] --> approved: 🤖 constancia previa (D9, origin=prior, sin encuesta real)
+    approved --> [*]: 🛠️ GTV revoca una PREVIA (motivo) — la fila se BORRA: vuelve a missing (R22)
 ```
 
 > **Pseudo-estado `missing`**: no es un valor de la columna, es la AUSENCIA de fila (el
 > egresado todavía no envía la encuesta) — mismo idioma que "ausencia de fila = pendiente" en
 > `RequirementFulfillment`. Lo calcula `SurveyReviewService.summary_for_process`.
+>
+> **Revocar una constancia previa la borra** (Ruling R22): una previa (`origin='prior'`) no
+> tiene encuesta real detrás; si quedara `rejected`, `SurveyService.submit` (que corta mientras
+> exista CUALQUIER fila) no dejaría al egresado contestar nunca. `revoke` deja el evento
+> `survey_review_revoked` (con `origin`) y el `unfulfill`, y borra la fila: la solicitud vuelve
+> a `missing` y el egresado contesta normalmente.
 >
 > **Liberar acredita, revocar desacredita; observar no toca nada.** `approve` llama a
 > `RequirementService.fulfill` sobre `graduate_survey`; `revoke` llama a `unfulfill`. Ni
@@ -301,6 +311,106 @@ stateDiagram-v2
 > **El egresado no mueve ningún estado.** Todas las transiciones de arriba las escribe GTV desde
 > `pages/survey_reviews_admin.py`; lo único que hace el egresado (enviar la encuesta) crea la
 > fila inicial en `in_review`, vía `SurveyReviewService.open_for_submission`.
+
+## Estado del no adeudo de biblioteca (`LibraryClearance.status`) — Fase 2 (2026-10-01)
+
+Nace cuando el proceso se crea —`ImportService.import_rows` abre la fila `pending` EN LA MISMA
+transacción del alta, antes de la fase 2— o, para procesos de antes de esta campaña, con el
+backfill de la migración `tt20261001a` (`cleared/legacy` si ya tenía el requisito `library_clearance`
+cumplido a mano; `pending` si no). Único dueño:
+`services/library_clearance_service.py::LibraryClearanceService`. Detalle completo, permisos y
+pantallas: [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: alta del proceso | backfill (legado cumplido)
+    pending --> awaiting_payment: 📚 Registrar, total > 0
+    pending --> observed: 📚 Observar (motivo)
+    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL)
+    observed --> observed: 📚 Actualizar observación
+    observed --> pending: 📚 Rehabilitar
+    pending --> cleared: 📚 Registrar, total = 0 (D18, cleared_via=no_charge)
+    awaiting_payment --> awaiting_payment: 📚 Corregir, nuevo monto > 0
+    awaiting_payment --> cleared: 📚 Corregir, nuevo monto = 0 (no_charge) · 💰 Registrar pago (payment)
+    pending --> cleared: 📚/🏛️/🤖 Constancia previa (D9, prior)
+    awaiting_payment --> cleared: 📚/🏛️/🤖 Constancia previa (D9, prior)
+    cleared --> awaiting_payment: 💰 Revertir pago (motivo; solo cleared_via=payment)
+    cleared --> pending: 📚 Revertir (motivo; solo cleared_via=no_charge|legacy) · 📚/🏛️ Deshacer previa (motivo; solo cleared_via=prior)
+```
+
+> **`cleared_via`** (`payment`\|`no_charge`\|`prior`\|`legacy`) dice CÓMO se liberó, NULL salvo en
+> `cleared`: decide qué botón de reversa aplica (un pago lo revierte Caja; sin cargo/legado lo
+> revierte Biblioteca; una previa se deshace) — ningún botón funciona sobre el `cleared_via`
+> equivocado, el service lo valida.
+>
+> **Folio por vía (2026-10-05):** todo `cleared` lleva un folio BIB vigente (`BIB-2026B-0001`).
+> `payment`/`no_charge` lo emiten en el semestre de la emisión; `prior` (`register_prior`, también
+> desde la importación) en el semestre ANTERIOR al registro; `legacy` lo recibe del backfill
+> (`FolioBackfillService`, `titulatec emitir-folios-previos` o el paso 5 de
+> `activar-biblioteca-caja`), no de este service. Salir de `cleared` —revertir pago, revertir
+> sin cargo/legado, deshacer una previa— anula el folio. Antes de esa fecha `prior` y `legacy`
+> no emitían. Detalle: [folios](xcut_certificates_batch.md#numeración-atómica).
+>
+> **`observed`** («Con observaciones», 2026-10-05, migración `tt20261005a`): Biblioteca detuvo al
+> egresado con un motivo (`observation_reason`/`observed_by_id`/`observed_at`, NULL fuera de este
+> estado). Se entra desde `pending`/`awaiting_payment` (desde Caja limpia `ready_at` y conserva los
+> montos); se sale SOLO con **Rehabilitar** → `pending` (D2). Con `observed` no se registra, cobra,
+> revierte ni aplica una constancia previa (`ClearanceObserved`); `ClearanceGate` lo bloquea con
+> `library_observed`. Observar/rehabilitar exigen fase 2 sin aprobar y proceso admitido; desde
+> `cleared` no se observa (primero se revierte). Detalle:
+> [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05).
+>
+> **`ready_at`** (Ruling R10) es la entrada VIGENTE a `awaiting_payment`: se vuelve a fijar SOLO
+> al ENTRAR desde otro estado (Registrar desde `pending`, Revertir pago desde `cleared/payment`),
+> nunca al Corregir dentro de `awaiting_payment` — ancla del recordatorio de pago (D14) y del
+> FIFO de la bandeja de Caja.
+>
+> **Revertir/Deshacer solo con la fase 2 SIN `approved`** (`LibraryClearanceService.can_revert`,
+> gemelo de `SurveyReviewService.can_revoke`). Al volver a `pending` la fila pierde montos, nota,
+> firma, pago y datos de constancia previa — salvo `ready_at`, que queda como historia.
+>
+> **El candado de agendar es condicional** (invariante 8, `ClearanceGate.library_required`):
+> solo bloquea donde la convocatoria tiene el requisito de cotejo `library_clearance` ACTIVO con
+> `auto_source='library_clearance'` — las convocatorias nuevas ya nacen así
+> (`CotejoRequirementService.DEFAULTS`); las que ya existían lo ganan al correr `titulatec
+> activar-biblioteca-caja` (el paso 2 del despliegue; `init-biblioteca-caja` solo crea puestos,
+> roles y permisos, Ruling R19). Hasta entonces, el estado de esta fila se registra igual
+> (Biblioteca y Caja siempre operan sobre procesos admitidos), pero nadie se queda sin agendar
+> por él. La activación también promueve a `cleared/legacy` las `pending` que SE siguió marcando
+> a mano después de la migración (Ruling R20).
+>
+> **`not_applicable`** (Ruling R21) es un pseudo-estado de LECTURA, no una columna: fase 2 ya
+> `approved` sin el no adeudo liberado. No bloquea, el egresado no lo ve y SE ve «No aplica
+> (cotejo ya liberado)»; Registrar, el lote y la constancia previa lo rechazan.
+>
+> **El egresado no mueve ningún estado.** Todas las transiciones las escribe Biblioteca, Caja o
+> Servicios Escolares (respaldo D9, constancia previa); la CLI `titulatec
+> import-prior-clearances` también puede llegar a `cleared/prior` sin acción humana en el
+> momento (⤵ [constancias previas](xcut_prior_clearances.md)).
+
+## Estado de un folio (`Certificate`) — transversal (2026-10-01; folio por semestre 2026-10-05)
+
+No es una máquina de estados con transiciones intermedias: una `Certificate` nace **vigente**
+(`voided_at IS NULL`) con un folio único por tipo y semestre (`{BIB|GTV}-{AAAA}{A|B}-{NNNN}`,
+`BIB-2026B-0001`; `CertificateCounter` con PK `(kind, semester)`, contador atómico),
+y su único cambio posible es **anularse** (`voided_at`/`voided_by_id`/`void_reason`) — nunca se
+borra, nunca se reutiliza su folio, y «volver a liberar» emite una fila NUEVA con folio NUEVO en
+vez de reabrir la anulada. A lo más UNA vigente por `source_ref`: la cuidan los emisores y la
+base (UNIQUE parcial `uq_titulatec_certificates_live_source`, Ruling R29). Emisores: `SurveyReviewService.approve` (`kind='survey_release'`,
+salvo `origin='prior'`), `LibraryClearanceService` al quedar `cleared` por `payment`/`no_charge`
+(`kind='library_clearance'`), las dos `register_prior` (previas: semestre ANTERIOR al registro) y
+`FolioBackfillService` (previas anteriores al código y legado `cleared/legacy`, sin emisor).
+Anulan: `revoke`, `revert_payment`/`revert_clearance` y `undo_prior`. La impresión por lote
+(`batch_id`) existe pero está apagada por omisión (`TITULATEC_CERTIFICATE_PRINTING`). Detalle
+completo: [folios y constancias por lote](xcut_certificates_batch.md).
+
+```mermaid
+stateDiagram-v2
+    [*] --> vigente: issue() — folio atómico por (tipo, semestre) + datos CONGELADOS
+    vigente --> anulada: void() — GTV revoca | Biblioteca/Caja revierte | se deshace una previa
+    anulada --> [*]
+    vigente --> [*]
+```
 
 ## Estado de una solicitud de auto-inscripción (`EnrollmentRequest.status`)
 

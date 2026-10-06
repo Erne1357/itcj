@@ -296,7 +296,7 @@ def admin_create_request(
             logger.exception("Failed to broadcast drop_created")
 
         try:
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=body.student_id,
                 app_name="agendatec",
@@ -308,11 +308,9 @@ def admin_create_request(
                 program_id=body.program_id,
             )
             db.commit()
-            # Este endpoint es `def` (sync), así que el broadcast interno del
-            # service captura RuntimeError y no hace nada: hay que empujar el
-            # push a mano por el loop principal.
-            from itcj2.sockets.notifications import push_notification
-            _async_broadcast(push_notification(body.student_id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (también desde este hilo, vía el loop principal);
+            # hacerlo otra vez duplicaría el toast.
         except Exception:
             logger.exception("Failed to create/push DROP notification")
 
@@ -403,7 +401,7 @@ def admin_create_request(
 
         try:
             slot_day = str(slot.day)
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=body.student_id,
                 app_name="agendatec",
@@ -419,9 +417,8 @@ def admin_create_request(
                 program_id=body.program_id,
             )
             db.commit()
-            # Endpoint sync: el broadcast interno del service no encuentra loop.
-            from itcj2.sockets.notifications import push_notification
-            _async_broadcast(push_notification(body.student_id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (también desde este hilo, vía el loop principal).
         except Exception:
             logger.exception("Failed to create/push APPOINTMENT notification")
 

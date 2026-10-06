@@ -12,11 +12,14 @@ TitulaTec es pages-only y **cada handler abre su propia sesion**::
     from itcj2.database import SessionLocal   # import LOCAL, dentro de la funcion
     db = SessionLocal()
 
-Hay 52 llamadas asi en `pages/{admin,appointments,documents,officers,roles,
-student}.py`, mas `nav.py:79` (`get_titulatec_roles`) y `nav.py:108-111`
-(`admin_nav_items`, que ademas usa `with SessionLocal() as db:`). El UNICO
-`Depends(get_db)` de la cadena es el gate de autorizacion, dentro de
-`require_page_app` (`itcj2/dependencies.py:118`).
+Asi lo hacen todas las rutas de `pages/*.py` (o el `_cuerpo_*` sincrono al que
+delegan desde 2026-10-05), mas `nav.py::get_titulatec_roles` y
+`nav.py::admin_nav_items`, que sin `db` usa `with SessionLocal() as _db:`. Ojo:
+`render_titulatec` ya NO calcula el menu (R2, 2026-10-05): deja `admin_nav`
+como callable perezoso y solo lo invoca `admin/base_admin.html`, asi que
+`admin_nav_items` corre cuando la ruta pinta una pagina admin COMPLETA, no en
+los parciales HTMX. El UNICO `Depends(get_db)` de la cadena es el gate de
+autorizacion, dentro de `require_page_app` (`itcj2/dependencies.py`).
 
 Consecuencia: `dependency_overrides[get_db]` cubre **solo la autorizacion**. Si
 te quedas ahi, el cuerpo de la ruta abre una sesion contra el pool REAL, no ve
@@ -36,7 +39,8 @@ dejaria invalidas todas las aserciones posteriores. Ojo: los metodos especiales
 se buscan en el TIPO, no via `__getattr__`, asi que `__enter__`/`__exit__` estan
 declarados explicitamente. Un proxy que solo tape `close()` revienta con
 `TypeError: object does not support the context manager protocol` en cuanto la
-ruta pasa por `admin_nav_items`.
+ruta pinta una pagina admin completa (la base invoca `admin_nav()` ->
+`admin_nav_items`).
 
 `rollback()` SI pasa al inner a proposito (hoy titulatec no lo llama en ningun
 lado; `grep -rn "rollback" itcj2/apps/titulatec/` no devuelve nada). Si algun
@@ -198,6 +202,97 @@ def _modo_oficial_por_defecto(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_REVIEWER", "school_services")
     monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_LINK_TTL_DAYS", 21)
+
+
+@pytest.fixture(autouse=True)
+def _impresion_apagada_por_defecto(monkeypatch):
+    """`printing_enabled()` lee `get_settings()` en cada llamada (spec folios
+    2026-10-05 §3.5). Sin esto, `TITULATEC_CERTIFICATE_PRINTING=true` en el
+    `.env` o el entorno del contenedor pondría en rojo, en falso, toda prueba
+    que espera la vista SIN impresión (misma razón que
+    `_modo_oficial_por_defecto`). Corre antes que `printing_on`, que al
+    pedirse explícitamente gana (mismo `monkeypatch`, el último `setattr`
+    manda)."""
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", False)
+
+
+@pytest.fixture()
+def printing_on(monkeypatch):
+    """Enciende la impresión de constancias (lotes, PDF y su estado de
+    impresión en las celdas): `TITULATEC_CERTIFICATE_PRINTING = True`.
+
+    Las pruebas de la ronda del 2026-10-02 (lotes, «Impresa», «Sin imprimir»,
+    «No se imprimirá», «Anulada tras imprimir», «Por imprimir», «Generar
+    lote») describen el comportamiento con el switch ENCENDIDO: lo piden con
+    esta fixture en lugar de reescribirse. Parchea el ATRIBUTO del singleton
+    de `get_settings()`, nunca `printing_enabled()` -la prueba real de que la
+    función lo lee en cada llamada-, igual que `_modo_oficial_por_defecto`.
+    """
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", True)
+
+
+@pytest.fixture()
+def sin_constancias_de_dev(db_session):
+    """Deja la tabla de constancias SIN lotes ni pendientes de dev, dentro de
+    la transacción del test (el rollback externo de `db_session` restaura todo).
+
+    `pending`/`pending_count`/`create_batch`/`list_batches`/
+    `voided_after_print` son GLOBALES por `kind`, y la BD de dev es compartida
+    (copia de prod): hoy trae el lote real #4 y folios GTV vigentes sin lote
+    (backfill de previas). Una prueba que afirma «2 pendientes», «1 lote» o
+    «4 ids de PDF» sale roja por filas que no sembró. Aquí:
+
+      1. se desligan TODAS las constancias de su lote y se anulan las vigentes
+         -- así ninguna fila ajena queda «por imprimir» (vigente sin lote) ni
+         «anulada tras imprimir» (anulada con lote);
+      2. se borran los lotes (ya sin referencias).
+
+    Luego `db_session.commit()` como CHECKPOINT: bajo
+    `join_transaction_mode="create_savepoint"` un `rollback()` de la app
+    desanda hasta el último commit, y sin él resucitaría las filas de dev.
+    Los contadores de folio no se tocan (la numeración no depende de esto).
+    """
+    from sqlalchemy import text
+
+    db_session.execute(text(
+        "UPDATE titulatec_certificates "
+        "SET batch_id = NULL, voided_at = COALESCE(voided_at, NOW()) "
+        "WHERE batch_id IS NOT NULL OR voided_at IS NULL"))
+    db_session.execute(text("DELETE FROM titulatec_certificate_batches"))
+    db_session.commit()          # checkpoint: el rollback de la app no resucita dev
+
+
+@pytest.fixture()
+def authz_congelada(monkeypatch):
+    """Caché de authz que NO depende de Redis, para las pruebas de PRESUPUESTO
+    de consultas (revisión final M7).
+
+    Esas pruebas calientan la caché con una primera llamada y luego comparan
+    cuentas («las mismas con 2 que con 40»). Redis es compartido: si otra
+    corrida (o el autouse `_clear_authz_cache` de otro proceso) lo vacía entre
+    dos mediciones, `cached_perms`/`cached_has_assignment`/`cached_roles`
+    vuelven a la BD y el conteo cambia por algo ajeno a lo que se mide. Aquí
+    cada una se memoiza por `(usuario, app)` DENTRO del test: la primera
+    llamada -el calentamiento- pasa por la función real y las siguientes no
+    consultan nada. Solo para pruebas que no cambian permisos tras calentar.
+    """
+    from itcj2.core.services import authz_cache
+
+    for nombre in ("cached_perms", "cached_has_assignment", "cached_roles"):
+        real, memo = getattr(authz_cache, nombre), {}
+
+        def _fija(db, user_id, app_key, _real=real, _memo=memo):
+            clave = (user_id, app_key)
+            if clave not in _memo:
+                _memo[clave] = _real(db, user_id, app_key)
+            valor = _memo[clave]
+            return set(valor) if isinstance(valor, set) else valor
+
+        monkeypatch.setattr(authz_cache, nombre, _fija)
 
 
 @pytest.fixture()
@@ -435,14 +530,23 @@ def make_user(db_session):
 
 @pytest.fixture()
 def make_program(db_session):
-    """Carrera (`core_programs`). Idempotente por nombre."""
+    """Carrera (`core_programs`). Idempotente por nombre.
+
+    `level` (licenciatura|maestria|doctorado, default licenciatura): si la
+    carrera ya existia con OTRO nivel, la ajusta -- para que un test de
+    posgrado pueda reusar una carrera que otro test ya sembro en licenciatura,
+    sin duplicar filas por nombre (UNIQUE).
+    """
     from itcj2.core.models.program import Program
 
-    def _make(name):
+    def _make(name, level="licenciatura"):
         prog = db_session.query(Program).filter_by(name=name).first()
         if prog is None:
-            prog = Program(name=name)
+            prog = Program(name=name, level=level)
             db_session.add(prog)
+            db_session.flush()
+        elif prog.level != level:
+            prog.level = level
             db_session.flush()
         return prog
 
@@ -731,6 +835,18 @@ INITIAL_DOC_TYPES = (
     ("curp", "CURP certificada", 1),
 )
 
+# Los 4 extras de fase 1 que solo sube un egresado de posgrado (spec
+# 2026-09-30-titulatec-posgrado-design.md §4.4). `seed_document_types` no los
+# siembra por omision -- se piden con
+# `seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)`.
+POSGRADO_DOC_TYPES = (
+    ("professional_license", "Cédula profesional", 1),
+    ("degree_title", "Título", 1),
+    ("postgrad_authorization",
+     "Oficios de autorización de la División de Estudios de Posgrado", 1),
+    ("efirma_sat", "Comprobante de e.firma o cita con el SAT", 1),
+)
+
 
 @pytest.fixture()
 def seed_phase_defs(db_session):
@@ -827,12 +943,17 @@ def make_cohort(db_session, make_period):
     ventana (`db_now`, hora local), no en el del proceso. Quien pase
     `opens_at`/`closes_at` pasa `datetime`: un `date` se guardaría igual, pero
     el objeto en memoria no se puede comparar contra `db_now()`.
+
+    `book_donation_amount` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.2): NULL por omisión -- «sin configurar», el mismo significado que
+    tiene la columna. Quien necesite una convocatoria con donación ya fijada
+    pasa `Decimal("800.00")`.
     """
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.utils.timezone import db_now
 
     def _make(period=None, name=None, status="open", opens_at=None, closes_at=None,
-              created_by=None):
+              created_by=None, book_donation_amount=None):
         period = period if period is not None else make_period()
         hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
         row = Cohort(
@@ -843,6 +964,7 @@ def make_cohort(db_session, make_period):
             closes_at=closes_at or (hoy + timedelta(days=30, hours=23, minutes=59,
                                                     seconds=59)),
             created_by_id=getattr(created_by, "id", created_by),
+            book_donation_amount=book_donation_amount,
         )
         db_session.add(row)
         db_session.flush()
@@ -870,17 +992,50 @@ def make_review_day(db_session):
 
 
 @pytest.fixture()
-def make_process(db_session, make_cohort):
+def make_library_clearance(db_session):
+    """Fila de no adeudo de biblioteca para un proceso (UNIQUE por proceso).
+
+    `status="cleared"` SIN `cleared_via` explícito usa `"legacy"` -- es el
+    mismo significado que le da el backfill de `tt20261001a` (ya cumplía el
+    requisito antes de este feature). Los montos quedan en NULL salvo que se
+    pasen por `**cols` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.1).
+    """
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    def _make(process, status="pending", **cols):
+        if status == "cleared" and "cleared_via" not in cols:
+            cols["cleared_via"] = "legacy"
+        row = LibraryClearance(process_id=process.id, status=status, **cols)
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_process(db_session, make_cohort, make_library_clearance):
     """Proceso + sus 9 `ProcessPhase`, con la misma forma que deja el importador.
 
     Reparto de estados (espejo de `import_service.py:309-311`):
     fase < current_phase -> approved | == -> in_progress | > -> pending.
     `phases=False` crea el proceso pelado (para probar el camino sin fases).
+
+    `library_clearance="cleared"` (spec 2026-10-01-titulatec-biblioteca-caja-
+    design.md, Ruling R1 del plan): crea TAMBIÉN la fila de no adeudo de
+    biblioteca, `cleared`/`cleared_via="legacy"` por omisión, para que las
+    pruebas existentes de agendado no cambien de comportamiento cuando la
+    Tarea 5 encienda `ClearanceGate`. `library_clearance=None` no crea fila
+    (para quien quiera probar la tabla por sí misma); cualquier otro valor de
+    `LIBRARY_STATUSES` ("pending", "awaiting_payment") crea la fila en ese
+    estado.
     """
     from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
 
     def _make(student, cohort=None, program=None, modality=None, current_phase=1,
-              status="active", phases=True, folio=None, is_app_active=True):
+              status="active", phases=True, folio=None, is_app_active=True,
+              library_clearance="cleared"):
         cohort = cohort if cohort is not None else make_cohort()
         period_code = cohort.period_code or str(cohort.period_id)
         proc = TitulationProcess(
@@ -901,6 +1056,8 @@ def make_process(db_session, make_cohort):
                       else "in_progress" if n == current_phase else "pending")
                 db_session.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
             db_session.flush()
+        if library_clearance is not None:
+            make_library_clearance(proc, status=library_clearance)
         return proc
 
     return _make

@@ -8,7 +8,7 @@
    columna de 600, así que para leer un acta escaneada había que abrir el modal
    por cada documento y por cada alumno. #}
 {% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
-{% from "titulatec/_macros.html" import appt_pill, estado_pill, survey_review_pill %}
+{% from "titulatec/_macros.html" import appt_pill, estado_pill, library_clearance_pill, survey_review_pill, track_pill, certificate_cell %}
 
 {% set BASE = page_url ~ '/' ~ detail.process.id %}
 {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
@@ -66,7 +66,7 @@
         {% if detail.student.email %}<br><span>{{ detail.student.email }}</span>{% endif %}
       </div>
       <p class="tt-appt-note mt-2 mb-0">
-        {{ detail.program_name or 'Sin carrera' }} · {{ detail.modality_name or 'Sin modalidad' }}
+        {{ detail.program_name or 'Sin carrera' }}{{ track_pill(detail.track) }} · {{ detail.modality_name or 'Sin modalidad' }}
       </p>
       {# Antes de cotejar conviene saber si este alumno ya falto otra vez o si su
          acta viene de un rechazo. El `from` trae el dia y el alumno abiertos,
@@ -108,10 +108,18 @@
           <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar asistió</button>
         {% endif %}
 
-        {% if detail.appt.status != 'attended' %}
+        {% if detail.appt.status != 'attended'
+              and not (detail.appt.status == 'no_show' and detail.liberaciones_pendientes) %}
         {# Reagendar = picar una franja en el tablero. Sin formulario que se
            despliegue y empuje lo que acabas de leer, y sin campo de hora vacío
-           que haya que volver a teclear. #}
+           que haya que volver a teclear.
+
+           Ruling R11 (revisión de la Tarea 5): un `no_show` con liberaciones
+           pendientes abre un intento NUEVO al moverse
+           (`AppointmentService.reschedule`), que ahora SÍ pasa por
+           `ClearanceGate` -- mismo criterio que ya aplica la fila de la cola
+           (`_appt_queue.html`, cubo «Reagendar»): sin el botón, y el aviso de
+           abajo («Liberaciones pendientes») ya dice qué falta. #}
         <a class="btn btn-sm tt-btn-ghost"
            {{ appt_nav(page_url ~ '?date=' ~ day ~ '&mover=' ~ detail.process.id) }}>
           <i class="bi bi-arrows-move me-1" aria-hidden="true"></i>Mover de franja</a>
@@ -203,7 +211,16 @@
               {% if r.auto_source == 'graduate_survey' %}
               {# D3: aqui ya NO manda "lo acredita el sistema" — el requisito lo
                  libera GTV, no el envio de la encuesta. `detail.survey` es el
-                 dict plano de `SurveyReviewService.summary_for_process`. #}
+                 dict plano de `SurveyReviewService.summary_for_process`.
+                 `certificate_cell` (Tarea 4 de `2026-10-02-titulatec-
+                 constancias-y-pendientes-design.md` §3.4) pinta si la
+                 constancia `survey_release` ya se imprimió -- MISMA fuente
+                 (`print_status_map`) que la bandeja de GTV:
+                 `detail.survey.certificate` lo cuelga `_detail_ctx` con UNA
+                 llamada para las dos filas (Ruling R14). Con el
+                 proceso `cancelled`, una vigente sin lote pinta «No se
+                 imprimirá» + la nota «inscripción revocada» (Rulings R13 y
+                 R18, `revoked=`). #}
               <div class="tt-req-meta">
                 {{ survey_review_pill(detail.survey.status) }}
                 {%- if detail.survey.status == 'rejected' and detail.survey.reason %}
@@ -211,7 +228,73 @@
                 {%- elif detail.survey.status == 'approved' %}
                   — Liberada por GTV · {{ detail.survey.reviewed_at }}
                 {%- endif %}
+                <br>{{ certificate_cell(detail.survey.certificate, prior=(detail.survey.origin == 'prior'), revoked=(detail.process.status == 'cancelled')) }}
               </div>
+              {% elif r.auto_source == 'library_clearance' %}
+              {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
+                 marca a mano. `detail.library` es el dict plano de
+                 `LibraryClearanceService.summary_for_process` -- MISMA
+                 fuente que el expediente (`_exp_phase.html`). Respaldo D9:
+                 «Constancia previa…» / «Deshacer», SOLO con
+                 `library_clearance.api.prior` y el proceso no revocado
+                 (`detail.can_register_prior`, igual que el expediente: M2
+                 de la revisión final), y la previa SOLO mientras el trámite
+                 sigue abierto: con
+                 `not_applicable` (Ruling R21) la píldora dice «No aplica
+                 (cotejo ya liberado)» y no se ofrece nada. `certificate_cell`
+                 (Tarea 4, §3.4) pinta si la constancia BIB ya se imprimió y
+                 reemplaza el folio suelto que antes salía bajo «Liberado»;
+                 con el proceso `cancelled`, una vigente sin lote pinta «No se
+                 imprimirá» + la nota «inscripción revocada» (Rulings R13 y
+                 R18, `revoked=`).
+                 m42 (`triage-minors.md`): con el proceso `cancelled` y el no
+                 adeudo todavía `missing`/`pending`, o `awaiting_payment`
+                 (Ruling R15: Caja ya no lo cobraría -`register_payment` lo
+                 rechaza-), la píldora propia dice «Revocada» y el renglón
+                 NO lleva el sufijo «— Por cobrar $X en Caja» --
+                 `library_clearance_pill` no mira `TitulationProcess.status`;
+                 aquí sí porque esta vista YA tiene `detail.process` a la mano
+                 (no se toca la macro compartida, la usan +12 vistas). #}
+              <div class="tt-req-meta">
+                {%- set no_adeudo_revocado = detail.process.status == 'cancelled' and detail.library.status in ('missing', 'pending', 'awaiting_payment', 'observed') -%}
+                {%- if no_adeudo_revocado -%}
+                  <span class="tt-pill tt-pill--neutral">Revocada</span>
+                {%- else -%}
+                  {{ library_clearance_pill(detail.library.status, via=detail.library.via) }}
+                {%- endif %}
+                {%- if detail.library.status == 'awaiting_payment' and not no_adeudo_revocado %}
+                  — Por cobrar {{ format_amount(detail.library.total) }} en Caja
+                {%- elif detail.library.status == 'observed' and not no_adeudo_revocado and detail.library.observation %}
+                  — {{ detail.library.observation }}
+                {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
+                  — Constancia previa{% if detail.library.prior_issued_on %} del {{ detail.library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if detail.library.prior_note %} — {{ detail.library.prior_note }}{% endif %}
+                {%- elif detail.library.status == 'cleared' and detail.library.via == 'legacy' %}
+                  — Liberado antes de este sistema
+                {%- elif detail.library.status == 'cleared' %}
+                  — {{ format_amount(detail.library.total) }}{% if detail.library.receipt %} · recibo {{ detail.library.receipt }}{% endif %}
+                {%- endif %}
+                <br>{{ certificate_cell(detail.library.certificate, prior=(detail.library.via == 'prior'), legacy=(detail.library.via == 'legacy'), revoked=(detail.process.status == 'cancelled')) }}
+              </div>
+              {% if detail.can_register_prior and detail.library.status in ('missing', 'pending', 'awaiting_payment') %}
+              <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo' ~ QZ) }}
+                    hx-confirm="Constancia previa|¿Registrar que {{ detail.student.name }} ya pagó y trae su constancia de no adeudo? Queda liberado sin pasar por Caja."
+                    data-tt-confirm-ok="Registrar">
+                <input type="date" name="issued_on" required class="form-control form-control-sm w-auto"
+                       aria-label="Fecha de la constancia previa de {{ detail.student.name }}">
+                <input name="note" maxlength="1000" placeholder="Nota" class="form-control form-control-sm flex-grow-1"
+                       aria-label="Nota de la constancia previa de {{ detail.student.name }}">
+                <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
+              </form>
+              {% elif detail.can_register_prior and detail.library.can_revert and detail.library.via == 'prior' %}
+              <form class="d-flex flex-wrap gap-1 mt-1" {{ appt_action(BASE ~ '/no-adeudo-previo/deshacer' ~ QZ) }}
+                    hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ detail.student.name }}? Vuelve a pendiente."
+                    data-tt-confirm-ok="Deshacer">
+                <input name="reason" required maxlength="1000" placeholder="Motivo"
+                       class="form-control form-control-sm flex-grow-1"
+                       aria-label="Motivo para deshacer la constancia de {{ detail.student.name }}">
+                <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
+              </form>
+              {% endif %}
               {% elif r.auto_source %}
               <div class="tt-req-meta">
                 Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
@@ -292,7 +375,7 @@
 
       {% else %}
       <h3 class="tt-h-sec">Sin cita todavía</h3>
-      {% if not detail.encuesta_sin_liberar %}
+      {% if not detail.liberaciones_pendientes %}
       <p class="tt-appt-note mt-2 mb-2">
         Elige un día en el carril y pica un lugar libre del tablero para darle cita.
       </p>
@@ -315,19 +398,32 @@
          cita, `no_show` vigente o `attended` con la fase 02 rechazada (ruling
          de la revisión de T6)—, así que aquí no se repite la regla.
 
-         I-3 (revisión final): con la encuesta de egresados SIN LIBERAR (D1),
-         ni «Agendar a este alumno» (arriba) ni «Atender ahora» (abajo) se
-         ofrecen —las dos abrirían un intento nuevo que
-         `AppointmentService.create` rechazaría con `SurveyNotReleased`—.
-         `_detail_ctx` ya deja `walkins_hoy` vacío en ese caso; aquí, en el
-         MISMO lugar donde iría «Atender ahora» (sirve igual si arriba se
-         pintó una cita no-show/attended-rechazada o «Sin cita todavía»), una
-         sola píldora + aviso explican por qué, sin repetir el mensaje. #}
-      {% if detail.encuesta_sin_liberar %}
-      <div class="mt-3 d-flex align-items-center gap-2 flex-wrap">
-        {{ survey_review_pill(detail.survey_status) }}
-        <span class="tt-appt-note mb-0">
-          Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta.</span>
+         I-3 (revisión final): con alguna LIBERACIÓN pendiente según
+         `ClearanceGate` —la encuesta de egresados (D1) o, donde la
+         convocatoria lo exige, el no adeudo de biblioteca (spec 2026-10-01-
+         titulatec-biblioteca-caja §4.4.5)— ni «Agendar a este alumno» (arriba)
+         ni «Atender ahora» (abajo) se ofrecen: las dos abrirían un intento
+         nuevo que `AppointmentService.create` rechazaría. `_detail_ctx` ya
+         deja `walkins_hoy` vacío en ese caso; aquí, en el MISMO lugar donde
+         iría «Atender ahora» (sirve igual si arriba se pintó una cita
+         no-show/attended-rechazada o «Sin cita todavía»), una píldora + aviso
+         POR CADA liberación que falta explican por qué. #}
+      {% if detail.liberaciones_pendientes %}
+      <div class="mt-3 d-flex flex-column gap-2">
+        {% if detail.encuesta_sin_liberar %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {{ survey_review_pill(detail.survey_status) }}
+          <span class="tt-appt-note mb-0">
+            Se podrá agendar cuando Gestión Tecnológica y Vinculación libere su encuesta.</span>
+        </div>
+        {% endif %}
+        {% if detail.biblioteca_sin_liberar %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {{ library_clearance_pill(detail.library_status) }}
+          <span class="tt-appt-note mb-0">
+            Se podrá agendar cuando se libere su no adeudo de biblioteca.</span>
+        </div>
+        {% endif %}
       </div>
       {% elif detail.walkins_hoy %}
       <div class="d-flex flex-wrap gap-2 mt-3">

@@ -1,5 +1,9 @@
 {# Respuestas de la encuesta. Raíz `#tt-surveys-body`; todos los controles
-   apuntan a ella con `hx-swap="outerHTML"`. #}
+   apuntan a ella con `hx-swap="outerHTML"`. Una respuesta importada del Excel
+   de Forms (`identity_source='import'`, spec 2026-10-05-titulatec-import-
+   encuesta-xlsx §4.4) lleva la píldora «Importada» en vez del código crudo, y
+   sin cuenta su nombre sale de la propia respuesta (`_who`). #}
+{% from "titulatec/_macros.html" import pager, pill %}
 <div id="tt-surveys-body" data-tt-view="surveys-body">
 
   {% if form %}
@@ -39,7 +43,7 @@
         <td class="tt-mono">{{ r.submitted_at.strftime('%Y-%m-%d %H:%M') if r.submitted_at }}</td>
         <td>{{ r.name }}</td>
         <td class="tt-mono">{{ r.control }}</td>
-        <td><span class="tt-pill tt-pill--neutral">{{ r.identity }}</span></td>
+        <td>{% if r.imported %}{{ pill("Importada", "violet", "file-earmark-arrow-up") }}{% else %}<span class="tt-pill tt-pill--neutral">{{ r.identity }}</span>{% endif %}</td>
         <td><a class="btn btn-sm tt-btn-ghost"
                href="/titulatec/admin/encuestas/{{ r.id }}">Ver</a></td>
       </tr>
@@ -47,19 +51,6 @@
       </tbody>
     </table>
   </div>
-  {% if page > 1 or has_more %}
-  <div class="d-flex gap-2 mt-2">
-    {% if page > 1 %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page - 1 }}"
-            hx-target="#tt-surveys-body" hx-swap="outerHTML">Anteriores</button>
-    {% endif %}
-    {% if has_more %}
-    <button class="btn btn-sm tt-btn-ghost" type="button"
-            hx-get="/titulatec/admin/encuestas/body?form_id={{ form.id }}&page={{ page + 1 }}"
-            hx-target="#tt-surveys-body" hx-swap="outerHTML">Siguientes</button>
-    {% endif %}
-  </div>
-  {% endif %}
+  {{ pager(pg, '/titulatec/admin/encuestas/body?form_id=' ~ form.id, '#tt-surveys-body', prefix='tt-surveys') }}
   {% endif %}
 </div>

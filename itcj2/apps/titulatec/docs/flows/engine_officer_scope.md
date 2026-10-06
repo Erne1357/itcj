@@ -46,7 +46,8 @@ nada.
 
 1. `/titulatec/admin/officers` (pestaña **Encargados**, visible solo con `officers.page.list`) → alta
    (nombre + usuarios del depto + carreras) y baja. El menú admin es data-driven por permiso
-   (`_ADMIN_NAV` + `admin_nav_items` en `pages/nav.py:95-103`).
+   (`_ADMIN_NAV` + `admin_nav_items(user_id, db=None)` en `pages/nav.py:119`/`:148`, sobre `cached_perms`; se
+   inyecta como un callable perezoso que solo evalúa `base_admin.html`).
 2. `/titulatec/admin/processes` (bandeja/kanban), `/titulatec/admin/documents` (bandeja de docs) y
    `/titulatec/admin/appointments` (agenda + "del día") listan **ya acotado** al alcance del usuario.
 
@@ -106,9 +107,12 @@ sequenceDiagram
 | 4 | 🏛️ enc. | procesos / kanban / docs / citas | Listar | `GET /admin/processes` · `/admin/documents[/body]` · `/admin/appointments[/body,/calendar,/day]` | `scope_service.officer_programs()` | (lectura) filtra `program_id` ∈ scope |
 | 5 | 🏛️ enc. | detalle / acción sobre un proceso | Abrir, dictaminar, agendar, descargar | las **13 rutas con `{process_id}`** (tabla de abajo) | `scope_service.assert_process_in_scope()` | **404** si el proceso no cae en el alcance; si cae, devuelve el `TitulationProcess` ya cargado |
 
-`officer_programs` (`services/scope_service.py:96`) → `"ALL"` si el usuario tiene
+`officer_programs` (`services/scope_service.py:121`) → `"ALL"` si el usuario tiene
 `titulatec.process.api.read.all`; si no, `_program_ids_for_user` (`:41`) devuelve las carreras
-(`core_program_positions`) de los puestos **vigentes y activos** que le otorgan **esta** app.
+(`core_program_positions`) de los puestos **vigentes y activos** que le otorgan **esta** app. Desde
+2026-10-05 `_program_ids_for_user` no arma consulta: delega en `_program_ids_for_users(db, user_ids) ->
+{uid: {program_id}}` (`:51`), la versión en lote con el MISMO join (`UserPosition.user_id IN (...)`; todo usuario
+pedido sale en el mapa, `set()` si no tiene alcance), así que el predicado vive UNA vez.
 **Set vacío = ve 0 procesos** hasta que el jefe le asigne carreras.
 
 Criterio exacto de esa query (`scope_service.py:69-93`) — el alcance es el **gemelo del gate**:
@@ -140,8 +144,12 @@ encargado que atienda su carrera, no con uno asignado.
 Se resuelve **llamando a la función que ya existe**, no reescribiendo su join.
 `SelfBookingService._owners_serving(db, owner_ids, program_id)` toma los dueños de las ventanas
 PUBLICADAS de esos días y se queda con aquellos para los que
-`program_id in _program_ids_for_user(db, uid)`. El conjunto candidato es pequeño —solo dueños de
-ventanas publicadas—, así que preguntar uno por uno sale barato.
+`program_id in _program_ids_for_users(db, owner_ids)[uid]`: UNA llamada para todos los dueños (2 consultas más la
+de `App`, sin importar cuántos; antes eran dos por dueño). La función en lote vive en `scope_service`, junto a su
+gemela singular que delega en ella: la plural NO está en `SelfBookingService` porque `_program_ids_for_user` no
+puede importar de una capa superior, y una sola implementación del join exige el mismo módulo
+(`test_self_booking_offer_batch.py` fija con un AST que `_owners_serving` llama a la plural y no a la singular).
+El conjunto candidato es pequeño —solo dueños de ventanas publicadas—, y aun así se pregunta en lote.
 
 **Por qué no un join propio «carrera → encargados»:** sería una segunda implementación del mismo
 predicado, y diverge en cuanto alguien añada una vía de asignación. El día que aparezca una
@@ -154,7 +162,7 @@ Consecuencias de reusar el predicado tal cual, las dos deliberadas:
 - **Fail-closed también aquí.** Un proceso sin `program_id` no cae en la oferta de nadie, igual que
   no cae en el alcance de nadie.
 - **`read.all` NO abre la oferta** (Ruling 14 de la ejecución). `_owners_serving` usa
-  `_program_ids_for_user`, no `officer_programs`, así que el atajo `"ALL"` no participa: quien
+  `_program_ids_for_users` (la misma función en lote), no `officer_programs`, así que el atajo `"ALL"` no participa: quien
   tiene `read.all` pero ninguna carrera asignada —la jefatura, típicamente— puede publicar un
   espacio `bookable` que **ningún egresado verá**. Es lo correcto (`read.all` es un permiso de
   lectura para supervisión, no una declaración de que esa persona atiende presencialmente a todo

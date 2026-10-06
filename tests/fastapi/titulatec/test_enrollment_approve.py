@@ -150,7 +150,9 @@ def test_la_bandeja_lista_las_solicitudes_del_alcance(
     cohort = make_cohort(status="open")
     _make_req(db_session, cohort, control="99550001")
 
-    resp = client_as(head).get(URL)
+    # Filtrada por SU convocatoria: la BD de dev es compartida y «Por revisar»
+    # es FIFO, así que sin filtro la recién sembrada cae fuera de la página 1.
+    resp = client_as(head).get(f"{URL}?cohort_id={cohort.id}")
 
     assert resp.status_code == 200, resp.text[:500]
     assert "99550001" in resp.text
