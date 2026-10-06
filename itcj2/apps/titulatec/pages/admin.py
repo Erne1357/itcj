@@ -10,6 +10,7 @@ from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 from itcj2.apps.titulatec.pages.nav import render_titulatec, get_titulatec_roles
 from itcj2.core.utils.security import hash_nip
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.admin")
 
@@ -293,7 +294,7 @@ def _review_days_ctx(db, cohort_id: int, year: int, month: int) -> dict:
 
 
 @router.get("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.cohort_students")
-async def cohort_students(
+def cohort_students(
     cohort_id: int,
     request: Request,
     q: str = "",
@@ -312,8 +313,8 @@ async def cohort_students(
 
 
 @router.get("/cohorts/{cohort_id}/students/lookup", name="titulatec.pages.admin.student_lookup")
-async def student_lookup(cohort_id: int, request: Request, control: str = "",
-                         user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def student_lookup(cohort_id: int, request: Request, control: str = "",
+                   user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.core.models.user import User
     # MAYÚSCULA antes de buscar: el lookup es un filter_by exacto y una letra
@@ -332,8 +333,8 @@ async def student_lookup(cohort_id: int, request: Request, control: str = "",
 
 
 @router.get("/cohorts/{cohort_id}/students/cancel", name="titulatec.pages.admin.student_add_cancel")
-async def student_add_cancel(cohort_id: int, request: Request,
-                            user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def student_add_cancel(cohort_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     """Restaura el botón colapsado del alta manual (#student-add)."""
     return render_titulatec(request, "titulatec/partials/cohort_student_addbtn.html", {"cohort_id": cohort_id})
 
@@ -341,11 +342,17 @@ async def student_add_cancel(cohort_id: int, request: Request,
 @router.post("/cohorts/{cohort_id}/students", name="titulatec.pages.admin.student_add")
 async def student_add(cohort_id: int, request: Request,
                       user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"]))):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_student_add, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_student_add(cohort_id, request, user, form):
+    """Cuerpo síncrono de `student_add`: corre en el threadpool, no en el event loop."""
     from fastapi.responses import Response
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.models.user import User
-    form = dict(await request.form())
     # MAYÚSCULA antes de buscar/crear: `_add_student` -> `ImportService.
     # import_rows` hace el merge con un filter_by exacto, y una letra en
     # minúscula duplicaría la cuenta en vez de encontrar/adjuntar la existente.
@@ -370,8 +377,8 @@ async def student_add(cohort_id: int, request: Request,
 
 
 @router.get("/cohorts/{cohort_id}/review-days", name="titulatec.pages.admin.review_days")
-async def review_days(cohort_id: int, request: Request, month: str = "",
-                      user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+def review_days(cohort_id: int, request: Request, month: str = "",
+                user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
     from itcj2.database import SessionLocal
     y, m = _month_arg(month)
     db = SessionLocal()
@@ -385,10 +392,16 @@ async def review_days(cohort_id: int, request: Request, month: str = "",
 @router.post("/cohorts/{cohort_id}/review-days/toggle", name="titulatec.pages.admin.review_days_toggle")
 async def review_days_toggle(cohort_id: int, request: Request,
                              user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.review_days"]))):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_review_days_toggle, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_review_days_toggle(cohort_id, request, user, form):
+    """Cuerpo síncrono de `review_days_toggle`: corre en el threadpool, no en el event loop."""
     from datetime import datetime
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    form = dict(await request.form())
     month = form.get("month") or ""
     try:
         day = datetime.strptime(form.get("date", ""), "%Y-%m-%d").date()
@@ -418,7 +431,7 @@ _ROLE_LABELS = {
 
 
 @router.get("/", name="titulatec.pages.admin.home")
-async def home(
+def home(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=[
         "titulatec.dashboard.titulaciones",
@@ -456,7 +469,7 @@ async def home(
 # ===========================================================================
 
 @router.get("/cohorts", name="titulatec.pages.admin.cohorts")
-async def cohorts(
+def cohorts(
     request: Request,
     error: str = "",
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
@@ -502,7 +515,7 @@ async def cohorts(
 
 
 @router.post("/cohorts", name="titulatec.pages.admin.cohort_create")
-async def cohort_create(
+def cohort_create(
     request: Request,
     period_id: int = Form(...),
     opens_date: str = Form(""),
@@ -576,8 +589,8 @@ async def cohort_create(
 
 
 @router.get("/cohorts/{cohort_id}", name="titulatec.pages.admin.cohort_detail")
-async def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
-                        user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
+def cohort_detail(cohort_id: int, request: Request, tab: str = "resumen",
+                  user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS))):
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.core.services.authz_cache import cached_perms
@@ -672,7 +685,7 @@ def _cotejo_reqs_ctx(db, cohort_id: int, user_id: int) -> dict:
 
 
 @router.get("/cohorts/{cohort_id}/cotejo-reqs", name="titulatec.pages.admin.cotejo_reqs")
-async def cotejo_reqs(
+def cotejo_reqs(
     cohort_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COTEJO_REQ_PERMS)),
@@ -698,13 +711,19 @@ async def cotejo_req_create(
     sanitiza el servicio. Excederse del tope es 400 + `X-Tt-Error` sin escribir
     nada: htmx no swappea en 4xx, así que el editor conserva lo escrito.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cotejo_req_create, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_cotejo_req_create(cohort_id, request, user, form):
+    """Cuerpo síncrono de `cotejo_req_create`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
-    form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
@@ -749,13 +768,20 @@ async def cotejo_req_update(
     formulario sin editor —una pestaña abierta antes de este cambio— no borra la
     información. Excederse del tope es 400 + `X-Tt-Error` sin escribir nada.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cotejo_req_update, cohort_id=cohort_id, rid=rid, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_cotejo_req_update(cohort_id, rid, request, user, form):
+    """Cuerpo síncrono de `cotejo_req_update`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.cotejo_requirement_service import (
         CotejoRequirementService,
     )
     from itcj2.apps.titulatec.utils.rich_text import InfoHtmlTooLong
 
-    form = dict(await request.form())
     label = (form.get("label") or "").strip()
     if not label:
         return Response(status_code=400,
@@ -786,7 +812,7 @@ async def cotejo_req_update(
 
 @router.post("/cohorts/{cohort_id}/cotejo-reqs/{rid}/delete",
              name="titulatec.pages.admin.cotejo_req_delete")
-async def cotejo_req_delete(
+def cotejo_req_delete(
     cohort_id: int,
     rid: int,
     request: Request,
@@ -830,7 +856,7 @@ async def cotejo_req_delete(
 
 
 @router.post("/cohorts/{cohort_id}/ventana", name="titulatec.pages.admin.cohort_window")
-async def cohort_window(
+def cohort_window(
     cohort_id: int,
     request: Request,
     status: str = Form(...),
@@ -938,7 +964,7 @@ async def cohort_window(
 
 
 @router.post("/cohorts/{cohort_id}/donacion", name="titulatec.pages.admin.cohort_donation")
-async def cohort_donation(
+def cohort_donation(
     cohort_id: int,
     request: Request,
     book_donation: str = Form(""),
@@ -1058,7 +1084,7 @@ def _wizard_state(form):
 
 
 @router.get("/cohorts/{cohort_id}/import", name="titulatec.pages.admin.import_page")
-async def import_page(
+def import_page(
     cohort_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_COHORT_PERMS)),
@@ -1084,10 +1110,16 @@ async def import_upload(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Sube el CSV, auto-detecta el mapeo y devuelve el parcial de preview (HTMX)."""
+    raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_import_upload, cohort_id=cohort_id, request=request, raw=raw)
+
+
+def _cuerpo_import_upload(cohort_id, request, raw):
+    """Cuerpo síncrono de `import_upload`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    raw = await archivo.read()
     token = secrets.token_hex(8)
     ImportService.save_temp(raw, token)
     headers, rows = ImportService.parse(raw)
@@ -1108,10 +1140,16 @@ async def import_revalidate(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Reaplica el mapeo (ajuste manual) y devuelve preview actualizado (HTMX)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_import_revalidate, cohort_id=cohort_id, request=request, form=form)
+
+
+def _cuerpo_import_revalidate(cohort_id, request, form):
+    """Cuerpo síncrono de `import_revalidate`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    form = dict(await request.form())
     token, mapping, overrides, excluded = _wizard_state(form)
     raw = ImportService.read_temp(token)
     if not raw:
@@ -1134,11 +1172,17 @@ async def import_commit(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.cohort.api.import_csv"])),
 ):
     """Crea usuarios/procesos a partir de las filas editadas del preview (HTMX)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_import_commit, cohort_id=cohort_id, request=request, user=user, form=form)
+
+
+def _cuerpo_import_commit(cohort_id, request, user, form):
+    """Cuerpo síncrono de `import_commit`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Cohort
     from itcj2.apps.titulatec.services.import_service import ImportService
 
-    form = dict(await request.form())
     token, mapping, overrides, excluded = _wizard_state(form)
 
     # Las filas NO vienen del formulario: se releen del CSV temporal y se les
@@ -1986,7 +2030,7 @@ def _proc_ctx(db, *, user_id, status="", view="table", stuck=0, q=None, phase=No
 
 
 @router.get("/processes", name="titulatec.pages.admin.processes")
-async def processes(
+def processes(
     request: Request,
     status: str = "",
     view: str = "table",
@@ -2055,7 +2099,7 @@ def _exp_query(params: dict) -> str:
 
 
 @router.get("/processes/{process_id}", name="titulatec.pages.admin.process_detail")
-async def process_detail(
+def process_detail(
     process_id: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
@@ -2092,12 +2136,18 @@ async def fb_review(
     user: dict = Depends(require_page_app("titulatec", perms=[
         "titulatec.format_b.api.approve", "titulatec.format_b.api.reject"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_fb_review, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_fb_review(process_id, request, user, form):
+    """Cuerpo síncrono de `fb_review`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import FormatB
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     action = form.get("action")
     note = form.get("note")
     status = "approved" if action == "approve" else "rejected"
@@ -2117,7 +2167,7 @@ async def fb_review(
 
 
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")
-async def phase_approve(
+def phase_approve(
     process_id: int,
     request: Request,
     n: int = Path(ge=0),
@@ -2148,11 +2198,17 @@ async def phase_reject(
     n: int = Path(ge=0),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.reject_phase"])),
 ):
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_phase_reject, process_id=process_id, request=request, n=n, user=user, form=form)
+
+
+def _cuerpo_phase_reject(process_id, request, n, user, form):
+    """Cuerpo síncrono de `phase_reject`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = (form.get("reason") or "").strip()
     # Sin motivo, al alumno le llega «Fase rechazada» a secas en su panel y tiene
     # que venir a preguntar qué falta. La bandeja de Documentos ya lo exige desde
@@ -2186,11 +2242,17 @@ async def process_cancel(
     aprobar/rechazar fase; los rechazos de `ProcessService.cancel` (ya
     revocada, completada) son 400 + `X-Tt-Error`.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_cancel, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_process_cancel(process_id, request, user, form):
+    """Cuerpo síncrono de `process_cancel`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = (form.get("reason") or "").strip()
     if not reason:
         return Response(status_code=400, headers={
@@ -2242,12 +2304,19 @@ async def process_requirement(
     `_exp_shell.html` incluye por fase, y el swap es del shell entero, no de la
     fila.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_requirement, process_id=process_id, rid=rid, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_requirement(process_id, rid, request, user, form):
+    """Cuerpo síncrono de `process_requirement`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import CotejoRequirement
     from itcj2.apps.titulatec.services.requirement_service import RequirementService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     accion = (form.get("action") or "mark").strip()
     # `note` AUSENTE = «no lo mandes, conserva lo que haya»; `note` VACÍO =
     # «borra la nota». La distinción es deliberada: `RequirementService.fulfill`
@@ -2315,12 +2384,19 @@ async def process_library_prior(
     `cleared/prior`, sin pasar por Caja. Respaldo para quien no tiene cita
     todavía; Biblioteca tiene el mismo botón en su propia bandeja
     (`pages/library_admin.py::prior`)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_library_prior, process_id=process_id, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_library_prior(process_id, request, user, form):
+    """Cuerpo síncrono de `process_library_prior`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
 
-    form = dict(await request.form())
     note = form.get("note") or None
     db = SessionLocal()
     try:
@@ -2352,11 +2428,18 @@ async def process_library_prior_undo(
     `pending`. Solo si la fase 2 todavía no está aprobada
     (`LibraryClearanceService.can_revert`, parte del dict de
     `summary_for_process` que ya trae la plantilla)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_process_library_prior_undo, process_id=process_id, request=request, user=user,
+        form=form)
+
+
+def _cuerpo_process_library_prior_undo(process_id, request, user, form):
+    """Cuerpo síncrono de `process_library_prior_undo`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
-    form = dict(await request.form())
     reason = form.get("reason") or ""
     db = SessionLocal()
     try:
