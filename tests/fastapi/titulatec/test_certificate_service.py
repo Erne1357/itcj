@@ -1423,6 +1423,35 @@ class TestListFolios:
         assert _numeros(por_apellido) == [cert.number]
         assert _numeros(por_nombre) == [cert.number]
 
+    def test_el_nombre_se_busca_por_palabras_en_cualquier_orden(self, db_session, emitir):
+        """Revisión final M3: el nombre se congela apellidos primero («PÉREZ
+        GÓMEZ JUAN»), pero se busca como se dice («Juan Pérez»): cada palabra
+        de `q` tiene que estar en el nombre, en cualquier orden y sin importar
+        mayúsculas ni acentos en mayúscula."""
+        cert = emitir(first="JUAN", last="ZZPÉREZ ZZGÓMEZ")
+        emitir(first="PEDRO", last="ZZPÉREZ ZZLUNA")
+
+        como_se_dice = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="Juan ZZPérez")
+        salteado = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="zzgómez   juan")
+        apellidos = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZPÉREZ")
+
+        assert _numeros(como_se_dice) == [cert.number]
+        assert _numeros(salteado) == [cert.number]
+        assert len(_numeros(apellidos)) == 2
+
+    def test_las_palabras_del_nombre_van_todas_en_la_misma_fila(self, db_session, emitir):
+        """AND, no OR: una palabra en una fila y la otra en otra no casan."""
+        emitir(first="JUAN", last="ZZTOKA")
+        emitir(first="PEDRO", last="ZZTOKB")
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZTOKA PEDRO")
+
+        assert pagina.items == []
+
     def test_un_porcentaje_literal_no_explota_ni_comodina(self, db_session, emitir):
         con_porcentaje = emitir(first="100%", last="ZZPCT")
         emitir(first="1000", last="ZZPCT")       # casaría si `%` fuera comodín

@@ -237,10 +237,11 @@ class CertificateService:
     def void(db: Session, *, source_ref: str, actor_id: int,
              reason: str | None) -> Certificate | None:
         """Anula la constancia VIGENTE de `source_ref`, si la hay. `None` si
-        no hay ninguna que anular — NO es un error: un review `origin='prior'`
-        nunca emitió una (lo salta `issue`), así que revocarlo no tiene nada
-        que anular y eso es el camino normal. Nunca borra ni libera el folio:
-        volver a `issue()` después saca uno nuevo. Sin commit.
+        no hay ninguna que anular — NO es un error: desde 2026-10-05 las
+        previas y el legado también llevan folio (`register_prior` o el
+        backfill de `FolioBackfillService`), pero una registrada ANTES y que
+        el backfill aún no folia no tiene nada que anular. Nunca borra ni
+        libera el folio: volver a `issue()` después saca uno nuevo. Sin commit.
         """
         from itcj2.apps.titulatec.models.certificate import Certificate
 
@@ -331,9 +332,13 @@ class CertificateService:
         `estado`: `vigentes` (sin anular), `anulados` o `todos`; cualquier
         otro valor (incluido `None`) cae en `vigentes`. `q` se normaliza aquí
         con `normalize_q` (`strip()`, 100 caracteres, vacío o solo espacios =
-        sin filtro) y busca en `number`, `control_number` (también en
-        MAYÚSCULA, la forma de `CONTROL_NUMBER_RE`) y `student_name`, en
-        `ILIKE` con la diagonal invertida, `%` y `_` escapados (`like_pattern`).
+        sin filtro) y busca en `number` y `control_number` (también en
+        MAYÚSCULA, la forma de `CONTROL_NUMBER_RE`) con la búsqueda ENTERA, y en
+        `student_name` palabra por palabra: cada palabra de `q` tiene que estar
+        en el nombre, en cualquier orden (AND de un `ILIKE` por palabra), así
+        «Juan Pérez» encuentra «PÉREZ GÓMEZ JUAN» (el nombre se congela
+        apellidos primero). Todo `ILIKE` lleva la diagonal invertida, `%` y `_`
+        escapados (`like_pattern`).
 
         Los items son dicts, no filas del ORM: `number`, `student_name`,
         `control_number`, `program_name`, `issued_at`, `voided_at`,
@@ -342,7 +347,7 @@ class CertificateService:
         """
         from dataclasses import replace
 
-        from sqlalchemy import or_
+        from sqlalchemy import and_, or_
 
         from itcj2.apps.titulatec.models.certificate import Certificate
         from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q, paginate_query
@@ -365,11 +370,14 @@ class CertificateService:
         q = normalize_q(q)
         if q is not None:
             patron = like_pattern(q)
+            por_nombre = and_(*(Certificate.student_name.ilike(like_pattern(palabra),
+                                                               escape="\\")
+                                for palabra in q.split()))
             query = query.filter(or_(
                 Certificate.number.ilike(patron, escape="\\"),
                 Certificate.control_number.ilike(patron, escape="\\"),
                 Certificate.control_number == q.upper(),
-                Certificate.student_name.ilike(patron, escape="\\"),
+                por_nombre,
             ))
 
         # Desempate por `id` (§18 regla 1): `issued_at` empata dentro de una
