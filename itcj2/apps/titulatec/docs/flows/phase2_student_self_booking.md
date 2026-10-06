@@ -154,9 +154,10 @@ egresado. `SelfBookingService.offer` lee la ocupación de TODAS las ventanas ofr
 horario») y se la pasa a `_offerable_slots(db, window, *, ahora=None, ocupacion=None)`, que con `ocupacion` no
 consulta y deja la comparación contra el cupo a `SlotService.free_slots_from` (pura). El `places_left` del «Sin
 horario» sale del MISMO mapa. `offer` no filtra por estado: la regla sigue viviendo en `SlotService._vivas`
-(⤵ [ocupación en lote](phase2_appointment_loop.md#ocupación-en-lote-2026-10-05)). La escritura (`book` →
-`_window_in_offer` → `_offerable_slots` sin `ocupacion`) sigue por la versión de una ventana, que delega en la
-misma regla. Además `_owners_serving` pide los alcances de TODOS los dueños de una vez
+(⤵ [ocupación en lote](phase2_appointment_loop.md#ocupación-en-lote-2026-10-05)). `_offerable_slots` solo la
+llama `offer`. La escritura NO pasa por ella: `book` → `_window_in_offer` (que revalida el `window_id` contra
+`_offerable_windows`, el mismo predicado de la oferta) → `AppointmentService.create` → `SlotService.assign`, que
+mide el cupo con `SlotService.occupancy` (la versión de una ventana, delegada en la misma regla). Además `_owners_serving` pide los alcances de TODOS los dueños de una vez
 (⤵ [alcance](engine_officer_scope.md#el-mismo-predicado-en-sentido-inverso-selfbookingserviceoffer-2026-09-16)).
 
 **Presupuesto medido** (`test_self_booking_offer_batch.py`, filas sembradas): `offer` = **8 consultas fijas**

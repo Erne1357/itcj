@@ -475,19 +475,21 @@ delega en ella (invariante 2 de la spec). Todo en `services/slot_service.py`:
 
 | Función | Qué hace |
 |---|---|
-| `_vivas(q)` | El filtro: `status NOT IN _ESTADOS_QUE_LIBERAN`, nunca `is_current` (⤵ [máquina de estados](00_state_machine.md)). Es la ÚNICA función del módulo que lee `_ESTADOS_QUE_LIBERAN` (lo fija un AST en `test_slot_occupancy_batch.py`) |
+| `_vivas(q)` | El filtro: `status NOT IN _ESTADOS_QUE_LIBERAN`, nunca `is_current` (⤵ [máquina de estados](00_state_machine.md)). Es la ÚNICA función que lee `_ESTADOS_QUE_LIBERAN`, en `slot_service.py` y en todo `itcj2/apps/titulatec`: lo fijan dos AST de `test_slot_occupancy_batch.py` (uno dentro del módulo, otro a lo ancho que prohíbe importarlo o citarlo en cualquier otro) |
 | `occupancy_map(db, windows, *, excluir_process_id=None, walkin=None, inicio=None)` | `{window_id: {hora: n}}` con UN `SELECT window_id, scheduled_at` y `window_id IN (...)`; reparte en Python (walkin → la apertura o `inicio`; si no, la hora real). Toda ventana pedida con id sale en el mapa (`{}` sin citas); sin ventanas no consulta |
 | `occupancy(db, window, ...)` | `occupancy_map(db, [window], ...)[window.id]` |
-| `window_occupancy` · `window_occupancy_map(db, windows)` | (ocupados en franja real, capacidad = franjas × cupo), por ventana; la individual delega en la de lote vía `_totales` |
-| `day_occupancy` · `day_occupancy_map(db, windows_by_day)` | lo mismo sumado por día (`_sumar`) |
+| `window_occupancy` · `window_occupancy_map(db, windows)` | (ocupados en franja real, capacidad = franjas × cupo), por ventana; `window_occupancy` = `_totales(window, occupancy(db, window))` y la de lote = un `occupancy_map` + `_totales` por ventana |
+| `day_occupancy` · `day_occupancy_map(db, windows_by_day)` | lo mismo sumado por día (`_sumar`); `day_occupancy` = `_sumar(windows, occupancy_map(db, windows))` |
+| `vivas_de_ventanas(db, window_ids)` | `{window_id: [citas VIVAS]}` en orden de apartado `(scheduled_at, id)`, UN SELECT con `_vivas`: la LISTA de lo que `occupancy_map` cuenta. La usa `_board_ctx` para los espacios sin horario míos (la lista numerada), así la lista y el contador de libres no divergen y la página no escribe su propio filtro por estado |
 | `out_of_grid` · `out_of_grid_map(db, windows)` | la banda «Fuera de la rejilla»: un SELECT con `_vivas`; un `walkin` da `[]` sin consultar; orden `(scheduled_at, id)` (antes sin `ORDER BY`) |
 | `windows_for_day` · `windows_for_days(db, day_ids, *, owner_id=None, solo_abiertas=True)` | las ventanas de varios días en un `IN`, mismo orden `(start_time, id)`; todo día pedido sale (`[]` si no tiene) |
 | `free_slots` · `free_slots_from(window, ocupacion)` | la comparación contra el cupo, pura (sin BD); la usa también `SelfBookingService.offer` |
 
 **Quién las usa** (`pages/appointments.py`): `_dias_ctx` (el carril de días) = `list_rows` → `windows_for_days` →
 `day_occupancy_map`: **3 consultas fijas** para todo el carril. `_board_ctx` (el tablero) arma
-`window_occupancy_map(mías + ajenas)` y `out_of_grid_map(mías con franjas)` UNA vez antes del bucle; las ajenas
-ya no llaman dos veces a `window_occupancy` por ventana. **Presupuesto medido** (convocatoria sembrada, días ×
+`window_occupancy_map(mías + ajenas)` y `out_of_grid_map(mías con franjas)` UNA vez antes del bucle, y la lista
+numerada de cada espacio sin horario mío sale de `vivas_de_ventanas` (una consulta para todos; antes la página
+reescribía el filtro por estado); las ajenas ya no llaman dos veces a `window_occupancy` por ventana. **Presupuesto medido** (convocatoria sembrada, días ×
 ventanas 3×2 vs 6×4, `test_slot_occupancy_batch.py`): `_dias_ctx` 10 / 31 → 3 / 3; `_board_ctx` 13 / 17 → 12 / 12;
 vista completa `agenda`/día 38 / 63 → 30 / 30. En la copia de prod, `GET /titulatec/admin/appointments` pasó de 94 a
 28 consultas (con la caché de authz tibia de R2). Equivalencia: oráculo congelado por ventana (`_viejo_*`) contra

@@ -353,6 +353,42 @@ def test_out_of_grid_map_equivale(db_session, esc):
     assert mapa[w["walkin"].id] == []
 
 
+def _viejo_vivas_de_ventana(db, window):
+    """La consulta del tablero ANTES de R8 (`_board_ctx`, walk-ins): estados que
+    liberan LITERALES, orden de apartado."""
+    from itcj2.apps.titulatec.models import ReviewAppointment
+    q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id == window.id)
+    q = q.filter(~ReviewAppointment.status.in_({"cancelled", "superseded"}))
+    return q.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all()
+
+
+def test_vivas_de_ventanas_equivale_y_conserva_el_orden_de_apartado(db_session, esc):
+    w = esc["w"]
+    c = esc["citas"]
+    ventanas = list(w.values())
+    mapa = SlotService.vivas_de_ventanas(db_session, [v.id for v in ventanas])
+    assert set(mapa) == {v.id for v in ventanas}
+    for nombre, v in w.items():
+        assert [a.id for a in mapa[v.id]] == [a.id for a in _viejo_vivas_de_ventana(
+            db_session, v)], nombre
+    # Valores explícitos para que el oráculo no compare vacíos: en el sin
+    # horario cuentan TODAS las vivas (apartado, legado, no_show, attended) y
+    # no las canceladas ni las reemplazadas.
+    assert {a.id for a in mapa[w["walkin"].id]} == {
+        c["w_0800"].id, c["w_1030_legado"].id, c["w_0900_ns"].id, c["w_1200_att"].id}
+    assert mapa[w["vacia"].id] == []
+    # Una cita que ya no es la vigente pero sigue viva SALE (nunca por is_current).
+    assert c["w_0900_ns"].id in {a.id for a in mapa[w["walkin"].id]}
+    # Sin ids (o solo ids vacíos): mapa vacío sin consultar; repetidos se colapsan.
+    assert SlotService.vivas_de_ventanas(db_session, []) == {}
+    assert SlotService.vivas_de_ventanas(db_session, None) == {}
+    n = w["walkin"].id
+    assert set(SlotService.vivas_de_ventanas(db_session, [n, n, None])) == {n}
+    assert _contar(db_session, lambda: SlotService.vivas_de_ventanas(db_session, [])) == 0
+    assert _contar(db_session, lambda: SlotService.vivas_de_ventanas(
+        db_session, [v.id for v in ventanas])) == 1
+
+
 # ---------------------------------------------------------------------------
 # 4. Un SELECT para cualquier número de ventanas, y una sola regla
 # ---------------------------------------------------------------------------
@@ -394,6 +430,36 @@ def test_la_regla_de_ocupacion_vive_en_un_solo_lugar():
         llamadas = {n.func.attr for n in ast.walk(funcs[nombre])
                     if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
         assert "query" not in llamadas, nombre
+
+
+def test_nadie_fuera_de_slot_service_lee_el_filtro_por_estado():
+    """Invariante 2, a lo ancho: `_ESTADOS_QUE_LIBERAN` (el filtro de «esta cita
+    ocupa lugar») solo se lee en `slot_service.py`. Una página o un servicio que
+    lo importe o lo cite vuelve a escribir la regla por su cuenta (así pasó con
+    la lista de walk-ins de `_board_ctx`): debe pedirle a `SlotService`
+    (`_vivas` por dentro; `vivas_de_ventanas`, `occupancy_map`, ...).
+
+    Barre el AST (nombres, atributos e importaciones) de todo
+    `itcj2/apps/titulatec`: los comentarios y docstrings que lo mencionan no
+    cuentan.
+    """
+    raiz = SRC.parents[1]
+    hallazgos = []
+    for archivo in sorted(raiz.rglob("*.py")):
+        if archivo == SRC:
+            continue
+        arbol = ast.parse(archivo.read_text(encoding="utf-8"), filename=str(archivo))
+        for n in ast.walk(arbol):
+            if isinstance(n, ast.Name) and n.id == "_ESTADOS_QUE_LIBERAN":
+                hallazgos.append(f"{archivo.relative_to(raiz)}:{n.lineno}")
+            elif isinstance(n, ast.Attribute) and n.attr == "_ESTADOS_QUE_LIBERAN":
+                hallazgos.append(f"{archivo.relative_to(raiz)}:{n.lineno}")
+            elif isinstance(n, ast.ImportFrom) and any(
+                    a.name == "_ESTADOS_QUE_LIBERAN" for a in n.names):
+                hallazgos.append(f"{archivo.relative_to(raiz)}:{n.lineno}")
+    assert not hallazgos, (
+        "El filtro por estado de la ocupación vive SOLO en `slot_service.py`; "
+        f"estos sitios lo reescriben: {hallazgos}")
 
 
 # ---------------------------------------------------------------------------

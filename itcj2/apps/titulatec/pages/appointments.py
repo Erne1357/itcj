@@ -644,19 +644,19 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     Un espacio SIN HORARIO (D3, D6, spec 2026-09-29-titulatec-cotejo-espacios-
     design.md §4) es un grupo aparte (`modo="sin_horario"`, contra
     `modo="franjas"` de los demas): no tiene franjas, tiene una LISTA numerada
-    por orden de apartado. Se arma de una consulta PROPIA -- `estado NOT IN
-    (cancelled, superseded)` sobre TODA la ventana, nunca por `is_current` --
-    y no de `visibles` (que SI filtra por `is_current`, via `list_for_day`):
+    por orden de apartado. Se arma de una consulta PROPIA
+    (`SlotService.vivas_de_ventanas`: las citas VIVAS por estado, nunca por
+    `is_current`, de TODA la ventana) y no de `visibles` (que SI filtra por
+    `is_current`, via `list_for_day`):
     una cita de LEGADO sentada a mano a una hora dentro del walkin (10:30, p.
     ej.) puede perder la vigencia sin dejar de ocupar un lugar, y con
     `visibles` desaparecia de la lista sin dejar de contar en `ocupados` (nota
     de la revision de T2). Mismo criterio que `SlotService.occupancy`, para
     que la lista y el contador de libres nunca diverjan.
     """
-    from itcj2.apps.titulatec.models import ReviewAppointment
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
-    from itcj2.apps.titulatec.services.slot_service import SlotService, _ESTADOS_QUE_LIBERAN
+    from itcj2.apps.titulatec.services.slot_service import SlotService
     from itcj2.core.utils.timezone import db_now
 
     fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
@@ -676,13 +676,9 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     # (`scheduled_at`, `id`). Una sola consulta para todos: se reparten por
     # `window_id` abajo.
     walkin_ids = [w.id for w in mias if w.visibility == "walkin"]
-    walkin_vivas = {}
-    if walkin_ids:
-        q = db.query(ReviewAppointment).filter(ReviewAppointment.window_id.in_(walkin_ids))
-        if _ESTADOS_QUE_LIBERAN:
-            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
-        for a in q.order_by(ReviewAppointment.scheduled_at, ReviewAppointment.id).all():
-            walkin_vivas.setdefault(a.window_id, []).append(a)
+    # El filtro por estado vive SOLO en `SlotService` (`_vivas`): la lista y el
+    # contador de libres no pueden divergir (spec rendimiento 2026-10-05, invariante 2).
+    walkin_vivas = SlotService.vivas_de_ventanas(db, walkin_ids)
 
     todos = list(visibles) + [a for filas in walkin_vivas.values() for a in filas]
     users, progs = _people(db, [a.process for a in todos])

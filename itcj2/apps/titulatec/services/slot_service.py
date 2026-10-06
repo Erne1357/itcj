@@ -657,6 +657,33 @@ class SlotService:
         return salida
 
     @staticmethod
+    def vivas_de_ventanas(db: Session, window_ids) -> dict[int, list]:
+        """{window_id: [citas VIVAS]} de varias ventanas, con UN SELECT, en orden
+        de apartado `(scheduled_at, id)`.
+
+        Es la LISTA de lo que `occupancy_map` CUENTA: el mismo filtro por estado
+        (`_vivas`, nunca `is_current`), así que la lista y el contador de libres
+        de un espacio sin horario no pueden divergir. Ninguna página arma su
+        propio filtro por estado: pide esto (lo vigila
+        `test_slot_occupancy_batch.py`). Toda ventana pedida sale en el mapa
+        (`[]` si no tiene citas); sin ids no consulta.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        ids = [i for i in dict.fromkeys(window_ids or []) if i]
+        if not ids:
+            return {}
+        salida: dict[int, list] = {wid: [] for wid in ids}
+        # `window_id` como COLUMNA, igual que `out_of_grid_map`: se reparte por
+        # la misma ventana por la que se filtró.
+        q = SlotService._vivas(
+            db.query(ReviewAppointment, ReviewAppointment.window_id)
+            .filter(ReviewAppointment.window_id.in_(ids)))
+        for a, window_id in q.order_by(ReviewAppointment.scheduled_at,
+                                       ReviewAppointment.id).all():
+            salida[window_id].append(a)
+        return salida
+
+    @staticmethod
     def is_walkin_reservation(appt) -> bool:
         """¿Es un lugar apartado en un sin horario, y no una cita con hora?
 
