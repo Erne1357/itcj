@@ -81,8 +81,12 @@ commit del alta). Los modos `school_services` y `computer_center` se conservan t
 6. 🏛️ Pestaña **En Cómputo** (`awaiting_access`, FIFO por `reviewed_at`) → «En Centro de Cómputo
    desde dd/mm/aaaa hh:mm» + **Cancelar solicitud**. Pestañas **Inscritas** (folio; «Revocar
    inscripción» con `process.api.cancel`; en modo `sii`, una cuenta nacida con el NIP del SII cuyo
-   correo no salió lleva «correo no enviado» + **Reenviar aviso**), **Rechazadas** (motivo) y
-   **Todas** (con el estado en cada fila).
+   correo no salió lleva «correo no enviado» + **Reenviar aviso**), **Rechazadas** (motivo y, desde
+   2026-10-06, **Deshacer rechazo**) y **Todas** (con el estado en cada fila).
+7. 🏛️ La persona va a ventanilla y aclara lo que motivó el rechazo → pestaña **Rechazadas** →
+   «Qué se aclaró en ventanilla» → **Deshacer rechazo**. Vuelve a **Por revisar** con la píldora
+   **«Rechazo deshecho»**, la nota y «Se había rechazado por: …»; desde ahí se aprueba normal. Sin
+   correo. Si el correo del rechazo seguía en cola, ya no sale.
 
 Tras aprobar, rechazar o reenviar, la bandeja vuelve a pintar **la pestaña donde estaba el oficial**:
 cada formulario de fila lleva `status` y `cohort_id` en campos ocultos.
@@ -173,6 +177,7 @@ stateDiagram-v2
     pending_review --> rejected: rechazar
     awaiting_access --> rejected: SE cancela
     approved --> rejected: cancelar
+    rejected --> pending_review: SE deshace el rechazo (aclaró en ventanilla) · reopen_note, sin correo
     converted --> [*]
     rejected --> [*]
     note right of pending_review
@@ -277,6 +282,7 @@ sequenceDiagram
 | 5 | 👤 | correo | Activar mi acceso | `GET /titulatec/inscripcion/verificar?t=` | `verify` → `_convert` | `core_user_app_roles`: `graduate` en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/`agendatec`; `core_users.role_id` → `graduate` solo desde `student`/NULL; `core_users.is_active` → `true` **si estaba desactivada**; `titulatec_processes` + fases; solicitud → `converted`, `verified_at`. **Nada del perfil** | `ProcessEvent(activation=personal_email_link, reactivated)`; caché de authz invalidado tras el commit; encola `enrollment_verified` (outbox, 2026-10-05) → **institucional** |
 | 6 | 🏛️ | Liga enviada | Reenviar liga | `POST /titulatec/admin/solicitudes/{id}/reenviar` | `resend_link` | hash y vencimiento nuevos, `verify_send_count + 1`, `verified_at` y `verify_sent_at` a NULL; claro viejo borrado de Redis | `send_verify_enrollment` → personal |
 | 7 | 🏛️ | fila (`pending_review`, `approved` o, desde 2026-09-24, `awaiting_access`) | Rechazar / Cancelar solicitud | `POST /titulatec/admin/solicitudes/{id}/rechazar` | `reject` | → `rejected`, `review_note`, `reviewed_by_id/at`, token a NULL; claro borrado; encola `enrollment_rejected` (outbox, 2026-10-05): el despachador sella `rejection_sent_at` al enviarlo | correo → personal, firmado por `reviewer_label()`; `X-Tt-Notice` «Se enviará el correo al egresado.» |
+| 7b | 🏛️ | Rechazadas (2026-10-06) | Deshacer rechazo (nota obligatoria ≤2000: qué se aclaró en ventanilla) | `POST /titulatec/admin/solicitudes/{id}/reabrir` (permiso `enrollment_request.api.reject`, en `run_in_threadpool`) | `reopen` | → `pending_review`, `reopened_by_id/at`, `reopen_note`; `rejection_sent_at` a NULL (el sello es del rechazo vigente); `review_note`/`reviewed_*` se quedan con el rechazo deshecho. No reabre con la convocatoria cerrada, ni si el mismo control tiene otra solicitud viva o inscrita en la convocatoria | **Sin correo**; `X-Tt-Notice` «Rechazo deshecho: la solicitud está otra vez en Por revisar.». Una fila `enrollment_rejected` aún `pending` sale `obsolete` (D8: ya no está rechazada; o hay un rechazo más reciente si SE la volvió a rechazar) |
 | 8 | 👤 | (sin pantalla) | Reenvío público | `POST /titulatec/inscripcion/reenviar` | `resend` | `verify_send_count + 1`, mismo token | `send_verify_enrollment` → personal |
 | 9 (`sii`) | 🏛️ | Por revisar | Reintentar consulta | `POST /titulatec/admin/solicitudes/{id}/reconsultar` | `eligibility_service.enqueue_check(force=True)` | nada propio | ⤵ [`xcut_sii_eligibility.md`](xcut_sii_eligibility.md) |
 | 10 (`sii`) | 🏛️ | Inscritas, «correo no enviado» | Reenviar aviso | `POST /titulatec/admin/solicitudes/{id}/reenviar-aviso` | `resend_access_notice` | ninguna credencial; `access_sent_at` si sale | `send_enrollment_approved(nip_source="sii")` → personal, sin NIP |
@@ -448,7 +454,7 @@ Lo fija `tests/fastapi/titulatec/test_enrollment_identity_chain.py`.
   dejaría a un extraño matar la liga de otra persona. Sin esa copia, el reenvío público no sale. La
   bandeja sí rota.
 - **Lock por solicitud.** `approve`/`approve_detailed`, `grant_access`, `return_to_review`,
-  `reassign_nip`, `verify`, `reject`, `resend_link`, `resend` y `resend_access_notice` toman
+  `reassign_nip`, `verify`, `reject`, `reopen`, `resend_link`, `resend` y `resend_access_notice` toman
   `pg_advisory_xact_lock(0x7456, req.id)` y hacen `db.refresh(req)` antes de leer el estado. Un doble
   clic en «Aprobar» produce un solo correo. Orden global: solicitud y luego folios (`import_rows`
   toma `0x7454` por convocatoria), sin ciclos.
@@ -531,9 +537,15 @@ OFICIAL `approve()` sin cuenta ya NO lee ni valida el NIP — lo da Centro de C�
 corre en modo ALTERNO detrás de `POST /titulatec/admin/accesos/{id}/dar-acceso`
 (`pages/access_admin.py`, no este archivo) — ver la sección «Caminos alternos / errores» de
 [`xcut_computer_center_access.md`](xcut_computer_center_access.md).
-Fuera de alcance o inexistente → **404 liso, sin `X-Tt-Error`** (aprobar, rechazar, reenviar,
-reenviar aviso, reconsultar y revocar). En modo ALTERNO, la bandeja de Solicitudes es de solo
-lectura: sus POST (aprobar, rechazar, reenviar, reenviar aviso y revocar) responden 400 «En este
+**Deshacer rechazo** (`reabrir`, 2026-10-06) responde 400 con: «Escribe qué se aclaró con la
+persona.» · «La nota no puede pasar de 2000 caracteres.» · «Esa solicitud ya no está rechazada.» ·
+«Esa convocatoria está cerrada.» · «Esa persona ya tiene otra solicitud en curso en esta
+convocatoria; atiende esa.» (volvió a solicitar tras el rechazo: se atiende la nueva) · «Esa persona
+ya quedó inscrita en esta convocatoria con otra solicitud.»
+Fuera de alcance o inexistente → **404 liso, sin `X-Tt-Error`** (aprobar, rechazar, deshacer
+rechazo, reenviar, reenviar aviso, reconsultar y revocar). En modo ALTERNO, la bandeja de Solicitudes
+es de solo lectura: sus POST (aprobar, rechazar, deshacer rechazo, reenviar, reenviar aviso y
+revocar) responden 400 «En este
 modo la revisión la hace Centro de Cómputo.» ANTES de abrir sesión — detalle completo en
 [`xcut_computer_center_access.md`](xcut_computer_center_access.md).
 

@@ -84,6 +84,7 @@ _MSG_NOTICE_RESENT = "Aviso reenviado."
 # §3.7); sale con el despachador, no en la petición. Gemelo en
 # `access_admin._MSG_REJECT_QUEUED` (mismo texto).
 _MSG_REJECT_QUEUED = "Se enviará el correo al egresado."
+_MSG_REOPENED = "Rechazo deshecho: la solicitud está otra vez en Por revisar."
 # Aviso tras aprobar en el modo `sii` (revisión final F9, `_approve_notice`):
 # la fila sale de «Por revisar» y sin él SE no sabría si el correo salió.
 _MSG_ACCOUNT_MAILED = "Cuenta creada (folio {folio}); se le avisó por correo."
@@ -744,6 +745,11 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
             "returned": (r.returned_at is not None
                          and r.status in _TAB_STATUSES["pending_review"]),
             "return_note": r.return_note or "",
+            # Rechazo deshecho por SE (`reopen`): igual que `returned`, solo
+            # mientras vuelve a ser trabajo de SE.
+            "reopened": (r.reopened_at is not None
+                         and r.status in _TAB_STATUSES["pending_review"]),
+            "reopen_note": r.reopen_note or "",
             # Solo tiene sentido leerla en una fila `rejected`: el correo de
             # rechazo es lo único que sella esta columna (el despachador del
             # outbox, o `reject()` con el correo apagado).
@@ -946,6 +952,51 @@ def _cuerpo_reject(req_id, request, user, form):
     if en_cola:
         resp.headers["X-Tt-Notice"] = _hdr(_MSG_REJECT_QUEUED)
         resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
+
+
+@router.post("/{req_id}/reabrir", name="titulatec.pages.requests.reopen")
+async def reopen(req_id: int, request: Request,
+                 user: dict = Depends(require_page_app("titulatec", perms=_REJECT))):
+    """Deshace un rechazo: la persona aclaró en ventanilla y la solicitud
+    vuelve a «Por revisar» (`EnrollmentRequestService.reopen`). Nota
+    obligatoria con lo que se aclaró; sin correo. Mismo permiso que rechazar:
+    quien puede rechazar puede deshacerlo."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reopen, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reopen(req_id, request, user, form):
+    """Cuerpo síncrono de `reopen`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    note = form.get("note") or ""
+    tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        if _load_scoped_request(db, scope, req_id) is None:
+            return Response(status_code=404)
+        ok, detalle = EnrollmentRequestService.reopen(db, req_id, note=note, actor_id=uid)
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(detalle)})
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page)
+    finally:
+        db.close()
+    resp = render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(_MSG_REOPENED)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
     return resp
 
 

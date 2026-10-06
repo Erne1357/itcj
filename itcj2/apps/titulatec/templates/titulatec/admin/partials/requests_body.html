@@ -24,7 +24,9 @@
      revocada: motivo». Si la cuenta nació con el NIP del SII y su correo de
      acceso no salió (`r.access_unsent_sii`, D12), la píldora ámbar «correo
      no enviado» y, con `can_act`, «Reenviar aviso» (el correo no lleva NIP);
-   - rechazada: motivo.
+   - rechazada: motivo y «Deshacer rechazo» con nota obligatoria (qué se aclaró
+     en ventanilla, 2026-10-06): vuelve a por revisar con la píldora «Rechazo
+     deshecho», esa nota y el motivo del rechazo deshecho.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
    Modo `sii` (`sii`, spec 2026-09-25 §3.5 y 2026-09-27 §A5): se actúa como en
@@ -253,6 +255,7 @@
             <span class="tt-pill tt-pill--amber">Sin cuenta</span>
             {% endif %}
             {% if r.returned %}<span class="tt-pill tt-pill--amber">Devuelta por Cómputo</span>{% endif %}
+            {% if r.reopened %}<span class="tt-pill tt-pill--violet">Rechazo deshecho</span>{% endif %}
           </span>
           {% if r.prior_reject %}
           <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
@@ -334,7 +337,10 @@
             {% if r.returned %}
             <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta por Centro de Cómputo:</strong> {{ r.return_note }}</p>
             {% endif %}
-            {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            {% if r.reopened %}
+            <p class="small mb-1"><i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i><strong>Rechazo deshecho:</strong> {{ r.reopen_note }}</p>
+            {% if r.note %}<p class="small mb-1">Se había rechazado por: {{ r.note }}</p>{% endif %}
+            {% elif r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
             {% if can_act %}
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
@@ -442,6 +448,17 @@
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
             {% if r.rejection_sent %}{% elif r.rejection_queued %}<span class="tt-pill tt-pill--neutral">en cola</span>{% else %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if can_act %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reabrir"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id, page.page, q) }}
+              <input class="tt-field tt-field--xs" name="note" required maxlength="2000"
+                     placeholder="Qué se aclaró en ventanilla" aria-label="Qué se aclaró en ventanilla">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Deshacer rechazo</button>
+            </form>
+            {% endif %}
           {% endif %}
         </td>
       </tr>

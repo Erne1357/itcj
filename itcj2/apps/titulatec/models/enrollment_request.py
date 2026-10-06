@@ -15,6 +15,8 @@ para que de el NIP -- el flujo completo esta en
   awaiting_access --Centro de Computo da acceso, CON cuenta---> approved (liga de activacion; D10)
   awaiting_access --Centro de Computo devuelve---------------> pending_review (return_note = motivo)
   pending_review | approved | awaiting_access | legado --rechazar-----> rejected
+  rejected --SE deshace el rechazo (aclaro en ventanilla)--> pending_review
+             (reopen_note = que se aclaro; 2026-10-06, `reopen()`)
 
   "Modo alterno" y "modo oficial" los decide TITULATEC_ENROLLMENT_REVIEWER
   (`reviewer_mode()` en el service): oficial (por omision) es Servicios
@@ -155,6 +157,14 @@ class EnrollmentRequest(Base):
     returned_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     returned_at = Column(DateTime, nullable=True)
     return_note = Column(Text, nullable=True)
+
+    # Escritas por `reopen()` (2026-10-06): Servicios Escolares deshace un
+    # rechazo cuando la persona aclara en ventanilla. `reopen_note` es lo que se
+    # aclaro; `review_note`/`reviewed_*` siguen siendo del rechazo deshecho
+    # hasta la siguiente resolucion. Migracion `tt20261006a`.
+    reopened_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    reopened_at = Column(DateTime, nullable=True)
+    reopen_note = Column(Text, nullable=True)
 
     # --- Elegibilidad SII (2026-09-25) ---
     # La consulta VIGENTE contra el SII (`EligibilityService.check` la

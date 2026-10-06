@@ -379,8 +379,11 @@ def test_la_fila_inscrita_muestra_el_folio_y_la_rechazada_el_motivo(
 
     assert proc.folio in fila_inscrita
     assert "No aparece en el padrón." in fila_rechazada
-    for fila in (fila_inscrita, fila_rechazada):
-        assert "<form" not in fila
+    assert "<form" not in fila_inscrita
+    # La rechazada solo ofrece deshacer el rechazo (2026-10-06,
+    # `test_enrollment_reopen.py`); nada de aprobar ni de volver a rechazar.
+    assert fila_rechazada.count("<form") == 1
+    assert f'/solicitudes/{rechazada.id}/reabrir"' in fila_rechazada
 
 
 def test_la_fila_muestra_telefono_convocatoria_y_fecha(
