@@ -259,6 +259,25 @@ class TestCandidates:
             assert dueno.certificate_ref(7) == f"{prefijo}7"
             assert dueno.certificate_ref(12345) == f"{prefijo}12345"
 
+    def test_el_estado_que_libera_sale_del_gate_no_de_un_literal(self):
+        """Revisión final (m de la Tarea 3): el backfill compara contra
+        `_SURVEY_RELEASED`/`_LIBRARY_RELEASED` de `clearance_gate`, nunca
+        contra una copia de `'approved'`/`'cleared'` que podría quedarse atrás
+        si el dominio cambiara."""
+        import ast
+        import inspect
+
+        from itcj2.apps.titulatec.services import clearance_gate
+
+        assert (clearance_gate._SURVEY_RELEASED, clearance_gate._LIBRARY_RELEASED) == (
+            "approved", "cleared")
+        arbol = ast.parse(inspect.getsource(fb_mod))
+        literales = {n.value for n in ast.walk(arbol)
+                     if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        assert not literales & {"approved", "cleared"}
+        nombres = {n.id for n in ast.walk(arbol) if isinstance(n, ast.Name)}
+        assert {"_SURVEY_RELEASED", "_LIBRARY_RELEASED"} <= nombres
+
 
 # ---------------------------------------------------------------------------
 # run()
@@ -427,6 +446,76 @@ class TestRun:
         assert re.fullmatch(r"GTV-2093A-\d{4}", c_oct.number), c_oct.number
         # `issued_at` sigue siendo la hora real de emisión (hoy), no el ancla.
         assert c_feb.issued_at.year != 2093
+
+    def test_la_corrida_real_bloquea_las_filas_fuente_y_el_dry_run_no(
+            self, db_session, sembrar):
+        """Revisión final M1: la corrida real lista con `FOR UPDATE OF` la
+        tabla FUENTE de cada tipo (nunca la del proceso); el dry-run no
+        bloquea nada."""
+        from sqlalchemy import event
+
+        self._cinco(sembrar)
+        sentencias = []
+
+        def _captura(conn, cursor, statement, params, context, executemany):
+            sentencias.append(" ".join(statement.split()))
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _captura)
+        try:
+            FolioBackfillService.run(db_session, dry_run=True)
+            en_seco = list(sentencias)
+            sentencias.clear()
+            FolioBackfillService.run(db_session, dry_run=False)
+        finally:
+            event.remove(bind, "before_cursor_execute", _captura)
+
+        assert not any("FOR UPDATE" in s for s in en_seco)
+        bloqueos = [s for s in sentencias if "FOR UPDATE" in s]
+        assert any(s.endswith("FOR UPDATE OF titulatec_survey_reviews") for s in bloqueos)
+        assert any(s.endswith("FOR UPDATE OF titulatec_library_clearances") for s in bloqueos)
+        assert not any("FOR UPDATE OF titulatec_processes" in s for s in bloqueos)
+
+    def test_una_fila_que_deja_de_ser_candidata_antes_de_emitir_no_recibe_folio(
+            self, db_session, sembrar, monkeypatch):
+        """Revisión final M1, la carrera: la lista sale con la fila liberada y,
+        ANTES de emitir, otra transacción la revierte (biblioteca) o la deshace
+        (encuesta). Sin re-verificar, el backfill le daba un folio VIVO a una
+        fila `pending`, y la siguiente liberación legítima tronaba contra
+        `uq_titulatec_certificates_live_source`. Se simula escribiendo el
+        cambio DESPUÉS de que `candidates` armó la lista."""
+        from sqlalchemy import update
+
+        gtv_sigue = sembrar.encuesta()
+        gtv_revocada = sembrar.encuesta()
+        bib_sigue = sembrar.biblioteca(via="prior")
+        bib_revertida = sembrar.biblioteca(via="legacy")
+        candidates_real = FolioBackfillService.candidates
+
+        def _lista_y_luego_la_revierten(db, *, lock=False):
+            lista = candidates_real(db, lock=lock)
+            db.execute(update(LibraryClearance)
+                       .where(LibraryClearance.id == bib_revertida.fila.id)
+                       .values(status="pending", cleared_via=None))
+            db.execute(update(SurveyReview)
+                       .where(SurveyReview.id == gtv_revocada.fila.id)
+                       .values(status="rejected"))
+            return lista
+
+        monkeypatch.setattr(FolioBackfillService, "candidates",
+                            staticmethod(_lista_y_luego_la_revierten))
+
+        conteo = FolioBackfillService.run(db_session, dry_run=False)
+
+        assert len(_certs(db_session, gtv_sigue)) == 1
+        assert len(_certs(db_session, bib_sigue)) == 1
+        assert _certs(db_session, gtv_revocada) == []
+        assert _certs(db_session, bib_revertida) == []
+        # Lo que no se emitió tampoco se cuenta.
+        assert _solo_de(conteo, {"2093A"}) == {(_SURVEY, "2093A"): 1,
+                                               (_LIBRARY, "2093A"): 1}
+        # Y la liberación legítima posterior de la fila revertida sí puede foliar.
+        assert _emitir(db_session, bib_revertida).voided_at is None
 
 
 # ---------------------------------------------------------------------------

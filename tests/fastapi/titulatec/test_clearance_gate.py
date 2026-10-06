@@ -1075,9 +1075,11 @@ def test_nadie_fuera_del_gate_compara_el_estado_de_las_liberaciones():
     assert en_gate >= 2, "las cláusulas SQL del gate deberían comparar los dos estados"
     assert all((_APP / ruta).is_file() for ruta in _LECTORES_DE_REPARACION), (
         "un lector de reparación autorizado ya no existe: quítalo de la lista")
-    assert en_lectores >= 2, (
-        "el backfill de folios ya no lee el estado de las liberaciones (una "
-        "comparación por tipo): quítalo de _LECTORES_DE_REPARACION")
+    assert en_lectores == 2, (
+        "el backfill de folios debe comparar el estado EXACTAMENTE una vez por "
+        "tipo (2, su predicado único de candidata): si ya no lo lee, quítalo de "
+        "_LECTORES_DE_REPARACION; si suma lecturas, es lógica de liberación "
+        "fuera del gate (encontradas: %d)" % en_lectores)
     assert not ofensores, ("comparan el estado de una liberación fuera del gate:\n"
                            + "\n".join(ofensores))
 
