@@ -587,14 +587,14 @@ Cada entrada: fecha larga · `subject` (o `StudentMail.KIND_LABELS[kind]` — `s
 o «—» si aún no salió; partible —`#exp-correos .quien { overflow-wrap: anywhere; }` en
 `titulatec.css`—: un correo personal largo y sin espacios no rompe `scrollWidth <= innerWidth` a
 360px) · «N avisos agrupados» si junta más de uno · píldora de estado,
-`_MAIL_STATUS_UI` (`pages/admin.py:1130-1136`):
+`_MAIL_STATUS_UI` (`pages/admin.py`):
 
 | `status` | Píldora | Tono |
 |---|---|---|
 | `sent` | Enviado | success |
 | `pending` | En cola | neutral |
 | `failed` | Falló (+ `last_error`) | danger |
-| `no_recipient` | Sin correo personal | amber |
+| `no_recipient` | Sin correo personal (correos del proceso) · «Sin correo» en los de inscripción (`ENROLLMENT_KINDS`: van al institucional o a los dos buzones, `_SIN_DESTINATARIO_INSCRIPCION`) | amber |
 | `obsolete` | Ya no aplicaba | neutral |
 
 El motivo (`last_error`) se pinta solo en `failed`, `pending` (el reintento en espera dice por qué)

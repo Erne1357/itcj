@@ -1298,6 +1298,12 @@ _MAIL_STATUS_UI = {
     "no_recipient": ("Sin correo personal",  "amber"),
     "obsolete":     ("Ya no aplicaba",       "neutral"),
 }
+# `no_recipient` dice a QUÉ buzón le faltó, y eso depende del tipo: los correos
+# del proceso van SOLO al personal («Sin correo personal», arriba), pero los de
+# inscripción (`ENROLLMENT_KINDS`) van al institucional (folio, «ya inscrito»)
+# o a los dos (revocación) -`mail_dispatch._destinatarios_inscripcion`-, así
+# que ahí la píldora no nombra un buzón que quizá ni era el destino.
+_SIN_DESTINATARIO_INSCRIPCION = "Sin correo"
 
 # Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
 # nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
@@ -1362,6 +1368,7 @@ def _bitacora_correos(filas) -> list[dict]:
     expediente con un `KeyError` por una sola fila; test:
     `test_expediente_mail.py::test_kind_desconocido_no_revienta_la_pagina`.
     """
+    from itcj2.apps.titulatec.models.email_outbox import ENROLLMENT_KINDS
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
     entradas: list[dict] = []
@@ -1372,6 +1379,8 @@ def _bitacora_correos(filas) -> list[dict]:
             por_correo[llave]["n"] += 1
             continue
         etiqueta, tono = _MAIL_STATUS_UI.get(m.status, (m.status, "neutral"))
+        if m.status == "no_recipient" and m.kind in ENROLLMENT_KINDS:
+            etiqueta = _SIN_DESTINATARIO_INSCRIPCION
         enviado = m.status == "sent" and m.sent_at is not None
         entrada = {
             "id": m.id,
