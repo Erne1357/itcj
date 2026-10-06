@@ -745,9 +745,9 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
 
 
 @router.get("", name="titulatec.pages.requests.list")
-async def list_requests(request: Request, status: str = "", cohort_id: str = "",
-                        q: str = "", page: str = "",
-                        user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_requests(request: Request, status: str = "", cohort_id: str = "",
+                  q: str = "", page: str = "",
+                  user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -759,9 +759,9 @@ async def list_requests(request: Request, status: str = "", cohort_id: str = "",
 
 
 @router.get("/body", name="titulatec.pages.requests.body")
-async def body(request: Request, status: str = "", cohort_id: str = "",
-               q: str = "", page: str = "",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, status: str = "", cohort_id: str = "",
+         q: str = "", page: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -796,6 +796,13 @@ async def approve(req_id: int, request: Request,
     La ruta no lee `nip`: un formulario viejo en caché que lo mande se ignora,
     y el NIP nunca aparece en un log ni en una cabecera (los motivos del
     servicio no lo llevan)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_approve, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_approve(req_id, request, user, form):
+    """Cuerpo síncrono de `approve`: corre en el threadpool, no en el event loop."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -803,7 +810,6 @@ async def approve(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
     program_id = _to_int((form.get("program_id") or "").strip())
     to_access = (form.get("to_access") or "").strip() == "1"
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
@@ -824,11 +830,11 @@ async def approve(req_id: int, request: Request,
                 "Esa carrera no está en tu alcance.")})
         try:
             # `nip=""`: ni el modo oficial ni el `sii` lo usan, y en el alterno
-            # esta ruta ya cortó arriba. En el threadpool, no en el event loop:
-            # en modo `sii` pide el NIP al SII (pyodbc, bloqueante, hasta sus
-            # timeouts) y congelaría el proceso HTTP entero (revisión final C6).
-            result = await run_in_threadpool(
-                EnrollmentRequestService.approve_detailed,
+            # esta ruta ya cortó arriba. Todo el cuerpo corre en el threadpool
+            # (`_cuerpo_approve`), no en el event loop: en modo `sii` pide el NIP
+            # al SII (pyodbc, bloqueante, hasta sus timeouts) y congelaría el
+            # proceso HTTP entero (revisión final C6).
+            result = EnrollmentRequestService.approve_detailed(
                 db, req_id, nip="", program_id=program_id, actor_id=uid,
                 to_access=to_access)
         except Exception as exc:
@@ -879,6 +885,13 @@ async def reject(req_id: int, request: Request,
     mientras su fila siga en el outbox. Con el correo apagado ya salió en
     línea, y la respuesta es la de siempre (sin aviso; la píldora dice si
     salió)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reject, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reject(req_id, request, user, form):
+    """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -887,7 +900,6 @@ async def reject(req_id: int, request: Request,
         EnrollmentRequestService,
     )
     from itcj2.apps.titulatec.services.student_mail import StudentMail
-    form = await request.form()
     note = (form.get("note") or "").strip()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
     tab_q, tab_page = form.get("q"), form.get("page")
@@ -924,6 +936,13 @@ async def resend(req_id: int, request: Request,
     Aquí SÍ se identifica por id y se rota, porque el actor ya está autenticado
     y acotado por carrera; el veto al id y a rotar es del endpoint PÚBLICO.
     """
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_resend, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_resend(req_id, request, user, form):
+    """Cuerpo síncrono de `resend`: corre en el threadpool, no en el event loop."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -931,7 +950,6 @@ async def resend(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
     tab_q, tab_page = form.get("q"), form.get("page")
 
@@ -963,6 +981,13 @@ async def resend_notice(req_id: int, request: Request,
     aviso pendiente o si el correo no sale, 400 + `X-Tt-Error`; si sale, la
     bandeja re-pintada (la fila ya sin la marca) + `X-Tt-Notice`.
     """
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_resend_notice, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_resend_notice(req_id, request, user, form):
+    """Cuerpo síncrono de `resend_notice`: corre en el threadpool, no en el event loop."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -970,7 +995,6 @@ async def resend_notice(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
     tab_q, tab_page = form.get("q"), form.get("page")
 
@@ -1009,6 +1033,13 @@ async def reconsultar(req_id: int, request: Request,
     Con el SII sin configurar (spec 2026-09-27 D11) no hay a quién preguntar:
     400 `_MSG_SII_OFF` antes de abrir sesión, como el corte de modo.
     """
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reconsultar, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reconsultar(req_id, request, user, form):
+    """Cuerpo síncrono de `reconsultar`: corre en el threadpool, no en el event loop."""
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
@@ -1020,7 +1051,6 @@ async def reconsultar(req_id: int, request: Request,
         return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_SII_OFF)})
     from itcj2.database import SessionLocal
 
-    form = await request.form()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
     tab_q, tab_page = form.get("q"), form.get("page")
 
@@ -1064,13 +1094,19 @@ async def revocar(req_id: int, request: Request,
     bandeja es de solo lectura, también para esto (`_alternate_mode_block`); ahí
     se revoca desde el expediente.
     """
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_revocar, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_revocar(req_id, request, user, form):
+    """Cuerpo síncrono de `revocar`: corre en el threadpool, no en el event loop."""
     bloqueo = _alternate_mode_block()
     if bloqueo is not None:
         return bloqueo
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
-    form = await request.form()
     reason = (form.get("reason") or "").strip()
     tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
     tab_q, tab_page = form.get("q"), form.get("page")
