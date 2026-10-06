@@ -101,7 +101,7 @@ class PdfUnreadable(Exception):
     """El PDF no se puede abrir: bytes que no son PDF, truncado o cifrado."""
 
 
-def compress_pdf(raw: bytes, *, target_bytes: int) -> bytes | None:
+def compress_pdf(raw: bytes, *, target_bytes: int, stats: dict | None = None) -> bytes | None:
     """Devuelve ``raw`` comprimido a ``<= target_bytes``, o ``None`` si no se puede.
 
     - ``len(raw) <= target_bytes`` → devuelve ``raw`` tal cual (el mismo objeto;
@@ -111,14 +111,21 @@ def compress_pdf(raw: bytes, *, target_bytes: int) -> bytes | None:
     - PDF ilegible, cifrado o que pypdf no puede abrir → ``PdfUnreadable``.
     - Nunca devuelve un PDF con otro número de páginas: si el resultado que
       cabe no conserva las páginas del original, ``PdfUnreadable``.
+
+    ``stats`` (opcional) recibe ``passes``: cuántas pasadas corrieron (0 si ya
+    cabía). Es para el log de la subida, no cambia el resultado.
     """
     if target_bytes <= 0:
         raise ValueError("target_bytes debe ser positivo")
+    if stats is not None:
+        stats["passes"] = 0
     if len(raw) <= target_bytes:
         return raw
 
     pages = _page_count(raw)
     for p in PASSES:
+        if stats is not None:
+            stats["passes"] += 1
         out = _one_pass(raw, p)
         logger.debug("compress_pdf: %s dpi q%s tope %s px -> %s bytes (objetivo %s)",
                      p.dpi, p.quality, p.max_px, len(out), target_bytes)
@@ -335,6 +342,8 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
                 return          # ya es un JPEG a esta calidad o menor y cabe
         pil = _decode_jpeg_reduced(jpeg, obj, limit)
     if pil is None:
+        pil = _decode_flat(obj)
+    if pil is None:
         pil = _decode_with_pypdf(page, path)
     if pil is None:
         return
@@ -361,9 +370,55 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
 
 
 def _decode_with_pypdf(page, path: list[str]):
-    """Decodifica con pypdf lo que no es un JPEG «simple» (Flate, JPX, CMYK, con
-    SMask, con /Decode...): pypdf sabe aplicar espacios de color y máscaras."""
+    """Decodifica con pypdf lo que no es un JPEG ni un Flate «simples» (JPX,
+    CMYK, con SMask, con /Decode...): pypdf sabe aplicar espacios de color y
+    máscaras. CARO: `page.images` re-codifica la imagen a PNG y la vuelve a
+    abrir (≈2.4 s por hoja A4 a 300 dpi), por eso va al final."""
     return page.images[path if len(path) > 1 else path[0]].image
+
+
+# Espacio de color -> modo de Pillow para el Flate «simple». ICCBased/Cal* se
+# leen por su número de componentes, como lo hace pypdf (sin aplicar el perfil).
+_FLAT_MODES = {"/DeviceGray": "L", "/CalGray": "L", "/DeviceRGB": "RGB", "/CalRGB": "RGB"}
+
+
+def _decode_flat(obj):
+    """Decodifica directo un Flate «simple», o ``None`` si no lo es.
+
+    Simple = ``/FlateDecode`` solo (con o sin predictor PNG, que resuelve
+    ``get_data``), 8 bits por componente, gris o RGB (directo, Cal* o ICCBased
+    de 1 o 3 componentes) y sin ``/SMask``/``/Mask``/``/Decode``. Es el escaneo
+    sin pérdida típico. Da los MISMOS píxeles que pypdf sin su vuelta por PNG
+    (rendimiento 2026-10-06: 2.4 s → 25 ms por hoja). Lo demás va por
+    ``_decode_with_pypdf``.
+    """
+    from PIL import Image
+
+    if _filters(obj) != ["/FlateDecode"]:
+        return None
+    if _resolved(obj.get("/BitsPerComponent")) != 8:
+        return None
+    if any(k in obj for k in ("/SMask", "/Mask", "/Decode")):
+        return None
+    cs = _resolved(obj.get("/ColorSpace"))
+    if isinstance(cs, (list, tuple)) and cs:
+        family = str(_resolved(cs[0]))
+        if family == "/ICCBased" and len(cs) > 1:
+            n = _resolved(_resolved(cs[1]).get("/N"))
+            mode = {1: "L", 3: "RGB"}.get(n)
+        else:
+            mode = _FLAT_MODES.get(family)
+    else:
+        mode = _FLAT_MODES.get(str(cs))
+    if mode is None:
+        return None
+    width = int(_resolved(obj.get("/Width")))
+    height = int(_resolved(obj.get("/Height")))
+    expected = width * height * (1 if mode == "L" else 3)
+    data = obj.get_data()
+    if len(data) < expected:
+        return None             # datos cortos: que pypdf decida qué hacer
+    return Image.frombytes(mode, (width, height), data[:expected])
 
 
 def _decode_jpeg_reduced(jpeg, obj, limit: int):

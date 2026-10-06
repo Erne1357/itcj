@@ -146,6 +146,21 @@ En cada pasada, cada imagen:
   decodificarla. Los JPEG se decodifican ya reducidos (`Image.draft`), no a tamaño completo;
 - que pypdf/Pillow no pueden decodificar: se deja como está, sin abortar el resto.
 
+**Cómo se decodifica (rendimiento, 2026-10-06).** Un JPEG «simple» se decodifica ya reducido
+(`Image.draft`); un **Flate «simple»** (8 bits, gris o RGB —directo, Cal* o ICCBased de 1/3
+componentes—, sin `/SMask`/`/Mask`/`/Decode`, con o sin predictor PNG) se lee directo de
+`get_data()` con `Image.frombytes` (`_decode_flat`), con los mismos píxeles que pypdf. Solo lo
+demás (JPX, CMYK, máscaras…) va por `page.images[...]` de pypdf, que es CARO: re-codifica cada
+imagen a PNG y la vuelve a abrir. Medido en prod (2026-10-05/06): las subidas de 1–2.3 s eran
+actas y certificados de escáner en Flate; esa vuelta por PNG costaba ~2.4 s por hoja A4 a 300 dpi
+(con `_decode_flat`, 25 ms; la compresión de una hoja baja de 2.6 s a 0.2 s).
+
+**Log por subida.** Cada subida (segundo salto) deja una línea INFO `documento subido`
+(`logger="itcj2.apps.titulatec.pages.student"`) con `doc_type`, `bytes_in`, `bytes_out`,
+`compress_passes` (0 = se guardó intacto), `prepare_ms` (validar + comprimir), `save_ms`
+(escribir + BD + sincronizar fase), `outcome` (`ok`|`error`) y `error_type`. Nada del archivo ni
+su nombre. Se cruza con la línea de acceso por `request_id`.
+
 Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
 BD.
 
