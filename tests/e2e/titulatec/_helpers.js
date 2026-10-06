@@ -500,6 +500,13 @@ try:
     db.execute(text("DELETE FROM titulatec_email_outbox WHERE user_id IN "
                     "(SELECT id FROM core_users WHERE first_name = :t OR username LIKE '2999%')"),
                {"t": TAG})
+    # Correos de INSCRIPCION (tt20261005d): el del rechazo cuelga SOLO de la
+    # solicitud (\`enrollment_request_id\`, sin proceso ni alumno) y los demas
+    # tambien la llevan; FK sin cascade: sin esto el DELETE de solicitudes de
+    # abajo revienta con ForeignKeyViolation.
+    db.execute(text("DELETE FROM titulatec_email_outbox WHERE enrollment_request_id IN "
+                    "(SELECT id FROM titulatec_enrollment_requests WHERE cohort_id = :c)"),
+               {"c": ${ctx.cohortId}})
     # DOCUMENTOS de los procesos del escenario (FK a \`titulatec_processes\`).
     # Hoy ninguna spec sube archivos; si alguna lo hace, sus archivos se
     # borran abajo, después del commit.
