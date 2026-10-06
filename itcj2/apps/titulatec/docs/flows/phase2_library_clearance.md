@@ -662,8 +662,10 @@ incluida la forma de INSTANCIA/dict que ensanchó la Tarea 9), `test_library_inb
 `{process_id}`, swap `outerHTML`, 400 + `X-Tt-Error`, choque = 200 + re-pintado + aviso, columna
 «Folio» en sus 3 pestañas —con el switch de impresión encendido por fixture `printing_on`: la
 anulada tras imprimir sin «—» encima —M1—, «No se imprimirá» + la nota «inscripción revocada» de
-un revocado —R13/R18—; apagado, el folio sin píldoras—), `test_cashier_inbox.py` (ídem +
-«Corte del día»: `dia` basura cae
+un revocado —R13/R18—; apagado, el folio sin píldoras—), `test_cashier_inbox.py` (authz, sin
+`{process_id}`, 400 + `X-Tt-Error`, choque = 200 + re-pintado + aviso, como Biblioteca, pero SIN
+`printing_on` ni columna «Folio»: Caja no pinta `certificate_cell` (D7), sigue con el folio suelto
+bajo su propia píldora; + «Corte del día»: `dia` basura cae
 en hoy, «Revertir…» solo en el cobro vigente del corte, aviso de éxito viendo hoy u otro día,
 `caja_pill` por fila), `test_se_library_views.py` (respaldo de SE, «No aplica», «Revocada» con el
 proceso revocado —m42; desde R15 también por pagar en Caja, sin el monto—, ninguna vista ofrece

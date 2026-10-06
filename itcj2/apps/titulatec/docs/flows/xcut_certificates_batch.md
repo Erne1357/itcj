@@ -191,16 +191,25 @@ promoción D17 de `activar-biblioteca-caja`.
   `source_ref` y `voided_at IS NULL` (un folio anulado no cuenta: sale uno nuevo). Cada dict trae
   `kind`, `source_ref`, `process_id`, `anchor` y `semester = previous_semester_key(anchor)`; orden
   por ancla, tipo e id.
-- **`run(db, *, dry_run) -> dict[(kind, semester), int]`**: `issue(..., actor_id=None,
-  semester=...)` por candidato, en ese orden, y UN commit al final; `dry_run=True` solo cuenta.
-  Idempotente: una segunda corrida da 0.
+- **`run(db, *, dry_run) -> dict[(kind, semester), int]`**: en la corrida real lista con
+  `candidates(db, lock=True)` (`FOR UPDATE OF` la tabla FUENTE, `titulatec_survey_reviews` /
+  `titulatec_library_clearances`, ordenado por id), RE-VERIFICA cada fila con el mismo predicado
+  justo antes de emitir (`_sigue_candidata`: si `revert_clearance`/`undo_prior`/`revoke` la dejó de
+  liberar entre la lista y la emisión, no recibe folio ni cuenta; sin esto quedaba un folio VIVO
+  sobre una fila no liberada y la siguiente liberación legítima daba 500 contra
+  `uq_titulatec_certificates_live_source`) y hace `issue(..., actor_id=None, semester=...)`
+  agrupado por tipo (dentro del tipo, por ancla: la numeración por `(kind, semester)` no cambia), y
+  UN commit al final; `dry_run=True` solo cuenta, sin bloquear. Idempotente: una segunda corrida
+  da 0. El estado que libera sale de las constantes del gate (`_SURVEY_RELEASED`/
+  `_LIBRARY_RELEASED`), no de literales.
 - **CLI** `titulatec emitir-folios-previos [--dry-run]` (`itcj2/cli/titulatec.py`) imprime los
   conteos por tipo y semestre, y **paso 5 de `titulatec activar-biblioteca-caja`** (después de la
   promoción D17, porque el legado nace ahí; su `--dry-run` no cuenta el legado que el re-backfill
   y la promoción crearían en la corrida real).
 - Es el ÚNICO lector de `SurveyReview.status`/`LibraryClearance.status` fuera de los dueños y de
   `ClearanceGate`: está en `_LECTORES_DE_REPARACION` de `test_clearance_gate.py` (excepción por
-  archivo, con control positivo), porque solo enumera filas ya liberadas sin su folio y su única
+  archivo, con control positivo: EXACTAMENTE 2 comparaciones, una por tipo), porque solo enumera
+  filas ya liberadas sin su folio y su única
   escritura es `CertificateService.issue`.
 - Las previas DIFERIDAS (sin proceso, `PriorClearance`) no son candidatas: reciben su folio al
   inscribirse el egresado (`apply_pending`), con el semestre de su importación.
@@ -399,8 +408,10 @@ TitulaTec», encabezado «Folios de liberación») y el contenido (spec folios C
   `page_survey_release` de «Lotes»). La lectura es `CertificateService.list_folios(db, *, kind,
   q=None, estado="vigentes", per_page=PAGE_SIZE, page=1) -> Page`: lee SOLO
   `titulatec_certificates` (invariante 4; los datos del egresado salen de lo congelado al emitir),
-  busca en `number`, `control_number` (también en MAYÚSCULA) y `student_name` con `like_pattern` +
-  `escape="\\"`, ordena `issued_at DESC, id DESC` y pagina con `utils/paging.paginate_query`; los
+  busca en `number` y `control_number` (también en MAYÚSCULA) con la búsqueda entera y en
+  `student_name` POR PALABRAS (AND de un `ILIKE` por palabra, en cualquier orden: «Juan Pérez»
+  encuentra «PÉREZ GÓMEZ JUAN», revisión final M3), todo con `like_pattern` + `escape="\\"`,
+  ordena `issued_at DESC, id DESC` y pagina con `utils/paging.paginate_query`; los
   items son dicts (`number`, `student_name`, `control_number`, `program_name`, `issued_at`,
   `voided_at`, `void_reason`).
 - **Plantilla** `partials/certificates_body.html` (raíz `#tt-cert-body`; la incluye `certificates.html`):
@@ -487,9 +498,10 @@ TitulaTec», encabezado «Folios de liberación») y el contenido (spec folios C
   `IntegrityError` contra `uq_titulatec_certificates_live_source`: la base no deja dos papeles
   válidos del mismo trámite.
 - **Inscripción revocada con constancias sin imprimir** → no salen en «Por imprimir» ni en el
-  lote (`_pending_criteria`); se quedan sin lote y sin anular, y la celda «Constancia» de las
-  bandejas y de las vistas de SE las pinta con la píldora «No se imprimirá» y la nota «inscripción
-  revocada» (R13/R18).
+  lote (`_pending_criteria`); se quedan sin lote y sin anular, y la celda de la columna «Folio»
+  (antes «Constancia») de las bandejas y de las vistas de SE, CON EL SWITCH DE IMPRESIÓN
+  ENCENDIDO, las pinta con la píldora «No se imprimirá» y la nota «inscripción revocada»
+  (R13/R18); apagado (el default) pinta solo el folio.
 - **`?por_hoja=` fuera de forma** (ausente, vacío, `abc`, `4`, …) → `_parse_por_hoja` cae en 3 por
   hoja (`DEFAULT_PER_PAGE`): nunca `400`/`500` — es un filtro de vista, igual que `_parse_dia` de
   Caja.

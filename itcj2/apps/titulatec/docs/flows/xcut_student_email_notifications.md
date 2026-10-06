@@ -631,8 +631,11 @@ reasignar NIP, reenviar el aviso de acceso) siguen en línea.
   motivo del rechazo y quién lo firma; `process_cancelled` va vacío (el correo no lleva motivo).
   Nunca token, liga, NIP ni contraseña.
 - **Despacho**: `MailDispatcher._unidad_inscripcion` — sin el «proceso revocado → obsoleto» del
-  resto (el aviso de la revocación ES una de estas filas). Basta con que salga a uno de los
-  destinatarios; `sent_to` lleva los buzones a los que salió.
+  resto (el aviso de la revocación ES una de estas filas). Sale UN solo mensaje de Graph con todos
+  los destinatarios en «Para» (la revocación: institucional + personal, la misma persona): una
+  llamada, un desenlace, sin dos esperas de hasta 30 s contra `soft_time_limit=50` ni un reintento
+  que repita el correo a quien ya lo recibió (revisión final M2). `sent_to` lleva esos buzones. El
+  envío en línea (`send_process_cancelled`) hace lo mismo.
 - **UI**: una `rejected` sin `rejection_sent_at` con su fila todavía `pending` dice «en cola» (no
   «correo no enviado») en Solicitudes y en Accesos (`StudentMail.queued_requests`, una consulta).
   Rechazar responde `X-Tt-Notice` «Se enviará el correo al egresado.» mientras la fila esté en

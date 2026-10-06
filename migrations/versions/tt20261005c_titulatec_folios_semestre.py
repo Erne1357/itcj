@@ -40,6 +40,17 @@ Los folios de previas emitidos POR UN USUARIO (captura de SE/Biblioteca/GTV)
 sobreviven a la bajada: el codigo viejo los trataria como constancias por
 imprimir (apareceran en «Por imprimir» de la pagina de Constancias).
 
+Bajar y VOLVER A SUBIR no es un ciclo neutro (revision final D2)
+-----------------------------------------------------------------
+El upgrade renumera TODO por el semestre de `issued_at`, no por el semestre
+ANTERIOR al registro que usan las previas y el legado (D5/D6). Despues del
+go-live, un downgrade seguido de otro upgrade: (1) re-archiva las previas que
+sobrevivieron al semestre de su emision; (2) cambia el numero de folios que
+ya se comunicaron (SE resuelve el papel con ellos); (3) las borradas en el
+paso 1 del downgrade (sin emisor) las vuelve a foliar el backfill con
+numeros NUEVOS. Con folios reales en produccion, corregir HACIA ADELANTE
+(una migracion nueva o un comando de datos), nunca downgrade + upgrade.
+
 ADVERTENCIA: no ejecutar este SQL a mano. Solo via `alembic upgrade head` /
 `alembic downgrade`.
 
