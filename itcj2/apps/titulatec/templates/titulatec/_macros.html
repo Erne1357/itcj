@@ -141,15 +141,16 @@
 
    `prior` (`via`/`origin` == 'prior') y `legacy` (`via` == 'legacy', solo
    Biblioteca: GTV no tiene legado) dicen POR QUÉ no hay constancia vigente
-   cuando `info.number` no trae folio: `prior` pinta «Constancia previa
-   (papel del egresado)» y `legacy` «—» (la tabla del spec junta el legado
-   con «nunca tuvo constancia»). Son parámetros separados, y no un solo
-   «motivo», porque el aviso de abajo es ADITIVO, no parte de esta rama: una
-   fila `prior` puede además tener una constancia VIEJA anulada-tras-imprimir
-   que retirar (pagó, se imprimió, Caja revirtió el pago, y luego Biblioteca
-   registró su constancia previa) — a `legacy` no le pasa en la práctica
-   (nunca emitió nada), pero el cálculo es el mismo por si el dato algún día
-   lo trae.
+   cuando `info.number` no trae folio. Desde 2026-10-05 las previas y el
+   legado SÍ llevan folio (lo emite `register_prior` o el backfill de
+   `FolioBackfillService`), así que sin vigente solo quedan las registradas
+   antes que el backfill aún no folia o las de folio anulado: `prior` pinta
+   «Constancia previa (papel del egresado)» y `legacy` «—» (la tabla del spec
+   junta el legado con «nunca tuvo constancia»). Son parámetros separados, y
+   no un solo «motivo», porque el aviso de abajo es ADITIVO, no parte de esta
+   rama: una fila `prior` o `legacy` puede además tener una constancia VIEJA
+   anulada-tras-imprimir que retirar (pagó, se imprimió, Caja revirtió el
+   pago, y luego Biblioteca registró su constancia previa).
 
    `revoked` (Ruling R13 de la revisión final): la inscripción está revocada
    (`TitulationProcess.status == 'cancelled'`). Solo cambia la vigente SIN

@@ -230,7 +230,7 @@ def process_search(q):
     en MAYÚSCULA: la forma de `CONTROL_NUMBER_RE`), su nombre en los dos órdenes
     (nombre, paterno, materno / paterno, materno, nombre) y el folio del
     proceso. `q` se normaliza aquí (`utils.paging.normalize_q`) y el patrón
-    escapa `\`, `%` y `_` (`like_pattern`).
+    escapa `\\`, `%` y `_` (`like_pattern`).
 
     El LLAMADOR une `User` por `TitulationProcess.student_id`
     (`outerjoin(User, User.id == TitulationProcess.student_id)`): sin alumno,

@@ -13,7 +13,8 @@ Comandos:
     titulatec init-email-tasks [--dry-run] Da de alta las periódicas de correo (envío + recordatorios).
     titulatec init-posgrado [--dry-run] [--allow-insert]  Clasifica las 4 carreras de posgrado y sus 4 documentos de fase 1.
     titulatec init-biblioteca-caja [--dry-run]  Paso 1: puestos/roles/permisos de Biblioteca-Caja + descripción de recordatorios (no enciende el candado).
-    titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17.
+    titulatec activar-biblioteca-caja [--dry-run] [--force]  Paso 2: pre-chequeos + requisito automático + re-backfill + promoción D17 + folios de previas y legado.
+    titulatec emitir-folios-previos [--dry-run]  Folia las previas y el legado que quedaron sin folio vigente (idempotente).
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
 """

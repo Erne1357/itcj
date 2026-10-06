@@ -615,9 +615,10 @@ class SurveyReviewService:
                                  {"reason": motivo, "origin": origen,
                                   "review_id": review.id})
 
-        # Anula la constancia vigente de esta solicitud, si la hubo. `void`
-        # regresa `None` sin problema cuando `approve` nunca emitió una
-        # (origin='prior'): no hay nada que anular y eso es el camino normal.
+        # Anula el folio vigente de esta solicitud, si lo hay: la liberación
+        # normal lo emite en `approve` y la previa en `register_prior` (desde
+        # 2026-10-05). `void` regresa `None` sin problema si no hay ninguno
+        # (una previa registrada antes de eso que el backfill aún no folia).
         # Misma transacción, antes del commit.
         from itcj2.apps.titulatec.services.certificate_service import CertificateService
         CertificateService.void(
