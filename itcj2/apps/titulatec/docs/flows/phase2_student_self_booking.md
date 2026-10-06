@@ -146,6 +146,27 @@ sequenceDiagram
     S->>DB: (su siguiente carga del tablero) asiento con «El alumno agendó»
 ```
 
+## La oferta en lote (2026-10-05)
+
+Cambio de la spec `2026-10-05-titulatec-rendimiento-design.md` §3.5 (ampliada tras R3), sin cambio de lo que ve el
+egresado. `SelfBookingService.offer` lee la ocupación de TODAS las ventanas ofrecidas con UN
+`SlotService.occupancy_map(db, [w for _, w in pares])` (antes una consulta por ventana, y dos en un «Sin
+horario») y se la pasa a `_offerable_slots(db, window, *, ahora=None, ocupacion=None)`, que con `ocupacion` no
+consulta y deja la comparación contra el cupo a `SlotService.free_slots_from` (pura). El `places_left` del «Sin
+horario» sale del MISMO mapa. `offer` no filtra por estado: la regla sigue viviendo en `SlotService._vivas`
+(⤵ [ocupación en lote](phase2_appointment_loop.md#ocupación-en-lote-2026-10-05)). La escritura (`book` →
+`_window_in_offer` → `_offerable_slots` sin `ocupacion`) sigue por la versión de una ventana, que delega en la
+misma regla. Además `_owners_serving` pide los alcances de TODOS los dueños de una vez
+(⤵ [alcance](engine_officer_scope.md#el-mismo-predicado-en-sentido-inverso-selfbookingserviceoffer-2026-09-16)).
+
+**Presupuesto medido** (`test_self_booking_offer_batch.py`, filas sembradas): `offer` = **8 consultas fijas**
+(proceso, días, ventanas, app, rol, permiso, usuarios, ocupación) con 2 o 6 ventanas y con 2 o 5 dueños (antes 13-29);
+la tabla `titulatec_review_appointments` se lee exactamente 1 vez y `core_program_positions` exactamente 2. En la
+copia de prod, `GET /titulatec/student/cita` pasó de 51 a 30 consultas (8 ventanas ofrecidas). Equivalencia: una copia
+congelada del `offer` anterior contra el nuevo con 4 relojes (antes del día, a media atención, minutos antes del cierre,
+segundo día), franja llena, cupo 2, `no_show` que sigue ocupando, cancelada que libera, fuera de rejilla y «Sin horario»
+con lugar / lleno / `cierra_pronto`.
+
 ## `eligibility()` — la única fuente de la verdad
 
 La consumen **la pantalla del alumno y la cola del encargado**. Con dos implementaciones, el cubo
@@ -460,6 +481,8 @@ abriendo o cerrando la ventana sola.
   consultas de `_agenda_ctx` (m37, 2026-10-02): pasar `elig["fase2_status"]` a
   `cita_ocupa_el_cotejo` evita releer `ProcessPhase` una segunda vez.
 - `…/test_self_booking_offer.py` — el catálogo y el predicado inverso de alcance.
+- `…/test_self_booking_offer_batch.py` — la oferta y el alcance en lote (2026-10-05): equivalencia contra
+  el `offer` congelado y presupuesto de consultas (2 vs 6 ventanas, 2 vs 5 dueños).
 - `…/test_self_booking_routes.py` — agendar y cancelar de punta a punta, las ventanas de tiempo,
   el tope, **y el IDOR**.
 - `…/test_self_booking_cancel_frees_slot.py` — cancelar libera, no presentarse no.

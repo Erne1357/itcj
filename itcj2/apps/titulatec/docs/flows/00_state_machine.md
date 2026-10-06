@@ -242,8 +242,10 @@ nunca por vigencia.** Una fila `no_show` que ya no es la vigente **sigue ocupand
 | `cancelled` | no | canceló a tiempo: el lugar vuelve al pozo |
 | `superseded` | no | su ocupación la heredó la fila nueva |
 
-Lo implementa `SlotService._ESTADOS_QUE_LIBERAN = {"cancelled", "superseded"}`, y `occupancy`
-filtra por ese conjunto y **no** por `is_current`. Añadirle `is_current == True` parece lo natural
+Lo implementa `SlotService._ESTADOS_QUE_LIBERAN = {"cancelled", "superseded"}`, y desde 2026-10-05 la
+regla vive en UN solo sitio: `SlotService._vivas` filtra por ese conjunto y **no** por `is_current`, y
+`occupancy_map` (la versión en lote) es la única que la aplica; `occupancy`, `window_occupancy` y
+`day_occupancy` delegan en ella (⤵ [ocupación en lote](phase2_appointment_loop.md#ocupación-en-lote-2026-10-05)). Añadirle `is_current == True` parece lo natural
 al leer el historial por primera vez, y vuelve a liberar los `no_show`: es el defecto que el
 auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
 (`test_slot_service.py::test_la_ocupacion_cuenta_los_no_show`).

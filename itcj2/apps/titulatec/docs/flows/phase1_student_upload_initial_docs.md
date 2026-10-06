@@ -68,11 +68,12 @@ sequenceDiagram
     participant DB as Postgres
     U->>FE: elige archivo en el dropzone
     FE->>API: POST /titulatec/student/documents/{type_code}  (multipart)
-    API->>API: archivo.size > 20 MB? → error SIN leer el cuerpo
-    API->>DB: lecturas (tipo, proceso, guarda de fase, control) y commit: cierra la transacción
-    API->>ST: run_in_threadpool(prepare_document, raw, control, file_kind) (valida + comprime; sin disco ni BD)
+    API->>DB: (hilo 1, `_cuerpo_document_upload`) lecturas y guardas: tipo, proceso, fase, set de documentos, archivo.size > 20 MB → error SIN leer el cuerpo; commit: cierra la transacción
+    API->>API: await archivo.read() (lo único que hace la ruta async en el event loop)
+    API->>DB: (hilo 2) repite las guardas sobre el estado de AHORA
+    API->>ST: prepare_document(raw, control, file_kind) (valida + comprime; en el hilo, sin disco ni BD)
     ST-->>API: PreparedDocument (bytes a guardar)
-    API->>SVC: run_in_threadpool(save, db, process, type_code, ..., prepared=...)
+    API->>SVC: save(db, process, type_code, ..., prepared=...) (en el hilo)
     SVC->>ST: write_document(prepared, ...) (temporal + os.replace; luego borra versiones viejas)
     ST-->>SVC: {file_path, mime, size (del archivo GUARDADO)}
     SVC->>DB: UPSERT Document (review_status=pending, version++)
@@ -148,8 +149,12 @@ En cada pasada, cada imagen:
 Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
 BD.
 
-La compresión es CPU (segundos en un PDF de 20 MB): la ruta corre `prepare_document` y
-`DocumentService.save` con `run_in_threadpool`. Y la corre **sin transacción abierta**: antes de
+La compresión es CPU (segundos en un PDF de 20 MB): `prepare_document` y `DocumentService.save` corren
+en el threadpool. Desde 2026-10-05 (convención de TODAS las rutas, `CLAUDE.md` §1 de la app) lo hace toda la
+ruta: `document_upload` es `async` solo para `await archivo.read()` y delega en `_cuerpo_document_upload`, que
+corre en el hilo en DOS saltos —el primero valida y devuelve la respuesta final o `None`; la ruta lee el archivo;
+el segundo repite las guardas sobre el estado de AHORA, comprime, guarda y renderiza—, a costa de ~6 consultas
+de más por subida. Y lo corre **sin transacción abierta**: antes de
 leer el cuerpo hace `commit()` de la transacción de lectura (no hay nada pendiente), así la
 conexión no queda «idle in transaction» — con PgBouncer transaccional, un backend fijado —
 mientras se comprime; `DocumentService.save(..., prepared=...)` solo escribe el archivo y la fila

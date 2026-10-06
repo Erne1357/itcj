@@ -1087,7 +1087,8 @@ class AppointmentService:
                 "Tu cita de cotejo fue cancelada", appt)
             # El correo, bajo la MISMA condición (spec 2026-09-28 §5 #7): ni
             # por la cancelación del propio alumno (D9) ni por la de la
-            # revocación (`notify=False`: su aviso es `send_process_cancelled`).
+            # revocación (`notify=False`: su aviso es el correo `process_cancelled`,
+            # que `ProcessService.cancel` encola).
             # Aquí el actor nunca es el alumno, así que `by` es el encargado.
             from itcj2.apps.titulatec.services.student_mail import StudentMail
             StudentMail.appointment_changed(

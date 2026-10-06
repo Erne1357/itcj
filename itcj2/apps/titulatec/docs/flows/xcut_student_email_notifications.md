@@ -642,6 +642,11 @@ reasignar NIP, reenviar el aviso de acceso) siguen en línea.
   en línea de siempre (`send_*` después del commit; el rechazo sella como antes). Ningún flujo de
   inscripción se queda sin correo.
 - **Bajada** de `tt20261005d`: borra las filas sin `user_id` (rechazos encolados).
+- **Despliegue y ventana**: `alembic upgrade head` (`tt20261005d`) y recrear el celery worker y el beat SIN demora
+  (`deploy.sh`, paso 11.1). Entre que el backend nuevo encola y el worker nuevo despacha, el despachador VIEJO no
+  sabe componer estos 4 kinds y cierra sus filas `obsolete` («sin composición»): ese correo no sale (la bandeja de
+  Solicitudes dice «correo no enviado», que es cierto). La reversa tiene la misma ventana invertida, y bajar la
+  migración pierde los rechazos encolados. Procedimiento completo: `CLAUDE.md` §14 de la app.
 
 ---
 

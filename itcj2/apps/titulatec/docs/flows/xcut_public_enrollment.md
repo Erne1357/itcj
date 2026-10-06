@@ -283,13 +283,14 @@ sequenceDiagram
 
 ## A qué buzón va cada correo
 
-| Correo | Método | Destinatario |
-|---|---|---|
-| Liga de activación | `send_verify_enrollment` | correo **personal** de la solicitud |
-| Usuario + NIP (cuenta nueva) | `send_enrollment_approved` | correo **personal** |
-| Rechazo con motivo | `send_enrollment_rejected` | correo **personal** |
-| «Ya tienes un proceso» | `send_already_enrolled` | **institucional** (`student_email(user)`) |
-| Folio al activarse (alarma) | `send_enrollment_done` | **institucional** |
+| Correo | Método | Destinatario | Camino (2026-10-05) |
+|---|---|---|---|
+| Liga de activación | `send_verify_enrollment` | correo **personal** de la solicitud | en línea (lleva la liga) |
+| Usuario + NIP (cuenta nueva) | `send_enrollment_approved` | correo **personal** | en línea (lleva el NIP) |
+| Rechazo con motivo | `send_enrollment_rejected` | correo **personal** | outbox `enrollment_rejected` |
+| «Ya tienes un proceso» | `send_already_enrolled` | **institucional** (`student_email(user)`) | outbox `already_enrolled` |
+| Folio al activarse (alarma) | `send_enrollment_done` | **institucional** | outbox `enrollment_verified` |
+| Inscripción revocada (sin motivo) | `send_process_cancelled` | **institucional** + personal | outbox `process_cancelled` |
 
 El destinatario lo decide cada método del helper, nunca quien llama: ninguno recibe `to`. Lo fija
 `test_ningun_correo_de_la_solicitud_acepta_un_destinatario_del_llamador`. Sin token de Graph y fuera
@@ -508,7 +509,9 @@ aceptándola — solo el formulario público dejó de alimentarla.
 - Límite por IP (500/hora por omisión, `TITULATEC_ENROLL_RL_LIMIT_IP`; en prod todos comparten la IP de la puerta de enlace de Docker y el NAT del campus, así que es de hecho global — hotfix 2026-09-28) y por número de control (3/día): se **leen** antes y se **cobran** solo tras
   un `create` que termina; al agotarse, tarjeta «Demasiados intentos» con `Retry-After`. Redis
   caído → la misma tarjeta (`fail_open=False`).
-- Sin `Content-Length` → 411; cuerpo > 256 KB → 413.
+- Sin `Content-Length` → 411; cuerpo > 256 KB → 413. La guarda de tamaño corre en el cuerpo `async` de la ruta
+  ANTES de `request.form()` (que bufferea el cuerpo entero); el resto de la ruta corre en el threadpool
+  (`_cuerpo_*`, `CLAUDE.md` §1 de la app).
 - Más de una convocatoria abierta → GET 503 con tarjeta; POST 503 con `X-Tt-Error` (htmx no
   swappea en 5xx).
 - Excepción al escribir → `rollback` y la misma tarjeta de éxito (ninguna entrada produce un 500).

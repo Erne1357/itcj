@@ -91,7 +91,8 @@ la rejilla; la UI las muestra en una banda **«Fuera de la rejilla»** en vez de
 
 **Sin horario, en corto (2026-09-29, D3/D4 — detalle completo en el flujo del egresado):** el
 egresado **aparta lugar sin elegir hora** — su cita guarda día + hora de apertura — hasta llenar
-`capacity`, que en este modo es el cupo TOTAL del espacio. `SlotService.occupancy` cuenta **toda**
+`capacity`, que en este modo es el cupo TOTAL del espacio. `SlotService.occupancy_map` (la regla;
+`occupancy` es su caso de una sola ventana) cuenta **toda**
 cita viva de la ventana bajo la apertura, sea cual sea su hora real: una cita de legado que un
 encargado sentó a mano a otra hora (p. ej. 10:30) dentro de un `walkin` sigue ocupando un lugar y
 se sigue anunciando con **su** hora, nunca el rango (regla de legado, D11 — ver
@@ -465,6 +466,38 @@ El indicador (`#appt-skel`) vive **fuera** del shell: dentro se destruiría esta
 ## Cola del encargado sin consultas por candidato (2026-10-04)
 
 Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §8, sin cambio de listas, orden, contadores ni UI. Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les agendes», «Liberaciones pendientes») salen de `AppointmentService.queue_candidates` (`services/appointment_service.py:352`, antes `_pending_candidates`), calculado UNA vez por `_shell_ctx` (`pages/appointments.py:959`, uso en `:1017`) con mapas en lote: `DocumentService.initial_docs_approved_map` (`services/document_service.py:208`, misma regla perfil + R-G) y `SelfBookingService.cancellations_map` / `blocked_map` (`services/self_booking_service.py:196`, `:224`, `GROUP BY`). Los métodos por proceso y los `list_*` conservan firma y delegan. `list_appointments` puebla `process` desde su JOIN (`contains_eager`). `_shell_ctx` pasó de 252 a 40 consultas con 3 candidatos por clase y de 2115 a 40 con 30 (test de equivalencia contra el algoritmo por fila congelado). El buscador `#appt-q` ya llevaba `hx-preserve` (es el patrón que copiaron las demás bandejas).
+
+## Ocupación en lote (2026-10-05)
+
+Cambio de la spec `2026-10-05-titulatec-rendimiento-design.md` §3.4/§3.5 (R3/R4), sin cambio de listas, orden,
+chips, textos ni UI. La regla «¿esta cita ocupa lugar?» tiene **UNA implementación, en lote**, y todo lo demás
+delega en ella (invariante 2 de la spec). Todo en `services/slot_service.py`:
+
+| Función | Qué hace |
+|---|---|
+| `_vivas(q)` | El filtro: `status NOT IN _ESTADOS_QUE_LIBERAN`, nunca `is_current` (⤵ [máquina de estados](00_state_machine.md)). Es la ÚNICA función del módulo que lee `_ESTADOS_QUE_LIBERAN` (lo fija un AST en `test_slot_occupancy_batch.py`) |
+| `occupancy_map(db, windows, *, excluir_process_id=None, walkin=None, inicio=None)` | `{window_id: {hora: n}}` con UN `SELECT window_id, scheduled_at` y `window_id IN (...)`; reparte en Python (walkin → la apertura o `inicio`; si no, la hora real). Toda ventana pedida con id sale en el mapa (`{}` sin citas); sin ventanas no consulta |
+| `occupancy(db, window, ...)` | `occupancy_map(db, [window], ...)[window.id]` |
+| `window_occupancy` · `window_occupancy_map(db, windows)` | (ocupados en franja real, capacidad = franjas × cupo), por ventana; la individual delega en la de lote vía `_totales` |
+| `day_occupancy` · `day_occupancy_map(db, windows_by_day)` | lo mismo sumado por día (`_sumar`) |
+| `out_of_grid` · `out_of_grid_map(db, windows)` | la banda «Fuera de la rejilla»: un SELECT con `_vivas`; un `walkin` da `[]` sin consultar; orden `(scheduled_at, id)` (antes sin `ORDER BY`) |
+| `windows_for_day` · `windows_for_days(db, day_ids, *, owner_id=None, solo_abiertas=True)` | las ventanas de varios días en un `IN`, mismo orden `(start_time, id)`; todo día pedido sale (`[]` si no tiene) |
+| `free_slots` · `free_slots_from(window, ocupacion)` | la comparación contra el cupo, pura (sin BD); la usa también `SelfBookingService.offer` |
+
+**Quién las usa** (`pages/appointments.py`): `_dias_ctx` (el carril de días) = `list_rows` → `windows_for_days` →
+`day_occupancy_map`: **3 consultas fijas** para todo el carril. `_board_ctx` (el tablero) arma
+`window_occupancy_map(mías + ajenas)` y `out_of_grid_map(mías con franjas)` UNA vez antes del bucle; las ajenas
+ya no llaman dos veces a `window_occupancy` por ventana. **Presupuesto medido** (convocatoria sembrada, días ×
+ventanas 3×2 vs 6×4, `test_slot_occupancy_batch.py`): `_dias_ctx` 10 / 31 → 3 / 3; `_board_ctx` 13 / 17 → 12 / 12;
+vista completa `agenda`/día 38 / 63 → 30 / 30. En la copia de prod, `GET /titulatec/admin/appointments` pasó de 94 a
+28 consultas (con la caché de authz tibia de R2). Equivalencia: oráculo congelado por ventana (`_viejo_*`) contra
+los mapas — walkin, franjas, canceladas/no_show/attended, ventanas sin citas, exclusión de un proceso en dos
+ventanas del mismo lote.
+
+**Lo que sigue con una consulta por ventana** (baja frecuencia; ya delegan en la regla única, solo pagan una
+consulta cada una): `_espacios_ctx` (pestaña Espacios) y `_detail_ctx` (walk-ins de hoy del encargado). La
+oferta del egresado (`SelfBookingService.offer`) también pasó a lote: ⤵
+[el egresado agenda su propia cita](phase2_student_self_booking.md#la-oferta-en-lote-2026-10-05).
 
 ## Limitaciones conocidas
 

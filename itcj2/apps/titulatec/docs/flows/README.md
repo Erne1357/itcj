@@ -16,6 +16,10 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - **Antes de tocar un flujo en código**, lee su `.md` aquí. **Después de cambiarlo**,
   actualiza el `.md` en el mismo commit. Doc desincronizado = doc inútil.
 - **Flujo nuevo** → copia [`_TEMPLATE.md`](_TEMPLATE.md), no inventes estructura.
+- **Rutas (desde 2026-10-05)**: las de `pages/` son `def`, salvo las que leen el form o un archivo, que son
+  `async def` solo para ese `await` y terminan en `return await run_in_threadpool(_cuerpo_x, ...)`. Cuando un
+  flujo dice «la ruta abre su `SessionLocal()`», es la ruta `def` o su `_cuerpo_*`. Lo fija
+  `tests/fastapi/titulatec/test_route_threadpool_convention.py`; forma completa en el `CLAUDE.md` de la app, §1.
 - **No dupliques** la máquina de estados ni el glosario: enlázalos.
 - Convención de nombre: `{faseOrScope}_{actor}_{accion}.md` en minúsculas-kebab.
   - `phaseN_...` para flujos atados a una fase del proceso.

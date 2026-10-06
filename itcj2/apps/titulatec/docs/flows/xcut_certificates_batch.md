@@ -256,7 +256,8 @@ un lote los incluye a todos.
   primero por ser el de siempre), nunca `<script>` (spec 2026-10-02 §3.1/E4). Esa ruta sigue
   siendo **`def`, no `async def`** (Ruling R23): WeasyPrint es CPU bloqueante —30 constancias
   1.7 s, 300 constancias 14.6 s, medido en el contenedor— y en el event loop congelaba un worker
-  HTTP de toda la plataforma en cada PDF; como `def`, FastAPI la corre en su threadpool.
+  HTTP de toda la plataforma en cada PDF; como `def`, FastAPI la corre en su threadpool (desde 2026-10-05 es la convención de TODAS las rutas de la
+  app, `CLAUDE.md` §1).
   **Dentro del escritorio del core (2026-10-05)**: el `<iframe>` del escritorio llevaba `sandbox` y
   Chromium bloqueaba el visor de PDF en ese contexto («bloqueó esta página» al abrir el lote con
   clic izquierdo). Se retiró el `sandbox` del iframe

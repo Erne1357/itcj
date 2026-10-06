@@ -128,7 +128,7 @@ Son dos cosas distintas y aquí van como dos columnas:
   Reemplaza el **39** de la auditoría manual del 2026-09-01 (ya un PISO desde entonces, por
   `07`/`08`/`survey_2026_09`/el delta de biblioteca-caja). Los 10 de biblioteca-caja de ayer SÍ
   entran en esta cuenta, salvo los DOS `api.print_certificates` (`library_clearance`/
-  `survey_review`): esos se exigen por OTRA vía —`_visible_kinds` (antes `_printable_kinds`)/`get_user_permissions_for_app`
+  `survey_review`): esos se exigen por OTRA vía —`_visible_kinds` (antes `_printable_kinds`)/`cached_perms`
   en `pages/certificates_admin.py`, pertenencia directa al set de permisos del actor, nunca
   `require_page_app`— así que el método (y la cifra) de este párrafo no los cuenta, aunque la
   tabla de abajo sí los liste como exigidos. Como todo conteo sobre código: hay que re-correr el
@@ -250,8 +250,12 @@ detalle en sus propios flujos.
 ## UI / convenciones front
 
 - Shell admin (desktop): `templates/titulatec/admin/base_admin.html` (sidebar único, activo por `current_route`; en <992px pasa a drawer + topbar, ver [responsive](xcut_student_shell_embed.md)).
-- Menú admin **data-driven por permiso**: `_ADMIN_NAV` + `admin_nav_items()` en `pages/nav.py:95-120`,
-  inyectado por `render_titulatec`. Una página sin entrada ahí es invisible.
+- Menú admin **data-driven por permiso**: `_ADMIN_NAV` + `admin_nav_items(user_id, db=None)` en
+  `pages/nav.py:119-170` (permisos por `cached_perms`), inyectado por `render_titulatec` como un callable
+  perezoso (`admin_nav`) que solo evalúa `base_admin.html`. Una página sin entrada ahí es invisible.
+- Rutas de `pages/` (2026-10-05): `def` si no hacen `await`; si leen el form o un archivo, `async def` solo para
+  ese `await` y `return await run_in_threadpool(_cuerpo_x, ...)` (`CLAUDE.md` §1 de la app;
+  `test_route_threadpool_convention.py`).
 - Shell alumno (mobile-first): `templates/titulatec/student/base_student.html` (appbar + drawer hamburguesa core / rail en desktop; embebible en el shell del core sin chrome duplicada). Ver [integración en el shell](xcut_student_shell_embed.md).
 - La app es **pages-only**: `api/` y `schemas/` están vacíos y `/api/titulatec/v2` no monta
   sub-routers. HTMX devuelve **parciales HTML**; las acciones que mutan re-renderizan su sección.

@@ -64,7 +64,7 @@ sequenceDiagram
     participant DB as Postgres
     S->>FE: clic en tab "Alumnos"
     FE->>API: GET /titulatec/admin/cohorts/{id}?tab=alumnos
-    API->>DB: Cohort + get_user_permissions_for_app + _students_ctx
+    API->>DB: Cohort + cached_perms + _students_ctx
     API-->>FE: cohort_detail.html completo
     Note over FE: hx-select recorta #cohort-pane · outerHTML · push-url
     FE-->>S: barra de tabs + cuerpo nuevos, sidebar intacto
@@ -127,7 +127,7 @@ está abierto (`CohortService.is_public_enrollment_open`). El personal nunca que
 esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `closed` o `draft`.
 
 - **Editabilidad por contexto, igual que el calendario**: `_window_ctx(db, cohort, can_edit=...)`
-  resuelve `can_edit_window = "titulatec.cohort.api.update" in get_user_permissions_for_app(...)`
+  resuelve `can_edit_window = "titulatec.cohort.api.update" in cached_perms(...)`
   dentro de la rama `resumen` de `cohort_detail`. Sin el permiso, la tarjeta se pinta en solo
   lectura (fechas y estado, sin `<form>`).
 - **El POST lleva UN SOLO código en `perms`**, `titulatec.cohort.api.update`, y es deliberado:
@@ -194,8 +194,8 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   `Calendar(firstweekday=0).monthdatescalendar(year, month)` del **mes actual** al abrir el tab,
   con `on = fecha ∈ ReviewDayService.list_days`, más `prev_month`/`next_month` precalculados.
 - **La editabilidad es del contexto, no de la ruta**: `cohort_detail()` resuelve
-  `can_edit_days = "titulatec.cohort.api.review_days" in get_user_permissions_for_app(...)`
-  (`pages/admin.py:397-399`). Con el permiso, cada celda del mes lleva
+  `can_edit_days = "titulatec.cohort.api.review_days" in cached_perms(...)`
+  (`cohort_detail`, `pages/admin.py`; `cached_perms` es la misma fuente que el gate, sin consultas con la caché tibia). Con el permiso, cada celda del mes lleva
   `hx-post .../review-days/toggle`; sin él las celdas son `<td>` inertes y la cabecera dice
   **"· solo lectura"** (`cohort_days_calendar.html:7,19-29`).
 - Hoy solo `titulatec_school_services_head` tiene `titulatec.cohort.api.review_days`
@@ -264,7 +264,8 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   exige el permiso. Ningún template enlaza a ella; se llega solo por las flechas de mes / el toggle
   del tab, que recortan `#tt-cal-wrap` con `hx-select`.
 - Las rutas de este flujo abren su propia `SessionLocal()` con `try/finally: db.close()`; ninguna
-  usa `DbSession`. La única sesión inyectada es la de `require_page_app` (gate).
+  usa `DbSession`. La única sesión inyectada es la de `require_page_app` (gate). Son `def` (corren en el
+  threadpool); las que leen el form delegan en un `_cuerpo_*` síncrono (`CLAUDE.md` §1 de la app).
 - `_cohort_summary_ctx` construye un dict `defs` (`pages/admin.py:61`) que no usa.
 - De los permisos `cohort.*` seedeados ya gatean código 6: `page.list`, `api.create`,
   `api.import_csv`, `api.review_days`, `api.cotejo_reqs` y —desde 2026-09-08—
