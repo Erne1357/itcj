@@ -835,10 +835,11 @@ class TestFolioSinImpresion:
             contiene=(f'<span class="tt-mono small">{cert.number}</span> {NOTA_LEGADO}',),
             no_contiene=PALABRAS_DE_IMPRESION + (NOTA_PREVIA,))
 
-    def test_la_vigente_de_un_revocado_muestra_el_folio_y_no_dice_que_no_se_imprimira(
+    def test_la_vigente_de_un_revocado_muestra_el_folio_y_la_nota_sin_decir_que_no_se_imprimira(
             self, client_as, db_session, caso, make_survey_review):
         """Con el switch encendido son «No se imprimirá» + «inscripción
-        revocada» (R13/R18, prueba de la sección 7); apagado, el folio a secas."""
+        revocada» (R13/R18, prueba de la sección 7); apagado, el folio y la nota
+        tenue «inscripción revocada» (D8), sin píldora ni «No se imprimirá»."""
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
@@ -855,11 +856,12 @@ class TestFolioSinImpresion:
         caso["proc"].status = "cancelled"
         db_session.flush()
 
+        nota = '<span class="small text-body-secondary">inscripción revocada</span>'
         _en_las_dos_vistas(
             client_as, caso["officer"], caso["proc"].id,
-            contiene=(f'<span class="tt-mono small">{biblioteca.number}</span>',
-                      f'<span class="tt-mono small">{encuesta.number}</span>'),
-            no_contiene=PALABRAS_DE_IMPRESION + ("inscripción revocada",))
+            contiene=(f'<span class="tt-mono small">{biblioteca.number}</span> {nota}',
+                      f'<span class="tt-mono small">{encuesta.number}</span> {nota}'),
+            no_contiene=PALABRAS_DE_IMPRESION)
 
 
 # ===========================================================================
@@ -1062,6 +1064,41 @@ def test_certificate_cell_nunca_queda_vacia():
     html = " ".join(tpl.render(info={"number": None, "voided_printed": None}).split())
 
     assert html == "—"
+
+
+def test_certificate_cell_apagada_marca_la_vigente_revocada_con_una_nota_tenue():
+    """D8 (spec folios 2026-10-05): con el switch APAGADO una inscripción
+    revocada (`revoked=True`) agrega junto al folio la nota tenue «inscripción
+    revocada» -sin píldora-; sin revocar, la celda es exactamente la de antes.
+    Con `prior`/`legacy` la nota va en su propio renglón (junto a «previa» se
+    leería «previa inscripción revocada»). Sin folio vigente no hay folio que
+    marcar: nada cambia."""
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/_macros.html" import certificate_cell %}'
+        '{{ certificate_cell(info, prior=prior, legacy=legacy, revoked=revoked) }}')
+
+    def _celda(info, *, prior=False, legacy=False, revoked=False):
+        return tpl.render(info=info, prior=prior, legacy=legacy,
+                          revoked=revoked).strip()
+
+    vigente = {"number": "BIB-2031A-0001", "printed": False, "batch_id": None,
+               "batch_at": None, "voided_printed": None}
+    folio = '<span class="tt-mono small">BIB-2031A-0001</span>'
+    nota = '<span class="small text-body-secondary">inscripción revocada</span>'
+
+    assert _celda(vigente) == folio
+    assert _celda(vigente, revoked=True) == f"{folio} {nota}"
+    assert _celda(vigente, prior=True, revoked=True) == (
+        f'{folio} <span class="small text-body-secondary">previa</span><br>{nota}')
+    assert _celda(vigente, legacy=True, revoked=True) == (
+        f'{folio} <span class="small text-body-secondary">previo al sistema</span><br>{nota}')
+    assert "tt-pill" not in _celda(vigente, revoked=True)
+    # Sin folio vigente: nada que marcar (la celda de siempre).
+    sin_folio = {"number": None, "voided_printed": None}
+    assert _celda(sin_folio, revoked=True) == _celda(sin_folio) == "—"
+    assert "inscripción revocada" not in _celda(None, prior=True, revoked=True)
 
 
 @pytest.mark.usefixtures("printing_on")

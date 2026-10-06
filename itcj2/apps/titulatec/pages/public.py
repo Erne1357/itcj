@@ -641,7 +641,7 @@ def _solicitud_existente(db, user: dict | None) -> dict | None:
             return None
         return {"status": "imported", "origin": "import", "reason": None,
                 "reviewed_by": None, "reviewed_at": None, "review_id": None,
-                "response_id": importada["response_id"], "paper_to_collect": False}
+                "response_id": importada["response_id"]}
     except Exception:
         logger.warning("survey: fallo comprobando la solicitud existente (user=%s)",
                        user.get("sub"))

@@ -8,9 +8,13 @@ design.md` §4.4, D1/D3, R7/R9/R10).
 - Liberaciones (GTV): «Ver respuestas» en previas con `response_id`, píldora
   «Constancia por recoger» y «Marcar constancia entregada»
   (`POST /titulatec/admin/liberaciones/{review_id}/entregada`).
-- Alumno: «Recoge tu constancia de liberación en Gestión Tecnológica y
-  Vinculación.» solo mientras el papel esté pendiente.
-- Correo de la previa (R10): la misma línea solo si `paper_pending`.
+- Alumno: desde D9 (spec folios 2026-10-05) NUNCA se le pide recoger ni llevar
+  la constancia en papel («Recoge tu constancia de liberación en Gestión
+  Tecnológica y Vinculación.»): en tablero, «Mi cita» y estado público de la
+  encuesta una previa dice que no necesita llevar nada; con o sin papel por
+  recoger, entregado o no. «Constancia por recoger» sigue siendo solo de GTV.
+- Correo de la previa: el mismo texto con o sin `paper_pending` (R10 se
+  retiró con D9).
 
 Nada aquí usa el Excel real (datos personales): las respuestas se siembran
 directo en el modelo, con un formulario de código único.
@@ -29,6 +33,12 @@ import pytest
 ENC = "/titulatec/admin/encuestas"
 LIB = "/titulatec/admin/liberaciones"
 PICKUP = "Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación."
+LLEVA_PAPEL = "Lleva tu constancia física"
+# D9: lo que lee la previa en lugar de las dos líneas viejas.
+SIN_PAPEL_TABLERO = ("Constancia previa registrada: no necesitas llevar nada; tu "
+                     "liberación ya quedó registrada para Servicios Escolares.")
+SIN_PAPEL_PUBLICO = ("Para tu cita de cotejo no necesitas llevar nada: tu liberación "
+                     "ya quedó registrada para Servicios Escolares")
 RAW_NOTE = "Valor original, no coincide con las opciones actuales"
 
 SURVEY_PERMS = (
@@ -410,13 +420,14 @@ def test_marcar_entregada_inexistente_responde_404(client_as, make_gtv):
 # ---------------------------------------------------------------------------
 # Alumno
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("estado,ve", [
-    ("pendiente", True), ("entregada", False), ("sin_papel", False),
-])
-def test_alumno_ve_recoge_tu_constancia_solo_mientras_esta_pendiente(
+@pytest.mark.parametrize("estado", ["pendiente", "entregada", "sin_papel"])
+def test_alumno_nunca_ve_recoge_ni_lleva_tu_constancia_y_lee_que_no_lleva_nada(
     client_as, db_session, make_survey_form, seed_phase_defs, make_cohort,
-    previa, make_user, estado, ve,
+    previa, make_user, estado,
 ):
+    """D9: con papel por recoger, ya entregado o sin papel, las tres vistas del
+    egresado dicen lo mismo -no necesita llevar nada-, y ninguna conserva el
+    gancho `data-tt-paper-pickup` (la línea de recoger se retiró entera)."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     seed_phase_defs()
@@ -431,15 +442,21 @@ def test_alumno_ve_recoge_tu_constancia_solo_mientras_esta_pendiente(
     student = db_session.get(User, proc.student_id)
     c = client_as(student)
 
-    for url in ("/titulatec/encuesta-egresados", "/titulatec/student/dashboard",
-                "/titulatec/student/cita"):
+    esperado = {"/titulatec/encuesta-egresados": SIN_PAPEL_PUBLICO,
+                "/titulatec/student/dashboard": SIN_PAPEL_TABLERO,
+                "/titulatec/student/cita": SIN_PAPEL_TABLERO}
+    for url, frase in esperado.items():
         resp = c.get(url, follow_redirects=False)
         assert resp.status_code == 200, (url, resp.text[:300])
-        assert (PICKUP in _texto(resp.text)) is ve, url
+        texto = _texto(resp.text)
+        assert PICKUP not in texto, url
+        assert LLEVA_PAPEL not in texto, url
+        assert "data-tt-paper-pickup" not in resp.text, url
+        assert frase in texto, url
 
 
 # ---------------------------------------------------------------------------
-# Correo de la previa (R10)
+# Correo de la previa (R10 se retiró con D9)
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def _correo_encendido(monkeypatch):
@@ -473,24 +490,30 @@ def _correo_previa(db_session, proc):
     return _texto(html)
 
 
-@pytest.mark.parametrize("paper,ve", [(True, True), (False, False)])
-def test_correo_de_previa_lleva_la_linea_de_recoger_solo_con_papel(
-    _correo_encendido, db_session, seed_phase_defs, previa, paper, ve,
+@pytest.mark.parametrize("paper", [True, False])
+def test_correo_de_previa_dice_lo_mismo_con_o_sin_papel_y_no_pide_llevar_ni_recoger(
+    _correo_encendido, db_session, seed_phase_defs, previa, paper,
 ):
+    """D9: antes la línea de recoger salía solo con `paper_pending`; ahora el
+    correo de la previa es el mismo -no hay que llevar nada- y ninguna de las
+    dos frases viejas sale."""
     seed_phase_defs()
     _, proc, _ = previa("99470030", paper=paper, current_phase=2, phases=False)
 
     texto = _correo_previa(db_session, proc)
 
     assert "semestre anterior" in texto
-    assert (PICKUP in texto) is ve
+    assert ("Para tu cita de cotejo no necesitas llevar nada: tu liberación ya quedó "
+            "registrada para Servicios Escolares.") in texto
+    assert PICKUP not in texto
+    assert LLEVA_PAPEL not in texto
 
 
-def test_correo_de_previa_omite_la_linea_si_ya_se_entrego_al_enviar(
+def test_correo_de_previa_no_cambia_si_el_papel_ya_se_entrego(
     _correo_encendido, db_session, seed_phase_defs, previa, make_user,
 ):
-    """Re-validado al ENVIAR (como el resto del compositor, D8): si GTV ya
-    entregó el papel dentro de la espera, «recoge» sería falso."""
+    """Entregado el papel dentro de la espera del outbox, el correo sigue
+    siendo el mismo (ya no hay nada que re-validar al enviar)."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     seed_phase_defs()
@@ -501,6 +524,25 @@ def test_correo_de_previa_omite_la_linea_si_ya_se_entrego_al_enviar(
     texto = _correo_previa(db_session, proc)
 
     assert PICKUP not in texto
+    assert "no necesitas llevar nada" in texto
+
+
+def test_el_payload_del_correo_de_la_previa_ya_no_lleva_paper_pending(
+    _correo_encendido, db_session, seed_phase_defs, previa,
+):
+    """D9: nada del correo depende ya del papel; el dato `paper_pending` vive
+    en la solicitud (GTV), no en la bandeja de correos."""
+    from itcj2.apps.titulatec.models import EmailOutbox
+
+    seed_phase_defs()
+    _, proc, _ = previa("99470032", paper=True, current_phase=2, phases=False)
+    db_session.flush()
+
+    (fila,) = (db_session.query(EmailOutbox)
+               .filter_by(process_id=proc.id, kind="survey_approved").all())
+
+    assert "paper_pending" not in (fila.payload or {})
+    assert fila.payload["origin"] == "prior"
 
 
 # ---------------------------------------------------------------------------

@@ -77,7 +77,7 @@
    gemelo de `library_clearance_pill(status, via=None)` — una solicitud
    `approved`/`origin='prior'` (el egresado trae su constancia del semestre
    anterior, sin encuesta real detrás) se distingue con su propia píldora en
-   vez de "Liberada". #}
+   vez de "Liberada" (D9, folios 2026-10-05: tampoco lleva el papel al cotejo). #}
 {% macro survey_review_pill(status, origin=None) %}
   {% if status == "missing" %}{{ pill("Encuesta pendiente", "neutral", "clipboard") }}
   {% elif status == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
@@ -92,7 +92,7 @@
    de `ClearanceGate.status` (o el `status` de `LibraryClearanceService`) a
    (texto, tono, icono). `missing` (sin fila) se dice igual que `pending`:
    Biblioteca todavía no lo revisa. `via` es `cleared_via` y solo distingue la
-   constancia previa (D9: el egresado lleva su papel); `payment`, `no_charge`
+   constancia previa (D9); `payment`, `no_charge`
    y `legacy` son «Liberado». `not_required` (convocatoria sin el requisito
    automático) NO pinta nada: no hay liberación que mostrar. `not_applicable`
    (Ruling R21: ya pasó su cotejo sin un no adeudo liberado) es una píldora
@@ -130,9 +130,13 @@
    fila con constancia anulada tras imprimir: ya no hay papel que retirar ni
    que mencionar, y la celda nunca queda en blanco-. Apagado NUNCA salen
    «Impresa», «Sin imprimir», «No se imprimirá» ni «Anulada tras imprimir»;
-   `info.printed`, `info.batch_*`, `info.voided_printed` y `revoked` no se
-   leen. Whitespace: apagado, la celda es EXACTAMENTE el `<span>` del folio
-   (más la nota), sin espacios ni `<br>` sueltos.
+   `info.printed`, `info.batch_*` e `info.voided_printed` no se leen.
+   `revoked` (D8, 2026-10-05, inscripción revocada) SÍ se lee, pero solo con
+   folio vigente: agrega la nota tenue «inscripción revocada» junto al folio
+   (sin píldora; con `prior`/`legacy` en su propio renglón, porque pegada a
+   «previa» se leería «previa inscripción revocada»). Whitespace: apagado, la
+   celda es EXACTAMENTE el `<span>` del folio (más las notas), sin espacios
+   ni `<br>` sueltos.
 
    `info` es el dict de `CertificateService.print_status_map` para el origen
    de esa fila (`library_clearance:{id}` / `survey_review:{id}`), o `None`
@@ -217,6 +221,8 @@
       {%- if prior %} <span class="small text-body-secondary">previa</span>
       {%- elif legacy %} <span class="small text-body-secondary">previo al sistema</span>
       {%- endif -%}
+      {#- D8: inscripción revocada = el folio sigue vigente; solo la nota tenue (sin píldora). -#}
+      {%- if revoked %}{% if prior or legacy %}<br>{% else %} {% endif %}<span class="small text-body-secondary">inscripción revocada</span>{% endif -%}
     {%- elif prior -%}
       <span class="small text-body-secondary">Constancia previa (papel del egresado)</span>
     {%- else -%}

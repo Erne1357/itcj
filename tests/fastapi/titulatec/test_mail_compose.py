@@ -684,7 +684,10 @@ def test_constancia_previa_de_encuesta_usa_su_texto(db_session, con_biblioteca):
     assert c.subject == "[TitulaTec ITCJ] Tu encuesta de egresados quedó registrada como liberada"
     assert c.context["origin"] == "prior"
     assert "Tu encuesta de egresados del semestre anterior quedó registrada como liberada" in texto
-    assert "Lleva tu constancia física a tu cita de cotejo" in texto
+    # D9 (spec folios 2026-10-05): la previa tampoco pide llevar el papel.
+    assert TEXTO_PREVIA_SIN_PAPEL in texto
+    assert "Lleva tu constancia física" not in texto
+    assert "Recoge tu constancia" not in texto
     assert "Gestión Tecnológica y Vinculación (GTV) liberó" not in texto
     assert "Para agendar te falta:" in texto
 
@@ -1120,12 +1123,15 @@ def test_pasa_a_caja_obsoleto_si_la_fase_2_ya_se_aprobo(db_session, con_bibliote
 
 
 # Spec folios 2026-10-05 C4: ya no se imprime ni se envía una constancia; el
-# egresado de una liberación NORMAL lee que su liberación quedó registrada. La
-# previa (D9) no cambia: sigue llevando su papel al cotejo.
+# egresado de una liberación NORMAL lee que su liberación quedó registrada. D9
+# (misma fecha) lo extiende a las previas: tampoco llevan el papel al cotejo.
 TEXTO_LIBERACION_NORMAL = (
     "Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación "
     "ya quedó registrada para Servicios Escolares.")
 TEXTO_VIEJO_LIBERACION_NORMAL = "envía tu constancia a Servicios Escolares"
+TEXTO_PREVIA_SIN_PAPEL = (
+    "Para tu cita de cotejo no necesitas llevar nada: tu liberación ya quedó "
+    "registrada para Servicios Escolares.")
 
 
 @pytest.mark.parametrize("via, frases", [
@@ -1134,7 +1140,7 @@ TEXTO_VIEJO_LIBERACION_NORMAL = "envía tu constancia a Servicios Escolares"
     ("no_charge", ["registró que no tienes nada que pagar",
                    TEXTO_LIBERACION_NORMAL]),
     ("prior", ["Tu constancia de no adeudo previa quedó registrada",
-               "Lleva tu constancia física a tu cita de cotejo"]),
+               TEXTO_LIBERACION_NORMAL]),
 ])
 def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases):
     from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -1152,11 +1158,12 @@ def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases
     for frase in frases:
         assert frase in texto, frase
     assert YA_PUEDES in texto
-    assert ("constancia física" in texto) is (via == "prior")
-    # C4: el texto nuevo es SOLO de la liberación normal; el viejo ya no sale
-    # en ninguna vía, y la previa no lee nada de «tu liberación ya quedó».
+    # C4 + D9: el texto nuevo sale en TODAS las vías (también la previa); el
+    # viejo («envía tu constancia a SE») y el de llevar el papel ya no salen.
+    assert "constancia física" not in texto
+    assert "Lleva tu constancia" not in texto
     assert TEXTO_VIEJO_LIBERACION_NORMAL not in texto
-    assert (TEXTO_LIBERACION_NORMAL in texto) is (via != "prior")
+    assert TEXTO_LIBERACION_NORMAL in texto
 
 
 def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_biblioteca):

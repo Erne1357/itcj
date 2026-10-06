@@ -592,7 +592,6 @@ def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsole
     resultado, asunto = _GTV[fila.kind]
     origen = "prior" if datos.get("origin") == "prior" else "submission"
     falta = None
-    recoger = False
     ruta = _tablero(PhaseService.PHASE_COTEJO)
     if resultado == "approved":
         bloqueos = _bloqueos(db, process)
@@ -601,25 +600,11 @@ def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsole
         falta = _que_falta(db, process, bloqueos)
         if origen == "prior":
             asunto = _ASUNTO_ENCUESTA_PREVIA
-            recoger = _papel_por_recoger(db, process, datos)
     elif resultado == "revoked" and origen == "prior":
         ruta = _ENCUESTA
     return _correo(user, asunto, "survey_result.html", ruta,
                    result=resultado, reason=_texto(datos.get("reason")),
-                   origin=origen, falta=falta, paper_pending=recoger)
-
-
-def _papel_por_recoger(db: Session, process, datos: dict) -> bool:
-    """R10 (spec 2026-10-05-titulatec-import-encuesta-xlsx-design.md): la
-    línea «Recoge tu constancia…» sale si el payload trae `paper_pending` Y,
-    re-validado al ENVIAR (D8), GTV todavía no marcó el papel como entregado
-    -dentro de la espera del outbox «recoge» ya sería falso-. Solo lectura."""
-    if datos.get("paper_pending") is not True:
-        return False
-    from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
-
-    review = SurveyReviewService.get_for_process(db, process.id)
-    return SurveyReviewService.paper_to_collect(review)
+                   origin=origen, falta=falta)
 
 
 def _compose_appt_no_show(db: Session, rows: list, process, user) -> Composed | Obsolete:
@@ -715,8 +700,9 @@ def _compose_library_ready(db: Session, rows: list, process, user) -> Composed |
 
 def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """El no adeudo quedó liberado: por pago en Caja (con lo que cobró), sin
-    cargo (total $0) o por constancia previa («lleva tu constancia física a
-    tu cita de cotejo»). D11 (`falta`): si ya puede agendar o qué le falta.
+    cargo (total $0) o por constancia previa (D9, spec folios 2026-10-05: las
+    tres dicen que no necesita llevar nada de biblioteca). D11 (`falta`): si
+    ya puede agendar o qué le falta.
 
     Re-validado al enviar (D8): si después se revirtió, «quedó liberado» ya
     es falso, así que obsoleto. Se ve de dos formas: hay un

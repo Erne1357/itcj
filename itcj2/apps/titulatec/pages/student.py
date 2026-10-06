@@ -61,8 +61,7 @@ _PHASE_INFO = {
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
             "No necesitas llevar nada del no adeudo ni de la encuesta: tus liberaciones "
-            "quedan registradas para Servicios Escolares; si registraste una constancia "
-            "previa, llévala.",
+            "quedan registradas para Servicios Escolares.",
             "12 fotografías tamaño credencial: ovaladas, B/N, fondo blanco, papel mate.",
             "$1,900 en efectivo para el pago del proceso.",
         ],

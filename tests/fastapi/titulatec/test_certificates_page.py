@@ -1079,7 +1079,7 @@ def test_una_fecha_nula_sale_con_guion(client_as, monkeypatch, make_library_cert
 
     fila = {"number": "BIB-2091A-0001", "student_name": "ZZ SIN FECHA",
             "control_number": "Z9930002", "program_name": "", "issued_at": None,
-            "voided_at": None, "void_reason": None}
+            "voided_at": None, "void_reason": None, "revoked": False}
     monkeypatch.setattr(
         CertificateService, "list_folios",
         staticmethod(lambda db, **kw: Page(items=[fila], total=1, page=1, per_page=50)))
@@ -1123,6 +1123,84 @@ def test_un_folio_anulado_muestra_anulado_fecha_y_motivo(
                        if tr.get("id") == f"tt-folio-row-{vigente.number}"]
     assert "Vigente" in _texto(fila_vigente)
     assert "Anulado" not in _texto(fila_vigente)
+
+
+def _revocar(db_session, cert):
+    """Revoca la inscripción del folio (`TitulationProcess.status = 'cancelled'`)."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    db_session.get(TitulationProcess, cert.process_id).status = "cancelled"
+    db_session.flush()
+
+
+def _celda_folio(html, cert):
+    (fila,) = [tr for tr in _filas(html) if tr.get("id") == f"tt-folio-row-{cert.number}"]
+    return fila.xpath("./td")[0], fila
+
+
+def test_el_folio_de_una_inscripcion_revocada_lleva_la_nota_sin_anularse(
+    client_as, db_session, emitir_folio, make_library_cert_staff,
+):
+    """D8: se MARCA, no se anula. Con el switch apagado (el default) la nota
+    tenue «inscripción revocada» va junto al folio y el estado sigue
+    «Vigente»; el folio de una inscripción en regla no lleva nota."""
+    vivo = emitir_folio(last="ZZREVOCADA")
+    revocado = emitir_folio(last="ZZREVOCADA")
+    _revocar(db_session, revocado)
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZREVOCADA"})
+
+    assert resp.status_code == 200, resp.text[:300]
+    celda, fila = _celda_folio(resp.text, revocado)
+    assert _texto(celda) == f"{revocado.number} inscripción revocada"
+    assert celda.xpath('.//span[contains(@class, "text-body-secondary")]')
+    assert "Vigente" in _texto(fila) and "Anulado" not in _texto(fila)
+    celda_viva, fila_viva = _celda_folio(resp.text, vivo)
+    assert _texto(celda_viva) == vivo.number
+    assert resp.text.count("inscripción revocada") == 1
+
+
+def test_la_nota_de_revocada_se_apaga_sola_si_el_proceso_se_reactiva(
+    client_as, db_session, emitir_folio, make_library_cert_staff,
+):
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    cert = emitir_folio(last="ZZREACTIVA")
+    _revocar(db_session, cert)
+    staff = make_library_cert_staff()
+    marcada = client_as(staff).get(URL, params={"q": "ZZREACTIVA"})
+
+    db_session.get(TitulationProcess, cert.process_id).status = "active"
+    db_session.flush()
+    reactivada = client_as(staff).get(URL, params={"q": "ZZREACTIVA"})
+
+    assert "inscripción revocada" in marcada.text
+    assert "inscripción revocada" not in reactivada.text
+
+
+def test_la_nota_de_revocada_tambien_sale_con_el_switch_encendido_y_en_el_body(
+    client_as, db_session, emitir_folio, make_library_cert_staff, printing_on,
+):
+    cert = emitir_folio(last="ZZREVBODY", anular="se corrigió")
+    _revocar(db_session, cert)
+    staff = make_library_cert_staff()
+
+    for url in (URL, f"{URL}/body"):
+        resp = client_as(staff).get(url, params={"q": "ZZREVBODY", "estado": "todos"})
+        assert resp.status_code == 200, (url, resp.text[:300])
+        celda, fila = _celda_folio(resp.text, cert)
+        assert _texto(celda) == f"{cert.number} inscripción revocada", url
+        assert "Anulado" in _texto(fila), url
+
+
+def test_los_chips_y_las_filas_no_traen_la_nota_si_nadie_esta_revocado(
+    client_as, emitir_folio, make_library_cert_staff,
+):
+    emitir_folio(last="ZZSINREVOCAR")
+
+    resp = client_as(make_library_cert_staff()).get(URL, params={"q": "ZZSINREVOCAR"})
+
+    assert "inscripción revocada" not in resp.text
 
 
 def test_los_estados_filtran_y_vigentes_es_el_de_omision(

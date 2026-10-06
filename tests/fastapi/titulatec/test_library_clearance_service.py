@@ -1478,7 +1478,12 @@ class TestRegisterPrior:
         assert evs[0].payload["from_status"] == "pending"
 
         assert aviso.call_args.kwargs["type"] == "LIBRARY_CLEARED"
-        assert "constancia" in aviso.call_args.kwargs["body"]
+        # D9 (spec folios 2026-10-05): la previa tampoco pide llevar el papel.
+        cuerpo = aviso.call_args.kwargs["body"]
+        assert cuerpo == ("Se registró tu constancia de no adeudo previa. Para tu cita "
+                          "de cotejo no necesitas llevar nada de biblioteca: tu "
+                          "liberación ya quedó registrada para Servicios Escolares.")
+        assert "llévala" not in cuerpo
 
     def test_desde_en_caja_conserva_los_montos(self, db_session, nuevo, actores, reloj):
         esc = nuevo()

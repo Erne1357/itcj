@@ -665,9 +665,11 @@ def test_apagado_una_previa_con_folio_lleva_la_nota_previa(
         assert palabra not in celda, palabra
 
 
-def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
+def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_la_nota(
     client_as, db_session, make_gtv, make_student, make_process, make_survey_review,
 ):
+    """D8: apagado no hay píldora de impresión, pero el folio de una inscripción
+    revocada lleva junto la nota tenue «inscripción revocada»."""
     from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
     gtv = make_gtv()
@@ -683,9 +685,11 @@ def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
     assert resp.status_code == 200, resp.text[:500]
     fila = _fila(resp.text, f'id="tt-rev-{review.id}"')
     celda = _celda(fila, cert.number)
-    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    assert celda == (f'<span class="tt-mono small">{cert.number}</span> '
+                     '<span class="small text-body-secondary">inscripción revocada</span>'), repr(celda)
     assert "No se imprimirá" not in fila
-    assert "inscripción revocada" not in fila
+    assert "tt-pill" not in celda
+    assert fila.count("inscripción revocada") == 1
     assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
 
 

@@ -229,7 +229,7 @@ importadas sin contexto, las variables de contexto no.
 | `POST /admin/constancias/{kind}/lote` | **404**, primera sentencia (no lee el formulario ni escribe) | «Generar lote» como antes |
 | `GET /admin/constancias/lotes/{batch_id}.pdf` | **404** aunque el lote exista | el PDF como antes |
 | Página `/admin/constancias` | solo la tabla de **Folios** (`_body_ctx` ni arma `sections`): sin «Por imprimir», «Generar lote», «Lotes» ni «Anuladas después de imprimir» | tabla de Folios + `partials/_certificates_print.html` debajo |
-| `certificate_cell` (bandejas, cotejo, expediente) | folio (`tt-mono`) + nota tenue «previa» (`prior`) o «previo al sistema» (`legacy`); sin folio vigente: «Constancia previa (papel del egresado)» (`prior`) o «—» (también una anulada-tras-imprimir: la celda nunca queda en blanco). NUNCA «Impresa», «Sin imprimir», «No se imprimirá» ni «Anulada tras imprimir» | exactamente la ronda del 2026-10-02 |
+| `certificate_cell` (bandejas, cotejo, expediente) | folio (`tt-mono`) + nota tenue «previa» (`prior`) o «previo al sistema» (`legacy`); sin folio vigente: «Constancia previa (papel del egresado)» (`prior`) o «—» (también una anulada-tras-imprimir: la celda nunca queda en blanco). NUNCA «Impresa», «Sin imprimir», «No se imprimirá» ni «Anulada tras imprimir». Con `revoked` (inscripción revocada, D8) y folio vigente, además la nota tenue «inscripción revocada» junto al folio, sin píldora | exactamente la ronda del 2026-10-02 |
 | Columna de las bandejas de Biblioteca y GTV | «Folio» (antes «Constancia»), con o sin switch | ídem |
 
 Para volver a imprimir: `TITULATEC_CERTIFICATE_PRINTING=true` en `.env` y reiniciar. Todo folio
@@ -311,8 +311,10 @@ se reimprime; no hay un paso aparte de «confirmar impresión».
   circulando y hay que recuperarlo igual.
 - **`certificate_cell(info, *, prior=False, legacy=False, revoked=False)`** (macro en
   `templates/titulatec/_macros.html`): pinta la celda a partir del dict de arriba (o `None`).
-  **Con el switch APAGADO** (el default desde 2026-10-05) pinta solo el folio, ver «Switch de
-  impresión»; lo que sigue es la rama ENCENDIDA, igual a la ronda del 2026-10-02:
+  **Con el switch APAGADO** (el default desde 2026-10-05) pinta solo el folio —y, con `revoked`,
+  la nota tenue «inscripción revocada» junto a él (D8, sin píldora; con `prior`/`legacy` en su
+  propio renglón, `<br>`: pegada a «previa» se leería «previa inscripción revocada»)—, ver
+  «Switch de impresión»; lo que sigue es la rama ENCENDIDA, igual a la ronda del 2026-10-02:
   - con vigente: folio + píldora «Impresa» (`lote #N · dd/mm/aaaa`), o —sin lote— «Sin imprimir»
     (ámbar); con `revoked` (inscripción revocada, Ruling R13) esa vigente sin lote pinta la
     píldora neutra **«No se imprimirá»** y, fuera de ella, la nota tenue **«inscripción
@@ -406,21 +408,33 @@ TitulaTec», encabezado «Folios de liberación») y el contenido (spec folios C
   (`normalize_q`), `estado` (`vigentes` por omisión, `anulados`, `todos`; cualquier otro cae en
   `vigentes`) y `page` (con el switch encendido, también `page_library_clearance`/
   `page_survey_release` de «Lotes»). La lectura es `CertificateService.list_folios(db, *, kind,
-  q=None, estado="vigentes", per_page=PAGE_SIZE, page=1) -> Page`: lee SOLO
-  `titulatec_certificates` (invariante 4; los datos del egresado salen de lo congelado al emitir),
+  q=None, estado="vigentes", per_page=PAGE_SIZE, page=1) -> Page`: lee
+  `titulatec_certificates` (invariante 4; los datos del egresado salen de lo congelado al emitir)
+  y, solo para la bandera `revoked` (D8, abajo), un `EXISTS` al estado del proceso dentro del
+  mismo SELECT: ni `JOIN`, ni consultas por fila, ni las tablas de liberación;
   busca en `number` y `control_number` (también en MAYÚSCULA) con la búsqueda entera y en
   `student_name` POR PALABRAS (AND de un `ILIKE` por palabra, en cualquier orden: «Juan Pérez»
   encuentra «PÉREZ GÓMEZ JUAN», revisión final M3), todo con `like_pattern` + `escape="\\"`,
   ordena `issued_at DESC, id DESC` y pagina con `utils/paging.paginate_query`; los
   items son dicts (`number`, `student_name`, `control_number`, `program_name`, `issued_at`,
-  `voided_at`, `void_reason`).
+  `voided_at`, `void_reason`, `revoked`).
+- **Inscripción revocada (D8, 2026-10-05, tras la revisión final): se MARCA, no se anula.**
+  `revoked` es `True` si `TitulationProcess.status == 'cancelled'` (solo `cancelled`: un proceso
+  `on_hold` o `completed` no es revocar) y sale de un `EXISTS` correlacionado en la lista de
+  columnas de `list_folios` (el mismo predicado que `_pending_criteria`). El folio sigue
+  vigente; si el proceso se reactiva, la bandera se apaga sola. La nota tenue «inscripción
+  revocada» sale junto al folio en tres lugares y SIEMPRE, con o sin switch de impresión: la
+  tabla de Folios (celda del folio, `partials/certificates_body.html`), el panel de atender
+  cotejo y el expediente (`certificate_cell(..., revoked=)`). La invariante 4 («`list_folios` no
+  lee `TitulationProcess`») se relaja solo para esto; `print_status_map` y `voided_after_print`
+  siguen sin leerlo.
 - **Plantilla** `partials/certificates_body.html` (raíz `#tt-cert-body`; la incluye `certificates.html`):
   pestañas por `kind` solo si el actor ve más de uno (admin); chips de estado; buscador
   **`#tt-folio-q`** con `hx-preserve="true"`, dentro de **`#tt-folio-filters`**
   (`data-tt-q-server`, reglas de §18 de la guía de la app: el contenedor lleva `kind`, `estado` y
   `page=1`); tabla Folio · Egresado · No. de control · Carrera · Emitido (dd/mm/aaaa) · Estado
-  («Vigente», o «Anulado» + fecha + motivo); paginación con la macro `pager(..., include=
-  '#tt-folio-filters', prefix='tt-folio')`. Vacío: «Sin folios todavía», o «Sin resultados para
+  («Vigente», o «Anulado» + fecha + motivo; con `r.revoked`, la nota «inscripción revocada» junto al folio);
+  paginación con la macro `pager(..., include='#tt-folio-filters', prefix='tt-folio')`. Vacío: «Sin folios todavía», o «Sin resultados para
   "{q}"» si hubo búsqueda. Texto del encabezado: «El folio se genera solo al liberar; búscalo por
   folio, número de control o nombre.»
 - **Con el switch encendido**, debajo de la tabla se incluye `partials/_certificates_print.html`
@@ -501,7 +515,8 @@ TitulaTec», encabezado «Folios de liberación») y el contenido (spec folios C
   lote (`_pending_criteria`); se quedan sin lote y sin anular, y la celda de la columna «Folio»
   (antes «Constancia») de las bandejas y de las vistas de SE, CON EL SWITCH DE IMPRESIÓN
   ENCENDIDO, las pinta con la píldora «No se imprimirá» y la nota «inscripción revocada»
-  (R13/R18); apagado (el default) pinta solo el folio.
+  (R13/R18); apagado (el default) pinta el folio con la nota tenue «inscripción revocada»
+  (D8), sin píldora. La pestaña Folios las marca igual, con o sin switch.
 - **`?por_hoja=` fuera de forma** (ausente, vacío, `abc`, `4`, …) → `_parse_por_hoja` cae en 3 por
   hoja (`DEFAULT_PER_PAGE`): nunca `400`/`500` — es un filtro de vista, igual que `_parse_dia` de
   Caja.
@@ -565,9 +580,13 @@ encuesta anula antes de borrar, el import de Forms emite un folio por fila liber
 el paso de `activar-biblioteca-caja`), `test_clearance_gate.py` (`_LECTORES_DE_REPARACION`),
 `test_certificates_page.py` (switch apagado: tabla de folios, buscador preservado con
 `paging_asserts.assert_buscador_preservado`, `kind` ajeno 404, lote/PDF 404, sin texto de
-impresión; encendido: lo de hoy, con la fixture `printing_on`), `test_se_library_views.py`/
+impresión; la nota «inscripción revocada» junto al folio, también encendido y reversible;
+encendido: lo de hoy, con la fixture `printing_on`), `test_se_library_views.py`/
 `test_library_inbox.py`/`test_survey_reviews_admin_routes.py` (la celda apagada: folio sin
-píldoras), `test_mail_compose.py`/`test_cotejo_requirements.py` (textos de C4).
+píldoras, y con la nota tenue si la inscripción está revocada; la macro con `prior`/`legacy` +
+`revoked`), `test_certificate_service.py` (`revoked` en `list_folios`: marca, reversible, solo
+`cancelled`, un `EXISTS` sin `JOIN` y las MISMAS 2 consultas con 1 o 5 revocados),
+`test_mail_compose.py`/`test_cotejo_requirements.py` (textos de C4 y D9).
 
 Ronda del 2026-10-01/02 (corren con el switch encendido por fixture):
 `test_certificate_service.py` (numeración atómica con dos conexiones reales —incluida la limpieza
@@ -602,5 +621,5 @@ fila, el `<details>` de pendientes FIFO y colapsado, la sección de anuladas).
   `register_prior`.
 - ⤵ [Constancias previas](xcut_prior_clearances.md#folio-de-las-previas-y-del-legado-2026-10-05)
   — D9: el egresado trae su papel de antes, pero desde 2026-10-05 la previa también lleva folio
-  (semestre anterior al registro).
+  (semestre anterior al registro) y ya no se le pide llevar ni recoger ese papel.
 - Glosario: [`Certificate`, `CertificateBatch`, `CertificateCounter`, `CertificateService`](_glossary.md).

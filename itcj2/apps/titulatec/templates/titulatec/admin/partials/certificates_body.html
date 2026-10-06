@@ -24,7 +24,10 @@
 
    Tabla: Folio · Egresado · No. de control · Carrera · Emitido (dd/mm/aaaa) ·
    Estado. Estado = píldora «Vigente», o «Anulado» + fecha de anulación +
-   motivo. Filas con id estable `tt-folio-row-{número de folio}` (único por
+   motivo. D8: la inscripción REVOCADA (`r.revoked`) se MARCA, no se anula:
+   junto al folio va la nota tenue «inscripción revocada» (sin píldora) y el
+   estado sigue siendo el del folio; se apaga sola si el proceso se reactiva.
+   Filas con id estable `tt-folio-row-{número de folio}` (único por
    folio, igual que un id numérico: el morph empareja por id). Vacío: «Sin
    folios todavía», o «Sin resultados para "{q}"» si hubo búsqueda (`q` va
    escapado por Jinja).
@@ -102,7 +105,7 @@
         <tbody>
         {% for r in rows %}
         <tr id="tt-folio-row-{{ r.number }}">
-          <td class="tt-mono">{{ r.number }}</td>
+          <td><span class="tt-mono">{{ r.number }}</span>{% if r.revoked %} <span class="small text-body-secondary">inscripción revocada</span>{% endif %}</td>
           <td>{{ r.student_name }}</td>
           <td class="tt-mono">{{ r.control_number }}</td>
           <td>{{ r.program_name or '—' }}</td>

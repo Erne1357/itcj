@@ -414,8 +414,7 @@ class StudentMail:
     @_best_effort
     def survey_result(db: Session, process, *, result: str,
                       reason: str | None = None,
-                      origin: str = "submission",
-                      paper_pending: bool = False) -> bool:
+                      origin: str = "submission") -> bool:
         """Dictamen sobre la encuesta (#4-#6): `result` ∈
         approved|rejected|revoked → `survey_{result}`. Individual.
 
@@ -430,12 +429,11 @@ class StudentMail:
         encuesta. `approve`/`reject` nunca lo pasan: se quedan en el valor
         por omisión `"submission"`, el de siempre.
 
-        `paper_pending` (R10, spec `2026-10-05-titulatec-import-encuesta-
-        xlsx-design.md`): solo `register_prior` lo enciende, cuando la previa
-        importada del Excel de Forms trae la constancia en papel «por
-        recoger»; la plantilla añade entonces la línea de recogerla en GTV
-        (el compositor la vuelve a validar al enviar). Viaja en el payload
-        solo si es `True`, así que las filas de siempre no cambian.
+        Sin `paper_pending` desde D9 (spec folios 2026-10-05): el correo de la
+        previa ya no dice «Recoge tu constancia…» (R10 de la spec del import de
+        Forms se retiró); el dato `paper_pending` vive en la solicitud, es de
+        GTV, y no viaja en el payload. Una fila vieja que aún lo traiga se
+        ignora al componer.
         """
         from itcj2.apps.titulatec.models.survey_review import SURVEY_REVIEW_ORIGINS
 
@@ -444,8 +442,6 @@ class StudentMail:
         if origin not in SURVEY_REVIEW_ORIGINS:
             raise ValueError(f"origen de encuesta desconocido: {origin!r}")
         payload = {"reason": reason, "origin": origin}
-        if paper_pending is True:
-            payload["paper_pending"] = True
         return StudentMail.enqueue(
             db, kind=f"survey_{result}", process=process, payload=payload)
 

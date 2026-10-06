@@ -313,8 +313,8 @@ quienes Forms obligó a contestar las escalas y el tamaño de empresa.
   apagar el papel de una carga anterior.
 - **Sin correo al adjuntar el papel** (M7): cuando la liberación ya existía (p. ej. por el CSV) y
   el Excel solo le adjunta la respuesta y enciende `paper_pending`, no se manda correo ni aviso
-  (R10: el correo es el de la liberación, que ya salió). El alumno lo ve solo en su tablero, la
-  tarjeta de la encuesta y Mi cita («Recoge tu constancia…»).
+  (R10: el correo es el de la liberación, que ya salió). Desde D9 (2026-10-05) el alumno no ve
+  nada del papel: el dato solo lo usa GTV («Constancia por recoger»).
 - `paper_pending` se interpreta con `is True`, no con `bool()`.
 
 ### Exportes posteriores de Forms (M6)
@@ -363,9 +363,9 @@ la nota.
 ### Constancia por recoger (D3)
 
 Una previa con `paper_pending` y sin `paper_delivered_at` está «por recoger»
-(`SurveyReviewService.paper_to_collect`, `survey_review_service.py:296`). El alumno ve «Recoge tu
-constancia de liberación en Gestión Tecnológica y Vinculación.» y GTV la cierra con «Marcar
-constancia entregada» — ⤵ [liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
+(`SurveyReviewService.paper_to_collect`, `survey_review_service.py:296`). GTV la ve en Liberaciones y
+la cierra con «Marcar constancia entregada» — ⤵ [liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
+Desde D9 (2026-10-05) el alumno ya NO ve «Recoge tu constancia…» en ninguna parte.
 Tras la entrega `paper_pending` se conserva como hecho histórico.
 
 ### Rollback
@@ -402,9 +402,13 @@ y `test_survey_import_ui.py`, con libros sintéticos de `_survey_xlsx.py`.
 - **Folio (2026-10-05):** las dos `register_prior` EMITEN su folio (`survey_release`/
   `library_clearance`), en el semestre ANTERIOR al registro; `SurveyReviewService.approve` sigue
   saltando `origin='prior'` porque una previa nunca pasa por ahí. Antes de esa fecha no se
-  emitía nada (el egresado ya trae su papel físico). El correo de liberación
-  (`library_cleared`/`survey_approved`) sigue pidiéndole llevar ese papel a su cotejo (punto
-  abierto: los textos de las previas no cambiaron con los folios).
+  emitía nada (el egresado ya trae su papel físico). **Textos al egresado (D9, 2026-10-05):** el
+  correo (`library_cleared`/`survey_approved`), el aviso in-app de las dos `register_prior`, el
+  tablero, Mi cita y la tarjeta pública de la encuesta ya NO le piden llevar ni recoger ese papel
+  («Lleva tu constancia física a tu cita de cotejo», «llévala a tu cita de cotejo», «Recoge tu
+  constancia de liberación en GTV»): dicen que no necesita llevar nada porque su liberación ya
+  quedó registrada para Servicios Escolares (la misma idea de C4). «Constancia por recoger» y
+  «Marcar constancia entregada» siguen en Liberaciones, solo para GTV.
 
 ## Folio de las previas y del legado (2026-10-05)
 

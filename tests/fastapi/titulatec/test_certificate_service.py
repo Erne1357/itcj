@@ -1374,7 +1374,9 @@ class TestListFolios:
 
         (item,) = pagina.items
         assert set(item) == {"number", "student_name", "control_number",
-                             "program_name", "issued_at", "voided_at", "void_reason"}
+                             "program_name", "issued_at", "voided_at", "void_reason",
+                             "revoked"}
+        assert item["revoked"] is False
         assert item["number"] == cert.number
         assert item["student_name"] == "ZZCLAVES ANA"
         assert item["control_number"] == "Z9910001"
@@ -1584,9 +1586,13 @@ class TestListFolios:
         with pytest.raises(ValueError, match="Tipo de constancia desconocido"):
             CertificateService.list_folios(db_session, kind="no_existe")
 
-    def test_no_lee_el_proceso_ni_las_tablas_de_liberacion(self, db_session, emitir):
-        """Invariante 4 del spec: solo `titulatec_certificates`. Se mira el
-        SQL que dispara (una consulta de cuenta y una de filas)."""
+    def test_solo_lee_certificados_y_un_exists_al_estado_del_proceso(self, db_session, emitir):
+        """Invariante 4 del spec, relajada por D8 (2026-10-05): `list_folios`
+        sigue sin leer las tablas de liberación (`SurveyReview`/
+        `LibraryClearance`), pero SÍ mira el estado del proceso -solo para la
+        bandera `revoked`-, con UN `EXISTS` dentro del mismo SELECT: nada de
+        `JOIN`, ni una consulta por fila. Se mira el SQL que dispara (una
+        consulta de cuenta y una de filas)."""
         emitir(last="ZZSOLOCERT")
 
         _, selects = _contar_selects(
@@ -1597,6 +1603,104 @@ class TestListFolios:
         assert len(selects) == 2
         for sql in selects:
             assert "titulatec_certificates" in sql
-            for ajena in ("titulatec_processes", "titulatec_survey_reviews",
-                          "titulatec_library_clearances"):
+            for ajena in ("titulatec_survey_reviews", "titulatec_library_clearances"):
                 assert ajena not in sql
+        filas = [sql for sql in selects if "titulatec_processes" in sql]
+        assert filas, "la bandera `revoked` sale de `titulatec_processes`"
+        for sql in filas:
+            mayusculas = sql.upper()
+            assert "EXISTS" in mayusculas
+            assert " JOIN " not in mayusculas
+
+    def test_marca_revoked_en_los_folios_de_una_inscripcion_revocada(
+            self, db_session, emitir):
+        """D8: un folio de un proceso `cancelled` se MARCA, no se anula."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        vivo = emitir(last="ZZREVOCA")
+        revocado = emitir(last="ZZREVOCA")
+        db_session.get(TitulationProcess, revocado.process_id).status = "cancelled"
+        db_session.flush()
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZREVOCA")
+
+        por_numero = {item["number"]: item for item in pagina.items}
+        assert por_numero[vivo.number]["revoked"] is False
+        assert por_numero[revocado.number]["revoked"] is True
+        assert por_numero[revocado.number]["voided_at"] is None      # se marca, no se anula
+
+    def test_revoked_es_reversible_si_el_proceso_se_reactiva(self, db_session, emitir):
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        cert = emitir(last="ZZREACTIVA")
+        proc = db_session.get(TitulationProcess, cert.process_id)
+        proc.status = "cancelled"
+        db_session.flush()
+        marcado = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZREACTIVA")
+        proc.status = "active"
+        db_session.flush()
+        reactivado = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZREACTIVA")
+
+        assert [i["revoked"] for i in marcado.items] == [True]
+        assert [i["revoked"] for i in reactivado.items] == [False]
+
+    def test_revoked_solo_es_el_estado_cancelled(self, db_session, emitir):
+        """`on_hold` (convocatoria pausada) y `completed` no son revocar."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        for estado in ("on_hold", "completed"):
+            cert = emitir(last=f"ZZESTADO{estado[:2].upper()}")
+            db_session.get(TitulationProcess, cert.process_id).status = estado
+            db_session.flush()
+
+            (item,) = CertificateService.list_folios(
+                db_session, kind="library_clearance",
+                q=f"ZZESTADO{estado[:2].upper()}").items
+
+            assert item["revoked"] is False, estado
+
+    def test_revoked_tambien_viaja_en_los_anulados_y_en_todos(self, db_session, emitir):
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        cert = emitir(last="ZZREVANULA", anular="se corrigió")
+        db_session.get(TitulationProcess, cert.process_id).status = "cancelled"
+        db_session.flush()
+
+        for estado in ("anulados", "todos"):
+            (item,) = CertificateService.list_folios(
+                db_session, kind="library_clearance", q="ZZREVANULA",
+                estado=estado).items
+            assert item["revoked"] is True, estado
+
+    def test_la_bandera_no_agrega_consultas_por_fila(self, db_session, emitir):
+        """Sin N+1: 1 folio revocado y 5 folios revocados disparan las MISMAS
+        consultas (cuenta + filas)."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        def revocados(marcador, n):
+            for _ in range(n):
+                cert = emitir(last=marcador)
+                db_session.get(TitulationProcess, cert.process_id).status = "cancelled"
+            db_session.flush()
+            pagina, selects = _contar_selects(
+                db_session,
+                lambda: CertificateService.list_folios(
+                    db_session, kind="library_clearance", q=marcador))
+            assert [i["revoked"] for i in pagina.items] == [True] * n
+            return len(selects)
+
+        assert revocados("ZZNPLUS1A", 1) == revocados("ZZNPLUS1B", 5) == 2
+
+    def test_la_busqueda_por_nombre_sigue_igual_con_la_bandera(self, db_session, emitir):
+        """La bandera no toca el filtro: el conteo del pager es el de los folios."""
+        emitir(last="ZZCUENTA")
+        emitir(last="ZZCUENTA")
+        emitir(last="ZZOTRACOSA")
+
+        pagina = CertificateService.list_folios(
+            db_session, kind="library_clearance", q="ZZCUENTA")
+
+        assert (pagina.total, len(pagina.items)) == (2, 2)

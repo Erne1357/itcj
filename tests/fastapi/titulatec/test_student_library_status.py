@@ -217,7 +217,7 @@ class TestDashboardBloque:
         assert "Liberado" in fila
         assert "Constancia previa registrada" not in fila
 
-    def test_cleared_prior_dice_llevala_a_tu_cotejo(
+    def test_cleared_prior_dice_que_no_necesita_llevar_nada(
         self, db_session, seed_phase_defs, make_student, make_cohort, make_process,
         make_library_clearance, client_as,
     ):
@@ -232,7 +232,10 @@ class TestDashboardBloque:
         doc = _doc(client_as(student).get(DASHBOARD))
         fila = _text(_phase_item(doc, 2))
 
-        assert "Constancia previa registrada: llévala a tu cotejo" in fila
+        # D9 (spec folios 2026-10-05): la previa tampoco lleva el papel.
+        assert ("Constancia previa registrada: no necesitas llevar nada; tu liberación "
+                "ya quedó registrada para Servicios Escolares.") in fila
+        assert "llévala" not in fila
         assert "Constancia previa" in fila   # la píldora
 
     def test_la_nota_de_biblioteca_sale_escapada(
@@ -676,11 +679,13 @@ class TestNeedsDeLaFaseDeCotejo:
 
         assert "No-adeudo de biblioteca y comprobante de la encuesta" not in fila
         # Spec folios 2026-10-05, ampliación C4: ya no se «envía» una constancia
-        # a Servicios Escolares; la liberación queda registrada. La previa no cambia.
+        # a Servicios Escolares; la liberación queda registrada. D9: la previa
+        # tampoco se lleva (antes el texto seguía con «si registraste una
+        # constancia previa, llévala»).
         assert ("No necesitas llevar nada del no adeudo ni de la encuesta: tus "
-                "liberaciones quedan registradas para Servicios Escolares") in fila
+                "liberaciones quedan registradas para Servicios Escolares.") in fila
         assert "las envían las áreas" not in fila
-        assert "si registraste una constancia previa, llévala" in fila
+        assert "llévala" not in fila
 
 
 # ===========================================================================

@@ -531,6 +531,35 @@ class TestRegisterPriorFolio:
         assert nueva.number.startswith("GTV-2091A-")
 
 
+class TestRegisterPriorAviso:
+    """D9 (spec folios 2026-10-05): el aviso in-app de una previa ya no pide
+    recoger ni llevar la constancia; dice lo mismo con o sin `paper_pending`
+    (el dato `paper_pending` se conserva: es de GTV)."""
+
+    ESPERADO = ("Se registró tu constancia previa. Para tu cita de cotejo no "
+                "necesitas llevar nada: tu liberación ya quedó registrada para "
+                "Servicios Escolares.")
+
+    @pytest.mark.parametrize("paper", [False, True])
+    def test_el_aviso_no_pide_llevar_ni_recoger_la_constancia(
+            self, db_session, escenario, paper):
+        from datetime import timedelta
+
+        from itcj2.core.utils.timezone import db_now
+
+        with patch(NOTIFY) as aviso:
+            review = SurveyReviewService.register_prior(
+                db_session, escenario["process"],
+                issued_on=db_now().date() - timedelta(days=10), paper_pending=paper)
+
+        cuerpo = aviso.call_args.kwargs["body"]
+        assert aviso.call_args.kwargs["type"] == "SURVEY_REVIEW_APPROVED"
+        assert cuerpo == self.ESPERADO
+        for vieja in ("Recoge", "llévala", "Gestión Tecnológica"):
+            assert vieja not in cuerpo
+        assert review.paper_pending is paper          # el dato de GTV sigue intacto
+
+
 # ---------------------------------------------------------------------------
 # prior_outcome
 # ---------------------------------------------------------------------------
@@ -884,17 +913,18 @@ class TestSummaryForProcess:
     # `2026-10-02-titulatec-constancias-y-pendientes-design.md` §3.4): el
     # estado de impresión lo cuelgan las dos vistas de SE con UNA llamada a
     # `print_status_map` para encuesta y no adeudo juntos.
-    # `paper_to_collect` (D3, spec 2026-10-05-titulatec-import-encuesta-xlsx
-    # §4.4): «Constancia por recoger», para el aviso al egresado.
+    # Sin `paper_to_collect` (D9, spec folios 2026-10-05): el egresado ya no
+    # ve «Recoge tu constancia…»; «Constancia por recoger» es solo de GTV
+    # (`list_for_inbox` y `SurveyReviewService.paper_to_collect(review)`).
     LLAVES = {"status", "reason", "reviewed_by", "reviewed_at", "review_id",
-              "response_id", "origin", "paper_to_collect"}
+              "response_id", "origin"}
 
     def test_sin_solicitud(self, db_session, escenario):
         resumen = SurveyReviewService.summary_for_process(db_session, escenario["process"].id)
         assert resumen == {
             "status": "missing", "reason": None, "reviewed_by": None,
             "reviewed_at": None, "review_id": None, "response_id": None,
-            "origin": None, "paper_to_collect": False,
+            "origin": None,
         }
 
     def test_con_solicitud_en_revision(self, db_session, escenario, make_survey_review):

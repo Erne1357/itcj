@@ -25,17 +25,21 @@ página, y las dos vistas de SE, UNA llamada por vista para encuesta y no
 adeudo juntos, Ruling R14) y `voided_after_print` (por `kind`, para la página
 de Constancias). Las dos son de solo lectura y no tocan `TitulationProcess` ni
 ninguna tabla de liberación — eso lo cuidan `LibraryClearanceService`/
-`SurveyReviewService`/`ClearanceGate`. En todo el servicio, la única
-CONSULTA a `TitulationProcess` es `_pending_criteria` (el `NOT EXISTS` de
-«proceso revocado» de «Por imprimir»: `pending`, `pending_count` y
-`create_batch`, Ruling R26), que ninguna de esas dos usa; `issue()`, además,
-lee la instancia de proceso que le pasa el dueño (alumno, convocatoria y su
-periodo, carrera) para congelar sus datos en la constancia.
+`SurveyReviewService`/`ClearanceGate`. En todo el servicio, las únicas
+CONSULTAS a `TitulationProcess` son dos `EXISTS` de «proceso revocado»:
+`_pending_criteria` (el `NOT EXISTS` de «Por imprimir»: `pending`,
+`pending_count` y `create_batch`, Ruling R26) y la bandera `revoked` de
+`list_folios` (D8, abajo); `print_status_map` y `voided_after_print` no las
+usan. `issue()`, además, lee la instancia de proceso que le pasa el dueño
+(alumno, convocatoria y su periodo, carrera) para congelar sus datos en la
+constancia.
 
 `list_folios` (spec folios 2026-10-05 §3.6) es la lectura de la pestaña «Folios»
 (`pages/certificates_admin.py`): por `kind`, con búsqueda por folio / control /
-nombre, filtro de estado (`FOLIO_ESTADOS`) y paginación; lee SOLO
-`titulatec_certificates`, igual que las dos anteriores.
+nombre, filtro de estado (`FOLIO_ESTADOS`) y paginación; lee `titulatec_
+certificates` y, solo para la bandera `revoked` por fila (D8: el folio de una
+inscripción revocada se MARCA, no se anula), un `EXISTS` al estado del proceso
+dentro del mismo SELECT.
 
 Reglas fijas, iguales a `SurveyReviewService`:
 
@@ -325,9 +329,9 @@ class CertificateService:
         """Página de folios de `kind` para la pestaña «Folios» (spec folios
         2026-10-05 §3.6): `issued_at DESC, id DESC`, paginada con
         `utils/paging.paginate_query` (una página fuera de rango cae en la
-        última válida). Lee SOLO `titulatec_certificates` (invariante 4): ni
-        el proceso ni las tablas de liberación, los datos del egresado salen
-        de lo CONGELADO al emitir.
+        última válida). Los datos del egresado salen de lo CONGELADO al emitir
+        (invariante 4: ni las tablas de liberación ni el proceso, salvo la
+        bandera `revoked` de D8, abajo).
 
         `estado`: `vigentes` (sin anular), `anulados` o `todos`; cualquier
         otro valor (incluido `None`) cae en `vigentes`. `q` se normaliza aquí
@@ -342,24 +346,36 @@ class CertificateService:
 
         Los items son dicts, no filas del ORM: `number`, `student_name`,
         `control_number`, `program_name`, `issued_at`, `voided_at`,
-        `void_reason` (formatear fechas es tarea de quien pinte). Un `kind`
-        fuera de `CERT_KINDS` da `ValueError`.
+        `void_reason` y `revoked` (formatear fechas es tarea de quien pinte).
+        Un `kind` fuera de `CERT_KINDS` da `ValueError`.
+
+        `revoked` (D8, spec folios 2026-10-05): `True` si el proceso del folio
+        está `cancelled` (inscripción revocada). Se MARCA, no se anula: el folio
+        sigue vigente, y si el proceso se reactiva la bandera se apaga sola.
+        Sale de UN `EXISTS` correlacionado en la lista de columnas del mismo
+        SELECT (sin `JOIN` y sin consultas por fila): la invariante 4 solo se
+        relaja para esto -- las tablas de liberación siguen sin leerse.
         """
         from dataclasses import replace
 
-        from sqlalchemy import and_, or_
+        from sqlalchemy import and_, exists, or_
 
+        from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.models.certificate import Certificate
         from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q, paginate_query
 
         if kind not in CERT_KINDS:
             raise ValueError(f"Tipo de constancia desconocido: {kind!r}.")
 
+        revocado = (exists()
+                    .where(TitulationProcess.id == Certificate.process_id,
+                           TitulationProcess.status == "cancelled")
+                    .correlate(Certificate))
         query = (
             db.query(Certificate.number, Certificate.student_name,
                      Certificate.control_number, Certificate.program_name,
                      Certificate.issued_at, Certificate.voided_at,
-                     Certificate.void_reason)
+                     Certificate.void_reason, revocado.label("revoked"))
             .filter(Certificate.kind == kind)
         )
         if estado == "anulados":

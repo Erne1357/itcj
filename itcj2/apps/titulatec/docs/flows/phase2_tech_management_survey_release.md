@@ -104,7 +104,9 @@
    revocada (cualquier pestaña de historial) la fila pierde sus acciones y pinta «Revocada», pero
    la celda de constancia SÍ se conserva: «Impresa» y «Anulada tras imprimir» no cambian, y una
    vigente sin lote pinta la píldora «No se imprimirá» y la nota tenue «inscripción revocada»
-   —ya no entra a ningún lote; Rulings R13 y R18; `revoked=r.revoked`—.
+   —ya no entra a ningún lote; Rulings R13 y R18; `revoked=r.revoked`—. Con el switch apagado, la
+   misma vigente de un revocado pinta el folio y la nota tenue «inscripción revocada» (D8,
+   2026-10-05), sin píldora.
 3. En una fila de **En revisión**/**Con observaciones**: botón **Liberar** (con `hx-confirm`,
    siempre disponible) y un campo de motivo + **Observar**/**Actualizar observaciones**.
 4. En una fila de **Liberadas**: "Liberada por {nombre} el {fecha}" y, solo si `can_revoke`, un
@@ -202,8 +204,9 @@ la solicitud (paso 1) no lleva correo: es acción del propio egresado. Lo fija
 ## Dónde se ve el estatus (lectura, cuatro pantallas más)
 
 `SurveyReviewService.summary_for_process` es la ÚNICA consulta que arma el dict
-(`status|reason|reviewed_by|reviewed_at|review_id|response_id|origin|paper_to_collect`, con el pseudo-estado
-`missing` si no hay fila todavía). `origin` ∈ `submission` (la de siempre) \| `prior` (D9,
+(`status|reason|reviewed_by|reviewed_at|review_id|response_id|origin`, con el pseudo-estado
+`missing` si no hay fila todavía; sin `paper_to_collect` desde D9, 2026-10-05: el egresado ya no
+ve «Constancia por recoger», que es solo de GTV). `origin` ∈ `submission` (la de siempre) \| `prior` (D9,
 ⤵ [constancias previas](xcut_prior_clearances.md)): la bandeja de GTV («Liberadas») y la tarjeta
 pública de estatus lo usan para distinguir una liberación real de una constancia previa — sin
 «Ver respuestas» cuando es `prior` del CSV (no hay `SurveyResponse` detrás; las del Excel sí, 2026-10-05). La pintan, todas de solo
@@ -298,7 +301,7 @@ Liberaciones no cambia.
 - **Píldora «Constancia por recoger»** (ámbar) junto a la del estado
   (`survey_reviews_body.html:105`), mientras `SurveyReviewService.paper_to_collect(review)`
   (`services/survey_review_service.py:296`) sea cierto: `paper_pending` y sin `paper_delivered_at`.
-  `list_for_inbox` y `summary_for_process` la cargan como `paper_to_collect`. **Con la inscripción
+  `list_for_inbox` la carga como `paper_to_collect` (el resumen del egresado ya no, D9). **Con la inscripción
   revocada (`r.revoked`) no se pinta**, igual que el botón (fix 2026-10-05, commit `29edfc92`;
   prueba `test_previa_con_inscripcion_revocada_no_muestra_la_pildora_ni_el_boton`).
 - **«Marcar constancia entregada»** (solo en «Liberadas», fila no revocada con papel por recoger,
@@ -311,16 +314,18 @@ Liberaciones no cambia.
   deja el evento **`survey_paper_delivered`** (payload `{review_id}`; etiquetas en
   `pages/admin.py:1227` y `pages/student.py:321`). Sin correo ni aviso (R10). `404` si el
   `review_id` no existe; `400` + `X-Tt-Error` si no tenía papel por recoger o ya se entregó.
-- **Lo que ve el alumno** mientras el papel esté por recoger: «Recoge tu constancia de liberación
-  en Gestión Tecnológica y Vinculación.» (`data-tt-paper-pickup`) en la tarjeta de estatus de la
-  encuesta (`public/partials/survey_status.html:45`), en el tablero (`student/dashboard.html:104`
-  en el héroe de la fase actual y `:258` en el acordeón) y en Mi cita
-  (`partials/student/_cita_panel.html:74`). Desaparece al marcarla entregada.
-- **Correo de la previa** (R10): `StudentMail.survey_result(..., paper_pending=)`
-  (`services/student_mail.py:385`) mete `paper_pending` en el payload solo si es verdadero;
-  `_compose_survey` lo re-valida al componer (`services/mail_compose.py:595-608`: payload Y
-  `paper_to_collect` vivo, D8) y `email/survey_result.html:30` pone la línea en negritas, solo en
-  la variante de previa aprobada. ⤵ [correos del proceso](xcut_student_email_notifications.md).
+- **Lo que ve el alumno: nada del papel (D9, 2026-10-05).** La línea «Recoge tu constancia de
+  liberación en Gestión Tecnológica y Vinculación.» (`data-tt-paper-pickup`) se RETIRÓ del
+  tablero, de Mi cita, de la tarjeta de estatus de la encuesta, del correo y del aviso in-app. En
+  su lugar, una previa (`origin='prior'`) dice que no necesita llevar nada: su liberación ya
+  quedó registrada para Servicios Escolares (tablero y Mi cita: «Constancia previa registrada:
+  no necesitas llevar nada; …»; tarjeta pública: «Para tu cita de cotejo no necesitas llevar
+  nada: …»). Es igual con papel por recoger, ya entregado o sin papel: el dato `paper_pending`
+  y la píldora/botón de GTV no cambian.
+- **Correo de la previa** (D9): el mismo texto con o sin `paper_pending`. `StudentMail.
+  survey_result` ya no recibe ni guarda `paper_pending` en el payload, `_papel_por_recoger` se
+  borró de `mail_compose.py` y `email/survey_result.html` ya no lee `paper_pending` (una fila
+  vieja del outbox que lo traiga se ignora). ⤵ [correos del proceso](xcut_student_email_notifications.md).
 - **Revocar** una previa con respuesta la BORRA igual (R22), pero la `SurveyResponse` importada
   NO se borra: sigue en «Encuestas».
 

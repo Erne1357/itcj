@@ -833,11 +833,13 @@ class LibraryClearanceService:
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_CLEARED",
                        title="Tu no adeudo de biblioteca quedó liberado",
-                       body="Se registró tu constancia de no adeudo previa; llévala "
-                            "a tu cita de cotejo.",
+                       body="Se registró tu constancia de no adeudo previa. Para tu "
+                            "cita de cotejo no necesitas llevar nada de biblioteca: tu "
+                            "liberación ya quedó registrada para Servicios Escolares.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
-        # «Lleva tu constancia física a tu cotejo». También desde la importación
-        # (`commit=False`): queda en la transacción del lote del llamador.
+        # D9 (spec folios 2026-10-05): el correo de la previa tampoco pide llevar
+        # el papel. También desde la importación (`commit=False`): queda en la
+        # transacción del lote del llamador.
         from itcj2.apps.titulatec.services.student_mail import StudentMail
         StudentMail.library_cleared(db, process, via="prior")
 

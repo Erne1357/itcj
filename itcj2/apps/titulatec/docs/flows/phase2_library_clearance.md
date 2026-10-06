@@ -48,7 +48,9 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
      —con la inscripción revocada, una vigente sin lote pinta la píldora «No se imprimirá» y la
      nota tenue «inscripción revocada», porque ya no entra a ningún lote (Rulings R13 y R18)—; si
      la última constancia se anuló DESPUÉS de imprimirse, «Anulada tras imprimir» con el lote a
-     retirar, que abre la celda sin un «—» encima (M1). Apagado nunca salen esas píldoras.
+     retirar, que abre la celda sin un «—» encima (M1). Apagado nunca salen esas píldoras; con la
+     inscripción revocada sí sale, junto al folio, la nota tenue «inscripción revocada» (D8,
+     2026-10-05; sin píldora).
      Reemplaza el folio suelto que antes vivía bajo «Estado», solo en «Liberados».
 2. 💰 **Caja** inicia sesión → aterriza en `/titulatec/admin/caja` o entra por **Caja**
    (`bi-cash-coin`). Buscador primero (autofocus, nombre o control, **en cualquier estado**:
@@ -451,7 +453,8 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
   responde 400 con el mismo motivo que Biblioteca).
   - **Folio (2026-10-02; solo el folio desde 2026-10-05)**: junto a la píldora,
     `certificate_cell(certificate, prior=, legacy=, revoked=)` — el folio, con la nota tenue
-    «previa»/«previo al sistema»; las píldoras de impresión de lo que sigue solo salen con
+    «previa»/«previo al sistema» (y, con el proceso `cancelled`, la nota tenue «inscripción
+    revocada», D8, también apagado); las píldoras de impresión de lo que sigue solo salen con
     `TITULATEC_CERTIFICATE_PRINTING` encendido: folio + «Impresa · lote #N · fecha» / «Sin imprimir» (o, con el proceso
     `cancelled`, la píldora «No se imprimirá» y la nota tenue «inscripción revocada», Rulings R13 y
     R18), o «Anulada tras imprimir» si la última se anuló después de imprimirse. `certificate` lo
@@ -478,7 +481,9 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
   («adeudo $800.00 + donación voluntaria de libro $200.00», solo las partes > 0):
   «El Centro de Información está revisando tu adeudo» · «Pasa a Caja (Recursos Financieros) a
   pagar $X» + desglose + «sin cita, con tu número de control» + nota de Biblioteca · «Liberado» ·
-  «Constancia previa registrada: llévala a tu cotejo».
+  «Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para
+  Servicios Escolares» (D9, 2026-10-05; antes «llévala a tu cotejo»; lo mismo dicen el aviso in-app
+  y el correo `library_cleared` de la previa).
 - **«Mi cita»**: la misma fila con la misma píldora; bloqueo de agendar con los mensajes de
   `SelfBookingService.MENSAJES` (⤵ [auto-agendado](phase2_student_self_booking.md)) — **salvo**
   cuando la cita vigente ya OCUPA el cotejo (Ruling R12/R18, ver ese flujo): ahí el texto cambia

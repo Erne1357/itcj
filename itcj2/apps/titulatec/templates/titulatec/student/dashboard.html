@@ -98,10 +98,11 @@
           <p class="tt-prose mt-3 mb-0" style="font-size:.86rem;color:var(--tt-slate);line-height:1.55">{{ current.desc }}</p>
           {% endif %}
 
-          {% if current.survey and current.survey.paper_to_collect %}
-          {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4): en la fase
-             actual el acordeón no se despliega, así que el aviso va aquí. #}
-          <p class="tt-prose mt-3 mb-0" data-tt-paper-pickup>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</p>
+          {% if current.survey and current.survey.status == 'approved' and current.survey.origin == 'prior' %}
+          {# D9 (spec folios 2026-10-05): en la fase actual el acordeón no se
+             despliega, así que el aviso de la previa va aquí. Ya no pide llevar
+             ni recoger el papel. #}
+          <p class="tt-prose mt-3 mb-0">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
           {% endif %}
 
           {% if current.status == 'rejected' and current.rejection_reason %}
@@ -253,9 +254,9 @@
                     {% if ph.survey.status == 'rejected' and ph.survey.reason %}
                     <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
                     {% endif %}
-                    {% if ph.survey.paper_to_collect %}
-                    {# D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4). #}
-                    <p class="tt-prose mb-0 mt-2" data-tt-paper-pickup>Recoge tu constancia de liberación en Gestión Tecnológica y Vinculación.</p>
+                    {% if ph.survey.status == 'approved' and ph.survey.origin == 'prior' %}
+                    {# D9 (spec folios 2026-10-05): gemelo del no adeudo previo de abajo. #}
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
                     {% endif %}
                     {% if ph.survey.status == 'missing' and ph.survey.url %}
                     <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">
@@ -293,7 +294,7 @@
                     <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
                     {% endif %}
                     {% elif ph.library.status == 'cleared' and ph.library.via == 'prior' %}
-                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: llévala a tu cotejo.</p>
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
                     {% elif ph.library.status == 'cleared' %}
                     <p class="tt-prose mb-0 mt-2">Liberado.</p>
                     {% endif %}

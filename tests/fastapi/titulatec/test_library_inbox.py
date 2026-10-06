@@ -1285,13 +1285,14 @@ def test_apagado_un_legado_con_folio_lleva_la_nota_previo_al_sistema(
         assert palabra not in celda, palabra
 
 
-def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
+def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_la_nota(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
     """Con el switch encendido esta celda diría «No se imprimirá» +
     «inscripción revocada» (R13/R18, prueba de arriba); apagado, no hay nada
-    que no se vaya a imprimir: el folio, y la píldora «Revocada» de la propia
-    fila sigue diciendo el estado."""
+    que no se vaya a imprimir: el folio y, junto a él, la nota tenue
+    «inscripción revocada» (D8, sin píldora). La píldora «Revocada» de la
+    propia fila sigue diciendo el estado."""
     staff = make_library_staff()
     proc, clearance, cert = _libera_sin_cargo(
         db_session, staff, make_student, make_cohort, make_process, "99600234")
@@ -1303,9 +1304,11 @@ def test_apagado_la_vigente_de_un_proceso_revocado_muestra_el_folio_y_nada_mas(
     assert resp.status_code == 200, resp.text[:500]
     fila = _fila(resp.text, f'id="lib-{clearance.id}"')
     celda = _celda(fila, cert.number)
-    assert celda == f'<span class="tt-mono small">{cert.number}</span>', repr(celda)
+    assert celda == (f'<span class="tt-mono small">{cert.number}</span> '
+                     '<span class="small text-body-secondary">inscripción revocada</span>'), repr(celda)
     assert "No se imprimirá" not in fila
-    assert "inscripción revocada" not in fila
+    assert "tt-pill" not in celda
+    assert fila.count("inscripción revocada") == 1
     assert "Revocada" in re.sub(r"<[^>]+>", " ", fila).split()
 
 

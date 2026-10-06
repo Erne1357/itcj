@@ -70,7 +70,7 @@ botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec
 | 10 | `docs_reminder` | `docs_reminder:{pid}:{ancla}:{n}` | `MailReminders._documentos` → `_recordar_documentos` → `StudentMail.docs_reminder` (`mail_reminders.py:294-363`, `:164-181`, `student_mail.py:403-409`) | `_compose_docs_reminder` (`:439-460`) | `docs_reminder.html` | `/titulatec/student/documents` | **nuevo** (`DOCUMENTS_REMINDER`, `mail_reminders.py:178-180`) |
 | 11 | `survey_reminder` | `survey_reminder:{pid}:{ancla}:{n}` | `MailReminders._encuestas` → `_recordar_encuesta` → `StudentMail.survey_reminder` (`mail_reminders.py:365-399`, `:184-198`, `student_mail.py:411-417`) | `_compose_survey_reminder` (`:463-478`) | `survey_reminder.html` | `/titulatec/encuesta-egresados` | **nuevo** (`SURVEY_REMINDER`, `mail_reminders.py:195-197`) |
 | 12 | `library_ready` | individual | `LibraryClearanceService._mark_ready` → `StudentMail.library_ready` (Registrar con adeudo > 0, o Corregir el monto) | `_compose_library_ready` (`mail_compose.py:630-679`) | `library_ready.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_READY`) |
-| 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9; desde 2026-10-05 la rama de pago/sin cargo dice «tu liberación ya quedó registrada para Servicios Escolares» en vez de «el Centro de Información envía tu constancia», y la rama de la previa —«Lleva tu constancia física»— no cambia) | `_compose_library_cleared` (`:682-722`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
+| 13 | `library_cleared` | individual | `LibraryClearanceService` al quedar `cleared` → `StudentMail.library_cleared(via=)` (pago, sin cargo D18, o constancia previa D9; desde 2026-10-05 la rama de pago/sin cargo dice «tu liberación ya quedó registrada para Servicios Escolares» en vez de «el Centro de Información envía tu constancia», y desde D9, el mismo día, también la rama de la previa: «Para tu cita de cotejo no necesitas llevar nada de biblioteca: tu liberación ya quedó registrada…» en lugar de «Lleva tu constancia física») | `_compose_library_cleared` (`:682-722`) | `library_cleared.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_CLEARED`) |
 | 14 | `library_reverted` | individual | `LibraryClearanceService.revert_payment`/`.revert_clearance`/`.undo_prior` → `StudentMail.library_reverted(to_status=)` | `_compose_library_reverted` (`:725-801`) | `library_reverted.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REVERTED`) |
 | 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:945-974`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
 | 16 | `library_observed` (2026-10-05) | individual | `LibraryClearanceService.observe` → `StudentMail.library_observed(reason=)` (`library_clearance_service.py:940`, `student_mail.py:491`) | `_compose_library_observed` (`mail_compose.py:809`) | `library_observed.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_OBSERVED`, con el motivo) |
@@ -209,19 +209,19 @@ registrada con su constancia del semestre anterior, le pide **contestar la encue
 egresados en la plataforma**, conserva el motivo y la línea D12, y su liga/botón («Contestar la
 encuesta») lleva a `/titulatec/encuesta-egresados` en vez del tablero.
 
-### Línea «Recoge tu constancia» en el correo de la previa (2026-10-05)
+### Línea «Recoge tu constancia» en el correo de la previa (2026-10-05, RETIRADA por D9)
 
-Spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` R10. Solo `survey_approved` con
-`origin='prior'` de una previa importada del Excel con la constancia en papel por recoger:
-`SurveyReviewService.register_prior(paper_pending=True)` → `StudentMail.survey_result(...,
-paper_pending=True)` (`services/student_mail.py:385-415`, el payload lleva `paper_pending` solo si
-es verdadero, así que los payloads existentes no cambian). Al componer, `_compose_survey` la
-re-valida con el estado VIVO (D8): el payload debe traerla Y `SurveyReviewService.paper_to_collect`
-debe seguir siendo cierto (`services/mail_compose.py:595-608`); si GTV ya marcó la entrega antes de
-que salga el correo, la línea se omite. La plantilla `email/survey_result.html:30` pone «Recoge tu
-constancia de liberación en Gestión Tecnológica y Vinculación.» en negritas, antes del «Lleva tu
-constancia física a tu cita de cotejo» de la variante de previa. «Marcar constancia entregada» no
-envía correo. ⤵ [liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
+La spec `2026-10-05-titulatec-import-encuesta-xlsx-design.md` (R10) añadió a `survey_approved` con
+`origin='prior'` una línea «Recoge tu constancia de liberación en Gestión Tecnológica y
+Vinculación.» cuando la previa importada del Excel traía la constancia en papel por recoger. Ese mismo
+día la decisión D9 de la spec de folios (`2026-10-05-titulatec-folios-design.md`) la **retiró**,
+junto con el «Lleva tu constancia física a tu cita de cotejo» de la variante de previa: el correo
+de la previa dice igual con o sin papel por recoger —«Para tu cita de cotejo no necesitas llevar
+nada: tu liberación ya quedó registrada para Servicios Escolares.»—. Código: `StudentMail.
+survey_result` ya no recibe `paper_pending` ni lo mete al payload, `mail_compose._papel_por_recoger`
+se borró y `email/survey_result.html` ya no lee `paper_pending`; una fila vieja del outbox que lo
+traiga se ignora al componer. «Marcar constancia entregada» sigue sin enviar correo. ⤵
+[liberación GTV](phase2_tech_management_survey_release.md#respuestas-importadas-y-constancia-por-recoger-2026-10-05).
 
 
 `_compose_appt_no_show` (`:330-359`, #9): re-validado al enviar (D8) — si el encargado deshizo la

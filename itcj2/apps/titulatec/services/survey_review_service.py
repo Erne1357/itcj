@@ -258,8 +258,10 @@ class SurveyReviewService:
 
         `status="missing"` es un PSEUDO-estado: no existe fila todavía (el
         egresado no ha enviado la encuesta). Llaves: `status`, `reason`,
-        `reviewed_by`, `reviewed_at`, `review_id`, `response_id`, `origin`,
-        `paper_to_collect`.
+        `reviewed_by`, `reviewed_at`, `review_id`, `response_id`, `origin`.
+        Sin `paper_to_collect` desde D9 (spec folios 2026-10-05): al egresado ya
+        no se le pide recoger ni llevar la constancia en papel; «Constancia por
+        recoger» es solo de GTV (`list_for_inbox` y `paper_to_collect(review)`).
 
         NO trae la constancia ni su estado de impresión (Ruling R14, revisión
         final de `2026-10-02-titulatec-constancias-y-pendientes-design.md`
@@ -276,7 +278,7 @@ class SurveyReviewService:
         if review is None:
             return {"status": "missing", "reason": None, "reviewed_by": None,
                     "reviewed_at": None, "review_id": None, "response_id": None,
-                    "origin": None, "paper_to_collect": False}
+                    "origin": None}
 
         reviewer = db.get(User, review.reviewed_by_id) if review.reviewed_by_id else None
         return {
@@ -291,9 +293,6 @@ class SurveyReviewService:
             # (`partials/survey_status.html`) y la bandeja de GTV lo usan para
             # distinguir una liberación real de una constancia previa.
             "origin": review.origin,
-            # D3 (spec 2026-10-05-titulatec-import-encuesta-xlsx §4.4): el
-            # egresado tiene que recoger su constancia en papel en GTV.
-            "paper_to_collect": SurveyReviewService.paper_to_collect(review),
         }
 
     @staticmethod
@@ -301,7 +300,9 @@ class SurveyReviewService:
         """«Constancia por recoger» (D3): la previa importada marcó papel
         pendiente (`paper_pending`) y GTV todavía no lo entrega
         (`paper_delivered_at` vacío). `paper_pending` se conserva tras la
-        entrega como hecho histórico, así que nunca basta por sí solo."""
+        entrega como hecho histórico, así que nunca basta por sí solo. Es de
+        GTV (su bandeja de Liberaciones): desde D9 (spec folios 2026-10-05) el
+        egresado ya no lo ve ni lo lee en su aviso ni en su correo."""
         return bool(review is not None and review.paper_pending
                     and review.paper_delivered_at is None)
 
@@ -455,21 +456,20 @@ class SurveyReviewService:
                                   "paper_pending": bool(paper_pending)})
 
         from itcj2.apps.titulatec.services.notify import notify_student
+        # D9 (spec folios 2026-10-05): la previa tampoco pide recoger ni llevar
+        # el papel; el mismo aviso con o sin `paper_pending` (ese dato es de GTV).
         notify_student(db, process.student_id, type="SURVEY_REVIEW_APPROVED",
                        title="Tu encuesta de egresados quedó liberada",
-                       body=("Se registró tu constancia previa. Recoge tu constancia de "
-                             "liberación en Gestión Tecnológica y Vinculación."
-                             if paper_pending else
-                             "Se registró tu constancia previa; llévala a tu cita de cotejo."),
+                       body=("Se registró tu constancia previa. Para tu cita de cotejo "
+                             "no necesitas llevar nada: tu liberación ya quedó "
+                             "registrada para Servicios Escolares."),
                        process_id=process.id, phase_number=PHASE_COTEJO)
 
         # Correo (spec §4.11/§4.12): `origin='prior'` cambia el texto del
-        # resultado "approved" a la variante de constancia previa; con
-        # `paper_pending` (R10, spec 2026-10-05) añade la línea de recoger la
-        # constancia en GTV.
+        # resultado "approved" a la variante de constancia previa (D9: sin
+        # recoger ni llevar el papel, con o sin `paper_pending`).
         from itcj2.apps.titulatec.services.student_mail import StudentMail
-        StudentMail.survey_result(db, process, result="approved", origin="prior",
-                                  paper_pending=bool(paper_pending))
+        StudentMail.survey_result(db, process, result="approved", origin="prior")
 
         return review
 
