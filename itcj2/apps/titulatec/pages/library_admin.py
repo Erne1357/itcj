@@ -45,6 +45,7 @@ from fastapi.responses import Response
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.library_admin")
 router = APIRouter(prefix="/admin/biblioteca", tags=["titulatec-pages-library"])
@@ -140,8 +141,8 @@ def _body_ctx(db, *, status, q, page, per_page: int = PAGE_SIZE):
 
 
 @router.get("", name="titulatec.pages.library.list")
-async def list_library(request: Request, status: str = "", q: str = "", page: str = "1",
-                       user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_library(request: Request, status: str = "", q: str = "", page: str = "1",
+                 user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -152,8 +153,8 @@ async def list_library(request: Request, status: str = "", q: str = "", page: st
 
 
 @router.get("/body", name="titulatec.pages.library.body")
-async def body(request: Request, status: str = "", q: str = "", page: str = "1",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, status: str = "", q: str = "", page: str = "1",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params (HTMX manda
     `status`/`q`/`page` vacíos la primera vez)."""
     from itcj2.database import SessionLocal
@@ -172,10 +173,15 @@ async def register_bulk(request: Request,
     «Por revisar», en UNA transacción (`register_no_debt_bulk`). Los que no
     pasan la validación se omiten con su motivo; el aviso «N registrados · M
     omitidos» viaja en `X-Tt-Notice` (lo pinta `titulatec-utils.js`)."""
+    form = await request.form()
+    return await run_in_threadpool(_cuerpo_register_bulk, request=request, user=user, form=form)
+
+
+def _cuerpo_register_bulk(request, user, form):
+    """Cuerpo síncrono de `register_bulk`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
-    form = await request.form()
     raw_ids = form.getlist("ids")
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -214,12 +220,18 @@ async def register(clearance_id: int, request: Request,
     estado y el monto vigentes- y el motivo en `X-Tt-Notice` (warning), el
     patrón de colisión de estado de la app (htmx no hace swap en un 4xx). Las
     demás reglas de negocio siguen en 400 + `X-Tt-Error`."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_register, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_register(clearance_id, request, user, form):
+    """Cuerpo síncrono de `register`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import (
         ClearanceConflict, LibraryClearanceService, parse_amount,
     )
 
-    form = await request.form()
     note = form.get("note") or None
     status, q, page = form.get("status"), form.get("q"), form.get("page")
     expected_status = form.get("expected_status") or None
@@ -255,11 +267,17 @@ async def prior(clearance_id: int, request: Request,
                 user: dict = Depends(require_page_app("titulatec", perms=_PRIOR))):
     """Constancia previa (D9): el egresado ya pagó y trae su papel -lo
     registra Biblioteca sin pasar por Caja (`register_prior(by="library")`)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_prior, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_prior(clearance_id, request, user, form):
+    """Cuerpo síncrono de `prior`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
     from itcj2.apps.titulatec.utils.form_dates import parse_issued_on
 
-    form = await request.form()
     note = form.get("note") or None
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -285,10 +303,16 @@ async def undo_prior(clearance_id: int, request: Request,
                      user: dict = Depends(require_page_app("titulatec", perms=_PRIOR))):
     """Deshacer constancia previa (motivo obligatorio): `cleared/prior` ->
     `pending`. Solo si la fase 2 no está aprobada (`can_revert`)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_undo_prior, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_undo_prior(clearance_id, request, user, form):
+    """Cuerpo síncrono de `undo_prior`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -314,10 +338,16 @@ async def revert(clearance_id: int, request: Request,
     `cleared/no_charge|legacy` -> `pending`. Un pago lo revierte Caja: el
     service levanta `ValueError` si `cleared_via == 'payment'` y esta ruta lo
     traduce al mismo 400 de cualquier otra regla de negocio."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_revert, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_revert(clearance_id, request, user, form):
+    """Cuerpo síncrono de `revert`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -344,10 +374,16 @@ async def observe(clearance_id: int, request: Request,
     (`LibraryClearanceService.observe`, spec 2026-10-05 §3.2/§3.5). Motivo
     obligatorio (form `reason`); re-pinta la pestaña/página/búsqueda de donde
     vino. Reglas de negocio -> 400 + `X-Tt-Error` (vía `_hdr`)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_observe, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_observe(clearance_id, request, user, form):
+    """Cuerpo síncrono de `observe`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
-    form = await request.form()
     reason = form.get("reason") or ""
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
@@ -372,10 +408,16 @@ async def reenable(clearance_id: int, request: Request,
     """Rehabilitar: `observed` -> `pending` («Por revisar») con los montos
     que tuviera (`LibraryClearanceService.reenable`, spec 2026-10-05 §3.2).
     Re-pinta la pestaña/página/búsqueda de donde vino."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reenable, clearance_id=clearance_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reenable(clearance_id, request, user, form):
+    """Cuerpo síncrono de `reenable`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 
-    form = await request.form()
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
     db = SessionLocal()

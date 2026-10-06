@@ -51,6 +51,7 @@ from itcj2.apps.titulatec.utils.paging import (
 # Estados «por revisar» (incluido el legado): los del servicio, nunca una copia
 # que se desincronice el día que el servicio sume uno.
 from itcj2.apps.titulatec.services.enrollment_request_service import _REVIEWABLE
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.access_admin")
 router = APIRouter(prefix="/admin/accesos", tags=["titulatec-pages-access"])
@@ -488,9 +489,9 @@ def _load(db, req_id: int):
 
 
 @router.get("", name="titulatec.pages.access.list")
-async def list_access(request: Request, status: str = "", cohort_id: str = "",
-                      q: str = "", page: str = "",
-                      user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def list_access(request: Request, status: str = "", cohort_id: str = "",
+                q: str = "", page: str = "",
+                user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
@@ -501,9 +502,9 @@ async def list_access(request: Request, status: str = "", cohort_id: str = "",
 
 
 @router.get("/body", name="titulatec.pages.access.body")
-async def body(request: Request, status: str = "", cohort_id: str = "",
-               q: str = "", page: str = "",
-               user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
+def body(request: Request, status: str = "", cohort_id: str = "",
+         q: str = "", page: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     """Hermana de la página: acepta LOS MISMOS query params."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
@@ -523,6 +524,13 @@ async def grant(req_id: int, request: Request,
     — una `pending_review` sigue siendo de SE (Review Focus 3). Alterno: sobre
     una `awaiting_access` sobrante, `grant_access`; sobre el resto, `approve`.
     """
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_grant, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_grant(req_id, request, user, form):
+    """Cuerpo síncrono de `grant`: corre en el threadpool, no en el event loop."""
     bloqueo = _mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -530,7 +538,6 @@ async def grant(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
     nip = (form.get("nip") or "").strip()
 
     db = SessionLocal()
@@ -567,6 +574,13 @@ async def grant(req_id: int, request: Request,
 async def return_to_review(req_id: int, request: Request,
                            user: dict = Depends(require_page_app("titulatec", perms=_RETURN))):
     """Devuelve a SE con nota (modo oficial y `sii`). Sin correo al alumno."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_return_to_review, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_return_to_review(req_id, request, user, form):
+    """Cuerpo síncrono de `return_to_review`: corre en el threadpool, no en el event loop."""
     bloqueo = _mode_block(_OFFICIAL)
     if bloqueo is not None:
         return bloqueo
@@ -574,7 +588,6 @@ async def return_to_review(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
 
     db = SessionLocal()
     try:
@@ -596,6 +609,13 @@ async def reject(req_id: int, request: Request,
     Con el correo en el outbox (spec 2026-10-05 §3.7) avisa «Se enviará el
     correo al egresado»; con el correo apagado ya salió en línea y responde
     como siempre."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reject, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reject(req_id, request, user, form):
+    """Cuerpo síncrono de `reject`: corre en el threadpool, no en el event loop."""
     bloqueo = _mode_block(_ALTERNATE)
     if bloqueo is not None:
         return bloqueo
@@ -604,7 +624,6 @@ async def reject(req_id: int, request: Request,
         EnrollmentRequestService,
     )
     from itcj2.apps.titulatec.services.student_mail import StudentMail
-    form = await request.form()
     note = (form.get("note") or "").strip()
     if not note:
         return Response(status_code=400, headers={
@@ -630,6 +649,12 @@ async def reject(req_id: int, request: Request,
 async def resend(req_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_GRANT))):
     """Reenvía (ROTA) la liga de una aprobada (solo modo alterno)."""
+    form = await request.form()
+    return await run_in_threadpool(_cuerpo_resend, req_id=req_id, request=request, form=form)
+
+
+def _cuerpo_resend(req_id, request, form):
+    """Cuerpo síncrono de `resend`: corre en el threadpool, no en el event loop."""
     bloqueo = _mode_block(_ALTERNATE)
     if bloqueo is not None:
         return bloqueo
@@ -637,7 +662,6 @@ async def resend(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
 
     db = SessionLocal()
     try:
@@ -660,6 +684,13 @@ async def reassign_nip(req_id: int, request: Request,
     `can_reassign_nip` (nunca ha iniciado sesión), haya salido o no el correo.
     Una cuenta que nació con el NIP del SII no es elegible
     (`must_change_password=False`)."""
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reassign_nip, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reassign_nip(req_id, request, user, form):
+    """Cuerpo síncrono de `reassign_nip`: corre en el threadpool, no en el event loop."""
     bloqueo = _mode_block()
     if bloqueo is not None:
         return bloqueo
@@ -667,7 +698,6 @@ async def reassign_nip(req_id: int, request: Request,
     from itcj2.apps.titulatec.services.enrollment_request_service import (
         EnrollmentRequestService,
     )
-    form = await request.form()
     send_mail = not form.get("no_mail")
 
     db = SessionLocal()
