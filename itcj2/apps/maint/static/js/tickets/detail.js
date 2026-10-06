@@ -316,6 +316,18 @@
 
     // ── Adjuntos: helpers compartidos ────────────────────────────────────────
 
+    // El listado (/attachments) trae `filename` (nombre en disco); el detalle del
+    // ticket (comentarios) solo trae `original_filename`. Las imágenes se guardan
+    // recomprimidas como JPEG, así que mime_type es la señal más confiable.
+    function _attName(a) {
+        return a.original_filename || a.filename || '';
+    }
+
+    function _isImageAtt(a) {
+        if (a.mime_type && a.mime_type.indexOf('image/') === 0) return true;
+        return /\.(jpe?g|png|gif|webp)$/i.test(a.filename || a.original_filename || '');
+    }
+
     function _buildAttachGrid(attachments) {
         if (!attachments || !attachments.length) {
             return '<div class="text-muted small">Sin archivos adjuntos.</div>';
@@ -331,22 +343,22 @@
                 '</div>';
             }
             var downloadUrl = '/api/maint/v2/attachments/' + a.id + '/download';
-            var isPdf = a.filename && a.filename.toLowerCase().endsWith('.pdf');
-            var isImage = a.filename && /\.(jpe?g|png|gif|webp)$/i.test(a.filename);
-            if (isImage) {
-                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-thumb" title="' + _esc(a.filename || '') + '">' +
-                    '<img src="' + downloadUrl + '" alt="' + _esc(a.filename || '') + '" loading="lazy">' +
+            var name = _attName(a);
+            var isPdf = a.mime_type === 'application/pdf' || /\.pdf$/i.test(name);
+            if (_isImageAtt(a)) {
+                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-thumb" title="' + _esc(name) + '">' +
+                    '<img src="' + downloadUrl + '" alt="' + _esc(name) + '" loading="lazy">' +
                 '</a>';
             }
             if (isPdf) {
-                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" title="' + _esc(a.filename || '') + '">' +
+                return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" title="' + _esc(name) + '">' +
                     '<i class="bi bi-file-earmark-pdf fs-3 mb-1"></i>' +
-                    '<span style="word-break:break-all;">' + _esc(a.filename || 'PDF') + '</span>' +
+                    '<span style="word-break:break-all;">' + _esc(name || 'PDF') + '</span>' +
                 '</a>';
             }
-            return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" style="background:#e8f4f8;color:#0c7abf;border-color:#bee5eb;" title="' + _esc(a.filename || '') + '">' +
+            return '<a href="' + downloadUrl + '" target="_blank" class="mn-attach-pdf" style="background:#e8f4f8;color:#0c7abf;border-color:#bee5eb;" title="' + _esc(name) + '">' +
                 '<i class="bi bi-file-earmark fs-3 mb-1"></i>' +
-                '<span style="word-break:break-all;">' + _esc(a.filename || 'Archivo') + '</span>' +
+                '<span style="word-break:break-all;">' + _esc(name || 'Archivo') + '</span>' +
             '</a>';
         });
         return '<div class="mn-attach-grid mt-2">' + items.join('') + '</div>';
@@ -358,7 +370,7 @@
 
         MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/attachments?type=ticket')
             .then(function (data) {
-                var attachments = data.attachments || [];
+                var attachments = data.data || [];
                 section.innerHTML =
                     '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
                     _buildAttachGrid(attachments);
@@ -376,7 +388,7 @@
 
         MaintUtils.api.fetch(API_BASE + '/tickets/' + ctx.ticketId + '/attachments?type=resolution')
             .then(function (data) {
-                var attachments = data.attachments || [];
+                var attachments = data.data || [];
                 section.innerHTML =
                     '<div class="mn-detail-label mt-3"><i class="bi bi-paperclip me-1"></i>Archivos de resolución</div>' +
                     _buildAttachGrid(attachments);
@@ -449,9 +461,9 @@
                     var items = commentAttachments.map(function (a) {
                         if (a.is_purged) return '<span class="text-muted small"><i class="bi bi-file-earmark-x me-1"></i>Archivo eliminado</span>';
                         var url = '/api/maint/v2/attachments/' + a.id + '/download';
-                        var isImg = a.filename && /\.(jpe?g|png|gif|webp)$/i.test(a.filename);
-                        if (isImg) return '<a href="' + url + '" target="_blank"><img src="' + url + '" style="max-height:80px;max-width:100px;border-radius:4px;object-fit:cover;" alt="' + _esc(a.filename || '') + '" loading="lazy"></a>';
-                        return '<a href="' + url + '" target="_blank" class="small"><i class="bi bi-paperclip me-1"></i>' + _esc(a.filename || 'Archivo') + '</a>';
+                        var name = _attName(a);
+                        if (_isImageAtt(a)) return '<a href="' + url + '" target="_blank"><img src="' + url + '" style="max-height:80px;max-width:100px;border-radius:4px;object-fit:cover;" alt="' + _esc(name) + '" loading="lazy"></a>';
+                        return '<a href="' + url + '" target="_blank" class="small"><i class="bi bi-paperclip me-1"></i>' + _esc(name || 'Archivo') + '</a>';
                     });
                     attachHtml = '<div class="d-flex flex-wrap gap-2 mt-2">' + items.join('') + '</div>';
                 }
