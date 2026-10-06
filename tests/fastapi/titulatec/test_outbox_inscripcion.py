@@ -587,15 +587,43 @@ def test_el_folio_sale_al_institucional_aunque_luego_revoquen(
     assert _despachar(db_session) == _conteo(sent=2)
 
     institucional = student_email(cuenta)
+    # La revocación es UN mensaje con los dos buzones en «Para» (revisión
+    # final M2): una sola llamada a Graph.
     assert [(a, d) for a, d, _h in graph.enviados] == [
         (ASUNTO_FOLIO, [institucional]),
-        (ASUNTO_REVOCADA, [institucional]),
-        (ASUNTO_REVOCADA, [PERSONAL]),
+        (ASUNTO_REVOCADA, [institucional, PERSONAL]),
     ]
     assert proc.folio in graph.enviados[0][2]
     filas = _filas(db_session, process_id=proc.id)
     assert [f.status for f in filas] == ["sent", "sent"]
     assert filas[1].sent_to == f"{institucional}, {PERSONAL}"
+
+
+def test_la_revocacion_que_no_sale_no_se_manda_a_medias(
+    db_session, make_student, make_process, make_user, graph,
+):
+    """Revisión final M2: con Graph fallando, la revocación es UN intento de
+    UNA llamada (no una por buzón: dos esperas de hasta 30 s contra el
+    `soft_time_limit=50` de la tarea) y el reintento la vuelve a mandar
+    ENTERA, nunca a un buzón que ya la recibió."""
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    proc, _req = _revocable(db_session, make_student, make_process)
+    assert ProcessService.cancel(db_session, proc.id, reason="x",
+                                 actor_id=make_user().id)[0]
+    (fila,) = _filas(db_session, process_id=proc.id, kind="process_cancelled")
+    _vencer(db_session, [fila])
+    db_session.commit()
+    graph.status = 500
+
+    assert _despachar(db_session) == _conteo(retry=1)
+
+    ((asunto, destinatarios, _html),) = graph.enviados
+    assert asunto == ASUNTO_REVOCADA
+    assert len(destinatarios) == 2 and PERSONAL in destinatarios
+    (fila,) = _filas(db_session, process_id=proc.id, kind="process_cancelled")
+    assert (fila.status, fila.attempts, fila.last_error) == (
+        "pending", 1, "Error al enviar")
 
 
 def test_la_revocacion_de_un_proceso_reactivado_queda_obsoleta(
@@ -779,8 +807,8 @@ def test_apagado_los_cuatro_mandan_en_linea_y_no_encolan(
         (ASUNTO_RECHAZO, [PERSONAL]),
         (ASUNTO_FOLIO, [student_email(cuenta)]),
         (ASUNTO_YA, [student_email(alumno)]),
-        (ASUNTO_REVOCADA, [student_email(db_session.get(User, proc4.student_id))]),
-        (ASUNTO_REVOCADA, [PERSONAL]),
+        (ASUNTO_REVOCADA, [student_email(db_session.get(User, proc4.student_id)),
+                           PERSONAL]),
     ]
     assert _filas(db_session, enrollment_request_id=req.id) == []
     for pid in (proc2.id, proc3.id, proc4.id):

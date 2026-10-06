@@ -606,6 +606,7 @@ class TestCorreo:
         ok = TitulaTecEmailHelper.send_process_cancelled(db_session, proc)
 
         assert ok
+        assert len(enviados) == 1, "UN mensaje con los dos buzones (revisión final M2)"
         destinos = sorted(d for _, to, _ in enviados for d in to)
         assert destinos == sorted(["personal@example.invalid", student_email(esc["student"])])
         for _, _, html in enviados:
@@ -624,7 +625,7 @@ class TestCorreo:
 
         assert email_helper.TitulaTecEmailHelper.send_process_cancelled(
             db_session, proc)
-        assert len(destinos) == 1
+        assert len(destinos) == 1 and len(destinos[0]) == 1
 
     def test_nunca_lanza(self, db_session, esc, monkeypatch):
         from itcj2.apps.titulatec.services import email_helper

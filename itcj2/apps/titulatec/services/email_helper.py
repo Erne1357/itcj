@@ -162,25 +162,34 @@ def _render(template_name: str, context: dict) -> str | None:
         return None
 
 
-def _send(token: str, subject: str, html: str, recipient_email: str) -> bool:
-    """Envía. `True` con HTTP 200/202. Nunca lanza."""
+def _send(token: str, subject: str, html: str, recipients: list[str]) -> bool:
+    """Envía UN mensaje de Graph a `recipients` (todos en «Para»). `True` con
+    HTTP 200/202. Nunca lanza."""
     from itcj2.core.utils.msgraph_mail import graph_send_mail
+    quien = ", ".join(recipients)
     try:
-        r = graph_send_mail(token, subject, html, [recipient_email])
+        r = graph_send_mail(token, subject, html, list(recipients))
         if r.status_code in (200, 202):
             return True
         logger.warning("graph_send_mail devolvió %s para %s: %s",
-                       r.status_code, recipient_email, r.text[:200])
+                       r.status_code, quien, r.text[:200])
         return False
     except Exception:
-        logger.exception("Error en graph_send_mail para %s", recipient_email)
+        logger.exception("Error en graph_send_mail para %s", quien)
         return False
 
 
-def deliver_detailed(*, template: str, context: dict, subject: str, to: str | None,
-                     que: str, link: str | None = None) -> tuple[bool, str | None]:
+def deliver_detailed(*, template: str, context: dict, subject: str,
+                     to: str | list[str] | None, que: str,
+                     link: str | None = None) -> tuple[bool, str | None]:
     """Tubería común: destinatario → token (o E9) → plantilla → envío, con el
     MOTIVO del fallo.
+
+    `to` es un buzón o una LISTA de buzones de la MISMA persona (la revocación
+    va al institucional y al personal): con lista sale UN solo mensaje de Graph
+    con todos en «Para» -una llamada, un desenlace: ni dos esperas de hasta
+    30 s dentro de la tarea del despachador, ni un reintento que repita el
+    correo a quien ya lo recibió-. Vacíos se ignoran.
 
     `(True, None)` si salió; si no, `(False, código)` con código:
     `"sin_destinatario"` (no hay `to`), `"cuenta_no_conectada"` (sin token de
@@ -190,24 +199,26 @@ def deliver_detailed(*, template: str, context: dict, subject: str, to: str | No
     legible y decidir el reintento; `_deliver` es este mismo camino reducido
     a `bool`.
     """
-    if not to:
+    destinos = [d for d in ([to] if isinstance(to, str) else (to or [])) if d]
+    if not destinos:
         logger.debug("Sin destinatario — se omite el envío de %s", que)
         return False, "sin_destinatario"
+    quien = ", ".join(destinos)
     token = _acquire_token(que)
     if token is None:
-        _dev_link(to, link)
+        _dev_link(quien, link)
         return False, "cuenta_no_conectada"
     html = _render(template, context)
     if html is None:
         return False, "plantilla"
-    if not _send(token, subject, html, to):
+    if not _send(token, subject, html, destinos):
         return False, "envio"
-    logger.info("[titulatec] %s -> %s", que, to)
+    logger.info("[titulatec] %s -> %s", que, quien)
     return True, None
 
 
-def _deliver(*, template: str, context: dict, subject: str, to: str | None,
-             que: str, link: str | None = None) -> bool:
+def _deliver(*, template: str, context: dict, subject: str,
+             to: str | list[str] | None, que: str, link: str | None = None) -> bool:
     """Tubería común: destinatario → token (o E9) → plantilla → envío. Es
     `deliver_detailed` sin el motivo: la usan los 6 correos de inscripción."""
     return deliver_detailed(template=template, context=context, subject=subject,
@@ -324,7 +335,7 @@ class TitulaTecEmailHelper:
     @staticmethod
     def send_process_cancelled(db: Session, process) -> bool:
         """Aviso de inscripción REVOCADA (`ProcessService.cancel`). `True` si
-        salió al menos uno.
+        salió.
 
         A los DOS buzones: el INSTITUCIONAL de la cuenta y el PERSONAL de la
         solicitud que la convirtió (si la hubo — un alta por CSV no tiene). Un
@@ -337,7 +348,8 @@ class TitulaTecEmailHelper:
         manda a la plataforma, donde el motivo se lee con sesión iniciada.
 
         Los destinatarios los decide `process_cancelled_recipients`, el MISMO
-        que usa el despachador del outbox.
+        que usa el despachador del outbox, y van en UN solo mensaje (los dos
+        en «Para»; es la misma persona), igual que desde el outbox.
         """
         try:
             from itcj2.core.models.user import User
@@ -345,15 +357,13 @@ class TitulaTecEmailHelper:
             user = db.get(User, process.student_id)
             if user is None:
                 return False
-            enviado = False
-            for to in process_cancelled_recipients(db, process, user):
-                enviado = _deliver(
-                    template="process_cancelled.html",
-                    context={"first_name": user.first_name, "app_url": _STUDENT_URL},
-                    subject=SUBJECT_PROCESS_CANCELLED,
-                    to=to, que="process_cancelled",
-                ) or enviado
-            return enviado
+            return _deliver(
+                template="process_cancelled.html",
+                context={"first_name": user.first_name, "app_url": _STUDENT_URL},
+                subject=SUBJECT_PROCESS_CANCELLED,
+                to=process_cancelled_recipients(db, process, user),
+                que="process_cancelled",
+            )
         except Exception:
             logger.exception("[titulatec] Error inesperado en send_process_cancelled")
             return False

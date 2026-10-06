@@ -390,12 +390,11 @@ class MailDispatcher:
                             procesos: dict, alumnos: dict) -> str:
         """Un correo de inscripción (spec 2026-10-05 §3.7; siempre fila
         suelta). Resuelve la solicitud, el proceso y el alumno de la fila; el
-        compositor re-valida (D8); se manda a cada destinatario de
-        `_destinatarios_inscripcion` y basta con que salga a uno (como el envío
-        en línea de la revocación); al salir, `sent_to` lleva los buzones a los
-        que SÍ salió y la solicitud recibe su sello (`_SELLOS`) en esta misma
-        transacción. Sin salir a ninguno, intento fallido con el motivo del
-        primer error. No hace commit (lo hace `_despachar`)."""
+        compositor re-valida (D8); sale UN mensaje con todos los destinatarios
+        de `_destinatarios_inscripcion` en «Para» (como el envío en línea de la
+        revocación); al salir, `sent_to` lleva esos buzones y la solicitud
+        recibe su sello (`_SELLOS`) en esta misma transacción. Si no sale,
+        intento fallido con su motivo. No hace commit (lo hace `_despachar`)."""
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
         from itcj2.apps.titulatec.services import email_helper
         from itcj2.apps.titulatec.services.mail_compose import MailComposer, Obsolete
@@ -422,20 +421,18 @@ class MailDispatcher:
         if not destinos:
             return _cerrar(filas, "no_recipient")
 
-        enviados, error = [], None
-        for to in destinos:
-            ok, motivo = email_helper.deliver_detailed(
-                template=correo.template, context=correo.context, subject=correo.subject,
-                to=to, que=f"mail:{fila.kind}", link=None)
-            if ok:
-                enviados.append(to)
-            elif error is None:
-                error = motivo
-        if enviados:
+        # UN solo mensaje de Graph con todos los destinatarios (la revocación va
+        # al institucional y al personal: la misma persona). Uno por buzón eran
+        # dos esperas de hasta 30 s contra el `soft_time_limit=50` de la tarea,
+        # y un corte o un fallo en el segundo reintentaba también el primero.
+        ok, error = email_helper.deliver_detailed(
+            template=correo.template, context=correo.context, subject=correo.subject,
+            to=destinos, que=f"mail:{fila.kind}", link=None)
+        if ok:
             columna = _SELLOS.get(fila.kind)
             if columna is not None and req is not None:
                 setattr(req, columna, now)
-            return _marcar_enviado(filas, now, ", ".join(enviados), correo.subject)
+            return _marcar_enviado(filas, now, ", ".join(destinos), correo.subject)
         if error == "cuenta_no_conectada" and not email_helper._is_production():
             logger.warning("[TT-MAIL] %s -> %s · %s · %s", fila.kind, ", ".join(destinos),
                            correo.subject, correo.link)
