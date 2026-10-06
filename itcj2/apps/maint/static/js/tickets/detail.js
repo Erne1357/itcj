@@ -304,6 +304,8 @@
                         '<div class="mn-detail-value">' +
                             (t.coordinator ? _esc(t.coordinator.name || ('ID ' + t.coordinator.id)) : '<span class="text-muted fst-italic">Sin asignar</span>') +
                         '</div></div>' +
+                    '<div class="col-md-6"><div class="mn-detail-label"><i class="bi bi-people me-1"></i>Técnicos asignados</div>' +
+                        '<div class="mn-detail-value">' + _activeTechsHtml(t) + '</div></div>' +
                     '<div class="col-12" id="ticketAttachmentsSection">' +
                         '<div class="mn-detail-label"><i class="bi bi-paperclip me-1"></i>Archivos adjuntos</div>' +
                         '<div class="text-muted small mt-1"><span class="spinner-border spinner-border-sm me-1" role="status"></span>Cargando...</div>' +
@@ -312,6 +314,14 @@
                 customHtml +
             '</div>' +
         '</div>';
+    }
+
+    function _activeTechsHtml(t) {
+        var active = (t.technicians || []).filter(function (tc) { return tc.is_active; });
+        if (!active.length) return '<span class="text-muted fst-italic">Sin asignar</span>';
+        return active.map(function (tc) {
+            return '<div><i class="bi bi-person-fill me-1" style="color:var(--maint-primary);"></i>' + _esc(tc.user_name) + '</div>';
+        }).join('');
     }
 
     // ── Adjuntos: helpers compartidos ────────────────────────────────────────
