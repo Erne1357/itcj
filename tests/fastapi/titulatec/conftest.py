@@ -12,11 +12,14 @@ TitulaTec es pages-only y **cada handler abre su propia sesion**::
     from itcj2.database import SessionLocal   # import LOCAL, dentro de la funcion
     db = SessionLocal()
 
-Hay 52 llamadas asi en `pages/{admin,appointments,documents,officers,roles,
-student}.py`, mas `nav.py:79` (`get_titulatec_roles`) y `nav.py:108-111`
-(`admin_nav_items`, que ademas usa `with SessionLocal() as db:`). El UNICO
-`Depends(get_db)` de la cadena es el gate de autorizacion, dentro de
-`require_page_app` (`itcj2/dependencies.py:118`).
+Asi lo hacen todas las rutas de `pages/*.py` (o el `_cuerpo_*` sincrono al que
+delegan desde 2026-10-05), mas `nav.py::get_titulatec_roles` y
+`nav.py::admin_nav_items`, que sin `db` usa `with SessionLocal() as _db:`. Ojo:
+`render_titulatec` ya NO calcula el menu (R2, 2026-10-05): deja `admin_nav`
+como callable perezoso y solo lo invoca `admin/base_admin.html`, asi que
+`admin_nav_items` corre cuando la ruta pinta una pagina admin COMPLETA, no en
+los parciales HTMX. El UNICO `Depends(get_db)` de la cadena es el gate de
+autorizacion, dentro de `require_page_app` (`itcj2/dependencies.py`).
 
 Consecuencia: `dependency_overrides[get_db]` cubre **solo la autorizacion**. Si
 te quedas ahi, el cuerpo de la ruta abre una sesion contra el pool REAL, no ve
@@ -36,7 +39,8 @@ dejaria invalidas todas las aserciones posteriores. Ojo: los metodos especiales
 se buscan en el TIPO, no via `__getattr__`, asi que `__enter__`/`__exit__` estan
 declarados explicitamente. Un proxy que solo tape `close()` revienta con
 `TypeError: object does not support the context manager protocol` en cuanto la
-ruta pasa por `admin_nav_items`.
+ruta pinta una pagina admin completa (la base invoca `admin_nav()` ->
+`admin_nav_items`).
 
 `rollback()` SI pasa al inner a proposito (hoy titulatec no lo llama en ningun
 lado; `grep -rn "rollback" itcj2/apps/titulatec/` no devuelve nada). Si algun
@@ -260,6 +264,35 @@ def sin_constancias_de_dev(db_session):
         "WHERE batch_id IS NOT NULL OR voided_at IS NULL"))
     db_session.execute(text("DELETE FROM titulatec_certificate_batches"))
     db_session.commit()          # checkpoint: el rollback de la app no resucita dev
+
+
+@pytest.fixture()
+def authz_congelada(monkeypatch):
+    """Caché de authz que NO depende de Redis, para las pruebas de PRESUPUESTO
+    de consultas (revisión final M7).
+
+    Esas pruebas calientan la caché con una primera llamada y luego comparan
+    cuentas («las mismas con 2 que con 40»). Redis es compartido: si otra
+    corrida (o el autouse `_clear_authz_cache` de otro proceso) lo vacía entre
+    dos mediciones, `cached_perms`/`cached_has_assignment`/`cached_roles`
+    vuelven a la BD y el conteo cambia por algo ajeno a lo que se mide. Aquí
+    cada una se memoiza por `(usuario, app)` DENTRO del test: la primera
+    llamada -el calentamiento- pasa por la función real y las siguientes no
+    consultan nada. Solo para pruebas que no cambian permisos tras calentar.
+    """
+    from itcj2.core.services import authz_cache
+
+    for nombre in ("cached_perms", "cached_has_assignment", "cached_roles"):
+        real, memo = getattr(authz_cache, nombre), {}
+
+        def _fija(db, user_id, app_key, _real=real, _memo=memo):
+            clave = (user_id, app_key)
+            if clave not in _memo:
+                _memo[clave] = _real(db, user_id, app_key)
+            valor = _memo[clave]
+            return set(valor) if isinstance(valor, set) else valor
+
+        monkeypatch.setattr(authz_cache, nombre, _fija)
 
 
 @pytest.fixture()

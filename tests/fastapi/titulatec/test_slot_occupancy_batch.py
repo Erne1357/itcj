@@ -557,6 +557,27 @@ def _medir_vista(db_session, s):
     return cuentas, ctx
 
 
+@pytest.mark.usefixtures("authz_congelada")
+def test_un_flush_de_redis_tras_calentar_no_mueve_la_cuenta(db_session, make_head):
+    """Revisión final M7: el presupuesto de abajo salió rojo una vez por un
+    Redis compartido vaciado entre mediciones. Con `authz_congelada`, tras
+    calentar, ni invalidar la caché del usuario hace consultar otra vez."""
+    from itcj2.core.services import authz_cache
+
+    head = make_head()
+    calientes = authz_cache.cached_perms(db_session, head.id, "titulatec")   # calienta
+    authz_cache.invalidate_user_app(head.id, "titulatec")                    # «flush»
+
+    def _otra_vez():
+        assert authz_cache.cached_perms(db_session, head.id, "titulatec") == calientes
+        assert authz_cache.cached_has_assignment(db_session, head.id, "titulatec") is not None
+
+    authz_cache.cached_has_assignment(db_session, head.id, "titulatec")      # calienta
+    authz_cache.invalidate_user_app(head.id, "titulatec")
+    assert _contar(db_session, _otra_vez) == 0
+
+
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_vista_del_dia_no_crece_con_dias_ni_ventanas(db_session, presupuesto):
     chico = presupuesto(3, 2, date(2029, 3, 5))
     c_chico, ctx_chico = _medir_vista(db_session, chico)

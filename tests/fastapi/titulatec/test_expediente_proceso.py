@@ -668,6 +668,7 @@ def test_la_ruta_de_dictamen_de_documentos_del_expediente_ya_no_existe():
     assert "titulatec.pages.documents.review" in nombres, (
         "se quito el dictamen del expediente Y el de la bandeja: nadie puede "
         "aprobar un documento")
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_el_expediente_no_hace_una_consulta_por_documento(expediente, client_as,
                                                           make_document, db_session):
     """`_detail_ctx` consultaba `DocumentType` UNA VEZ POR CODIGO. Con el

@@ -349,6 +349,7 @@ def _sembrar(db_session, cohort, n, prefijo, make_student, make_process):
     db_session.flush()
 
 
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_consultas_fijas_con_3_y_con_40(
     client_as, db_session, make_head, make_cohort, make_student, make_process,
 ):

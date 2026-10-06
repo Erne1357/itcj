@@ -324,6 +324,7 @@ def test_ver_todas_filtra_por_fase(db_session, escena, client_as, tres_por_pagin
 # Presupuesto de consultas
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("view", ["table", "board"])
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_sin_n_mas_1_usuario_y_carrera(db_session, escena, view):
     oficial = escena.officer()
     for _ in range(3):

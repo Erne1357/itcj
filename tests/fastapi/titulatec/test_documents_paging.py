@@ -294,6 +294,7 @@ def test_get_page_2_conserva_filtro(db_session, escena, client_as, tres_por_pagi
 # ---------------------------------------------------------------------------
 # Presupuesto de consultas
 # ---------------------------------------------------------------------------
+@pytest.mark.usefixtures("authz_congelada")    # un flush de Redis no mueve la cuenta
 def test_presupuesto_de_consultas_igual_con_2_y_con_40(db_session, escena):
     oficial = escena.officer()
     for _ in range(2):
