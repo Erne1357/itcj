@@ -1065,3 +1065,44 @@ def test_la_regla_de_ubicacion_del_envio_es_una_rama_condicional():
         assert todas and all(id(c) in dentro_de_if for c in todas), nombre
         # Y la condición menciona lo que devolvió el encolado.
         assert "not encolado" in ast.unparse(fn), nombre
+
+
+# ---------------------------------------------------------------------------
+# Deshacer el rechazo (`reopen`, 2026-10-06)
+# ---------------------------------------------------------------------------
+def test_deshacer_el_rechazo_en_cola_lo_deja_obsoleto(db_session, make_cohort, make_user,
+                                                      graph):
+    """La persona aclaró en ventanilla antes de que saliera el correo: el
+    despachador no le manda «rechazada» (D8), y `reopen` no avisa nada."""
+    req, fila = _rechazada_en_cola(db_session, make_cohort, make_user, control="99606090")
+
+    assert _svc().reopen(db_session, req.id, note="Aclaró en ventanilla.",
+                         actor_id=make_user().id) == (True, "")
+    assert _filas(db_session, enrollment_request_id=req.id) == [fila], "reopen no encola"
+
+    assert _despachar(db_session) == _conteo(obsolete=1)
+    assert graph.enviados == []
+
+
+def test_rechazar_de_nuevo_solo_manda_el_rechazo_vigente(db_session, make_cohort,
+                                                         make_user, graph):
+    """rechazar → deshacer → rechazar antes del despacho: las dos filas ven la
+    solicitud `rejected`, pero solo la más nueva es el rechazo vigente. La vieja
+    llevaría el motivo ya deshecho."""
+    se = make_user()
+    req, vieja = _rechazada_en_cola(db_session, make_cohort, make_user, control="99606091")
+    assert _svc().reopen(db_session, req.id, note="Trajo su constancia.",
+                         actor_id=se.id)[0] is True
+    assert _svc().reject(db_session, req.id, note="La constancia no es la vigente.",
+                         actor_id=se.id) is True
+    filas = _filas(db_session, enrollment_request_id=req.id)
+    _vencer(db_session, filas)
+    db_session.commit()
+
+    assert _despachar(db_session) == _conteo(sent=1, obsolete=1)
+
+    (_asunto, _dest, html), = graph.enviados
+    assert "La constancia no es la vigente." in html
+    assert "No aparece en el padrón." not in html
+    db_session.refresh(vieja)
+    assert vieja.status == "obsolete"

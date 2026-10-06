@@ -133,11 +133,18 @@ SEED_FILES = [
     # en una base YA sembrada. Aqui, despues del 17, no cambia nada (el 17 ya
     # siembra ese texto); va para que el delta siga completo en `SEED_FILES`.
     "biblioteca_2026_10/23_update_email_reminders_description.sql",
+    # --- Delta 2026-10-06: pestaña «Correos» (bandeja de salida) -----------
+    # El permiso `titulatec.email_outbox.page.list` (solo lectura del outbox)
+    # concedido SOLO al rol `admin`, explicito porque en produccion el 15 no
+    # se re-corre. Inserta un permiso, asi que va ANTES del 15. Tambien corre
+    # SOLO con `titulatec init-outbox-admin` (mismo patron D10 que
+    # `init-email-tasks`): es el unico camino de despliegue en produccion.
+    "outbox_2026_10/24_insert_email_outbox_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
     # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08,
-    # survey_2026_09/09 y biblioteca_2026_10/21) para que "todos" sea de
+    # survey_2026_09/09, biblioteca_2026_10/21 y outbox_2026_10/24) para que "todos" sea de
     # verdad todos. Solo concede (ON CONFLICT DO NOTHING): re-correrlo nunca
     # revoca nada.
     "15_grant_admin_all_perms.sql",
@@ -3232,3 +3239,109 @@ def sii_sweep_command(cohort_id, reconsultar_errores):
                 "correr el comando.", fg="yellow"))
         return
     click.echo(f"Consultadas: {out['checked']} · reintentadas: {out['retried']}")
+
+
+# ---------------------------------------------------------------------------
+# Pestaña «Correos» (2026-10-06): vista de SOLO LECTURA de
+# `titulatec_email_outbox` para el rol `admin` (`pages/mail_admin.py`). Un
+# permiso nuevo, `titulatec.email_outbox.page.list`, concedido SOLO a `admin`
+# y de forma EXPLICITA: en produccion `init-titulatec` (y con el el 15, que
+# concede dinamicamente todo a `admin`) nunca se re-ejecuta, asi que este
+# comando es el unico camino de despliegue del delta -- ademas de sumarse a
+# `SEED_FILES` para una instalacion desde cero (mismo patron D10 que
+# `init-email-tasks`/`init-posgrado`).
+# ---------------------------------------------------------------------------
+_DML_OUTBOX_2026_10_DIR = "outbox_2026_10"
+# Debe listar TODOS los .sql del directorio (mismo contrato que
+# `_DML_MAIL_2026_09_FILES`): lo fija
+# `test_el_directorio_lista_exactamente_su_archivo`
+# (tests/fastapi/titulatec/test_mail_outbox_admin.py). Un archivo que se cae
+# de aqui no lo corre nadie y nada se pone rojo.
+_DML_OUTBOX_2026_10_FILES = ["24_insert_email_outbox_perm.sql"]
+_OUTBOX_PERM = "titulatec.email_outbox.page.list"
+
+
+def _verify_outbox_admin() -> list[str]:
+    """Comprueba que el 24 ATERRIZO: el permiso existe y el rol `admin` lo
+    tiene. Devuelve problemas (mismo contrato que `_verify_biblioteca_caja`:
+    los `RAISE NOTICE` del SQL son invisibles para `itcj2/`). Sesion propia
+    (`SessionLocal`, import local) para que `patched_session_local` la
+    intercepte en las pruebas. Solo lectura.
+
+    Solo exige que `admin` lo CONTENGA: que ningun otro rol lo tenga es una
+    decision del DML, no algo que este comando deba vigilar en una base que
+    alguien pudo ajustar a mano despues.
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    problemas: list[str] = []
+    db = SessionLocal()
+    try:
+        existe = db.execute(
+            text("SELECT 1 FROM core_permissions p JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND p.code = :code"),
+            {"code": _OUTBOX_PERM},
+        ).first()
+        if existe is None:
+            problemas.append(f"permiso ausente: {_OUTBOX_PERM}")
+            return problemas
+        concedido = db.execute(
+            text("SELECT 1 FROM core_role_permissions rp "
+                 "JOIN core_roles r ON r.id = rp.role_id "
+                 "JOIN core_permissions p ON p.id = rp.perm_id "
+                 "JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND r.name = 'admin' AND p.code = :code"),
+            {"code": _OUTBOX_PERM},
+        ).first()
+        if concedido is None:
+            problemas.append(f"el rol admin no tiene {_OUTBOX_PERM}")
+    finally:
+        db.close()
+    return problemas
+
+
+@titulatec_cli.command("init-outbox-admin")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba el archivo en disco y lo lista, sin escribir nada.")
+def init_outbox_admin_command(dry_run):
+    """Da de alta la pestaña «Correos» (solo lectura del outbox) para `admin`.
+
+    Corre SOLO `database/DML/titulatec/outbox_2026_10/24_insert_email_outbox_perm.sql`:
+    el permiso `titulatec.email_outbox.page.list` y su concesion EXPLICITA al
+    rol `admin` de titulatec. NO re-ejecuta el resto de `SEED_FILES`: en
+    produccion el DML viejo nunca se re-corre. Idempotente (ON CONFLICT):
+    correrlo dos veces no duplica nada.
+
+    Al terminar VERIFICA con `_verify_outbox_admin()` y aborta si algo no
+    aterrizo. Despues no hace falta reiniciar: el menu y la ruta leen los
+    permisos por la cache de authz, que caduca sola (`AUTHZ_CACHE_TTL`).
+    `--dry-run`: comprueba que el archivo existe y lo lista, sin escribir.
+    """
+    dml_dir = DML_TITULATEC / _DML_OUTBOX_2026_10_DIR
+    faltan = [n for n in _DML_OUTBOX_2026_10_FILES if not (dml_dir / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in _DML_OUTBOX_2026_10_FILES:
+                click.echo(f"  {_DML_OUTBOX_2026_10_DIR}/{nombre}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files([f"{_DML_OUTBOX_2026_10_DIR}/{nombre}" for nombre in _DML_OUTBOX_2026_10_FILES])
+
+    problemas = _verify_outbox_admin()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {_OUTBOX_PERM} existe y el rol admin lo tiene. La pestaña «Correos» "
+        "aparece en el menú admin en cuanto caduque la caché de permisos.",
+        fg="green",
+    ))

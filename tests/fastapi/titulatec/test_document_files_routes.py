@@ -70,6 +70,44 @@ def _post(cli, raw, name="curp escaneada.pdf"):
     return cli.post(UPLOAD, files={"archivo": (name, raw, "application/pdf")})
 
 
+class TestLogDeSubida:
+    """Rendimiento 2026-10-06: una línea «documento subido» por subida, con lo
+    que explica su latencia (tamaños, pasadas de compresión, tiempos) y nada
+    del archivo (ni su nombre). En Loki se cruza por `request_id`."""
+
+    LOGGER = "itcj2.apps.titulatec.pages.student"
+
+    def _registros(self, caplog):
+        return [r for r in caplog.records
+                if r.name == self.LOGGER and r.getMessage() == "documento subido"]
+
+    def test_subida_comprimida_deja_tamanos_pasadas_y_tiempos(self, esc, client_as, caplog):
+        import logging
+
+        e = esc()
+        raw = photo_pdf()
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            assert _post(client_as(e.student), raw).status_code == 200
+
+        (r,) = self._registros(caplog)
+        assert (r.doc_type, r.bytes_in, r.outcome) == ("curp", len(raw), "ok")
+        assert r.bytes_out <= 2 * MB and r.compress_passes >= 1
+        assert r.prepare_ms >= 0 and r.save_ms >= 0
+        assert "curp escaneada" not in str(vars(r)), "nunca el nombre del archivo"
+
+    def test_subida_rechazada_dice_el_tipo_de_error(self, esc, client_as, caplog):
+        import logging
+
+        e = esc()
+        raw = bilevel_noise_pdf()
+        with caplog.at_level(logging.INFO, logger=self.LOGGER):
+            _post(client_as(e.student), raw)
+
+        (r,) = self._registros(caplog)
+        assert (r.outcome, r.error_type, r.bytes_in) == ("error", "StorageError", len(raw))
+        assert not hasattr(r, "bytes_out")
+
+
 # ---------------------------------------------------------------------------
 # Subida
 # ---------------------------------------------------------------------------

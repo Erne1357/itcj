@@ -216,10 +216,11 @@ def check_pdf_upload_size(size: int | None) -> None:
         )
 
 
-def _fit_pdf(raw: bytes) -> bytes:
+def _fit_pdf(raw: bytes, stats: dict | None = None) -> bytes:
     """Los bytes del PDF que se van a guardar, ya dentro del tope, o ``StorageError``.
 
     Supone ya aplicado ``check_pdf_upload_size`` (lo hace ``save_document``).
+    ``stats`` recibe las pasadas de compresión (ver ``compress_pdf``).
     """
     from itcj2.apps.titulatec.utils import pdf_compress
 
@@ -227,7 +228,7 @@ def _fit_pdf(raw: bytes) -> bytes:
     if len(raw) <= target:
         return raw
     try:
-        out = pdf_compress.compress_pdf(raw, target_bytes=target)
+        out = pdf_compress.compress_pdf(raw, target_bytes=target, stats=stats)
     except pdf_compress.PdfUnreadable as exc:
         raise StorageError(
             "No pudimos leer tu PDF; vuelve a generarlo o escanéalo de nuevo."
@@ -266,6 +267,9 @@ class PreparedDocument:
     mime_type: str
     original_name: str
     file_kind: str
+    # Pasadas de compresión del PDF (0 = se guardó tal cual). Solo para el log
+    # de la subida (rendimiento 2026-10-06).
+    compress_passes: int = 0
 
 
 def prepare_document(
@@ -284,13 +288,14 @@ def prepare_document(
     """
     settings = get_settings()
     ext = _ext_of(original_name)
+    stats = {"passes": 0}
 
     if file_kind == "pdf":
         if ext not in _PDF_EXTS:
             raise StorageError("Solo se permiten archivos PDF para este documento.")
         check_pdf_upload_size(len(raw))
         _check_control(control_number)          # antes de gastar CPU comprimiendo
-        data, final_ext, mime = _fit_pdf(raw), "pdf", "application/pdf"
+        data, final_ext, mime = _fit_pdf(raw, stats), "pdf", "application/pdf"
     elif file_kind == "image":
         if ext not in _IMAGE_EXTS:
             raise StorageError("Formato de imagen no permitido (jpg, png, webp).")
@@ -304,7 +309,8 @@ def prepare_document(
         raise StorageError(f"file_kind inválido: {file_kind}")
 
     return PreparedDocument(data=data, ext=final_ext, mime_type=mime,
-                            original_name=original_name, file_kind=file_kind)
+                            original_name=original_name, file_kind=file_kind,
+                            compress_passes=stats["passes"])
 
 
 def _write_atomic(target: Path, data: bytes) -> None:

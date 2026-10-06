@@ -1,5 +1,6 @@
 """Páginas del alumno en TitulaTec (mobile-first)."""
 import logging
+import time
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -1212,6 +1213,28 @@ async def document_upload(
         type_code=type_code, request=request, archivo=archivo, user=user, raw=raw)
 
 
+def _log_upload(type_code, raw, *, prepared=None, prepare_ms, save_ms=None, error=None):
+    """Una línea por subida con lo que explica su latencia (rendimiento
+    2026-10-06): en Loki, `logger="itcj2.apps.titulatec.pages.student"` y
+    `msg="documento subido"`, con `request_id` para cruzarla con la de acceso.
+    Nada del contenido ni del nombre del archivo: solo tipo, tamaños, pasadas
+    de compresión y tiempos."""
+    extra = {
+        "doc_type": type_code,
+        "bytes_in": len(raw),
+        "prepare_ms": round(prepare_ms, 1),
+        "outcome": "error" if error else "ok",
+    }
+    if prepared is not None:
+        extra["bytes_out"] = len(prepared.data)
+        extra["compress_passes"] = prepared.compress_passes
+    if save_ms is not None:
+        extra["save_ms"] = round(save_ms, 1)
+    if error:
+        extra["error_type"] = error
+    logger.info("documento subido", extra=extra)
+
+
 def _cuerpo_document_upload(type_code, request, archivo, user, raw=None):
     """Cuerpo síncrono de `document_upload`: corre en el threadpool, no en el event loop.
 
@@ -1251,6 +1274,7 @@ def _cuerpo_document_upload(type_code, request, archivo, user, raw=None):
 
         error = None
         doc = DocumentService.get_document(db, process.id, type_code)
+        t0 = time.perf_counter()
         try:
             # Antes de leer el cuerpo: un PDF que ya excede lo que se acepta
             # para comprimir (`TITULATEC_MAX_PDF_UPLOAD_SIZE`) no se sube a
@@ -1269,20 +1293,27 @@ def _cuerpo_document_upload(type_code, request, archivo, user, raw=None):
                 # Primer salto: todo lo anterior pasó, no hay nada que rechazar.
                 # La ruta async lee el cuerpo y vuelve con `raw`.
                 return None
-            # Comprimir un PDF escaneado es CPU (segundos): aquí corre en el
-            # threadpool, nunca en el event loop.
+            # Comprimir un PDF escaneado es CPU: aquí corre en el threadpool,
+            # nunca en el event loop.
+            t0 = time.perf_counter()        # sin contar lo de arriba (consultas)
             prepared = storage.prepare_document(
                 raw=raw, original_name=archivo.filename,
                 control_number=control, file_kind=file_kind,
             )
+            prepare_ms = (time.perf_counter() - t0) * 1000
             doc = DocumentService.save(
                 db, process, type_code,
                 raw=raw, original_name=archivo.filename,
                 content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
                 prepared=prepared,
             )
+            _log_upload(type_code, raw, prepared=prepared, prepare_ms=prepare_ms,
+                        save_ms=(time.perf_counter() - t0) * 1000 - prepare_ms)
         except (StorageError, ValueError) as exc:
             error = str(exc)
+            if raw is not None:
+                _log_upload(type_code, raw, prepare_ms=(time.perf_counter() - t0) * 1000,
+                            error=type(exc).__name__)
 
         # Tarea 2: la fecha de envio (exito) o la ULTIMA subida buena previa
         # (error: no se escribio ProcessEvent nuevo) sale del mismo lote.

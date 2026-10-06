@@ -141,6 +141,9 @@ _ADMIN_NAV = [
     # (misma URL, mismo permiso); la impresión por lotes quedó tras un switch.
     ("Folios",              "bi-hash",        "/titulatec/admin/constancias",  {"titulatec.certificate.page.list"}),
     ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
+    # Bandeja de salida de correos (2026-10-06): solo lectura, solo `admin`
+    # (`outbox_2026_10/24`, `titulatec init-outbox-admin`).
+    ("Correos",             "bi-envelope",    "/titulatec/admin/correos",      {"titulatec.email_outbox.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 

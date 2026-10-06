@@ -25,6 +25,8 @@ el ALTERNO, CC hace las dos cosas en un paso.
     verify() [liga]          ─── approved ─► converted | pending_review (review_note)
     reject() [SE | CC alt.]  ─── pending_review | awaiting_access | approved | legado
                                  ─► rejected                            (correo; la liga muere)
+    reopen() [SE]            ─── rejected ─► pending_review             reopen_note (aclaró en
+                                 ventanilla), sin correo; luego se aprueba normal
     reassign_nip() [CC]      ─── converted (cuenta creada por la solicitud y que
                                  nunca ha iniciado sesión) ─► converted  NIP nuevo
                                  (+ correo, u omitido para dictarlo por teléfono)
@@ -119,7 +121,7 @@ sus procesos y tampoco emite ni canjea ligas, pero pasar `closes_at` no deja
 varada a nadie que entró a tiempo. La liga vive `_link_ttl_hours()`.
 
 CONCURRENCIA. Toda transición de una solicitud (`approve`, `grant_access`,
-`return_to_review`, `reassign_nip`, `verify`, `reject`, `resend_link`,
+`return_to_review`, `reassign_nip`, `verify`, `reject`, `reopen`, `resend_link`,
 `resend`, `resend_access_notice`) toma
 `pg_advisory_xact_lock(_REQUEST_LOCK_NS, req.id)` y hace `db.refresh(req)`
 ANTES de leer el estado: bajo READ COMMITTED, quien esperó el lock puede seguir
@@ -137,6 +139,7 @@ from datetime import date, datetime, timedelta
 from typing import NamedTuple
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.email_helper import PUBLIC_ORIGIN
@@ -206,6 +209,34 @@ def entry_year(control: str | None, today: date | None = None) -> str:
     yy = int(m.group(1))
     pivote = (today or date.today()).year % 100
     return str(2000 + yy if yy <= pivote else 1900 + yy)
+
+
+# La MISMA lectura que `_ENTRY_YEAR_RE`, en el dialecto de Postgres: el `\s*`
+# hace lo que el `.strip()` de `entry_year` (un espacio al frente no cambia el
+# año). `[0-9]` y no `\d`: los controles reales son ASCII (`CONTROL_NUMBER_RE`).
+_ENTRY_YEAR_SQL = r"^\s*[A-Za-z]?([0-9]{2})"
+
+
+def entry_year_filter(column, year: str | None, today: date | None = None):
+    """Predicado SQL «`entry_year(column) == year`», o `None` si `year` no sirve.
+
+    El filtro «Año de ingreso» de la bandeja: va en la consulta (la bandeja
+    pagina), con la MISMA regla que `entry_year`, que es la que cuenta el bloque
+    «Por año de ingreso» — si se separan, el filtro y el conteo discrepan
+    (lo fija `test_requests_filters.py`). `year` es un año de 4 dígitos que el
+    pivote de hoy produzca (con hoy=2026, «2090» no existe: 90 se lee 1990) o
+    `"Sin año"` (control que no empieza con 2 dígitos tras la letra opcional).
+    """
+    from sqlalchemy import func, not_, or_
+
+    if year == "Sin año":
+        return or_(column.is_(None), not_(column.op("~")(_ENTRY_YEAR_SQL)))
+    if not (isinstance(year, str) and len(year) == 4 and year.isascii() and year.isdigit()):
+        return None
+    yy = f"{int(year) % 100:02d}"
+    if entry_year(yy, today) != year:
+        return None
+    return func.substring(column, _ENTRY_YEAR_SQL) == yy
 
 
 def enrollment_request_search(q):
@@ -296,6 +327,13 @@ _MSG_NOT_AWAITING = "Esa solicitud ya no está esperando acceso."
 _MSG_RETURN_NOTE = "Escribe el motivo de la devolución."
 _MSG_RETURN_NOTE_LONG = "El motivo de la devolución no puede pasar de 2000 caracteres."
 _RETURN_NOTE_MAX = 2000
+_MSG_NOT_REJECTED = "Esa solicitud ya no está rechazada."
+_MSG_REOPEN_NOTE = "Escribe qué se aclaró con la persona."
+_MSG_REOPEN_NOTE_LONG = "La nota no puede pasar de 2000 caracteres."
+_MSG_REOPEN_OTHER_OPEN = ("Esa persona ya tiene otra solicitud en curso en esta "
+                          "convocatoria; atiende esa.")
+_MSG_REOPEN_OTHER_CONVERTED = ("Esa persona ya quedó inscrita en esta convocatoria "
+                               "con otra solicitud.")
 _MSG_NOT_REASSIGNABLE = ("Solo se reasigna el NIP de una cuenta que creó esta solicitud "
                          "y que nunca ha iniciado sesión.")
 # «Reenviar aviso» (spec 2026-09-27 D12, `resend_access_notice`).
@@ -1666,6 +1704,74 @@ class EnrollmentRequestService:
                 except Exception:      # pragma: no cover - sesión ya inservible
                     pass
         return True
+
+    @staticmethod
+    def reopen(db: Session, req_id: int, *, note: str, actor_id: int):
+        """SE deshace un rechazo: `rejected -> pending_review`. `(ok, detalle)`.
+
+        Para cuando la persona va a ventanilla y aclara lo que motivó el
+        rechazo. Nota obligatoria (qué se aclaró), ≤2000 tras quitar espacios
+        y, como en `return_to_review`, una más larga se RECHAZA en vez de
+        recortarse. Escribe `reopened_*`/`reopen_note`; `review_note` y
+        `reviewed_*` se quedan con el rechazo deshecho hasta que SE vuelva a
+        resolver. Después se aprueba por el camino normal (SII, NIP, liga).
+
+        SIN correo: la persona está en ventanilla. Si el correo del rechazo
+        seguía en el outbox, el despachador lo cierra `obsolete` al ver que la
+        solicitud ya no está `rejected` (D8, `_compose_enrollment_rejected`).
+        `rejection_sent_at` se limpia: el sello es del rechazo VIGENTE, y si SE
+        la rechaza otra vez la bandeja tiene que poder decir «en cola».
+
+        No se reabre si la convocatoria ya no acepta seguimiento (el mismo
+        corte que `approve`), ni si el mismo control tiene OTRA solicitud viva
+        (el índice parcial lo prohibiría) o ya inscrita en esta convocatoria.
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+
+        motivo = (note or "").strip()
+        if not motivo:
+            return False, _MSG_REOPEN_NOTE
+        if len(motivo) > _RETURN_NOTE_MAX:
+            return False, _MSG_REOPEN_NOTE_LONG
+        req = db.get(EnrollmentRequest, req_id)
+        if req is None:
+            return False, _MSG_GONE
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _REQUEST_LOCK_NS, "key": int(req.id)})
+        db.refresh(req)
+        if req.status != "rejected":
+            return False, _MSG_NOT_REJECTED
+        cohort, cerrada = _cohort_gate(db, req)
+        if cohort is None:
+            return False, cerrada
+
+        otras = {s for (s,) in (
+            db.query(EnrollmentRequest.status)
+            .filter(EnrollmentRequest.cohort_id == req.cohort_id,
+                    EnrollmentRequest.control_number == req.control_number,
+                    EnrollmentRequest.id != req.id,
+                    EnrollmentRequest.status.in_(OPEN_STATUSES + ("converted",)))
+            .all())}
+        if otras & set(OPEN_STATUSES):
+            return False, _MSG_REOPEN_OTHER_OPEN
+        if "converted" in otras:
+            return False, _MSG_REOPEN_OTHER_CONVERTED
+
+        req.status = "pending_review"
+        req.reopened_by_id = actor_id
+        req.reopened_at = datetime.now()
+        req.reopen_note = motivo
+        req.rejection_sent_at = None
+        try:
+            db.commit()
+        except IntegrityError:
+            # Otra solicitud del mismo control entró viva entre la consulta y el
+            # commit (el lock es por solicitud, no por control): el índice
+            # parcial la detiene aquí.
+            db.rollback()
+            return False, _MSG_REOPEN_OTHER_OPEN
+        return True, ""
 
     @staticmethod
     def resend_link(db: Session, req_id: int):

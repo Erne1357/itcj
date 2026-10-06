@@ -1067,7 +1067,11 @@ def _solicitud(db: Session, fila):
 def _compose_enrollment_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """Rechazo de la solicitud (`send_enrollment_rejected`): el motivo y quién
     firma, congelados en el payload; nombre y número de control de la
-    solicitud. Obsoleto si la solicitud ya no existe o ya no está rechazada."""
+    solicitud. Obsoleto si la solicitud ya no existe o ya no está rechazada, o si
+    hay una fila de rechazo MÁS NUEVA para ella: SE deshizo el rechazo
+    (`reopen`) y la volvió a rechazar antes del despacho, y esta fila lleva el
+    motivo ya deshecho."""
+    from itcj2.apps.titulatec.models import EmailOutbox
     from itcj2.apps.titulatec.services import email_helper
 
     fila = rows[-1]
@@ -1076,6 +1080,13 @@ def _compose_enrollment_rejected(db: Session, rows: list, process, user) -> Comp
         return Obsolete("la solicitud ya no existe")
     if req.status != "rejected":
         return Obsolete("la solicitud ya no está rechazada")
+    mas_nueva = (db.query(EmailOutbox.id)
+                 .filter(EmailOutbox.enrollment_request_id == req.id,
+                         EmailOutbox.kind == "enrollment_rejected",
+                         EmailOutbox.id > fila.id)
+                 .first())
+    if mas_nueva is not None:
+        return Obsolete("hay un rechazo más reciente de la solicitud")
     datos = _datos(fila)
     motivo = datos["reason"] if "reason" in datos else req.review_note
     revisor = _texto(datos.get("revisor"))

@@ -672,5 +672,6 @@ reasignar NIP, reenviar el aviso de acceso) siguen en línea.
   [inscripción pública](xcut_public_enrollment.md) (`services/email_helper.py`, `_deliver`); los 4
   sin secreto pasan por esta bandeja desde 2026-10-05 (§9).
 - → Lo lee: [expediente del alumno](xcut_admin_process_expediente.md) (bitácora `#exp-correos`).
+- → Lo lee también: [pestaña «Correos»](xcut_mail_outbox_admin.md) (toda la bandeja, solo `admin`, solo lectura).
 - ↔ In-app (no cambia su mecánica, solo gana tipos):
   [el alumno en el shell mobile del core](xcut_student_shell_embed.md).

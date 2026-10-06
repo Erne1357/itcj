@@ -302,6 +302,11 @@ class TestDecodificacionUniforme:
         from PIL import Image
 
         mode, relleno = color
+        # La muestra es un Flate simple: desde 2026-10-06 se decodifica en
+        # `_decode_flat` (sin pypdf). La mala lectura se simula en los DOS
+        # decodificadores para que la guarda se pruebe sea cual sea el camino.
+        monkeypatch.setattr(pdf_compress, "_decode_flat",
+                            lambda obj: Image.new(mode, (600, 800), relleno))
         monkeypatch.setattr(pdf_compress, "_decode_with_pypdf",
                             lambda page, path: Image.new(mode, (600, 800), relleno))
         raw = merge_pdfs(flate_pdf(width=600, height=800), photo_pdf())
@@ -388,3 +393,118 @@ class TestImagenQueNoSeDecodifica:
         xo = reader.pages[0]["/Resources"]["/XObject"]
         assert xo[list(xo)[0]].get_object()._data == corrupto
         assert max(reader.pages[1].images[0].image.size) < 2200
+
+
+# ---------------------------------------------------------------------------
+# Rendimiento (2026-10-06): decodificación directa de un Flate simple
+# ---------------------------------------------------------------------------
+def _variante_flate(kind: str, *, width: int = 300, height: int = 400) -> bytes:
+    """Una página con UNA imagen Flate sin pérdida en la variante pedida:
+    `rgb`, `gray`, `icc` (ICCBased /N 3), `up` (predictor PNG «Up») o
+    `smask` (con máscara suave: no es «simple», va por pypdf)."""
+    import zlib
+
+    from pypdf.generic import (
+        ArrayObject, DictionaryObject, NameObject, NumberObject, StreamObject,
+    )
+    from tests.fastapi.titulatec._pdf_samples import _photo_image
+
+    img = _photo_image(width, height, mode="L" if kind == "gray" else "RGB")
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(flate_pdf(width=width, height=height))))
+    xobjs = writer.pages[0]["/Resources"]["/XObject"]
+    stream = xobjs.raw_get(next(iter(xobjs))).get_object()
+    raw = img.tobytes()
+    if kind == "up":
+        stride = width * 3
+        prev, filas = bytes(stride), []
+        for y in range(height):
+            fila = raw[y * stride:(y + 1) * stride]
+            filas.append(b"\x02" + bytes((a - b) & 0xFF for a, b in zip(fila, prev)))
+            prev = fila
+        stream._data = zlib.compress(b"".join(filas), 6)
+        stream[NameObject("/DecodeParms")] = DictionaryObject({
+            NameObject("/Predictor"): NumberObject(12), NameObject("/Colors"): NumberObject(3),
+            NameObject("/Columns"): NumberObject(width),
+            NameObject("/BitsPerComponent"): NumberObject(8)})
+    else:
+        stream._data = zlib.compress(raw, 6)
+    stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+    if kind == "gray":
+        stream[NameObject("/ColorSpace")] = NameObject("/DeviceGray")
+    if kind == "icc":
+        perfil = StreamObject()
+        perfil[NameObject("/N")] = NumberObject(3)
+        stream[NameObject("/ColorSpace")] = ArrayObject(
+            [NameObject("/ICCBased"), writer._add_object(perfil)])
+    if kind == "smask":
+        mascara = StreamObject()
+        mascara._data = zlib.compress(bytes([200]) * (width * height), 6)
+        mascara.update({NameObject("/Type"): NameObject("/XObject"),
+                        NameObject("/Subtype"): NameObject("/Image"),
+                        NameObject("/Width"): NumberObject(width),
+                        NameObject("/Height"): NumberObject(height),
+                        NameObject("/ColorSpace"): NameObject("/DeviceGray"),
+                        NameObject("/BitsPerComponent"): NumberObject(8),
+                        NameObject("/Filter"): NameObject("/FlateDecode")})
+        stream[NameObject("/SMask")] = writer._add_object(mascara)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _pagina_e_imagen(pdf: bytes):
+    page = PdfReader(io.BytesIO(pdf)).pages[0]
+    xo = page["/Resources"]["/XObject"]
+    nombre = list(xo)[0]
+    return page, nombre, xo[nombre].get_object()
+
+
+class TestDecodificacionDirecta:
+    """pypdf (`page.images[...]`) re-codifica cada imagen a PNG y la vuelve a
+    abrir: en una hoja escaneada A4 a 300 dpi eran ~2.4 s de los 2.5 s de la
+    subida (medido 2026-10-06 sobre las subidas lentas de prod). Un Flate
+    «simple» (8 bits, gris/RGB, sin máscaras ni /Decode) se lee directo de
+    `get_data()`, con los MISMOS píxeles."""
+
+    @pytest.mark.parametrize("kind", ["rgb", "gray", "icc", "up"])
+    def test_da_los_mismos_pixeles_que_pypdf(self, kind):
+        page, nombre, obj = _pagina_e_imagen(_variante_flate(kind))
+
+        directa = pdf_compress._decode_flat(obj)
+        de_pypdf = page.images[nombre].image
+
+        assert directa is not None, f"{kind} es un Flate simple"
+        assert (directa.mode, directa.size) == (de_pypdf.mode, de_pypdf.size)
+        assert directa.tobytes() == de_pypdf.tobytes()
+
+    @pytest.mark.parametrize("kind", ["smask"])
+    def test_lo_que_no_es_simple_no_se_decodifica_directo(self, kind):
+        _page, _nombre, obj = _pagina_e_imagen(_variante_flate(kind))
+        assert pdf_compress._decode_flat(obj) is None
+
+    def test_un_jpeg_no_es_flate_simple(self):
+        _page, _nombre, obj = _pagina_e_imagen(photo_pdf(width=600, height=800, resolution=72))
+        assert pdf_compress._decode_flat(obj) is None
+
+    def test_comprimir_un_flate_simple_no_pasa_por_pypdf(self, monkeypatch):
+        def _prohibido(page, path):
+            raise AssertionError("un Flate simple no debe re-codificarse a PNG en pypdf")
+
+        monkeypatch.setattr(pdf_compress, "_decode_with_pypdf", _prohibido)
+        raw = merge_pdfs(flate_pdf(width=600, height=800), photo_pdf())
+
+        out = compress_pdf(raw, target_bytes=TARGET)
+
+        assert out is not None and len(out) <= TARGET
+        assert _xobjects(out)[0]["/Filter"] == "/DCTDecode"
+
+    def test_las_pasadas_quedan_en_stats(self):
+        stats = {}
+        out = compress_pdf(merge_pdfs(flate_pdf(width=600, height=800), photo_pdf()),
+                           target_bytes=TARGET, stats=stats)
+        assert out is not None and stats["passes"] >= 1
+
+    def test_stats_dice_cero_pasadas_si_ya_cabe(self):
+        stats = {}
+        compress_pdf(small_pdf(), target_bytes=TARGET, stats=stats)
+        assert stats["passes"] == 0

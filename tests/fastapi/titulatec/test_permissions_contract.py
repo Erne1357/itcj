@@ -205,11 +205,14 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_98_permisos_conocidos():
+def test_el_dml_declara_los_99_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    98 es el numero verificado en BD tras `titulatec init-biblioteca-caja`
-    (o tras `init-titulatec` desde cero). Eran 88 hasta el 2026-10-01, cuando
+    99 es el numero verificado en BD tras `titulatec init-outbox-admin`
+    (o tras `init-titulatec` desde cero). Eran 98 hasta el 2026-10-06, cuando
+    la pestaña «Correos» (bandeja de salida, solo admin) anadio
+    `titulatec.email_outbox.page.list` en su propio delta
+    `outbox_2026_10/24_insert_email_outbox_perm.sql`. Eran 88 hasta el 2026-10-01, cuando
     la spec de no adeudo de biblioteca (Biblioteca -> Caja,
     2026-10-01-titulatec-biblioteca-caja-design.md §4.6) anadio los diez
     codigos nuevos (`titulatec.library_clearance.*` x5,
@@ -245,11 +248,10 @@ def test_el_dml_declara_los_98_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 98, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 98 "
-        "(2026-10-01: sube de 88 a 98 por los diez titulatec.library_clearance.*/"
-        "library_payment.*/survey_review.api.print_certificates/"
-        "certificate.page.list, no adeudo de biblioteca). Actualiza este numero "
+    assert len(declared) == 99, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 99 "
+        "(2026-10-06: sube de 98 a 99 por titulatec.email_outbox.page.list, la "
+        "pestaña Correos). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )

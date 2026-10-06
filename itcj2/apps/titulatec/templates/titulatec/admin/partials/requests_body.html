@@ -24,7 +24,9 @@
      revocada: motivo». Si la cuenta nació con el NIP del SII y su correo de
      acceso no salió (`r.access_unsent_sii`, D12), la píldora ámbar «correo
      no enviado» y, con `can_act`, «Reenviar aviso» (el correo no lleva NIP);
-   - rechazada: motivo.
+   - rechazada: motivo y «Deshacer rechazo» con nota obligatoria (qué se aclaró
+     en ventanilla, 2026-10-06): vuelve a por revisar con la píldora «Rechazo
+     deshecho», esa nota y el motivo del rechazo deshecho.
    `can_act` falso (modo alterno, revisa Centro de Cómputo) = SOLO LECTURA: ni
    un formulario, y un aviso arriba. Las rutas POST lo cortan aparte.
    Modo `sii` (`sii`, spec 2026-09-25 §3.5 y 2026-09-27 §A5): se actúa como en
@@ -68,6 +70,15 @@
    pestaña lleva su contador (`tab_counts`: mismo alcance, convocatoria y
    búsqueda que la lista). `EnrollmentRequestService
    .stats()` hace la cuenta; ver docs/flows/xcut_public_enrollment.md.
+   Filtros (2026-10-06) en `#tt-req-filters`, junto a la búsqueda: «Carrera»
+   (`program`; opciones = `programs`, las del alcance, con «Todas las carreras»
+   o «Todas mis carreras» según `scope_all`) y «Año de ingreso» (`year`; los
+   `slug` de `by_year`). Nombres propios: `program_id` es la carrera que se
+   elige al aprobar. Viajan como `q`: en `tab_fields`, en los links de
+   pestaña (`qs_filters`) y en el pager (`hx-include`); cambiar uno vuelve a
+   la página 1. La carrera acota TODO (KPIs, «Por año de ingreso», pestañas y
+   lista); el año, solo pestañas y lista. `_body_ctx` los normaliza: fuera de
+   las opciones = «todas».
    Por fila: la píldora ámbar «correo no enviado» en una `rejected` sin
    `rejection_sent_at` —o la neutra «en cola» mientras su correo siga
    `pending` en el outbox (`r.rejection_queued`, spec 2026-10-05 §3.7)—,
@@ -81,9 +92,13 @@
 <input type="hidden" name="cohort_id" value="{{ cohort or '' }}">
 <input type="hidden" name="page" value="{{ page_no }}">
 <input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="program" value="{{ program_filter or '' }}">
+<input type="hidden" name="year" value="{{ year_filter }}">
 {%- endmacro %}
 {%- set qs_cohort = ('&cohort_id=' ~ cohort_id) if cohort_id else '' %}
 {%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
+{%- set qs_filters = (('&program=' ~ program_filter) if program_filter else '')
+                     ~ (('&year=' ~ (year_filter | urlencode)) if year_filter else '') %}
 <div id="tt-requests-body" data-tt-view="requests-body">
 
   {% if not can_act %}
@@ -184,6 +199,27 @@
              hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
              hx-include="#tt-req-filters">
     </div>
+    {# Carrera: solo las del alcance (las mismas que acepta aprobar); la opción
+       vacía es «todas» — las de la jefatura o las del encargado. #}
+    <select id="tt-req-program" name="program" class="tt-field tt-field--xs"
+            aria-label="Filtrar por carrera"
+            hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-req-filters">
+      <option value="">{{ 'Todas las carreras' if scope_all else 'Todas mis carreras' }}</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}"{% if program_filter == p.id %} selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    {# Año de ingreso: los años que cuenta «Por año de ingreso» (misma regla). #}
+    <select id="tt-req-year" name="year" class="tt-field tt-field--xs"
+            aria-label="Filtrar por año de ingreso"
+            hx-get="/titulatec/admin/solicitudes/body" hx-target="#tt-requests-body"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-req-filters">
+      <option value="">Todos los años</option>
+      {% for y in by_year %}
+      <option value="{{ y.slug }}"{% if year_filter == y.slug %} selected{% endif %}>{{ y.year }}</option>
+      {% endfor %}
+    </select>
   </div>
   {% endif %}
 
@@ -192,7 +228,7 @@
     <button id="tt-req-tab-{{ key }}" type="button"
             class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
             {% if status == key %}aria-current="true"{% endif %}
-            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}"
+            hx-get="/titulatec/admin/solicitudes/body?status={{ key }}{{ qs_cohort }}{{ qs_q }}{{ qs_filters }}"
             hx-target="#tt-requests-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
     {% endfor %}
   </div>
@@ -253,6 +289,7 @@
             <span class="tt-pill tt-pill--amber">Sin cuenta</span>
             {% endif %}
             {% if r.returned %}<span class="tt-pill tt-pill--amber">Devuelta por Cómputo</span>{% endif %}
+            {% if r.reopened %}<span class="tt-pill tt-pill--violet">Rechazo deshecho</span>{% endif %}
           </span>
           {% if r.prior_reject %}
           <span class="small tt-prior-reject" title="Rechazada antes · {{ r.prior_reject.date }}: {{ r.prior_reject.note }}">
@@ -334,7 +371,10 @@
             {% if r.returned %}
             <p class="small mb-1"><i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i><strong>Devuelta por Centro de Cómputo:</strong> {{ r.return_note }}</p>
             {% endif %}
-            {% if r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
+            {% if r.reopened %}
+            <p class="small mb-1"><i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i><strong>Rechazo deshecho:</strong> {{ r.reopen_note }}</p>
+            {% if r.note %}<p class="small mb-1">Se había rechazado por: {{ r.note }}</p>{% endif %}
+            {% elif r.note %}<p class="small mb-1">Nota: {{ r.note }}</p>{% endif %}
             {% if can_act %}
             <form class="tt-req-form"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/aprobar"
@@ -442,6 +482,17 @@
           {% elif r.status == 'rejected' %}
             {% if r.note %}<span class="small">{{ r.note }}</span>{% endif %}
             {% if r.rejection_sent %}{% elif r.rejection_queued %}<span class="tt-pill tt-pill--neutral">en cola</span>{% else %}<span class="tt-pill tt-pill--amber">correo no enviado</span>{% endif %}
+            {% if can_act %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reabrir"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button">
+              {{ tab_fields(status, cohort_id, page.page, q) }}
+              <input class="tt-field tt-field--xs" name="note" required maxlength="2000"
+                     placeholder="Qué se aclaró en ventanilla" aria-label="Qué se aclaró en ventanilla">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Deshacer rechazo</button>
+            </form>
+            {% endif %}
           {% endif %}
         </td>
       </tr>
