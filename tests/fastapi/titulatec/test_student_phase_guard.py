@@ -664,9 +664,10 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
     modo de fallo del olvido seria ABIERTO, que es exactamente el defecto que
     estos tests documentan.
     """
-    import inspect
-
     from itcj2.apps.titulatec.pages.student import router as student_router
+    # R7 (spec §3.8): la ruta con form delega en `_cuerpo_<ruta>`; la guarda
+    # vive en ese cuerpo sincrono, asi que se lee la ruta MAS su cuerpo.
+    from tests.fastapi.titulatec._route_source import fuente_de_ruta
 
     sin_guarda, revisadas = [], 0
     for route in student_router.routes:
@@ -677,7 +678,7 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
             revisadas += 1
             if (method, path) in RUTAS_SIN_FASE:
                 continue
-            if "_phase_guard" not in inspect.getsource(route.endpoint):
+            if "_phase_guard" not in fuente_de_ruta(route.endpoint):
                 sin_guarda.append(method + " " + path)
 
     # 14 desde la Tarea 1 (2026-09-28): se retiro `POST /phase/1/submit`

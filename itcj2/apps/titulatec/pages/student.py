@@ -985,7 +985,7 @@ def _parse_open_phase(raw) -> int | None:
 
 
 @router.get("/dashboard", name="titulatec.pages.student.dashboard")
-async def dashboard(
+def dashboard(
     request: Request,
     fase: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.student"])),
@@ -1027,7 +1027,7 @@ async def dashboard(
 
 
 @router.get("/perfil", name="titulatec.pages.student.perfil")
-async def perfil(
+def perfil(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.student"])),
 ):
@@ -1076,7 +1076,7 @@ async def perfil(
 
 
 @router.get("/fase/{n}", name="titulatec.pages.student.phase_detail")
-async def phase_detail(
+def phase_detail(
     n: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=[
@@ -1120,7 +1120,7 @@ async def phase_detail(
 
 
 @router.get("/documents", name="titulatec.pages.student.documents")
-async def documents(
+def documents(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.own"])),
 ):
@@ -1195,6 +1195,31 @@ async def document_upload(
     aparte, en la MISMA respuesta (también cuando hay error: 200 +
     `X-Tt-Error`, el estado del proceso no cambió pero el aviso puede seguir
     diciendo lo mismo que antes de intentar)."""
+    # Spec rendimiento §3.8: el trabajo (consultas, compresión, plantilla) corre
+    # en el threadpool; el event loop solo espera. Van DOS saltos porque las
+    # guardas (404/409, fase, set de documentos, tope del PDF) tienen que
+    # resolverse ANTES de leer el cuerpo del archivo: lo que se va a rechazar no
+    # se sube a memoria. El primero valida y devuelve la respuesta final si algo
+    # falla, o `None` si toca leer; el segundo repite esa validación sobre el
+    # estado de AHORA (leer tarda segundos), comprime, guarda y responde.
+    respuesta = await run_in_threadpool(
+        _cuerpo_document_upload,
+        type_code=type_code, request=request, archivo=archivo, user=user)
+    if respuesta is not None:
+        return respuesta
+    raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_document_upload,
+        type_code=type_code, request=request, archivo=archivo, user=user, raw=raw)
+
+
+def _cuerpo_document_upload(type_code, request, archivo, user, raw=None):
+    """Cuerpo síncrono de `document_upload`: corre en el threadpool, no en el event loop.
+
+    Sin `raw` (primer salto) solo valida: devuelve la `Response` final si algo
+    se rechaza (404/409/fase/set/tope del PDF), o `None` si el archivo se puede
+    leer. Con `raw` (segundo salto) valida otra vez, comprime, guarda y
+    devuelve la `Response` del slot."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -1241,15 +1266,18 @@ async def document_upload(
             # No hay nada pendiente (solo se leyó); al volver a tocar `process`
             # o `dtype`, la sesión abre otra transacción, ya corta.
             db.commit()
-            raw = await archivo.read()
-            # En el threadpool: comprimir un PDF escaneado es CPU (segundos) y
-            # en el event loop congelaría el worker entero.
-            prepared = await run_in_threadpool(
-                storage.prepare_document, raw=raw, original_name=archivo.filename,
+            if raw is None:
+                # Primer salto: todo lo anterior pasó, no hay nada que rechazar.
+                # La ruta async lee el cuerpo y vuelve con `raw`.
+                return None
+            # Comprimir un PDF escaneado es CPU (segundos): aquí corre en el
+            # threadpool, nunca en el event loop.
+            prepared = storage.prepare_document(
+                raw=raw, original_name=archivo.filename,
                 control_number=control, file_kind=file_kind,
             )
-            doc = await run_in_threadpool(
-                DocumentService.save, db, process, type_code,
+            doc = DocumentService.save(
+                db, process, type_code,
                 raw=raw, original_name=archivo.filename,
                 content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
                 prepared=prepared,
@@ -1276,7 +1304,7 @@ async def document_upload(
 
 
 @router.delete("/documents/{type_code}", name="titulatec.pages.student.document_delete")
-async def document_delete(
+def document_delete(
     type_code: str,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.delete.own"])),
@@ -1327,7 +1355,7 @@ def _programs(db):
 
 
 @router.get("/formato-b", name="titulatec.pages.student.formato_b")
-async def formato_b(
+def formato_b(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
 ):
@@ -1354,7 +1382,7 @@ async def formato_b(
 
 
 @router.get("/formato-b/step/{n}", name="titulatec.pages.student.formato_b_step")
-async def formato_b_step(
+def formato_b_step(
     n: int,
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
@@ -1391,14 +1419,21 @@ async def formato_b_save(
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.api.save"])),
 ):
     """Guarda el paso n y devuelve el parcial del siguiente (o 'done' al enviar)."""
+    if n not in (1, 2, 3):
+        return Response(status_code=404)
+
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_formato_b_save, n=n, request=request, user=user, form=form)
+
+
+def _cuerpo_formato_b_save(n, request, user, form):
+    """Cuerpo síncrono de `formato_b_save`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
     from fastapi.responses import Response
 
-    if n not in (1, 2, 3):
-        return Response(status_code=404)
-    form = dict(await request.form())
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
@@ -1819,7 +1854,7 @@ def _cita_panel(request, db, user_id: int, *, dia: str | None = None):
 
 
 @router.get("/cita", name="titulatec.pages.student.cita")
-async def cita(
+def cita(
     request: Request,
     dia: str | None = None,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.page.my"])),
@@ -1894,7 +1929,7 @@ async def cita(
 
 
 @router.post("/cita/confirmar", name="titulatec.pages.student.cita_confirm")
-async def cita_confirm(
+def cita_confirm(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.appointment.api.confirm.own"])),
 ):
@@ -1933,11 +1968,17 @@ async def cita_request_change(
     Mismo selector que `cita_confirm` y que la página, por lo mismo: los dos
     botones de la tarjeta tienen que hablar del proceso que la tarjeta pinta.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_cita_request_change, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_request_change(request, user, form):
+    """Cuerpo síncrono de `cita_request_change`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
 
-    form = dict(await request.form())
     reason = form.get("reason", "")
     db = SessionLocal()
     try:
@@ -2024,11 +2065,16 @@ async def cita_book(
     esa comparación depende en silencio que `create` calle la notificación del
     propio clic del alumno.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(_cuerpo_cita_book, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_book(request, user, form):
+    """Cuerpo síncrono de `cita_book`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
 
-    form = dict(await request.form())
     window_id = _to_int(form.get("window_id"))
     slot = _parse_hhmm(form.get("slot"))
     db = SessionLocal()
@@ -2060,12 +2106,17 @@ async def cita_cancel(
     La franja vuelve al pozo en el acto (D12), así que el panel que se devuelve
     ya trae el selector de agendado otra vez.
     """
+    form = dict(await request.form())
+    return await run_in_threadpool(_cuerpo_cita_cancel, request=request, user=user, form=form)
+
+
+def _cuerpo_cita_cancel(request, user, form):
+    """Cuerpo síncrono de `cita_cancel`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.process_service import ProcessService
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.self_booking_service import SelfBookingService
 
-    form = dict(await request.form())
     motivo = (form.get("motivo") or "").strip() or None
     db = SessionLocal()
     try:
