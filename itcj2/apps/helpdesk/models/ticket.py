@@ -220,6 +220,20 @@ class Ticket(Base):
         }
 
         if include_relations:
+            # `ticket_service.prefetch_for_dict` deja aquí colaboradores y
+            # equipos cargados EN LOTE para una lista; sin él se leen de las
+            # relaciones dinámicas (una consulta cada una). En ambos casos se
+            # leen UNA vez: el conteo sale de la misma lista.
+            pre = self.__dict__.get('_hd_prefetch')
+            if pre is not None:
+                collaborators = pre['collaborators']
+                ticket_items = pre['ticket_items']
+                inventory_items = [ti.inventory_item for ti in ticket_items if ti.inventory_item]
+                inventory_items_count = len(ticket_items)
+            else:
+                collaborators = list(self.collaborators)
+                inventory_items = self.inventory_items
+                inventory_items_count = self.inventory_items_count
             data.update({
                 'requester': {
                     'id': self.requester.id,
@@ -252,8 +266,8 @@ class Ticket(Base):
                     'name': self.updated_by_user.full_name,
                     'username': self.updated_by_user.username or self.updated_by_user.control_number,
                 } if self.updated_by_user else None,
-                'collaborators': [c.to_dict() for c in self.collaborators] if hasattr(self, 'collaborators') else [],
-                'collaborators_count': self.collaborators.count() if hasattr(self, 'collaborators') else 0,
+                'collaborators': [c.to_dict() for c in collaborators],
+                'collaborators_count': len(collaborators),
                 'inventory_items': [
                     {
                         'id': item.id,
@@ -277,9 +291,9 @@ class Ticket(Base):
                             'code': item.group.code,
                         } if item.group else None,
                     }
-                    for item in self.inventory_items
-                ] if self.inventory_items else [],
-                'inventory_items_count': self.inventory_items_count,
+                    for item in inventory_items
+                ],
+                'inventory_items_count': inventory_items_count,
             })
             # Alias para compatibilidad
             if data.get('inventory_items'):

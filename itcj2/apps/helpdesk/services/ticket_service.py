@@ -375,6 +375,86 @@ def _tiene_scope_departamental(db, user_id: int) -> bool:
     return "helpdesk.tickets.api.read.department" in effective_perm_set(db, user_id, "helpdesk")
 
 
+def _LIST_LOAD_OPTIONS():
+    """Relaciones de uno que `Ticket.to_dict(include_relations=True)` lee, en
+    lote (`selectinload`: una consulta por relación, no una por ticket). El rol
+    de `resolved_by` va porque `User.to_dict()` lo pinta."""
+    from sqlalchemy.orm import selectinload
+
+    return (
+        selectinload(Ticket.requester),
+        selectinload(Ticket.assigned_to),
+        selectinload(Ticket.resolved_by).selectinload(User.role),
+        selectinload(Ticket.created_by_user),
+        selectinload(Ticket.updated_by_user),
+        selectinload(Ticket.requester_department),
+        selectinload(Ticket.category),
+        selectinload(Ticket.split_from),
+    )
+
+
+def prefetch_for_dict(db: Session, tickets) -> None:
+    """Carga EN LOTE lo que `to_dict(include_relations=True)` pide por ticket a
+    relaciones `lazy='dynamic'` (que no admiten `selectinload`): colaboradores
+    (con su usuario y quién los agregó) y equipos (con categoría, asignado y
+    grupo). Antes eran ~5 consultas por ticket (listar + contar colaboradores,
+    listar equipos DOS veces + contarlos) más una por equipo: el technician
+    dashboard hacía 375 consultas (rendimiento 2026-10-07).
+
+    Deja el resultado en `ticket._hd_prefetch`; `to_dict` lo usa si existe. Es
+    una foto del momento: quien llama debe `clear_prefetch` al terminar de
+    serializar, para que un `to_dict` posterior en la misma sesión no lea datos
+    viejos. Mismo orden que las relaciones dinámicas: colaboradores por
+    `added_at` (y `id` para desempatar), equipos por `id`.
+    """
+    if not tickets:
+        return
+    from collections import defaultdict
+
+    from sqlalchemy.orm import selectinload
+
+    from itcj2.apps.helpdesk.models.collaborator import TicketCollaborator
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.models.ticket_inventory_item import TicketInventoryItem
+
+    ids = [t.id for t in tickets]
+    colaboradores = defaultdict(list)
+    for c in (
+        db.query(TicketCollaborator)
+        .filter(TicketCollaborator.ticket_id.in_(ids))
+        .options(selectinload(TicketCollaborator.user),
+                 selectinload(TicketCollaborator.added_by))
+        .order_by(TicketCollaborator.ticket_id, TicketCollaborator.added_at,
+                  TicketCollaborator.id)
+    ):
+        colaboradores[c.ticket_id].append(c)
+
+    equipos = defaultdict(list)
+    for ti in (
+        db.query(TicketInventoryItem)
+        .filter(TicketInventoryItem.ticket_id.in_(ids))
+        .options(selectinload(TicketInventoryItem.inventory_item).options(
+            selectinload(InventoryItem.category),
+            selectinload(InventoryItem.assigned_to_user),
+            selectinload(InventoryItem.group),
+        ))
+        .order_by(TicketInventoryItem.id)
+    ):
+        equipos[ti.ticket_id].append(ti)
+
+    for t in tickets:
+        t._hd_prefetch = {
+            "collaborators": colaboradores.get(t.id, []),
+            "ticket_items": equipos.get(t.id, []),
+        }
+
+
+def clear_prefetch(tickets) -> None:
+    """Quita la foto de `prefetch_for_dict` (ver su docstring)."""
+    for t in tickets or ():
+        t.__dict__.pop("_hd_prefetch", None)
+
+
 def list_tickets(
     db: Session,
     user_id: int,
@@ -522,11 +602,21 @@ def list_tickets(
 
     order_clauses = _SORT_CLAUSES.get(sort, lambda: [Ticket.created_at.desc()])()
     query = query.order_by(*order_clauses)
+    query = query.options(*_LIST_LOAD_OPTIONS())
 
     pagination = paginate(query, page=page, per_page=per_page)
+    prefetch_for_dict(db, pagination.items)
+    try:
+        tickets = [
+            t.to_dict(include_relations=True, include_metrics=include_metrics,
+                      db=db if include_metrics else None)
+            for t in pagination.items
+        ]
+    finally:
+        clear_prefetch(pagination.items)
 
     return {
-        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics, db=db if include_metrics else None) for t in pagination.items],
+        'tickets': tickets,
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page,
