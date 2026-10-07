@@ -1,0 +1,213 @@
+# Suite de tests reutilizable (workflow_call). La consumen:
+#   ci.yml       — cada PR a main (8 shards)
+#   deploy.yml   — push a main: carril full (8 shards), humo del carril hotfix
+#                  (serial, tests/fastapi/infra) y verificación post-deploy
+#   nightly.yml  — suite completa en UN proceso + duraciones para pytest-split
+#
+# «Resultado» es el único check de nombre estable (los de la matrix cambian con
+# el número de shards): es el que exige el ruleset de main.
+name: Tests (reutilizable)
+
+on:
+  workflow_call:
+    inputs:
+      serial:
+        description: "Un solo proceso, sin pytest-split."
+        type: boolean
+        default: false
+      target:
+        description: "Rutas de pytest separadas por espacio."
+        type: string
+        default: tests/fastapi
+      store_durations:
+        description: "Guarda .test_durations en el caché (solo la nocturna)."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # compileall no necesita las dependencias: corre aparte y en paralelo.
+  compile:
+    name: Compile + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar ruff
+        run: python -m pip install ruff
+
+      - name: Compile (BLOQUEANTE — ataja syntax roto)
+        run: python -m compileall -q itcj2 asgi.py
+
+      - name: Lint (ruff, informativo)
+        continue-on-error: true
+        run: ruff check itcj2
+
+  # ---------------------------------------------------------------------------
+  # Cada shard es un job con su PROPIO Postgres y Redis: no comparten llaves de
+  # rate-limit (rl:*), ni la siembra session-scoped, ni contadores. Por eso
+  # shards y no pytest-xdist, que metería varios workers contra la misma base.
+  #
+  # pytest-split reparte por duración con .test_durations (lo escribe la
+  # nocturna en main; los PR leen los cachés de su rama base). Sin el archivo
+  # reparte parejo por conteo.
+  # ---------------------------------------------------------------------------
+  shard:
+    name: ${{ inputs.serial && 'Suite serial' || format('Shard {0}/{1}', matrix.group, strategy.job-total) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.serial && 90 || 30 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(inputs.serial && '[1]' || '[1,2,3,4,5,6,7,8]') }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: itcj_test
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - "6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+      MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+      REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # pytest-split solo hace falta aquí: no va en requirements.txt (que
+      # también instala la imagen de producción).
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-split==0.11.0
+
+      # Los tests con `db_session` (test_app_style_*, test_department_*,
+      # test_hierarchy_service, org-scope, …) golpean Postgres REAL y asumen que
+      # el esquema YA existe (el fixture solo envuelve cada test en transacción +
+      # rollback; crean sus propios datos, no dependen de seed). Sin esquema:
+      # "relation core_apps does not exist".
+      #
+      # Se construye desde los MODELOS (create_all), NO con `alembic upgrade head`:
+      # las migraciones no reconstruyen desde cero (la base 4fc261c4f603 crea
+      # role_permissions con FK a roles/permissions que un DDL legacy creó fuera de
+      # Alembic → falla "relation roles does not exist"). Los modelos son la fuente
+      # de verdad del esquema que consulta el código, que es justo lo que los tests
+      # necesitan.
+      - name: Preparar esquema de BD de test (modelos → create_all)
+        run: |
+          python - <<'PY'
+          import os
+          import itcj2.models                    # core + helpdesk/agendatec/vistetec/warehouse/maint
+          import itcj2.apps.titulatec.models      # noqa: F401
+          import itcj2.apps.directory.models       # noqa: F401
+          from sqlalchemy import create_engine
+          from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+          from itcj2.models.base import Base
+          engine = create_engine(os.environ["MIGRATE_DATABASE_URL"], future=True)
+          # Los modelos declaran los ENUM de Postgres con create_type=False (los crea la
+          # migración), así que create_all NO emite el CREATE TYPE. Los creamos EXPLÍCITO
+          # antes (idempotente con checkfirst). No sirve solo flipear create_type: el
+          # evento de creación se registra al construir el ENUM, no después.
+          _enums = {}
+          for _t in Base.metadata.tables.values():
+              for _c in _t.columns:
+                  if isinstance(_c.type, PGEnum):
+                      _enums.setdefault(_c.type.name, _c.type)
+          with engine.begin() as _conn:
+              for _e in _enums.values():
+                  _e.create(_conn, checkfirst=True)
+          Base.metadata.create_all(engine, checkfirst=True)
+          print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas; enums: {sorted(_enums)}")
+          PY
+
+      # WeasyPrint (constancias de TitulaTec, spec
+      # 2026-10-01-titulatec-biblioteca-caja-design.md §6) necesita Pango para
+      # el layout de texto; cairo y gdk-pixbuf ya vienen en el runner de
+      # `ubuntu-latest`. `libharfbuzz-subset0` (m07, triage-minors.md) evita
+      # el DeprecationWarning de WeasyPrint por el subconjunto de HarfBuzz
+      # ausente. Mismos paquetes que `docker/backend/Dockerfile.fastapi`.
+      - name: Dependencias de sistema para WeasyPrint (constancias)
+        run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+
+      - name: Restaurar duraciones de tests (pytest-split)
+        if: ${{ !inputs.serial }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .test_durations
+          key: test-durations-${{ github.run_id }}
+          restore-keys: test-durations-
+
+      # Nota: create_all() solo construye tablas vacías, sin filas de referencia
+      # (core_apps, core_roles). tests/fastapi/conftest.py siembra el mínimo
+      # necesario (fixture `_seed_minimal_reference_data`, autouse, session-scope)
+      # para que las páginas/servicios que hacen `get_or_404_app` no truene contra
+      # una BD de test recién creada. database/DML/ (con datos reales/PII) nunca
+      # llega al checkout de CI — está gitignored a propósito.
+      - name: Tests (BLOQUEANTE)
+        env:
+          TARGET: ${{ inputs.target }}
+          SERIAL: ${{ inputs.serial }}
+          STORE: ${{ inputs.store_durations }}
+          SPLITS: ${{ strategy.job-total }}
+          GROUP: ${{ matrix.group }}
+        run: |
+          read -ra targets <<< "$TARGET"  # varias rutas separadas por espacio
+          args=(-q --durations-path .test_durations)
+          if [ "$SERIAL" != "true" ]; then
+            args+=(--splits "$SPLITS" --group "$GROUP")
+          fi
+          if [ "$STORE" = "true" ]; then
+            args+=(--store-durations --clean-durations)
+          fi
+          pytest "${targets[@]}" "${args[@]}"
+
+      # Se guarda aunque haya rojos: las duraciones siguen siendo válidas.
+      - name: Guardar duraciones de tests
+        if: ${{ always() && inputs.store_durations && hashFiles('.test_durations') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .test_durations
+          key: test-durations-${{ github.run_id }}-${{ github.run_attempt }}
+
+  result:
+    name: Resultado
+    needs: [compile, shard]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compile y todos los shards en verde
+        env:
+          COMPILE: ${{ needs.compile.result }}
+          SHARDS: ${{ needs.shard.result }}
+        run: |
+          echo "compile=$COMPILE shards=$SHARDS"
+          [ "$COMPILE" = "success" ] && [ "$SHARDS" = "success" ]

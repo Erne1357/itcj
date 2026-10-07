@@ -1,0 +1,28 @@
+# Suite completa en UN solo proceso, una vez por noche.
+#
+# Los shards parten la suite en 8 procesos y eso esconde los defectos que
+# dependen de «qué tan avanzada va la corrida» (p. ej. el contador `_seq` que
+# pasaba de 10000 y truncaba `make_period`). Esta corrida los atrapa, y de paso
+# refresca .test_durations en el caché de main para que pytest-split reparta
+# los shards por duración.
+name: Suite nocturna (serial)
+
+on:
+  schedule:
+    - cron: "0 9 * * *"  # 09:00 UTC ≈ 2-3 a.m. en Ciudad Juárez
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    name: Serial
+    uses: ./.github/workflows/_tests.yml
+    with:
+      serial: true
+      store_durations: true
