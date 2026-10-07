@@ -74,6 +74,9 @@ class FormatBService:
     @staticmethod
     def save_step(db: Session, fb, step: int, form: dict) -> None:
         """Guarda los campos del paso indicado (parcial, status sigue 'draft')."""
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes = AuditService.snapshot(fb, STEP_FIELDS.get(step, []))
+        status_antes = fb.status
         for field in STEP_FIELDS.get(step, []):
             if field not in form:
                 continue
@@ -86,6 +89,18 @@ class FormatBService:
                 setattr(fb, field, (raw.strip() or None) if isinstance(raw, str) else raw)
         if fb.status == "rejected":
             fb.status = "draft"
+        # Solo los NOMBRES de los campos que cambiaron: los valores (domicilio,
+        # teléfonos) ya los guarda la red ORM como `data.*` y no se duplican aquí.
+        despues = AuditService.snapshot(fb, STEP_FIELDS.get(step, []))
+        cambiados, _ = AuditService.changes(antes, despues)
+        AuditService.record(
+            db, "format_b.step_saved",
+            entity_type="format_b", entity_id=fb.process_id,
+            process_id=fb.process_id, subject=fb.control_number,
+            payload={"step": step, "label": STEP_LABELS.get(step),
+                     "changed_fields": sorted(cambiados),
+                     "status_reset": status_antes == "rejected"},
+        )
         db.commit()
 
     @staticmethod
@@ -107,6 +122,7 @@ class FormatBService:
         fases a mano.
         """
         from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
         n = PhaseService.phase_number_for_code(db, "format_b")
@@ -118,6 +134,12 @@ class FormatBService:
             phase = ProcessPhase(process_id=fb.process_id, phase_number=n)
             db.add(phase)
         phase.status = "in_review"
+        AuditService.record(
+            db, "format_b.submitted",
+            entity_type="format_b", entity_id=fb.process_id,
+            process_id=fb.process_id, subject=fb.control_number,
+            payload={"phase_number": n},
+        )
         db.commit()
 
     @staticmethod
@@ -154,6 +176,15 @@ class FormatBService:
             fb.rejection_reason = None
         else:
             fb.rejection_reason = note or None
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "format_b.reviewed",
+            entity_type="format_b", entity_id=fb.process_id,
+            process_id=fb.process_id, subject=fb.control_number,
+            reason=note or None,
+            payload={"status": status},
+            actor_id=reviewer_id,
+        )
         db.commit()
 
     @staticmethod

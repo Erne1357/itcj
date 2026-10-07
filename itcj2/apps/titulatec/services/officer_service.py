@@ -186,6 +186,22 @@ class OfficerService:
             u.must_change_password = True
             tocados.append({"id": u.id, "name": u.full_name})
         if tocados:
+            # Bitácora ANTES del commit: la fila viaja con el cambio de cuenta y
+            # contraseña (si el commit revierte, el rastro también). Solo ids y el
+            # hecho del restablecimiento: nunca la contraseña ni su hash.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "officer.account_reactivated",
+                entity_type="user",
+                subject=f"{len(tocados)} cuenta(s) reactivada(s)",
+                payload={
+                    "user_ids": [t["id"] for t in tocados],
+                    "department_id": department_id,
+                    "credential_reset": True,
+                    "forced_change_on_login": True,
+                },
+                actor_id=actor_id,
+            )
             db.commit()
             logging.getLogger("itcj2.apps.titulatec.services.officer_service").info(
                 "Encargados: actor %s reactivó y restableció la contraseña de %s "
@@ -195,8 +211,8 @@ class OfficerService:
         return tocados
 
     @staticmethod
-    def set_programs(db: Session, position_id: int, program_ids: set[int]) -> None:
-        """Sincroniza ProgramPosition del puesto = program_ids."""
+    def _sync_programs(db: Session, position_id: int, program_ids: set[int]) -> tuple[list[int], list[int]]:
+        """Sincroniza ProgramPosition SIN commit. Devuelve (antes, después) ordenados."""
         from itcj2.core.models.position import ProgramPosition
         current = {pp.program_id for pp in
                    db.query(ProgramPosition).filter_by(position_id=position_id).all()}
@@ -204,6 +220,30 @@ class OfficerService:
             db.query(ProgramPosition).filter_by(position_id=position_id, program_id=pid).delete()
         for pid in set(program_ids) - current:
             db.add(ProgramPosition(position_id=position_id, program_id=pid))
+        return sorted(current), sorted(set(program_ids))
+
+    @staticmethod
+    def _position_title(db: Session, position_id: int) -> str | None:
+        """Nombre del encargado para el `subject` de la bitácora (nunca truena)."""
+        from itcj2.core.models.position import Position
+        pos = db.get(Position, position_id)
+        title = getattr(pos, "title", None)
+        return title if isinstance(title, str) else None
+
+    @staticmethod
+    def set_programs(db: Session, position_id: int, program_ids: set[int]) -> None:
+        """Sincroniza ProgramPosition del puesto = program_ids."""
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes, despues = OfficerService._sync_programs(db, position_id, program_ids)
+        if antes != despues:
+            # `program_position` es de core: la red ORM no la ve, esta fila es el
+            # único rastro de quién cambió el alcance por carrera.
+            AuditService.record(
+                db, "officer.programs_changed",
+                entity_type="position", entity_id=position_id,
+                subject=OfficerService._position_title(db, position_id),
+                before={"program_ids": antes}, after={"program_ids": despues},
+            )
         db.commit()
 
     @staticmethod
@@ -230,6 +270,24 @@ class OfficerService:
             positions_service.remove_user_from_position(db, uid, position_id)
         for uid in set(user_ids) - current:
             positions_service.assign_user_to_position(db, uid, position_id)
+        despues = set(user_ids)
+        if current != despues:
+            # `positions_service` commitea por dentro (una vez por persona), así que
+            # la fila va DESPUÉS de esos commits y con su propio commit: refleja lo
+            # que de verdad quedó. Si una asignación falla a medias, las personas ya
+            # movidas quedan sin fila (ver reporte): el rastro nunca miente a favor.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "officer.users_changed",
+                entity_type="position", entity_id=position_id,
+                subject=OfficerService._position_title(db, position_id),
+                before={"user_ids": sorted(current)},
+                after={"user_ids": sorted(despues)},
+                payload={"assigned_role": assigned_role,
+                         "added": sorted(despues - current),
+                         "removed": sorted(current - despues)},
+            )
+            db.commit()
 
     @staticmethod
     def create_officer(db: Session, *, department_id: int, assigned_role: str,
@@ -247,10 +305,35 @@ class OfficerService:
         positions_service.assign_role_to_position(db, pos.id, "titulatec", assigned_role)
         for uid in user_ids:
             positions_service.assign_user_to_position(db, uid, pos.id)
-        OfficerService.set_programs(db, pos.id, program_ids)
+        OfficerService._sync_programs(db, pos.id, program_ids)
+        # Una sola fila para el alta completa (puesto + rol + personas + carreras).
+        # `positions_service` ya commiteó el puesto, el rol y cada asignación, así
+        # que se registra AL FINAL, con lo que de verdad quedó, y con commit propio.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "officer.created",
+            entity_type="position", entity_id=pos.id, subject=name,
+            after={"user_ids": sorted(user_ids), "program_ids": sorted(program_ids)},
+            payload={"department_id": department_id, "assigned_role": assigned_role,
+                     "code": code},
+        )
+        db.commit()
         return pos.id
 
     @staticmethod
     def deactivate_officer(db: Session, position_id: int) -> None:
-        positions_service.deactivate_position(db, position_id)
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.core.models.position import UserPosition
+        # Quiénes ocupaban el puesto, ANTES: `deactivate_position` cierra sus
+        # UserPosition y commitea por dentro.
+        ocupantes = sorted(
+            uid for (uid,) in db.query(UserPosition.user_id)
+            .filter_by(position_id=position_id, is_active=True).all())
+        titulo = OfficerService._position_title(db, position_id)
+        if positions_service.deactivate_position(db, position_id):
+            AuditService.record(
+                db, "officer.deactivated",
+                entity_type="position", entity_id=position_id, subject=titulo,
+                before={"user_ids": ocupantes}, after={"user_ids": []},
+            )
         db.commit()
