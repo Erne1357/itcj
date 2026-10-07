@@ -75,6 +75,12 @@ _BACKOFF_MAX_S = 3600
 # corte la tarea (`soft_time_limit`); con la periódica cada 10 min no se enciman.
 _SWEEP_BUDGET_S = 480
 
+# Etiqueta del actor `celery` en la bitácora: el nombre registrado de la tarea.
+_TASK_SII_CHECK = "titulatec.sii_check_request"
+_TASK_SII_SWEEP = "titulatec.sii_sweep"
+_TASK_EMAIL_DISPATCH = "titulatec.email_dispatch"
+_TASK_EMAIL_REMINDERS = "titulatec.email_reminders"
+
 # Metadata para `core_task_definitions` (patrón de los otros módulos). La
 # consulta por solicitud es interna (la dispara el alta): no se cataloga. El
 # alta en la BD (definición + programación) es el DML
@@ -150,25 +156,28 @@ def _backoff(attempt: int) -> int:
 def sii_check_request(self, req_id: int, attempt: int = 1, force: bool = False,
                       task_run_id: int | None = None) -> dict:
     """Consulta al SII la solicitud `req_id` (solo el veredicto; no la aprueba)."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.database import SessionLocal
 
-    with SessionLocal() as db:
-        chk = EligibilityService.check(db, req_id, attempt=attempt, force=force)
-        if chk is None:
-            return {"req_id": req_id, "skipped": True}
-        out = {"req_id": req_id, "check_id": chk.id, "status": chk.status,
-               "attempt": chk.attempt}
-        retryable = chk.status == "error" and bool(chk.retryable)
+    # Bitácora: todo lo que la consulta registre queda como actor `celery`.
+    with audit_context("celery", label=_TASK_SII_CHECK):
+        with SessionLocal() as db:
+            chk = EligibilityService.check(db, req_id, attempt=attempt, force=force)
+            if chk is None:
+                return {"req_id": req_id, "skipped": True}
+            out = {"req_id": req_id, "check_id": chk.id, "status": chk.status,
+                   "attempt": chk.attempt}
+            retryable = chk.status == "error" and bool(chk.retryable)
 
-    if retryable and out["attempt"] < EligibilityService.max_attempts():
-        logger.info("SII: el SII no respondió a la consulta de la solicitud %s "
-                    "(intento %s); se reintenta", req_id, out["attempt"])
-        raise self.retry(
-            kwargs={"req_id": req_id, "attempt": out["attempt"] + 1, "force": False},
-            countdown=_backoff(out["attempt"]),
-        )
-    return out
+        if retryable and out["attempt"] < EligibilityService.max_attempts():
+            logger.info("SII: el SII no respondió a la consulta de la solicitud %s "
+                        "(intento %s); se reintenta", req_id, out["attempt"])
+            raise self.retry(
+                kwargs={"req_id": req_id, "attempt": out["attempt"] + 1, "force": False},
+                countdown=_backoff(out["attempt"]),
+            )
+        return out
 
 
 @celery_app.task(
@@ -183,11 +192,13 @@ def sii_sweep(self, task_run_id: int | None = None) -> dict:
     reintenta, nunca aprueba; devuelve `{"checked", "retried"}`. Con el SII
     sin configurar (backend `disabled`, spec 2026-09-27 D11) no toca la BD y
     devuelve los conteos en cero con `"disabled": True`."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
     from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
     from itcj2.database import SessionLocal
 
-    with SessionLocal() as db:
-        out = EligibilityService.sweep(db, max_seconds=_SWEEP_BUDGET_S)
+    with audit_context("celery", label=_TASK_SII_SWEEP):
+        with SessionLocal() as db:
+            out = EligibilityService.sweep(db, max_seconds=_SWEEP_BUDGET_S)
     logger.info("SII: barrido — %s", out)
     return out
 
@@ -204,11 +215,13 @@ def email_dispatch(self, task_run_id: int | None = None) -> dict:
     con su reloj `db_now()` y su lote por omisión). Devuelve
     `{"sent", "failed", "retry", "no_recipient", "obsolete", "waiting"}` o
     `{"disabled": True}` con el correo apagado."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
     from itcj2.apps.titulatec.services.mail_dispatch import MailDispatcher
     from itcj2.database import SessionLocal
 
-    with SessionLocal() as db:
-        out = MailDispatcher.run(db)
+    with audit_context("celery", label=_TASK_EMAIL_DISPATCH):
+        with SessionLocal() as db:
+            out = MailDispatcher.run(db)
     # INFO solo si algún correo tuvo desenlace; en ceros o con el correo
     # apagado (`{"disabled": True}`) no hay nada que contar: DEBUG.
     movimiento = not out.get("disabled") and any(out.values())
@@ -229,10 +242,12 @@ def email_reminders(self, task_run_id: int | None = None) -> dict:
     `db_now()`). Devuelve `{"appt", "docs", "survey", "library"}`
     —recordatorios nuevos de cada tipo— o `{"disabled": True}` con el correo
     apagado."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
     from itcj2.apps.titulatec.services.mail_reminders import MailReminders
     from itcj2.database import SessionLocal
 
-    with SessionLocal() as db:
-        out = MailReminders.run(db)
+    with audit_context("celery", label=_TASK_EMAIL_REMINDERS):
+        with SessionLocal() as db:
+            out = MailReminders.run(db)
     logger.info("Correos: recordatorios — %s", out)
     return out

@@ -19,10 +19,13 @@ Comandos:
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
 """
+import logging
 import os
 from pathlib import Path, PurePosixPath
 
 import click
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DML_TITULATEC = PROJECT_ROOT / "database" / "DML" / "titulatec"
@@ -275,7 +278,94 @@ def _run_sql_files(files: list[str]) -> None:
         click.echo(f"   ✅ Completado: {filename}")
 
 
-@click.group("titulatec")
+# Comandos de SOLO lectura que no dejan rastro en la bitácora (spec 2026-10-07 §6).
+_AUDIT_EXCLUDED_COMMANDS = frozenset({"sii-ping", "sii-rules-validate"})
+
+
+def _cli_user() -> str:
+    """Usuario del SO que lanzó el comando (en un contenedor sin /etc/passwd
+    para su uid, `getpass` truena: cae a «?»)."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "?"
+
+
+def _record_cli_command(name: str, params: dict, status: str, duration_ms: int,
+                        error: BaseException | None) -> None:
+    """Escribe `system.cli_command` y lo commitea, con la MISMA fábrica de
+    sesiones que usan los comandos (`itcj2.database.SessionLocal`, import local:
+    los tests la parchean). Es una de las dos excepciones a «la bitácora no
+    commitea» (D8). Nunca levanta: una bitácora caída no tumba el comando."""
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+    from itcj2.database import SessionLocal
+
+    payload = {
+        "command": name,
+        "status": status,
+        "duration_ms": duration_ms,
+        "params": AuditService.safe(params),
+    }
+    if error is not None:
+        payload["error"] = AuditService.safe(f"{type(error).__name__}: {error}"[:300])
+    try:
+        db = SessionLocal()
+        try:
+            AuditService.record(db, "system.cli_command", entity_type="cli_command",
+                                payload=payload)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("bitácora: no se pudo registrar el comando %s", name)
+
+
+class _AuditedCommand(click.Command):
+    """Comando cuyo `invoke` corre dentro de un contexto `cli` de la bitácora y
+    deja una fila `system.cli_command` (ok / error) al terminar."""
+
+    def invoke(self, ctx):
+        import time
+
+        from itcj2.apps.titulatec.services.audit_context import audit_context
+
+        name = self.name or ctx.info_name or "?"
+        # Solo se audita al entrar POR EL GRUPO: invocar la función del comando
+        # suelta (los tests, `CliRunner().invoke(cmd)`) no deja fila.
+        por_el_grupo = ctx.parent is not None and isinstance(ctx.parent.command, _AuditedGroup)
+        if not por_el_grupo or name in _AUDIT_EXCLUDED_COMMANDS:
+            return super().invoke(ctx)
+
+        started = time.monotonic()
+        error: BaseException | None = None
+        status = "ok"
+        with audit_context("cli", label=f"cli: {name} ({_cli_user()})"):
+            try:
+                return super().invoke(ctx)
+            except BaseException as exc:  # se re-lanza SIEMPRE
+                code = getattr(exc, "exit_code", getattr(exc, "code", None))
+                if isinstance(exc, (click.exceptions.Exit, SystemExit)) and code in (0, None):
+                    pass
+                else:
+                    status, error = "error", exc
+                raise
+            finally:
+                _record_cli_command(
+                    name, dict(ctx.params), status,
+                    int((time.monotonic() - started) * 1000), error)
+
+
+class _AuditedGroup(click.Group):
+    """Grupo cuyos comandos nacen auditados (`_AuditedCommand`)."""
+    command_class = _AuditedCommand
+
+
+@click.group("titulatec", cls=_AuditedGroup)
 def titulatec_cli():
     """Comandos de inicialización de la app de TitulaTec."""
 
@@ -3813,3 +3903,129 @@ def init_ajustes_2026_10_command(dry_run):
         f"el requisito «{_ETIQUETA_BIBLIOTECA}» verificados en la base.",
         fg="green",
     ))
+
+
+# --- Purga de la bitácora (spec 2026-10-07 §6, D4) ---------------------------
+
+# Menos que esto exige --force: la bitácora existe para poder mirar atrás.
+_AUDIT_PURGE_MIN_DAYS = 365
+_AUDIT_PURGE_BATCH = 1000
+
+
+def _audit_row_to_dict(row) -> dict:
+    """Una fila de la bitácora como dict JSON-seguro (para el archivo JSONL)."""
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    out = {}
+    for col in TitulatecAuditLog.__table__.columns:
+        value = getattr(row, col.name)
+        out[col.name] = value.isoformat() if hasattr(value, "isoformat") else value
+    return out
+
+
+def _do_audit_purge(db, cutoff, archive: Path | None, dry_run: bool) -> dict:
+    """Lógica pura de `audit-purge` (testeable sin Click).
+
+    Una sola transacción: `SET LOCAL titulatec.audit_purge = 'on'` (la única vía
+    que el trigger de PostgreSQL deja pasar), archivo JSONL con lo que se va a
+    borrar, `DELETE` y la fila `system.audit_purged`. Commitea quien llama.
+    """
+    import json
+
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+
+    model = TitulatecAuditLog
+    pred = model.occurred_at < cutoff
+    total = db.query(model).filter(pred).count()
+    result = {"count": total, "deleted": 0, "archive": None}
+    if dry_run or total == 0:
+        return result
+
+    # Misma transacción que el DELETE; muere con el commit o el rollback.
+    db.execute(text("SET LOCAL titulatec.audit_purge = 'on'"))
+
+    if archive is not None:
+        archive = Path(archive).resolve()
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open("w", encoding="utf-8", newline="\n") as fh:
+            q = db.query(model).filter(pred).order_by(model.id).yield_per(_AUDIT_PURGE_BATCH)
+            for row in q:
+                fh.write(json.dumps(_audit_row_to_dict(row), ensure_ascii=False,
+                                    default=str) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        db.expire_all()
+        result["archive"] = str(archive)
+
+    deleted = db.query(model).filter(pred).delete(synchronize_session=False)
+    result["deleted"] = deleted
+    AuditService.record(
+        db, "system.audit_purged", entity_type="audit_log",
+        payload={"deleted": deleted, "before": cutoff.date().isoformat(),
+                 "archive": result["archive"]},
+    )
+    return result
+
+
+@titulatec_cli.command("audit-purge")
+@click.option("--before", "before", required=True,
+              type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Borra las filas anteriores a esta fecha (AAAA-MM-DD, 00:00).")
+@click.option("--archive", "archive", default=None,
+              type=click.Path(dir_okay=False, path_type=Path),
+              help="Archivo JSONL donde guardar lo borrado ANTES de borrarlo.")
+@click.option("--dry-run", is_flag=True, help="Solo cuenta; no escribe ni borra nada.")
+@click.option("--yes", "-y", "yes", is_flag=True, help="No pide confirmación.")
+@click.option("--force", is_flag=True,
+              help=f"Permite cortes de menos de {_AUDIT_PURGE_MIN_DAYS} días.")
+def audit_purge_command(before, archive, dry_run, yes, force):
+    """Purga la bitácora de TitulaTec (ÚNICA vía para borrar filas).
+
+    La tabla es inmutable por trigger; este comando abre la compuerta
+    (`SET LOCAL titulatec.audit_purge = 'on'`) solo dentro de su transacción.
+    Deja una fila `system.audit_purged` con el conteo, el corte y el archivo.
+    """
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.database import SessionLocal
+
+    dias = (db_now() - before).days
+    if dias < _AUDIT_PURGE_MIN_DAYS and not force:
+        raise click.ClickException(
+            f"El corte {before:%Y-%m-%d} es de hace {dias} días (< "
+            f"{_AUDIT_PURGE_MIN_DAYS}). Usa --force si de verdad quieres purgar tan reciente.")
+
+    db = SessionLocal()
+    try:
+        previo = _do_audit_purge(db, before, archive, dry_run=True)
+        if dry_run:
+            click.echo(f"[DRY-RUN] Se purgarían {previo['count']} filas anteriores a "
+                       f"{before:%Y-%m-%d}.")
+            return
+        if previo["count"] == 0:
+            click.echo(f"Nada que purgar antes de {before:%Y-%m-%d}.")
+            return
+        if archive is None:
+            click.echo(click.style(
+                "AVISO: sin --archive las filas se pierden para siempre.", fg="yellow"))
+        if not yes and not click.confirm(
+                f"¿Borrar {previo['count']} filas de la bitácora anteriores a "
+                f"{before:%Y-%m-%d}? No se puede deshacer", default=False):
+            raise click.Abort()
+
+        res = _do_audit_purge(db, before, archive, dry_run=False)
+        db.commit()
+        logger.warning("bitácora purgada: %s filas anteriores a %s (archivo=%s)",
+                       res["deleted"], before.date(), res["archive"])
+        click.echo(click.style(
+            f"OK: {res['deleted']} filas purgadas"
+            + (f"; archivo: {res['archive']}" if res["archive"] else ""), fg="green"))
+    except click.Abort:
+        raise  # confirmación negada: todavía no se escribió nada
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
