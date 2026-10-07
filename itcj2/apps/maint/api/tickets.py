@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== DEPARTAMENTOS DEL SOLICITANTE ====================
 @router.get("/my-departments")
-async def my_departments(
+def my_departments(
     user: dict = require_perms("maint", ["maint.tickets.api.create"]),
     db: DbSession = None,
 ):
@@ -53,7 +53,7 @@ async def my_departments(
 # ==================== LISTAR TICKETS ====================
 @router.get("")
 @router.get("/")
-async def list_tickets(
+def list_tickets(
     status: str = None,
     category_id: int = None,
     priority: str = None,
@@ -100,7 +100,7 @@ async def list_tickets(
 # ==================== CREAR TICKET ====================
 @router.post("", status_code=201)
 @router.post("/")
-async def create_ticket(
+def create_ticket(
     body: CreateTicketRequest,
     user: dict = require_perms("maint", ["maint.tickets.api.create"]),
     db: DbSession = None,
@@ -165,7 +165,7 @@ async def create_ticket(
 
 # ==================== BOARD DE ASIGNACIÓN ====================
 @router.get("/board")
-async def assignment_board(
+def assignment_board(
     status: str = None,
     area_code: str = None,
     page: int = 1,
@@ -280,7 +280,7 @@ async def assignment_board(
 
 # ==================== TRIAGE: TICKETS POR ENRUTAR ====================
 @router.get("/triage")
-async def triage_tickets(
+def triage_tickets(
     user: dict = require_perms("maint", ["maint.assignments.page.triage"], allow_global_admin=False),
     db: DbSession = None,
 ):
@@ -350,7 +350,7 @@ async def triage_tickets(
 
 # ==================== DESTINOS DE ENRUTADO ====================
 @router.get("/route-targets")
-async def route_targets(
+def route_targets(
     user: dict = require_perms("maint", ["maint.assignments.api.route"], allow_global_admin=False),
     db: DbSession = None,
 ):
@@ -396,7 +396,7 @@ async def route_targets(
 # Debe ir ANTES de "/{ticket_id}" para que FastAPI no interprete
 # "warehouse-products" como un ticket_id entero (causaba 422).
 @router.get("/warehouse-products")
-async def search_warehouse_products(
+def search_warehouse_products(
     search: str = None,
     limit: int = 20,
     user: dict = require_perms("maint", ["maint.tickets.api.resolve"]),
@@ -410,7 +410,7 @@ async def search_warehouse_products(
 
 # ==================== VER DETALLE ====================
 @router.get("/{ticket_id}")
-async def get_ticket(
+def get_ticket(
     ticket_id: int,
     user: dict = require_perms("maint", [
         "maint.tickets.api.read.own",
@@ -427,7 +427,7 @@ async def get_ticket(
 
 # ==================== EDITAR TICKET ====================
 @router.patch("/{ticket_id}")
-async def update_ticket(
+def update_ticket(
     ticket_id: int,
     body: UpdateTicketRequest,
     user: dict = require_perms("maint", ["maint.tickets.api.edit"]),
@@ -457,7 +457,7 @@ async def update_ticket(
 
 # ==================== ENRUTAR TICKET ====================
 @router.post("/{ticket_id}/route")
-async def route_ticket(
+def route_ticket(
     ticket_id: int,
     body: RouteTicketRequest,
     user: dict = require_perms("maint", ["maint.assignments.api.route"], allow_global_admin=False),
@@ -531,7 +531,7 @@ async def route_ticket(
 
 # ==================== INICIAR PROGRESO ====================
 @router.post("/{ticket_id}/start")
-async def start_ticket(
+def start_ticket(
     ticket_id: int,
     user: dict = require_perms("maint", ["maint.tickets.api.resolve"], allow_global_admin=False),
     db: DbSession = None,
@@ -551,7 +551,7 @@ async def start_ticket(
 
 # ==================== RESOLVER TICKET ====================
 @router.post("/{ticket_id}/resolve")
-async def resolve_ticket(
+def resolve_ticket(
     ticket_id: int,
     body: ResolveTicketRequest,
     user: dict = require_perms("maint", ["maint.tickets.api.resolve"], allow_global_admin=False),
@@ -612,7 +612,7 @@ async def resolve_ticket(
 
 # ==================== MATERIALES DE ALMACÉN ====================
 @router.get("/{ticket_id}/materials")
-async def get_ticket_materials(
+def get_ticket_materials(
     ticket_id: int,
     user: dict = require_perms("maint", [
         "maint.tickets.api.read.own",
@@ -650,7 +650,7 @@ async def get_ticket_materials(
 
 # ==================== CALIFICAR TICKET ====================
 @router.post("/{ticket_id}/rate")
-async def rate_ticket(
+def rate_ticket(
     ticket_id: int,
     body: RateTicketRequest,
     user: dict = require_perms("maint", ["maint.tickets.api.rate"]),
@@ -677,7 +677,7 @@ async def rate_ticket(
 
 # ==================== CANCELAR TICKET ====================
 @router.post("/{ticket_id}/cancel")
-async def cancel_ticket(
+def cancel_ticket(
     ticket_id: int,
     body: CancelTicketRequest,
     user: dict = require_perms("maint", ["maint.tickets.api.cancel"], allow_global_admin=False),
