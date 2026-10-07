@@ -10,7 +10,7 @@ Por que existe este test
   - `migrations/env.py:33` importa el PAQUETE, no los submodulos: un modelo sin
     re-export queda fuera de `Base.metadata` y por tanto invisible para el
     `--autogenerate` de Alembic;
-  - el `create_all` del CI (`.github/workflows/deploy.yml:76-101`) importa el
+  - el `create_all` del CI (`.github/workflows/_tests.yml`, paso «Preparar esquema») importa el
     mismo paquete: la tabla ni siquiera se crea en la BD de test.
 
 Un olvido de una linea rompe las tres cosas a la vez y ninguna avisa al importar.
