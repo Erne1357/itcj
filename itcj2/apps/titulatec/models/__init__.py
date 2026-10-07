@@ -75,3 +75,12 @@ __all__ = [
     "PriorClearance",
     "TitulatecAuditLog",
 ]
+
+# Bitácora (spec 2026-10-07 §4.4): la escucha `after_flush` se instala AQUÍ, al
+# final del paquete. Todo import de un modelo de TitulaTec (también el de un
+# submódulo suelto) ejecuta antes este `__init__`, así que la escucha existe en
+# HTTP, Celery, CLI y pruebas antes del primer flush que pueda tocar una tabla
+# `titulatec_*`. `audit_listeners` no importa modelos al cargarse: sin ciclo.
+from itcj2.apps.titulatec.services import audit_listeners as _audit_listeners  # noqa: E402
+
+_audit_listeners.install()
