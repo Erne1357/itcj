@@ -2,7 +2,9 @@
 # docker/scripts/deploy.sh
 #
 # Blue-Green deployment sin downtime.
-# Uso: ./deploy.sh
+# Uso: ./deploy.sh [SHA]
+#   SHA: commit de main a desplegar (el que probó el CI; deploy.yml lo pasa).
+#        Sin argumento despliega la punta de origin/main (uso manual).
 #
 # Este script implementa el Pilar 1 del plan de zero-downtime deployment.
 # Nunca baja el contenedor viejo hasta que el nuevo este sirviendo trafico.
@@ -12,6 +14,43 @@ PROJECT_DIR="/home/cuaderno/ITCJ"
 COMPOSE_FILE="docker/compose/docker-compose.prod.yml"
 UPSTREAM_FILE="docker/nginx/upstream.conf"
 STATE_FILE="docker/.active-color"
+# .last-good-image = imagen (sha corto) que sirve prod; .prev-good-image = la
+# anterior (destino del rollback). rollback.sh lee .prev-good-image.
+LAST_IMG_FILE="docker/.last-good-image"
+PREV_IMG_FILE="docker/.prev-good-image"
+TARGET_SHA="${1:-}"
+
+# >>> resolve_deploy_target
+# Decide qué commit desplegar. Uso: resolve_deploy_target <sha|""> <last-good-file>
+# Imprime el sha completo y sale 0. Sale 3 si prod ya sirve un descendiente
+# del sha (un run viejo que terminó sus tests después de un hotfix más nuevo:
+# no debe pisarlo). Sale 1 si el sha no existe o no está en origin/main.
+resolve_deploy_target() {
+    local target="$1" last_good_file="$2" target_full live live_full
+    if [ -z "$target" ]; then
+        git rev-parse origin/main
+        return 0
+    fi
+    if ! target_full=$(git rev-parse --verify -q "${target}^{commit}"); then
+        echo "ERROR: el commit $target no existe en el checkout." >&2
+        return 1
+    fi
+    if ! git merge-base --is-ancestor "$target_full" origin/main; then
+        echo "ERROR: $target no está en origin/main; solo se despliega main." >&2
+        return 1
+    fi
+    if [ -f "$last_good_file" ]; then
+        live=$(cat "$last_good_file")
+        if live_full=$(git rev-parse --verify -q "${live}^{commit}") \
+            && [ "$target_full" != "$live_full" ] \
+            && git merge-base --is-ancestor "$target_full" "$live_full"; then
+            echo ">>> $target es anterior a lo que ya sirve prod ($live)." >&2
+            return 3
+        fi
+    fi
+    echo "$target_full"
+}
+# <<< resolve_deploy_target
 
 cd "$PROJECT_DIR"
 
@@ -64,9 +103,20 @@ if [ -f "static-manifest.json" ]; then
 fi
 
 # -- 2. Actualizar codigo --
+# Al commit que probó el CI, no a la punta de main: con dos merges seguidos la
+# punta puede ser un commit cuyos tests todavía no terminan.
 echo ">>> Actualizando codigo desde GitHub..."
 git fetch origin
-git reset --hard origin/main
+RESOLVE_RC=0
+DEPLOY_SHA=$(resolve_deploy_target "$TARGET_SHA" "$LAST_IMG_FILE") || RESOLVE_RC=$?
+if [ "$RESOLVE_RC" -eq 3 ]; then
+    echo ">>> Nada que desplegar: prod ya sirve un commit más nuevo."
+    exit 0
+elif [ "$RESOLVE_RC" -ne 0 ]; then
+    exit 1
+fi
+echo ">>> Commit objetivo: $DEPLOY_SHA"
+git reset --hard "$DEPLOY_SHA"
 
 # -- 2.0 Tag de imagen inmutable por commit (2.3) --
 # La imagen lleva el codigo horneado (itcj2/asgi.py/migrations), no bind-mount.
@@ -336,10 +386,7 @@ fi
 echo "$NEW" > "$STATE_FILE"
 
 # -- 11.0 Guardar imagen buena para rollback (2.4) --
-# .last-good-image = imagen recien promovida; .prev-good-image = la anterior
-# (destino del rollback). rollback.sh lee .prev-good-image.
-LAST_IMG_FILE="docker/.last-good-image"
-PREV_IMG_FILE="docker/.prev-good-image"
+# (LAST_IMG_FILE / PREV_IMG_FILE: ver la cabecera del script.)
 if [ -f "$LAST_IMG_FILE" ]; then
     cp "$LAST_IMG_FILE" "$PREV_IMG_FILE"
 fi
