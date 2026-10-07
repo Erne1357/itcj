@@ -6,8 +6,10 @@ cuatro partes de §8 (la «b», «todo código registrado se usa», la agrega la
 Tarea 10 cuando ya exista la instrumentación):
 
 (a) todo literal que se le pasa a `AuditService.record(` en
-    `itcj2/apps/titulatec/**` y en `itcj2/cli/titulatec.py` está en
-    `AUDIT_ACTIONS` — y es un LITERAL, para que (b) pueda encontrarlo;
+    `itcj2/apps/titulatec/**`, `itcj2/cli/titulatec.py` e
+    `itcj2/tasks/titulatec_tasks.py` está en `AUDIT_ACTIONS` — y es un LITERAL
+    en una llamada directa (sin alias ni referencias sueltas a `record`), para
+    que (b) pueda encontrarlo;
 (c) todo módulo que nombra el vocabulario existe en `AUDIT_MODULES`, las
     etiquetas son frases en español y los códigos llevan punto;
 (d) toda tabla `titulatec_*` de `Base.metadata` está clasificada: o la cubre la
@@ -27,6 +29,7 @@ import pytest
 _REPO = Path(__file__).resolve().parents[3]
 _APP_DIR = _REPO / "itcj2" / "apps" / "titulatec"
 _CLI = _REPO / "itcj2" / "cli" / "titulatec.py"
+_TASKS = _REPO / "itcj2" / "tasks" / "titulatec_tasks.py"
 _ACTIONS_FILE = _APP_DIR / "services" / "audit_actions.py"
 
 # El segmento de módulo de un código NUNCA puede empezar así (lo barre
@@ -119,12 +122,48 @@ def _vocab():
 # ---------------------------------------------------------------------------
 # (a) Literales de `AuditService.record(` contra el vocabulario
 # ---------------------------------------------------------------------------
+def _es_audit_service(node: ast.AST) -> bool:
+    """`AuditService` o `<lo que sea>.AuditService` (`audit_service.AuditService`)."""
+    return ((isinstance(node, ast.Name) and node.id == "AuditService")
+            or (isinstance(node, ast.Attribute) and node.attr == "AuditService"))
+
+
+def _es_record(node: ast.AST) -> bool:
+    """El atributo `AuditService.record` (llamado o no)."""
+    return (isinstance(node, ast.Attribute) and node.attr == "record"
+            and _es_audit_service(node.value))
+
+
 def _es_llamada_a_record(node: ast.AST) -> bool:
-    return (isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "record"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "AuditService")
+    return isinstance(node, ast.Call) and _es_record(node.func)
+
+
+def _desvios(tree: ast.AST) -> list[tuple[int, str]]:
+    """Formas de llegar a `record` que el barrido de literales NO puede seguir.
+
+    Un alias (`AS = AuditService`, `import ... AuditService as AS`), una
+    referencia suelta (`rec = AuditService.record`, pasarla como callback, un
+    `partial`), `getattr(AuditService, ...)` o importar un `record` suelto del
+    módulo: por cualquiera de ellas pasaría un código sin registrar.
+    """
+    llamados = {id(n.func) for n in ast.walk(tree) if _es_llamada_a_record(n)}
+    out = []
+    for n in ast.walk(tree):
+        if _es_record(n) and id(n) not in llamados:
+            out.append((n.lineno, "referencia a AuditService.record sin llamarla"))
+        elif isinstance(n, ast.ImportFrom):
+            for alias in n.names:
+                if alias.name == "AuditService" and alias.asname not in (None, "AuditService"):
+                    out.append((n.lineno, f"AuditService importado como {alias.asname!r}"))
+                if alias.name == "record" and (n.module or "").endswith("audit_service"):
+                    out.append((n.lineno, "`record` importado suelto"))
+        elif isinstance(n, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            if n.value is not None and _es_audit_service(n.value):
+                out.append((n.lineno, "AuditService asignado a otro nombre"))
+        elif (isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+              and n.func.id == "getattr" and n.args and _es_audit_service(n.args[0])):
+            out.append((n.lineno, "getattr(AuditService, ...)"))
+    return out
 
 
 def _literales_de_accion(call: ast.Call) -> list[str] | None:
@@ -152,8 +191,9 @@ def _literales_de_accion(call: ast.Call) -> list[str] | None:
     return None
 
 
-def _barrer_llamadas(source: str, origen: str) -> tuple[list, list]:
-    """-> (códigos encontrados [(origen:línea, código)], llamadas no literales)."""
+def _barrer_llamadas(source: str, origen: str) -> tuple[list, list, list]:
+    """-> (códigos encontrados [(origen:línea, código)], llamadas no literales,
+    desvíos ["origen:línea: qué"])."""
     tree = ast.parse(source, filename=origen)
     codigos, no_literales = [], []
     for node in ast.walk(tree):
@@ -165,13 +205,16 @@ def _barrer_llamadas(source: str, origen: str) -> tuple[list, list]:
             no_literales.append(donde)
         else:
             codigos += [(donde, c) for c in lits]
-    return codigos, no_literales
+    desvios = [f"{origen}:{linea}: {que}" for linea, que in _desvios(tree)]
+    return codigos, no_literales, desvios
 
 
 def _fuentes_instrumentadas() -> list[Path]:
+    """Todo lo que puede llamar a `record`: la app, su CLI y sus tareas de Celery."""
     rutas = sorted(_APP_DIR.rglob("*.py"))
-    if _CLI.exists():
-        rutas.append(_CLI)
+    for extra in (_CLI, _TASKS):
+        assert extra.exists(), f"el contrato debe barrer {extra}, y no existe"
+        rutas.append(extra)
     return rutas
 
 
@@ -185,22 +228,59 @@ def test_el_barrido_de_record_reconoce_las_formas_validas_e_invalidas():
         "AuditService.record(db, accion)\n"
         "AuditService.record(db, f'cohort.{x}')\n"
         "OtraCosa.record(db, 'no.cuenta')\n"
+        "audit_service.AuditService.record(db, 'typo.calificado')\n"
     )
-    codigos, no_literales = _barrer_llamadas(fuente, "sintetico.py")
+    codigos, no_literales, desvios = _barrer_llamadas(fuente, "sintetico.py")
     assert [c for _, c in codigos] == [
-        "cohort.created", "window.paused", "window.paused", "window.resumed"]
+        "cohort.created", "window.paused", "window.paused", "window.resumed",
+        "typo.calificado"]
     assert no_literales == ["sintetico.py:4", "sintetico.py:5"]
+    assert desvios == []
+
+
+@pytest.mark.parametrize("fuente", [
+    "rec = AuditService.record\nrec(db, 'typo.x')\n",
+    "from itcj2.apps.titulatec.services.audit_service import AuditService as AS\n",
+    "AS = AuditService\n",
+    "x: type = AuditService\n",
+    "functools.partial(AuditService.record, db)\n",
+    "hacer(callback=AuditService.record)\n",
+    "getattr(AuditService, 'record')(db, 'typo.x')\n",
+    "from itcj2.apps.titulatec.services.audit_service import record\n",
+    "f = mod.AuditService.record\n",
+])
+def test_el_barrido_rechaza_alias_y_referencias_sueltas(fuente):
+    """Cualquiera de estas formas esconde el código de acción del barrido."""
+    _, _, desvios = _barrer_llamadas(fuente, "sintetico.py")
+    assert desvios, f"el barrido no vio el desvío en: {fuente!r}"
+
+
+def test_el_barrido_acepta_las_formas_canonicas():
+    fuente = (
+        "from itcj2.apps.titulatec.services.audit_service import AuditService\n"
+        "from itcj2.apps.titulatec.services import audit_service\n"
+        "AuditService.record(db, 'cohort.created')\n"
+        "AuditService.safe({'a': 1})\n"
+        "audit_service.AuditService.record(db, 'cohort.created')\n"
+    )
+    assert _barrer_llamadas(fuente, "sintetico.py")[2] == []
 
 
 def test_toda_accion_que_el_codigo_registra_esta_en_el_vocabulario():
     vocab = _vocab()
-    fuera, no_literales = [], []
+    fuera, no_literales, desvios = [], [], []
     for ruta in _fuentes_instrumentadas():
         rel = ruta.relative_to(_REPO).as_posix()
-        codigos, nl = _barrer_llamadas(ruta.read_text(encoding="utf-8"), rel)
+        codigos, nl, dv = _barrer_llamadas(ruta.read_text(encoding="utf-8"), rel)
         no_literales += nl
+        desvios += dv
         fuera += [f"{donde} -> {c!r}" for donde, c in codigos
                   if c not in vocab.AUDIT_ACTIONS]
+    assert not desvios, (
+        "llama a `AuditService.record` SIEMPRE como `AuditService.record(db, "
+        "'<código>', ...)`: con alias o referencias sueltas el contrato no ve el "
+        "código:\n  " + "\n  ".join(desvios)
+    )
     assert not no_literales, (
         "`AuditService.record(` debe recibir el código como LITERAL (o un "
         "`'a' if cond else 'b'` de literales) para que el contrato lo vea:\n  "
@@ -353,9 +433,19 @@ def test_no_hay_tablas_fantasma_en_el_vocabulario():
         assert etiqueta[:1].isupper() and "_" not in etiqueta, (tabla, etiqueta)
 
 
-def test_la_red_excluye_exactamente_las_tres_de_d14():
+def test_la_red_excluye_d14_y_el_contenido_de_las_encuestas():
+    """Exactamente estas seis, ni una más ni una menos:
+
+    - D14: la bitácora misma, la tabla de eventos (ya espejada) y la bandeja de
+      correos (su propio registro; Celery la toca cada 5 minutos).
+    - Spec §5, «sin respuestas»: las tres tablas que guardan el CONTENIDO de la
+      encuesta de egresados (la proyección JSON `answers`, una fila por pregunta
+      con `value_*` y los borradores). La entrega queda en la bitácora por la
+      acción explícita `survey.submitted`, sin las respuestas.
+    """
     assert _vocab().NET_EXCLUDED_TABLES == frozenset({
         "titulatec_audit_log", "titulatec_process_events", "titulatec_email_outbox",
+        "titulatec_survey_responses", "titulatec_survey_answers", "titulatec_survey_drafts",
     })
 
 

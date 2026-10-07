@@ -89,9 +89,13 @@ class TitulatecAuditLog(Base):
     subject_label = Column(String(160), nullable=True)
 
     reason = Column(Text, nullable=True)
-    before = Column(JSON, nullable=True)
-    after = Column(JSON, nullable=True)
-    payload = Column(JSON, nullable=True)
+    # `none_as_null=True`: `None` es el NULL de SQL, no el JSON `null` (con el
+    # `JSON` a secas, `TitulatecAuditLog(before=None)` guardaba `'null'::json` y
+    # `before IS NULL` dejaba de servir). Solo cambia el lado Python: el DDL es el
+    # mismo, sin migración.
+    before = Column(JSON(none_as_null=True), nullable=True)
+    after = Column(JSON(none_as_null=True), nullable=True)
+    payload = Column(JSON(none_as_null=True), nullable=True)
 
     request_id = Column(String(64), nullable=True)
     ip = Column(String(45), nullable=True)

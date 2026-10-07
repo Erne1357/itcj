@@ -229,6 +229,89 @@ def test_record_sin_json_deja_null_de_sql(db_session):
     assert nulos == [(True, True, True), (True, True, True)]
 
 
+def test_el_modelo_guarda_none_como_null_de_sql(db_session):
+    """`JSON(none_as_null=True)` en el modelo: quien construya la fila a mano
+    (la página, una prueba) con `before=None` también deja NULL de SQL."""
+    from itcj2.apps.titulatec.models import TitulatecAuditLog
+    marca = f"modelo {uuid.uuid4().hex}"
+    db_session.add(TitulatecAuditLog(source="action", action="cohort.created",
+                                     module="cohorts", actor_kind="system", reason=marca,
+                                     before=None, after=None, payload=None))
+    db_session.flush()
+    nulos = db_session.execute(text(
+        "SELECT before IS NULL, after IS NULL, payload IS NULL "
+        "FROM titulatec_audit_log WHERE reason = :m"), {"m": marca}).one()
+    assert tuple(nulos) == (True, True, True)
+
+
+def test_varios_record_distintos_en_un_flush_son_un_solo_insert(db_session):
+    """Cada fila de `record` lleva el MISMO juego de llaves (las JSON también,
+    aunque valgan None): el ORM las junta en un solo INSERT, sin importar qué
+    trae cada una."""
+    marca = f"lote {uuid.uuid4().hex}"
+    svc = _svc()
+
+    def _flush():
+        svc.record(db_session, "cohort.created", reason=marca)
+        svc.record(db_session, "cohort.window_changed", reason=marca, entity_id=3,
+                   before={"a": 1}, after={"a": 2})
+        svc.record(db_session, "window.paused", reason=marca, payload={"n": 1},
+                   actor_id=9, process_id=4, subject="99000001 · X")
+        svc.record(db_session, "cohort.donation_changed", reason=marca, after={"m": "1"})
+        db_session.flush()
+
+    assert _contar(db_session, _flush, filtro="titulatec_audit_log") == 1
+    assert len(_filas(db_session, reason=marca)) == 4
+
+
+@pytest.mark.parametrize("valor", [
+    2 ** 70, -(2 ** 70), float("inf"), float("nan"), Decimal("Infinity"),
+    Decimal("NaN"), "no-es-numero", True,
+])
+def test_ids_imposibles_quedan_null_sin_tronar(db_session, valor):
+    """Spec §4.2: armar la fila no puede fallar por datos. Un id que no cabe en
+    su columna (o no es número) se guarda NULL; nunca llega a PostgreSQL como
+    «integer out of range», que abortaría la transacción del negocio."""
+    marca = f"rango {uuid.uuid4().hex}"
+    _svc().record(db_session, "cohort.created", reason=marca,
+                  entity_id=valor, process_id=valor, actor_id=valor)
+    db_session.flush()
+    (fila,) = _filas(db_session, reason=marca)
+    assert (fila.entity_id, fila.process_id) == (None, None)
+    assert fila.actor_id is None and fila.actor_kind == "system"
+
+
+def test_process_id_respeta_los_32_bits_de_su_columna(db_session):
+    from itcj2.apps.titulatec.services.audit_context import INT32, INT64, to_db_int
+    assert to_db_int(2 ** 31 - 1, INT32) == 2 ** 31 - 1
+    assert to_db_int(2 ** 31, INT32) is None
+    assert to_db_int(2 ** 31, INT64) == 2 ** 31
+    assert to_db_int(-(2 ** 63), INT64) == -(2 ** 63)
+    assert to_db_int(2 ** 63, INT64) is None
+    assert to_db_int("42") == 42 and to_db_int(Decimal("7")) == 7
+
+    marca = f"int32 {uuid.uuid4().hex}"
+    _svc().record(db_session, "cohort.created", reason=marca,
+                  process_id=2 ** 40, entity_id=2 ** 40)
+    db_session.flush()
+    (fila,) = _filas(db_session, reason=marca)
+    assert fila.process_id is None and fila.entity_id == 2 ** 40
+
+
+def test_etiqueta_de_cli_con_sustituto_suelto_no_rompe_el_flush(db_session):
+    """Un usuario del SO decodificado con `surrogateescape` llega con
+    sustitutos sueltos: el contexto los limpia igual que el servicio, así que ni
+    `record` ni la escucha (que escribe la etiqueta tal cual) truenan."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
+    marca = f"sustituto {uuid.uuid4().hex}"
+    with audit_context("cli", label="cli: audit-purge (us\udcffer)") as ctx:
+        assert ctx.actor_label == "cli: audit-purge (us?er)"
+        _svc().record(db_session, "system.cli_command", reason=marca)
+        db_session.flush()
+    (fila,) = _filas(db_session, reason=marca)
+    assert fila.actor_label == "cli: audit-purge (us?er)"
+
+
 def test_record_con_accion_desconocida_truena_en_pruebas(db_session):
     with pytest.raises(ValueError, match="no.existe"):
         _svc().record(db_session, "no.existe")

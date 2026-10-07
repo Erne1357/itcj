@@ -34,7 +34,9 @@ from enum import Enum
 from typing import Any
 
 from itcj2.apps.titulatec.services.audit_actions import AUDIT_ACTIONS, is_sensitive_key
-from itcj2.apps.titulatec.services.audit_context import current_audit_context
+from itcj2.apps.titulatec.services.audit_context import (
+    INT32, INT64, clean_text, current_audit_context, to_db_int,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +71,8 @@ def _strict() -> bool:
 
 def _clean_str(value: str, limit: int = _STR_MAX) -> str:
     """Sin NUL (PostgreSQL no lo acepta), sin sustitutos sueltos (no se pueden
-    codificar en UTF-8) y recortada."""
-    s = value.replace("\x00", "")
-    if not s.isascii():
-        s = s.encode("utf-8", "replace").decode("utf-8")
-    return s[:limit]
+    codificar en UTF-8) y recortada. Misma regla que el contexto."""
+    return clean_text(value, limit)
 
 
 def _clip(value, limit: int) -> str | None:
@@ -85,15 +84,6 @@ def _clip(value, limit: int) -> str | None:
     except Exception:
         return None
     return s or None
-
-
-def _to_int(value) -> int | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _safe(value: Any, depth: int = 0) -> Any:
@@ -232,7 +222,12 @@ class AuditService:
         llamador ya lo tiene sin consultar). `before`/`after` = solo lo que
         cambió (ver `changes`/`snapshot`). `actor_id` explícito gana al del
         contexto; el tipo de actor sigue diciendo por dónde entró (`cli`/`celery`)
-        o pasa a `user`.
+        o pasa a `user`. Un id que no quepa en su columna se guarda NULL.
+
+        Llámalo DESPUÉS de toda validación que pueda lanzar, justo antes del
+        `db.commit()`: la fila queda pendiente en la sesión, y si el llamador
+        atrapa la excepción y luego commitea esa MISMA sesión, se escribiría un
+        rastro de algo que no pasó.
         """
         from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
 
@@ -247,7 +242,7 @@ class AuditService:
             module = AUDIT_ACTIONS[action][0]
 
         ctx = current_audit_context()
-        explicit_actor = _to_int(actor_id)
+        explicit_actor = to_db_int(actor_id, INT64)
         if explicit_actor is not None:
             kind = ctx.actor_kind if ctx.actor_kind in ("cli", "celery") else "user"
             label = ctx.actor_label if kind in ("cli", "celery") else None
@@ -263,19 +258,20 @@ class AuditService:
             actor_kind=kind,
             actor_label=_clip(label, _LABEL_MAX),
             entity_type=_clip(entity_type, _ENTITY_TYPE_MAX),
-            entity_id=_to_int(entity_id),
-            process_id=_to_int(process_id),
+            entity_id=to_db_int(entity_id, INT64),
+            process_id=to_db_int(process_id, INT32),
             subject_label=_clip(subject, _SUBJECT_MAX),
             reason=_clip(reason, _REASON_MAX),
+            # SIEMPRE las tres JSON, aunque valgan `None` (NULL de SQL: el modelo
+            # usa `none_as_null=True`). Con el mismo juego de llaves en cada
+            # fila, el ORM junta todas las de un flush en UN solo INSERT; si una
+            # trae `payload` y otra no, serían dos.
+            before=_json_or_none(before),
+            after=_json_or_none(after),
+            payload=_json_or_none(payload),
             request_id=ctx.request_id,
             ip=ctx.ip,
             user_agent=ctx.user_agent,
             route=ctx.route,
         )
-        # Las JSON solo si traen algo: asignar `None` a una columna JSON guarda el
-        # JSON `null`, no el NULL de SQL.
-        for name, value in (("before", before), ("after", after), ("payload", payload)):
-            clean = _json_or_none(value)
-            if clean is not None:
-                cols[name] = clean
         db.add(TitulatecAuditLog(**cols))

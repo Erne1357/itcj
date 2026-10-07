@@ -20,7 +20,9 @@ la BD de dev es compartida y la bitácora ya trae historia.
 """
 from __future__ import annotations
 
+import json
 import uuid
+from contextlib import contextmanager
 from datetime import date, timedelta
 
 import pytest
@@ -103,6 +105,102 @@ def test_process_event_nuevo_se_espeja(db_session, make_student, make_process, m
 
     # La tabla de eventos está espejada: la red no la duplica como `data.*`.
     assert _filas(db_session, entity_type="titulatec_process_events") == []
+
+
+@contextmanager
+def _peticion(user_id=None, ip="203.0.113.40", request_id="cd" * 16):
+    """Liga a mano el contexto de observabilidad de una petición HTTP."""
+    from itcj2.observability.context import bind, reset
+    scope = {"type": "http", "path": "/titulatec/admin/algo/1",
+             "headers": [(b"x-real-ip", ip.encode())], "client": ("10.0.0.1", 1),
+             "state": {}}
+    if user_id is not None:
+        scope["state"]["current_user"] = {"sub": str(user_id), "role": ""}
+    tokens = bind(scope=scope, request_id=request_id)
+    try:
+        yield
+    finally:
+        reset(tokens)
+
+
+def test_evento_sin_actor_en_peticion_ajena_es_del_sistema(db_session, make_student,
+                                                          make_process, make_user):
+    """Un evento con `actor_id` NULL lo hizo el sistema aunque haya corrido
+    dentro de la petición de alguien (p. ej. una previa aplicada al aprobar):
+    NO se le acredita al usuario de la petición — igual que el backfill. La
+    petición sigue a la vista por `request_id`/`ip`/`route`."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    proc = make_process(make_student())
+    oficial = make_user()
+    with _peticion(user_id=oficial.id, request_id="ab" * 16):
+        db_session.add(ProcessEvent(process_id=proc.id, actor_id=None,
+                                    event_type="survey_review_prior"))
+        db_session.add(ProcessEvent(process_id=proc.id, actor_id=oficial.id,
+                                    event_type="phase_approved", phase_number=2))
+        db_session.flush()
+
+    filas = {f.action: f for f in _filas(db_session, process_id=proc.id,
+                                         source="process_event")}
+    sistema = filas["process.survey_review_prior"]
+    assert (sistema.actor_id, sistema.actor_kind, sistema.actor_label) == (None, "system", None)
+    assert sistema.request_id == "ab" * 16
+    assert sistema.ip == "203.0.113.40" and sistema.route == "/titulatec/admin/algo/1"
+
+    con_persona = filas["process.phase_approved"]
+    assert (con_persona.actor_id, con_persona.actor_kind) == (oficial.id, "user")
+    assert con_persona.request_id == "ab" * 16
+
+
+@pytest.mark.parametrize("canal", ["public", "cli", "celery"])
+def test_evento_sin_actor_conserva_el_canal(db_session, make_student, make_process, canal):
+    """Sin persona, el tipo dice POR DÓNDE entró: la petición pública, el
+    comando o la tarea. Solo una petición CON usuario cae en `system`."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.audit_context import audit_context
+
+    proc = make_process(make_student())
+
+    def _escribir():
+        db_session.add(ProcessEvent(process_id=proc.id, actor_id=None,
+                                    event_type="enrollment_self_service"))
+        db_session.flush()
+
+    if canal == "public":
+        with _peticion(user_id=None):
+            _escribir()
+        etiqueta = None
+    else:
+        with audit_context(canal, label=f"{canal}: prueba"):
+            _escribir()
+        etiqueta = f"{canal}: prueba"
+    (fila,) = _filas(db_session, process_id=proc.id, source="process_event")
+    assert (fila.actor_id, fila.actor_kind, fila.actor_label) == (None, canal, etiqueta)
+
+
+def test_la_red_si_va_a_nombre_de_quien_opera(db_session, make_cohort, make_user):
+    """A diferencia del espejo, un cambio de datos lo hizo quien hace la petición."""
+    from itcj2.apps.titulatec.models import CohortReviewDay
+    cohort = make_cohort()
+    oficial = make_user()
+    with _peticion(user_id=oficial.id):
+        dia = CohortReviewDay(cohort_id=cohort.id, date=date(2094, 1, 5))
+        db_session.add(dia)
+        db_session.flush()
+    (fila,) = _filas(db_session, entity_type="titulatec_cohort_review_days", entity_id=dia.id)
+    assert (fila.actor_id, fila.actor_kind) == (oficial.id, "user")
+
+
+def test_el_motivo_que_no_es_texto_sale_como_json_enmascarado(db_session, make_student,
+                                                             make_process):
+    from itcj2.apps.titulatec.models import ProcessEvent
+    proc = make_process(make_student())
+    db_session.add(ProcessEvent(process_id=proc.id, event_type="phase_rejected",
+                                payload={"reason": {"nip": "1234", "texto": "falta"}}))
+    db_session.flush()
+    (fila,) = _filas(db_session, process_id=proc.id, source="process_event")
+    assert "1234" not in fila.reason
+    assert json.loads(fila.reason) == {"nip": "***", "texto": "falta"}
 
 
 def test_el_espejo_enmascara_el_payload(db_session, make_student, make_process):
@@ -250,6 +348,67 @@ def test_lote_de_50_mas_eventos_es_una_sola_sentencia(db_session, make_cohort,
                                action="data.insert") if f.entity_id in ids]
     assert len(filas) == 50
     assert len(_filas(db_session, process_id=proc.id, source="process_event")) == 3
+
+
+def test_flush_mixto_record_red_y_espejo_son_dos_sentencias(db_session, make_cohort,
+                                                            make_student, make_process):
+    """El costo completo de un flush que lo trae todo: las filas de
+    `AuditService.record` (con y sin before/after/payload, con y sin actor) van
+    en UN INSERT del ORM, y la red + el espejo en UN INSERT de Core. Nunca una
+    sentencia por fila."""
+    from itcj2.apps.titulatec.models import CohortReviewDay, ProcessEvent
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+
+    cohort = make_cohort()
+    proc = make_process(make_student(), cohort=cohort, phases=False, library_clearance=None)
+    marca = f"mixto {uuid.uuid4().hex}"
+    sentencias: list[str] = []
+
+    def _ver(_conn, _cursor, statement, *_a):
+        if "titulatec_audit_log" in statement:
+            sentencias.append(statement)
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _ver)
+    try:
+        AuditService.record(db_session, "cohort.created", reason=marca)
+        AuditService.record(db_session, "cohort.window_changed", reason=marca,
+                            before={"closes_at": "a"}, after={"closes_at": "b"})
+        AuditService.record(db_session, "cohort.donation_changed", reason=marca,
+                            payload={"filas": 2}, actor_id=7)
+        db_session.add_all(
+            [CohortReviewDay(cohort_id=cohort.id, date=date(2095, 2, 1) + timedelta(days=i))
+             for i in range(5)]
+            + [ProcessEvent(process_id=proc.id, event_type="process_paused"),
+               ProcessEvent(process_id=proc.id, event_type="process_resumed")])
+        proc.current_phase = 2
+        db_session.flush()
+    finally:
+        event.remove(conn, "before_cursor_execute", _ver)
+
+    assert len(sentencias) == 2, sentencias
+    orm = [s for s in sentencias if "RETURNING" in s.upper()]
+    assert len(orm) == 1, "las filas de record van en UN INSERT del ORM"
+    assert len(_filas(db_session, reason=marca)) == 3
+    assert len(_filas(db_session, process_id=proc.id, source="process_event")) == 2
+    assert len(_filas(db_session, entity_type="titulatec_processes", entity_id=proc.id,
+                      action="data.update")) == 1
+
+
+def test_un_nombre_de_tabla_largo_se_recorta_a_la_columna(db_session, make_cohort):
+    """`entity_type` es String(48): una tabla futura de nombre largo no puede
+    tumbar cada flush que la toque."""
+    from itcj2.apps.titulatec.models import CohortReviewDay
+    from itcj2.apps.titulatec.services import audit_listeners
+    from itcj2.apps.titulatec.services.audit_context import current_audit_context
+    from sqlalchemy import inspect as sa_inspect
+
+    dia = CohortReviewDay(cohort_id=make_cohort().id, date=date(2095, 3, 1))
+    db_session.add(dia)
+    db_session.flush()
+    fila = audit_listeners._data_row(sa_inspect(dia), "titulatec_" + "x" * 60, "delete",
+                                     current_audit_context())
+    assert len(fila["entity_type"]) == 48
 
 
 def test_lectura_pura_no_emite_nada_contra_la_bitacora(db_session, make_cohort):

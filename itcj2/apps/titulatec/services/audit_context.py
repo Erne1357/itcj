@@ -54,11 +54,53 @@ class AuditCtx:
 _EXPLICIT: ContextVar[AuditCtx | None] = ContextVar("titulatec_audit_ctx", default=None)
 
 
+# ---------------------------------------------------------------------------
+# Saneo de valores sueltos (lo comparten el servicio y la escucha)
+# ---------------------------------------------------------------------------
+# Rango de las columnas enteras de la bitácora: `process_id` es Integer (32
+# bits); `actor_id`/`entity_id`, BigInteger (64). Un número fuera de rango no
+# debe llegar a PostgreSQL: el «integer out of range» abortaría la transacción
+# del NEGOCIO (la escucha no usa SAVEPOINT).
+INT32 = 31
+INT64 = 63
+
+
+def clean_text(value: str, limit: int) -> str:
+    """Texto que PostgreSQL acepta: sin NUL, sin sustitutos sueltos (una
+    etiqueta de CLI decodificada con `surrogateescape` no se puede codificar en
+    UTF-8) y recortado a `limit`."""
+    s = value.replace("\x00", "")
+    if not s.isascii():
+        s = s.encode("utf-8", "replace").decode("utf-8")
+    return s[:limit]
+
+
+def to_db_int(value, bits: int = INT64) -> int | None:
+    """Entero que cabe en la columna, o `None`: nunca truena ni desborda.
+
+    `bool`, texto no numérico, NaN/infinito y lo que no quepa en `bits` (con
+    signo) -> `None`.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError, OverflowError, ArithmeticError):
+        return None
+    if not -(1 << bits) <= n <= (1 << bits) - 1:
+        logger.warning("bitácora: entero fuera de rango (%s bits) se guarda como NULL", bits + 1)
+        return None
+    return n
+
+
 def _clip(value, limit: int) -> str | None:
     if value is None:
         return None
-    s = str(value).replace("\x00", "").strip()
-    return s[:limit] or None
+    try:
+        s = clean_text(str(value), limit).strip()
+    except Exception:
+        return None
+    return s or None
 
 
 @contextmanager
@@ -73,7 +115,7 @@ def audit_context(kind: str, label: str | None = None,
     if kind not in ACTOR_KINDS:
         raise ValueError(f"tipo de actor desconocido para la bitácora: {kind!r}")
     ctx = AuditCtx(
-        actor_id=int(actor_id) if actor_id is not None else None,
+        actor_id=to_db_int(actor_id),
         actor_kind=kind,
         actor_label=_clip(label, _LABEL_MAX),
         request_id=uuid.uuid4().hex,
@@ -97,10 +139,7 @@ def _from_scope(scope: dict) -> AuditCtx:
     from itcj2.observability.route import UNMATCHED, normalize_route
 
     sub = user_id_from_scope(scope)
-    try:
-        actor_id = int(sub) if sub else None
-    except (TypeError, ValueError):
-        actor_id = None
+    actor_id = to_db_int(sub) if sub else None
 
     ip = user_agent = route = None
     try:

@@ -10,14 +10,18 @@ no hay nada que auditar.
 Qué escribe, en la MISMA transacción del cambio (D8):
 1. Espejo: cada `ProcessEvent` nuevo -> fila `source='process_event'`,
    `action='process.<event_type>'`, módulo por prefijo, `reason` de
-   `payload.reason`/`payload.note`, payload copiado (enmascarado).
+   `payload.reason`/`payload.note`, payload copiado (enmascarado). El actor es
+   el del EVENTO: un evento con `actor_id` NULL lo hizo el sistema (`system`, o
+   el canal `public`/`cli`/`celery`), no quien hizo la petición; la petición
+   sigue a la vista por `request_id`/`ip`/`route`.
 2. Red ORM: cada fila nueva/modificada/borrada de una tabla `titulatec_*` que no
    esté en `NET_EXCLUDED_TABLES` -> `source='data'`, `action='data.insert|update|
    delete'`, con el diff por columna (sin `updated_at`; un cambio sin diff no deja
-   fila). Columnas sensibles como "***" (D9).
+   fila), a nombre de quien opera (el contexto). Columnas sensibles como "***" (D9).
 3. Todo en UN `INSERT` multi-fila por `session.connection()` (Core): +1 sentencia
    por flush con escrituras titulatec, 0 en lecturas. Nunca `session.add` dentro
-   del flush.
+   del flush. (Las filas de `AuditService.record` del mismo flush van aparte, en
+   UN `INSERT` del ORM: todas llevan el mismo juego de llaves.)
 4. Un error de Python al armar UNA fila se loguea y esa fila se omite: la
    operación de negocio sigue. Sin SAVEPOINT (costaría 2 viajes por flush), así
    que un error de la BD en el INSERT sí revierte la operación — con las filas ya
@@ -35,7 +39,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import JSON, Column, MetaData, Table, event, insert
+import json
+
+from sqlalchemy import event, insert
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 
@@ -45,7 +51,9 @@ from itcj2.apps.titulatec.services.audit_actions import (
     TABLE_MODULES,
     process_event_module,
 )
-from itcj2.apps.titulatec.services.audit_context import AuditCtx, current_audit_context
+from itcj2.apps.titulatec.services.audit_context import (
+    INT32, INT64, AuditCtx, current_audit_context, to_db_int,
+)
 from itcj2.apps.titulatec.services.audit_service import AuditService, _masked
 
 logger = logging.getLogger(__name__)
@@ -75,42 +83,46 @@ def _table_name(mapper) -> str | None:
         return name
 
 
-# ---------------------------------------------------------------------------
-# Tabla «de escritura» para el INSERT de Core
-# ---------------------------------------------------------------------------
-# Copia de `titulatec_audit_log` en un MetaData propio (no en `Base.metadata`)
-# cuyas columnas JSON guardan `None` como NULL de SQL (`none_as_null=True`). Con
-# el `JSON` del modelo, un `None` en un executemany se guardaría como el JSON
-# `null`, y `before IS NULL` dejaría de servir. Sin `id` (secuencia) ni
-# `occurred_at` (`NOW()` del servidor).
-_WRITE_TABLE: Table | None = None
+# Longitud de `entity_type` (String(48)): el nombre de una tabla futura más
+# largo no puede tumbar cada flush que la toque.
+_ENTITY_TYPE_MAX = 48
 
-
-def _write_table() -> Table:
-    global _WRITE_TABLE
-    if _WRITE_TABLE is None:
-        from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
-        cols = []
-        for c in TitulatecAuditLog.__table__.columns:
-            if c.name in ("id", "occurred_at"):
-                continue
-            typ = JSON(none_as_null=True) if isinstance(c.type, JSON) else c.type
-            cols.append(Column(c.name, typ))
-        _WRITE_TABLE = Table(_AUDIT_TABLE, MetaData(), *cols)
-    return _WRITE_TABLE
+# Tipos de actor que dicen POR DÓNDE entró algo aunque no haya persona detrás.
+_CHANNEL_KINDS = ("cli", "celery")
 
 
 # ---------------------------------------------------------------------------
 # Armado de filas
 # ---------------------------------------------------------------------------
-def _base_row(ctx: AuditCtx, *, source: str, action: str, module: str,
-              actor_id: int | None = None) -> dict[str, Any]:
-    """Fila con TODAS las llaves (el executemany exige el mismo juego en cada una)."""
+def _actor_fields(ctx: AuditCtx, actor_id: int | None, *, own_actor: bool) -> tuple:
+    """(actor_id, actor_kind, actor_label) de una fila.
+
+    - Red ORM (`own_actor=False`): el cambio lo hizo quien opera -> el del contexto.
+    - Espejo (`own_actor=True`): manda el `actor_id` del EVENTO. Con persona,
+      `user` (o el canal, si entró por CLI/Celery). Sin persona (`actor_id`
+      NULL) el evento lo hizo el sistema, aunque haya corrido dentro de la
+      petición de alguien: NO se le acredita al usuario de la petición (el
+      backfill de `tt20261007b` dice `system` para esos mismos eventos). Se
+      conserva el canal si es `public`/`cli`/`celery`; si no, `system`.
+    """
+    if not own_actor:
+        return ctx.actor_id, ctx.actor_kind, ctx.actor_label
     if actor_id is not None:
-        kind = ctx.actor_kind if ctx.actor_kind in ("cli", "celery") else "user"
-        label = ctx.actor_label if kind in ("cli", "celery") else None
-    else:
-        actor_id, kind, label = ctx.actor_id, ctx.actor_kind, ctx.actor_label
+        kind = ctx.actor_kind if ctx.actor_kind in _CHANNEL_KINDS else "user"
+        return actor_id, kind, ctx.actor_label if kind in _CHANNEL_KINDS else None
+    kind = ctx.actor_kind if ctx.actor_kind in ("public", *_CHANNEL_KINDS) else "system"
+    return None, kind, ctx.actor_label if kind in _CHANNEL_KINDS else None
+
+
+def _base_row(ctx: AuditCtx, *, source: str, action: str, module: str,
+              actor_id: int | None = None, own_actor: bool = False) -> dict[str, Any]:
+    """Fila con TODAS las llaves (el executemany exige el mismo juego en cada una).
+
+    `request_id`/`ip`/`user_agent`/`route` salen SIEMPRE del contexto: aunque
+    un evento sin persona se acredite al sistema, la petición que lo disparó se
+    sigue viendo en «otros registros de la misma operación».
+    """
+    actor_id, kind, label = _actor_fields(ctx, actor_id, own_actor=own_actor)
     return {
         "source": source,
         "action": action[:64],
@@ -133,12 +145,16 @@ def _base_row(ctx: AuditCtx, *, source: str, action: str, module: str,
     }
 
 
-def _int_or_none(value) -> int | None:
-    if value is None or isinstance(value, bool):
+def _reason_text(motivo) -> str | None:
+    """`reason` de un payload: el texto tal cual; cualquier otra cosa, como JSON
+    ya saneado (y enmascarado), nunca su `repr`."""
+    if motivo is None:
         return None
+    if isinstance(motivo, str):
+        return AuditService.safe(motivo) or None
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        return AuditService.safe(json.dumps(AuditService.safe(motivo), ensure_ascii=False))
+    except Exception:
         return None
 
 
@@ -150,18 +166,16 @@ def _event_row(state, ctx: AuditCtx) -> dict[str, Any]:
     row = _base_row(ctx, source="process_event",
                     action=PROCESS_EVENT_PREFIX + event_type,
                     module=process_event_module(event_type),
-                    actor_id=_int_or_none(d.get("actor_id")))
-    row["process_id"] = _int_or_none(d.get("process_id"))
+                    actor_id=to_db_int(d.get("actor_id"), INT64), own_actor=True)
+    row["process_id"] = to_db_int(d.get("process_id"), INT32)
     if isinstance(payload, dict):
-        motivo = payload.get("reason") or payload.get("note")
-        if motivo is not None:
-            row["reason"] = AuditService.safe(str(motivo))
+        row["reason"] = _reason_text(payload.get("reason") or payload.get("note"))
     clean = AuditService.safe(payload) if payload is not None else None
     # La fase vive en su propia columna del evento (`PhaseService._log` no la
     # repite en el payload): sin esto la bitácora diría «Fase aprobada» sin decir
     # cuál. Se agrega solo si el payload no trae ya esa llave. (Las filas del
     # backfill de `tt20261007b` copiaron el payload tal cual, sin ella.)
-    phase = _int_or_none(d.get("phase_number"))
+    phase = to_db_int(d.get("phase_number"), INT32)
     if phase is not None:
         if clean is None:
             clean = {"phase_number": phase}
@@ -190,7 +204,7 @@ def _pk_of(state, mapper) -> tuple[int | None, dict | None]:
         pk_vals[col.name] = d.get(prop.key)
     if len(pk_vals) == 1:
         (val,) = pk_vals.values()
-        ent = _int_or_none(val)
+        ent = to_db_int(val, INT64)
         if ent is not None:
             return ent, None
     return None, AuditService.safe(pk_vals)
@@ -233,12 +247,12 @@ def _data_row(state, table: str, op: str, ctx: AuditCtx) -> dict[str, Any] | Non
     entity_id, pk = _pk_of(state, mapper)
     row = _base_row(ctx, source="data", action=f"data.{op}",
                     module=TABLE_MODULES.get(table, "data"))
-    row["entity_type"] = table
+    row["entity_type"] = table[:_ENTITY_TYPE_MAX]
     row["entity_id"] = entity_id
     if table == _PROCESSES_TABLE:
         row["process_id"] = entity_id
     else:
-        row["process_id"] = _int_or_none(d.get("process_id"))
+        row["process_id"] = to_db_int(d.get("process_id"), INT32)
     row["before"] = before or None
     row["after"] = after or None
     if pk is not None:
@@ -261,10 +275,15 @@ def _collect(session, flush_context) -> list[dict[str, Any]]:
     # (cascadas a hijos que no estaban cargados y huérfanos de `delete-orphan`),
     # que no aparecen en `session.deleted`. El UOW las registra con
     # `isdelete=True` en `flush_context.states`.
+    # Cada objeto se clasifica dentro de su propio `try`: un objeto raro pierde
+    # SU fila, no las de todo el flush (espejo incluido).
     deleting: dict[int, Any] = {}
     for obj in session.deleted:
-        state = sa_inspect(obj)
-        deleting[id(state)] = state
+        try:
+            state = sa_inspect(obj)
+            deleting[id(state)] = state
+        except Exception:
+            logger.exception("bitácora: no se pudo clasificar una baja; se omite")
     try:
         for state, (isdelete, listonly) in getattr(flush_context, "states", {}).items():
             if isdelete and not listonly:
@@ -272,23 +291,32 @@ def _collect(session, flush_context) -> list[dict[str, Any]]:
     except Exception:
         logger.exception("bitácora: no se pudieron leer las bajas en cascada del flush")
     for state in deleting.values():
-        if (table := _net_table(state)) is not None:
-            deleted_states.append((state, table))
+        try:
+            if (table := _net_table(state)) is not None:
+                deleted_states.append((state, table))
+        except Exception:
+            logger.exception("bitácora: no se pudo clasificar una baja; se omite")
 
     for obj in session.new:
-        state = sa_inspect(obj)
-        if _table_name(state.mapper) == _EVENTS_TABLE:
-            event_states.append(state)
-        elif (table := _net_table(state)) is not None:
-            new_states.append((state, table))
+        try:
+            state = sa_inspect(obj)
+            if _table_name(state.mapper) == _EVENTS_TABLE:
+                event_states.append(state)
+            elif (table := _net_table(state)) is not None:
+                new_states.append((state, table))
+        except Exception:
+            logger.exception("bitácora: no se pudo clasificar un alta; se omite")
     for obj in session.dirty:
-        state = sa_inspect(obj)
-        if id(state) in deleting:
-            continue
-        table = _net_table(state)
-        if table is None or not session.is_modified(obj, include_collections=False):
-            continue
-        dirty_states.append((state, table))
+        try:
+            state = sa_inspect(obj)
+            if id(state) in deleting:
+                continue
+            table = _net_table(state)
+            if table is None or not session.is_modified(obj, include_collections=False):
+                continue
+            dirty_states.append((state, table))
+        except Exception:
+            logger.exception("bitácora: no se pudo clasificar un cambio; se omite")
 
     if not (new_states or dirty_states or deleted_states or event_states):
         return []
@@ -324,8 +352,11 @@ def _after_flush(session, flush_context) -> None:
     if not rows:
         return
     from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+    # La tabla del modelo: sus JSON son `none_as_null=True`, así que un `None`
+    # del executemany es NULL de SQL. Sin `id` (secuencia) ni `occurred_at`
+    # (`NOW()` del servidor) en las filas.
     conn = session.connection(bind_arguments={"mapper": TitulatecAuditLog})
-    conn.execute(insert(_write_table()), rows)
+    conn.execute(insert(TitulatecAuditLog.__table__), rows)
 
 
 def install() -> None:
