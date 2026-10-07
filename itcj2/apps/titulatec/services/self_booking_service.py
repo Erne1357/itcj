@@ -409,8 +409,12 @@ class SelfBookingService:
                     "library_total": None, "fase2_status": None}
 
         current = AppointmentService.get_for_process(db, proc.id)
-        cancelaciones = SelfBookingService.cancellations(db, proc)
-        bloqueado = SelfBookingService.is_blocked_by_cancellations(db, proc)
+        # Un solo conteo para la cifra y para el bloqueo de D9 (`blocked_map`
+        # con los conteos en mano es el MISMO predicado que
+        # `is_blocked_by_cancellations`): perf 2026-10-07, antes eran dos.
+        conteos = SelfBookingService.cancellations_map(db, [proc])
+        cancelaciones = conteos[proc.id]
+        bloqueado = SelfBookingService.blocked_map(db, [proc], cancellations=conteos)[proc.id]
         bloqueos = ClearanceGate.blockers(ClearanceGate.status(db, proc.id))
         # Consulta ÚNICA para las reglas 2 y 5 -ver `_fase_cotejo_status`-.
         fase2_status = SelfBookingService._fase_cotejo_status(db, proc)

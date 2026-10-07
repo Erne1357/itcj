@@ -341,6 +341,10 @@ def test_las_consultas_del_alcance_no_crecen_con_los_usuarios(db_session, alcanc
     from itcj2.apps.titulatec.services.scope_service import _program_ids_for_users
 
     ids = [x.id for x in alcance["u"].values()]
+    # Calentar: desde perf 2026-10-07 la sesión recuerda las apps activas
+    # (`authz_service._apps_memo`) y solo la PRIMERA búsqueda paga esa
+    # consulta; las dos mediciones parten del mismo estado.
+    _program_ids_for_users(db_session, ids[:1])
     uno = _contar(db_session, lambda: _program_ids_for_users(db_session, ids[:1]))
     todos = _contar(db_session, lambda: _program_ids_for_users(db_session, ids))
     assert len(ids) >= 10

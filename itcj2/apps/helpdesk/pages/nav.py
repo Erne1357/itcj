@@ -339,16 +339,17 @@ def _build_helpdesk_nav(user_id: int, current_path: str) -> dict:
     """
     try:
         from itcj2.apps.helpdesk.utils.navigation import get_helpdesk_navigation
-        from itcj2.core.services.authz_service import (
-            get_user_permissions_for_app,
-            user_roles_in_app,
-        )
+        # Del caché de authz (perf 2026-10-07): `cached_perms`/`cached_roles`
+        # envuelven exactamente `get_user_permissions_for_app`/`user_roles_in_app`
+        # (con puestos) y comparten su invalidación; antes eran ~8 consultas por
+        # página solo para el menú.
+        from itcj2.core.services.authz_cache import cached_perms, cached_roles
         from itcj2.database import SessionLocal
 
         _db = SessionLocal()
         try:
-            user_perms = get_user_permissions_for_app(_db, user_id, "helpdesk")
-            user_roles = set(user_roles_in_app(_db, user_id, "helpdesk"))
+            user_perms = set(cached_perms(_db, user_id, "helpdesk"))
+            user_roles = set(cached_roles(_db, user_id, "helpdesk"))
             from itcj2.apps.helpdesk.utils.warehouse_auth import get_warehouse_perms_via_helpdesk
             user_perms = user_perms | get_warehouse_perms_via_helpdesk(_db, user_id)
         finally:

@@ -175,7 +175,7 @@ async def my_tickets(
 
 
 @router.get("/tickets/{ticket_id}", name="helpdesk.pages.user.ticket_detail")
-async def ticket_detail(
+def ticket_detail(
     request: Request,
     ticket_id: int,
     user: dict = Depends(require_page_app(
@@ -183,14 +183,17 @@ async def ticket_detail(
         perms=["helpdesk.tickets.api.read.own", "helpdesk.tickets.api.read.all", "helpdesk.tickets.api.read.subtree"],
     )),
 ):
-    """Vista de detalle de un ticket específico."""
-    from itcj2.core.services.authz_service import user_roles_in_app
+    """Vista de detalle de un ticket específico.
+
+    `def` (no `async def`): hace BD síncrona; FastAPI la corre en el threadpool.
+    Roles del caché de authz (perf 2026-10-07)."""
+    from itcj2.core.services.authz_cache import cached_roles
     from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
     _db = SessionLocal()
     try:
-        user_roles = user_roles_in_app(_db, user_id, "helpdesk")
+        user_roles = cached_roles(_db, user_id, "helpdesk")
     finally:
         _db.close()
 

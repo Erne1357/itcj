@@ -308,11 +308,16 @@ class SlotService:
         return SlotService._totales(window, SlotService.occupancy(db, window))
 
     @staticmethod
-    def window_occupancy_map(db: Session, windows) -> dict[int, tuple[int, int]]:
+    def window_occupancy_map(db: Session, windows, *, ocupacion: dict | None = None
+                             ) -> dict[int, tuple[int, int]]:
         """{window_id: (ocupados, capacidad total)} de varias ventanas, con UN
         SELECT. Lo usa el tablero para sus espacios y los ajenos."""
         windows = [w for w in (windows or []) if w is not None and w.id]
-        ocupacion = SlotService.occupancy_map(db, windows)
+        # `ocupacion`: un `occupancy_map` (parámetros por omisión) ya leído que
+        # cubre estas ventanas -- el tablero lo comparte con el carril de días
+        # (perf 2026-10-07). Sin él, la consulta de siempre.
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy_map(db, windows)
         return {w.id: SlotService._totales(w, ocupacion.get(w.id, {})) for w in windows}
 
     @staticmethod
@@ -329,14 +334,17 @@ class SlotService:
         return SlotService._sumar(windows, SlotService.occupancy_map(db, windows))
 
     @staticmethod
-    def day_occupancy_map(db: Session, windows_by_day: dict) -> dict:
+    def day_occupancy_map(db: Session, windows_by_day: dict, *,
+                          ocupacion: dict | None = None) -> dict:
         """{día: (ocupados, capacidad)} de varios días, con UN SELECT.
 
         `windows_by_day` es lo que devuelve `windows_for_days`. Es el carril de
         días entero: antes, una consulta por cada ventana de la convocatoria.
         """
         todas = [w for ventanas in windows_by_day.values() for w in ventanas]
-        ocupacion = SlotService.occupancy_map(db, todas)
+        # `ocupacion`: igual que en `window_occupancy_map`.
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy_map(db, todas)
         return {dia: SlotService._sumar(ventanas, ocupacion)
                 for dia, ventanas in windows_by_day.items()}
 

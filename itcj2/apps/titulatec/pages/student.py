@@ -521,7 +521,7 @@ def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None) -> dict:
     }
 
 
-def _docs_status_ctx(db, process) -> dict:
+def _docs_status_ctx(db, process, *, codes: tuple[str, ...] | None = None) -> dict:
     """Contexto del aviso de pie de Documentos (`#tt-docs-status`, Tarea 2,
     2026-09-28, spec §4 A4).
 
@@ -542,7 +542,9 @@ def _docs_status_ctx(db, process) -> dict:
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 
-    summary = DocumentService.initial_docs_summary(db, process.id, process=process)
+    # `codes`: el set ya resuelto por el llamador (la página de documentos);
+    # sin él, `initial_docs_summary` lo resuelve del proceso.
+    summary = DocumentService.initial_docs_summary(db, process.id, codes, process=process)
     counts = summary["counts"]
     if counts["rejected"]:
         state = "rejected"
@@ -915,8 +917,13 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         })
 
     progress_by_code = {
+        # El set de documentos sale del `track` que ya se resolvió arriba: sin
+        # `codes`, `initial_docs_summary` lo volvía a resolver y releía la
+        # carrera (el identity map es de referencias débiles: la de arriba
+        # ya no estaba). Perf 2026-10-07.
         "initial_docs": _docs_progress(
-            DocumentService.initial_docs_summary(db, process.id, process=process)),
+            DocumentService.initial_docs_summary(
+                db, process.id, DocumentService.initial_doc_types(track), process=process)),
         "review_appointment": _appt_progress(AppointmentService.get_for_process(db, process.id)),
         "format_b": _format_b_progress(db.get(FormatB, process.id)),
     }
@@ -1136,7 +1143,7 @@ def documents(
     la plantilla quedan byte a byte como antes (Controller ruling R1).
     """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import DocumentType
+    from itcj2.apps.titulatec.models import Document, DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
@@ -1150,21 +1157,30 @@ def documents(
         slots = []
         status_ctx = None
         if process:
-            codes = DocumentService.initial_doc_types_for(db, process)
+            # El set sale del `track` ya resuelto (perf 2026-10-07: antes la
+            # carrera se leía tres veces) y tipos y documentos van en UN lote
+            # cada uno, no dos consultas por espacio. `code` es único en los
+            # tipos y `(process_id, type_code)` en los documentos: mismo
+            # resultado que el `.first()` por espacio de antes.
+            codes = DocumentService.initial_doc_types(track)
             # UN lote para todos los slots (Tarea 2, spec A3): "Enviado el ..." es
             # la ULTIMA subida real de cada tipo, no `doc.created_at` (que no
             # se resetea al resubir).
             sent_map = DocumentService.last_uploads(db, [process.id], codes=codes)
+            dtypes = {t.code: t for t in db.query(DocumentType).filter(
+                DocumentType.code.in_(codes), DocumentType.is_active == True).all()}  # noqa: E712
+            docs_by_code = {d.type_code: d for d in db.query(Document).filter(
+                Document.process_id == process.id, Document.type_code.in_(codes)).all()}
             for code in codes:
-                dtype = db.query(DocumentType).filter_by(code=code, is_active=True).first()
+                dtype = dtypes.get(code)
                 if not dtype:
                     continue
-                doc = DocumentService.get_document(db, process.id, code)
+                doc = docs_by_code.get(code)
                 sent_at = sent_map.get((process.id, code)) or (doc.created_at if doc else None)
                 slot = _slot_ctx(dtype, doc, sent_at=sent_at)
                 slot["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(code)
                 slots.append(slot)
-            status_ctx = _docs_status_ctx(db, process)
+            status_ctx = _docs_status_ctx(db, process, codes=codes)
         all_uploaded = bool(slots) and all(s["doc"] for s in slots)
         ctx = {
             "process": process.to_dict() if process else None,
@@ -1769,10 +1785,16 @@ def _agenda_ctx(db, process, *, dia: str | None = None) -> dict:
             elig["reason"], cancellations=elig["cancellations"],
             total=elig.get("library_total"))
 
-    return {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
-            "reason": elig["reason"], "message": message, "modo": modo,
-            "dias": dias, "dia_sel": dia_sel, "dia_actual": dia_actual,
-            "hay_sin_horario": hay_sin_horario}
+    agenda = {"can_book": elig["can_book"], "can_walkin": elig["can_walkin"],
+              "reason": elig["reason"], "message": message, "modo": modo,
+              "dias": dias, "dia_sel": dia_sel, "dia_actual": dia_actual,
+              "hay_sin_horario": hay_sin_horario}
+    # Dato interno (la plantilla no lo pinta): `_cita_card_ctx` lo usa para no
+    # releer la fase 2 cuando ya se sabe que no está rechazada. Solo si
+    # `eligibility` lo trajo: sin la llave, la tarjeta consulta como antes.
+    if "fase2_status" in elig:
+        agenda["fase2_status"] = elig["fase2_status"]
+    return agenda
 
 
 def _cita_label(dt) -> str:
@@ -1781,7 +1803,14 @@ def _cita_label(dt) -> str:
     return f"{dt.day:02d} {_MONTHS_ES[dt.month]} {dt.year} · {dt:%H:%M}"
 
 
-def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
+# Centinela de «el llamador no resolvió el proceso»: `None` ya significa «no
+# hay proceso acreditable» (perf 2026-10-07: la página de la cita lo buscaba
+# tres veces -ruta, panel y tarjeta-).
+_PROCESO_SIN_RESOLVER = object()
+
+
+def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None,
+                   process=_PROCESO_SIN_RESOLVER) -> dict:
     """Contexto de la tarjeta de estado de la cita.
 
     `agenda` (2026-09-18) viaja hasta aqui porque la rama «todavia no tienes
@@ -1804,7 +1833,8 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
     # `ProcessService.creditable_process` y NO `DocumentService.get_active_process`:
     # aquel no filtra por status pese al nombre, y esta tarjeta tiene que hablar
     # del MISMO proceso que acredita la encuesta (§5.3 del diseño).
-    process = ProcessService.creditable_process(db, user_id)
+    if process is _PROCESO_SIN_RESOLVER:
+        process = ProcessService.creditable_process(db, user_id)
     appt = AppointmentService.get_for_process(db, process.id) if process else None
     appt_ctx = None
     if appt:
@@ -1830,7 +1860,11 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
     # `SelfBookingService`, y NUNCA de `appt.status`: una `attended` con fase 2
     # todavía sin dictaminar no es un rechazo.
     fase_rechazada = None
-    if process is not None:
+    # `agenda["fase2_status"]` es la MISMA lectura de `ProcessPhase` que hizo
+    # `eligibility` en esta petición: si dice que la fase 2 no está rechazada,
+    # no hay motivo que leer (perf 2026-10-07). Sin el dato, se consulta.
+    fase2_conocida = (agenda or {}).get("fase2_status", _PROCESO_SIN_RESOLVER)
+    if process is not None and fase2_conocida in (_PROCESO_SIN_RESOLVER, "rejected"):
         from itcj2.apps.titulatec.models import ProcessPhase
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
@@ -1847,7 +1881,8 @@ def _cita_card_ctx(db, user_id: int, *, agenda: dict | None = None) -> dict:
     }
 
 
-def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
+def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None,
+                    process=_PROCESO_SIN_RESOLVER) -> dict:
     """Contexto del panel completo: la tarjeta MÁS las cuatro caras de §7.
 
     Resuelve el proceso con el mismo selector que `_cita_card_ctx`
@@ -1867,9 +1902,10 @@ def _cita_panel_ctx(db, user_id: int, *, dia: str | None = None) -> dict:
     """
     from itcj2.apps.titulatec.services.process_service import ProcessService
 
-    process = ProcessService.creditable_process(db, user_id)
+    if process is _PROCESO_SIN_RESOLVER:
+        process = ProcessService.creditable_process(db, user_id)
     agenda = _agenda_ctx(db, process, dia=dia)
-    ctx = _cita_card_ctx(db, user_id, agenda=agenda)
+    ctx = _cita_card_ctx(db, user_id, agenda=agenda, process=process)
     ctx["checklist"] = _checklist_ctx(db, process)
     return ctx
 
@@ -1926,7 +1962,7 @@ def cita(
             return fuera_de_fase
         # `_cita_panel_ctx` ya calcula `checklist` (Tarea 9): el panel y la
         # página completa tienen que llevar el mismo dato.
-        ctx = _cita_panel_ctx(db, user_id, dia=dia)
+        ctx = _cita_panel_ctx(db, user_id, dia=dia, process=process)
     finally:
         db.close()
 

@@ -2,6 +2,18 @@
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _limpiar_cache_password_default():
+    """`security.is_default_password_hash` memoiza por hash en el proceso, y
+    `FakeUser` trae el MISMO hash («hashed») en todas las pruebas: sin esto, el
+    `verify_nip` parcheado de una prueba decidiría el resultado de la siguiente."""
+    from itcj2.core.utils.security import is_default_password_hash
+
+    is_default_password_hash.cache_clear()
+    yield
+    is_default_password_hash.cache_clear()
+
+
 @pytest.fixture()
 def patched_session_local(db_session, monkeypatch):
     """Hace que el código que abre `SessionLocal()` use la sesión del test.

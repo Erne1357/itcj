@@ -121,8 +121,19 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
     cutoff_30d = now - timedelta(days=30)
     cutoff_24h = now - timedelta(hours=24)
 
+    # ── Visibilidad: UNA sola condición para todo el dashboard ──────────────
+    # Perf 2026-10-07: antes cada KPI llamaba `_apply_visibility`, que vuelve a
+    # resolver áreas/departamentos/subárbol (7 lecturas de
+    # `maint_technician_areas` por petición para un técnico). La condición es
+    # una expresión SQL reutilizable: se arma una vez y se aplica a cada
+    # consulta (misma lógica que `_apply_visibility`/`_apply_visibility_to_join`).
+    vis_cond = None if FULL_ACCESS_ROLES & roles else _visibility_cond(db, user_id, roles)
+
+    def _vis(query):
+        return query if vis_cond is None else query.filter(vis_cond)
+
     # ── Base query con visibilidad ─────────────────────────────────────────
-    base_q = _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+    base_q = _vis(db.query(MaintTicket))
 
     # ── by_status ─────────────────────────────────────────────────────────
     status_rows = (
@@ -140,7 +151,7 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
 
     # ── overdue: open AND due_at < now ─────────────────────────────────────
     overdue = (
-        _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+        _vis(db.query(MaintTicket))
         .filter(
             MaintTicket.status.in_(OPEN_STATUSES),
             MaintTicket.due_at < now,
@@ -163,7 +174,7 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
     # ── by_category ───────────────────────────────────────────────────────
     # open count por categoría dentro del scope
     open_by_cat_rows = (
-        _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+        _vis(db.query(MaintTicket))
         .with_entities(MaintTicket.category_id, func.count(MaintTicket.id))
         .filter(MaintTicket.status.in_(OPEN_STATUSES))
         .group_by(MaintTicket.category_id)
@@ -172,7 +183,7 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
     open_by_cat = {cat_id: cnt for cat_id, cnt in open_by_cat_rows}
 
     total_by_cat_rows = (
-        _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+        _vis(db.query(MaintTicket))
         .with_entities(MaintTicket.category_id, func.count(MaintTicket.id))
         .group_by(MaintTicket.category_id)
         .all()
@@ -195,7 +206,7 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
 
     # ── by_priority: solo tickets abiertos en scope ────────────────────────
     priority_rows = (
-        _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+        _vis(db.query(MaintTicket))
         .with_entities(MaintTicket.priority, func.count(MaintTicket.id))
         .filter(MaintTicket.status.in_(OPEN_STATUSES))
         .group_by(MaintTicket.priority)
@@ -208,7 +219,7 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
 
     # ── avg_resolution_minutes_30d ─────────────────────────────────────────
     avg_row = (
-        _apply_visibility(db.query(MaintTicket), user_id, user_roles, db)
+        _vis(db.query(MaintTicket))
         .with_entities(func.avg(MaintTicket.time_invested_minutes))
         .filter(
             MaintTicket.status.in_(['RESOLVED_SUCCESS', 'RESOLVED_FAILED', 'CLOSED']),
@@ -254,12 +265,18 @@ def get_dashboard(db: Session, user_id: int, user_roles: list) -> dict:
             ]
 
     # ── recent_activity: últimas 10 acciones dentro del scope ─────────────
+    # El ticket viaja en el MISMO join (`contains_eager`) y el autor en una sola
+    # consulta para las 10 filas (antes 1 consulta por fila para cada uno).
+    from sqlalchemy.orm import contains_eager, selectinload
+
     log_q = (
         db.query(MaintTicketActionLog)
         .join(MaintTicket, MaintTicketActionLog.ticket_id == MaintTicket.id)
+        .options(contains_eager(MaintTicketActionLog.ticket),
+                 selectinload(MaintTicketActionLog.performed_by))
     )
     # Aplicar visibilidad al join (re-filtrar sobre MaintTicket)
-    log_q = _apply_visibility_to_join(log_q, user_id, user_roles, db)
+    log_q = _vis(log_q)
     activity_rows = (
         log_q
         .order_by(MaintTicketActionLog.performed_at.desc())

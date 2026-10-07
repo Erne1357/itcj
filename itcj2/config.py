@@ -458,6 +458,11 @@ class Settings(BaseSettings):
     MAINT_MAX_RESOLUTION_FILES: int = 5
     MAINT_MAX_COMMENT_FILES: int = 3
     MAINT_AUTO_DELETE_DAYS: int = 7
+    # Correo de maint (avisos al asignar, resolver, cancelar y vencer). APAGADO a
+    # proposito desde 2026-10-07: maint no tiene cuenta de correo conectada y
+    # cada intento dejaba un aviso en el log. El codigo sigue intacto: con
+    # MAINT_EMAIL_ENABLED=true en el .env (y la cuenta conectada) vuelve a salir.
+    MAINT_EMAIL_ENABLED: bool = False
 
     VISTETEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "vistetec", "garments")
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024

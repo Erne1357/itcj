@@ -231,11 +231,14 @@ def acquire_token_silent(app_key: str) -> str | None:
     except InvalidAppKey:
         logger.warning("acquire_token_silent con app_key invalido: %r", app_key)
         return None
-    cache = load_cache(app_key)
-    app = get_msal_app(app_key, cache)
+    # Primero la cuenta (un archivo pequeño): sin ella no hay token posible, y
+    # construir la app de MSAL y leer la caché de tokens costaba 200-300 ms en
+    # cada correo de una app sin cuenta conectada (perf 2026-10-07, maint).
     acct = read_account_info(app_key)
     if not acct:
         return None
+    cache = load_cache(app_key)
+    app = get_msal_app(app_key, cache)
 
     account = None
     for a in app.get_accounts():

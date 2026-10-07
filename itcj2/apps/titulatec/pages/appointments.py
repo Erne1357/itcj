@@ -491,7 +491,7 @@ def _dia_largo(d) -> str:
     return f"{dias[d.weekday()]} {d.day:02d} de {_MONTHS_ES_FULL[d.month].lower()}"
 
 
-def _default_day(db, cohort_id, allowed, today):
+def _default_day(db, cohort_id, allowed, today, *, dias=None):
     """El dia CON TRABAJO, que es donde tiene que abrir la pestana.
 
     Generaliza a `_default_month`. El orden importa: hoy si es dia de cotejo;
@@ -503,7 +503,11 @@ def _default_day(db, cohort_id, allowed, today):
     from itcj2.apps.titulatec.services.appointment_service import AppointmentService
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
 
-    dias = sorted(ReviewDayService.list_days(db, cohort_id)) if cohort_id else []
+    # `dias`: las fechas abiertas ya leídas por `_shell_ctx` (`_carril`); sin
+    # ellas, la consulta de siempre (mismo filtro y orden que `list_rows`).
+    if dias is None:
+        dias = ReviewDayService.list_days(db, cohort_id) if cohort_id else []
+    dias = sorted(dias)
     if not dias:
         return None
     if today in dias:
@@ -546,7 +550,22 @@ def _appt_rows(db, appts):
     return rows
 
 
-def _dias_ctx(db, cohort_id, *, abierto, today):
+def _carril(db, cohort_id) -> dict:
+    """Lo que comparten el carril de días y el tablero: los días ABIERTOS de
+    la convocatoria (`list_rows`), sus ventanas abiertas (`windows_for_days`) y
+    la ocupación de todas (`occupancy_map`, la regla única). Tres consultas
+    fijas; sin convocatoria, ninguna."""
+    from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
+    from itcj2.apps.titulatec.services.slot_service import SlotService
+
+    filas = ReviewDayService.list_rows(db, cohort_id) if cohort_id else []
+    por_dia = SlotService.windows_for_days(db, [f.id for f in filas])
+    todas = [w for ventanas in por_dia.values() for w in ventanas]
+    return {"filas": filas, "por_dia": por_dia,
+            "ocupacion": SlotService.occupancy_map(db, todas)}
+
+
+def _dias_ctx(db, cohort_id, *, abierto, today, carril=None):
     """El carril de dias: uno por dia real de la convocatoria, con su ocupacion.
 
     Sustituye al calendario mensual, del que 29 de sus 35 celdas eran inertes:
@@ -566,9 +585,12 @@ def _dias_ctx(db, cohort_id, *, abierto, today):
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
-    filas = ReviewDayService.list_rows(db, cohort_id) if cohort_id else []
-    por_dia = SlotService.windows_for_days(db, [f.id for f in filas])
-    totales = SlotService.day_occupancy_map(db, por_dia)
+    # `carril`: lo que `_carril` ya leyó (días, sus ventanas y la ocupación de
+    # todas) para compartirlo con el tablero; sin él, las 3 consultas de siempre.
+    if carril is None:
+        carril = _carril(db, cohort_id)
+    filas, por_dia = carril["filas"], carril["por_dia"]
+    totales = SlotService.day_occupancy_map(db, por_dia, ocupacion=carril["ocupacion"])
     salida = []
     for fila in filas:
         ocupados, capacidad = totales[fila.id]
@@ -634,7 +656,7 @@ def _mensaje_dias_saltados(saltados) -> str | None:
            f"{'n' if m != 1 else ''} con otro espacio tuyo: {fechas}.")
 
 
-def _board_ctx(db, day, allowed, *, user_id, cohort_id):
+def _board_ctx(db, day, allowed, *, user_id, cohort_id, carril=None):
     """El tablero de un dia: una fila por franja, con quien la ocupa.
 
     Con capacidad 1 (lo normal) cada franja es una fila simple; con capacidad
@@ -659,13 +681,25 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     from itcj2.apps.titulatec.services.slot_service import SlotService
     from itcj2.core.utils.timezone import db_now
 
-    fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
+    # `carril` (de `_shell_ctx`): si el día abierto es uno de sus días ABIERTOS,
+    # su fila, sus ventanas y su ocupación ya se leyeron para el carril (perf
+    # 2026-10-07). Un día cerrado no está en el carril: se consulta.
+    fila_dia = None
+    if carril is not None and day is not None:
+        fila_dia = next((f for f in carril["filas"] if f.date == day), None)
+    en_carril = fila_dia is not None
+    if fila_dia is None:
+        fila_dia = ReviewDayService.get(db, cohort_id, day) if (cohort_id and day) else None
     if fila_dia is None:
         return {"grupos": [], "sueltas": [], "ajenas": [], "sin_espacio": True}
 
-    mias = SlotService.windows_for_day(db, fila_dia.id, owner_id=user_id)
-    ajenas = [w for w in SlotService.windows_for_day(db, fila_dia.id)
-              if w.owner_user_id != user_id]
+    # UNA lectura de las ventanas del día, repartida por dueño en memoria: el
+    # MISMO orden `(start_time, id)` que daba pedirlas dos veces (las mías con
+    # `owner_id` y todas para sacar las ajenas).
+    todas = (carril["por_dia"][fila_dia.id] if en_carril
+             else SlotService.windows_for_day(db, fila_dia.id))
+    mias = [w for w in todas if w.owner_user_id == user_id]
+    ajenas = [w for w in todas if w.owner_user_id != user_id]
 
     visibles = AppointmentService.list_for_day(db, day, allowed_program_ids=allowed)
     por_hueco = {}
@@ -731,7 +765,9 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     # espacio pagaba las suyas, y cada ajeno DOS (H6, spec 2026-10-05-
     # titulatec-rendimiento §3.4). Misma regla: son los mapas de
     # `window_occupancy` y `out_of_grid`.
-    totales = SlotService.window_occupancy_map(db, list(mias) + list(ajenas))
+    totales = SlotService.window_occupancy_map(
+        db, list(mias) + list(ajenas),
+        ocupacion=carril["ocupacion"] if en_carril else None)
     fuera_de_rejilla = SlotService.out_of_grid_map(
         db, [w for w in mias if w.visibility != "walkin"])
 
@@ -802,7 +838,7 @@ def _board_ctx(db, day, allowed, *, user_id, cohort_id):
     }
 
 
-def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
+def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None, scope=None):
     """Mis espacios de un dia, mas el editor si hay uno abierto."""
     from itcj2.apps.titulatec.models import ReviewWindow
     from itcj2.apps.titulatec.services.review_day_service import ReviewDayService
@@ -823,12 +859,25 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
     # fail-closed (`read.all` es un permiso de lectura, no una declaracion de
     # que esa persona atiende presencialmente a todo el instituto), pero la UI
     # tiene que decirlo con todas sus letras: sin esto es un bug silencioso.
-    sin_alcance = not _program_ids_for_user(db, user_id)
+    # `scope` (de `_shell_ctx`, `officer_programs`): si es un set, YA son las
+    # carreras de los puestos del usuario -- `officer_programs` devuelve
+    # `_program_ids_for_user` tal cual-; con "ALL" (o sin él) hay que mirarlas.
+    programas = (scope if isinstance(scope, (set, frozenset))
+                 else _program_ids_for_user(db, user_id))
+    sin_alcance = not programas
+
+    # UNA lectura de las ventanas del día (pausadas incluidas) y UNA de la
+    # ocupación de todas (perf 2026-10-07: antes una consulta de ocupación por
+    # ventana, mías y ajenas). Mismo orden `(start_time, id)` y misma cuenta
+    # que `window_occupancy` -- es el mismo `occupancy_map`.
+    del_dia = SlotService.windows_for_day(db, fila_dia.id, solo_abiertas=False)
+    totales = SlotService.window_occupancy_map(db, del_dia)
 
     mios = []
-    for w in SlotService.windows_for_day(db, fila_dia.id, owner_id=user_id,
-                                         solo_abiertas=False):
-        ocupados, capacidad = SlotService.window_occupancy(db, w)
+    for w in del_dia:
+        if w.owner_user_id != user_id:
+            continue
+        ocupados, capacidad = totales[w.id]
         mios.append({
             "id": w.id,
             "horario": f"{w.start_time:%H:%M}–{w.end_time:%H:%M}",
@@ -845,10 +894,10 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None):
         })
 
     ajenos = []
-    for w in SlotService.windows_for_day(db, fila_dia.id, solo_abiertas=False):
+    for w in del_dia:
         if w.owner_user_id == user_id:
             continue
-        ocupados, capacidad = SlotService.window_occupancy(db, w)
+        ocupados, capacidad = totales[w.id]
         ajenos.append({"horario": f"{w.start_time:%H:%M}–{w.end_time:%H:%M}",
                        "ocupados": ocupados, "capacidad": capacidad})
 
@@ -1013,8 +1062,13 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
     # --- el dia abierto ------------------------------------------------------
     day = _parse_date(date_raw)
     day_resuelto = False
+    # Días abiertos, sus ventanas y la ocupación de todas: UNA lectura para el
+    # día por omisión, el carril y el tablero (perf 2026-10-07: antes los días
+    # se leían 3 veces y las ventanas del tablero 2 más).
+    carril = _carril(db, cohort_id)
     if day is None:
-        day = _default_day(db, cohort_id, allowed, today)
+        day = _default_day(db, cohort_id, allowed, today,
+                           dias=[f.date for f in carril["filas"]])
         day_resuelto = day is not None
 
     # --- zona C: el alumno abierto ------------------------------------------
@@ -1094,7 +1148,7 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         "day": day.isoformat() if day else "",
         "day_largo": _dia_largo(day) if day else "",
         "day_resuelto": day_resuelto,
-        "dias": _dias_ctx(db, cohort_id, abierto=day, today=today),
+        "dias": _dias_ctx(db, cohort_id, abierto=day, today=today, carril=carril),
         "detail": detail, "selected_id": selected_id,
         "format_amount": format_amount,
         "mover": mover,
@@ -1148,13 +1202,13 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
                 if (q or "").strip() and not estado else [])
         else:
             ctx["board"] = _board_ctx(db, day, allowed, user_id=user_id,
-                                      cohort_id=cohort_id)
+                                      cohort_id=cohort_id, carril=carril)
     elif vista == "atender":
         ctx["pager"] = _pager_ctx(db, day, allowed, selected_id)
         # Sin alumno tambien: la sala de espera es la lista del dia.
     elif vista == "espacios":
         ctx["espacios"] = _espacios_ctx(db, day, user_id=user_id,
-                                        cohort_id=cohort_id, editando=w)
+                                        cohort_id=cohort_id, editando=w, scope=scope)
 
     ctx["q_zone"] = urlencode(_zone_params(ctx))
     ctx["q_sel"] = urlencode([("selected", str(selected_id))]) if selected_id else ""

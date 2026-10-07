@@ -37,7 +37,7 @@ def _get_user(user_data: dict, db):
 def password_state(user: CurrentUser, db: DbSession):
     """Verifica si el usuario debe cambiar su contraseña (solo staff)."""
     from itcj2.core.services.authz_service import user_roles_in_app
-    from itcj2.core.utils.security import verify_nip
+    from itcj2.core.utils.security import is_default_password_hash
 
     u = _get_user(user, db)
     if not u:
@@ -46,7 +46,8 @@ def password_state(user: CurrentUser, db: DbSession):
     if "student" in user_roles_in_app(db, u.id, "itcj"):
         return PasswordStateResponse(must_change=False)
 
-    must_change = verify_nip(DEFAULT_PASSWORD, u.password_hash)
+    # Memoizado por hash: un scrypt por contraseña, no uno por carga de página.
+    must_change = bool(u.password_hash) and is_default_password_hash(u.password_hash)
     return PasswordStateResponse(must_change=must_change)
 
 
@@ -73,30 +74,33 @@ def change_password(body: ChangePasswordRequest, user: CurrentUser, db: DbSessio
 @router.get("/me", response_model=UserProfileResponse)
 def get_current_user_info(user: CurrentUser, db: DbSession):
     """Información detallada del usuario actual con roles y posiciones."""
-    from itcj2.core.services.authz_service import user_roles_in_app
+    from sqlalchemy.orm import joinedload
+
+    from itcj2.core.services.authz_cache import cached_roles
     from itcj2.core.models.app import App
-    from itcj2.core.models.position import UserPosition
+    from itcj2.core.models.position import Position, UserPosition
 
     u = _get_user(user, db)
     if not u:
         raise HTTPException(404, detail="Usuario no encontrado")
 
-    # Rol global
-    roles_itcj = user_roles_in_app(db, u.id, "itcj")
+    # Roles por app del caché de authz (`cached_roles`, el MISMO que usa el
+    # control de acceso, con su invalidación): perf 2026-10-07, antes eran 4
+    # consultas por app en cada carga.
+    roles_itcj = cached_roles(db, u.id, "itcj")
     global_role = list(roles_itcj)[0] if roles_itcj else "Usuario"
 
-    # Roles por app
     app_keys = [a.key for a in db.query(App.key).all()]
     roles = {}
     for key in app_keys:
-        app_roles = user_roles_in_app(db, u.id, key)
-        roles[key] = list(app_roles) if isinstance(app_roles, set) else app_roles
+        roles[key] = list(roles_itcj if key == "itcj" else cached_roles(db, u.id, key))
 
-    # Posiciones activas
+    # Posiciones activas (puesto y departamento en la misma consulta)
     positions = []
     active_positions = (
         db.query(UserPosition)
         .filter_by(user_id=u.id, is_active=True)
+        .options(joinedload(UserPosition.position).joinedload(Position.department))
         .all()
     )
     for p in active_positions:

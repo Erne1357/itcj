@@ -47,6 +47,14 @@ def _get_templates():
     return maint_templates
 
 
+def _email_enabled() -> bool:
+    """`MAINT_EMAIL_ENABLED` (apagado por omisión desde 2026-10-07: maint no
+    tiene cuenta de correo a propósito). Se lee en cada envío para que un
+    cambio de configuración aplique sin tocar código."""
+    from itcj2.config import get_settings
+    return bool(getattr(get_settings(), "MAINT_EMAIL_ENABLED", False))
+
+
 def _acquire_token(ticket_number: str) -> str | None:
     """Obtiene token de Graph para 'maint'. Loguea aviso si no está conectado."""
     from itcj2.core.utils.msgraph_mail import acquire_token_silent
@@ -99,6 +107,8 @@ class MaintEmailHelper:
     @staticmethod
     def send_assigned(db: Session, ticket, technician) -> bool:
         """Email al técnico recién asignado al ticket."""
+        if not _email_enabled():
+            return False
         try:
             email = getattr(technician, "email", None)
             if not email:
@@ -144,6 +154,8 @@ class MaintEmailHelper:
     @staticmethod
     def send_resolved(db: Session, ticket) -> bool:
         """Email al solicitante pidiendo calificación del servicio."""
+        if not _email_enabled():
+            return False
         try:
             requester = ticket.requester
             email = getattr(requester, "email", None) if requester else None
@@ -190,6 +202,8 @@ class MaintEmailHelper:
     @staticmethod
     def send_overdue(db: Session, ticket, recipient_user) -> bool:
         """Email de alerta SLA vencido — destinado a técnicos activos y dispatchers."""
+        if not _email_enabled():
+            return False
         try:
             email = getattr(recipient_user, "email", None)
             if not email:
@@ -235,6 +249,8 @@ class MaintEmailHelper:
     @staticmethod
     def send_canceled(db: Session, ticket, recipient_user) -> bool:
         """Email de cancelación al técnico activo afectado."""
+        if not _email_enabled():
+            return False
         try:
             email = getattr(recipient_user, "email", None)
             if not email:

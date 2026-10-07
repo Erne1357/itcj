@@ -168,6 +168,16 @@ congelada del `offer` anterior contra el nuevo con 4 relojes (antes del día, a 
 segundo día), franja llena, cupo 2, `no_show` que sigue ocupando, cancelada que libera, fuera de rejilla y «Sin horario»
 con lugar / lleno / `cierra_pronto`.
 
+**«Mi cita» sin repetir (perf 2026-10-07).** La página buscaba el proceso acreditable 3 veces (`cita`,
+`_cita_panel_ctx`, `_cita_card_ctx`): ahora la ruta lo resuelve una vez y lo presta (`process=`, con el centinela
+`_PROCESO_SIN_RESOLVER` porque `None` ya significa «sin proceso»; los dos POST que solo repintan la tarjeta siguen
+resolviéndolo ellos). `eligibility` contaba las cancelaciones dos veces (la cifra y el bloqueo de D9): ahora un
+`cancellations_map` y `blocked_map(..., cancellations=conteos)`, el MISMO predicado que
+`is_blocked_by_cancellations`. Y la tarjeta ya no relee la fase 2 cuando `agenda["fase2_status"]` (la lectura de
+`eligibility`, dato interno que la plantilla no pinta) dice que no está rechazada; sin la llave -una `eligibility`
+parchada en pruebas, o la salida temprana sin proceso- consulta como antes. HTML idéntico; lo fija
+`test_perf_rutas_lentas.py::test_mi_cita_busca_el_proceso_y_las_cancelaciones_una_vez`.
+
 ## `eligibility()` — la única fuente de la verdad
 
 La consumen **la pantalla del alumno y la cola del encargado**. Con dos implementaciones, el cubo
