@@ -36,7 +36,11 @@
     <div><dt>Modalidad</dt><dd>{{ modality_name or 'Sin modalidad' }}</dd></div>
     <div><dt>Folio</dt><dd class="tt-mono">{{ process.folio }}</dd></div>
   </dl>
-  {% if cohort_id %}
+  {# Los enlaces a OTRAS pestañas solo se pintan si el actor puede abrirlas
+     (`can_open`, spec 2026-10-07 §1.2: la guarda REAL de la ruta destino, ver
+     `pages/admin.py::_TAB_PERMS`). Titulación, p. ej., abre el expediente pero
+     no la convocatoria: el enlace le respondería 403. #}
+  {% if cohort_id and can_open.cohorts %}
   <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/cohorts/{{ cohort_id }}">
     <i class="bi bi-people me-1" aria-hidden="true"></i>Ver la convocatoria</a>
   {% endif %}
@@ -88,10 +92,12 @@
           title="{{ doc_abierto }} de {{ student.name }}"></iframe>
   {% endif %}
 
+  {% if can_open.documents %}
   <div class="tt-exp-acciones">
     <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/documents?selected={{ process.id }}">
       <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Dictaminar en la bandeja</a>
   </div>
+  {% endif %}
 
 {# ------------------------------------------------- 02 · cita de cotejo --- #}
 {% elif f.number == 2 %}
@@ -225,7 +231,7 @@
           <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
                 hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo{{ ('?' ~ zona) if zona }}"
                 hx-target="#exp-shell" hx-swap="morph:outerHTML"
-                hx-confirm="Constancia previa|¿Registrar que {{ student.name }} ya pagó y trae su constancia de no adeudo? Queda liberado sin pasar por Caja."
+                hx-confirm="Constancia previa|¿Registrar que {{ student.name }} ya pagó y trae su Constancia de no adeudo? Queda liberada sin pasar por Caja."
                 data-tt-confirm-ok="Registrar">
             <input type="date" name="issued_on" required class="form-control form-control-sm"
                    style="max-width:150px" aria-label="Fecha de la constancia previa de {{ student.name }}">
@@ -280,11 +286,13 @@
     <p class="tt-exp-vacio">Esta convocatoria todavía no tiene requisitos configurados.</p>
     {% endif %}
   </div>
+  {% if can_open.appointments %}
   <div class="tt-exp-acciones">
     <a class="btn btn-sm tt-btn-ghost"
        href="/titulatec/admin/appointments?v=atender&selected={{ process.id }}">
       <i class="bi bi-calendar-check me-1" aria-hidden="true"></i>Gestionar la cita</a>
   </div>
+  {% endif %}
 
 {# ---------------------------------------------------- 03 · Formato B ----- #}
 {% elif f.number == 3 %}

@@ -1,7 +1,8 @@
 # Expediente del alumno (admin)
 
 **Ruta:** `/titulatec/admin/processes/{process_id}` · **Fecha:** 2026-09-03
-**Quién:** Servicios Escolares (encargado y jefatura), Titulaciones.
+**Quién:** Servicios Escolares (encargado y jefatura), Titulaciones (vista completa) ·
+Departamento de Titulación (vista **resumida**, desde 2026-10-07 — ver abajo).
 
 Sustituye al «detalle de proceso», que era una pila de cuatro tarjetas fijas y
 decía **cómo está** el proceso sin decir **qué le pasó**.
@@ -20,17 +21,29 @@ una fase, había que ir a la base de datos. El expediente es esa lectura.
 ## Recorrido
 
 ```
-Procesos / Documentos / Citas / Convocatorias
+Procesos / Documentos / Citas / Convocatorias / Liberados / Correos
    └─ «Abrir» | «Expediente» | «Ver expediente»
         ?from=<URL canónica de esa pestaña, con sus filtros>
           │
           ▼
-GET /titulatec/admin/processes/{id}?fase=N&doc=CODE&from=…
-  require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)
+GET /titulatec/admin/processes/{id}?fase=N&doc=CODE&from=…        (pages/admin.py:2281)
+  require_page_app("titulatec",
+                   perms=_PROCESS_FULL_VIEW_PERMS + _PROCESS_SUMMARY_PERMS)
   assert_process_in_scope(db, user_id, process_id)       ← 404, no 403
-  _detail_ctx(...)                                       ← consultas por lote
-  render admin/process_detail.html → _exp_shell.html
+  cached_perms → _vista_completa(perms)?
+    sí → _detail_ctx(...)                                ← consultas por lote
+         render admin/process_detail.html → _exp_shell.html
+    no → _summary_ctx(...)                               ← vista RESUMIDA (D7)
+         render admin/process_summary.html
 ```
+
+Guardas (`pages/admin.py:48-60`, 2026-10-07):
+
+| Constante | Códigos | Para qué |
+|---|---|---|
+| `_PROCESS_FULL_VIEW_PERMS` | `process.page.detail`, `process.page.list`, `dashboard.admin`, `dashboard.school_services`, `dashboard.titulaciones` | vista COMPLETA. `process.api.read.all` NO está: es alcance de datos, no una página (revisado en DML y BD: ningún rol dependía de él para ver el expediente) |
+| `_PROCESS_SUMMARY_PERMS` | `process.page.summary` | vista RESUMIDA (Departamento de Titulación) |
+| `_PROCESS_VIEW_PERMS` | la suma de las dos | guarda del expediente; también la usa `mail_admin._process_opener` («la MISMA regla que el expediente») |
 
 ### Zonas
 
@@ -46,9 +59,9 @@ GET /titulatec/admin/processes/{id}?fase=N&doc=CODE&from=…
 
 | Fase | Qué enseña |
 |---|---|
-| 0 · Convocatoria | convocatoria, carrera, modalidad, folio, enlace a la convocatoria |
-| 1 · Documentos | los 3 documentos **de solo lectura** + visor (`?doc=`) + «Dictaminar en la bandeja» |
-| 2 · Cita de cotejo | cita actual, solicitud de cambio del alumno, enlace a Citas |
+| 0 · Convocatoria | convocatoria, carrera, modalidad, folio, enlace a la convocatoria (solo con `cohort.page.list`) |
+| 1 · Documentos | los 3 documentos **de solo lectura** + visor (`?doc=`) + «Dictaminar en la bandeja» (solo si puede abrir Documentos) |
+| 2 · Cita de cotejo | cita actual, solicitud de cambio del alumno, enlace a Citas (solo si puede abrir Citas) |
 | 3 · Formato B | bloque trasladado **literal** del detalle anterior |
 | 4–8 | dicen que la fase todavía no está en la app |
 
@@ -75,9 +88,65 @@ que además pone el foco en el campo.
 ### `?from=` se valida en el servidor
 
 Es una URL que llega del cliente y acaba dentro de un `href`: sin validar, es un
-redirector abierto con la marca de la escuela. `_back_ctx` exige el prefijo
-`/titulatec/admin/`, rechaza `//` (que el navegador lee como externa), `..` y la
-barra invertida. Lo que no pasa cae a Procesos.
+redirector abierto con la marca de la escuela. `_back_ctx` (`pages/admin.py:1491`)
+exige el prefijo `/titulatec/admin/`, rechaza `//` (que el navegador lee como
+externa), `..` y la barra invertida. Etiquetas por prefijo en `_BACK_LABELS`
+(`:1388`; «Liberados» desde 2026-10-07).
+
+Lo que no pasa (o no llega) cae al regreso por OMISIÓN, que desde el 2026-10-07
+depende de lo que el actor puede abrir (`_back_por_omision`, `:1479`, con
+`cached_perms`): **Procesos** solo si puede abrir la lista; si no, y puede
+Liberados, **Liberados** (Titulación); si no, el **inicio** de la app
+(`/titulatec/`, que el landing resuelve a su pantalla). Antes caía siempre a
+Procesos, que a Titulación le habría contestado 403.
+
+### Los enlaces a otras pestañas solo si el actor puede abrirlas (2026-10-07)
+
+«Ver la convocatoria» (fase 0), «Dictaminar en la bandeja» (fase 1) y «Gestionar
+la cita» (fase 2) salen de `can_open`, que arma `_detail_ctx` con
+`_tabs_abiertas(cached_perms(...))` (`pages/admin.py:87`). `_TAB_PERMS` (`:78`)
+apunta a la guarda REAL de cada ruta destino —la misma lista, importada, no una
+copia—: `_COHORT_PERMS`, `documents._VIEW_PERMS`, `appointments._VIEW_PERMS`
+(más `_PROCESS_LIST_PERMS` y `handoff_admin._LIST` para el regreso). Un enlace
+que contesta 403 es peor que no estar: el encargado de carrera, por ejemplo, no
+ve «Ver la convocatoria» (no tiene `cohort.page.list`).
+
+### Vista RESUMIDA para el Departamento de Titulación (2026-10-07, D7)
+
+Quien tiene `process.page.summary` y NINGÚN código de vista completa ve
+`admin/process_summary.html` (`#exp-resumen`), que arma `_summary_ctx`
+(`pages/admin.py:1914`):
+
+* **Cabecera:** alumno, número de control, carrera, convocatoria, modalidad (o
+  «Sin elegir»), correo —el PERSONAL con la resolución de
+  `StudentMail.contact_email` y, sin él, el institucional; lo mismo que pinta
+  Liberados— y la píldora de estado del proceso.
+* **Fases ANTERIORES al corte** (`PhaseService._handoff_phase()`, hoy 3): número,
+  nombre, estado y fecha («Se cerró el …» o «Empezó el …»). Las fases desde el
+  corte ni se consultan ni se pintan.
+* **Nada del desglose:** ni documentos ni visor, ni historial, ni cita,
+  requisitos, biblioteca o encuesta, ni la bitácora de correos, ni acciones, ni
+  enlaces a otras pestañas. `_summary_ctx` ni siquiera los lee.
+* **Regresar:** solo acepta un `from` de Liberados (con sus filtros); cualquier
+  otro cae al regreso por omisión (Liberados para Titulación).
+* **Acciones (`/processes/{id}/...`) → 403** para quien solo tiene el resumen,
+  aunque su set conserve el permiso de la acción (Titulación guarda el dictamen
+  dormido de fases 3-8): `_exigir_vista_completa` (`:98`) va justo después de
+  `assert_process_in_scope` en las 7 rutas, ANTES de escribir nada, porque todas
+  responden el expediente ENTERO.
+
+Auditoría de sub-rutas con `{process_id}` para un actor solo-resumen (set de
+Titulación, D8):
+
+| Ruta | Guarda | Resultado |
+|---|---|---|
+| `GET /processes/{id}` | vista completa ∪ resumen | 200 resumido |
+| `POST /processes/{id}/phase/{n}/approve` · `/reject` · `/format-b/review` · `/cancelar` | su permiso + `_exigir_vista_completa` | 403 (antes 200: aprobaba la fase 2) |
+| `POST /processes/{id}/requisitos/{rid}` · `/no-adeudo-previo` · `/deshacer` | su permiso (no lo tiene) + `_exigir_vista_completa` | 403 |
+| `GET /documents/{id}/document/{code}` · `GET /appointments/{id}/document/{code}` | `document.api.read.all` (ya no lo tiene) | 403 |
+| resto de `POST /appointments/{id}/...` (agendar, atender, requisitos, previa…) | `appointment.*` / `requirement.mark` / `library_clearance.api.prior` | 403 |
+| `POST /appointments/{id}/fase2/aprobar` · `/rechazar` | `process.api.approve_phase` / `reject_phase` | **sigue abierta** (pendiente, fuera de `pages/admin.py`) |
+| `POST /documents/{id}/document/review` | `document.api.approve` / `reject` | **sigue abierta** (pendiente, fuera de `pages/admin.py`) |
 
 ### El documento abierto es estado de servidor (`?doc=`)
 
@@ -179,11 +248,18 @@ acta la semana pasada empieza vacío en la fase 1.
 
 ## Qué lo cubre
 
-`tests/fastapi/titulatec/test_expediente_proceso.py` (39 pruebas): los cinco
+`tests/fastapi/titulatec/test_expediente_proceso.py`: los cinco
 eventos nuevos, las 9 fases, el deep-link `?fase=`, los documentos sin dictamen,
-el censo que confirma que la ruta borrada no volvió, el `?from=` válido y los
-cinco maliciosos, los enlaces de las cuatro pestañas, y que la página no hace una
-consulta por documento.
+el censo que confirma que la ruta borrada no volvió, el `?from=` válido (Liberados
+incluido) y los cinco maliciosos, el regreso por omisión según lo que el actor
+puede abrir, los enlaces de las cuatro pestañas y los que se ocultan sin permiso,
+y que la página no hace una consulta por documento.
+
+`tests/fastapi/titulatec/test_titulacion_liberados.py` (2026-10-07): la vista
+resumida (cabecera, solo fases previas al corte, sin desglose, regreso a
+Liberados), quién ve la completa (`page.detail` gana, `read.all` no cuenta) y las
+7 acciones del expediente + los 2 visores de archivo en 403 para Titulación, sin
+escribir nada.
 
 `tests/fastapi/titulatec/test_expediente_mail.py` (8 pruebas, Task 10 del spec
 2026-09-28-titulatec-correos-notificaciones): la zona no se pinta sin filas,

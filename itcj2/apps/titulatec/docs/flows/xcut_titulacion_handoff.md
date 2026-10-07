@@ -6,8 +6,8 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2, dictamina documentos) · 🎓 Titulaciones/DEP (jefatura de la División, permisos PLENOS desde 2026-09-21: supervisa, dictamina Formato B/documentos/fases y ve Convocatorias, aunque normalmente no sea su trabajo diario) · 🎓 Departamento de Titulación (rol operativo, dictamina Formato B/documentos/fases en el día a día — hoy sin ocupantes) · 🤖 los cuatro puntos de aplicación del corte |
-| **Permiso(s)** | El corte en sí **no exige ninguno nuevo** — es ortogonal al permiso, igual que sus gemelas ([`engine_student_phase_lock.md`](engine_student_phase_lock.md)). La bandeja **Liberados** sí: `titulatec.handoff.page.list` (ver/filtrar), `titulatec.handoff.api.export` (CSV) |
+| **Actor(es)** | 👤 Alumno (topado en la fase 3) · 🏛️ Servicios Escolares (libera la fase 2, dictamina documentos) · 🎓 Titulaciones/DEP (jefatura de la División, permisos PLENOS desde 2026-09-21: supervisa, dictamina Formato B/documentos/fases y ve Convocatorias, aunque normalmente no sea su trabajo diario) · 🎓 Departamento de Titulación (rol operativo — hoy sin ocupantes; desde 2026-10-07 solo ve **Liberados** y el **expediente resumido**, D1/D7, y conserva el dictamen de fases 3-8 dormido por el corte) · 🏛️ Servicios Escolares también abre Liberados desde 2026-10-07 (D2) · 🤖 los cuatro puntos de aplicación del corte |
+| **Permiso(s)** | El corte en sí **no exige ninguno nuevo** — es ortogonal al permiso, igual que sus gemelas ([`engine_student_phase_lock.md`](engine_student_phase_lock.md)). La bandeja **Liberados** sí: `titulatec.handoff.page.list` (ver/filtrar), `titulatec.handoff.api.export` (CSV). El expediente resumido de Titulación: `titulatec.process.page.summary` (2026-10-07, D7) |
 | **Trigger** | `TitulationProcess.current_phase` alcanza `PhaseService._handoff_phase()` (config `TITULATEC_HANDOFF_PHASE`, default `3`). Hoy solo ocurre por un camino: Servicios Escolares aprueba la fase 2 (Cita de cotejo) |
 | **Precondiciones** | Para aparecer en Liberados: `ProcessPhase(phase_number=2).status == 'approved'` (nada que ver con el estado de la cita) |
 | **Sub-flujos** | ⤵ extiende cuatro puntos de aplicación: las dos guardas gemelas de [motor de avance / dictamen del admin](engine_approve_advance_phase.md) y [guarda de ejecución del alumno](engine_student_phase_lock.md), más `FormatBService.review` y `DocumentService.review` (ver abajo). ⤵ la bandeja compone [alcance por carrera](engine_officer_scope.md) |
@@ -22,10 +22,13 @@ Spec: `docs/superpowers/specs/2026-09-21-titulatec-dpto-titulacion-design.md` (n
 1. **Alumno** → `/titulatec/student/dashboard`. La tarjeta grande de la fase actual pierde su
    CTA y pinta el aviso de T-soft; en el acordeón, cualquier fase futura ≥ 3 pinta el mismo
    aviso en vez de «Se habilitará cuando llegues a esta fase».
-2. **Titulación / jefatura de la División** → menú admin → **Liberados**
-   (`/titulatec/admin/liberados`) → filtra por convocatoria/carrera/modalidad/búsqueda →
-   por fila, «Ver expediente» (`/titulatec/admin/processes/{id}`) o el botón «Exportar CSV»
-   arriba de la tabla.
+2. **Titulación / jefatura de la División / Servicios Escolares** → menú admin → **Liberados**
+   (`/titulatec/admin/liberados`; el Departamento de Titulación ATERRIZA ahí al entrar a la app
+   desde 2026-10-07) → filtra por convocatoria/carrera/modalidad/búsqueda → por fila, «Ver
+   expediente» (`/titulatec/admin/processes/{id}?from=<Liberados con filtros y página>`) o el
+   botón «Exportar CSV» arriba de la tabla. Titulación ve el expediente **resumido** (ver
+   [«Titulación solo ve Liberados»](#titulación-solo-ve-liberados-y-el-expediente-resumido-2026-10-07)); su «Regresar» vuelve a
+   Liberados con los mismos filtros.
 3. **Camino que ya no lleva a ningún lado**: el botón «Mover de fase» del expediente
    (`/titulatec/admin/processes/{id}`) sigue existiendo para *cualquier* fase — al usarlo sobre
    una fase ≥ 3 el POST se rechaza con el mismo aviso.
@@ -77,7 +80,7 @@ sequenceDiagram
     T->>FE: abre «Liberados» / cambia un filtro / pagina
     FE->>API: GET /admin/liberados/body?cohort_id=...&program_id=...&q=...
     API->>SVC: list_released(allowed_program_ids=scope, ...)
-    SVC->>DB: JOIN ProcessPhase(phase_number=2, status='approved') + User + Program (INNER) + Cohort + Modality (LEFT)
+    SVC->>DB: JOIN ProcessPhase(phase_number=2, status='approved') + User + Program (INNER) + Cohort + Modality, StudentProfile, última EnrollmentRequest (LEFT)
     DB-->>SVC: filas + total
     SVC-->>API: [ReleasedRow], total
     API-->>FE: partials/handoff_table.html
@@ -102,8 +105,9 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
 | 1 | 🏛️ | expediente del proceso, fase 2 | aprueba la Cita de cotejo (el acto de liberación) | `POST /admin/processes/{id}/phase/2/approve` | `PhaseService.approve_phase` (`services/phase_service.py:373-439`) | `titulatec_process_phases`: fase 2 → `status='approved'`, `completed_at=now()`; `titulatec_processes.current_phase=3`; fase 3 → `in_progress` | `ProcessEvent(phase_approved)`, notif `PHASE_APPROVED` al alumno |
-| 2 | 🎓 | pestaña **Liberados** (`_ADMIN_NAV`, `pages/nav.py:110`) | abre la bandeja / cambia un filtro / pagina | `GET /admin/liberados` (`pages/handoff_admin.py:115-127`) · `GET /admin/liberados/body` (`:130-143`) | `HandoffService.list_released` (`services/handoff_service.py:143-166`) | solo lectura | ninguno |
-| 3 | 🎓 | botón «Exportar CSV» — desde 2026-09-21 solo se pinta con `can_export` (arreglo A5); antes de ese arreglo el link seguía ahí y contestaba 403 | descarga el CSV de todo lo que cae en su alcance + filtros | `GET /admin/liberados/export.csv` (`pages/handoff_admin.py:146-192`) | `HandoffService.export_rows` (`services/handoff_service.py:169-183`) | solo lectura | ninguno |
+| 2 | 🎓🏛️ | pestaña **Liberados** (`_ADMIN_NAV`, `pages/nav.py:129`) | abre la bandeja / cambia un filtro / pagina | `GET /admin/liberados` (`pages/handoff_admin.py:114-126`) · `GET /admin/liberados/body` (`:129-142`) | `HandoffService.list_released` (`services/handoff_service.py:189`) | solo lectura | ninguno |
+| 3 | 🎓🏛️ | botón «Exportar CSV» — desde 2026-09-21 solo se pinta con `can_export` (arreglo A5); antes de ese arreglo el link seguía ahí y contestaba 403 | descarga el CSV de todo lo que cae en su alcance + filtros | `GET /admin/liberados/export.csv` (`pages/handoff_admin.py:145-191`) | `HandoffService.export_rows` (`services/handoff_service.py:212`) | solo lectura | ninguno |
+| 4 | 🎓🏛️ | «Ver expediente» de una fila (`partials/handoff_table.html:105`; el `from` lo arma `VOLVER`, `:82-85`) | abre el expediente con `from` = URL canónica de Liberados + filtros + página | `GET /admin/processes/{id}?from=…` (`pages/admin.py:2281`) | `_detail_ctx` (vista completa) o `_summary_ctx` (`pages/admin.py:1914`, resumida) | solo lectura | ninguno |
 
 ---
 
@@ -185,10 +189,10 @@ feature.
 - El **único** hecho que consulta la bandeja Liberados es
   `ProcessPhase(phase_number=2).status == 'approved'`, resuelto por número de fase vía
   `PhaseService.phase_number_for_code(db, "review_appointment")`
-  (`services/handoff_service.py:86`) — nunca a mano. La fecha que se muestra es su
+  (`services/handoff_service.py:108`) — nunca a mano. La fecha que se muestra es su
   `completed_at`, no la fecha de la cita ni la de creación del proceso.
 - Leer la bandeja o exportar el CSV **no escribe nada**: `HandoffService` no hace `commit` ni
-  `add` (docstring de `services/handoff_service.py:18`).
+  `add` (docstring de `services/handoff_service.py:27`).
 - Un proceso sale en Liberados **una sola vez**: el criterio es la fila `ProcessPhase`, no la
   cita — los intentos múltiples de cotejo (`no_show`, `superseded`, reagendados) no la duplican,
   y el `UNIQUE(process_id, phase_number)` de `titulatec_process_phases` lo garantiza sin
@@ -222,7 +226,10 @@ está cacheado, así que sin reinicio el cambio no aplica.
 
 **El Departamento de Titulación sigue siendo un segundo camino, aparte y todavía vacío.** Que
 la jefatura de la División pueda operar sola no significa que el rol operativo (día a día) haya
-cambiado: `titulatec_titulacion` se quedó exactamente igual, con sus 22 permisos de siempre.
+cambiado: `titulatec_titulacion` se quedó exactamente igual, con sus 22 permisos de siempre
+(hasta el 2026-10-07: hoy son 16 y solo ve Liberados + el expediente resumido — ver la sección
+[«Titulación solo ve Liberados»](#titulación-solo-ve-liberados-y-el-expediente-resumido-2026-10-07);
+el dictamen de fases 3-8 lo conserva, dormido por el corte).
 Verificado en BD hoy: está mapeado a `head_titulacion`/`aux_titulacion`
 (`05_insert_position_app_roles.sql`) y **los dos puestos siguen con 0 ocupantes**. Para que el
 Departamento de Titulación (y no solo la jefatura) pueda operar, sigue haciendo falta asignar
@@ -293,7 +300,7 @@ el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
 
 - **Un proceso sin carrera (`program_id IS NULL`) NUNCA aparece en Liberados, ni con alcance
   `"ALL"`.** El `JOIN` con `Program` en `HandoffService._query` es **INNER a propósito**
-  (`services/handoff_service.py:104`, comentado en el código): esa cola de reparación es la
+  (`services/handoff_service.py:134`, comentado en el código): esa cola de reparación es la
   misma que `scope_service` ya trata aparte, y mezclarla aquí la volvería invisible **para
   todos**, no solo para quien tiene alcance acotado. Hoy hay **0 casos** en BD (verificado), pero
   quien opere la bandeja tiene que saberlo — un liberado así de raro quedaría fuera sin ningún
@@ -351,9 +358,62 @@ el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
 
 ## Bandeja «Liberados» paginada (2026-10-04)
 
-Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `HandoffService.list_released` (`services/handoff_service.py:148`, `paginate_query` en `:164`) devuelve un `Page`; `pages/handoff_admin.py:60` y `handoff_table.html:102` usan la macro `pager` (prefijo `tt-liberados`) con los filtros vigentes (`cohort_id`, `program_id`, `modality_id`, `q`) en la URL del pager. Parámetros: los de siempre más `page` (`:116`, `:131`). El **export CSV** no se pagina: sigue usando `HandoffService.export_rows` (`:171`, consulta completa y el mismo alcance por carrera).
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §9. `HandoffService.list_released` (`services/handoff_service.py:189`, `paginate_query` en `:205`) devuelve un `Page`; `pages/handoff_admin.py:60` y `handoff_table.html:112` usan la macro `pager` (prefijo `tt-liberados`) con los filtros vigentes (`cohort_id`, `program_id`, `modality_id`, `q`) en la URL del pager. Parámetros: los de siempre más `page` (`pages/handoff_admin.py:116`, `:131`). El **export CSV** no se pagina: sigue usando `HandoffService.export_rows` (`services/handoff_service.py:212`, consulta completa y el mismo alcance por carrera).
 
 **Buscador sin pérdida de tecleo**: `#tt-handoff-q` con `hx-preserve="true"` y `data-tt-q-server` en `#tt-handoff-filters` (`handoff_table.html`, commit `b2ce954a`).
+
+## Titulación solo ve Liberados y el expediente resumido (2026-10-07)
+
+Spec `2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md` (no versionado), D1, D2, D7,
+D8 y D9. Lo que cambia para cada actor:
+
+| Actor | Antes | Desde 2026-10-07 |
+|---|---|---|
+| 🎓 `titulatec_titulacion` (Depto. de Titulación) | 22 permisos; aterrizaba en la Bandeja y veía Procesos, Documentos y Actos protocolarios | **16** (D8, DML de la Tarea B): sin `dashboard.titulaciones`, `process.page.list`, `process.page.detail`, `document.page.list`, `document.api.read.all`, `format_b.api.read.all`, `ceremony.page.list`; con `process.page.summary`. Conserva `process.api.read.all` (alcance «ALL» de Liberados) y el dictamen de fases 3-8, dormido por el corte. **Aterriza en Liberados** (`pages/nav.py:77`) |
+| 🏛️ `titulatec_school_services` / `_head` | sin Liberados | `handoff.page.list` + `handoff.api.export` (D2): ven la pestaña y exportan, con su alcance por carrera de siempre |
+| 🎓 `titulatec_titulaciones` (jefatura de la División) | — | sin cambios; si alguien tiene los dos roles, gana su aterrizaje (`/titulatec/admin/`) |
+
+**Aterrizaje.** `_ROLE_DASHBOARD` (`pages/nav.py:66-91`) manda `titulatec_titulacion` a
+`/titulatec/admin/liberados`, DESPUÉS de los roles con Bandeja completa (admin, titulaciones,
+Escolares) y junto a las otras bandejas propias (GTV, Cómputo, Biblioteca, Caja).
+
+**Lo que Titulación ya no abre por URL directa** (403 del gate, solo por permisos): la Bandeja
+`/admin/` (`dashboard.*` ∨ `process.page.list`), la lista `/admin/processes`, Documentos
+(`document.page.list` ∨ `dashboard.*`), Citas (`appointment.page.list` ∨ `dashboard.*`) y la
+convocatoria `/admin/cohorts/{id}` (`cohort.page.list`). La lista de Procesos tiene guarda
+PROPIA desde este cambio (`_PROCESS_LIST_PERMS = ["titulatec.process.page.list"]`,
+`pages/admin.py:72`), el mismo código que revela la pestaña: ya no se abre con el OR amplio del
+expediente. Detalle en [la bandeja de procesos](xcut_admin_process_inbox.md).
+
+**Ida y vuelta al expediente.** «Ver expediente» manda `from` = URL canónica de Liberados con
+`cohort_id`, `program_id`, `modality_id`, `q` y `page` (`handoff_table.html:82-85`, mismo idiom
+que Procesos y Documentos); `_back_ctx` lo valida y le pone la etiqueta «Liberados». Sin `from`
+válido, el «Regresar» por omisión es Procesos SOLO si el actor puede abrir la lista; si no, y
+puede Liberados, Liberados; si no, el inicio de la app (`_back_por_omision`,
+`pages/admin.py:1479`). Detalle en [el expediente](xcut_admin_process_expediente.md).
+
+**Expediente resumido (D7).** Con `process.page.summary` y sin ningún código de vista completa
+(`process.page.detail`, `process.page.list`, `dashboard.*`; `read.all` NO cuenta), el expediente
+responde `admin/process_summary.html`: cabecera (alumno, número de control, carrera,
+convocatoria, modalidad o «Sin elegir», correo) y las fases ANTERIORES al corte con número,
+nombre, estado y fecha. Las fases desde el corte no se piden ni se pintan, ni nada del desglose
+(documentos, visor, historial, cita, requisitos, biblioteca, encuesta, correos), ni acciones, ni
+enlaces a otras pestañas. Las acciones de `/processes/{id}/...` le responden 403 aunque su set
+conserve el permiso de la acción (`_exigir_vista_completa`, `pages/admin.py:98`).
+
+**Correo y modalidad en la bandeja (D9).** La columna Correo (y el CSV) es el correo PERSONAL con
+la resolución de `StudentMail.contact_email` —`core_student_profile.contact_email` → el
+`contact_email` de la `EnrollmentRequest` más reciente que convirtió ESE proceso— y, sin ninguno,
+el institucional como último respaldo. Viaja en la MISMA consulta (`services/handoff_service.py:115-145`:
+perfil por PK + un agregado `max(id)` por proceso, unidos una vez; `converted_process_id` no tiene
+índice, así que nada de subconsulta por fila). Modalidad nula se lee «Sin elegir» en la tabla
+(`handoff_table.html:101`); en el CSV va vacía.
+
+**Pendiente fuera de este cambio (auditoría D7).** Dos rutas con `{process_id}` que NO viven bajo
+`/processes/{id}` siguen abiertas a Titulación por los permisos de dictamen que conserva y
+devuelven pantallas con desglose: `POST /admin/appointments/{id}/fase2/aprobar|rechazar`
+(`process.api.approve_phase`/`reject_phase`) y `POST /admin/documents/{id}/document/review`
+(`document.api.approve`/`reject`). No las cierra el corte (fases < 3).
 
 ## Flujos relacionados
 

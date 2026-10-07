@@ -15,6 +15,15 @@ dejaran pasar a alguien que aun debe el cotejo. El UNIQUE constraint de
 mucho una fila por proceso para esta fase, asi que "una sola vez por
 proceso" sale gratis del modelo, sin necesidad de DISTINCT.
 
+Correo de la fila (spec 2026-10-07 §7, D9): el PERSONAL, con la misma
+resolucion que `StudentMail.contact_email` -- `core_student_profile.
+contact_email` -> `contact_email` de la `EnrollmentRequest` mas reciente que
+convirtio ESTE proceso -- y, como ultimo respaldo de la bandeja, el
+institucional (`core_users.email`, casi siempre vacio en egresados). Vacio o
+solo espacios cuenta como ausente. Viaja en la MISMA consulta (perfil por PK y
+un agregado `max(id)` por proceso, unidos UNA vez): sin N+1 y sin subconsulta
+por fila (`converted_process_id` no tiene indice).
+
 Servicio de SOLO LECTURA: ningun `commit`, ningun `add`. Lo consumira
 `pages/handoff_admin.py` (Tarea 5): `list_released` pagina la bandeja,
 `export_rows` arma el CSV sin paginar. El llamador resuelve el alcance por
@@ -46,13 +55,19 @@ def _like_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _limpio(correo: str | None) -> str | None:
+    """`None` si vacio o solo espacios; si no, sin espacios a los lados."""
+    correo = (correo or "").strip()
+    return correo or None
+
+
 @dataclass(frozen=True)
 class ReleasedRow:
     process_id: int
     folio: str
     control_number: str
     full_name: str
-    email: str | None
+    email: str | None              # personal -> institucional (ver docstring del modulo)
     program_name: str
     modality_name: str | None
     cohort_name: str
@@ -74,9 +89,14 @@ class HandoffService:
         sembrar). Vive separado de `list_released`/`export_rows` porque
         ambos comparten TODO menos el paginado final.
         """
-        from itcj2.apps.titulatec.models import Cohort, Modality, ProcessPhase, TitulationProcess
+        from sqlalchemy.orm import aliased
+
+        from itcj2.apps.titulatec.models import (
+            Cohort, EnrollmentRequest, Modality, ProcessPhase, TitulationProcess,
+        )
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.core.models.program import Program
+        from itcj2.core.models.student_profile import StudentProfile
         from itcj2.core.models.user import User
 
         scoped = allowed_program_ids != "ALL"
@@ -89,9 +109,22 @@ class HandoffService:
         if release_phase is None:
             return None
 
+        # La solicitud MAS RECIENTE que convirtio cada proceso (mismo criterio
+        # que `StudentMail.contact_email`: `order_by(id.desc()).first()`): UN
+        # agregado sobre la tabla, unido por `process_id`, y la fila por PK.
+        ultima = (
+            db.query(EnrollmentRequest.converted_process_id.label("process_id"),
+                     func.max(EnrollmentRequest.id).label("request_id"))
+            .filter(EnrollmentRequest.converted_process_id.isnot(None))
+            .group_by(EnrollmentRequest.converted_process_id)
+            .subquery()
+        )
+        Solicitud = aliased(EnrollmentRequest)
+
         query = (
             db.query(TitulationProcess, User, Program, Cohort, Modality,
-                     ProcessPhase.completed_at)
+                     ProcessPhase.completed_at,
+                     StudentProfile.contact_email, Solicitud.contact_email)
             .join(ProcessPhase, and_(
                 ProcessPhase.process_id == TitulationProcess.id,
                 ProcessPhase.phase_number == release_phase,
@@ -106,6 +139,10 @@ class HandoffService:
             .join(Program, Program.id == TitulationProcess.program_id)
             .join(Cohort, Cohort.id == TitulationProcess.cohort_id)
             .outerjoin(Modality, Modality.id == TitulationProcess.modality_id)
+            # Las tres son 1:1 (PK, agregado por proceso, PK): no multiplican filas.
+            .outerjoin(StudentProfile, StudentProfile.user_id == TitulationProcess.student_id)
+            .outerjoin(ultima, ultima.c.process_id == TitulationProcess.id)
+            .outerjoin(Solicitud, Solicitud.id == ultima.c.request_id)
             # Una inscripción REVOCADA (`ProcessService.cancel`) conserva su
             # fase 2 aprobada, pero no se entrega a T-soft ni sale en el CSV.
             .filter(TitulationProcess.status != "cancelled")
@@ -131,13 +168,17 @@ class HandoffService:
         return query
 
     @staticmethod
-    def _row(proc, user, program, cohort, modality, completed_at) -> ReleasedRow:
+    def _row(proc, user, program, cohort, modality, completed_at,
+             perfil_email=None, solicitud_email=None) -> ReleasedRow:
+        # Personal (perfil -> solicitud, como `StudentMail.contact_email`) y,
+        # sin ninguno, el institucional como ultimo respaldo de la bandeja.
+        personal = _limpio(perfil_email) or _limpio(solicitud_email)
         return ReleasedRow(
             process_id=proc.id,
             folio=proc.folio,
             control_number=user.control_number,
             full_name=f"{user.first_name} {user.last_name}",
-            email=user.email,
+            email=personal or _limpio(user.email),
             program_name=program.name,
             modality_name=modality.name if modality else None,
             cohort_name=cohort.name,

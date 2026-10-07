@@ -75,6 +75,14 @@
     <p class="mb-0">Nadie liberado con ese filtro todavía.</p>
   </div>
   {% else %}
+  {# A donde vuelve el «Regresar» del expediente (spec 2026-10-07 §1.2): la URL
+     CANONICA de esta pestaña -no la del parcial `/body`- con sus filtros y su
+     pagina, mismo idiom que `admin/processes.html` y `documents_body.html`. El
+     servidor la valida (`pages/admin.py::_back_ctx`) y le pone «Liberados». #}
+  {% set VOLVER = ('/titulatec/admin/liberados?cohort_id=' ~ (cohort_id or '')
+                   ~ '&program_id=' ~ (program_id or '') ~ '&modality_id=' ~ (modality_id or '')
+                   ~ (('&q=' ~ (q | urlencode)) if q else '')
+                   ~ (('&page=' ~ pg.page) if pg and pg.page > 1 else '')) | urlencode %}
   <div class="tt-table-wrap">
     <table class="table table-sm align-middle">
       <thead><tr>
@@ -88,11 +96,13 @@
         <td>{{ r.full_name }}</td>
         <td>{{ r.email or '—' }}</td>
         <td>{{ r.program_name }}</td>
-        <td>{{ r.modality_name or '—' }}</td>
+        {# Modalidad nula = el egresado aún no la elige (spec 2026-10-07 D9); el CSV
+           la deja vacía. El correo es el PERSONAL (`HandoffService`, D9). #}
+        <td>{{ r.modality_name or 'Sin elegir' }}</td>
         <td>{{ r.cohort_name }}</td>
         <td class="tt-mono">{{ r.released_at.strftime('%Y-%m-%d %H:%M') if r.released_at else '—' }}</td>
         <td><a class="btn btn-sm tt-btn-ghost"
-               href="/titulatec/admin/processes/{{ r.process_id }}">Ver expediente</a></td>
+               href="/titulatec/admin/processes/{{ r.process_id }}?from={{ VOLVER }}">Ver expediente</a></td>
       </tr>
       {% endfor %}
       </tbody>

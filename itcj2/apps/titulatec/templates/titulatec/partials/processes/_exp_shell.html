@@ -21,7 +21,9 @@
   <header id="exp-head" class="tt-card">
     <div class="tt-exp-bar">
       {# El regreso es a la pestaña de la que se vino, CON sus filtros. La URL
-         la valida el servidor (`_back_ctx`); aquí ya llega limpia. #}
+         la valida el servidor (`_back_ctx`); aquí ya llega limpia. Sin `from`
+         válido, la elige `_back_por_omision` según lo que el actor puede abrir:
+         Procesos, Liberados (Titulación) o el inicio de la app. #}
       <a id="exp-back" class="btn btn-sm tt-btn-ghost" href="{{ back.url }}">
         <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back.label }}</a>
 

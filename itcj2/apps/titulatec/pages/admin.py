@@ -9,6 +9,12 @@ from fastapi.responses import RedirectResponse, Response
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE
 from itcj2.apps.titulatec.pages.nav import render_titulatec, get_titulatec_roles
+# Las guardas REALES de las pestañas a las que enlaza el expediente (ver
+# `_TAB_PERMS`, abajo). Ninguno de estos tres módulos importa `admin`: no hay
+# ciclo, y la misma lista (no una copia) sigue a la guarda si cambia.
+from itcj2.apps.titulatec.pages.appointments import _VIEW_PERMS as _APPOINTMENTS_VIEW_PERMS
+from itcj2.apps.titulatec.pages.documents import _VIEW_PERMS as _DOCUMENTS_VIEW_PERMS
+from itcj2.apps.titulatec.pages.handoff_admin import _LIST as _HANDOFF_LIST_PERMS
 from itcj2.core.utils.security import hash_nip
 from starlette.concurrency import run_in_threadpool
 
@@ -31,12 +37,76 @@ router = APIRouter(prefix="/admin", tags=["titulatec-pages-admin"])
 # agujero en silencio, porque basta con que UNO de la lista coincida.
 _COHORT_PERMS = ["titulatec.cohort.page.list"]
 
-# Ver procesos (bandeja/detalle): cualquier rol admin de la app.
-_PROCESS_VIEW_PERMS = [
+# Vista COMPLETA del expediente (spec 2026-10-07 §7, D7): el acordeón con todo
+# el desglose (documentos y visor, historial, cita, requisitos, biblioteca,
+# encuesta, correos) y sus acciones. `process.api.read.all` NO está: es alcance
+# de DATOS («ALL» en `officer_programs`), no una página. Revisado el 2026-10-07
+# (DML 03 + 15 y la BD de dev, copia de prod): todo rol que hoy abre el
+# expediente completo -admin, school_services, school_services_head y
+# titulaciones- trae `process.page.detail` Y `process.page.list`; nadie
+# dependía de `read.all` ni de un `dashboard.*` solos.
+_PROCESS_FULL_VIEW_PERMS = [
     "titulatec.process.page.list", "titulatec.process.page.detail",
-    "titulatec.process.api.read.all",
     "titulatec.dashboard.admin", "titulatec.dashboard.school_services", "titulatec.dashboard.titulaciones",
 ]
+# Vista RESUMIDA (D7, D8): el Departamento de Titulación. Cabecera + fases
+# ANTERIORES al corte a T-soft con nombre, estado y fecha; nada del desglose.
+_PROCESS_SUMMARY_PERMS = ["titulatec.process.page.summary"]
+
+# Guarda del EXPEDIENTE (`GET /processes/{id}`): completa ∪ resumida. Qué vista
+# sale lo decide `_vista_completa`. También la usa `mail_admin._process_opener`
+# («la MISMA regla que el expediente»); desde el 2026-10-07 ya NO es la guarda
+# de la lista ni incluye `read.all`.
+_PROCESS_VIEW_PERMS = _PROCESS_FULL_VIEW_PERMS + _PROCESS_SUMMARY_PERMS
+
+# La LISTA de Procesos (`/processes`, spec 2026-10-07-titulatec-liberados-
+# biblioteca-helpdesk-design.md §1.2): guarda propia, el MISMO código que revela
+# la pestaña «Procesos» en `nav._ADMIN_NAV` (página abierta ⇔ pestaña visible).
+# Compartía `_PROCESS_VIEW_PERMS` con el expediente, y con ese OR bastaba
+# `process.page.detail` o un `dashboard.*` suelto para abrirla. Antes de cortarla
+# se revisó quién entraba (DML 03 + 15 y la BD de dev, copia de prod, el
+# 2026-10-07): admin, school_services, school_services_head, titulaciones y
+# titulacion, los cinco CON `process.page.list`; nadie por detail/read.all/
+# dashboard.* solos, ni por puesto (`core_position_app_perms`) ni directo
+# (`core_user_app_perms`). Solo la pierde Titulación (D1), y por el DML.
+_PROCESS_LIST_PERMS = ["titulatec.process.page.list"]
+
+# Pestañas a las que el expediente enlaza o regresa -> la guarda REAL de la ruta
+# destino. Un enlace que contesta 403 es peor que no estar (mismo criterio que
+# `can_mark_reqs`): el expediente solo pinta los que el actor puede abrir, y el
+# «Regresar» por omisión elige entre Procesos y Liberados con este mismo mapa.
+_TAB_PERMS = {
+    "processes": _PROCESS_LIST_PERMS,
+    "liberados": _HANDOFF_LIST_PERMS,
+    "cohorts": _COHORT_PERMS,
+    "documents": _DOCUMENTS_VIEW_PERMS,
+    "appointments": _APPOINTMENTS_VIEW_PERMS,
+}
+
+
+def _tabs_abiertas(perms) -> dict:
+    """`{pestaña: bool}` con `perms & guarda` -- OR, igual que `require_page_app`.
+    `perms` sale de `cached_perms` (la MISMA fuente que el gate)."""
+    return {tab: bool(perms & set(need)) for tab, need in _TAB_PERMS.items()}
+
+
+def _vista_completa(perms) -> bool:
+    """¿El actor ve el expediente COMPLETO? (D7). Si no, el resumido."""
+    return bool(perms & set(_PROCESS_FULL_VIEW_PERMS))
+
+
+def _exigir_vista_completa(db, user_id: int) -> None:
+    """Guarda de las ACCIONES del expediente (`/processes/{id}/...`): todas
+    responden el expediente ENTERO re-renderizado (`_render_detail_body`), así
+    que quien solo tiene el resumen no pasa, aunque su set conserve el permiso
+    de la acción (Titulación guarda el dictamen dormido de las fases 3-8, D1).
+    403 como el gate (`PageForbidden`), y ANTES de escribir nada. Va después de
+    `assert_process_in_scope`, que `test_scope_guard.py` exige primero."""
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.exceptions import PageForbidden
+
+    if not _vista_completa(cached_perms(db, user_id, "titulatec")):
+        raise PageForbidden(has_app_access=True)
 
 
 def _programs(db):
@@ -1283,7 +1353,7 @@ _EVENT_UI = {
     # pinta; el de rehabilitar guarda el anterior como `previous_reason`, que
     # a propósito no se repite (ya está en su `library_observed`).
     "library_observed":             ("Biblioteca registró observaciones", "chat-left-text", "amber"),
-    "library_reenabled":            ("Biblioteca lo rehabilitó",  "arrow-clockwise",        "neutral"),
+    "library_reenabled":            ("Biblioteca activó su trámite", "arrow-clockwise",     "neutral"),
 }
 
 # Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la
@@ -1321,8 +1391,13 @@ _BACK_LABELS = (
     ("/titulatec/admin/cohorts", "Convocatoria"),
     ("/titulatec/admin/processes", "Procesos"),
     ("/titulatec/admin/correos", "Correos"),
+    ("/titulatec/admin/liberados", "Liberados"),
 )
 _BACK_DEFAULT = "/titulatec/admin/processes"
+_BACK_LIBERADOS = "/titulatec/admin/liberados"
+# Ni lista ni Liberados (nadie así con el DML del 2026-10-07; el expediente se
+# abre con `process.page.detail` solo): el landing lo manda a SU pantalla.
+_BACK_INICIO = "/titulatec/"
 
 
 def _hdr(msg: str) -> str:
@@ -1401,7 +1476,19 @@ def _bitacora_correos(filas) -> list[dict]:
     return entradas
 
 
-def _back_ctx(raw: str | None) -> dict:
+def _back_por_omision(abiertas: dict | None) -> dict:
+    """Regresar sin `from` válido (spec 2026-10-07 §1.2): Procesos SOLO si el
+    actor puede abrir la lista; si no y puede Liberados, Liberados; si no, el
+    inicio de la app. `abiertas=None` (sin actor) conserva Procesos, el
+    histórico."""
+    if abiertas is None or abiertas.get("processes"):
+        return {"url": _BACK_DEFAULT, "label": "Procesos"}
+    if abiertas.get("liberados"):
+        return {"url": _BACK_LIBERADOS, "label": "Liberados"}
+    return {"url": _BACK_INICIO, "label": "Inicio"}
+
+
+def _back_ctx(raw: str | None, abiertas: dict | None = None) -> dict:
     """Valida el `?from=` y devuelve a dónde vuelve el botón Regresar.
 
     `from` llega del cliente y acaba dentro de un `href`, así que sin validar
@@ -1416,7 +1503,10 @@ def _back_ctx(raw: str | None) -> dict:
       * no puede traer `..` ni barra invertida — normalizaciones que se salen
         del prefijo.
 
-    Lo que no pasa cae a Procesos, que es de donde se llegaba históricamente.
+    Lo que no pasa cae al regreso por omisión (`_back_por_omision`): Procesos,
+    de donde se llegaba históricamente, solo si el actor puede abrir la lista;
+    si no, Liberados (Titulación, D1) o el inicio de la app. `abiertas` es
+    `_tabs_abiertas(cached_perms(...))`.
     """
     url = (raw or "").strip()
     valido = (
@@ -1426,7 +1516,7 @@ def _back_ctx(raw: str | None) -> dict:
         and "\\" not in url
     )
     if not valido:
-        url = _BACK_DEFAULT
+        return _back_por_omision(abiertas)
     ruta = url.split("?", 1)[0]
     etiqueta = next((lab for pre, lab in _BACK_LABELS if ruta.startswith(pre)), "Procesos")
     return {"url": url, "label": etiqueta}
@@ -1683,9 +1773,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_dictaminar_fb = False
     can_revoke = False
     can_register_prior = False
+    # Pestañas que el actor puede abrir (spec 2026-10-07 §1.2): decide qué
+    # enlaces a otras pestañas se pintan y a dónde regresa «Regresar» sin
+    # `from`. Sin actor, ninguno (fail-closed, como los `can_*`).
+    abiertas = None
     if user_id is not None:
         from itcj2.core.services.authz_cache import cached_perms
         _user_perms = cached_perms(db, user_id, "titulatec")
+        abiertas = _tabs_abiertas(_user_perms)
         # Sobre una inscripción revocada el checklist queda de solo lectura:
         # acreditarle un requisito ya no mueve nada.
         can_mark_reqs = ("titulatec.process.api.requirement.mark" in _user_perms
@@ -1783,7 +1878,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "progress_pct": max(0, min(100, round(current / max_phase * 100))),
         "fases": fases,
         "open_phase": open_phase,
-        "back": _back_ctx(back_raw),
+        "back": _back_ctx(back_raw, abiertas),
+        # `can_open.cohorts` / `.documents` / `.appointments`: los enlaces del
+        # expediente a esas pestañas (`_exp_phase.html`) solo se pintan si la
+        # guarda REAL de la ruta destino deja pasar al actor (`_TAB_PERMS`).
+        "can_open": abiertas or dict.fromkeys(_TAB_PERMS, False),
         "docs": docs,
         "doc_abierto": abierto["type_code"] if abierto else None,
         "doc_src": abierto["view_url"] if abierto else None,
@@ -1809,6 +1908,72 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_register_prior": can_register_prior,
         "format_amount": format_amount,
         "correos": correos,
+    }
+
+
+def _summary_ctx(db, process_id: int, *, abiertas: dict, back_raw=None) -> dict:
+    """El expediente RESUMIDO (spec 2026-10-07 §7, D7): Departamento de Titulación.
+
+    Cabecera (alumno, número de control, carrera, convocatoria, modalidad o «Sin
+    elegir», correo) + las fases ANTERIORES al corte a T-soft
+    (`PhaseService._handoff_phase()`, hoy 3) con número, nombre, estado y fecha.
+    Las fases desde el corte NO se piden. No se consulta NADA del desglose
+    (documentos, eventos, cita, requisitos, biblioteca, encuesta, correos): lo
+    que no se lee no se puede filtrar por un descuido de plantilla.
+
+    El correo es el PERSONAL con la resolución de `StudentMail.contact_email` y,
+    sin él, el institucional: lo mismo que pinta la bandeja Liberados
+    (`HandoffService`). «Regresar» solo acepta un `from` de Liberados (con sus
+    filtros); cualquier otro cae al regreso por omisión.
+
+    Dicts PLANOS: la ruta renderiza después de su `db.close()`.
+    """
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.models import (
+        Cohort, Modality, PhaseDefinition, ProcessPhase, TitulationProcess,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = db.get(TitulationProcess, process_id)
+    student = db.get(User, proc.student_id)
+    cohort = db.get(Cohort, proc.cohort_id)
+    modality = db.get(Modality, proc.modality_id) if proc.modality_id else None
+    program = db.get(Program, proc.program_id) if proc.program_id else None
+    correo = (StudentMail.contact_email(db, proc)
+              or ((student.email or "").strip() if student else "") or None)
+
+    corte = PhaseService._handoff_phase()
+    pdefs = (db.query(PhaseDefinition)
+             .filter(PhaseDefinition.is_active.is_(True), PhaseDefinition.number < corte)
+             .order_by(PhaseDefinition.order_index).all())
+    filas = {ph.phase_number: ph for ph in
+             db.query(ProcessPhase).filter(ProcessPhase.process_id == process_id,
+                                           ProcessPhase.phase_number < corte).all()}
+    fases = []
+    for pd in pdefs:
+        ph = filas.get(pd.number)
+        if ph is not None and ph.completed_at:
+            fecha = f"Se cerró el {_fecha_larga(ph.completed_at)}"
+        elif ph is not None and ph.started_at:
+            fecha = f"Empezó el {_fecha_larga(ph.started_at)}"
+        else:
+            fecha = ""
+        fases.append({"number": pd.number, "name": pd.name,
+                      "status": ph.status if ph else "pending", "fecha": fecha})
+
+    desde_liberados = (back_raw or "").strip().startswith(_BACK_LIBERADOS)
+    return {
+        "process": {"id": proc.id, "folio": proc.folio, "status": proc.status},
+        "student": {"name": student.full_name if student else "—",
+                    "control": student.control_number if student else "—"},
+        "email": correo,
+        "program_name": program.name if program else None,
+        "cohort_name": cohort.name if cohort else None,
+        "modality_name": modality.name if modality else None,
+        "fases": fases,
+        "back": _back_ctx(back_raw if desde_liberados else None, abiertas),
     }
 
 
@@ -2048,10 +2213,14 @@ def processes(
     q: str = "",
     phase: str = "",
     page: str = "",
-    user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
+    user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_LIST_PERMS)),
 ):
     """Bandeja de procesos (tabla paginada o tablero kanban acotado) con KPIs,
     funnel de fases, señal de atoro (días sin moverse) y búsqueda en servidor.
+
+    Guarda propia (`_PROCESS_LIST_PERMS`, spec 2026-10-07 §1.2): el expediente
+    sigue con `_PROCESS_VIEW_PERMS`, pero la lista no se abre con
+    `process.page.detail`/`read.all`/`dashboard.*` solos.
 
     `stuck`, `phase` y `page` llegan como texto y se interpretan con
     tolerancia (vacío / basura = sin filtro / página 1): el formulario de
@@ -2112,11 +2281,19 @@ def _exp_query(params: dict) -> str:
 def process_detail(
     process_id: int,
     request: Request,
-    user: dict = Depends(require_page_app("titulatec", perms=_PROCESS_VIEW_PERMS)),
+    # La suma explícita (no `_PROCESS_VIEW_PERMS`, que vale lo mismo) para que
+    # `test_permissions_contract.py` resuelva los códigos por AST.
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=_PROCESS_FULL_VIEW_PERMS + _PROCESS_SUMMARY_PERMS)),
 ):
-    """El expediente del alumno: cabecera + acordeón de las 9 fases con su historial."""
+    """El expediente del alumno: cabecera + acordeón de las 9 fases con su historial.
+
+    Con `process.page.summary` y sin ningún código de vista completa
+    (`_vista_completa`), la vista RESUMIDA (D7): `_summary_ctx` +
+    `admin/process_summary.html`, sin desglose."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.core.services.authz_cache import cached_perms
     db = SessionLocal()
     try:
         # 404 uniforme: "no existe" y "no es de tus carreras" son indistinguibles.
@@ -2124,11 +2301,18 @@ def process_detail(
         # puede devolver None a partir de aqui.
         assert_process_in_scope(db, int(user["sub"]), process_id)
         params = _exp_params(request)
-        ctx = _detail_ctx(db, process_id, user_id=int(user["sub"]), **params)
-        ctx["zona"] = _exp_query(params)
+        perms = cached_perms(db, int(user["sub"]), "titulatec")
+        if _vista_completa(perms):
+            plantilla = "titulatec/admin/process_detail.html"
+            ctx = _detail_ctx(db, process_id, user_id=int(user["sub"]), **params)
+            ctx["zona"] = _exp_query(params)
+        else:
+            plantilla = "titulatec/admin/process_summary.html"
+            ctx = _summary_ctx(db, process_id, abiertas=_tabs_abiertas(perms),
+                               back_raw=params["back_raw"])
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/admin/process_detail.html", ctx)
+    return render_titulatec(request, plantilla, ctx)
 
 
 def _render_detail_body(request, db, process_id, user_id: int | None = None):
@@ -2164,6 +2348,7 @@ def _cuerpo_fb_review(process_id, request, user, form):
     db = SessionLocal()
     try:
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         fb = db.get(FormatB, process_id)
         if fb:
             try:
@@ -2192,6 +2377,7 @@ def phase_approve(
         # El guard sustituye al `db.get` + 404: devuelve el proceso ya cargado y
         # ademas comprueba que sea de una carrera del usuario.
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         try:
             PhaseService.approve_phase(db, proc, n, int(user["sub"]))
         except ValueError as exc:
@@ -2229,6 +2415,7 @@ def _cuerpo_phase_reject(process_id, request, n, user, form):
     db = SessionLocal()
     try:
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         try:
             PhaseService.reject_phase(db, proc, n, int(user["sub"]), reason)
         except ValueError as exc:
@@ -2270,6 +2457,7 @@ def _cuerpo_process_cancel(process_id, request, user, form):
     db = SessionLocal()
     try:
         assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         ok, msg = ProcessService.cancel(db, process_id, reason=reason,
                                         actor_id=int(user["sub"]))
         if not ok:
@@ -2342,6 +2530,7 @@ def _cuerpo_process_requirement(process_id, rid, request, user, form):
         # sea de una carrera del usuario. 404 uniforme, sin `X-Tt-Error`: el id
         # es secuencial y un 403 convertiria la ruta en un contador del padron.
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
 
         req = (db.query(CotejoRequirement)
                .filter_by(id=rid, cohort_id=proc.cohort_id).first())
@@ -2411,6 +2600,7 @@ def _cuerpo_process_library_prior(process_id, request, user, form):
     db = SessionLocal()
     try:
         assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         try:
             issued_on = parse_issued_on(form.get("issued_on"))
             clearance = LibraryClearanceService.for_process_locked(db, process_id)
@@ -2454,6 +2644,7 @@ def _cuerpo_process_library_prior_undo(process_id, request, user, form):
     db = SessionLocal()
     try:
         assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         try:
             clearance = LibraryClearanceService.for_process_locked(db, process_id)
             LibraryClearanceService.undo_prior(db, clearance.id, int(user["sub"]), reason)

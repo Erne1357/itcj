@@ -185,7 +185,11 @@ class TestDesdeLaRuta:
         cohort, process = esc(current_phase=2,
                               program=make_program("Ingenieria de la Puerta"))
         _req(db_session, cohort, label="12 fotografias")
+        # `process.page.detail`: desde 2026-10-07 las acciones del expediente
+        # exigen VISTA COMPLETA (`_exigir_vista_completa`, D7) -`read.all` es
+        # alcance, no pagina-; sin ella el 403 taparia el 400 que se mide.
         jefa = make_head(perm_codes=("titulatec.process.api.read.all",
+                                     "titulatec.process.page.detail",
                                      "titulatec.process.api.approve_phase"))
 
         resp = client_as(jefa).post(

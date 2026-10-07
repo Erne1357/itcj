@@ -338,3 +338,130 @@ def test_buscador_preservado_y_q_viaja(
         assert_buscador_preservado(html, input_id="tt-handoff-q",
                                    filters_id="tt-handoff-filters", q="99700091",
                                    include="closest form")
+
+
+# ---------------------------------------------------------------------------
+# «Ver expediente» → Regresar a Liberados (spec 2026-10-07 §1.2, D1/D2)
+# ---------------------------------------------------------------------------
+def _ver_expediente(html, process_id):
+    """El `href` de «Ver expediente» de la fila, ya desescapado."""
+    import html as _html
+    import re
+    m = re.search(r'href="(/titulatec/admin/processes/%d\?[^"]*)"[^>]*>Ver expediente'
+                  % process_id, html)
+    assert m, "la fila no enlaza al expediente"
+    return _html.unescape(m.group(1))
+
+
+def test_ver_expediente_manda_from_con_los_filtros_y_la_pagina(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """`from` = URL CANÓNICA de la pestaña (no la del parcial `/body`) con sus
+    filtros y su página, para que «Regresar» devuelva aquí mismo. Se pide el
+    PARCIAL para probar que tampoco él manda `/body`."""
+    from urllib.parse import parse_qs, urlsplit
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+    proc, program, cohort, _s = _liberado(
+        db_session, make_program, make_cohort, make_user, make_process, control="99700020")
+
+    html = client_as(head).get(f"{URL}/body", params={
+        "cohort_id": str(cohort.id), "program_id": str(program.id), "q": "99700020",
+    }).text
+
+    href = _ver_expediente(html, proc.id)
+    origen = parse_qs(urlsplit(href).query)["from"][0]
+    partes = urlsplit(origen)
+    assert partes.path == URL, origen
+    qs = parse_qs(partes.query)
+    assert qs["cohort_id"] == [str(cohort.id)]
+    assert qs["program_id"] == [str(program.id)]
+    assert qs["q"] == ["99700020"]
+
+
+def test_ver_expediente_conserva_la_pagina_si_no_es_la_primera(
+    db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    from urllib.parse import parse_qs, urlsplit
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+    program = make_program("Ingenieria Liberados Paginada")
+    cohort = make_cohort()
+    procs = []
+    for i in range(3):
+        alumno = make_user(first_name="PAGINA", last_name=f"N{i}",
+                           control_number=f"9970003{i}")
+        p = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+        _release(db_session, p, datetime(2026, 1, 20, 9, i))
+        procs.append(p)
+
+    # `PAGE_SIZE` queda atado como default de `_body_ctx` al importar: para
+    # una página 2 con 3 filas se llama con `per_page=2` y se pinta el parcial.
+    import itcj2.apps.titulatec.pages.handoff_admin as mod
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    ctx = mod._body_ctx(db_session, user_id=head.id, cohort_id=cohort.id, program_id=None,
+                        modality_id=None, q=None, page=2, per_page=2)
+    html = titulatec_templates.get_template(
+        "titulatec/partials/handoff_table.html").render(ctx)
+
+    (fila,) = ctx["rows"]
+    origen = parse_qs(urlsplit(_ver_expediente(html, fila.process_id)).query)["from"][0]
+    assert parse_qs(urlsplit(origen).query)["page"] == ["2"]
+
+
+def test_servicios_escolares_ve_liberados_y_el_expediente_regresa_ahi(
+    client_as, db_session, make_officer, make_program, make_cohort, make_user, make_process,
+):
+    """D2: el encargado de carrera (con `handoff.page.list`) ve la pestaña y,
+    al abrir un expediente desde ella, «Regresar» vuelve a Liberados aunque
+    también pueda abrir Procesos."""
+    import re
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+    program = make_program("Ingenieria Liberados Escolares")
+    cohort = make_cohort()
+    officer, _pos = make_officer([program], perm_codes=OFFICER_PERMS + (
+        "titulatec.handoff.page.list", "titulatec.handoff.api.export"))
+    alumno = make_user(first_name="ESCOLARES", last_name="LIBERADO",
+                       control_number="99700040")
+    proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 1, 22, 9, 0))
+    cli = client_as(officer)
+
+    lista = cli.get(URL)
+    assert lista.status_code == 200, lista.text[:500]
+    menu = re.search(r'<aside[^>]*id="ttSide".*?</aside>', lista.text, re.S).group(0)
+    assert f'href="{URL}"' in menu and "Liberados" in menu
+    exp = cli.get(_ver_expediente(lista.text, proc.id))
+
+    assert exp.status_code == 200, exp.text[:500]
+    m = re.search(r'id="exp-back"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', exp.text, re.S)
+    assert m.group(1).startswith(URL)
+    assert "Liberados" in m.group(2)
+
+
+# ---------------------------------------------------------------------------
+# Correo personal y modalidad «Sin elegir» (spec 2026-10-07 §7, D9)
+# ---------------------------------------------------------------------------
+def test_la_tabla_muestra_el_correo_personal_y_sin_elegir(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """La fila pinta el correo PERSONAL (perfil), no el institucional, y una
+    modalidad nula se lee «Sin elegir». El CSV lleva el mismo correo y la
+    modalidad vacía."""
+    from itcj2.core.models.student_profile import StudentProfile
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS + ("titulatec.handoff.api.export",))
+    proc, program, cohort, alumno = _liberado(
+        db_session, make_program, make_cohort, make_user, make_process, control="99700050")
+    db_session.add(StudentProfile(user_id=alumno.id, contact_email="personal.50@example.invalid"))
+    db_session.flush()
+    cli = client_as(head)
+
+    html = cli.get(URL, params={"q": "99700050"}).text
+    csv = cli.get(f"{URL}/export.csv", params={"q": "99700050"}).content.decode("utf-8")
+
+    import re
+    fila = re.search(r'<tr id="tt-hdf-%d">.*?</tr>' % proc.id, html, re.S).group(0)
+    assert "personal.50@example.invalid" in fila
+    assert alumno.email not in fila
+    assert "Sin elegir" in fila
+    linea = [ln for ln in csv.splitlines() if "99700050" in ln][0]
+    assert "personal.50@example.invalid" in linea
+    assert "Sin elegir" not in linea
