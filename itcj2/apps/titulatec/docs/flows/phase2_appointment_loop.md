@@ -496,9 +496,25 @@ vista completa `agenda`/día 38 / 63 → 30 / 30. En la copia de prod, `GET /tit
 los mapas — walkin, franjas, canceladas/no_show/attended, ventanas sin citas, exclusión de un proceso en dos
 ventanas del mismo lote.
 
-**Lo que sigue con una consulta por ventana** (baja frecuencia; ya delegan en la regla única, solo pagan una
-consulta cada una): `_espacios_ctx` (pestaña Espacios) y `_detail_ctx` (walk-ins de hoy del encargado). La
-oferta del egresado (`SelfBookingService.offer`) también pasó a lote: ⤵
+**Lo prestado entre zonas (perf 2026-10-07).** En la vista completa, los días se leían 3 veces (día por omisión
+`_default_day`, carril `_dias_ctx` y tablero `_board_ctx`), las ventanas del día del tablero 2 más (las mías y,
+aparte, todas para sacar las ajenas) y el carril y el tablero contaban la ocupación por separado. Ahora
+`_shell_ctx` llama UNA vez a `_carril(db, cohort_id)` -días abiertos (`list_rows`), sus ventanas
+(`windows_for_days`) y la ocupación de todas (`occupancy_map`), 3 consultas fijas- y se lo presta a las tres
+(`dias=`, `carril=`); `day_occupancy_map`/`window_occupancy_map` aceptan `ocupacion=` (un `occupancy_map` ya leído,
+con los parámetros por omisión). Un día CERRADO no está en el carril: el tablero lo consulta como antes. Sin lo
+prestado, cada función se comporta como siempre (así las llama `test_slot_occupancy_batch.py`); la equivalencia
+con y sin, y «una lectura de días y de ventanas por vista», las fija `test_perf_rutas_lentas.py`. Copia de prod,
+u8301: vista por omisión 30 → 25 consultas, HTML idéntico.
+
+**Espacios (perf 2026-10-07).** `_espacios_ctx` lee las ventanas del día UNA vez (`solo_abiertas=False`) y las
+reparte por dueño en memoria, con UN `window_occupancy_map` para mías y ajenas (antes una consulta de ocupación
+por ventana y las ventanas pedidas dos veces); con el `scope` de `_shell_ctx` (`officer_programs`) ya no vuelve a
+leer las carreras del encargado (si es «ALL», sí). `POST /espacios/{id}` (que repinta el shell entero): 46 → 38
+consultas en dev.
+
+**Lo que sigue con una consulta por ventana** (baja frecuencia; ya delega en la regla única): `_detail_ctx`
+(walk-ins de hoy del encargado). La oferta del egresado (`SelfBookingService.offer`) también pasó a lote: ⤵
 [el egresado agenda su propia cita](phase2_student_self_booking.md#la-oferta-en-lote-2026-10-05).
 
 ## Limitaciones conocidas

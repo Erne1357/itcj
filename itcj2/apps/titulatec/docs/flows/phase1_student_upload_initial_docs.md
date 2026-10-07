@@ -87,7 +87,7 @@ sequenceDiagram
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
-| 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | `DocumentService.get_document` ×3 | — | — |
+| 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | set del `track` ya resuelto (`DocumentService.initial_doc_types(track)`) + tipos y documentos en UN lote cada uno (perf 2026-10-07: antes `get_document` y la consulta del tipo POR espacio, y la carrera leída 3 veces; 3 y 7 espacios hacen los mismos SELECT, `test_perf_rutas_lentas.py`) | — | — |
 | 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `storage.prepare_document` (en el threadpool, sin transacción abierta; `pdf_compress.compress_pdf` si pasa de 2 MB) → `DocumentService.save(..., prepared=...)` (en el threadpool) → `storage.write_document` → `DocumentService.sync_initial_phase` (solo si el tipo es de la fase `initial_docs`) | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}`; `ProcessPhase[1].status` → `in_review` si con esta suben los 3 (desde `pending`\|`in_progress`\|`rejected`) | `ProcessEvent(document_uploaded)` |
 | 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` → `DocumentService.sync_initial_phase` (idem) | borra fila + archivo; `ProcessPhase[1].status` → `in_progress` si ya estaba `in_review` y con esto falta alguno | — |
 
