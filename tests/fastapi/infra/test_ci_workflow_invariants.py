@@ -76,3 +76,18 @@ def test_un_hotfix_cuyo_deploy_se_cancela_deja_el_run_en_rojo():
     assert "needs.deploy.result == 'cancelled'" in alert
     assert "::error::" in alert
     assert "exit 1" in alert
+
+
+def test_el_paso_de_apt_no_se_puede_colgar():
+    """2026-10-07 (run 37679631400): un runner no alcanzó el mirror de Azure
+    (`Ign:` en cada índice) y `apt-get update` esperó el timeout de cada archivo:
+    >10 min en un paso de ~10 s, con el job sin límite propio (6 h por omisión).
+    Con 8 shards la probabilidad de tocar un runner así se multiplica: el paso
+    lleva límite y apt timeouts cortos con reintentos, para fallar rápido y que
+    «Re-run failed jobs» relance solo ese shard."""
+    shard = _job("_tests.yml", "shard")
+    paso = shard[shard.index("Dependencias de sistema para WeasyPrint"):]
+    paso = paso[:paso.index("- name:", 1)] if "- name:" in paso[1:] else paso
+    assert "timeout-minutes:" in paso
+    assert "Acquire::Retries=" in paso
+    assert "Acquire::http::Timeout=" in paso

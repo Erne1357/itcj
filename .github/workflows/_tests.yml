@@ -182,8 +182,18 @@ jobs:
       # `ubuntu-latest`. `libharfbuzz-subset0` (m07, triage-minors.md) evita
       # el DeprecationWarning de WeasyPrint por el subconjunto de HarfBuzz
       # ausente. Mismos paquetes que `docker/backend/Dockerfile.fastapi`.
+      #
+      # Límite y timeouts cortos (2026-10-07, run 37679631400): un runner no
+      # alcanzó el mirror de Azure (`Ign:` en cada índice) y apt esperó el timeout
+      # de cada archivo, >10 min en un paso de ~10 s. Así cae rápido al mirror de
+      # respaldo, y si aun así no puede el paso falla en 5 min y «Re-run failed
+      # jobs» relanza solo ese shard.
       - name: Dependencias de sistema para WeasyPrint (constancias)
-        run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+        timeout-minutes: 5
+        run: |
+          apt_opts=(-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+          sudo apt-get "${apt_opts[@]}" update
+          sudo apt-get "${apt_opts[@]}" install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
 
       # Key exacta del job «Duraciones»; si el caché ya no existe (re-run tras
       # su desalojo) falla fuerte en vez de re-partir con otros cortes.
