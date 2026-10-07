@@ -5,16 +5,16 @@
    Contexto: first_name, link. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Biblioteca te rehabilitó — TitulaTec ITCJ{% endblock %}
+{% block titulo %}Biblioteca activó tu trámite — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
-  Biblioteca te rehabilitó: <strong>ya puedes continuar con tu trámite</strong> de no adeudo
-  de biblioteca.
+  Biblioteca activó tu trámite: <strong>ya puedes continuar</strong> con tu Constancia de no
+  adeudo de biblioteca.
 </p>
 <p style="margin:0 0 24px;">
   El Centro de Información volverá a revisar tu caso y te avisaremos en cuanto registre tu
-  no adeudo. Si tienes dudas, acude al Centro de Información.
+  Constancia de no adeudo. Si tienes dudas, acude al Centro de Información.
 </p>
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

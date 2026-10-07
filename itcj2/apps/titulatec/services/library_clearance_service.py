@@ -165,8 +165,8 @@ NOT_APPLICABLE = "not_applicable"
 
 # Ruling R20 (I2): a quien ya pasó su cotejo no se le abre trámite de no
 # adeudo (Registrar, lote «Sin adeudo», constancia previa).
-_MSG_COTEJO_YA_LIBERADO = ("Este egresado ya pasó su cotejo; no necesita trámite de "
-                           "no adeudo.")
+_MSG_COTEJO_YA_LIBERADO = ("Este egresado ya pasó su cotejo; no necesita tramitar su "
+                           "Constancia de no adeudo.")
 
 # Quién registra una constancia previa: va al payload del evento.
 PRIOR_BY = ("library", "school_services", "import")
@@ -199,7 +199,7 @@ _STATUS_LABELS = {
 
 # Cualquier transición sobre una fila `observed` que no sea Observar o
 # Rehabilitar (spec 2026-10-05 §3.2).
-_MSG_OBSERVADO = ("Está con observaciones de Biblioteca; rehabilítalo primero.")
+_MSG_OBSERVADO = ("Está con observaciones de Biblioteca; actívalo primero.")
 
 _CENT = Decimal("0.01")
 
@@ -676,7 +676,7 @@ class LibraryClearanceService:
         for cid in ids:
             clearance = por_id.get(cid)
             if clearance is None:
-                omitidos.append((cid, f"No existe el registro de no adeudo {cid}."))
+                omitidos.append((cid, f"No existe el registro de la Constancia de no adeudo {cid}."))
                 continue
             try:
                 plan = LibraryClearanceService._prepare_registration(
@@ -731,7 +731,7 @@ class LibraryClearanceService:
         if clearance.status == "cleared":
             if clearance.cleared_via == "payment":
                 raise ValueError("Este pago ya está registrado.")
-            raise ValueError("Este no adeudo ya está liberado; no hay nada que cobrar.")
+            raise ValueError("Esta Constancia de no adeudo ya está liberada; no hay nada que cobrar.")
         if clearance.status != "awaiting_payment":
             raise ValueError(f"Este caso no está por cobrar (estado: {clearance.status}).")
         recibo = LibraryClearanceService._clean_receipt(receipt_number)
@@ -756,7 +756,7 @@ class LibraryClearanceService:
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_CLEARED",
-                       title="Tu no adeudo de biblioteca quedó liberado",
+                       title="Tu Constancia de no adeudo de biblioteca quedó liberada",
                        body=f"Caja registró tu pago de {format_amount(clearance.total_amount)}.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
         from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -798,7 +798,7 @@ class LibraryClearanceService:
         process = LibraryClearanceService._admitted_process(db, clearance)
         LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
-            raise ValueError("Este no adeudo ya está liberado.")
+            raise ValueError("Esta Constancia de no adeudo ya está liberada.")
         LibraryClearanceService._assert_needs_clearance(db, process)
         if by not in PRIOR_BY:
             raise ValueError(f"Origen de constancia previa desconocido: {by!r}.")
@@ -832,7 +832,7 @@ class LibraryClearanceService:
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_CLEARED",
-                       title="Tu no adeudo de biblioteca quedó liberado",
+                       title="Tu Constancia de no adeudo de biblioteca quedó liberada",
                        body="Se registró tu constancia de no adeudo previa. Para tu "
                             "cita de cotejo no necesitas llevar nada de biblioteca: tu "
                             "liberación ya quedó registrada para Servicios Escolares.",
@@ -913,11 +913,11 @@ class LibraryClearanceService:
         process = LibraryClearanceService._admitted_process(db, clearance)
         LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status != "cleared":
-            raise ValueError("Este no adeudo no está liberado; no hay nada que revertir.")
+            raise ValueError("Esta Constancia de no adeudo no está liberada; no hay nada que revertir.")
         if clearance.cleared_via == "payment":
-            raise ValueError("Este no adeudo se liberó con un pago; el pago lo revierte Caja.")
+            raise ValueError("Esta Constancia de no adeudo se liberó con un pago; el pago lo revierte Caja.")
         if clearance.cleared_via == "prior":
-            raise ValueError("Este no adeudo se liberó con una constancia previa; "
+            raise ValueError("Esta Constancia de no adeudo se liberó con una constancia previa; "
                              "usa «Deshacer constancia previa».")
         if clearance.cleared_via not in ("no_charge", "legacy"):
             raise ValueError("Esta liberación no se puede revertir desde Biblioteca.")
@@ -998,7 +998,7 @@ class LibraryClearanceService:
         clearance = LibraryClearanceService._locked(db, clearance_id)
         process = LibraryClearanceService._admitted_process(db, clearance)
         if clearance.status == "cleared":
-            raise ValueError("Este no adeudo ya está liberado; primero revierte la "
+            raise ValueError("Esta Constancia de no adeudo ya está liberada; primero revierte la "
                              "liberación y después regístrale observaciones.")
         if clearance.status not in ("pending", "awaiting_payment", "observed"):
             raise ValueError(f"Este caso no se puede observar (estado: {clearance.status}).")
@@ -1021,7 +1021,7 @@ class LibraryClearanceService:
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_OBSERVED",
-                       title="Biblioteca registró observaciones en tu no adeudo",
+                       title="Biblioteca registró observaciones en tu Constancia de no adeudo",
                        body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
         from itcj2.apps.titulatec.services.student_mail import StudentMail
         StudentMail.library_observed(db, process, reason=motivo)
@@ -1041,7 +1041,7 @@ class LibraryClearanceService:
         process = LibraryClearanceService._admitted_process(db, clearance)
         if clearance.status != "observed":
             raise ValueError("Este caso no tiene observaciones de Biblioteca; no hay nada "
-                             "que rehabilitar.")
+                             "que activar.")
         LibraryClearanceService._assert_needs_clearance(db, process)
 
         previo = clearance.observation_reason
@@ -1057,8 +1057,8 @@ class LibraryClearanceService:
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_REENABLED",
-                       title="Biblioteca te rehabilitó",
-                       body=("Ya puedes continuar con tu trámite de no adeudo de "
+                       title="Biblioteca activó tu trámite",
+                       body=("Ya puedes continuar con tu Constancia de no adeudo de "
                              "biblioteca: el Centro de Información volverá a revisar "
                              "tu caso."),
                        process_id=process.id, phase_number=PHASE_COTEJO)
@@ -1374,7 +1374,7 @@ class LibraryClearanceService:
         row = (db.query(LibraryClearance).filter_by(id=clearance_id)
                .populate_existing().with_for_update().first())
         if row is None:
-            raise LookupError(f"No existe el registro de no adeudo {clearance_id}.")
+            raise LookupError(f"No existe el registro de la Constancia de no adeudo {clearance_id}.")
         return row
 
     @staticmethod
@@ -1434,7 +1434,7 @@ class LibraryClearanceService:
             clearance, expected_status=expected_status, expected_total=expected_total)
         LibraryClearanceService._assert_not_observed(clearance)
         if clearance.status not in ("pending", "awaiting_payment"):
-            raise ValueError("Este no adeudo ya está liberado; para cambiarlo, primero "
+            raise ValueError("Esta Constancia de no adeudo ya está liberada; para cambiarla, primero "
                              "revierte la liberación.")
         if phase2_approved is None:
             phase2_approved = LibraryClearanceService._phase2_approved(db, process.id)
@@ -1552,7 +1552,7 @@ class LibraryClearanceService:
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_CLEARED",
-                       title="Tu no adeudo de biblioteca quedó liberado",
+                       title="Tu Constancia de no adeudo de biblioteca quedó liberada",
                        body="Biblioteca registró que no tienes nada que pagar.",
                        process_id=process.id, phase_number=PHASE_COTEJO)
         from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -1782,7 +1782,7 @@ class LibraryClearanceService:
     def _notify_reverted(db: Session, process, motivo: str) -> None:
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="LIBRARY_REVERTED",
-                       title="Se revirtió tu no adeudo de biblioteca",
+                       title="Se revirtió tu Constancia de no adeudo de biblioteca",
                        body=motivo, process_id=process.id, phase_number=PHASE_COTEJO)
 
     @staticmethod

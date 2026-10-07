@@ -14,21 +14,21 @@
    reconoce), pagado, falta. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Tu no adeudo de biblioteca quedó liberado — TitulaTec ITCJ{% endblock %}
+{% block titulo %}Tu Constancia de no adeudo de biblioteca quedó liberada — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
   {% if via == "payment" -%}
   Caja (Recursos Financieros) registró tu pago{% if pagado %} de <strong>{{ pagado|e }}</strong>{% endif %}:
-  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  <strong>tu Constancia de no adeudo de biblioteca quedó liberada</strong>.
   {%- elif via == "no_charge" -%}
   El Centro de Información (Biblioteca) registró que no tienes nada que pagar:
-  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  <strong>tu Constancia de no adeudo de biblioteca quedó liberada</strong>.
   {%- elif via == "prior" -%}
   Tu constancia de no adeudo previa quedó registrada:
-  <strong>tu no adeudo de biblioteca quedó liberado</strong>.
+  <strong>tu Constancia de no adeudo de biblioteca quedó liberada</strong>.
   {%- else -%}
-  <strong>Tu no adeudo de biblioteca quedó liberado</strong>.
+  <strong>Tu Constancia de no adeudo de biblioteca quedó liberada</strong>.
   {%- endif %}
 </p>
 <p style="margin:0 0 24px;">

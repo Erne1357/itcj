@@ -426,13 +426,13 @@ class PriorClearanceService:
                 if outcome == "apply" and (kind, control) in ya_aplicadas:
                     outcome = "already"          # m13: duplicado en dry-run
                 if outcome == "already":
-                    _add("already", control, "el no adeudo ya estaba liberado")
+                    _add("already", control, "la Constancia de no adeudo ya estaba liberada")
                 elif outcome == "conflict":
                     # «Con observaciones» (spec 2026-10-05): `register_prior`
                     # lo rechazaría; primero lo rehabilita Biblioteca.
                     _add("conflicts", control,
-                        "Biblioteca registró observaciones en su no adeudo; lo decide "
-                        "Biblioteca")
+                        "Biblioteca registró observaciones en su Constancia de no adeudo; "
+                        "lo decide Biblioteca")
                 else:
                     if not dry_run:
                         clearance = LibraryClearanceService.open_for_process(db, proceso)
@@ -441,7 +441,7 @@ class PriorClearanceService:
                             by="import", commit=False)
                     ya_aplicadas.add((kind, control))
                     _add("applied", control,
-                        f"no adeudo liberado en el proceso {proceso.folio}")
+                        f"Constancia de no adeudo liberada en el proceso {proceso.folio}")
 
         if not dry_run:
             if commit:

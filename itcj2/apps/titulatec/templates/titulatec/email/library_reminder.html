@@ -14,8 +14,8 @@
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
-  <strong>{{ titulo|e }}</strong> (Recursos Financieros) para liberar tu no adeudo de
-  biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}.
+  <strong>{{ titulo|e }}</strong> (Recursos Financieros) para liberar tu Constancia de no adeudo
+  de biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}.
   No lo dejes para el último momento.
 </p>
 {{ m.aviso("Acude a Caja (Recursos Financieros) con tu número de control; no necesitas cita.") }}

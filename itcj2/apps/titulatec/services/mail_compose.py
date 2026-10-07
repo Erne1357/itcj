@@ -128,23 +128,23 @@ _FALTA = {
                          "de egresados (ya la enviaste; está en revisión)"),
     "survey_rejected": ("atender las observaciones de Gestión Tecnológica y Vinculación "
                         "(GTV) a tu encuesta de egresados"),
-    "library_pending": "que el Centro de Información revise tu no adeudo de biblioteca",
-    "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu no "
-                                 "adeudo de biblioteca"),
+    "library_pending": "que el Centro de Información revise tu Constancia de no adeudo de biblioteca",
+    "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu "
+                                 "Constancia de no adeudo de biblioteca"),
     "library_observed": ("atender en la Biblioteca (Centro de Información) las observaciones "
-                         "a tu no adeudo de biblioteca"),
+                         "a tu Constancia de no adeudo de biblioteca"),
 }
 # El de Caja con su total congelado, cuando se conoce.
-_FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu no adeudo "
-               "de biblioteca")
+_FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu Constancia de "
+               "no adeudo de biblioteca")
 
 # Asuntos del no adeudo de biblioteca (spec 2026-10-01 §4.11), sin prefijo.
-_ASUNTO_CAJA = "Ya puedes pasar a Caja por tu no adeudo de biblioteca"
-_ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu no adeudo de biblioteca"
-_ASUNTO_LIBERADO = "Tu no adeudo de biblioteca quedó liberado"
-_ASUNTO_REVERTIDO = "Se revirtió tu no adeudo de biblioteca"
-_ASUNTO_OBSERVADO = "Biblioteca registró observaciones en tu no adeudo de biblioteca"
-_ASUNTO_REHABILITADO = "Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo"
+_ASUNTO_CAJA = "Ya puedes pasar a Caja por tu Constancia de no adeudo de biblioteca"
+_ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu Constancia de no adeudo de biblioteca"
+_ASUNTO_LIBERADO = "Tu Constancia de no adeudo de biblioteca quedó liberada"
+_ASUNTO_REVERTIDO = "Se revirtió tu Constancia de no adeudo de biblioteca"
+_ASUNTO_OBSERVADO = "Biblioteca registró observaciones en tu Constancia de no adeudo de biblioteca"
+_ASUNTO_REHABILITADO = "Biblioteca activó tu trámite: ya puedes continuar con tu Constancia de no adeudo"
 _VIAS_LIBERACION = ("payment", "no_charge", "prior")
 # El `code` del requisito de cotejo del no adeudo (la «Información para el
 # alumno» de `library_ready` sale de él; también en la lista vieja, sin
@@ -724,10 +724,10 @@ def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed
 
     fila = rows[-1]
     if _hay_posterior(db, fila, "library_reverted"):
-        return Obsolete("el no adeudo se revirtió después")
+        return Obsolete("la Constancia de no adeudo se revirtió después")
     bloqueos = _bloqueos(db, process)
     if any(codigo in LIBRARY_BLOCKERS for codigo in bloqueos):
-        return Obsolete("el no adeudo ya no está liberado")
+        return Obsolete("la Constancia de no adeudo ya no está liberada")
 
     via = _datos(fila).get("via")
     via = via if via in _VIAS_LIBERACION else None
@@ -800,7 +800,7 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     fila = rows[-1]
     datos = _datos(fila)
     if _hay_posterior(db, fila, "library_cleared"):
-        return Obsolete("el no adeudo se volvió a liberar")
+        return Obsolete("la Constancia de no adeudo se volvió a liberar")
     ultimo = _ultimo_enviado(db, fila, ("library_cleared", "library_reverted"))
     if ultimo is None or ultimo.kind != "library_cleared":
         desde = max(ultimo.id if ultimo is not None else 0,
@@ -844,7 +844,7 @@ def _compose_library_observed(db: Session, rows: list, process, user) -> Compose
         return Obsolete("hay una observación más reciente de Biblioteca")
     if (_hay_posterior(db, fila, "library_reenabled")
             or LibraryClearanceService.observation(db, process.id) is None):
-        return Obsolete("Biblioteca ya lo rehabilitó")
+        return Obsolete("Biblioteca ya activó el trámite")
     return _correo(user, _ASUNTO_OBSERVADO, "library_observed.html",
                    _tablero(PhaseService.PHASE_COTEJO),
                    reason=_texto(_datos(fila).get("reason")))
@@ -862,7 +862,7 @@ def _compose_library_reenabled(db: Session, rows: list, process, user) -> Compos
 
     fila = rows[-1]
     if _hay_posterior(db, fila, "library_reenabled"):
-        return Obsolete("hay un aviso más reciente de rehabilitación")
+        return Obsolete("hay un aviso más reciente de activación")
     if LibraryClearanceService.observation(db, process.id) is not None:
         return Obsolete("Biblioteca volvió a registrar observaciones")
     return _correo(user, _ASUNTO_REHABILITADO, "library_reenabled.html",

@@ -493,7 +493,7 @@ def biblio(db_session, make_user, make_cohort, make_student, make_process,
         if cohort is None:
             cohort = make_cohort(book_donation_amount=donation)
             db_session.add(CotejoRequirement(
-                cohort_id=cohort.id, label="No-adeudo de biblioteca", icon="book",
+                cohort_id=cohort.id, label="Constancia de no adeudo de biblioteca", icon="book",
                 code="library_clearance", auto_source="library_clearance",
                 order_index=0))
             db_session.flush()

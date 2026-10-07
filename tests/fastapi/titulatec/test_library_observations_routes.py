@@ -331,7 +331,7 @@ def test_fila_observada_muestra_motivo_y_acciones(client_as, db_session, staff, 
     assert re.search(r"\d{2}/\d{2}/\d{4}", texto), "falta la fecha de la observación"
     # Rehabilitar: hx-confirm vía el puente, en el <form> que lleva hx-post.
     assert re.search(r'<form[^>]*hx-post="/titulatec/admin/biblioteca/%d/rehabilitar"[^>]*'
-                     r'data-tt-confirm-ok="Rehabilitar"[^>]*hx-confirm="' % esc.clearance.id, fila)
+                     r'data-tt-confirm-ok="Activar"[^>]*hx-confirm="' % esc.clearance.id, fila)
     # Actualizar observación: textarea obligatoria, maxlength 1000, precargada.
     m = re.search(r'<form[^>]*hx-post="/titulatec/admin/biblioteca/%d/observar"[^>]*>(.*?)</form>'
                   % esc.clearance.id, fila, re.S)

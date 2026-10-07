@@ -107,7 +107,7 @@ _KIND_PERM = {
 # es el título IMPRESO en la constancia misma (mayúsculas a propósito, spec
 # §4.5), una decisión de documento, no de pantalla.
 _KIND_LABELS = {
-    "library_clearance": "No adeudo de biblioteca",
+    "library_clearance": "Constancia de no adeudo de biblioteca",
     "survey_release": "Liberación de encuesta de egresados",
 }
 

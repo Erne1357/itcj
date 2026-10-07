@@ -241,20 +241,22 @@ class LibraryNotCleared(AppointmentError):
     """
 
     _MENSAJES = {
-        "pending": ("El no adeudo de biblioteca de este alumno sigue en revisión con el "
-                    "Centro de Información. Se podrá agendar cuando lo liberen."),
-        "awaiting_payment": ("El no adeudo de biblioteca de este alumno está pendiente de "
-                             "pago en Caja (Recursos Financieros). Se podrá agendar "
-                             "cuando lo pague."),
+        "pending": ("La Constancia de no adeudo de biblioteca de este alumno sigue en revisión "
+                    "con el Centro de Información. Se podrá agendar cuando la liberen."),
+        "awaiting_payment": ("La Constancia de no adeudo de biblioteca de este alumno está "
+                             "pendiente de pago en Caja (Recursos Financieros). Se podrá "
+                             "agendar cuando el alumno pague."),
         # Spec 2026-10-05 §3.4: Biblioteca lo detuvo con un motivo.
-        "observed": ("Biblioteca registró observaciones en el no adeudo de este alumno. "
-                     "Se podrá agendar cuando Biblioteca lo rehabilite y lo libere."),
+        "observed": ("Biblioteca registró observaciones en la Constancia de no adeudo de este "
+                     "alumno. Se podrá agendar cuando Biblioteca active su trámite y la "
+                     "libere."),
     }
 
     def __init__(self, status: str, msg: str | None = None):
         clave = "pending" if status == "missing" else status
         super().__init__(msg or self._MENSAJES.get(
-            clave, "El no adeudo de biblioteca de este alumno todavía no está liberado."))
+            clave, "La Constancia de no adeudo de biblioteca de este alumno todavía no está "
+            "liberada."))
         self.status = status
 
 

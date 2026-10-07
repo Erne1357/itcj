@@ -537,8 +537,8 @@ class TestYaPasoSuCotejo:
             data={"issued_on": date.today().isoformat()})
 
         assert resp.status_code == 400, resp.text[:300]
-        assert _msg(resp) == ("Este egresado ya pasó su cotejo; no necesita trámite "
-                              "de no adeudo.")
+        assert _msg(resp) == ("Este egresado ya pasó su cotejo; no necesita tramitar su "
+                              "Constancia de no adeudo.")
         fila = LibraryClearanceService.get_for_process(db_session, cotejado["proc"].id)
         assert fila is None or fila.status == "pending"
 

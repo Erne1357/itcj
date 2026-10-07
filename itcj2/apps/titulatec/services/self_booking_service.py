@@ -101,17 +101,18 @@ class SelfBookingService:
         # `message_for`, que lo recibe por parámetro igual que `{n}`.
         "biblioteca_en_revision": ("El Centro de Información está revisando si tienes "
                                    "adeudo con la biblioteca. Podrás agendar en cuanto se "
-                                   "libere tu no adeudo."),
+                                   "libere tu Constancia de no adeudo."),
         "pago_pendiente": ("Pasa a Caja (Recursos Financieros) a pagar {total}; no "
-                           "necesitas cita. Podrás agendar en cuanto se libere tu no "
-                           "adeudo."),
+                           "necesitas cita. Podrás agendar en cuanto se libere tu "
+                           "Constancia de no adeudo."),
         # Spec 2026-10-05-titulatec-biblioteca-observaciones §3.4: Biblioteca
         # lo detuvo con un motivo («Con observaciones»). Lo resuelve EN la
         # Biblioteca; el motivo lo ve en su tablero y en «Mi cita».
-        "biblioteca_con_observaciones": ("Biblioteca registró observaciones en tu no "
-                                         "adeudo: acude a la Biblioteca (Centro de "
-                                         "Información) para resolverlas. Podrás agendar "
-                                         "en cuanto se libere tu no adeudo."),
+        "biblioteca_con_observaciones": ("Biblioteca registró observaciones en tu "
+                                         "Constancia de no adeudo: acude a la Biblioteca "
+                                         "(Centro de Información) para resolverlas. Podrás "
+                                         "agendar en cuanto se libere tu Constancia de "
+                                         "no adeudo."),
         "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
         # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
         # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.

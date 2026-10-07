@@ -17,15 +17,15 @@
    Contexto: first_name, link, to_status, reason, total. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Se revirtió tu no adeudo de biblioteca — TitulaTec ITCJ{% endblock %}
+{% block titulo %}Se revirtió tu Constancia de no adeudo de biblioteca — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
   {% if to_status == "awaiting_payment" -%}
-  Caja (Recursos Financieros) <strong>revirtió el registro de tu pago</strong> del no adeudo
-  de biblioteca.
+  Caja (Recursos Financieros) <strong>revirtió el registro de tu pago</strong> de la Constancia de
+  no adeudo de biblioteca.
   {%- else -%}
-  <strong>Se revirtió la liberación de tu no adeudo de biblioteca</strong>.
+  <strong>Se revirtió la liberación de tu Constancia de no adeudo de biblioteca</strong>.
   {%- endif %}
 </p>
 {% if reason %}{{ m.motivo(reason) }}{% endif %}
@@ -38,7 +38,7 @@
 {% else %}
 <p style="margin:0 0 24px;">
   El Centro de Información volverá a revisar tu caso y te avisaremos en cuanto registre tu
-  no adeudo. Si tienes dudas, acude al Centro de Información.
+  Constancia de no adeudo. Si tienes dudas, acude al Centro de Información.
 </p>
 {% endif %}
 {{ m.boton(link, "Ver mi proceso") }}

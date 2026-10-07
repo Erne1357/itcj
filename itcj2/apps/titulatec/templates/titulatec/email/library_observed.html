@@ -7,18 +7,18 @@
    Contexto: first_name, link, reason. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Biblioteca registró observaciones en tu no adeudo — TitulaTec ITCJ{% endblock %}
+{% block titulo %}Biblioteca registró observaciones en tu Constancia de no adeudo — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 <p style="margin:0 0 20px;">
-  El Centro de Información (Biblioteca) <strong>registró observaciones</strong> en tu no
-  adeudo de biblioteca.
+  El Centro de Información (Biblioteca) <strong>registró observaciones</strong> en tu
+  Constancia de no adeudo de biblioteca.
 </p>
 {% if reason %}{{ m.motivo(reason, "Observaciones") }}{% endif %}
 <p style="margin:0 0 24px;">
   Mientras tengas observaciones no podrás agendar tu cita de cotejo ni pagar en Caja.
-  Acude a la Biblioteca (Centro de Información) para aclararlas; en cuanto te rehabiliten
-  te avisaremos.
+  Acude a la Biblioteca (Centro de Información) para aclararlas; en cuanto Biblioteca active
+  tu trámite te avisaremos.
 </p>
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

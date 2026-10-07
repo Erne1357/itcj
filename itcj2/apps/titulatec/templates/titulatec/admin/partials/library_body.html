@@ -246,7 +246,7 @@
         <td>
           {% if r.status == 'pending' and r.debt is none and r.donation is none %}—
           {% elif r.status == 'pending' %}
-            <span class="small text-body-secondary">Montos previos (rehabilitado):</span><br>
+            <span class="small text-body-secondary">Montos previos (activado):</span><br>
             {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }}
             {% if r.note %}<br><span class="small text-body-secondary">{{ r.note }}</span>{% endif %}
           {% elif r.status == 'awaiting_payment' %}
@@ -298,10 +298,10 @@
             <div class="tt-lib-actions">
               <form hx-post="/titulatec/admin/biblioteca/{{ r.id }}/rehabilitar"
                     hx-target="#tt-library-body" hx-swap="outerHTML" hx-disabled-elt="find button"
-                    data-tt-confirm-ok="Rehabilitar"
-                    hx-confirm="Rehabilitar|¿Rehabilitar a {{ r.student }}? Vuelve a «Por revisar» con sus montos.">
+                    data-tt-confirm-ok="Activar"
+                    hx-confirm="Activar|¿Activar a {{ r.student }}? Vuelve a «Por revisar» con sus montos.">
                 {{ tab_fields(status, q, page) }}
-                <button type="submit" class="btn btn-sm tt-btn-ink">Rehabilitar</button>
+                <button type="submit" class="btn btn-sm tt-btn-ink">Activar</button>
               </form>
               {{ lib_toggle(r, 'Actualizar…', 'Actualizar la observación de') }}
             </div>
@@ -321,7 +321,7 @@
         {% call lib_picker('Dictaminar a ' ~ r.student) %}
           {{ lib_option(r, 'debt', 'Con adeudo', 'Pasa a Caja a pagar el adeudo más la donación.') }}
           {{ lib_option(r, 'prior', 'Constancia previa', 'Ya pagó antes y trae su constancia: queda liberado sin pasar por Caja.') }}
-          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar.') }}
+          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo active; no podrá agendar.') }}
         {% endcall %}
         <div class="tt-lib-forms">
           {% call lib_form(r, 'debt', 'registrar', 'Registrar',
@@ -348,7 +348,7 @@
             <button type="submit" class="btn btn-sm tt-btn-ink">Registrar constancia previa</button>
           {% endcall %}
           {% call lib_form(r, 'observe', 'observar', 'Observar',
-                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo rehabilite.') %}
+                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo active.') %}
             {% call lib_field('lib-' ~ r.id ~ '-observe-reason', 'Motivo de la observación', 'tt-lib-field--grow') %}
             <textarea id="lib-{{ r.id }}-observe-reason" class="tt-field" name="reason" rows="3" required
                       maxlength="1000"></textarea>
@@ -362,7 +362,7 @@
       {% call lib_panel(r, ncols) %}
         {% call lib_picker('Opciones de ' ~ r.student) %}
           {{ lib_option(r, 'fix', 'Corregir monto', 'Cambia el adeudo; se vuelve a calcular el total con la donación vigente.') }}
-          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar. Sale de Por cobrar.') }}
+          {{ lib_option(r, 'observe', 'Observar', 'Lo detiene hasta que Biblioteca lo active; no podrá agendar. Sale de Por cobrar.') }}
         {% endcall %}
         <div class="tt-lib-forms">
           {% call lib_form(r, 'fix', 'registrar', 'Corregir',
@@ -379,7 +379,7 @@
             <button type="submit" class="btn btn-sm tt-btn-ink">Corregir monto</button>
           {% endcall %}
           {% call lib_form(r, 'observe', 'observar', 'Observar',
-                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo rehabilite.') %}
+                           'Observar|¿Registrar observaciones a ' ~ r.student ~ '? Queda detenido hasta que Biblioteca lo active.') %}
             {% call lib_field('lib-' ~ r.id ~ '-observe-reason', 'Motivo de la observación', 'tt-lib-field--grow') %}
             <textarea id="lib-{{ r.id }}-observe-reason" class="tt-field" name="reason" rows="3" required
                       maxlength="1000"></textarea>
@@ -406,7 +406,7 @@
       {% elif not r.revoked and r.status == 'cleared' and r.can_revert and r.via in ('prior', 'no_charge', 'legacy') %}
       {% set undo = r.via == 'prior' %}
       {% call lib_panel(r, ncols) %}
-        <p class="tt-lib-panel-title">{{ 'Deshacer la constancia previa de ' if undo else 'Revertir el no adeudo de ' }}{{ r.student }}</p>
+        <p class="tt-lib-panel-title">{{ 'Deshacer la constancia previa de ' if undo else 'Revertir la Constancia de no adeudo de ' }}{{ r.student }}</p>
         <p class="tt-lib-hint mb-0">{{ 'Vuelve a Por revisar.' if undo else 'Vuelve a Por revisar; se anula la constancia, si la hay.' }}</p>
         <div class="tt-lib-forms">
           {% if undo %}
@@ -419,11 +419,11 @@
           {% endcall %}
           {% else %}
           {% call lib_form(r, 'revert', 'revertir', 'Revertir',
-                           'Revertir|¿Revertir el no adeudo de ' ~ r.student ~ '? Vuelve a «Por revisar».') %}
+                           'Revertir|¿Revertir la Constancia de no adeudo de ' ~ r.student ~ '? Vuelve a «Por revisar».') %}
             {% call lib_field('lib-' ~ r.id ~ '-revert-reason', 'Motivo', 'tt-lib-field--grow') %}
             <input id="lib-{{ r.id }}-revert-reason" class="tt-field" name="reason" required maxlength="1000">
             {% endcall %}
-            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir no adeudo</button>
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revertir Constancia de no adeudo</button>
           {% endcall %}
           {% endif %}
         </div>

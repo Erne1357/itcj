@@ -37,9 +37,9 @@ from tests.fastapi.titulatec.test_clearance_gate import (  # noqa: F401
 MOTIVO = "Debe el libro «Cálculo diferencial» desde 2024."
 
 # Review Focus 5, literal: el mensaje de autoagenda del observado.
-MSG_OBSERVADO = ("Biblioteca registró observaciones en tu no adeudo: acude a la "
+MSG_OBSERVADO = ("Biblioteca registró observaciones en tu Constancia de no adeudo: acude a la "
                  "Biblioteca (Centro de Información) para resolverlas. Podrás agendar "
-                 "en cuanto se libere tu no adeudo.")
+                 "en cuanto se libere tu Constancia de no adeudo.")
 
 
 def _observado(esc, **kw):
@@ -154,7 +154,7 @@ def test_aprobar_fase2_lista_con_observaciones_de_biblioteca(db_session, esc, ma
         with pytest.raises(ValueError) as exc:
             PhaseService.approve_phase(db_session, proc, 2, reviewer_id=make_user().id)
 
-    assert "No-adeudo de biblioteca (con observaciones de Biblioteca)" in str(exc.value)
+    assert "Constancia de no adeudo de biblioteca (con observaciones de Biblioteca)" in str(exc.value)
 
 
 def test_el_correo_dice_que_falta_atender_las_observaciones(db_session, esc):
@@ -187,7 +187,7 @@ def test_pill_observed():
 # Pantallas del egresado
 # ===========================================================================
 def test_dashboard_alumno_muestra_motivo(db_session, esc, client_as):
-    """El bloque «No adeudo de biblioteca» vive en el panel desplegable de la
+    """El bloque «Constancia de no adeudo de biblioteca» vive en el panel desplegable de la
     fase 2 cuando NO es la actual (en la actual solo va la píldora, igual que
     `test_student_library_status.py::TestHomeTarjetaActual`): fase 1."""
     proc = _observado(esc, fase=1)
@@ -198,7 +198,7 @@ def test_dashboard_alumno_muestra_motivo(db_session, esc, client_as):
     texto = _texto(fase)
 
     assert "Con observaciones" in texto
-    assert "Biblioteca registró observaciones en tu no adeudo" in texto
+    assert "Biblioteca registró observaciones en tu Constancia de no adeudo" in texto
     assert MOTIVO in texto
     assert "El Centro de Información está revisando tu adeudo" not in texto
 
@@ -225,7 +225,7 @@ def test_mi_cita_con_cita_vigente_no_promete_agendar(db_session, esc, client_as,
     resp = client_as(proc.student).get("/titulatec/student/cita")
 
     assert resp.status_code == 200, resp.text[:400]
-    assert "Podrás agendar en cuanto se libere tu no adeudo" not in resp.text
+    assert "Podrás agendar en cuanto se libere tu Constancia de no adeudo" not in resp.text
     assert "Servicios Escolares pueda liberar tu cotejo" in resp.text
 
 

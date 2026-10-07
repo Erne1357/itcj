@@ -61,7 +61,7 @@ _PHASE_INFO = {
         "needs": [
             "Actas de nacimiento: original y copias.",
             "CURP certificada, e.Firma del SAT vigente y vigencia de derechos del IMSS.",
-            "No necesitas llevar nada del no adeudo ni de la encuesta: tus liberaciones "
+            "No necesitas llevar nada de la Constancia de no adeudo ni de la encuesta: tus liberaciones "
             "quedan registradas para Servicios Escolares.",
             "12 fotografías tamaño credencial: ovaladas, B/N, fondo blanco, papel mate.",
             "$1,900 en efectivo para el pago del proceso.",
@@ -324,14 +324,14 @@ _EVENT_LABELS = {
     "library_debt_registered":     "Biblioteca registró tu adeudo",
     "library_no_charge":           "Biblioteca registró que no debes nada",
     "library_amount_corrected":    "Biblioteca corrigió tu monto",
-    "library_payment_registered":  "Pagaste tu no adeudo en Caja",
+    "library_payment_registered":  "Pagaste en Caja el adeudo de tu Constancia de no adeudo",
     "library_prior_registered":    "Registraste tu constancia previa de biblioteca",
     "library_payment_reverted":    "Se revirtió tu pago de biblioteca",
-    "library_clearance_reverted":  "Se revirtió tu no adeudo de biblioteca",
+    "library_clearance_reverted":  "Se revirtió tu Constancia de no adeudo de biblioteca",
     "library_prior_undone":        "Se deshizo tu constancia previa de biblioteca",
     # «Con observaciones» (spec 2026-10-05 §3.4).
-    "library_observed":            "Biblioteca registró observaciones en tu no adeudo",
-    "library_reenabled":           "Biblioteca te rehabilitó; volverá a revisar tu no adeudo",
+    "library_observed":            "Biblioteca registró observaciones en tu Constancia de no adeudo",
+    "library_reenabled":           "Biblioteca activó tu trámite; volverá a revisar tu Constancia de no adeudo",
 }
 
 
@@ -379,8 +379,8 @@ _HANDOFF_COPY = ("Tu proceso continúa en el Departamento de Titulación, en el 
 _LIBRARY_REASONS_CON_CITA = ("biblioteca_en_revision", "pago_pendiente",
                              "biblioteca_con_observaciones")
 _LIBRARY_BLOCK_WITH_CITA_MSG = (
-    "Ya tienes una cita de cotejo. Tu no adeudo de biblioteca debe quedar "
-    "liberado (Biblioteca y, si corresponde, Caja) para que Servicios "
+    "Ya tienes una cita de cotejo. Tu Constancia de no adeudo de biblioteca debe quedar "
+    "liberada (Biblioteca y, si corresponde, Caja) para que Servicios "
     "Escolares pueda liberar tu cotejo."
 )
 

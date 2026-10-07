@@ -244,9 +244,9 @@ Caja](phase2_library_clearance.md).
 
 **«Con observaciones» (2026-10-05, #16-17) — `_compose_library_observed`/`_compose_library_reenabled` (`mail_compose.py:809`/`:838`, registro en `:1057`).** El motivo del `library_observed` va CONGELADO en el payload (lo que Biblioteca escribió al observar); nadie compara el estado de la fila aquí, se pregunta al dueño (`LibraryClearanceService.observation`). Reglas de obsolescencia al ENVIAR:
 
-- `library_observed` es obsoleto si hay un `library_observed` MÁS NUEVO del proceso (actualizaron el motivo en la espera: sale ese, con el motivo vigente), si hay un `library_reenabled` más nuevo, o si la fila ya no está observada. Review Focus 4: observado y rehabilitado antes del despacho no manda un aviso falso («tienes observaciones» sería mentira).
+- `library_observed` es obsoleto si hay un `library_observed` MÁS NUEVO del proceso (actualizaron el motivo en la espera: sale ese, con el motivo vigente), si hay un `library_reenabled` más nuevo, o si la fila ya no está observada. Review Focus 4: observado y activado antes del despacho no manda un aviso falso («tienes observaciones» sería mentira).
 - `library_reenabled` es obsoleto si hay otro `library_reenabled` más nuevo o si la fila está OTRA VEZ observada (sale el aviso de observación); en `pending` o cualquier estado posterior sale.
-- **Decisión (libro mayor 2026-10-05, spec §3.3): el correo «te rehabilitó» SÍ sale aunque su par «observaciones» haya salido `Obsolete`.** Observar y rehabilitar dentro de la misma espera deja al egresado con UN solo correo, «Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo», neto cero y potencialmente confuso, pero su texto es verdadero y no se suprime para no esconder un cambio de estado real. Costo conocido: un correo sin contexto previo.
+- **Decisión (libro mayor 2026-10-05, spec §3.3): el correo «activó tu trámite» (antes «te rehabilitó») SÍ sale aunque su par «observaciones» haya salido `Obsolete`.** Observar y activar dentro de la misma espera deja al egresado con UN solo correo, «Biblioteca activó tu trámite: ya puedes continuar con tu Constancia de no adeudo», neto cero y potencialmente confuso, pero su texto es verdadero y no se suprime para no esconder un cambio de estado real. Costo conocido: un correo sin contexto previo.
 - Los recordatorios de pago (`library_reminder`) no cambian: el barrido filtra por `awaiting_payment` (`awaiting_payment_clause`) y `observe` limpia `ready_at`, así que un observado deja de recibirlos.
 
 **`_compose_library_reverted` re-valida en CUATRO pasos, en este orden** (spec 2026-10-02 §2,
@@ -269,7 +269,7 @@ final):
      `library_cleared` encolado, en cualquier estado (`_hay_entre(db, fila, "library_cleared",
      despues_de=W)`, la gemela acotada de `_hay_posterior`): se liberó y se revirtió dentro de la
      misma espera, o Caja se equivocó de renglón, y ese «quedó liberado» nunca le llegó — «Se
-     revirtió tu no adeudo…» sería ruido o, peor, falso. Motivo en `last_error`: «no salió el
+     revirtió tu Constancia de no adeudo…» sería ruido o, peor, falso. Motivo en `last_error`: «no salió el
      aviso de la liberación que revierte».
    - **Si no hay ese `library_cleared`** → sale: un no adeudo legado (backfill de `tt20261001a` o
      promoción D17), una liberación con `TITULATEC_EMAIL_ENABLED=false` o una re-liberación sin

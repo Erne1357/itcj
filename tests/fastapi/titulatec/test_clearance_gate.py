@@ -62,9 +62,9 @@ _DOCS = ("birth_certificate", "high_school_cert", "curp")
 
 # Spec §4.4.4, literal. El total va ya formateado por `format_amount`.
 MSG_EN_BIBLIOTECA = ("El Centro de Información está revisando si tienes adeudo con la "
-                     "biblioteca. Podrás agendar en cuanto se libere tu no adeudo.")
+                     "biblioteca. Podrás agendar en cuanto se libere tu Constancia de no adeudo.")
 MSG_PAGO = ("Pasa a Caja (Recursos Financieros) a pagar $1,200.00; no necesitas "
-            "cita. Podrás agendar en cuanto se libere tu no adeudo.")
+            "cita. Podrás agendar en cuanto se libere tu Constancia de no adeudo.")
 
 
 def _gate():
@@ -86,7 +86,7 @@ def _lista_vieja(db, cohort):
                           label="Encuesta de egresados", code="graduate_survey",
                           auto_source="graduate_survey", order_index=0),
         CotejoRequirement(cohort_id=cohort.id, icon="book",
-                          label="No-adeudo de biblioteca", code="library_clearance",
+                          label="Constancia de no adeudo de biblioteca", code="library_clearance",
                           auto_source=None, order_index=1),
     ]
     db.add_all(filas)
@@ -602,7 +602,7 @@ class TestFicha:
         (ficha,) = lxml.html.fromstring(resp.text).xpath('//section[@id="appt-attend"]')
         texto = " ".join(ficha.text_content().split())
         assert "Por pagar en Caja" in texto
-        assert "Se podrá agendar cuando se libere su no adeudo de biblioteca." in texto
+        assert "Se podrá agendar cuando se libere su Constancia de no adeudo de biblioteca." in texto
         # Solo el aviso de lo que de verdad falta: la encuesta ya está liberada.
         assert "libere su encuesta" not in texto
 
@@ -720,7 +720,7 @@ def test_la_etiqueta_de_la_fase_2_dice_en_que_va_el_no_adeudo(
         with pytest.raises(ValueError) as exc:
             PhaseService.approve_phase(db_session, proc, 2, reviewer_id=revisor.id)
 
-    assert f"No-adeudo de biblioteca ({sufijo})" in str(exc.value)
+    assert f"Constancia de no adeudo de biblioteca ({sufijo})" in str(exc.value)
 
 
 # ===========================================================================

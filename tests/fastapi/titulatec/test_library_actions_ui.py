@@ -38,7 +38,7 @@ EXPLICA = {
     "debt": ("Con adeudo", "Pasa a Caja a pagar el adeudo más la donación."),
     "prior": ("Constancia previa",
               "Ya pagó antes y trae su constancia: queda liberado sin pasar por Caja."),
-    "observe": ("Observar", "Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar."),
+    "observe": ("Observar", "Lo detiene hasta que Biblioteca lo active; no podrá agendar."),
 }
 
 
@@ -331,9 +331,9 @@ def test_observadas_rehabilitar_visible_y_actualizar_en_panel(client_as, staff, 
     celda = _ultima_celda(_tr(html, f"lib-{i}"))
 
     botones = re.findall(r"<button[^>]*>(.*?)</button>", celda, re.S)
-    assert [_visible(b) for b in botones] == ["Rehabilitar", "Actualizar…"]
+    assert [_visible(b) for b in botones] == ["Activar", "Actualizar…"]
     assert f'hx-post="/titulatec/admin/biblioteca/{i}/rehabilitar"' in celda
-    assert 'hx-confirm="Rehabilitar|' in celda
+    assert 'hx-confirm="Activar|' in celda
 
     panel = _tr(html, f"lib-{i}-panel")
     assert 'colspan="9"' in panel and "d-none" in panel

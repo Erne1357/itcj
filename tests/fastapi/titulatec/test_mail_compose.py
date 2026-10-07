@@ -183,7 +183,7 @@ def con_biblioteca(db_session, seed_phase_defs, make_student, make_cohort, make_
               **cols):
         cohort = make_cohort(book_donation_amount=Decimal("800.00"))
         db_session.add(CotejoRequirement(
-            cohort_id=cohort.id, label="No-adeudo de biblioteca", icon="book",
+            cohort_id=cohort.id, label="Constancia de no adeudo de biblioteca", icon="book",
             code="library_clearance", auto_source="library_clearance",
             order_index=0, info_html=info_html))
         db_session.flush()
@@ -231,7 +231,7 @@ def _ya_salio(db, pid):
 
 
 def _liberado_que_salio(db, proc, via="no_charge"):
-    """El egresado YA recibió «Tu no adeudo de biblioteca quedó liberado»: el
+    """El egresado YA recibió «Tu Constancia de no adeudo de biblioteca quedó liberada»: el
     `library_cleared` real, dado por enviado. Mientras sea lo último que le
     llegó por correo del no adeudo, la reversión que venga después SÍ sale
     (E10, spec 2026-10-02 §2; ancla del Ruling R8)."""
@@ -624,9 +624,9 @@ def test_cada_bloqueo_del_gate_tiene_su_frase():
 
 @pytest.mark.parametrize("biblioteca, falta", [
     ("cleared", None),
-    ("pending", "que el Centro de Información revise tu no adeudo de biblioteca"),
+    ("pending", "que el Centro de Información revise tu Constancia de no adeudo de biblioteca"),
     ("awaiting_payment",
-     "pagar $1,100.00 en Caja (Recursos Financieros) para liberar tu no adeudo de "
+     "pagar $1,100.00 en Caja (Recursos Financieros) para liberar tu Constancia de no adeudo de "
      "biblioteca"),
 ], ids=["biblioteca-liberada", "biblioteca-en-revision", "pago-pendiente"])
 def test_encuesta_liberada_segun_el_no_adeudo(db_session, con_biblioteca, biblioteca,
@@ -872,7 +872,7 @@ def test_atendida_con_fase_2_rechazada_dice_lo_que_le_falta(db_session, con_bibl
     c = _componer(db_session, proc)
 
     assert c.context["falta"] == [
-        "que el Centro de Información revise tu no adeudo de biblioteca"]
+        "que el Centro de Información revise tu Constancia de no adeudo de biblioteca"]
     assert "Para agendar te falta:" in _texto(_html(c, estricto=True))
 
 
@@ -898,7 +898,7 @@ def test_sin_cita_que_lo_ocupe_si_dice_que_agende(db_session, con_biblioteca,
 @pytest.mark.parametrize("kind, biblioteca, encuesta, falta_activo", [
     ("library_cleared", "cleared", None, ["enviar tu encuesta de egresados"]),
     ("survey_approved", "pending", "approved",
-     ["que el Centro de Información revise tu no adeudo de biblioteca"]),
+     ["que el Centro de Información revise tu Constancia de no adeudo de biblioteca"]),
 ])
 @pytest.mark.parametrize("estado", ["active", "on_hold"])
 def test_en_pausa_no_dice_que_agende_ni_que_le_falta(db_session, con_biblioteca, kind,
@@ -959,7 +959,7 @@ def test_pasa_a_caja_con_desglose_nota_e_informacion(db_session, con_biblioteca)
     html = _html(c, estricto=True)
     texto = _texto(html)
 
-    assert c.subject == "[TitulaTec ITCJ] Ya puedes pasar a Caja por tu no adeudo de biblioteca"
+    assert c.subject == "[TitulaTec ITCJ] Ya puedes pasar a Caja por tu Constancia de no adeudo de biblioteca"
     assert c.template == "library_ready.html"
     assert c.link == _liga("/titulatec/student/dashboard?fase=2")
     assert (c.context["debt"], c.context["donation"], c.context["total"]) == (
@@ -1060,8 +1060,8 @@ def test_correccion_del_monto(db_session, con_biblioteca):
 
     c = _componer(db_session, proc)
 
-    assert c.subject == ("[TitulaTec ITCJ] Biblioteca corrigió el monto de tu no adeudo "
-                         "de biblioteca")
+    assert c.subject == ("[TitulaTec ITCJ] Biblioteca corrigió el monto de tu Constancia de "
+                         "no adeudo de biblioteca")
     assert c.context["updated"] is True
     assert "corrigió el monto" in _texto(_html(c))
 
@@ -1081,7 +1081,7 @@ def test_dos_avisos_de_caja_seguidos_sale_solo_el_ultimo(db_session, con_bibliot
         "hay un aviso más reciente del monto a pagar")
     c = _componer(db_session, proc, [nuevo])
     assert c.context["updated"] is False
-    assert c.subject.endswith("Ya puedes pasar a Caja por tu no adeudo de biblioteca")
+    assert c.subject.endswith("Ya puedes pasar a Caja por tu Constancia de no adeudo de biblioteca")
 
 
 @pytest.mark.parametrize("biblioteca", ["pending", "cleared"])
@@ -1151,7 +1151,7 @@ def test_no_adeudo_liberado_por_cada_via(db_session, con_biblioteca, via, frases
     c = _componer(db_session, proc)
     texto = _texto(_html(c, estricto=True))
 
-    assert c.subject == "[TitulaTec ITCJ] Tu no adeudo de biblioteca quedó liberado"
+    assert c.subject == "[TitulaTec ITCJ] Tu Constancia de no adeudo de biblioteca quedó liberada"
     assert c.template == "library_cleared.html"
     assert c.link == _liga("/titulatec/student/dashboard?fase=2")
     assert c.context["via"] == via
@@ -1180,7 +1180,7 @@ def test_no_adeudo_liberado_que_se_revirtio_es_obsoleto(db_session, con_bibliote
     fila.status, fila.cleared_via = "pending", None
     db_session.flush()
 
-    assert _componer(db_session, proc) == Obsolete("el no adeudo ya no está liberado")
+    assert _componer(db_session, proc) == Obsolete("la Constancia de no adeudo ya no está liberada")
 
 
 def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto_y_la_reversion_tambien(
@@ -1195,7 +1195,7 @@ def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto_y_la_reversi
     se encoló en la misma espera y nunca le llegó (Ruling R12: lo último que
     recibió no es un liberado -no recibió nada- y entre eso y la reversión
     hay un `library_cleared` sin salir). Para él, por correo, nada cambió:
-    «Se revirtió tu no adeudo…» sería ruido (un «Deshacer» de Biblioteca) o,
+    «Se revirtió tu Constancia de no adeudo…» sería ruido (un «Deshacer» de Biblioteca) o,
     peor, falso (Caja se equivocó de renglón)."""
     from itcj2.apps.titulatec.services.mail_compose import Obsolete
     from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -1208,7 +1208,7 @@ def test_no_adeudo_liberado_con_una_reversion_posterior_es_obsoleto_y_la_reversi
     liberado, revertido = _pendientes(db_session, proc.id)
 
     assert _componer(db_session, proc, [liberado]) == Obsolete(
-        "el no adeudo se revirtió después")
+        "la Constancia de no adeudo se revirtió después")
     assert _componer(db_session, proc, [revertido]) == Obsolete(
         "no salió el aviso de la liberación que revierte")
 
@@ -1364,8 +1364,8 @@ def test_la_reversion_sale_si_lo_ultimo_que_le_llego_fue_el_liberado(db_session,
 
     # La corrida, en orden de id; cada obsoleto queda marcado como lo marca el
     # despachador antes de pasar a la siguiente fila.
-    for fila, motivo in ((revertido_1, "el no adeudo se volvió a liberar"),
-                         (liberado_2, "el no adeudo se revirtió después")):
+    for fila, motivo in ((revertido_1, "la Constancia de no adeudo se volvió a liberar"),
+                         (liberado_2, "la Constancia de no adeudo se revirtió después")):
         assert _componer(db_session, proc, [fila]) == Obsolete(motivo)
         fila.status = "obsolete"
         db_session.flush()
@@ -1423,7 +1423,7 @@ def test_la_reversion_de_una_re_liberacion_sin_correo_tras_un_ciclo_abortado_sal
     StudentMail.library_reverted(db_session, proc, reason="Primera", to_status=hacia)
     liberado, revertido = _pendientes(db_session, proc.id)
     # La corrida del despachador, en orden de id: los dos salen obsoletos.
-    for fila, motivo in ((liberado, "el no adeudo se revirtió después"),
+    for fila, motivo in ((liberado, "la Constancia de no adeudo se revirtió después"),
                          (revertido, _NO_SALIO)):
         assert _componer(db_session, proc, [fila]) == Obsolete(motivo)
         fila.status = "obsolete"
@@ -1553,7 +1553,7 @@ def test_cobro_y_reversa_en_la_misma_espera_no_mandan_ninguno(db_session, con_bi
     assert (liberado.kind, revertido.kind) == ("library_cleared", "library_reverted")
 
     assert _componer(db_session, proc, [liberado]) == Obsolete(
-        "el no adeudo se revirtió después")
+        "la Constancia de no adeudo se revirtió después")
     assert _componer(db_session, proc, [revertido]) == Obsolete(_NO_SALIO)
 
 
@@ -1561,7 +1561,7 @@ def test_cobro_y_reversa_en_la_misma_espera_no_mandan_ninguno(db_session, con_bi
     ("awaiting_payment", ["Caja (Recursos Financieros) revirtió el registro de tu pago",
                           "Tu pago de $1,100.00 vuelve a quedar pendiente",
                           "con tu número de control"]),
-    ("pending", ["Se revirtió la liberación de tu no adeudo de biblioteca",
+    ("pending", ["Se revirtió la liberación de tu Constancia de no adeudo de biblioteca",
                  "El Centro de Información volverá a revisar tu caso"]),
 ])
 def test_reversion_con_motivo_y_que_sigue(db_session, con_biblioteca, hacia, frases):
@@ -1575,7 +1575,7 @@ def test_reversion_con_motivo_y_que_sigue(db_session, con_biblioteca, hacia, fra
     c = _componer(db_session, proc)
     texto = _texto(_html(c, estricto=True))
 
-    assert c.subject == "[TitulaTec ITCJ] Se revirtió tu no adeudo de biblioteca"
+    assert c.subject == "[TitulaTec ITCJ] Se revirtió tu Constancia de no adeudo de biblioteca"
     assert c.template == "library_reverted.html"
     assert c.context["to_status"] == hacia
     assert "Pago duplicado" in texto
@@ -1639,7 +1639,7 @@ def test_reversion_obsoleta_si_se_volvio_a_liberar(db_session, proceso):
     revertido, _liberado = _pendientes(db_session, proc.id)
 
     assert _componer(db_session, proc, [revertido]) == Obsolete(
-        "el no adeudo se volvió a liberar")
+        "la Constancia de no adeudo se volvió a liberar")
 
 
 def test_recordatorio_de_pago(db_session, con_biblioteca):
@@ -2332,8 +2332,8 @@ def test_recordatorio_de_encuesta(db_session, proceso):
 
 def test_recordatorio_de_encuesta_con_candado_pide_tambien_el_no_adeudo(
         db_session, con_biblioteca):
-    """Spec 2026-10-01 §4.11: «en cuanto GTV la libere y tengas tu no adeudo,
-    podrás agendar» (donde la convocatoria lo exige)."""
+    """Spec 2026-10-01 §4.11: «en cuanto GTV la libere y tengas tu Constancia de no
+    adeudo, podrás agendar» (donde la convocatoria lo exige)."""
     proc = con_biblioteca(biblioteca="pending")
     _recordatorio(db_session, "survey_reminder", proc)
 
@@ -2341,7 +2341,7 @@ def test_recordatorio_de_encuesta_con_candado_pide_tambien_el_no_adeudo(
     texto = _texto(_html(c, estricto=True))
 
     assert c.context["library_required"] is True
-    assert "en cuanto GTV la libere y tengas tu no adeudo, podrás agendar" in texto
+    assert "en cuanto GTV la libere y tengas tu Constancia de no adeudo, podrás agendar" in texto
 
 
 _KIND_DE = {"cita": "appt_reminder", "documentos": "docs_reminder",
@@ -2598,7 +2598,7 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
 
     p = con_biblioteca(biblioteca="pending")
     StudentMail.library_reenabled(db, p)
-    _anota("Biblioteca lo rehabilitó", p)
+    _anota("Biblioteca activó el trámite", p)
 
     p = con_biblioteca(biblioteca="pending")
     _recordatorio(db, "survey_reminder", p)

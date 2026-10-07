@@ -192,9 +192,9 @@ La consumen **la pantalla del alumno y la cola del encargado**. Con dos implemen
 | 3a | nunca envió la encuesta (sin `SurveyReview`) | `sin_encuesta` | «Primero envía la encuesta de egresados.» |
 | 3b | la envió, pero sigue `in_review` | `encuesta_en_revision` | «Tu encuesta de egresados está en revisión con Gestión Tecnológica y Vinculación. Podrás agendar en cuanto la liberen.» |
 | 3c | la envió, pero quedó `rejected` (observaciones de GTV) | `encuesta_con_observaciones` | «Gestión Tecnológica y Vinculación dejó observaciones en tu encuesta de egresados. Podrás agendar en cuanto la liberen.» |
-| 3d | encuesta liberada, pero el no adeudo de biblioteca sigue en Biblioteca (`pending`/`missing`) **donde la convocatoria lo exige** (2026-10-01, D6) | `biblioteca_en_revision` | «El Centro de Información está revisando si tienes adeudo con la biblioteca. Podrás agendar en cuanto se libere tu no adeudo.» |
-| 3e | ídem, pero `awaiting_payment` (pasó a Caja) | `pago_pendiente` | «Pasa a Caja (Recursos Financieros) a pagar ${total}; no necesitas cita. Podrás agendar en cuanto se libere tu no adeudo.» |
-| 3f | ídem, pero Biblioteca lo dejó `observed` («Con observaciones», 2026-10-05) | `biblioteca_con_observaciones` | «Biblioteca registró observaciones en tu no adeudo: acude a la Biblioteca (Centro de Información) para resolverlas. Podrás agendar en cuanto se libere tu no adeudo.» (texto en `self_booking_service.py:111`; el motivo se ve en el tablero y en «Mi cita») |
+| 3d | encuesta liberada, pero el no adeudo de biblioteca sigue en Biblioteca (`pending`/`missing`) **donde la convocatoria lo exige** (2026-10-01, D6) | `biblioteca_en_revision` | «El Centro de Información está revisando si tienes adeudo con la biblioteca. Podrás agendar en cuanto se libere tu Constancia de no adeudo.» |
+| 3e | ídem, pero `awaiting_payment` (pasó a Caja) | `pago_pendiente` | «Pasa a Caja (Recursos Financieros) a pagar ${total}; no necesitas cita. Podrás agendar en cuanto se libere tu Constancia de no adeudo.» |
+| 3f | ídem, pero Biblioteca lo dejó `observed` («Con observaciones», 2026-10-05) | `biblioteca_con_observaciones` | «Biblioteca registró observaciones en tu Constancia de no adeudo: acude a la Biblioteca (Centro de Información) para resolverlas. Podrás agendar en cuanto se libere tu Constancia de no adeudo.» (texto en `self_booking_service.py:111`; el motivo se ve en el tablero y en «Mi cita») |
 | 4 | cita vigente en `scheduled\|confirmed\|in_progress` | `tiene_cita` | «Ya tienes una cita. Cancélala si necesitas otra.» |
 | 5 | cita vigente `attended` y fase 2 SIN veredicto -ni `approved` (ya cortó en la 2) ni `rejected`- | `cotejo_en_dictamen` | «Tu cotejo ya se realizó. Servicios Escolares está por dictaminarlo; si queda con observaciones podrás agendar otra cita.» |
 | 6 | cancelaciones propias ≥ `TITULATEC_SELF_CANCEL_MAX` | `bloqueado_por_cancelaciones` | «Cancelaste N veces. Pídele la cita a tu encargado de carrera.» |
@@ -257,7 +257,7 @@ con una cita vigente que OCUPA el cotejo (D17 de ⤵ [no adeudo de biblioteca](p
 las citas ya agendadas no se tocan) y al que ADEMÁS le falta el no adeudo reporta el motivo de
 biblioteca (`biblioteca_en_revision`/`pago_pendiente`), **nunca** `tiene_cita`/`cotejo_en_dictamen`
 — es CONTRATO, no se reordena. El texto normal de esos dos motivos («…Podrás agendar en cuanto se
-libere tu no adeudo») sería **falso** bajo una cita que ya tiene: no le falta agendar, le falta
+libere tu Constancia de no adeudo») sería **falso** bajo una cita que ya tiene: no le falta agendar, le falta
 que Servicios Escolares pueda LIBERAR su cotejo (el mismo verbo que usa `PhaseService.
 _cotejo_gate_error`). `pages/student.py::_agenda_ctx` sustituye el texto SOLO en esta pantalla
 (constantes `_LIBRARY_REASONS_CON_CITA`/`_LIBRARY_BLOCK_WITH_CITA_MSG`) cuando

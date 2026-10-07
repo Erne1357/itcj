@@ -263,7 +263,7 @@ def test_biblioteca_solo_ve_no_adeudo(client_as, make_library_cert_staff):
     resp = client_as(make_library_cert_staff()).get(URL)
 
     assert resp.status_code == 200, resp.text[:500]
-    assert "No adeudo de biblioteca" in resp.text
+    assert "Constancia de no adeudo de biblioteca" in resp.text
     assert "Liberación de encuesta" not in resp.text
 
 
@@ -272,14 +272,14 @@ def test_gtv_solo_ve_encuesta(client_as, make_gtv_cert_staff):
 
     assert resp.status_code == 200, resp.text[:500]
     assert "Liberación de encuesta" in resp.text
-    assert "No adeudo de biblioteca" not in resp.text
+    assert "Constancia de no adeudo de biblioteca" not in resp.text
 
 
 def test_actor_con_ambos_permisos_ve_las_dos_secciones(client_as, make_both_cert_staff):
     resp = client_as(make_both_cert_staff()).get(URL)
 
     assert resp.status_code == 200, resp.text[:500]
-    assert "No adeudo de biblioteca" in resp.text
+    assert "Constancia de no adeudo de biblioteca" in resp.text
     assert "Liberación de encuesta" in resp.text
 
 
@@ -287,7 +287,7 @@ def test_solo_permiso_de_pagina_no_ve_ninguna_seccion(client_as, make_list_only_
     resp = client_as(make_list_only_staff()).get(URL)
 
     assert resp.status_code == 200, resp.text[:500]
-    assert "No adeudo de biblioteca" not in resp.text
+    assert "Constancia de no adeudo de biblioteca" not in resp.text
     assert "Liberación de encuesta" not in resp.text
 
 
@@ -885,7 +885,7 @@ def test_biblioteca_ve_solo_bib_y_sin_pestanas(client_as, emitir_folio, make_lib
     assert resp.status_code == 200, resp.text[:500]
     assert _numeros_en(resp.text) == [bib.number]
     assert gtv.number not in resp.text
-    assert "No adeudo de biblioteca" in resp.text
+    assert "Constancia de no adeudo de biblioteca" in resp.text
     assert 'id="tt-folio-tab-library_clearance"' not in resp.text
     assert 'id="tt-folio-tab-survey_release"' not in resp.text
 
