@@ -49,6 +49,18 @@ WALKIN_TOPE = 100
 WALKIN_CUPO_DEFAULT = 30
 
 
+# Campos del espacio que la bitácora fotografía (before/after). Las horas salen
+# ISO por `AuditService.safe`.
+_AUDIT_FIELDS = ("review_day_id", "owner_user_id", "start_time", "end_time",
+                 "slot_minutes", "capacity", "location", "visibility", "status")
+
+
+def _foto(window) -> dict:
+    """Foto del espacio para la bitácora."""
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+    return AuditService.snapshot(window, _AUDIT_FIELDS)
+
+
 def _t(v):
     """'09:30' | time(9,30) -> time(9,30), o None."""
     if isinstance(v, time):
@@ -208,9 +220,24 @@ class ReviewWindowService:
             raise WindowShrinkConflict(excedidas)
 
     @staticmethod
-    def create(db: Session, review_day_id: int, owner_id: int, *, start_time,
-               end_time, slot_minutes, capacity, location=None,
-               position_id=None, actor_id=None, visibility="private"):
+    def create(db: Session, review_day_id: int, owner_id: int, **kwargs):
+        """Crea un espacio y deja su rastro en la bitácora (`window.created`).
+
+        Mismos parámetros que `_crear_sin_bitacora`. `copy_to_days` usa esa
+        versión para anotar `window.copied` en vez de `window.created`.
+        """
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        w = ReviewWindowService._crear_sin_bitacora(db, review_day_id, owner_id, **kwargs)
+        AuditService.record(
+            db, "window.created", entity_type="review_window", entity_id=w.id,
+            after=_foto(w), actor_id=kwargs.get("actor_id"))
+        return w
+
+    @staticmethod
+    def _crear_sin_bitacora(db: Session, review_day_id: int, owner_id: int, *,
+                            start_time, end_time, slot_minutes, capacity,
+                            location=None, position_id=None, actor_id=None,
+                            visibility="private"):
         """`visibility` nace `private` (D1): publicar es un acto deliberado.
 
         El default del parámetro repite el `server_default` de la columna a
@@ -259,6 +286,7 @@ class ReviewWindowService:
         # mismo objeto del mapa de identidad): lo de abajo valida contra la
         # fila de ahora, no contra la que se cargó antes de esperar.
         SlotService._lock_window(db, window.id)
+        antes = _foto(window)
         ReviewWindowService.assert_no_overlap(db, window.review_day_id,
                                               window.owner_user_id, inicio, fin,
                                               excluir_id=window.id)
@@ -279,6 +307,11 @@ class ReviewWindowService:
         except IntegrityError:
             db.rollback()
             raise DuplicateWindowStart()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes_c, despues_c = AuditService.changes(antes, _foto(window))
+        AuditService.record(
+            db, "window.updated", entity_type="review_window", entity_id=window.id,
+            before=antes_c, after=despues_c)
         return window
 
     @staticmethod
@@ -310,15 +343,31 @@ class ReviewWindowService:
         total = int(w.capacity or 1) + n
         if total > WALKIN_TOPE:
             raise PlacesOutOfRange()
+        antes = int(w.capacity or 1)
         w.capacity = total
         db.flush()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "window.places_added", entity_type="review_window", entity_id=w.id,
+            before={"capacity": antes}, after={"capacity": total},
+            payload={"added": n})
         return w
 
     @staticmethod
     def toggle_pause(db: Session, window):
         """En pausa: deja de ofrecer franjas, pero conserva sus citas."""
+        antes = window.status
         window.status = "open" if window.status == "paused" else "paused"
         db.flush()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        if window.status == "paused":
+            AuditService.record(
+                db, "window.paused", entity_type="review_window", entity_id=window.id,
+                before={"status": antes}, after={"status": window.status})
+        else:
+            AuditService.record(
+                db, "window.resumed", entity_type="review_window", entity_id=window.id,
+                before={"status": antes}, after={"status": window.status})
         return window
 
     @staticmethod
@@ -348,6 +397,11 @@ class ReviewWindowService:
                       .filter(ReviewAppointment.window_id == window.id).count())
         if historicas:
             raise WindowInUse(historicas, solo_historial=True)
+        # Bitácora: borrado duro, la foto va antes de borrar.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "window.deleted", entity_type="review_window", entity_id=window.id,
+            before=_foto(window))
         db.delete(window)
         db.flush()
 
@@ -414,6 +468,7 @@ class ReviewWindowService:
         diga. El horario y el modo son la misma decisión.
         """
         from itcj2.apps.titulatec.models import CohortReviewDay
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         filas = (db.query(CohortReviewDay)
                  .filter(CohortReviewDay.id.in_(review_day_ids)).all())
         por_id = {f.id: f for f in filas}
@@ -427,12 +482,16 @@ class ReviewWindowService:
                                               window.start_time, window.end_time):
                 saltados.append(fila.date)
                 continue
-            creados.append(ReviewWindowService.create(
+            nuevo = ReviewWindowService._crear_sin_bitacora(
                 db, fila.id, window.owner_user_id,
                 start_time=window.start_time, end_time=window.end_time,
                 slot_minutes=window.slot_minutes, capacity=window.capacity,
                 location=window.location, position_id=window.owner_position_id,
-                actor_id=window.created_by_id, visibility=window.visibility))
+                actor_id=window.created_by_id, visibility=window.visibility)
+            creados.append(nuevo)
+            AuditService.record(
+                db, "window.copied", entity_type="review_window", entity_id=nuevo.id,
+                after=_foto(nuevo), payload={"source_window_id": window.id})
         return creados, saltados
 
     @staticmethod

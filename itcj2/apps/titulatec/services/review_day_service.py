@@ -85,13 +85,26 @@ class ReviewDayService:
     def toggle(db: Session, cohort_id: int, day: date, created_by_id: int) -> bool:
         """Alterna una fecha. True si quedó habilitada, False si se cerró."""
         from itcj2.apps.titulatec.models import CohortReviewDay
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         row = ReviewDayService.get(db, cohort_id, day)
         if row is None:
             db.add(CohortReviewDay(cohort_id=cohort_id, date=day,
                                    created_by_id=created_by_id))
+            # Bitácora: el día se habilita por primera vez (antes no había fila).
+            AuditService.record(
+                db, "cohort.review_day_toggled", entity_type="cohort",
+                entity_id=cohort_id, subject=day.isoformat(),
+                before={"is_closed": None}, after={"is_closed": False},
+                payload={"date": day.isoformat()}, actor_id=created_by_id)
             db.commit()
             return True
+        antes = row.is_closed
         row.is_closed = not row.is_closed
+        AuditService.record(
+            db, "cohort.review_day_toggled", entity_type="cohort",
+            entity_id=cohort_id, subject=day.isoformat(),
+            before={"is_closed": antes}, after={"is_closed": row.is_closed},
+            payload={"date": day.isoformat()}, actor_id=created_by_id)
         db.commit()
         return not row.is_closed
 

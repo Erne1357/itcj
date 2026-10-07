@@ -191,6 +191,8 @@ class CohortService:
             raise ValueError("El cierre tiene que ser posterior a la apertura.")
 
         anterior = cohort.status
+        antes = {"opens_at": cohort.opens_at, "closes_at": cohort.closes_at,
+                 "status": cohort.status}
         cerradas = [row.id for row in
                     db.query(Cohort.id).filter(Cohort.status == "closed").all()]
 
@@ -228,6 +230,17 @@ class CohortService:
                     payload={"cohort_id": cohort.id},
                 ))
                 paused += 1
+
+        # Bitácora: qué movió la ventana y cuántos procesos pausó/reanudó.
+        # Antes del commit: viaja en la misma transacción.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes_c, despues_c = AuditService.changes(
+            antes, {"opens_at": opens_at, "closes_at": closes_at, "status": status})
+        AuditService.record(
+            db, "cohort.window_changed", entity_type="cohort", entity_id=cohort.id,
+            subject=cohort.name,
+            before=antes_c, after=despues_c,
+            payload={"paused": paused, "resumed": resumed}, actor_id=actor_id)
 
         db.commit()
         return {"paused": paused, "resumed": resumed}
@@ -273,6 +286,7 @@ class CohortService:
         cohort = db.get(Cohort, cohort_id)
         if cohort is None:
             raise ValueError("La convocatoria no existe.")
+        antes_monto = cohort.book_donation_amount
         cohort.book_donation_amount = amount
 
         afectados = (
@@ -282,6 +296,16 @@ class CohortService:
                     TitulationProcess.status.in_(ADMITTED_PROCESS_STATUSES),
                     LibraryClearance.donation_amount.isnot(None))
             .scalar()) or 0
+
+        # Bitácora: monto anterior/nuevo (cadenas) y filas con monto congelado.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes_c, despues_c = AuditService.changes(
+            {"book_donation_amount": None if antes_monto is None else str(antes_monto)},
+            {"book_donation_amount": None if amount is None else str(amount)})
+        AuditService.record(
+            db, "cohort.donation_changed", entity_type="cohort", entity_id=cohort.id,
+            before=antes_c, after=despues_c,
+            payload={"affected": int(afectados)})
 
         db.commit()
         return {"affected": int(afectados)}

@@ -652,6 +652,15 @@ def cohort_create(
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
             CotejoRequirementService.seed_defaults(db, cohort.id, commit=False)
+            # Bitácora: el alta viaja en la misma transacción que la siembra.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "cohort.created", entity_type="cohort", entity_id=cohort.id,
+                subject=cohort.name,
+                after={"period_id": period_id, "status": "draft",
+                       "opens_at": apertura, "closes_at": cierre,
+                       "book_donation_amount": str(donacion)},
+                actor_id=int(user["sub"]))
             db.commit()
     finally:
         db.close()
