@@ -34,6 +34,11 @@ from itcj2.apps.titulatec.models.certificate import (  # noqa: F401
     Certificate, CertificateBatch, CertificateCounter,
 )
 from itcj2.apps.titulatec.models.prior_clearance import PriorClearance  # noqa: F401
+from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog  # noqa: F401
+
+# Alias de comodidad (spec: «AuditLog»). La clase real se llama distinto porque
+# agendatec ya registra una `AuditLog` en el mismo `Base`. Fuera de `__all__`.
+AuditLog = TitulatecAuditLog
 
 __all__ = [
     "Modality",
@@ -68,4 +73,5 @@ __all__ = [
     "CertificateBatch",
     "CertificateCounter",
     "PriorClearance",
+    "TitulatecAuditLog",
 ]
