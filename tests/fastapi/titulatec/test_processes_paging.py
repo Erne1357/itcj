@@ -344,9 +344,11 @@ def test_sin_n_mas_1_usuario_y_carrera(db_session, escena, view):
     assert visibles == (3, 40)
     sql = "\n".join(muchas.sentencias)
     assert len(pocas) == len(muchas), sql
-    # Medido: app + alcance (2) + universo + fases + alumnos + carreras +
-    # modalidades = 8 (sin `q` no hay la consulta de ids que casan).
-    assert len(muchas) == 8, sql
+    # Medido: alcance (2) + universo + fases + alumnos + carreras +
+    # modalidades = 7 (sin `q` no hay la consulta de ids que casan). La de
+    # `core_apps` ya no cuenta: desde perf 2026-10-07 la sesión recuerda las
+    # apps activas (`authz_service._apps_memo`) y el calentamiento la pagó.
+    assert len(muchas) == 7, sql
     # Pasada 2 en lote: UNA lectura de alumnos, carreras y modalidades.
     for entidad in ("core_users", "core_programs", "titulatec_modalities"):
         assert len([s for s in muchas.sentencias
