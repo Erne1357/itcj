@@ -40,6 +40,16 @@
    - Renglón `charge` con `can_revert_here` (tabla «Corte del día»): el MISMO
      «Revertir pago…» -- es el cobro VIGENTE de su fila; una reversa nunca
      ofrece acciones.
+   - Observación CON ADEUDO de Biblioteca (spec 2026-10-07 §2, D3;
+     `r.observation_kind == 'with_debt'`): sin pago, está en «Por cobrar» con
+     la píldora «Con observación de Biblioteca» + el motivo y el MISMO
+     «Registrar pago» (`expected_status=observed`): el pago queda RETENIDO,
+     no libera la Constancia de no adeudo hasta que Biblioteca la active. Con
+     el pago retenido (`r.held`), la búsqueda dice «Pagado — retenido por
+     Biblioteca» y ofrece «Revertir pago…» (`r.can_revert_held`). La
+     observación NORMAL sigue sin acciones en Caja (D4). Todo formulario de
+     «Registrar pago» manda `expected_status` (lo que la cajera vio): si
+     Biblioteca observó la fila mientras tanto, re-pinta en vez de cobrar.
    - Cualquier otro caso: sin acciones -- esta bandeja no las posee; un pago
      YA revertible lo revierte Caja, pero un «Sin adeudo» o una constancia
      previa los revierte Biblioteca.
@@ -62,11 +72,18 @@
    NO repite «Revocada» (dice «Sin acciones en Caja», como cualquier otra
    fila sin acción), para no mostrarla dos veces en el mismo renglón.
    `observed` (spec 2026-10-05 §3.4): «Con observaciones (Biblioteca)» -la
-   detuvo Biblioteca; Caja no tiene acción sobre ella. #}
+   detuvo Biblioteca; Caja no tiene acción sobre ella-, salvo la CON ADEUDO
+   (spec 2026-10-07 §2): sin pago, «Por cobrar $X» como cualquier cobro (la
+   observación va aparte, bajo la píldora); con el pago retenido, «Pagado —
+   retenido por Biblioteca». #}
 {% macro caja_pill(r) %}
   {%- if r.revoked -%}
     {{ pill("Revocada", "neutral") }}
   {%- elif r.status == "awaiting_payment" -%}
+    {{ pill("Por cobrar " ~ format_amount(r.total), "navy", "cash-coin") }}
+  {%- elif r.status == "observed" and r.observation_kind == "with_debt" and r.held -%}
+    {{ pill("Pagado — retenido por Biblioteca", "amber", "hourglass-split") }}
+  {%- elif r.status == "observed" and r.observation_kind == "with_debt" -%}
     {{ pill("Por cobrar " ~ format_amount(r.total), "navy", "cash-coin") }}
   {%- elif r.status == "observed" -%}
     {{ pill("Con observaciones (Biblioteca)", "danger", "exclamation-triangle") }}
@@ -149,6 +166,7 @@
           <td>
             {% if r.kind == 'charge' %}{{ pill("Cobro", "success", "cash-coin") }}
             {% else %}{{ pill("Reversa", "danger", "arrow-counterclockwise") }}{% endif %}
+            {% if r.held %}<br><span class="small text-body-secondary">Con observación de Biblioteca</span>{% endif %}
           </td>
           <td{% if r.amount < 0 %} class="text-danger"{% endif %}>
             {%- if not r.amount -%}
@@ -209,7 +227,7 @@
         <td class="tt-mono">{{ r.control }}</td>
         <td>{{ r.program }}</td>
         <td>
-          {% if r.status == 'awaiting_payment' %}
+          {% if r.status == 'awaiting_payment' or (r.observation_kind == 'with_debt' and not r.held) %}
             {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
           {% elif r.total is not none %}
             {{ format_amount(r.total) }}
@@ -223,22 +241,32 @@
           {% elif r.status == 'awaiting_payment' and r.ready_at %}
           <br><span class="small text-body-secondary">En caja desde {{ r.ready_at.strftime('%d/%m/%Y') }}</span>
           {% endif %}
+          {% if r.observation_kind == 'with_debt' and not r.revoked %}
+          <br>{{ pill("Con observación de Biblioteca", "amber", "exclamation-triangle") }}
+          <br><span class="small tt-td-wrap">{{ r.observation_reason or '—' }} — el pago no libera la Constancia de no adeudo hasta que Biblioteca la active.</span>
+          {% if r.held %}
+          <br><span class="small text-body-secondary">Pagó el
+            {{ r.paid_at.strftime('%d/%m/%Y') if r.paid_at else '—' }}{% if r.receipt %} · Recibo {{ r.receipt }}{% endif %}</span>
+          {% endif %}
+          {% endif %}
         </td>
         <td>
           {% if r.revoked %}
             <span class="small text-body-secondary">Sin acciones en Caja</span>
-          {% elif r.status == 'awaiting_payment' %}
+          {% elif r.status == 'awaiting_payment' or (r.observation_kind == 'with_debt' and not r.held) %}
+            {% set retiene = r.observation_kind == 'with_debt' %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.id }}/pagar"
                   hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
                   data-tt-confirm-ok="Registrar pago"
-                  hx-confirm="Registrar pago|¿Registrar pago de {{ format_amount(r.total) }} de {{ r.student }}?">
+                  hx-confirm="Registrar pago|¿Registrar pago de {{ format_amount(r.total) }} de {{ r.student }}?{{ ' Biblioteca tiene una observación: el pago no libera la Constancia de no adeudo hasta que Biblioteca la active.' if retiene else '' }}">
               {{ tab_fields(tab, q, dia, page) }}
+              <input type="hidden" name="expected_status" value="{{ r.status }}">
               <input type="hidden" name="expected_total" value="{{ r.total }}">
               <input class="tt-field tt-field--xs" name="recibo" maxlength="40"
                      placeholder="Recibo (opcional)" aria-label="Número de recibo de {{ r.student }}">
               <button type="submit" class="btn btn-sm tt-btn-ink">Registrar pago</button>
             </form>
-          {% elif r.can_revert and r.via == 'payment' %}
+          {% elif (r.can_revert and r.via == 'payment') or r.can_revert_held %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.id }}/revertir"
                   hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
                   data-tt-confirm-ok="Revertir"

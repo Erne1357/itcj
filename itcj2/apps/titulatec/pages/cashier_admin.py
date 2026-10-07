@@ -30,12 +30,23 @@ activa; limpiar el buscador regresa a la pestaña. Sin `q`: «Por cobrar»
 revisar» de Biblioteca) o «Pagados» («Corte del día»: selector de día, por
 omisión hoy vía `db_now().date()`, con «Cobrado/Revertido/Total del día»).
 
+Observación CON ADEUDO de Biblioteca (spec 2026-10-07 §2, D3): «Por cobrar»
+(`LibraryClearanceService.list_for_cashier`/`cashier_due_count`) incluye las
+observadas con adeudo SIN pago, con su píldora «Con observación de
+Biblioteca» y el motivo: Caja cobra, pero ese pago queda RETENIDO (no libera
+la Constancia de no adeudo hasta que Biblioteca la active). La búsqueda pinta
+el retenido como «Pagado — retenido por Biblioteca» y deja revertirlo. La
+observación NORMAL sigue sin acciones en Caja (D4).
+
 Las rutas van por `clearance_id`, NUNCA por `process_id` (§4.6: Caja no tiene
 alcance por carrera, ve todo; §5 invariante 6, censo en
 `tests/fastapi/titulatec/test_scope_guard.py`).
 
 Concurrencia (Ruling R8, spec §4.8): el formulario de «Registrar pago» lleva
-en un campo oculto el total que la cajera VIO (`expected_total`);
+en campos ocultos el total que la cajera VIO (`expected_total`) y el estado de
+la fila (`expected_status`: `awaiting_payment` u `observed`, spec 2026-10-07:
+si Biblioteca la observó con adeudo mientras tanto, re-pinta para que la
+cajera vea la observación antes de cobrar);
 `LibraryClearanceService.register_payment` lo compara contra la fila bajo
 `FOR UPDATE` y levanta `ClearanceConflict` (un `ValueError`) si Biblioteca lo
 corrigió mientras tanto (Review Focus #1): nunca se cobra un monto que la
@@ -133,6 +144,11 @@ def _expected_total(raw):
 _MSG_CAJA_OBSERVADO = ("Biblioteca registró observaciones en este caso: ya no está por "
                        "cobrar. No se registró ningún pago.")
 
+# Cobro de una observación CON ADEUDO (spec 2026-10-07 §2): se registró, pero
+# no libera nada todavía.
+_MSG_CAJA_RETENIDO = ("Pago registrado. Biblioteca tiene una observación pendiente: la "
+                      "Constancia de no adeudo se libera cuando Biblioteca la active.")
+
 
 def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
     """Contexto del parcial. `q` en blanco (o solo espacios) se normaliza a
@@ -159,8 +175,9 @@ def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
     # para un proceso revocado o terminado -sin acciones posibles sobre él-,
     # así que lo saca de la lista Y del contador; Biblioteca («En caja») no
     # pide este flag y sigue mostrándolo con la píldora «Revocada» (Tarea 7).
-    por_cobrar_count = LibraryClearanceService.counts_by_status(
-        db, admitted_only=True)["awaiting_payment"]
+    # Spec 2026-10-07 §2: el contador y la lista suman las observaciones CON
+    # ADEUDO sin pago (`cashier_due_count`/`list_for_cashier`, MISMO predicado).
+    por_cobrar_count = LibraryClearanceService.cashier_due_count(db)
 
     pagina = None
     day_cut = None
@@ -170,9 +187,8 @@ def _body_ctx(db, *, tab, q, dia, page, per_page: int = PAGE_SIZE):
         rows = []
         day_cut = LibraryClearanceService.day_cut(db, dia_sel)
     else:
-        pagina = LibraryClearanceService.list_for_inbox(
-            db, status="awaiting_payment", q=None, page=page_n, per_page=per_page,
-            admitted_only=True)
+        pagina = LibraryClearanceService.list_for_cashier(
+            db, page=page_n, per_page=per_page)
         rows = pagina.items
         page_n = pagina.page
 
@@ -237,16 +253,20 @@ def _cuerpo_pay(clearance_id, request, user, form):
     )
 
     recibo = form.get("recibo") or None
+    expected_status = form.get("expected_status") or None
     tab, q, dia, page = form.get("tab"), form.get("q"), form.get("dia"), form.get("page")
 
     choque = None
+    retenido = False
     db = SessionLocal()
     try:
         uid = int(user["sub"])
         try:
             expected_total = _expected_total(form.get("expected_total"))
-            LibraryClearanceService.register_payment(
-                db, clearance_id, uid, receipt_number=recibo, expected_total=expected_total)
+            clearance = LibraryClearanceService.register_payment(
+                db, clearance_id, uid, receipt_number=recibo, expected_total=expected_total,
+                expected_status=expected_status)
+            retenido = LibraryClearanceService.payment_held(clearance)
         except LookupError:
             return Response(status_code=404)
         except ClearanceConflict as e:
@@ -267,6 +287,11 @@ def _cuerpo_pay(clearance_id, request, user, form):
     if choque:
         resp.headers["X-Tt-Notice"] = _hdr(choque)
         resp.headers["X-Tt-Notice-Kind"] = "warning"
+    elif retenido:
+        # Cobro de una observación con adeudo: se registró, pero NO libera
+        # (spec 2026-10-07 §2). El aviso lo deja claro a la cajera.
+        resp.headers["X-Tt-Notice"] = _hdr(_MSG_CAJA_RETENIDO)
+        resp.headers["X-Tt-Notice-Kind"] = "warning"
     return resp
 
 
@@ -274,9 +299,11 @@ def _cuerpo_pay(clearance_id, request, user, form):
 async def revert(clearance_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_REVERT))):
     """Revertir pago (motivo obligatorio): `cleared/payment` ->
-    `awaiting_payment` (`LibraryClearanceService.revert_payment`). Solo si la
+    `awaiting_payment` (`LibraryClearanceService.revert_payment`), o el pago
+    RETENIDO de una observación con adeudo (sigue observada, sin pago; spec
+    2026-10-07 §2). Solo si la
     fase 2 no está aprobada (`can_revert`); el monto congelado se queda (sigue
-    debiéndolo) y se anula la constancia. El corte del día del cobro original
+    debiéndolo) y se anula la constancia (si la hubo). El corte del día del cobro original
     NO cambia (E3, invariante 3): esta reversa entra al corte de HOY como su
     propio renglón, en negativo -- si la cajera revertía mientras veía el
     corte de OTRO día, el aviso de éxito (`X-Tt-Notice`, success) se lo

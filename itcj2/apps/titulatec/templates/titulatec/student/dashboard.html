@@ -286,6 +286,19 @@
                     {% if ph.library.note %}
                     <p class="tt-prose mb-0 mt-2">{{ ph.library.note }}</p>
                     {% endif %}
+                    {% elif ph.library.status == 'observed' and ph.library.observation_kind == 'with_debt' %}
+                    {# Observación CON ADEUDO (spec 2026-10-07 §2): puede pagar en
+                       Caja y entregar en la misma visita; el pago no libera, la
+                       Constancia se libera cuando Biblioteca registre la entrega.
+                       `paid_at` = Caja ya cobró (pago retenido). #}
+                    {% if ph.library.paid_at %}
+                    <p class="tt-prose mb-0 mt-2" data-tt-library-held>Ya pagaste {{ ph.library.total_fmt }} en Caja. Tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega; acude a la Biblioteca (Centro de Información) con lo que se indica abajo.</p>
+                    {% else %}
+                    <p class="tt-prose mb-0 mt-2" data-tt-library-debt>Biblioteca registró una observación con adeudo en tu Constancia de no adeudo. Puedes pagar {{ ph.library.total_fmt }}{% if ph.library.breakdown %} ({{ ph.library.breakdown }}){% endif %} en Caja (Recursos Financieros) y entregar en la Biblioteca (Centro de Información) en la misma visita; tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega.</p>
+                    {% endif %}
+                    {% if ph.library.observation %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
+                    {% endif %}
                     {% elif ph.library.status == 'observed' %}
                     {# Spec 2026-10-05 §3.4: igual que la encuesta `rejected` de
                        arriba -- el aviso y, debajo, el motivo de Biblioteca. #}

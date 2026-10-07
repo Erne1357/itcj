@@ -325,10 +325,12 @@ pantallas: [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearan
 stateDiagram-v2
     [*] --> pending: alta del proceso | backfill (legado cumplido)
     pending --> awaiting_payment: 📚 Registrar, total > 0
-    pending --> observed: 📚 Observar (motivo)
-    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL)
-    observed --> observed: 📚 Actualizar observación
-    observed --> pending: 📚 Activar
+    pending --> observed: 📚 Observar (motivo) · 📚 Observar con adeudo (motivo + adeudo, total > 0)
+    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL) · 📚 Observar con adeudo
+    observed --> observed: 📚 Actualizar observación · 💰 Registrar pago RETENIDO (solo con adeudo) · 💰 Revertir pago retenido
+    observed --> pending: 📚 Activar (observación normal)
+    observed --> awaiting_payment: 📚 Activar (con adeudo, sin pago; ready_at = ahora)
+    observed --> cleared: 📚 Activar (con adeudo y pago retenido; cleared_via=payment, +folio)
     pending --> cleared: 📚 Registrar, total = 0 (D18, cleared_via=no_charge)
     awaiting_payment --> awaiting_payment: 📚 Corregir, nuevo monto > 0
     awaiting_payment --> cleared: 📚 Corregir, nuevo monto = 0 (no_charge) · 💰 Registrar pago (payment)
@@ -359,6 +361,13 @@ stateDiagram-v2
 > `library_observed`. Observar/activar exigen fase 2 sin aprobar y proceso admitido; desde
 > `cleared` no se observa (primero se revierte). Detalle:
 > [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05).
+>
+> **`observation_kind`** (2026-10-07, migración `tt20261007a`): `blocking` (la observación de
+> siempre, D4: detiene todo, incluido el pago) | `with_debt` (con adeudo, D3: montos congelados
+> como al Registrar; Caja SÍ cobra, pero el pago queda RETENIDO -la fila sigue `observed`, sin
+> folio, sin requisito, sin cita- hasta que Biblioteca pulsa **Activar**: sin pago → `awaiting_payment`;
+> con pago → `cleared/payment` con folio). NULL fuera de `observed`; NULL dentro se lee `blocking`.
+> Detalle: [Observación con adeudo](phase2_library_clearance.md#observación-con-adeudo-2026-10-07).
 >
 > **`ready_at`** (Ruling R10) es la entrada VIGENTE a `awaiting_payment`: se vuelve a fijar SOLO
 > al ENTRAR desde otro estado (Registrar desde `pending`, Revertir pago desde `cleared/payment`),

@@ -266,6 +266,10 @@
                   — Por cobrar {{ format_amount(detail.library.total) }} en Caja
                 {%- elif detail.library.status == 'observed' and not no_adeudo_revocado and detail.library.observation %}
                   — {{ detail.library.observation }}
+                  {%- if detail.library.observation_kind == 'with_debt' %}
+                  {#- Spec 2026-10-07 §2: observación CON ADEUDO; el pago (retenido) no libera. #}
+                  · con adeudo de {{ format_amount(detail.library.total) }}: {% if detail.library.paid_at %}pagado en Caja el {{ detail.library.paid_at.strftime('%d/%m/%Y') }}, falta que Biblioteca lo active{% else %}sin pagar{% endif %}
+                  {%- endif %}
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'prior' %}
                   — Constancia previa{% if detail.library.prior_issued_on %} del {{ detail.library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if detail.library.prior_note %} — {{ detail.library.prior_note }}{% endif %}
                 {%- elif detail.library.status == 'cleared' and detail.library.via == 'legacy' %}

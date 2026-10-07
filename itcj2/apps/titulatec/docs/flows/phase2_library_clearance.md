@@ -247,6 +247,95 @@ stateDiagram-v2
   existente nace `observed`). Reversa: `alembic downgrade -1` devuelve las filas `observed` a
   `pending` antes de borrar las columnas.
 
+## Observación con adeudo (2026-10-07)
+
+Spec `2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md` §2 (D3/D4, no se commitea).
+Caso de uso: el egresado **tiene un libro** y debe entregarlo, **y además** debe dinero. Biblioteca
+registra una observación «con adeudo» (qué entregar + cuánto debe) para que en UNA visita pague
+en Caja y entregue en Biblioteca. **Caja cobra aunque haya observación, pero el pago NO libera**
+(ni folio, ni requisito, ni cita): Biblioteca libera al pulsar **«Activar»** cuando recibe lo
+pendiente. La observación **normal** (sin adeudo) sigue deteniendo todo, incluido el pago (D4).
+
+```mermaid
+stateDiagram-v2
+    pending --> observed_con_adeudo: 📚 Observar con adeudo (motivo + adeudo; total > 0)
+    awaiting_payment --> observed_con_adeudo: 📚 Observar con adeudo (sigue en Por cobrar)
+    observed_normal --> observed_con_adeudo: 📚 Cambiar a con adeudo
+    observed_con_adeudo --> observed_normal: 📚 Cambiar a normal (solo SIN pago)
+    observed_con_adeudo --> observed_con_adeudo: 💰 Registrar pago (RETENIDO) · 💰 Revertir pago retenido
+    observed_con_adeudo --> awaiting_payment: 📚 Activar SIN pago (ready_at = ahora)
+    observed_con_adeudo --> cleared: 📚 Activar CON pago (cleared/payment, +folio BIB, requisito)
+    observed_normal --> pending: 📚 Activar (como siempre, D2)
+```
+
+- **Dato**: columna `observation_kind` String(20) NULL en `titulatec_library_clearances`
+  (`blocking` | `with_debt`, `OBSERVATION_KINDS` en `models/library_clearance.py`; NULL fuera de
+  `observed`; una `observed` con NULL se lee `blocking`, falla cerrado). Migración
+  `tt20261007a` (`down_revision = tt20261006a`, a mano): agrega la columna y pone `blocking` a las
+  `observed` existentes. **Despliegue: `alembic upgrade head`** — sin DML, sin permisos nuevos.
+- **Observar con adeudo** (`LibraryClearanceService.observe(..., kind="with_debt",
+  debt_amount=)`, misma ruta `POST /titulatec/admin/biblioteca/{clearance_id}/observar` con
+  `kind=with_debt` + `debt_amount`): adeudo validado como al Registrar (`_check_amount`) y la
+  donación VIGENTE congelada (`_frozen_donation`, D19 si falta); total = adeudo + donación; total
+  0 → `400` «usa la observación normal». Firma de Biblioteca (`library_by_id`/`_at`). Entra a Caja:
+  `ready_at` = ahora si no estaba ya en Caja (desde `awaiting_payment` conserva su lugar FIFO).
+  Re-observar con adeudo sin pago re-congela; con el pago retenido solo cambia el motivo (otro
+  adeudo → `400`).
+- **Cambiar de tipo (Ruling de la Tarea E)**: normal → con adeudo, sí; con adeudo SIN pago →
+  normal, sí (sale de Caja, `ready_at` = NULL, montos como historia); con el pago retenido →
+  normal, **no** (`400` «pide a Caja que revierta el pago primero»): una normal no deja revertir y
+  el dinero quedaría atrapado.
+- **Caja** (`pages/cashier_admin.py`): «Por cobrar» = `LibraryClearanceService.list_for_cashier`/
+  `cashier_due_count` (`_cashier_due_clause`: `awaiting_payment` + `observed/with_debt` SIN pago,
+  procesos admitidos; la normal NO aparece). La fila con adeudo lleva la píldora «Con observación
+  de Biblioteca» + el motivo + «el pago no libera la Constancia de no adeudo hasta que Biblioteca
+  la active», y el mismo «Registrar pago» con `expected_status=observed` (todo formulario de
+  pago manda ahora `expected_status`: si Biblioteca observó la fila mientras la cajera la veía,
+  re-pinta con el aviso en vez de cobrar). Tras cobrar, `X-Tt-Notice` (warning): «Pago registrado.
+  Biblioteca tiene una observación pendiente…». La búsqueda pinta el retenido «Pagado — retenido
+  por Biblioteca» y ofrece «Revertir pago…» (`_rows`: `held`, `can_revert_held`).
+- **Pago retenido** (`register_payment` sobre `with_debt` sin pago): la fila sigue
+  `observed/with_debt` + `paid_at`/`paid_by_id`/`receipt_number`. Escribe el MISMO
+  `library_payment_registered` (`certificate: None`, `held: True`, `paid_at`) → el corte del día
+  lo cuenta el día del cobro. Sin `_fulfill`, sin `CertificateService.issue`, sin «liberada»:
+  aviso `LIBRARY_PAYMENT_HELD` + correo `library_payment_held`. Doble cobro → `400`.
+- **Revertir el pago retenido** (`revert_payment`): vuelve a `observed/with_debt` sin pago;
+  `library_payment_reverted` con su total (renglón negativo del corte de hoy), `certificate:
+  None`; sin anular folio ni descumplir requisito; sin correo (aviso in-app
+  `LIBRARY_PAYMENT_REVERTED`). En el corte, el cobro retenido ofrece «Revertir…» mientras su
+  `paid_at` siga siendo el pago vigente (`_payment_revertible_paid_at`).
+- **Activar** (`reenable`, 3 ramas): normal → `pending` (D2); con adeudo sin pago →
+  `awaiting_payment` (`ready_at` = ahora; correo `library_reenabled` con `to_status` →
+  «ya puedes pasar a Caja a pagar $X»); con adeudo y pago retenido → `_release_held_payment`:
+  `cleared/payment`, requisito, folio BIB, aviso `LIBRARY_CLEARED` + correo `library_cleared(via=
+  "payment")` y su PROPIO evento `library_cleared_after_observation` (NO se repite
+  `library_payment_registered`: el corte lo contaría doble). Después Caja puede revertir ese pago
+  como cualquier liberado por pago.
+- **Lo demás sigue bloqueado** para los dos tipos (`_assert_not_observed`): Registrar/Corregir,
+  lote, constancia previa, reversas de liberación. El pago y su reversa usan
+  `_assert_not_blocking` (solo la normal los bloquea).
+- **Gate**: sin cambios — `observed` (cualquier tipo) bloquea la cita con `library_observed`.
+- **Recordatorios de pago (Ruling)**: NO para `with_debt` sin pago (`payment_due`/
+  `awaiting_payment_clause` siguen siendo solo de `awaiting_payment`): el correo de la observación
+  ya dice que pague y entregue en la misma visita; tras Activar sin pago, `ready_at` reinicia la
+  cadencia normal.
+- **Correos**: `library_observed` con `kind` en el payload y variante con adeudo (montos
+  VIGENTES, «puedes pagar en Caja y entregar en Biblioteca en la misma visita; tu Constancia de
+  no adeudo se libera cuando Biblioteca registre la entrega»); `library_payment_held` (nuevo kind,
+  `OUTBOX_KINDS` 21 → 22; obsoleto si ya no está retenido); `library_reenabled` con `to_status`
+  (`pending` | `awaiting_payment`; hacia Caja obsoleto si ya no hay pago pendiente).
+- **Vistas**: Biblioteca («Observar con adeudo» con el atajo «Entregar libro» precargado y
+  editable, sin JS; adeudo precargado con el vigente; «Con observaciones» dice tipo, monto, si ya
+  pagó y qué hará «Activar», también en su `hx-confirm`); tablero del egresado y «Mi cita»;
+  panel de atender cotejo (`_appt_attend.html`) y expediente de SE (`_exp_phase.html`): «con
+  adeudo de $X: pagado en Caja el … / sin pagar». `summary_for_process` trae `observation_kind`;
+  `observation()` trae tipo, montos y pago.
+- **Reversa**: `alembic downgrade tt20261006a` desde la imagen nueva quita la columna. CON
+  PÉRDIDA: el código viejo trata toda `observed` como normal; las `with_debt` con pago retenido
+  conservan `paid_at`/`receipt_number` pero el código viejo no los ve (activarlas con él las
+  regresa a «Por revisar» y Caja podría cobrar otra vez). Antes de bajar, listarlas (SQL en el
+  docstring de la migración) y resolverlas.
+
 ## El candado único ClearanceGate
 
 `services/clearance_gate.py::ClearanceGate` es la ÚNICA fuente de «¿a este egresado le falta

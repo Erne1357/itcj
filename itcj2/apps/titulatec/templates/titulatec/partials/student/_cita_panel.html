@@ -84,6 +84,10 @@
           {%- if it.library.status == 'observed' and it.library.observation %}
             — {{ it.library.observation }}
           {%- endif %}
+          {%- if it.library.status == 'observed' and it.library.observation_kind == 'with_debt' %}
+            {#- Spec 2026-10-07 §2: con adeudo; el pago no libera hasta la entrega. #}
+            · {% if it.library.paid_at %}ya pagaste {{ it.library.total_fmt }}; falta que Biblioteca registre la entrega{% else %}con adeudo de {{ it.library.total_fmt }}: puedes pagar en Caja y entregar en la misma visita{% endif %}
+          {%- endif %}
         </div>
         {% endif %}
         {% if it.survey_url %}
