@@ -96,7 +96,18 @@ def test_el_menu_sale_del_cache_de_authz():
 
 def test_permisos_de_almacen_usan_la_memoria_de_apps(db_session):
     from itcj2.apps.helpdesk.utils.warehouse_auth import get_warehouse_perms_via_helpdesk
+    from itcj2.core.models.app import App
     from itcj2.core.services.authz_service import get_app_by_key
+
+    # La base de CI (create_all + `_seed_minimal_reference_data`) no siembra
+    # `warehouse`, y `get_app_by_key` no recuerda apps inexistentes (a
+    # propósito: una creada después debe aparecer), así que sin esto su
+    # búsqueda consulta `core_apps` y la prueba solo pasaba con los datos de
+    # dev. Las dos apps nacen dentro de la transacción del test.
+    for key, name in (("helpdesk", "Help desk"), ("warehouse", "Almacén")):
+        if db_session.query(App).filter_by(key=key).first() is None:
+            db_session.add(App(key=key, name=name, is_active=True))
+    db_session.flush()
 
     get_app_by_key(db_session, "helpdesk")          # carga la memoria de la sesión
     sentencias = []
