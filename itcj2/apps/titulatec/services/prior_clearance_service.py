@@ -444,6 +444,14 @@ class PriorClearanceService:
                         f"Constancia de no adeudo liberada en el proceso {proceso.folio}")
 
         if not dry_run:
+            # Resumen de la corrida; el commit lo decide `commit` / el llamador.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "prior_clearance.import_run",
+                entity_type="prior_clearance",
+                payload={"kind": kind, "source": source, "rows": len(rows),
+                         "counts": {b: len(v) for b, v in out.items()}},
+            )
             if commit:
                 db.commit()
             else:
@@ -531,6 +539,11 @@ class PriorClearanceService:
         if dry_run:
             return "replaced" if reemplaza else "deferred"
         response_id, paper_pending = link if link is not None else (None, False)
+        antes = None
+        if reemplaza:
+            antes = {"issued_on": fila.issued_on, "note": fila.note,
+                     "source": fila.source,
+                     "applied_process_id": fila.applied_process_id}
         if fila is None:
             db.add(PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
                                   note=note, source=source, response_id=response_id,
@@ -557,4 +570,27 @@ class PriorClearanceService:
                 fila.response_id = response_id
                 fila.paper_pending = paper_pending
         db.flush()
-        return "replaced" if reemplaza else "deferred"
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        if reemplaza:
+            AuditService.record(
+                db, "prior_clearance.replaced",
+                entity_type="prior_clearance", entity_id=fila.id,
+                subject=control,
+                before=AuditService.safe(antes),
+                after=AuditService.safe({"issued_on": issued_on, "note": note,
+                                         "source": source,
+                                         "applied_process_id": None}),
+                payload={"kind": kind},
+            )
+            return "replaced"
+        AuditService.record(
+            db, "prior_clearance.deferred",
+            entity_type="prior_clearance",
+            entity_id=fila.id if fila is not None else None,
+            subject=control,
+            after=AuditService.safe({"issued_on": fila.issued_on if fila else issued_on,
+                                     "note": fila.note if fila else note,
+                                     "source": source}),
+            payload={"kind": kind},
+        )
+        return "deferred"

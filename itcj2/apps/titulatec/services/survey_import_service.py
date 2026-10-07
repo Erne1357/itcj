@@ -741,6 +741,14 @@ class SurveyImportService:
         # 5. Las liberadas YA (register_prior) quedan ligadas a su proceso.
         if not dry_run:
             SurveyImportService._link_released(db, [rid for _, rid in guardadas if rid])
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "survey.import_run",
+                entity_type="survey_response",
+                payload={"file": source[:120], "form_code": form.code,
+                         "rows": len(rows), "saved": len(guardadas),
+                         "counts": {b: len(v) for b, v in out.items()}},
+            )
             db.commit()
         logger.info(
             "import-survey-xlsx %s (%s): %s", source, "dry-run" if dry_run else "real",
