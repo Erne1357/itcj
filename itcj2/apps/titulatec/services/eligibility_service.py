@@ -325,7 +325,8 @@ def fetch_sii_nip(control: str):
         return None, nip_failure(exc)
 
 
-def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool:
+def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False,
+                  db=None) -> bool:
     """Encola la consulta de `req_id` en celery. Best-effort: NUNCA lanza.
 
     Devuelve si se encoló: «Reintentar consulta» no anuncia éxito si no
@@ -337,6 +338,12 @@ def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool
     Con el SII sin configurar (D11) devuelve `False` SIN publicar: la tarea
     no tendría a quién preguntar. Al configurarlo, el barrido hace la primera
     consulta de lo que quedó pendiente.
+
+    Con `force=True` y `db`, una consulta que SÍ se encoló deja en la bitácora
+    `enrollment.sii_recheck_requested` (el actor sale del contexto de la
+    petición) y se commitea en esa misma sesión; es best-effort como todo lo
+    demás de aquí: un fallo al registrar no cambia el resultado. Sin `db` (el
+    alta, el barrido) no se registra nada.
     """
     if not EligibilityService.sii_configured():
         return False
@@ -353,7 +360,33 @@ def enqueue_check(req_id: int, *, attempt: int = 1, force: bool = False) -> bool
         logger.warning("No se pudo encolar la consulta al SII de la solicitud %s (%s)",
                        req_id, type(exc).__name__)
         return False
+    if force and db is not None:
+        _audit_recheck(db, req_id)
     return True
+
+
+def _audit_recheck(db, req_id: int) -> None:
+    """Bitácora de «Reintentar consulta». Nunca lanza."""
+    try:
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            _audit_subject,
+        )
+
+        req = db.get(EnrollmentRequest, int(req_id))
+        AuditService.record(
+            db, "enrollment.sii_recheck_requested",
+            entity_type="enrollment_request", entity_id=int(req_id),
+            subject=_audit_subject(req) if req is not None else None)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning("No se pudo registrar la reconsulta de la solicitud %s (%s)",
+                       req_id, type(exc).__name__)
+        try:
+            db.rollback()
+        except Exception:      # pragma: no cover - sesión ya inservible
+            pass
 
 
 class EligibilityService:

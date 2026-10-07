@@ -1191,7 +1191,7 @@ def _cuerpo_reconsultar(req_id, request, user, form):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_IN_FLIGHT)})
         # Sin escrituras propias: la fila `pending` la abre la tarea bajo el lock
         # de la solicitud. `enqueue_check` nunca lanza: dice si encoló.
-        if not elig.enqueue_check(req.id, force=True):
+        if not elig.enqueue_check(req.id, force=True, db=db):
             return Response(status_code=400,
                             headers={"X-Tt-Error": _hdr(_MSG_RECHECK_NOT_QUEUED)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
