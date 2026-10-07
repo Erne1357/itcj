@@ -19,15 +19,15 @@
       <tbody>
       {% for r in rows %}
       <tr id="tt-audit-{{ r.id }}">
-        <td class="small">{{ r.when }}</td>
+        <td class="small tt-audit-nowrap">{{ r.when }}</td>
         <td>{{ r.actor }}{% if r.badge %} {{ pill(r.badge, 'neutral') }}{% endif %}</td>
-        <td class="small">{{ r.module }}</td>
+        <td class="small tt-audit-nowrap">{{ r.module }}</td>
         <td>{{ r.label }}{% if r.is_data %} {{ pill('Dato', 'neutral') }}{% endif %}</td>
         <td class="small">
           {% if r.process_url %}<a href="{{ r.process_url }}">{{ r.about }}</a>{% else %}{{ r.about }}{% endif %}
         </td>
         <td class="small text-body-secondary">{{ r.reason }}</td>
-        <td>
+        <td class="tt-audit-nowrap">
           <button type="button" id="tt-audit-ver-{{ r.id }}" class="btn btn-sm tt-btn-ghost"
                   hx-get="/titulatec/admin/bitacora/entry/{{ r.id }}"
                   hx-target="#tt-audit-det-{{ r.id }}" hx-swap="innerHTML"
@@ -36,7 +36,9 @@
           </button>
         </td>
       </tr>
-      <tr><td colspan="7" class="p-0 border-0"><div id="tt-audit-det-{{ r.id }}"></div></td></tr>
+      {# Fila de detalle a todo lo ancho: su contenido NO entra al cálculo de
+         anchos de las columnas (`.tt-audit-detrow`, audit-log.css). #}
+      <tr class="tt-audit-detrow"><td colspan="7" class="p-0 border-0"><div id="tt-audit-det-{{ r.id }}"></div></td></tr>
       {% endfor %}
       </tbody>
     </table>

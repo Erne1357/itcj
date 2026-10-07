@@ -145,14 +145,17 @@ SEED_FILES = [
     # `init-email-tasks`): es el unico camino de despliegue en produccion.
     "outbox_2026_10/24_insert_email_outbox_perm.sql",
     # --- Delta 2026-10-07: bitacora de auditoria. El permiso
-    # `titulatec.audit.page.list` (solo `admin`, lo reparte el 15). Inserta un
-    # permiso, asi que va ANTES del 15. Tambien: `titulatec init-bitacora`.
+    # `titulatec.audit.page.list` concedido SOLO al rol `admin`, explicito
+    # porque en produccion el 15 no se re-corre (mismo patron que el 24).
+    # Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO con
+    # `titulatec init-bitacora`.
     "audit_2026_10/25_insert_audit_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
     # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08,
-    # survey_2026_09/09, biblioteca_2026_10/21 y outbox_2026_10/24) para que "todos" sea de
+    # survey_2026_09/09, biblioteca_2026_10/21, outbox_2026_10/24 y
+    # audit_2026_10/25) para que "todos" sea de
     # verdad todos. Solo concede (ON CONFLICT DO NOTHING): re-correrlo nunca
     # revoca nada.
     "15_grant_admin_all_perms.sql",
@@ -293,6 +296,39 @@ def _cli_user() -> str:
         return "?"
 
 
+# Colas que SQLAlchemy pega al texto de sus errores: la sentencia y sus
+# parámetros (un número de control, un `password_hash`). Nunca a la bitácora.
+_ERROR_TAILS = ("[SQL:", "[parameters:")
+
+
+def _cli_error_text(error: BaseException) -> str:
+    """Clase + PRIMERA línea del mensaje del error, para `system.cli_command`.
+
+    El texto crudo de un error de la BD trae `DETAIL: Key (...)=(...)` en la
+    segunda línea y `[SQL: ...]`/`[parameters: ...]` al final: con la primera
+    línea, recortada desde esas marcas, no sale nada de eso (revisión final
+    M3). Luego la máscara D9: un mensaje que nombra un secreto (NIP,
+    contraseña, token, hash) se guarda como "***". Nunca truena.
+    """
+    from itcj2.apps.titulatec.services.audit_actions import is_sensitive_key
+    from itcj2.apps.titulatec.services.audit_service import MASK, AuditService
+
+    clase = type(error).__name__
+    try:
+        texto = str(error)
+    except Exception:
+        texto = ""
+    for marca in _ERROR_TAILS:
+        corte = texto.find(marca)
+        if corte >= 0:
+            texto = texto[:corte]
+    lineas = [ln.strip() for ln in texto.strip().splitlines() if ln.strip()]
+    mensaje = lineas[0] if lineas else ""
+    if mensaje and is_sensitive_key(mensaje):
+        mensaje = MASK
+    return AuditService.safe(f"{clase}: {mensaje}"[:300] if mensaje else clase)
+
+
 def _record_cli_command(name: str, params: dict, status: str, duration_ms: int,
                         error: BaseException | None) -> None:
     """Escribe `system.cli_command` y lo commitea, con la MISMA fábrica de
@@ -309,7 +345,7 @@ def _record_cli_command(name: str, params: dict, status: str, duration_ms: int,
         "params": AuditService.safe(params),
     }
     if error is not None:
-        payload["error"] = AuditService.safe(f"{type(error).__name__}: {error}"[:300])
+        payload["error"] = _cli_error_text(error)
     try:
         db = SessionLocal()
         try:
@@ -3508,9 +3544,10 @@ def init_outbox_admin_command(dry_run):
 
 # ---------------------------------------------------------------------------
 # Bitacora de auditoria (2026-10-07): permiso `titulatec.audit.page.list`
-# (solo `admin`). El 25 lo inserta y el 15 (concesion dinamica a `admin`) lo
-# reparte, asi que el comando corre AMBOS, en ese orden: en produccion
-# `init-titulatec` completo nunca se re-ejecuta. Re-correr el 15 solo concede.
+# (solo `admin`). El 25 lo inserta Y lo concede explicito a `admin`, asi que el
+# comando corre SOLO el 25 (patron `init-outbox-admin`). Nunca el 15: en
+# produccion no se re-corre (concede TODO titulatec a `admin`, que por el
+# puesto D2 llega a la jefatura de Centro de Computo; revision final I3).
 # ---------------------------------------------------------------------------
 _DML_AUDIT_2026_10_DIR = "audit_2026_10"
 _DML_AUDIT_2026_10_FILES = ["25_insert_audit_perm.sql"]
@@ -3518,7 +3555,7 @@ _AUDIT_PERM = "titulatec.audit.page.list"
 
 
 def _verify_bitacora() -> list[str]:
-    """Comprueba que el 25 y el 15 ATERRIZARON: el permiso existe y el rol
+    """Comprueba que el 25 ATERRIZO: el permiso existe y el rol
     `admin` lo tiene. Devuelve problemas (mismo contrato que
     `_verify_outbox_admin`). Sesion propia, solo lectura."""
     from sqlalchemy import text
@@ -3557,13 +3594,14 @@ def _verify_bitacora() -> list[str]:
 def init_bitacora_command(dry_run):
     """Da de alta el permiso de la bitácora de auditoría para `admin`.
 
-    Corre `audit_2026_10/25_insert_audit_perm.sql` (inserta
-    `titulatec.audit.page.list`) y luego `15_grant_admin_all_perms.sql` (solo
-    concede: el rol `admin` recibe el permiso). Idempotente. Al terminar
-    VERIFICA con `_verify_bitacora()` y aborta si algo no aterrizo.
+    Corre SOLO `audit_2026_10/25_insert_audit_perm.sql`: inserta
+    `titulatec.audit.page.list` y lo concede EXPLÍCITO al rol `admin`. NO
+    re-ejecuta el 15 ni el resto de `SEED_FILES`: en producción el DML viejo
+    nunca se re-corre. Idempotente (ON CONFLICT). Al terminar VERIFICA con
+    `_verify_bitacora()` y aborta si algo no aterrizo. `--dry-run`: comprueba
+    que el archivo existe y lo lista, sin escribir.
     """
     archivos = [f"{_DML_AUDIT_2026_10_DIR}/{n}" for n in _DML_AUDIT_2026_10_FILES]
-    archivos.append("15_grant_admin_all_perms.sql")
     faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
 
     if dry_run:

@@ -20,13 +20,30 @@ from tests.fastapi.titulatec.conftest import OFFICER_PERMS, ROLE_OFFICER
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
 from itcj2.apps.titulatec.services.import_service import ImportService
 from itcj2.apps.titulatec.services.officer_service import OfficerService
+from tests.fastapi.titulatec.conftest import audit_query
 from tests.fastapi.titulatec.test_import_scale import (  # noqa: F401  (fixtures)
     import_ctx, preserve_imports_dir)
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
+
+
+@pytest.fixture(autouse=True)
+def _sin_autoflush_como_produccion(db_session):
+    """La sesión de producción NO autoflushea (`itcj2/database.py`,
+    `sessionmaker(autoflush=False)`); la del arnés sí. Con autoflush, una
+    consulta del service veía filas que solo había hecho `db.add` y la prueba
+    pasaba donde producción registraba `program_ids: []` (revisión final I1).
+    Las fábricas del conftest flushean a mano, así que no dependen de esto."""
+    previo = db_session.autoflush
+    db_session.autoflush = False
+    yield
+    db_session.autoflush = previo
 
 
 def _acciones(db, action, **filtros):
     db.flush()
-    return (db.query(TitulatecAuditLog)
+    return (audit_query(db)
             .filter_by(source="action", action=action, **filtros)
             .order_by(TitulatecAuditLog.id).all())
 
@@ -194,9 +211,85 @@ def test_import_rows_deja_un_resumen_por_llamada(db_session, titulatec_app,
 def test_import_rows_con_commit_false_registra_en_la_misma_sesion(
         db_session, titulatec_app, make_cohort):
     ImportService.import_rows(db_session, make_cohort(), [_fila("99100003")],
-                              commit=False, source="enrollment")
+                              commit=False, source="manual")
     fila = _acciones(db_session, "import.students_committed")[0]
-    assert fila.payload["source"] == "enrollment"
+    assert fila.payload["source"] == "manual"
+
+
+@pytest.fixture()
+def roles_egresado(db_session):
+    """Apps y roles que `_sync_graduate_roles` necesita (idempotente)."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+
+    for key in ("itcj", "agendatec"):
+        if db_session.query(App).filter_by(key=key).first() is None:
+            db_session.add(App(key=key, name=key, is_active=True,
+                               visible_to_students=True, mobile_enabled=True))
+    for name in ("graduate", "student"):
+        if db_session.query(Role).filter_by(name=name).first() is None:
+            db_session.add(Role(name=name))
+    db_session.flush()
+
+
+@pytest.mark.parametrize("source,control", [("enrollment_request", "99100021"),
+                                            ("self_service", "99100022")])
+def test_altas_por_solicitud_no_dejan_resumen_de_importacion(
+        db_session, titulatec_app, make_cohort, source, control):
+    """La cuenta que crea una solicitud aprobada (`_create_account`,
+    `enrollment_request`) y la activación por liga (`_convert`, `self_service`)
+    ya dejan su rastro (`enrollment.approved`, espejo de
+    `enrollment_self_service`). Un «Importó alumnos a una convocatoria» por cada
+    alumno que abre su liga, firmado por «Público», sería falso e imborrable
+    (revisión final I4): el resumen es solo de CSV y alta manual."""
+    ImportService.import_rows(db_session, make_cohort(), [_fila(control)],
+                              commit=False, source=source)
+    assert _acciones(db_session, "import.students_committed") == []
+
+
+def test_roles_synced_solo_para_cuentas_que_ya_existian(
+        db_session, titulatec_app, make_cohort, make_user, roles_egresado):
+    """Un CSV de 300 cuentas nuevas no deja 300 «Sincronizó los roles»: darle
+    el rol a una cuenta que nace en el lote ES el alta, y sus ids van al
+    resumen. Quitarle `student`/darle `graduate` a una cuenta que YA existía sí
+    es un cambio de seguridad y lleva su fila."""
+    from itcj2.core.models.user import User
+
+    existente = make_user(control_number="99100024")
+    ImportService.import_rows(db_session, make_cohort(),
+                              [_fila("99100023"), _fila("99100024")], source="csv")
+    nueva = db_session.query(User).filter_by(control_number="99100023").one()
+
+    roles = _acciones(db_session, "import.roles_synced")
+    assert [f.entity_id for f in roles] == [existente.id]
+    (resumen,) = _acciones(db_session, "import.students_committed")
+    assert resumen.payload["created_users"] == 1
+    assert resumen.payload["created_user_ids"] == [nueva.id]
+
+
+def test_cuenta_recien_creada_por_la_solicitud_no_deja_roles_synced(
+        db_session, titulatec_app, make_cohort, make_user, roles_egresado):
+    """`_create_account` crea la cuenta y, en la MISMA transacción, llama a
+    `import_rows(source="enrollment_request")`: para la bitácora es una cuenta
+    nueva (su rastro es `enrollment.approved`), no un cambio de roles."""
+    user = make_user(control_number="99100025")
+    ImportService.import_rows(db_session, make_cohort(), [_fila("99100025")],
+                              commit=False, source="enrollment_request",
+                              repair_credentials=False)
+    assert _acciones(db_session, "import.roles_synced", entity_id=user.id) == []
+
+
+def test_activacion_de_una_cuenta_existente_si_registra_sus_roles(
+        db_session, titulatec_app, make_cohort, make_user, roles_egresado):
+    """`_convert` (liga de una cuenta que YA existía, `self_service`): quitarle
+    `student` en agendatec es lo que le importa a seguridad."""
+    user = make_user(control_number="99100026")
+    ImportService.import_rows(db_session, make_cohort(), [_fila("99100026")],
+                              commit=False, source="self_service",
+                              repair_credentials=False)
+    (fila,) = _acciones(db_session, "import.roles_synced", entity_id=user.id)
+    assert fila.payload["source"] == "self_service"
+    assert fila.payload["granted"] == ["itcj", "titulatec"]
 
 
 def test_import_rows_sin_filas_validas_no_deja_resumen(db_session, titulatec_app,
@@ -340,6 +433,34 @@ def test_create_officer_con_fallo_a_medias_registra_lo_que_quedo(
     assert fila.payload["partial"] is True and fila.payload["error"] == "ValueError"
     assert len(fila.after["user_ids"]) == 1  # no los 2 solicitados
     assert fila.subject_label == "Enc parcial"
+    # Lo que se PIDIÓ, junto a lo que quedó (como `set_users`).
+    assert fila.payload["requested"] == {
+        "user_ids": sorted([depto["activa"].id, depto["otra"].id]),
+        "program_ids": []}
+
+
+def test_create_officer_con_carrera_invalida_cae_en_el_camino_parcial(
+        db_session, depto):
+    """Una carrera que no existe truena en el `flush` de las carreras, DENTRO
+    del `try`: el puesto y las personas ya los commiteó `positions_service`, así
+    que la fila del alta se escribe igual, marcada `partial`, con lo que quedó y
+    lo que se pidió (antes el error salía en el `commit` final y la fila se
+    perdía)."""
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError):
+        OfficerService.create_officer(
+            db_session, department_id=depto["dept"].id, assigned_role=ROLE_OFFICER,
+            name="Enc carrera invalida", program_ids={987654321},
+            user_ids={depto["activa"].id})
+
+    (fila,) = _acciones(db_session, "officer.created",
+                        subject_label="Enc carrera invalida")
+    assert fila.payload["partial"] is True
+    assert fila.payload["error"] == "IntegrityError"
+    assert fila.after == {"user_ids": [depto["activa"].id], "program_ids": []}
+    assert fila.payload["requested"] == {"user_ids": [depto["activa"].id],
+                                         "program_ids": [987654321]}
 
 
 # --------------------------------------------------------------------------

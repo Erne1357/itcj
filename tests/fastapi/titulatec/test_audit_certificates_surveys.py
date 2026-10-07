@@ -21,6 +21,11 @@ from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillSe
 from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
 from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
 from itcj2.apps.titulatec.services.survey_service import SurveyService
+from tests.fastapi.titulatec.conftest import audit_query
+
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
 
 _n = [0]
 
@@ -32,7 +37,7 @@ def _ref() -> str:
 
 def _acciones(db, action, **filtros):
     db.flush()
-    return (db.query(TitulatecAuditLog)
+    return (audit_query(db)
             .filter_by(source="action", action=action, **filtros)
             .order_by(TitulatecAuditLog.id).all())
 
@@ -190,8 +195,7 @@ def test_submit_registra_survey_submitted_sin_respuestas(db_session, make_survey
     assert secreto not in json.dumps(
         [fila.payload, fila.before, fila.after, fila.reason, fila.subject_label], default=str)
     # Ninguna fila de la bitácora, de ningún origen, copia el contenido.
-    todas = db_session.query(TitulatecAuditLog).filter(
-        TitulatecAuditLog.id > ultimo).all()
+    todas = audit_query(db_session).filter(TitulatecAuditLog.id > ultimo).all()
     assert all(secreto not in json.dumps(
         [f.payload, f.before, f.after, f.reason, f.subject_label], default=str)
         for f in todas)

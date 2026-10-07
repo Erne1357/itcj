@@ -321,37 +321,50 @@ class OfficerService:
         code = f"se_officer_{uuid.uuid4().hex[:8]}"
         pos = positions_service.create_position(
             db, code=code, title=name, department_id=department_id, allows_multiple=True)
+        # El id se toma YA: si el `flush` de abajo falla, la sesión revierte y
+        # `pos` queda expirado (leer `pos.id` daría `PendingRollbackError`).
+        pos_id = pos.id
         error: Exception | None = None
         try:
-            positions_service.assign_role_to_position(db, pos.id, "titulatec", assigned_role)
+            positions_service.assign_role_to_position(db, pos_id, "titulatec", assigned_role)
             for uid in user_ids:
-                positions_service.assign_user_to_position(db, uid, pos.id)
-            OfficerService._sync_programs(db, pos.id, program_ids)
+                positions_service.assign_user_to_position(db, uid, pos_id)
+            OfficerService._sync_programs(db, pos_id, program_ids)
+            # `_sync_programs` solo hace `db.add`, y la sesión de producción NO
+            # autoflushea: sin este flush la consulta de `carreras` de abajo no
+            # veía las filas nuevas y la bitácora decía «sin carreras» (revisión
+            # final I1). Además mete aquí, dentro del `try`, el error de una
+            # carrera que no existe (FK): antes salía en el `commit` final y la
+            # fila del alta se perdía con el puesto ya creado.
+            db.flush()
         except Exception as exc:  # el puesto ya existe: se registra lo que quedó
             error = exc
         # Una sola fila para el alta (puesto + rol + personas + carreras), escrita
         # SIEMPRE: `positions_service` commitea por dentro, así que un fallo a
         # medias deja el puesto y a quienes ya se asignaron. `after` sale de la BD,
-        # no de lo solicitado; con error lleva `partial` y la clase del error.
+        # no de lo solicitado; con error lleva `partial`, la clase del error y lo
+        # que se pidió (`requested`, como `set_users`).
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.core.models.position import ProgramPosition
-        usuarios = OfficerService._active_user_ids(db, pos.id)
+        usuarios = OfficerService._active_user_ids(db, pos_id)
         carreras = sorted(pid for (pid,) in db.query(ProgramPosition.program_id)
-                          .filter_by(position_id=pos.id).all())
+                          .filter_by(position_id=pos_id).all())
         payload = {"department_id": department_id, "assigned_role": assigned_role,
                    "code": code}
         if error is not None:
-            payload.update(partial=True, error=type(error).__name__)
+            payload.update(partial=True, error=type(error).__name__,
+                           requested={"user_ids": sorted(set(user_ids)),
+                                      "program_ids": sorted(set(program_ids))})
         AuditService.record(
             db, "officer.created",
-            entity_type="position", entity_id=pos.id, subject=name,
+            entity_type="position", entity_id=pos_id, subject=name,
             after={"user_ids": sorted(usuarios), "program_ids": carreras},
             payload=payload,
         )
         db.commit()
         if error is not None:
             raise error
-        return pos.id
+        return pos_id
 
     @staticmethod
     def deactivate_officer(db: Session, position_id: int) -> None:

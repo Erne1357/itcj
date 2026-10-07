@@ -11,11 +11,20 @@ from decimal import Decimal
 import pytest
 
 from itcj2.core.utils.timezone import db_now
+from tests.fastapi.titulatec.conftest import audit_query
+
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
 
 
 def _filas(db, action, entity_id=None):
     from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog as A
-    q = db.query(A).filter(A.source == "action", A.action == action)
+    # Varios services de espacios no commitean (lo hace la ruta): sin este
+    # flush, con la sesión de producción (sin autoflush) la fila pendiente de
+    # `record` no se vería y una prueba de «no deja fila» pasaría en vacío.
+    db.flush()
+    q = audit_query(db).filter(A.source == "action", A.action == action)
     if entity_id is not None:
         q = q.filter(A.entity_id == entity_id)
     return q.order_by(A.id).all()
@@ -165,6 +174,22 @@ class TestEspacios:
         fila = _una(db_session, "window.updated", w.id)
         assert fila.before == {"capacity": 1, "location": None}
         assert fila.after == {"capacity": 3, "location": "Edif. B"}
+
+    def test_update_sin_cambios_no_deja_fila(self, db_session, esc,
+                                             make_review_window):
+        """Guardar el editor sin tocar nada (p. ej. solo para copiar el espacio
+        a otros días) no deja un «Editó un espacio» vacío: la bitácora es
+        inmutable y ese ruido sería para siempre (mismo guarda que requisitos)."""
+        from itcj2.apps.titulatec.services.review_window_service import (
+            ReviewWindowService as S,
+        )
+        w = make_review_window(esc["dia"], esc["dueno"], cap=2, location="Sala 1")
+
+        S.update(db_session, w, start_time=w.start_time, end_time=w.end_time,
+                 slot_minutes=w.slot_minutes, capacity=w.capacity,
+                 location=w.location)
+
+        assert _filas(db_session, "window.updated", w.id) == []
 
     def test_pausa_y_reanuda(self, db_session, esc, make_review_window):
         from itcj2.apps.titulatec.services.review_window_service import (

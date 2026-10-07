@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -294,6 +295,51 @@ def test_con_process_id_no_hay_ventana_de_7_dias(client_as, db_session, admin, m
     assert vieja.id not in _ids(c.get(f"{URL}?q={t}").text)
 
 
+def test_expediente_incluye_la_solicitud_previa_por_numero_de_control(
+        client_as, db_session, admin, make_user, make_process):
+    """«Ver bitácora» desde el expediente (revisión final M4): lo de la solicitud
+    de inscripción (aprobar, rechazar, reabrir, devolver, reenviar liga) no
+    lleva `process_id` —el proceso aún no existía—, pero su `subject_label`
+    empieza con el nº de control del alumno («20111234 · Nombre», o el control
+    solo). Con `process_id` también salen; las de otro control (aunque
+    compartan prefijo) y las de OTRO proceso, no."""
+    t = _token()
+    control = "99" + str(uuid.uuid4().int)[:6]
+    alumno = make_user(first_name="PREVIA", last_name="SOLICITUD", control_number=control)
+    proc = make_process(alumno)
+    otro_proc = make_process(make_user(first_name="OTRO", last_name="ALUMNO"))
+    del_proc = _fila(db_session, token=t, process_id=proc.id,
+                     occurred_at=_ahora() - timedelta(days=40))
+    solicitud = _fila(db_session, token=t, action="enrollment.approved", module="enrollment",
+                      subject_label=f"{control} · PREVIA SOLICITUD",
+                      occurred_at=_ahora() - timedelta(days=45))
+    solo_control = _fila(db_session, token=t, action="import.credential_set", module="import",
+                         subject_label=control)
+    _fila(db_session, token=t, action="enrollment.approved", module="enrollment",
+          subject_label=f"{control}9 · CONTROL MAS LARGO")
+    _fila(db_session, token=t, process_id=otro_proc.id,
+          subject_label=f"{control} · DE OTRO PROCESO")
+    esperadas = {del_proc.id, solicitud.id, solo_control.id}
+
+    c = client_as(admin)
+    assert _ids(_body(c, q=t, process_id=str(proc.id))) == esperadas
+    # La liga del expediente (página completa, sin ventana de 7 días).
+    assert _ids(c.get(f"{URL}?process_id={proc.id}&q={t}").text) == esperadas
+
+
+def test_alumno_por_folio_del_proceso(client_as, db_session, admin, make_user,
+                                      make_process):
+    """La columna «Sobre qué» muestra primero el folio: el filtro «Alumno»
+    también lo encuentra (en cualquier mayúscula/minúscula)."""
+    t = _token()
+    proc = make_process(make_user(first_name="FOLIO", last_name="BUSCADO"))
+    fila = _fila(db_session, token=t, process_id=proc.id)
+    _fila(db_session, token=t)
+    c = client_as(admin)
+    assert _ids(_body(c, q=t, student=proc.folio)) == {fila.id}
+    assert _ids(_body(c, q=t, student=proc.folio.lower())) == {fila.id}
+
+
 def test_process_id_con_digitos_raros_no_truena(client_as, admin):
     c = client_as(admin)
     assert c.get(f"{URL}/body", params={"process_id": "²"}).status_code == 200
@@ -310,3 +356,53 @@ def test_detalle_trae_control_para_cerrar(client_as, db_session, admin):
     a = _fila(db_session, token=_token())
     html = client_as(admin).get(f"{URL}/entry/{a.id}").text
     assert f'id="tt-audit-cerrar-{a.id}"' in html and "<details open" in html
+
+
+# ---------------------------------------------------------------------------
+# 8. Cosmética del detalle (browser check, revisión final M6)
+# ---------------------------------------------------------------------------
+_CSS = (Path(__file__).resolve().parents[3] / "itcj2" / "apps" / "titulatec"
+        / "static" / "css" / "audit-log.css")
+
+
+def _reglas_css() -> str:
+    """El CSS sin comentarios ni espacios repetidos (para buscar reglas)."""
+    css = re.sub(r"/\*.*?\*/", "", _CSS.read_text(encoding="utf-8"), flags=re.S)
+    return re.sub(r"\s+", " ", css)
+
+
+def test_resumen_dice_ver_u_ocultar_segun_este_abierto(client_as, db_session, admin):
+    """Plegado, el `<summary>` decía «Ocultar detalle». Ahora trae los dos
+    textos y el CSS muestra uno u otro con `details[open]` (sin JS)."""
+    import lxml.html
+
+    a = _fila(db_session, token=_token())
+    doc = lxml.html.fromstring(client_as(admin).get(f"{URL}/entry/{a.id}").text)
+    (resumen,) = doc.xpath(f'//summary[@id="tt-audit-cerrar-{a.id}"]')
+    textos = {s.get("class"): s.text_content().strip() for s in resumen.xpath("./span")}
+    assert textos == {"tt-audit-when-open": "Ocultar detalle",
+                      "tt-audit-when-closed": "Ver detalle"}
+    css = _reglas_css()
+    assert re.search(r"\.tt-audit-det:not\(\[open\]\) \.tt-audit-when-open\s*,\s*"
+                     r"\.tt-audit-det\[open\] \.tt-audit-when-closed\s*\{\s*display:\s*none",
+                     css), css
+
+
+def test_el_detalle_abierto_no_aprieta_las_columnas(client_as, db_session, admin):
+    """A 1280 px, con un detalle abierto, «Detalle» y «Documentos» se partían:
+    el contenido del detalle (colspan) entraba al cálculo de anchos de la
+    tabla. La fila de detalle va marcada y su contenido no aporta ancho
+    intrínseco (`width: 0; min-width: 100%`); encabezados, fecha, módulo y
+    botón no se parten."""
+    t = _token()
+    a = _fila(db_session, token=t)
+    html = _body(client_as(admin), q=t)
+    assert f'<tr class="tt-audit-detrow"><td colspan="7"' in html
+    assert f'id="tt-audit-det-{a.id}"' in html
+    css = _reglas_css()
+    assert re.search(r"\.tt-audit-detrow > td > div\s*\{[^}]*width:\s*0[^}]*"
+                     r"min-width:\s*100%", css), css
+    assert re.search(r"#tt-audit-table thead th\s*,?[^{]*\{[^}]*white-space:\s*nowrap",
+                     css), css
+    assert re.search(r"#tt-audit-table td\.tt-audit-nowrap\s*\{[^}]*white-space:\s*nowrap",
+                     css), css

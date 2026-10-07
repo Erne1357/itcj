@@ -309,9 +309,13 @@ class ReviewWindowService:
             raise DuplicateWindowStart()
         from itcj2.apps.titulatec.services.audit_service import AuditService
         antes_c, despues_c = AuditService.changes(antes, _foto(window))
-        AuditService.record(
-            db, "window.updated", entity_type="review_window", entity_id=window.id,
-            before=antes_c, after=despues_c)
+        # Sin diff, sin fila (mismo guarda que `cohort.requirement_updated`):
+        # guardar el editor solo para copiar el espacio a otros días dejaba un
+        # «Editó un espacio» vacío e imborrable.
+        if antes_c or despues_c:
+            AuditService.record(
+                db, "window.updated", entity_type="review_window", entity_id=window.id,
+                before=antes_c, after=despues_c)
         return window
 
     @staticmethod

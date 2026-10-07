@@ -14,6 +14,10 @@ from datetime import datetime, timedelta
 import pytest
 
 from tests.fastapi.titulatec._sii_fake import pide_nip, sii  # noqa: F401
+from tests.fastapi.titulatec.conftest import audit_query
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
 
 ENROLL_URL = "/titulatec/inscripcion"
 # NIP con cero a la izquierda y buscado como cifra AISLADA: un NIP corto
@@ -31,7 +35,7 @@ def _svc():
 
 def _acciones(db_session, action, **filtros):
     from itcj2.apps.titulatec.models import TitulatecAuditLog
-    return (db_session.query(TitulatecAuditLog)
+    return (audit_query(db_session)
             .filter_by(source="action", action=action, **filtros)
             .order_by(TitulatecAuditLog.id).all())
 
@@ -179,8 +183,7 @@ def test_aprobar_cuenta_nueva_no_duplica_el_evento_de_proceso(
 
     assert r.ok, r
     assert _acciones(db_session, "enrollment.approved", entity_id=req.id) == []
-    from itcj2.apps.titulatec.models import TitulatecAuditLog
-    espejo = (db_session.query(TitulatecAuditLog)
+    espejo = (audit_query(db_session)
               .filter_by(source="process_event").all())
     assert espejo, "el espejo del enrollment_self_service debe existir"
     assert all(NIP_AISLADO.search(repr(f.payload)) is None for f in espejo)

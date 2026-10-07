@@ -17,7 +17,9 @@ Qué escribe, en la MISMA transacción del cambio (D8):
 2. Red ORM: cada fila nueva/modificada/borrada de una tabla `titulatec_*` que no
    esté en `NET_EXCLUDED_TABLES` -> `source='data'`, `action='data.insert|update|
    delete'`, con el diff por columna (sin `updated_at`; un cambio sin diff no deja
-   fila), a nombre de quien opera (el contexto). Columnas sensibles como "***" (D9).
+   fila; un valor previo que no estaba cargado —atributo expirado tras un commit—
+   no va en `before`), a nombre de quien opera (el contexto). Columnas sensibles
+   como "***" (D9).
 3. Todo en UN `INSERT` multi-fila por `session.connection()` (Core): +1 sentencia
    por flush con escrituras titulatec, 0 en lecturas. Nunca `session.add` dentro
    del flush. (Las filas de `AuditService.record` del mismo flush van aparte, en
@@ -210,6 +212,15 @@ def _pk_of(state, mapper) -> tuple[int | None, dict | None]:
     return None, AuditService.safe(pk_vals)
 
 
+def _same(old, new) -> bool:
+    """¿El valor nuevo es el mismo que el previo (ambos conocidos)? Una
+    comparación que truena cuenta como distinta: ante la duda, se registra."""
+    try:
+        return bool(old == new)
+    except Exception:
+        return False
+
+
 def _data_row(state, table: str, op: str, ctx: AuditCtx) -> dict[str, Any] | None:
     """Fila de la red ORM, o `None` si no hay diff que contar."""
     mapper = state.mapper
@@ -237,9 +248,16 @@ def _data_row(state, table: str, op: str, ctx: AuditCtx) -> dict[str, Any] | Non
             hist = state.attrs[key].history
             if not hist.has_changes():
                 continue
-            old = hist.deleted[0] if hist.deleted else None
             new = hist.added[0] if hist.added else None
-            before[name] = _masked(name, old)
+            if hist.deleted:
+                old = hist.deleted[0]
+                if _same(old, new):
+                    continue                 # se reasignó el mismo valor
+                before[name] = _masked(name, old)
+            # Sin `deleted`, el valor previo NO estaba cargado: en producción
+            # (`expire_on_commit=True`) un atributo asignado sin leerlo tras un
+            # commit. No se sabe qué había, así que la llave no va en `before`
+            # (un `null` diría «estaba vacío», que es falso). Revisión final M2.
             after[name] = _masked(name, new)
         if not after and not before:
             return None

@@ -9,11 +9,15 @@ import pytest
 
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
 from itcj2.apps.titulatec.services.format_b_service import FormatBService
+from tests.fastapi.titulatec.conftest import audit_query
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
 
 
 def _acciones(db, action):
     db.flush()
-    return (db.query(TitulatecAuditLog)
+    return (audit_query(db)
             .filter_by(source="action", action=action)
             .order_by(TitulatecAuditLog.id).all())
 

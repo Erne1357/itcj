@@ -11,9 +11,12 @@ petición y las filas hermanas del mismo `request_id`).
 
 Filtros (todos `str` y parseados a mano: HTMX manda `process_id=` vacío y un
 `int | None` respondería 422): desde/hasta (default del shell: últimos 7 días;
-en el parcial, vacío = sin límite), módulo, acción, quién, alumno, expediente,
-texto en el motivo y «Incluir cambios de datos» (apagado: solo `action` y
-`process_event`). Un valor fuera de catálogo se ignora, nunca revienta.
+en el parcial, vacío = sin límite), módulo, acción, quién, alumno (nº de
+control, nombre o folio del proceso, más `subject_label`), expediente (sus filas
+más las de su solicitud de inscripción, que no llevan `process_id`: las que
+empiezan con el nº de control del alumno), texto en el motivo e «Incluir
+cambios de datos» (apagado: solo `action` y `process_event`). Un valor fuera de
+catálogo se ignora, nunca revienta.
 
 `occurred_at` es naive en hora local: los filtros de fecha comparan naive
 (`desde 00:00`, `hasta + 1 día`). NO HACE NADA más que leer.
@@ -134,8 +137,24 @@ def _filters(*, desde, hasta, module, action, who, student, process_id, q, data)
     }
 
 
-def _predicates(f: dict) -> list:
-    from sqlalchemy import func, or_, select
+def _process_control(db, process_id: int | None) -> str | None:
+    """Nº de control del alumno de un proceso (una consulta), o `None`."""
+    if process_id is None:
+        return None
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    control = (db.query(User.control_number)
+               .join(TitulationProcess, TitulationProcess.student_id == User.id)
+               .filter(TitulationProcess.id == process_id).scalar())
+    control = (control or "").strip()
+    return control or None
+
+
+def _predicates(f: dict, *, process_control: str | None = None) -> list:
+    """Predicados SQL de los filtros. `process_control` es el nº de control del
+    alumno de `f["process_id"]` (lo resuelve `_body_ctx`)."""
+    from sqlalchemy import and_, func, or_, select
 
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models import TitulationProcess
@@ -152,7 +171,20 @@ def _predicates(f: dict) -> list:
     if f["action"]:
         out.append(A.action == f["action"])
     if f["process_id"] is not None:
-        out.append(A.process_id == f["process_id"])
+        if process_control:
+            # Lo de la SOLICITUD de inscripción (aprobar, rechazar, reabrir,
+            # devolver, reenviar liga) pasó antes de que existiera el proceso:
+            # no lleva `process_id`, pero su `subject_label` es «control ·
+            # nombre» o el control solo (revisión final M4). Igualdad exacta o
+            # control + espacio: un control más largo con el mismo prefijo no
+            # entra.
+            prefijo = like_pattern(process_control)[1:-1]   # escapado, sin los `%`
+            previa = and_(A.process_id.is_(None), or_(
+                A.subject_label == process_control,
+                A.subject_label.like(prefijo + " %", escape="\\")))
+            out.append(or_(A.process_id == f["process_id"], previa))
+        else:
+            out.append(A.process_id == f["process_id"])
     if not f["data"]:
         out.append(A.source != "data")
 
@@ -169,9 +201,12 @@ def _predicates(f: dict) -> list:
         quien = select(User.id).where(or_(_nombre(f["who"]), _like(User.username, f["who"])))
         out.append(or_(A.actor_id.in_(quien), _like(A.actor_label, f["who"])))
     if f["student"]:
+        # Nº de control, nombre o FOLIO del proceso: «Sobre qué» muestra el
+        # folio primero, así que también se busca por él.
         alumnos = (select(TitulationProcess.id)
                    .join(User, User.id == TitulationProcess.student_id)
-                   .where(or_(_like(User.control_number, f["student"]), _nombre(f["student"]))))
+                   .where(or_(_like(User.control_number, f["student"]), _nombre(f["student"]),
+                              _like(TitulationProcess.folio, f["student"]))))
         out.append(or_(A.process_id.in_(alumnos), _like(A.subject_label, f["student"])))
     if f["q"]:
         out.append(_like(A.reason, f["q"]))
@@ -188,7 +223,8 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
     from itcj2.apps.titulatec.pages.mail_admin import _process_opener
     from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES, TABLE_LABELS
 
-    query = (db.query(A).filter(*_predicates(f))
+    preds = _predicates(f, process_control=_process_control(db, f["process_id"]))
+    query = (db.query(A).filter(*preds)
              .order_by(A.occurred_at.desc(), A.id.desc()))
     pagina = paginate_query(query, parse_page(page), per_page)
     filas = pagina.items

@@ -29,6 +29,11 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import event, text
 
+from tests.fastapi.titulatec.conftest import audit_query
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
+
 
 def _svc():
     from itcj2.apps.titulatec.services.audit_service import AuditService
@@ -55,7 +60,7 @@ def _contar(db_session, fn, filtro=None) -> int:
 
 def _filas(db_session, **filtros):
     from itcj2.apps.titulatec.models import TitulatecAuditLog
-    return (db_session.query(TitulatecAuditLog).filter_by(**filtros)
+    return (audit_query(db_session).filter_by(**filtros)
             .order_by(TitulatecAuditLog.id).all())
 
 

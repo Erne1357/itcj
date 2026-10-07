@@ -14,9 +14,9 @@
 ## Ruta en la app (UI)
 
 1. Menú admin → **Bitácora** (`/titulatec/admin/bitacora`; solo `admin`). Por omisión, últimos 7 días, sin cambios de datos.
-2. Filtros arriba (desde, hasta, módulo, acción, quién, alumno, expediente, texto del motivo, «Incluir cambios de datos»): repintan solo `#tt-audit-body` por HTMX (`GET /body`); los filtros viven fuera del swap.
-3. Clic en una fila → detalle (`GET /entry/{id}`): antes/después, payload, huella de la petición (IP, navegador, ruta, `request_id`) y las filas hermanas del mismo `request_id`.
-4. Desde el detalle de un expediente, el enlace a la bitácora (`?process_id=`) abre TODO su historial, sin ventana de 7 días.
+2. Filtros arriba (desde, hasta, módulo, acción, quién, alumno —nº de control, nombre o folio del proceso—, expediente, texto del motivo, «Incluir cambios de datos»): repintan solo `#tt-audit-body` por HTMX (`GET /body`); los filtros viven fuera del swap.
+3. Clic en una fila → detalle (`GET /entry/{id}`): antes/después, payload, huella de la petición (IP, navegador, ruta, `request_id`) y las filas hermanas del mismo `request_id`. «Ocultar detalle» lo pliega (y entonces dice «Ver detalle»); abrirlo no aprieta las columnas de la tabla.
+4. Desde el detalle de un expediente, el enlace a la bitácora (`?process_id=`) abre TODO su historial, sin ventana de 7 días: sus filas más las de su solicitud de inscripción (aprobar, rechazar, reabrir, devolver, reenviar liga), que no llevan `process_id` pero sí el nº de control del alumno en `subject_label`.
 
 ## Secuencia
 
@@ -65,14 +65,22 @@ sequenceDiagram
 - **Fuera de la red**: `query().update()/.delete()` masivos, `bulk_*`, `text(...)` y DML; tablas del core; `NET_EXCLUDED_TABLES` (`titulatec_audit_log`, `titulatec_process_events`, `titulatec_email_outbox` y las 3 tablas de contenido de la encuesta: PII). Lo que importe de esas vías lleva `record` explícito.
 - **Un error de Python al armar UNA fila** → se loguea y esa fila se omite; la operación sigue. Un código fuera de `AUDIT_ACTIONS` lanza `ValueError` solo en pruebas/dev.
 - **Filtros HTMX vacíos** (`process_id=`) → se parsean a mano como `str`; nunca 422. Un valor fuera de catálogo se ignora.
+- **Atributo asignado sin leerlo tras un commit** (producción expira al commitear) → la red no sabe el valor previo: la llave se omite de `before` (nunca un `null` que diga «estaba vacío»). Reasignar el mismo valor conocido no deja fila.
+- **Error de un comando de consola** → `system.cli_command` guarda la clase y la primera línea del mensaje, sin `[SQL: …]`/`[parameters: …]` ni el `DETAIL` de la BD, enmascarada si nombra un secreto.
+- **Altas por solicitud** (`_create_account`, liga de activación) → no dejan `import.students_committed` (es solo de CSV y alta manual); `import.roles_synced` solo para cuentas que ya existían.
 - **Intento de `UPDATE`/`DELETE`/`TRUNCATE`** → el trigger `titulatec_audit_log_guard()` lo rechaza; `DELETE`/`TRUNCATE` solo pasan con `SET LOCAL titulatec.audit_purge = 'on'`.
-- **`audit-purge`**: corte más reciente de 365 días exige `--force`; `--archive` (JSONL, antes de borrar) rechaza un archivo existente; si lo archivado ≠ lo borrado se revierte todo; `--dry-run` solo cuenta; deja `system.audit_purged`.
+- **`audit-purge`**: corte más reciente de 365 días exige `--force`; `--archive` (JSONL, antes de borrar) rechaza un archivo existente; si lo archivado ≠ lo borrado se revierte todo; `--dry-run` solo cuenta; deja `system.audit_purged`. **El archivo va a un volumen montado**: el comando corre dentro del contenedor del backend y cada deploy lo recrea, así que un JSONL fuera de un montaje (la única copia de lo purgado) se pierde. En producción: `--archive /app/instance/audit_archive/<nombre>.jsonl` (bind mount de `instance/`; la carpeta se crea sola) y luego copiarlo fuera del servidor. `/app/database` es de solo lectura.
 
 ## Despliegue (orden obligatorio)
 
 1. `alembic upgrade head` (`tt20261007b`) **antes** de que el código sirva tráfico: sin la tabla, toda escritura de TitulaTec falla. Hace backfill del historial de `titulatec_process_events`.
-2. `python -m itcj2.cli.main titulatec init-bitacora` (permiso `titulatec.audit.page.list` + concesión a `admin`).
+2. Copiar `database/DML/titulatec/audit_2026_10/` al servidor y `python -m itcj2.cli.main titulatec init-bitacora --dry-run` → sin `--dry-run`. Corre SOLO el `25_insert_audit_perm.sql` (permiso `titulatec.audit.page.list` + concesión EXPLÍCITA a `admin`); **nunca re-corre el `15_grant_admin_all_perms.sql`**, que en producción no se re-ejecuta (concede todo titulatec a `admin`).
 3. Recrear los workers de Celery.
+
+## Reversa (en este orden)
+
+1. **Primero** `./docker/scripts/rollback.sh`: el código viejo no trae la escucha y deja de escribir en la tabla.
+2. **Después**, desde la imagen NUEVA (la vieja no conoce la revisión), `alembic -c migrations/alembic.ini downgrade tt20261007a`. Al revés, con el código nuevo sirviendo y la tabla ya borrada, **toda** escritura de TitulaTec falla. El downgrade borra la bitácora (el historial de procesos sigue en `titulatec_process_events`); para conservarla, exportarla antes a `/app/instance/...` o fuera del contenedor.
 
 ## Flujos relacionados
 

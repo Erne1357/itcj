@@ -44,6 +44,19 @@ _FOLIO_SEQ_RE = re.compile(r"(\d+)$")
 # importaciones que ya estén corriendo con el valor viejo.
 _FOLIO_LOCK_NS = 0x7454  # "tT"
 
+# Bitácora (revisión final I4, 2026-10-07). `import.students_committed` es el
+# resumen de una IMPORTACIÓN de verdad: CSV o alta manual de Servicios
+# Escolares. Las altas que nacen de una solicitud (`_create_account`, origen
+# `enrollment_request`; la liga de activación `_convert`, origen
+# `self_service`) ya dejan su propio rastro (`enrollment.approved`, el espejo de
+# `enrollment_self_service`), y un «Importó alumnos» por cada egresado que abre
+# su liga —firmado por «Público»— sería falso e imborrable.
+_SUMMARY_SOURCES = frozenset({"csv", "manual"})
+# Orígenes cuyo llamador CREA la cuenta en la misma transacción, justo antes de
+# llamar a `import_rows` (`EnrollmentRequestService._create_account`): para la
+# bitácora es una cuenta nueva, no un cambio de roles de una que ya existía.
+_FRESH_ACCOUNT_SOURCES = frozenset({"enrollment_request"})
+
 
 def set_initial_credential(user) -> None:
     """Credencial inicial del alumno: la contraseña ES su número de control.
@@ -545,6 +558,11 @@ class ImportService:
         parámetros nacen con el valor del comportamiento de hoy, para no tocar a
         `pages/admin.py:139` ni a `pages/admin.py:587`.
 
+        BITÁCORA (2026-10-07): UNA fila `import.students_committed` por llamada,
+        solo con `source` de `_SUMMARY_SOURCES` (CSV, alta manual), con los ids
+        de las cuentas creadas; `import.roles_synced` solo para cuentas que ya
+        existían antes de esta alta (ver `_FRESH_ACCOUNT_SOURCES`).
+
         Devuelve summary con created_users / matched_users / repaired_users /
         processes_created / skipped / authz_touched.
         """
@@ -594,6 +612,7 @@ class ImportService:
 
         created_users = matched_users = processes_created = skipped = 0
         repaired_users = 0
+        created_user_ids: list[int] = []
         touched: set[tuple[int, str]] = set()
         from itcj2.apps.titulatec.services.audit_service import AuditService
 
@@ -626,6 +645,9 @@ class ImportService:
                                     detail=f"App '{faltan[0]}' no existe.")
 
             user = db.query(User).filter_by(control_number=control).first()
+            # ¿La cuenta ya existía ANTES de esta alta? Solo entonces su cambio
+            # de roles es un suceso propio en la bitácora (I4).
+            cuenta_previa = user is not None and source not in _FRESH_ACCOUNT_SOURCES
             if user:
                 matched_users += 1
                 if r.get("email") and not user.email:
@@ -673,6 +695,7 @@ class ImportService:
                 db.add(user)
                 db.flush()
                 created_users += 1
+                created_user_ids.append(user.id)
 
             # Roles de egresado. Equivalente a `grant_role`/`revoke_role` de
             # `authz_service`, pero con `flush()` en vez de `commit()`: ver
@@ -682,7 +705,10 @@ class ImportService:
                                                 student_role=student_role,
                                                 app_ids=app_ids, detail=roles_detail):
                 touched.add((user.id, app_key))
-            if roles_detail.get("granted") or roles_detail.get("revoked"):
+            # Solo cuentas que YA existían: a una que nace aquí (o que el
+            # llamador acaba de crear) darle el rol ES el alta, y su id viaja en
+            # el resumen. Sin esto, un CSV de 300 dejaba 300 filas (I4).
+            if cuenta_previa and (roles_detail.get("granted") or roles_detail.get("revoked")):
                 AuditService.record(
                     db, "import.roles_synced",
                     entity_type="user", entity_id=user.id,
@@ -750,15 +776,20 @@ class ImportService:
                                process_id=proc.id, phase_number=1)
 
         authz_touched = sorted(touched)
-        if created_users or matched_users or processes_created or skipped:
-            # Un resumen por llamada. Con `commit=False` (alta desde una
-            # solicitud) la fila viaja en la transacción del llamador.
+        if source in _SUMMARY_SOURCES and (
+                created_users or matched_users or processes_created or skipped):
+            # Un resumen por llamada, solo de CSV y alta manual (ver
+            # `_SUMMARY_SOURCES`). Con `commit=False` la fila viaja en la
+            # transacción del llamador. Las cuentas creadas van por id (el
+            # saneo de `record` acota la lista): así cada alta sigue siendo
+            # rastreable sin una fila por alumno.
             AuditService.record(
                 db, "import.students_committed",
                 entity_type="cohort", entity_id=cohort.id,
                 subject=getattr(cohort, "name", None),
                 payload={"cohort_id": cohort.id, "source": source,
                          "created_users": created_users,
+                         "created_user_ids": created_user_ids,
                          "merged_users": matched_users,
                          "repaired_users": repaired_users,
                          "processes_created": processes_created,

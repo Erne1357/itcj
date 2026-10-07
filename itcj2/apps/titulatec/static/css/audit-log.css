@@ -35,5 +35,15 @@
 }
 #tt-audit-table td { max-width: 22rem; overflow-wrap: anywhere; }
 #tt-audit-table { white-space: normal; }
+/* Encabezados, fecha, módulo y botón no se parten («Detall/e», «Document/os»). */
+#tt-audit-table thead th { white-space: nowrap; }
+#tt-audit-table td.tt-audit-nowrap { white-space: nowrap; overflow-wrap: normal; }
+/* La fila de detalle va a todo lo ancho y su contenido no aporta ancho
+   intrínseco a la tabla: con un detalle abierto las columnas no se aprietan. */
+.tt-audit-detrow > td { max-width: none; }
+.tt-audit-detrow > td > div { width: 0; min-width: 100%; }
 
 .tt-audit-close { cursor: pointer; color: var(--tt-slate); margin-bottom: .5rem; }
+/* El resumen dice qué hace: «Ocultar detalle» abierto, «Ver detalle» plegado. */
+.tt-audit-det:not([open]) .tt-audit-when-open,
+.tt-audit-det[open] .tt-audit-when-closed { display: none; }

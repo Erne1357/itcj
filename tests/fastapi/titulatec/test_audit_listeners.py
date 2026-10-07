@@ -28,6 +28,11 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import event
 
+from tests.fastapi.titulatec.conftest import audit_query
+
+# La bitácora de dev ya trae filas reales: solo las de ESTA prueba (`id > marca`).
+pytestmark = pytest.mark.usefixtures("audit_mark")
+
 
 def _contar(db_session, fn, filtro="titulatec_audit_log") -> int:
     """Sentencias que emite `fn()` y mencionan `filtro` (None = todas)."""
@@ -49,7 +54,7 @@ def _contar(db_session, fn, filtro="titulatec_audit_log") -> int:
 
 def _filas(db_session, **filtros):
     from itcj2.apps.titulatec.models import TitulatecAuditLog
-    return (db_session.query(TitulatecAuditLog).filter_by(**filtros)
+    return (audit_query(db_session).filter_by(**filtros)
             .order_by(TitulatecAuditLog.id).all())
 
 
@@ -249,6 +254,86 @@ def test_alta_cambio_y_baja_con_diff(db_session, make_cohort):
                      entity_id=dia.id, action="data.delete")
     assert baja.after is None
     assert baja.before["capacity"] == 25 and baja.before["date"] == "2091-03-02"
+
+
+# ---------------------------------------------------------------------------
+# 2b. Como en producción: `expire_on_commit=True` y sin autoflush
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def como_produccion(db_session):
+    """La `SessionLocal` de producción expira todo al commitear
+    (`expire_on_commit=True`) y no autoflushea; la del arnés no expira. Tras un
+    commit, asignar un atributo SIN leerlo no deja historia del valor previo:
+    la red no puede saber qué había (revisión final M2)."""
+    previo = (db_session.expire_on_commit, db_session.autoflush)
+    db_session.expire_on_commit = True
+    db_session.autoflush = False
+    yield db_session
+    db_session.expire_on_commit, db_session.autoflush = previo
+
+
+def _dia_commiteado(db, cohort, **campos):
+    """Día de cotejo creado, flusheado y commiteado (en el arnés, un SAVEPOINT):
+    al volver, TODOS sus atributos están expirados. El id se lee antes del
+    commit: leerlo después recargaría la fila."""
+    from itcj2.apps.titulatec.models import CohortReviewDay
+    dia = CohortReviewDay(cohort_id=cohort.id, **campos)
+    db.add(dia)
+    db.flush()
+    dia_id = dia.id
+    db.commit()
+    return dia, dia_id
+
+
+def test_valor_previo_sin_cargar_no_se_registra_como_null(como_produccion, make_cohort):
+    """Antes: `before: {"capacity": null}`, que afirma «estaba vacío». El valor
+    previo no estaba cargado: la llave se OMITE de `before` (no se inventa) y
+    la fila sigue ligada a su entidad por la llave de identidad."""
+    db = como_produccion
+    dia, dia_id = _dia_commiteado(db, make_cohort(), date=date(2093, 4, 1),
+                                  capacity=20, location="Sala A")
+    assert "capacity" not in dia.__dict__        # expirado: nadie lo leyó
+
+    dia.capacity = 25
+    db.flush()
+
+    (cambio,) = _filas(db, entity_type="titulatec_cohort_review_days",
+                       entity_id=dia_id, action="data.update")
+    assert "capacity" not in (cambio.before or {})
+    assert cambio.after == {"capacity": 25}
+
+
+def test_mismo_valor_tras_recargar_no_deja_fila(como_produccion, make_cohort):
+    """Con el valor previo cargado, asignar lo mismo no es un cambio."""
+    db = como_produccion
+    dia, dia_id = _dia_commiteado(db, make_cohort(), date=date(2093, 4, 2),
+                                  capacity=20, location="Sala A")
+    assert dia.capacity == 20                    # recarga la fila
+    dia.capacity = 20
+    dia.location = "Sala A"
+    db.flush()
+    assert _filas(db, entity_type="titulatec_cohort_review_days", entity_id=dia_id,
+                  action="data.update") == []
+
+
+def test_mezcla_de_conocido_y_sin_cargar(como_produccion, make_cohort):
+    """Una columna con valor previo conocido lleva su antes; la que no estaba
+    cargada solo su después. Ninguna sale con un `null` inventado."""
+    from itcj2.apps.titulatec.models import CohortReviewDay
+    db = como_produccion
+    _dia, dia_id = _dia_commiteado(db, make_cohort(), date=date(2093, 4, 3),
+                                   capacity=20, location="Sala A")
+    db.expire_all()
+    dia = db.get(CohortReviewDay, dia_id)        # todo cargado
+    db.expire(dia, ["location"])                 # una sola expirada
+    dia.capacity = 30
+    dia.location = "Sala B"
+    db.flush()
+
+    (cambio,) = _filas(db, entity_type="titulatec_cohort_review_days",
+                       entity_id=dia_id, action="data.update")
+    assert cambio.before == {"capacity": 20}
+    assert cambio.after == {"capacity": 30, "location": "Sala B"}
 
 
 def test_un_huerfano_de_delete_orphan_tambien_es_baja(db_session, make_student, make_process):
