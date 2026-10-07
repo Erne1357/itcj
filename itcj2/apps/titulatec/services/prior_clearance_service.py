@@ -545,9 +545,10 @@ class PriorClearanceService:
                      "source": fila.source,
                      "applied_process_id": fila.applied_process_id}
         if fila is None:
-            db.add(PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
+            fila = PriorClearance(kind=kind, control_number=control, issued_on=issued_on,
                                   note=note, source=source, response_id=response_id,
-                                  paper_pending=paper_pending))
+                                  paper_pending=paper_pending)
+            db.add(fila)
         elif reemplaza:
             fila.issued_on = issued_on
             fila.note = note
@@ -586,10 +587,10 @@ class PriorClearanceService:
         AuditService.record(
             db, "prior_clearance.deferred",
             entity_type="prior_clearance",
-            entity_id=fila.id if fila is not None else None,
+            entity_id=fila.id,
             subject=control,
-            after=AuditService.safe({"issued_on": fila.issued_on if fila else issued_on,
-                                     "note": fila.note if fila else note,
+            after=AuditService.safe({"issued_on": fila.issued_on,
+                                     "note": fila.note,
                                      "source": source}),
             payload={"kind": kind},
         )

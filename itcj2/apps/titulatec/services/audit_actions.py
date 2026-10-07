@@ -251,6 +251,11 @@ NET_EXCLUDED_TABLES: frozenset[str] = frozenset({
     "titulatec_audit_log",
     "titulatec_process_events",
     "titulatec_email_outbox",
+    # Contenido de las respuestas de la encuesta (spec §5 «sin respuestas»):
+    # respuestas con su proyección JSON, filas por pregunta y borradores.
+    "titulatec_survey_responses",
+    "titulatec_survey_answers",
+    "titulatec_survey_drafts",
 })
 
 # ---------------------------------------------------------------------------

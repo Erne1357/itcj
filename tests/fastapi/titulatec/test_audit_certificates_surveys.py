@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import func
 
 import itcj2.models  # noqa: F401
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
@@ -94,6 +95,7 @@ def test_create_batch_registra_conteo_y_folios(db_session, proc, actor):
     assert fila.payload["kind"] == "library_clearance"
     assert fila.payload["first_folio"] and fila.payload["last_folio"]
     assert fila.actor_id == actor.id
+    assert fila.payload["first_folio"] <= fila.payload["last_folio"]
 
 
 def test_backfill_registra_resumen_y_el_folio_via_issue(db_session, proc, monkeypatch,
@@ -135,6 +137,7 @@ def test_import_rows_difiere_y_registra(db_session):
     assert [f["control_number"] for f in res["deferred"]] == [control]
     (dif,) = _acciones(db_session, "prior_clearance.deferred", subject_label=control)
     assert dif.after["source"] == "audit7.csv"
+    assert dif.entity_id is not None
     runs = [f for f in _acciones(db_session, "prior_clearance.import_run")
             if f.payload.get("source") == "audit7.csv"]
     assert len(runs) == 1 and runs[0].payload["counts"]["deferred"] == 1
@@ -176,6 +179,8 @@ def test_submit_registra_survey_submitted_sin_respuestas(db_session, make_survey
         {"key": "comentario", "type": "textarea", "label": "Comentarios"}]}
     form = make_survey_form(code="tt_audit7", schema=schema)
     secreto = "RESPUESTA-SECRETA-XYZ"
+    db_session.flush()
+    ultimo = db_session.query(func.coalesce(func.max(TitulatecAuditLog.id), 0)).scalar()
     response, errors, _credit = SurveyService.submit(
         db_session, form, {"comentario": secreto}, user_id=None,
         client_ip="10.0.0.1", user_agent="pytest")
@@ -184,6 +189,14 @@ def test_submit_registra_survey_submitted_sin_respuestas(db_session, make_survey
     assert fila.payload["credit_status"] == "anonymous"
     assert secreto not in json.dumps(
         [fila.payload, fila.before, fila.after, fila.reason, fila.subject_label], default=str)
+    # Ninguna fila de la bitácora, de ningún origen, copia el contenido.
+    todas = db_session.query(TitulatecAuditLog).filter(
+        TitulatecAuditLog.id > ultimo).all()
+    assert all(secreto not in json.dumps(
+        [f.payload, f.before, f.after, f.reason, f.subject_label], default=str)
+        for f in todas)
+    assert not [f for f in todas if f.source == "data" and f.entity_type and
+                f.entity_type.startswith("titulatec_survey_")]
 
 
 def test_submit_invalido_no_registra(db_session, make_survey_form):

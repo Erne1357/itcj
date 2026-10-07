@@ -654,8 +654,8 @@ class CertificateService:
             entity_type="certificate_batch", entity_id=batch.id,
             actor_id=actor_id,
             payload={"kind": kind, "count": len(filas),
-                     "first_folio": filas[0].number,
-                     "last_folio": filas[-1].number},
+                     "first_folio": min(c.number for c in filas),
+                     "last_folio": max(c.number for c in filas)},
         )
         db.commit()
         return batch
