@@ -1,0 +1,37 @@
+/* Bitácora (pages/audit_admin.py). Archivo propio: titulatec.css no se toca. */
+
+.tt-audit-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .5rem .75rem;
+  align-items: end;
+}
+.tt-audit-f { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.tt-audit-f .tt-field { width: 100%; min-width: 0; }
+.tt-audit-f--check { flex-direction: row; align-items: center; gap: .5rem; padding-bottom: .3rem; }
+.tt-audit-f--check .form-check-input { float: none; margin: 0; }
+
+/* Filtros apilados bajo 992 px (contrato admin). */
+@media (max-width: 991.98px) {
+  .tt-audit-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 575.98px) {
+  .tt-audit-filters { grid-template-columns: minmax(0, 1fr); }
+}
+
+.tt-audit-entry { overflow-wrap: anywhere; }
+.tt-audit-wrap { overflow-wrap: anywhere; word-break: break-word; }
+.tt-audit-pre {
+  max-height: 20rem;
+  overflow: auto;
+  margin: .25rem 0 .75rem;
+  padding: .5rem .75rem;
+  font-size: .78rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--tt-mist);
+  border: 1px solid var(--tt-line);
+  border-radius: .4rem;
+}
+#tt-audit-table td { max-width: 22rem; overflow-wrap: anywhere; }
+#tt-audit-table { white-space: normal; }

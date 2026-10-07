@@ -146,6 +146,8 @@ _ADMIN_NAV = [
     # Bandeja de salida de correos (2026-10-06): solo lectura, solo `admin`
     # (`outbox_2026_10/24`, `titulatec init-outbox-admin`).
     ("Correos",             "bi-envelope",    "/titulatec/admin/correos",      {"titulatec.email_outbox.page.list"}),
+    # Bitácora de auditoría (2026-10-07): solo lectura, solo `admin` (D2 de la spec).
+    ("Bitácora",            "bi-journal-text", "/titulatec/admin/bitacora",    {"titulatec.audit.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 

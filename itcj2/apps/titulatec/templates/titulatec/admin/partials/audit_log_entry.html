@@ -1,0 +1,52 @@
+{# Detalle de una fila de la Bitácora (`GET /entry/{id}`). Fragmento que se
+   inserta bajo la fila. Todo escapado por Jinja; el payload va en <pre>, nunca
+   como HTML. #}
+<div class="tt-card tt-audit-entry m-2" id="tt-audit-entry-{{ e.id }}">
+  <div class="mb-2">
+    <span class="tt-kicker">{{ e.module }} · {{ e.source }}</span>
+    <div class="fw-medium">{{ e.label }}</div>
+    <div class="small text-body-secondary">{{ e.when }} · {{ e.actor }}{% if e.actor_kind %} ({{ e.actor_kind }}){% endif %} · <span class="tt-mono">{{ e.action }}</span></div>
+  </div>
+  <dl class="row small mb-2">
+    {% if e.subject %}<dt class="col-sm-3">Sujeto</dt><dd class="col-sm-9">{{ e.subject }}</dd>{% endif %}
+    {% if e.entity %}<dt class="col-sm-3">Entidad</dt><dd class="col-sm-9"><span class="tt-mono">{{ e.entity }}</span></dd>{% endif %}
+    {% if e.process_id %}<dt class="col-sm-3">Expediente</dt><dd class="col-sm-9"><span class="tt-mono">{{ e.process_id }}</span></dd>{% endif %}
+    {% if e.reason %}<dt class="col-sm-3">Motivo</dt><dd class="col-sm-9">{{ e.reason }}</dd>{% endif %}
+    <dt class="col-sm-3">IP</dt><dd class="col-sm-9 tt-mono">{{ e.ip or '—' }}</dd>
+    <dt class="col-sm-3">Navegador</dt><dd class="col-sm-9 tt-audit-wrap">{{ e.user_agent or '—' }}</dd>
+    <dt class="col-sm-3">Ruta</dt><dd class="col-sm-9 tt-mono tt-audit-wrap">{{ e.route or '—' }}</dd>
+    <dt class="col-sm-3">Petición</dt><dd class="col-sm-9 tt-mono tt-audit-wrap">{{ e.request_id or '—' }}</dd>
+  </dl>
+
+  {% if fields %}
+  <div class="tt-table-wrap mb-2">
+    <table class="table table-sm mb-0" id="tt-audit-diff-{{ e.id }}">
+      <thead><tr><th>Campo</th><th>Antes</th><th>Después</th></tr></thead>
+      <tbody>
+      {% for fld in fields %}
+      <tr><td class="tt-mono">{{ fld.name }}</td><td>{{ fld.before }}</td><td>{{ fld.after }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if payload %}
+  <span class="tt-kicker">Datos de la acción</span>
+  <pre class="tt-audit-pre">{{ payload }}</pre>
+  {% endif %}
+
+  {% if siblings %}
+  <span class="tt-kicker">Otros registros de la misma operación</span>
+  <ul class="small mb-0">
+    {% for s in siblings %}
+    <li>
+      <button type="button" class="btn btn-link btn-sm p-0 align-baseline"
+              hx-get="/titulatec/admin/bitacora/entry/{{ s.id }}"
+              hx-target="#tt-audit-entry-{{ e.id }}" hx-swap="outerHTML">{{ s.label }}</button>
+      <span class="text-body-secondary">· {{ s.when }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>

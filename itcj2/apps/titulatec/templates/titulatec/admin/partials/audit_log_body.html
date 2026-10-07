@@ -1,0 +1,46 @@
+{# Resultados de la Bitácora (`pages/audit_admin.py`). Raíz `#tt-audit-body`;
+   los filtros están fuera (`admin/audit_log.html`) y se incluyen con
+   `hx-include="#tt-audit-filters"`. Solo lectura. El detalle de una fila se
+   carga bajo ella (`#tt-audit-det-{id}`) con `GET /entry/{id}`. #}
+{% from "titulatec/_macros.html" import pager, pill %}
+<div id="tt-audit-body" data-tt-view="audit-body">
+  {% if not rows %}
+  <div class="tt-card" id="tt-audit-empty">
+    <span class="tt-kicker"><i class="bi bi-journal-text me-1" aria-hidden="true"></i>Sin registros</span>
+    <p class="mb-0">Ningún registro coincide con estos filtros.</p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-top" id="tt-audit-table">
+      <thead><tr>
+        <th>Fecha y hora</th><th>Quién</th><th>Módulo</th><th>Acción</th>
+        <th>Sobre qué</th><th>Motivo</th><th><span class="visually-hidden">Detalle</span></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-audit-{{ r.id }}">
+        <td class="small">{{ r.when }}</td>
+        <td>{{ r.actor }}{% if r.badge %} {{ pill(r.badge, 'neutral') }}{% endif %}</td>
+        <td class="small">{{ r.module }}</td>
+        <td>{{ r.label }}{% if r.is_data %} {{ pill('Dato', 'neutral') }}{% endif %}</td>
+        <td class="small">
+          {% if r.process_url %}<a href="{{ r.process_url }}">{{ r.about }}</a>{% else %}{{ r.about }}{% endif %}
+        </td>
+        <td class="small text-body-secondary">{{ r.reason }}</td>
+        <td>
+          <button type="button" id="tt-audit-ver-{{ r.id }}" class="btn btn-sm tt-btn-ghost"
+                  hx-get="/titulatec/admin/bitacora/entry/{{ r.id }}"
+                  hx-target="#tt-audit-det-{{ r.id }}" hx-swap="innerHTML"
+                  aria-label="Ver detalle del registro {{ r.id }}">
+            <i class="bi bi-eye" aria-hidden="true"></i><span class="d-none d-sm-inline"> Detalle</span>
+          </button>
+        </td>
+      </tr>
+      <tr><td colspan="7" class="p-0 border-0"><div id="tt-audit-det-{{ r.id }}"></div></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, '/titulatec/admin/bitacora/body', '#tt-audit-body', include='#tt-audit-filters', prefix='tt-audit') }}
+  {% endif %}
+</div>
