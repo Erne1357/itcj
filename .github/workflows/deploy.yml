@@ -68,6 +68,38 @@ jobs:
       target: tests/fastapi/infra
 
   # ---------------------------------------------------------------------------
+  # Carril full: si main ya avanzó más allá de este commit, NO se despliega —
+  # el run del commit más nuevo lo hará, y lo incluye. Sobre todo evita que
+  # este run entre a la cola de production-deploy: GitHub cancela al deploy
+  # PENDIENTE cuando llega otro, por orden de llegada y no por antigüedad del
+  # commit, así que un run viejo desplazaría a un hotfix que esperaba turno.
+  # Si la API falla → no superado (deploy.sh trae su propia guarda de orden).
+  # ---------------------------------------------------------------------------
+  gate:
+    name: ¿Sigue siendo la punta de main?
+    needs: [plan, tests]
+    if: ${{ needs.plan.outputs.lane == 'full' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      superseded: ${{ steps.tip.outputs.superseded }}
+    steps:
+      - name: Comparar con main
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          ahead=$(gh api "repos/$REPO/compare/$SHA...main" --jq '.ahead_by' 2>/dev/null) || ahead=0
+          superseded=false
+          if [ "${ahead:-0}" -gt 0 ] 2>/dev/null; then
+            superseded=true
+            echo "### main ya avanzó $ahead commit(s) más allá de este: el deploy lo hará el run más nuevo." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
   # Deploy del commit EXACTO que se probó (github.sha), no de la punta de main.
   # El deploy.sh que corre es el de ese commit (git show), no el del checkout
   # del servidor: así un cambio al script surte efecto en el mismo deploy.
@@ -76,10 +108,11 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Server (Zero-Downtime)
-    needs: [plan, tests, smoke]
+    needs: [plan, tests, smoke, gate]
     if: >-
       ${{ always() && needs.plan.result == 'success' && (
-        (needs.plan.outputs.lane == 'full' && needs.tests.result == 'success') ||
+        (needs.plan.outputs.lane == 'full' && needs.tests.result == 'success' &&
+         needs.gate.result == 'success' && needs.gate.outputs.superseded != 'true') ||
         (needs.plan.outputs.lane == 'hotfix' && needs.smoke.result == 'success')
       ) }}
     runs-on: ubuntu-latest
@@ -117,6 +150,24 @@ jobs:
           else
             echo "Deployment failed ($LANE) - Check logs for details"
           fi
+
+  # Respaldo del gate: si el deploy de un hotfix queda cancelado (desplazado de
+  # la cola o cancelado a mano), el hotfix NO está en prod y un job cancelado
+  # no pone el run en rojo ni manda correo.
+  deploy-cancel-alert:
+    name: Alerta (deploy de hotfix cancelado)
+    needs: [plan, deploy]
+    if: ${{ always() && needs.plan.outputs.lane == 'hotfix' && needs.deploy.result == 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Avisar
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          msg="El deploy del hotfix $SHA se canceló y NO está en prod. Re-ejecuta el job «Deploy to Server» de este run (deploy.sh no regresa prod si ya sirve algo más nuevo)."
+          echo "::error::$msg"
+          { echo "## Hotfix sin desplegar"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
   # ---------------------------------------------------------------------------
   # Solo carril hotfix: la suite completa corre DESPUÉS del deploy. Si sale

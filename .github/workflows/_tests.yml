@@ -51,6 +51,32 @@ jobs:
         run: ruff check itcj2
 
   # ---------------------------------------------------------------------------
+  # Las duraciones se resuelven UNA vez por run y los 8 shards piden esa key
+  # exacta. pytest-split corta en tramos contiguos según las duraciones: si
+  # cada shard tomara «el caché más reciente» por su cuenta, un re-run del
+  # shard rojo después de que la nocturna guardó duraciones nuevas correría
+  # otro tramo, y el test rojo podría caer en uno que ya pasó (un rojo que se
+  # vuelve verde sin correr). «Re-run failed jobs» reutiliza la salida de este
+  # job, así que el re-run ve la misma key.
+  # ---------------------------------------------------------------------------
+  durations:
+    name: Duraciones
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      key: ${{ steps.lookup.outputs.cache-matched-key }}
+    steps:
+      - name: Buscar el caché de duraciones más reciente (sin descargarlo)
+        id: lookup
+        if: ${{ !inputs.serial }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .test_durations
+          key: test-durations-${{ github.run_id }}
+          restore-keys: test-durations-
+          lookup-only: true
+
+  # ---------------------------------------------------------------------------
   # Cada shard es un job con su PROPIO Postgres y Redis: no comparten llaves de
   # rate-limit (rl:*), ni la siembra session-scoped, ni contadores. Por eso
   # shards y no pytest-xdist, que metería varios workers contra la misma base.
@@ -61,6 +87,7 @@ jobs:
   # ---------------------------------------------------------------------------
   shard:
     name: ${{ inputs.serial && 'Suite serial' || format('Shard {0}/{1}', matrix.group, strategy.job-total) }}
+    needs: durations
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.serial && 90 || 30 }}
     strategy:
@@ -158,13 +185,15 @@ jobs:
       - name: Dependencias de sistema para WeasyPrint (constancias)
         run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
 
+      # Key exacta del job «Duraciones»; si el caché ya no existe (re-run tras
+      # su desalojo) falla fuerte en vez de re-partir con otros cortes.
       - name: Restaurar duraciones de tests (pytest-split)
-        if: ${{ !inputs.serial }}
+        if: ${{ !inputs.serial && needs.durations.outputs.key != '' }}
         uses: actions/cache/restore@v4
         with:
           path: .test_durations
-          key: test-durations-${{ github.run_id }}
-          restore-keys: test-durations-
+          key: ${{ needs.durations.outputs.key }}
+          fail-on-cache-miss: true
 
       # Nota: create_all() solo construye tablas vacías, sin filas de referencia
       # (core_apps, core_roles). tests/fastapi/conftest.py siembra el mínimo
@@ -184,6 +213,8 @@ jobs:
           args=(-q --durations-path .test_durations)
           if [ "$SERIAL" != "true" ]; then
             args+=(--splits "$SPLITS" --group "$GROUP")
+            # Huella de las duraciones: todos los shards de un run deben mostrar la misma.
+            sha256sum .test_durations 2>/dev/null || echo "sin .test_durations: reparto parejo por conteo"
           fi
           if [ "$STORE" = "true" ]; then
             args+=(--store-durations --clean-durations)
