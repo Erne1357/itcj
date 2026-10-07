@@ -24,7 +24,7 @@ router = APIRouter(prefix="/m", tags=["core-pages-mobile"])
 
 @router.get("", include_in_schema=False)
 @router.get("/", name="core.pages.mobile.dashboard")
-async def mobile_dashboard(
+def mobile_dashboard(
     request: Request,
     user: dict = Depends(require_page_login),
     db: DbSession = None,
@@ -68,7 +68,7 @@ async def mobile_dashboard(
 
 
 @router.get("/notifications", name="core.pages.mobile.notifications")
-async def mobile_notifications(
+def mobile_notifications(
     request: Request,
     user: dict = Depends(require_page_login),
     db: DbSession = None,
@@ -91,7 +91,7 @@ async def mobile_notifications(
 
 
 @router.get("/profile", name="core.pages.mobile.profile")
-async def mobile_profile(
+def mobile_profile(
     request: Request,
     user: dict = Depends(require_page_login),
     db: DbSession = None,
@@ -155,13 +155,14 @@ async def mobile_switch_mobile(
 
 def _build_quick_actions(user_id: int) -> list[dict]:
     """Construye la lista de accesos rápidos para staff según sus roles."""
-    from itcj2.core.services.authz_service import user_roles_in_app
+    # Del caché de authz (perf 2026-10-07): mismos roles que el control de acceso.
+    from itcj2.core.services.authz_cache import cached_roles
     from itcj2.database import SessionLocal
 
     actions: list[dict] = []
     _db = SessionLocal()
     try:
-        roles_itcj = user_roles_in_app(_db, user_id, "itcj")
+        roles_itcj = cached_roles(_db, user_id, "itcj")
         if "admin" in roles_itcj:
             actions.append({
                 "label": "Configuración",
@@ -170,7 +171,7 @@ def _build_quick_actions(user_id: int) -> list[dict]:
             })
 
         try:
-            if user_roles_in_app(_db, user_id, "helpdesk"):
+            if cached_roles(_db, user_id, "helpdesk"):
                 actions.append({
                     "label": "Tickets",
                     "url": "/help-desk/",
@@ -180,7 +181,7 @@ def _build_quick_actions(user_id: int) -> list[dict]:
             pass
 
         try:
-            roles_agenda = user_roles_in_app(_db, user_id, "agendatec")
+            roles_agenda = cached_roles(_db, user_id, "agendatec")
             if roles_agenda - {"student"}:
                 actions.append({
                     "label": "AgendaTec",
