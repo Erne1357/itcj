@@ -1281,7 +1281,7 @@ def _cuerpo_import_commit(cohort_id, request, user, form):
         preview = ImportService.build_preview(db, csv_rows, mapping,
                                               overrides=overrides, excluded=excluded)
         # guarda el mapeo usado para reusarlo la próxima vez
-        ImportService.save_mapping(mapping)
+        ImportService.save_mapping(mapping, db=db, actor_id=int(user["sub"]))
         summary = ImportService.import_rows(db, cohort,
                                             ImportService.rows_to_import(preview),
                                             actor_id=int(user["sub"]), source="csv")

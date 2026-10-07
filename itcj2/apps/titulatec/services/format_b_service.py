@@ -93,14 +93,15 @@ class FormatBService:
         # teléfonos) ya los guarda la red ORM como `data.*` y no se duplican aquí.
         despues = AuditService.snapshot(fb, STEP_FIELDS.get(step, []))
         cambiados, _ = AuditService.changes(antes, despues)
-        AuditService.record(
-            db, "format_b.step_saved",
-            entity_type="format_b", entity_id=fb.process_id,
-            process_id=fb.process_id, subject=fb.control_number,
-            payload={"step": step, "label": STEP_LABELS.get(step),
-                     "changed_fields": sorted(cambiados),
-                     "status_reset": status_antes == "rejected"},
-        )
+        if cambiados or status_antes == "rejected":
+            AuditService.record(
+                db, "format_b.step_saved",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                payload={"step": step, "label": STEP_LABELS.get(step),
+                         "changed_fields": sorted(cambiados),
+                         "status_reset": status_antes == "rejected"},
+            )
         db.commit()
 
     @staticmethod

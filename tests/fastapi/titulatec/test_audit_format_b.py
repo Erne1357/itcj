@@ -79,3 +79,10 @@ def test_dictamen_fuera_de_fase_no_deja_fila(db_session, escenario, make_user):
                               status="approved", note=None,
                               reviewer_id=make_user().id)
     assert _acciones(db_session, "format_b.reviewed") == []
+
+
+def test_guardar_paso_sin_cambios_no_deja_fila(db_session, escenario):
+    fb = escenario["fb"]
+    FormatBService.save_step(db_session, fb, 3, {"project_name": "Mismo"})
+    FormatBService.save_step(db_session, fb, 3, {"project_name": "Mismo"})
+    assert len(_acciones(db_session, "format_b.step_saved")) == 1

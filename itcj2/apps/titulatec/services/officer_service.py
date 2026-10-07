@@ -266,28 +266,47 @@ class OfficerService:
         from itcj2.core.models.position import UserPosition
         current = {up.user_id for up in
                    db.query(UserPosition).filter_by(position_id=position_id, is_active=True).all()}
-        for uid in current - set(user_ids):
-            positions_service.remove_user_from_position(db, uid, position_id)
-        for uid in set(user_ids) - current:
-            positions_service.assign_user_to_position(db, uid, position_id)
-        despues = set(user_ids)
+        error: Exception | None = None
+        try:
+            for uid in current - set(user_ids):
+                positions_service.remove_user_from_position(db, uid, position_id)
+            for uid in set(user_ids) - current:
+                positions_service.assign_user_to_position(db, uid, position_id)
+        except Exception as exc:  # se registra lo que SÍ quedó y se re-lanza
+            error = exc
+        # `positions_service` commitea por dentro (una vez por persona): aunque una
+        # asignación falle a medias, las anteriores ya persistieron. La fila se
+        # escribe SIEMPRE y con lo que de verdad quedó (re-consultado), marcada
+        # `partial` si hubo error; la excepción original sigue su camino.
+        despues = OfficerService._active_user_ids(db, position_id)
         if current != despues:
-            # `positions_service` commitea por dentro (una vez por persona), así que
-            # la fila va DESPUÉS de esos commits y con su propio commit: refleja lo
-            # que de verdad quedó. Si una asignación falla a medias, las personas ya
-            # movidas quedan sin fila (ver reporte): el rastro nunca miente a favor.
             from itcj2.apps.titulatec.services.audit_service import AuditService
+            payload = {"assigned_role": assigned_role,
+                       "added": sorted(despues - current),
+                       "removed": sorted(current - despues)}
+            if error is not None:
+                payload.update(partial=True, error=type(error).__name__,
+                               requested=sorted(set(user_ids)))
             AuditService.record(
                 db, "officer.users_changed",
                 entity_type="position", entity_id=position_id,
                 subject=OfficerService._position_title(db, position_id),
                 before={"user_ids": sorted(current)},
                 after={"user_ids": sorted(despues)},
-                payload={"assigned_role": assigned_role,
-                         "added": sorted(despues - current),
-                         "removed": sorted(current - despues)},
+                payload=payload,
             )
             db.commit()
+        if error is not None:
+            raise error
+
+    @staticmethod
+    def _active_user_ids(db: Session, position_id: int) -> set[int]:
+        """Personas con asignación vigente al puesto, leídas de la BD."""
+        from itcj2.core.models.position import UserPosition
+        if not db.is_active:
+            db.rollback()
+        return {uid for (uid,) in db.query(UserPosition.user_id)
+                .filter_by(position_id=position_id, is_active=True).all()}
 
     @staticmethod
     def create_officer(db: Session, *, department_id: int, assigned_role: str,
@@ -302,22 +321,36 @@ class OfficerService:
         code = f"se_officer_{uuid.uuid4().hex[:8]}"
         pos = positions_service.create_position(
             db, code=code, title=name, department_id=department_id, allows_multiple=True)
-        positions_service.assign_role_to_position(db, pos.id, "titulatec", assigned_role)
-        for uid in user_ids:
-            positions_service.assign_user_to_position(db, uid, pos.id)
-        OfficerService._sync_programs(db, pos.id, program_ids)
-        # Una sola fila para el alta completa (puesto + rol + personas + carreras).
-        # `positions_service` ya commiteó el puesto, el rol y cada asignación, así
-        # que se registra AL FINAL, con lo que de verdad quedó, y con commit propio.
+        error: Exception | None = None
+        try:
+            positions_service.assign_role_to_position(db, pos.id, "titulatec", assigned_role)
+            for uid in user_ids:
+                positions_service.assign_user_to_position(db, uid, pos.id)
+            OfficerService._sync_programs(db, pos.id, program_ids)
+        except Exception as exc:  # el puesto ya existe: se registra lo que quedó
+            error = exc
+        # Una sola fila para el alta (puesto + rol + personas + carreras), escrita
+        # SIEMPRE: `positions_service` commitea por dentro, así que un fallo a
+        # medias deja el puesto y a quienes ya se asignaron. `after` sale de la BD,
+        # no de lo solicitado; con error lleva `partial` y la clase del error.
         from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.core.models.position import ProgramPosition
+        usuarios = OfficerService._active_user_ids(db, pos.id)
+        carreras = sorted(pid for (pid,) in db.query(ProgramPosition.program_id)
+                          .filter_by(position_id=pos.id).all())
+        payload = {"department_id": department_id, "assigned_role": assigned_role,
+                   "code": code}
+        if error is not None:
+            payload.update(partial=True, error=type(error).__name__)
         AuditService.record(
             db, "officer.created",
             entity_type="position", entity_id=pos.id, subject=name,
-            after={"user_ids": sorted(user_ids), "program_ids": sorted(program_ids)},
-            payload={"department_id": department_id, "assigned_role": assigned_role,
-                     "code": code},
+            after={"user_ids": sorted(usuarios), "program_ids": carreras},
+            payload=payload,
         )
         db.commit()
+        if error is not None:
+            raise error
         return pos.id
 
     @staticmethod

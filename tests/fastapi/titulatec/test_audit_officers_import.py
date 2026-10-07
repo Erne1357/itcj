@@ -20,6 +20,8 @@ from tests.fastapi.titulatec.conftest import OFFICER_PERMS, ROLE_OFFICER
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
 from itcj2.apps.titulatec.services.import_service import ImportService
 from itcj2.apps.titulatec.services.officer_service import OfficerService
+from tests.fastapi.titulatec.test_import_scale import (  # noqa: F401  (fixtures)
+    import_ctx, preserve_imports_dir)
 
 
 def _acciones(db, action, **filtros):
@@ -203,7 +205,7 @@ def test_import_rows_sin_filas_validas_no_deja_resumen(db_session, titulatec_app
     assert _acciones(db_session, "import.students_committed") == []
 
 
-def test_reparacion_de_credencial_no_filtra_el_hash_ni_el_control(
+def test_reparacion_de_credencial_no_filtra_el_hash(
         db_session, titulatec_app, make_cohort, make_user):
     cohort = make_cohort()
     user = make_user(control_number="99100004")
@@ -283,3 +285,81 @@ def test_guardar_mapeo_registra_solo_con_sesion(db_session, tmp_path, monkeypatc
     ImportService.save_mapping({"control_number": "No. control"}, db=db_session)
     fila = _acciones(db_session, "import.mapping_saved")[0]
     assert fila.after == {"mapping": {"control_number": "No. control"}}
+
+
+# --------------------------------------------------------------------------
+# Fallos a medias (positions_service commitea por persona)
+# --------------------------------------------------------------------------
+def _falla_en_la_segunda(monkeypatch):
+    """`assign_user_to_position` real la 1.ª vez; ValueError la 2.ª."""
+    from itcj2.apps.titulatec.services import officer_service as mod
+    real = mod.positions_service.assign_user_to_position
+    llamadas = {"n": 0}
+
+    def _asigna(db, uid, pid, *a, **k):
+        llamadas["n"] += 1
+        if llamadas["n"] == 2:
+            raise ValueError("falla simulada")
+        return real(db, uid, pid, *a, **k)
+
+    monkeypatch.setattr(mod.positions_service, "assign_user_to_position", _asigna)
+
+
+def test_set_users_con_fallo_a_medias_registra_lo_que_quedo(
+        db_session, depto, monkeypatch):
+    a, b, c = depto["activa"], depto["otra"], depto["inactiva"]
+    pos_id = OfficerService.create_officer(
+        db_session, department_id=depto["dept"].id, assigned_role=ROLE_OFFICER,
+        name="Enc", program_ids=set(), user_ids=set())
+    _falla_en_la_segunda(monkeypatch)
+
+    with pytest.raises(ValueError, match="falla simulada"):
+        OfficerService.set_users(
+            db_session, pos_id, {a.id, b.id, c.id},
+            department_id=depto["dept"].id, assigned_role=ROLE_OFFICER)
+
+    fila = _acciones(db_session, "officer.users_changed")[0]
+    persistidos = OfficerService._active_user_ids(db_session, pos_id)
+    assert len(persistidos) == 1  # solo la primera asignación alcanzó a persistir
+    assert fila.after == {"user_ids": sorted(persistidos)}
+    assert fila.payload["partial"] is True
+    assert fila.payload["error"] == "ValueError"
+    assert len(fila.payload["requested"]) == 3
+
+
+def test_create_officer_con_fallo_a_medias_registra_lo_que_quedo(
+        db_session, depto, monkeypatch):
+    _falla_en_la_segunda(monkeypatch)
+    with pytest.raises(ValueError, match="falla simulada"):
+        OfficerService.create_officer(
+            db_session, department_id=depto["dept"].id, assigned_role=ROLE_OFFICER,
+            name="Enc parcial", program_ids=set(),
+            user_ids={depto["activa"].id, depto["otra"].id})
+
+    fila = _acciones(db_session, "officer.created")[0]
+    assert fila.payload["partial"] is True and fila.payload["error"] == "ValueError"
+    assert len(fila.after["user_ids"]) == 1  # no los 2 solicitados
+    assert fila.subject_label == "Enc parcial"
+
+
+# --------------------------------------------------------------------------
+# Ruta real del asistente de importación
+# --------------------------------------------------------------------------
+def test_ruta_import_commit_registra_el_mapeo_guardado(client_as, db_session,
+                                                       import_ctx):
+    from tests.fastapi.titulatec.test_import_scale import (
+        _upload, csv_bytes, post_form, serialize_form)
+
+    cohort = import_ctx["cohort"]
+    client = client_as(import_ctx["head"])
+    resp = _upload(client, cohort.id, csv_bytes(3))
+    assert resp.status_code == 200
+    resp = post_form(
+        client, "/titulatec/admin/cohorts/{}/import/commit".format(cohort.id),
+        serialize_form(resp.text))
+    assert resp.status_code == 200, resp.text[:300]
+
+    filas = _acciones(db_session, "import.mapping_saved")
+    assert len(filas) == 1
+    assert filas[0].actor_id == import_ctx["head"].id
+    assert "control_number" in filas[0].after["mapping"]
