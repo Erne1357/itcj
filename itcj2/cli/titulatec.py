@@ -3923,6 +3923,34 @@ def _audit_row_to_dict(row) -> dict:
     return out
 
 
+def _write_audit_archive(db, pred, archive: Path) -> int:
+    """Escribe el JSONL de lo que va a borrarse y devuelve cuántas filas puso.
+
+    Modo "x": si el archivo ya existe NO se pisa (sería destruir la única copia
+    de una purga anterior)."""
+    import json
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog as model
+
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    try:
+        fh = archive.open("x", encoding="utf-8", newline="\n")
+    except FileExistsError:
+        raise click.ClickException(
+            f"El archivo {archive} ya existe; elige otra ruta (no se sobrescribe).")
+    with fh:
+        q = db.query(model).filter(pred).order_by(model.id).yield_per(_AUDIT_PURGE_BATCH)
+        for row in q:
+            fh.write(json.dumps(_audit_row_to_dict(row), ensure_ascii=False,
+                                default=str) + "\n")
+            n += 1
+        fh.flush()
+        os.fsync(fh.fileno())
+    db.expire_all()
+    return n
+
+
 def _do_audit_purge(db, cutoff, archive: Path | None, dry_run: bool) -> dict:
     """Lógica pura de `audit-purge` (testeable sin Click).
 
@@ -3947,21 +3975,20 @@ def _do_audit_purge(db, cutoff, archive: Path | None, dry_run: bool) -> dict:
     # Misma transacción que el DELETE; muere con el commit o el rollback.
     db.execute(text("SET LOCAL titulatec.audit_purge = 'on'"))
 
+    archived = None
     if archive is not None:
         archive = Path(archive).resolve()
-        archive.parent.mkdir(parents=True, exist_ok=True)
-        with archive.open("w", encoding="utf-8", newline="\n") as fh:
-            q = db.query(model).filter(pred).order_by(model.id).yield_per(_AUDIT_PURGE_BATCH)
-            for row in q:
-                fh.write(json.dumps(_audit_row_to_dict(row), ensure_ascii=False,
-                                    default=str) + "\n")
-            fh.flush()
-            os.fsync(fh.fileno())
-        db.expire_all()
+        archived = _write_audit_archive(db, pred, archive)
         result["archive"] = str(archive)
 
     deleted = db.query(model).filter(pred).delete(synchronize_session=False)
     result["deleted"] = deleted
+    if archived is not None and archived != deleted:
+        # El archivo es la única copia de lo borrado: si no cuadra, nada se borra.
+        archive.unlink(missing_ok=True)
+        raise click.ClickException(
+            f"El archivo tiene {archived} filas y el DELETE tocó {deleted}; "
+            "se revierte todo, no se borró nada.")
     AuditService.record(
         db, "system.audit_purged", entity_type="audit_log",
         payload={"deleted": deleted, "before": cutoff.date().isoformat(),
@@ -3992,10 +4019,14 @@ def audit_purge_command(before, archive, dry_run, yes, force):
     from itcj2.database import SessionLocal
 
     dias = (db_now() - before).days
-    if dias < _AUDIT_PURGE_MIN_DAYS and not force:
+    if dias < _AUDIT_PURGE_MIN_DAYS and not force and not dry_run:
         raise click.ClickException(
             f"El corte {before:%Y-%m-%d} es de hace {dias} días (< "
             f"{_AUDIT_PURGE_MIN_DAYS}). Usa --force si de verdad quieres purgar tan reciente.")
+
+    if archive is not None and Path(archive).exists():
+        raise click.ClickException(
+            f"El archivo {archive} ya existe; elige otra ruta (no se sobrescribe).")
 
     db = SessionLocal()
     try:

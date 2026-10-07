@@ -272,3 +272,77 @@ def test_tareas_corren_con_contexto_celery(patched_session_local):
         assert ctx.actor_kind == "celery", clave
         assert ctx.actor_label == etiqueta, clave
     assert current_audit_context().actor_kind != "celery"
+
+
+# --- ronda de arreglos: archivo, dry-run, cuadre, --force --------------------
+
+def test_purga_no_pisa_un_archivo_existente(patched_session_local, tmp_path):
+    db = patched_session_local
+    _siembra(db, 2)
+    antes = _viejas(db)
+    archivo = tmp_path / "ya.jsonl"
+    archivo.write_text("copia anterior\n", encoding="utf-8")
+
+    res = CliRunner().invoke(cli.titulatec_cli, [
+        "audit-purge", "--before", _CORTE, "--archive", str(archivo), "--yes"])
+
+    assert res.exit_code != 0
+    assert "ya existe" in res.output
+    assert archivo.read_text(encoding="utf-8") == "copia anterior\n"
+    assert _viejas(db) == antes
+
+
+def test_dry_run_no_exige_force_con_corte_reciente(patched_session_local):
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    res = CliRunner().invoke(cli.titulatec_cli, ["audit-purge", "--before", hoy, "--dry-run"])
+    assert res.exit_code == 0, res.output
+    assert "[DRY-RUN]" in res.output
+
+
+def test_purga_verifica_que_el_archivo_cuadre_con_lo_borrado(
+        patched_session_local, tmp_path, monkeypatch):
+    db = patched_session_local
+    _siembra(db, 3)
+    archivo = tmp_path / "descuadre.jsonl"
+    real = cli._write_audit_archive
+    monkeypatch.setattr(cli, "_write_audit_archive",
+                        lambda *a, **k: real(*a, **k) - 1)
+
+    res = CliRunner().invoke(cli.titulatec_cli, [
+        "audit-purge", "--before", _CORTE, "--archive", str(archivo), "--yes"])
+
+    assert res.exit_code != 0
+    assert "se revierte todo" in res.output
+    assert not archivo.exists()
+    assert db.query(TitulatecAuditLog).filter_by(action="system.audit_purged").count() == 0
+
+
+def test_purga_feliz_cuenta_igual_archivo_y_borrado(patched_session_local, tmp_path):
+    db = patched_session_local
+    _siembra(db, 2)
+    total = _viejas(db)
+    archivo = tmp_path / "ok.jsonl"
+    res = CliRunner().invoke(cli.titulatec_cli, [
+        "audit-purge", "--before", _CORTE, "--archive", str(archivo), "--yes"])
+    assert res.exit_code == 0, res.output
+    assert len(archivo.read_text(encoding="utf-8").splitlines()) == total
+    fila = db.query(TitulatecAuditLog).filter_by(action="system.audit_purged").one()
+    assert fila.payload["deleted"] == total
+
+
+def test_force_permite_purgar_con_corte_viejo_y_con_corte_reciente(patched_session_local):
+    db = patched_session_local
+    _siembra(db, 2)
+    res = CliRunner().invoke(cli.titulatec_cli,
+                             ["audit-purge", "--before", _CORTE, "--yes", "--force"])
+    assert res.exit_code == 0, res.output
+    assert _viejas(db) == 0
+
+    # corte reciente + --force: pasa la guarda y borra lo anterior a hoy
+    _siembra(db, 1)
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    res = CliRunner().invoke(cli.titulatec_cli,
+                             ["audit-purge", "--before", hoy, "--yes", "--force"])
+    assert res.exit_code == 0, res.output
+    assert "OK:" in res.output or "Nada que purgar" in res.output
+    assert _viejas(db) == 0
