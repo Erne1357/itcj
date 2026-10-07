@@ -141,6 +141,10 @@ SEED_FILES = [
     # SOLO con `titulatec init-outbox-admin` (mismo patron D10 que
     # `init-email-tasks`): es el unico camino de despliegue en produccion.
     "outbox_2026_10/24_insert_email_outbox_perm.sql",
+    # --- Delta 2026-10-07: bitacora de auditoria. El permiso
+    # `titulatec.audit.page.list` (solo `admin`, lo reparte el 15). Inserta un
+    # permiso, asi que va ANTES del 15. Tambien: `titulatec init-bitacora`.
+    "audit_2026_10/25_insert_audit_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -3410,6 +3414,88 @@ def init_outbox_admin_command(dry_run):
         "aparece en el menú admin en cuanto caduque la caché de permisos.",
         fg="green",
     ))
+
+
+# ---------------------------------------------------------------------------
+# Bitacora de auditoria (2026-10-07): permiso `titulatec.audit.page.list`
+# (solo `admin`). El 25 lo inserta y el 15 (concesion dinamica a `admin`) lo
+# reparte, asi que el comando corre AMBOS, en ese orden: en produccion
+# `init-titulatec` completo nunca se re-ejecuta. Re-correr el 15 solo concede.
+# ---------------------------------------------------------------------------
+_DML_AUDIT_2026_10_DIR = "audit_2026_10"
+_DML_AUDIT_2026_10_FILES = ["25_insert_audit_perm.sql"]
+_AUDIT_PERM = "titulatec.audit.page.list"
+
+
+def _verify_bitacora() -> list[str]:
+    """Comprueba que el 25 y el 15 ATERRIZARON: el permiso existe y el rol
+    `admin` lo tiene. Devuelve problemas (mismo contrato que
+    `_verify_outbox_admin`). Sesion propia, solo lectura."""
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    problemas: list[str] = []
+    db = SessionLocal()
+    try:
+        existe = db.execute(
+            text("SELECT 1 FROM core_permissions p JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND p.code = :code"),
+            {"code": _AUDIT_PERM},
+        ).first()
+        if existe is None:
+            problemas.append(f"permiso ausente: {_AUDIT_PERM}")
+            return problemas
+        concedido = db.execute(
+            text("SELECT 1 FROM core_role_permissions rp "
+                 "JOIN core_roles r ON r.id = rp.role_id "
+                 "JOIN core_permissions p ON p.id = rp.perm_id "
+                 "JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND r.name = 'admin' AND p.code = :code"),
+            {"code": _AUDIT_PERM},
+        ).first()
+        if concedido is None:
+            problemas.append(f"el rol admin no tiene {_AUDIT_PERM}")
+    finally:
+        db.close()
+    return problemas
+
+
+@titulatec_cli.command("init-bitacora")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
+def init_bitacora_command(dry_run):
+    """Da de alta el permiso de la bitácora de auditoría para `admin`.
+
+    Corre `audit_2026_10/25_insert_audit_perm.sql` (inserta
+    `titulatec.audit.page.list`) y luego `15_grant_admin_all_perms.sql` (solo
+    concede: el rol `admin` recibe el permiso). Idempotente. Al terminar
+    VERIFICA con `_verify_bitacora()` y aborta si algo no aterrizo.
+    """
+    archivos = [f"{_DML_AUDIT_2026_10_DIR}/{n}" for n in _DML_AUDIT_2026_10_FILES]
+    archivos.append("15_grant_admin_all_perms.sql")
+    faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in archivos:
+                click.echo(f"  {nombre}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files(archivos)
+
+    problemas = _verify_bitacora()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {_AUDIT_PERM} existe y el rol admin lo tiene.", fg="green"))
 
 
 # ---------------------------------------------------------------------------
