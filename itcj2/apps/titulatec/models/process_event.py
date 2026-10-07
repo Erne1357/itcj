@@ -62,8 +62,9 @@ EVENT_TYPES = frozenset({
     # `SurveyReviewService.mark_paper_delivered`.
     "survey_paper_delivered",
     # No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
-    # design.md §4.2/§4.12) y «Con observaciones» (spec 2026-10-05): los 10
-    # que escribe `LibraryClearanceService` (`LIBRARY_EVENT_TYPES`).
+    # design.md §4.2/§4.12), «Con observaciones» (spec 2026-10-05) y la
+    # observacion con adeudo (spec 2026-10-07 §2): los 11 que escribe
+    # `LibraryClearanceService` (`LIBRARY_EVENT_TYPES`).
     "library_debt_registered",
     "library_no_charge",
     "library_amount_corrected",
@@ -73,7 +74,8 @@ EVENT_TYPES = frozenset({
     "library_clearance_reverted",
     "library_prior_undone",
     "library_observed",            # Biblioteca lo detuvo con un motivo (o lo actualizó)
-    "library_reenabled",           # Biblioteca lo rehabilitó: vuelve a «Por revisar»
+    "library_reenabled",           # Biblioteca lo activó: vuelve a «Por revisar» (o a Caja, con adeudo)
+    "library_cleared_after_observation",  # activó una con adeudo YA pagada: se libera (folio)
 })
 
 

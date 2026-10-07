@@ -312,7 +312,7 @@ stateDiagram-v2
 > `pages/survey_reviews_admin.py`; lo único que hace el egresado (enviar la encuesta) crea la
 > fila inicial en `in_review`, vía `SurveyReviewService.open_for_submission`.
 
-## Estado del no adeudo de biblioteca (`LibraryClearance.status`) — Fase 2 (2026-10-01)
+## Estado de la Constancia de no adeudo de biblioteca (`LibraryClearance.status`) — Fase 2 (2026-10-01)
 
 Nace cuando el proceso se crea —`ImportService.import_rows` abre la fila `pending` EN LA MISMA
 transacción del alta, antes de la fase 2— o, para procesos de antes de esta campaña, con el
@@ -325,10 +325,12 @@ pantallas: [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearan
 stateDiagram-v2
     [*] --> pending: alta del proceso | backfill (legado cumplido)
     pending --> awaiting_payment: 📚 Registrar, total > 0
-    pending --> observed: 📚 Observar (motivo)
-    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL)
-    observed --> observed: 📚 Actualizar observación
-    observed --> pending: 📚 Rehabilitar
+    pending --> observed: 📚 Observar (motivo) · 📚 Observar con adeudo (motivo + adeudo, total > 0)
+    awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL) · 📚 Observar con adeudo
+    observed --> observed: 📚 Actualizar observación · 💰 Registrar pago RETENIDO (solo con adeudo) · 💰 Revertir pago retenido
+    observed --> pending: 📚 Activar (observación normal)
+    observed --> awaiting_payment: 📚 Activar (con adeudo, sin pago; ready_at = ahora)
+    observed --> cleared: 📚 Activar (con adeudo y pago retenido; cleared_via=payment, +folio)
     pending --> cleared: 📚 Registrar, total = 0 (D18, cleared_via=no_charge)
     awaiting_payment --> awaiting_payment: 📚 Corregir, nuevo monto > 0
     awaiting_payment --> cleared: 📚 Corregir, nuevo monto = 0 (no_charge) · 💰 Registrar pago (payment)
@@ -354,11 +356,18 @@ stateDiagram-v2
 > **`observed`** («Con observaciones», 2026-10-05, migración `tt20261005a`): Biblioteca detuvo al
 > egresado con un motivo (`observation_reason`/`observed_by_id`/`observed_at`, NULL fuera de este
 > estado). Se entra desde `pending`/`awaiting_payment` (desde Caja limpia `ready_at` y conserva los
-> montos); se sale SOLO con **Rehabilitar** → `pending` (D2). Con `observed` no se registra, cobra,
+> montos); se sale SOLO con **Activar** (antes «Rehabilitar») → `pending` (D2). Con `observed` no se registra, cobra,
 > revierte ni aplica una constancia previa (`ClearanceObserved`); `ClearanceGate` lo bloquea con
-> `library_observed`. Observar/rehabilitar exigen fase 2 sin aprobar y proceso admitido; desde
+> `library_observed`. Observar/activar exigen fase 2 sin aprobar y proceso admitido; desde
 > `cleared` no se observa (primero se revierte). Detalle:
 > [Con observaciones](phase2_library_clearance.md#con-observaciones-2026-10-05).
+>
+> **`observation_kind`** (2026-10-07, migración `tt20261007a`): `blocking` (la observación de
+> siempre, D4: detiene todo, incluido el pago) | `with_debt` (con adeudo, D3: montos congelados
+> como al Registrar; Caja SÍ cobra, pero el pago queda RETENIDO -la fila sigue `observed`, sin
+> folio, sin requisito, sin cita- hasta que Biblioteca pulsa **Activar**: sin pago → `awaiting_payment`;
+> con pago → `cleared/payment` con folio). NULL fuera de `observed`; NULL dentro se lee `blocking`.
+> Detalle: [Observación con adeudo](phase2_library_clearance.md#observación-con-adeudo-2026-10-07).
 >
 > **`ready_at`** (Ruling R10) es la entrada VIGENTE a `awaiting_payment`: se vuelve a fijar SOLO
 > al ENTRAR desde otro estado (Registrar desde `pending`, Revertir pago desde `cleared/payment`),

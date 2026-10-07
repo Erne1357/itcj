@@ -556,6 +556,8 @@ def test_el_acordeon_recuerda_lo_desplegado():
     ("/titulatec/admin/appointments?v=atender&date=2029-05-07", "Citas de cotejo"),
     ("/titulatec/admin/cohorts/3", "Convocatoria"),
     ("/titulatec/admin/processes?view=board&stuck=1", "Procesos"),
+    ("/titulatec/admin/liberados?cohort_id=3&program_id=&modality_id=&q=ana&page=2",
+     "Liberados"),
 ])
 def test_regresar_vuelve_al_origen_con_sus_filtros(expediente, client_as, origen, etiqueta):
     """El `href` se compara DESESCAPADO: Jinja escribe `&amp;` en los atributos,
@@ -595,6 +597,93 @@ def test_sin_from_regresa_a_procesos(expediente, client_as):
     html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
     href = re.search(r'id="exp-back"[^>]*href="([^"]*)"', html).group(1)
     assert href == "/titulatec/admin/processes"
+
+
+def _regreso(html: str) -> tuple[str, str]:
+    m = re.search(r'id="exp-back"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', html, re.S)
+    assert m, "no hay boton de regresar"
+    return m.group(1), re.sub(r"<[^>]+>", "", m.group(2)).strip()
+
+
+def test_sin_lista_pero_con_liberados_el_regreso_es_liberados(expediente, client_as,
+                                                              make_head):
+    """Spec 2026-10-07 §1.2: Procesos SOLO si puede abrir la lista; si no y
+    puede Liberados, Liberados (un Regresar que contesta 403 es peor que nada)."""
+    esc = expediente()
+    actor = make_head(perm_codes=("titulatec.process.page.detail",
+                                  "titulatec.process.api.read.all",
+                                  "titulatec.handoff.page.list"))
+
+    resp = client_as(actor).get(f"{URL}/{esc['proc'].id}")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert _regreso(resp.text) == ("/titulatec/admin/liberados", "Liberados")
+
+
+def test_con_lista_y_liberados_el_regreso_sigue_siendo_procesos(expediente, client_as,
+                                                                make_head):
+    esc = expediente()
+    actor = make_head(perm_codes=("titulatec.process.page.list",
+                                  "titulatec.process.api.read.all",
+                                  "titulatec.handoff.page.list"))
+
+    html = client_as(actor).get(f"{URL}/{esc['proc'].id}").text
+
+    assert _regreso(html) == ("/titulatec/admin/processes", "Procesos")
+
+
+def test_sin_lista_ni_liberados_el_regreso_es_el_inicio_de_la_app(expediente, client_as,
+                                                                  make_head):
+    """Nadie está así hoy (DML 2026-10-07), pero el expediente se abre con
+    `process.page.detail` solo: el landing lo manda a SU pantalla."""
+    esc = expediente()
+    actor = make_head(perm_codes=("titulatec.process.page.detail",
+                                  "titulatec.process.api.read.all"))
+
+    html = client_as(actor).get(f"{URL}/{esc['proc'].id}").text
+
+    assert _regreso(html) == ("/titulatec/", "Inicio")
+
+
+# ===========================================================================
+# 3b. Enlaces a otras pestañas: solo si el actor puede abrirlas
+# ===========================================================================
+def test_el_encargado_ve_documentos_y_citas_pero_no_la_convocatoria(expediente, client_as):
+    """`EXPEDIENTE_PERMS` trae `document.page.list` y `appointment.page.list`
+    pero NO `cohort.page.list` (la convocatoria es de la jefatura): el enlace
+    «Ver la convocatoria» respondería 403."""
+    esc = expediente()
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "Dictaminar en la bandeja" in html
+    assert f'href="/titulatec/admin/documents?selected={esc["proc"].id}"' in html
+    assert "Gestionar la cita" in html
+    assert "/titulatec/admin/appointments?v=atender" in html
+    assert "Ver la convocatoria" not in html
+    assert f"/titulatec/admin/cohorts/{esc['cohort'].id}" not in html
+
+
+def test_la_jefa_ve_los_tres_enlaces(expediente, client_as, make_head):
+    """Positivo completo: `HEAD_PERMS` abre convocatoria, citas y documentos."""
+    esc = expediente()
+    jefa = make_head()
+
+    html = client_as(jefa).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "Ver la convocatoria" in html
+    assert f'href="/titulatec/admin/cohorts/{esc["cohort"].id}"' in html
+    assert "Gestionar la cita" in html
+    assert "Dictaminar en la bandeja" in html
+
+
+def test_los_enlaces_usan_las_guardas_reales_de_cada_ruta():
+    """Sin copia de listas: si una guarda cambia, el enlace la sigue."""
+    from itcj2.apps.titulatec.pages import admin, appointments, documents
+
+    assert admin._TAB_PERMS["cohorts"] is admin._COHORT_PERMS
+    assert admin._TAB_PERMS["documents"] is documents._VIEW_PERMS
+    assert admin._TAB_PERMS["appointments"] is appointments._VIEW_PERMS
 
 
 # ===========================================================================

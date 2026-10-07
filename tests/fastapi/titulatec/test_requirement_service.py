@@ -265,7 +265,7 @@ class TestUnfulfill:
     def test_borra_la_fila_y_deja_el_evento(self, db_session, escenario):
         from itcj2.apps.titulatec.models import RequirementFulfillment
 
-        req = _req(db_session, escenario["cohort"], label="No-adeudo de biblioteca")
+        req = _req(db_session, escenario["cohort"], label="Constancia de no adeudo de biblioteca")
         process = escenario["process"]
         RequirementService.fulfill(db_session, process.id, req.id,
                                    source="officer", commit=False)
@@ -278,7 +278,7 @@ class TestUnfulfill:
             process_id=process.id, requirement_id=req.id).first() is None
         eventos = _events(db_session, process.id, "requirement_unfulfilled")
         assert len(eventos) == 1
-        assert eventos[0].payload["label"] == "No-adeudo de biblioteca"
+        assert eventos[0].payload["label"] == "Constancia de no adeudo de biblioteca"
 
     def test_sin_fila_devuelve_false_y_no_escribe_evento(self, db_session, escenario):
         req = _req(db_session, escenario["cohort"])

@@ -111,14 +111,14 @@ class TestEscritura:
 
         resp = client_as(escenario["jefa"]).post(
             _url(cid),
-            data={"icon": "book", "label": "No-adeudo de biblioteca",
+            data={"icon": "book", "label": "Constancia de no adeudo de biblioteca",
                   "hint": "Constancia vigente", "is_required": "1"},
             follow_redirects=False)
 
         assert resp.status_code == 200, resp.text[:300]
         assert 'id="cotejo-reqs-body"' in resp.text
         filas = CotejoRequirementService.list(db_session, cid)
-        assert [r.label for r in filas] == ["No-adeudo de biblioteca"]
+        assert [r.label for r in filas] == ["Constancia de no adeudo de biblioteca"]
         assert filas[0].icon == "book" and filas[0].is_required is True
 
     def test_create_sin_label_no_escribe(self, db_session, escenario, client_as):
@@ -404,13 +404,13 @@ class TestInformacionParaElAlumno:
 
         resp = client_as(escenario["jefa"]).post(
             _url(cid),
-            data={"icon": "book", "label": "No-adeudo de biblioteca", "is_required": "1",
+            data={"icon": "book", "label": "Constancia de no adeudo de biblioteca", "is_required": "1",
                   "info_html": self.SUCIO},
             follow_redirects=False)
 
         assert resp.status_code == 200, resp.text[:300]
         filas = CotejoRequirementService.list(db_session, cid)
-        assert [r.label for r in filas] == ["No-adeudo de biblioteca"]
+        assert [r.label for r in filas] == ["Constancia de no adeudo de biblioteca"]
         self._assert_limpio(filas[0].info_html)
 
     def test_update_sin_el_campo_no_borra_la_informacion(self, db_session, escenario,

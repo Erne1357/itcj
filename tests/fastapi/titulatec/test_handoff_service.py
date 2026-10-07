@@ -430,3 +430,155 @@ def test_export_rows_respeta_alcance_vacio(db_session, make_program, make_cohort
     _release(db_session, proc, datetime(2026, 1, 26, 8, 0))
 
     assert HandoffService.export_rows(db_session, allowed_program_ids=set()) == []
+
+
+# =========================================================================
+# Correo PERSONAL (spec 2026-10-07 §7, D9)
+# =========================================================================
+# Misma resolución que `StudentMail.contact_email`: perfil
+# (`core_student_profile.contact_email`) → `contact_email` de la
+# `EnrollmentRequest` MÁS RECIENTE que convirtió ESTE proceso → y, como último
+# respaldo de la bandeja, el institucional (`core_users.email`, casi siempre
+# vacío en egresados). Vacío o solo espacios cuenta como ausente.
+
+def _perfil(db, user, correo):
+    from itcj2.core.models.student_profile import StudentProfile
+    db.add(StudentProfile(user_id=user.id, contact_email=correo))
+    db.flush()
+
+
+def _solicitud(db, proc, user, correo, cohort):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    req = EnrollmentRequest(
+        cohort_id=cohort.id, control_number=user.control_number,
+        first_name="ALUMNO", last_name="FICTICIO", phone="6560000000",
+        contact_email=correo, has_efirma=False, kind="known",
+        status="converted", converted_process_id=proc.id)
+    db.add(req)
+    db.flush()
+    return req
+
+
+@pytest.fixture()
+def liberado_con_correo(db_session, make_program, make_cohort, make_user, make_process):
+    """Un liberado con correo institucional; el test le pone perfil/solicitud."""
+    def _make(sufijo, institucional="inst.{n}@example.invalid"):
+        program = make_program(f"Ingenieria Correo Personal ({sufijo})")
+        cohort = make_cohort()
+        cn = _cn()
+        alumno = make_user(first_name="CORREO", last_name=sufijo, control_number=cn,
+                           email=institucional.format(n=cn) if institucional else None)
+        if institucional is None:
+            alumno.email = None      # `make_user` siempre pone uno por omisión
+            db_session.flush()
+        proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+        _release(db_session, proc, datetime(2026, 2, 1, 9, 0))
+        return proc, alumno, program, cohort
+    return _make
+
+
+def _email_de(db, program):
+    (fila,), _ = _released(db, allowed_program_ids={program.id})
+    (csv,) = HandoffService.export_rows(db, allowed_program_ids={program.id})
+    assert fila.email == csv.email, "la bandeja y el CSV no coinciden"
+    return fila.email
+
+
+def test_el_correo_del_perfil_gana(db_session, liberado_con_correo):
+    proc, alumno, program, cohort = liberado_con_correo("P1")
+    _perfil(db_session, alumno, "perfil@example.invalid")
+    _solicitud(db_session, proc, alumno, "solicitud@example.invalid", cohort)
+
+    assert _email_de(db_session, program) == "perfil@example.invalid"
+
+
+def test_sin_perfil_usa_la_solicitud_mas_reciente_del_proceso(db_session,
+                                                             liberado_con_correo):
+    proc, alumno, program, cohort = liberado_con_correo("P2")
+    _solicitud(db_session, proc, alumno, "vieja@example.invalid", cohort)
+    _solicitud(db_session, proc, alumno, "nueva@example.invalid", cohort)
+
+    assert _email_de(db_session, program) == "nueva@example.invalid"
+
+
+def test_perfil_en_blanco_cuenta_como_ausente(db_session, liberado_con_correo):
+    proc, alumno, program, cohort = liberado_con_correo("P3")
+    _perfil(db_session, alumno, "   ")
+    _solicitud(db_session, proc, alumno, " solicitud@example.invalid ", cohort)
+
+    assert _email_de(db_session, program) == "solicitud@example.invalid"
+
+
+def test_sin_personal_cae_al_institucional(db_session, liberado_con_correo):
+    _proc, alumno, program, _cohort = liberado_con_correo("P4")
+
+    assert _email_de(db_session, program) == alumno.email
+
+
+def test_sin_ningun_correo_es_none(db_session, liberado_con_correo):
+    _proc, alumno, program, _cohort = liberado_con_correo("P5", institucional=None)
+
+    assert _email_de(db_session, program) is None
+
+
+def test_la_solicitud_de_otro_proceso_no_cuenta(db_session, liberado_con_correo,
+                                                make_process, make_cohort):
+    """Mismo filtro que `StudentMail.contact_email`: `converted_process_id` ==
+    ESTE proceso, no cualquier solicitud del alumno."""
+    proc, alumno, program, _cohort = liberado_con_correo("P6")
+    otra_conv = make_cohort()
+    otro = make_process(alumno, cohort=otra_conv, program=program, current_phase=0)
+    _solicitud(db_session, otro, alumno, "otra@example.invalid", otra_conv)
+
+    assert _email_de(db_session, program) == alumno.email
+
+
+def test_misma_resolucion_que_studentmail(db_session, liberado_con_correo):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+    proc, alumno, program, cohort = liberado_con_correo("P7")
+    _solicitud(db_session, proc, alumno, "solicitud@example.invalid", cohort)
+
+    assert _email_de(db_session, program) == StudentMail.contact_email(db_session, proc)
+
+
+def test_el_correo_no_agrega_consultas_por_fila(db_session, make_program, make_cohort,
+                                                make_user, make_process):
+    """Sin N+1: la página cuesta lo mismo con 1 fila que con 4 (perfil y
+    solicitud viajan en la MISMA consulta)."""
+    from sqlalchemy import event
+
+    program = make_program("Ingenieria Correo Personal (N+1)")
+    cohort = make_cohort()
+
+    def _alta(i):
+        alumno = make_user(first_name="NMAS", last_name=f"UNO{i}", control_number=_cn())
+        proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+        _release(db_session, proc, datetime(2026, 2, 2, 9, i))
+        _perfil(db_session, alumno, f"p{i}@example.invalid")
+        _solicitud(db_session, proc, alumno, f"s{i}@example.invalid", cohort)
+
+    def _contar(fn):
+        n = [0]
+        motor = db_session.get_bind()
+
+        def _hook(*_a, **_k):
+            n[0] += 1
+        event.listen(motor, "before_cursor_execute", _hook)
+        try:
+            fn()
+        finally:
+            event.remove(motor, "before_cursor_execute", _hook)
+        return n[0]
+
+    _alta(0)
+    pagina_1 = _contar(lambda: _released(db_session, allowed_program_ids={program.id}))
+    csv_1 = _contar(lambda: HandoffService.export_rows(
+        db_session, allowed_program_ids={program.id}))
+    for i in range(1, 4):
+        _alta(i)
+    pagina_4 = _contar(lambda: _released(db_session, allowed_program_ids={program.id}))
+    csv_4 = _contar(lambda: HandoffService.export_rows(
+        db_session, allowed_program_ids={program.id}))
+
+    assert pagina_4 == pagina_1, f"la página crece con las filas: {pagina_1} -> {pagina_4}"
+    assert csv_4 == csv_1, f"el CSV crece con las filas: {csv_1} -> {csv_4}"

@@ -80,6 +80,9 @@ EVENTO_A_CORREO = {
     # motivo) -> `library_observed`; rehabilitar -> `library_reenabled`.
     "library_observed": "library_observed",
     "library_reenabled": "library_reenabled",
+    # Observación con adeudo (spec 2026-10-07 §2): «Activar» con el pago ya
+    # retenido libera -> el MISMO «quedó liberada» que el pago normal.
+    "library_cleared_after_observation": "library_cleared",
     # Revocar la inscripción (spec 2026-10-05-titulatec-rendimiento §3.7, P-D1):
     # su aviso ya no sale en línea, se encola.
     "process_cancelled": "process_cancelled",
@@ -109,6 +112,9 @@ MAPEO = {
     "LibraryClearanceService.undo_prior": "library_reverted",
     "LibraryClearanceService.observe": "library_observed",
     "LibraryClearanceService.reenable": "library_reenabled",
+    # «Activar» una observación con adeudo ya pagada (spec 2026-10-07 §2):
+    # `reenable` delega la liberación aquí, con su propio evento.
+    "LibraryClearanceService._release_held_payment": "library_cleared",
     # Correos de inscripción sin secreto (spec 2026-10-05-titulatec-
     # rendimiento §3.7, P-D1): ya no salen en línea, se encolan. El resto de
     # sus escritores (`verify`, `create`) no escribe estados vigilados; su
@@ -158,6 +164,12 @@ RAMAS_SIN_CORREO = {
     # Ruling R10 (b): corregir sin cambiar nada (mismo adeudo, misma donación
     # congelada, misma nota) es no-op: ni evento, ni aviso, ni correo.
     "LibraryClearanceService._mark_ready": ("test_correccion_sin_cambios_no_encola",),
+    # Observación con adeudo (spec 2026-10-07 §2): el cobro RETENIDO escribe
+    # `library_payment_registered` pero NO libera -encola `library_payment_
+    # held`, nunca `library_cleared`-; revertir ese pago retenido no encola
+    # nada (nunca se liberó).
+    "LibraryClearanceService.register_payment": ("test_cobro_retenido_no_encola_liberado",),
+    "LibraryClearanceService.revert_payment": ("test_revertir_pago_retenido_no_encola",),
 }
 
 _ESTADOS_VIGILADOS = frozenset({"approved", "rejected", "cancelled", "no_show",
@@ -361,7 +373,7 @@ def test_la_lista_blanca_no_encola_nada():
 
 
 def test_cada_evento_del_no_adeudo_tiene_su_correo():
-    """Los 10 de `LIBRARY_EVENT_TYPES` están en el catálogo: un evento nuevo del
+    """Los 11 de `LIBRARY_EVENT_TYPES` están en el catálogo: un evento nuevo del
     no adeudo sin correo registrado no pasaría inadvertido (el detector solo
     vigila los eventos que ya están en `EVENTO_A_CORREO`)."""
     from itcj2.apps.titulatec.services.library_clearance_service import (

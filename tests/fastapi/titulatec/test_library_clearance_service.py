@@ -192,7 +192,7 @@ def nuevo(db_session, make_student, make_process, make_cohort, make_program,
             cohort = make_cohort(book_donation_amount=donation)
             if requisito:
                 _req(db_session, cohort, code="library_clearance",
-                     auto_source=AUTO_SOURCE_LIBRARY, label="No-adeudo de biblioteca")
+                     auto_source=AUTO_SOURCE_LIBRARY, label="Constancia de no adeudo de biblioteca")
             else:
                 _req(db_session, cohort, code="birth_certificates",
                      label="Actas de nacimiento")
@@ -260,6 +260,8 @@ def test_los_diez_eventos_del_spec_caben_en_la_columna():
         "library_payment_reverted", "library_clearance_reverted", "library_prior_undone",
         # «Con observaciones» (spec 2026-10-05 §3.2).
         "library_observed", "library_reenabled",
+        # Activar una observación con adeudo ya pagada (spec 2026-10-07 §2).
+        "library_cleared_after_observation",
     )
     assert all(len(e) <= 40 for e in LIBRARY_EVENT_TYPES)   # ProcessEvent.event_type String(40)
 
@@ -438,7 +440,7 @@ class TestSummary:
     LLAVES = {"status", "via", "debt", "donation", "total", "note", "ready_at",
               "paid_at", "receipt",
               "prior_issued_on", "prior_note", "observation", "observed_at",
-              "can_revert", "clearance_id"}
+              "observation_kind", "can_revert", "clearance_id"}
 
     def test_sin_fila(self, db_session, nuevo):
         esc = nuevo(status=None)
@@ -538,7 +540,7 @@ class TestSummary:
 # aprobada sin un no adeudo liberado es `not_applicable`, no «en Biblioteca»,
 # y Biblioteca/SE ya no le abren trámite.
 # ---------------------------------------------------------------------------
-MSG_YA_PASO = "Este egresado ya pasó su cotejo; no necesita trámite de no adeudo."
+MSG_YA_PASO = "Este egresado ya pasó su cotejo; no necesita tramitar su Constancia de no adeudo."
 
 
 class TestCotejoYaLiberado:
@@ -784,7 +786,7 @@ class TestRegister:
         assert evs[0].payload["certificate"] == certs[0].number
         assert _events(db_session, esc.process.id, "library_debt_registered") == []
         assert aviso.call_args.kwargs["type"] == "LIBRARY_CLEARED"
-        assert aviso.call_args.kwargs["title"] == "Tu no adeudo de biblioteca quedó liberado"
+        assert aviso.call_args.kwargs["title"] == "Tu Constancia de no adeudo de biblioteca quedó liberada"
 
     def test_sin_requisito_automatico_libera_igual_sin_cumplimiento(
             self, db_session, nuevo, actores):
@@ -844,7 +846,7 @@ class TestRegister:
             LibraryClearanceService.register(
                 db_session, esc.clearance.id, actores.biblioteca.id,
                 debt_amount=ADEUDO, note=None)
-        assert "ya está liberado" in str(exc.value)
+        assert "ya está liberada" in str(exc.value)
         assert esc.clearance.status == "cleared"
 
     @pytest.mark.parametrize("monto", [
@@ -1329,7 +1331,7 @@ class TestRegisterPayment:
         assert evs[0].payload["certificate"] == certs[0].number
 
         assert aviso.call_args.kwargs["type"] == "LIBRARY_CLEARED"
-        assert aviso.call_args.kwargs["title"] == "Tu no adeudo de biblioteca quedó liberado"
+        assert aviso.call_args.kwargs["title"] == "Tu Constancia de no adeudo de biblioteca quedó liberada"
 
     def test_recibo_es_opcional_y_tiene_tope(self, db_session, nuevo, actores):
         esc = nuevo()
@@ -1577,7 +1579,7 @@ class TestRegisterPrior:
             LibraryClearanceService.register_prior(
                 db_session, esc.clearance.id, actores.biblioteca.id,
                 issued_on=reloj, note=None, by="library")
-        assert "ya está liberado" in str(exc.value)
+        assert "ya está liberada" in str(exc.value)
 
     def test_proceso_revocado(self, db_session, nuevo, actores, reloj):
         esc = nuevo(process_status="cancelled")
@@ -1761,7 +1763,7 @@ class TestRevertClearance:
         with pytest.raises(ValueError) as exc:
             LibraryClearanceService.revert_clearance(
                 db_session, esc.clearance.id, actores.biblioteca.id, "Motivo")
-        assert "no está liberado" in str(exc.value)
+        assert "no está liberada" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
@@ -2101,7 +2103,7 @@ class TestBloqueo:
         with pytest.raises(ValueError) as exc:
             _a_caja(db_session, esc, actores.biblioteca, debt=Decimal("900.00"))
 
-        assert "ya está liberado" in str(exc.value)
+        assert "ya está liberada" in str(exc.value)
         assert esc.clearance.total_amount == Decimal("1100.00")
         assert _events(db_session, esc.process.id, "library_amount_corrected") == []
 

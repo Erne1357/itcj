@@ -67,7 +67,9 @@ títulos (`asunto_recordatorio_*`) los comparte el aviso in-app que crea el
 barrido: un solo texto para los dos canales. Y los tres correos de las
 transiciones del no adeudo: `library_ready`, `library_cleared` y
 `library_reverted`; y los dos de «Con observaciones» de Biblioteca (spec
-2026-10-05 §3.3): `library_observed` y `library_reenabled`.
+2026-10-05 §3.3): `library_observed` y `library_reenabled`, con sus variantes
+de la observación CON ADEUDO (spec 2026-10-07 §2), más `library_payment_held`
+(Caja cobró y el pago queda retenido hasta que Biblioteca active).
 """
 from __future__ import annotations
 
@@ -128,23 +130,29 @@ _FALTA = {
                          "de egresados (ya la enviaste; está en revisión)"),
     "survey_rejected": ("atender las observaciones de Gestión Tecnológica y Vinculación "
                         "(GTV) a tu encuesta de egresados"),
-    "library_pending": "que el Centro de Información revise tu no adeudo de biblioteca",
-    "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu no "
-                                 "adeudo de biblioteca"),
+    "library_pending": "que el Centro de Información revise tu Constancia de no adeudo de biblioteca",
+    "library_awaiting_payment": ("pagar en Caja (Recursos Financieros) para liberar tu "
+                                 "Constancia de no adeudo de biblioteca"),
     "library_observed": ("atender en la Biblioteca (Centro de Información) las observaciones "
-                         "a tu no adeudo de biblioteca"),
+                         "a tu Constancia de no adeudo de biblioteca"),
 }
 # El de Caja con su total congelado, cuando se conoce.
-_FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu no adeudo "
-               "de biblioteca")
+_FALTA_PAGO = ("pagar {total} en Caja (Recursos Financieros) para liberar tu Constancia de "
+               "no adeudo de biblioteca")
 
 # Asuntos del no adeudo de biblioteca (spec 2026-10-01 §4.11), sin prefijo.
-_ASUNTO_CAJA = "Ya puedes pasar a Caja por tu no adeudo de biblioteca"
-_ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu no adeudo de biblioteca"
-_ASUNTO_LIBERADO = "Tu no adeudo de biblioteca quedó liberado"
-_ASUNTO_REVERTIDO = "Se revirtió tu no adeudo de biblioteca"
-_ASUNTO_OBSERVADO = "Biblioteca registró observaciones en tu no adeudo de biblioteca"
-_ASUNTO_REHABILITADO = "Biblioteca te rehabilitó: ya puedes continuar con tu no adeudo"
+_ASUNTO_CAJA = "Ya puedes pasar a Caja por tu Constancia de no adeudo de biblioteca"
+_ASUNTO_CAJA_CORREGIDO = "Biblioteca corrigió el monto de tu Constancia de no adeudo de biblioteca"
+_ASUNTO_LIBERADO = "Tu Constancia de no adeudo de biblioteca quedó liberada"
+_ASUNTO_REVERTIDO = "Se revirtió tu Constancia de no adeudo de biblioteca"
+_ASUNTO_OBSERVADO = "Biblioteca registró observaciones en tu Constancia de no adeudo de biblioteca"
+_ASUNTO_REHABILITADO = "Biblioteca activó tu trámite: ya puedes continuar con tu Constancia de no adeudo"
+# Observación CON ADEUDO (spec 2026-10-07 §2).
+_ASUNTO_OBSERVADO_ADEUDO = ("Biblioteca registró una observación con adeudo en tu Constancia de "
+                            "no adeudo de biblioteca")
+_ASUNTO_REHABILITADO_CAJA = "Biblioteca activó tu trámite: ya puedes pasar a Caja"
+_ASUNTO_PAGO_RETENIDO = ("Caja registró tu pago: tu Constancia de no adeudo se libera cuando "
+                         "Biblioteca registre la entrega")
 _VIAS_LIBERACION = ("payment", "no_charge", "prior")
 # El `code` del requisito de cotejo del no adeudo (la «Información para el
 # alumno» de `library_ready` sale de él; también en la lista vieja, sin
@@ -724,10 +732,10 @@ def _compose_library_cleared(db: Session, rows: list, process, user) -> Composed
 
     fila = rows[-1]
     if _hay_posterior(db, fila, "library_reverted"):
-        return Obsolete("el no adeudo se revirtió después")
+        return Obsolete("la Constancia de no adeudo se revirtió después")
     bloqueos = _bloqueos(db, process)
     if any(codigo in LIBRARY_BLOCKERS for codigo in bloqueos):
-        return Obsolete("el no adeudo ya no está liberado")
+        return Obsolete("la Constancia de no adeudo ya no está liberada")
 
     via = _datos(fila).get("via")
     via = via if via in _VIAS_LIBERACION else None
@@ -800,7 +808,7 @@ def _compose_library_reverted(db: Session, rows: list, process, user) -> Compose
     fila = rows[-1]
     datos = _datos(fila)
     if _hay_posterior(db, fila, "library_cleared"):
-        return Obsolete("el no adeudo se volvió a liberar")
+        return Obsolete("la Constancia de no adeudo se volvió a liberar")
     ultimo = _ultimo_enviado(db, fila, ("library_cleared", "library_reverted"))
     if ultimo is None or ultimo.kind != "library_cleared":
         desde = max(ultimo.id if ultimo is not None else 0,
@@ -825,6 +833,15 @@ def _compose_library_observed(db: Session, rows: list, process, user) -> Compose
     """Biblioteca registró observaciones en el no adeudo (spec 2026-10-05
     §3.3): el motivo CONGELADO en el payload y «Acude a la Biblioteca».
 
+    Variante CON ADEUDO (spec 2026-10-07 §2, `con_adeudo`): el motivo, el
+    monto VIGENTE de la observación (adeudo + donación = total, como
+    `library_ready`) y «puedes pagar en Caja y entregar en Biblioteca en la
+    misma visita; tu Constancia de no adeudo se libera cuando Biblioteca
+    registre la entrega». Si Caja ya cobró (re-observar con el pago
+    retenido), lo dice (`pagado`). El tipo es el de la observación VIGENTE
+    (`LibraryClearanceService.observation`): si cambió, este correo ya es
+    obsoleto por la regla 1.
+
     Re-validado al enviar (D8), obsoleto si:
 
     1. Hay un `library_observed` MÁS NUEVO del proceso: actualizó el motivo
@@ -835,38 +852,90 @@ def _compose_library_observed(db: Session, rows: list, process, user) -> Compose
        observado y rehabilitado antes del despacho no manda un aviso falso.
     """
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        LibraryClearanceService,
+        OBS_WITH_DEBT, LibraryClearanceService, format_amount,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
     fila = rows[-1]
     if _hay_posterior(db, fila, "library_observed"):
         return Obsolete("hay una observación más reciente de Biblioteca")
-    if (_hay_posterior(db, fila, "library_reenabled")
-            or LibraryClearanceService.observation(db, process.id) is None):
-        return Obsolete("Biblioteca ya lo rehabilitó")
-    return _correo(user, _ASUNTO_OBSERVADO, "library_observed.html",
-                   _tablero(PhaseService.PHASE_COTEJO),
-                   reason=_texto(_datos(fila).get("reason")))
+    obs = LibraryClearanceService.observation(db, process.id)
+    if _hay_posterior(db, fila, "library_reenabled") or obs is None:
+        return Obsolete("Biblioteca ya activó el trámite")
+    con_adeudo = obs["kind"] == OBS_WITH_DEBT
+    return _correo(user, _ASUNTO_OBSERVADO_ADEUDO if con_adeudo else _ASUNTO_OBSERVADO,
+                   "library_observed.html", _tablero(PhaseService.PHASE_COTEJO),
+                   reason=_texto(_datos(fila).get("reason")),
+                   con_adeudo=con_adeudo,
+                   debt=format_amount(obs["debt"]) if con_adeudo else None,
+                   sin_adeudo=con_adeudo and not obs["debt"],
+                   donation=format_amount(obs["donation"]) if con_adeudo else None,
+                   con_donacion=con_adeudo and bool(obs["donation"]),
+                   total=format_amount(obs["total"]) if con_adeudo else None,
+                   pagado=con_adeudo and obs["paid_at"] is not None)
 
 
 def _compose_library_reenabled(db: Session, rows: list, process, user) -> Composed | Obsolete:
-    """Biblioteca lo rehabilitó: vuelve a «Por revisar» (spec 2026-10-05
-    §3.3). Sale mientras la fila NO esté otra vez «Con observaciones» (en
-    `pending` o cualquier estado posterior); obsoleto si lo volvieron a
-    observar o si hay un `library_reenabled` más nuevo (sale ese)."""
+    """Biblioteca lo activó (spec 2026-10-05 §3.3). Según `to_status` del
+    payload (spec 2026-10-07 §2): `pending` -vuelve a «Por revisar», la
+    observación de siempre- o `awaiting_payment` -era una observación CON
+    ADEUDO sin pago: «ya puedes pasar a Caja a pagar $X» (`a_caja`, con el
+    total VIGENTE de `LibraryClearanceService.payment_due`)-. Un payload sin
+    `to_status` (fila anterior a esta entrega) es `pending`.
+
+    Obsoleto si lo volvieron a observar, si hay un `library_reenabled` más
+    nuevo (sale ese) o, hacia Caja, si ya no tiene un pago pendiente (ya
+    pagó, se liberó de otro modo o su fase 2 se aprobó: `payment_due`)."""
     from itcj2.apps.titulatec.services.library_clearance_service import (
-        LibraryClearanceService,
+        LibraryClearanceService, format_amount,
     )
     from itcj2.apps.titulatec.services.phase_service import PhaseService
 
     fila = rows[-1]
     if _hay_posterior(db, fila, "library_reenabled"):
-        return Obsolete("hay un aviso más reciente de rehabilitación")
+        return Obsolete("hay un aviso más reciente de activación")
     if LibraryClearanceService.observation(db, process.id) is not None:
         return Obsolete("Biblioteca volvió a registrar observaciones")
-    return _correo(user, _ASUNTO_REHABILITADO, "library_reenabled.html",
-                   _tablero(PhaseService.PHASE_COTEJO))
+    a_caja = _datos(fila).get("to_status") == "awaiting_payment"
+    total = None
+    if a_caja:
+        pago = LibraryClearanceService.payment_due(db, process.id)
+        if pago is None:
+            return Obsolete("ya no tiene un pago pendiente en Caja")
+        total = format_amount(pago["total"])
+    return _correo(user, _ASUNTO_REHABILITADO_CAJA if a_caja else _ASUNTO_REHABILITADO,
+                   "library_reenabled.html", _tablero(PhaseService.PHASE_COTEJO),
+                   a_caja=a_caja, total=total,
+                   library_required=_exige_biblioteca(db, process))
+
+
+def _compose_library_payment_held(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Caja cobró una observación CON ADEUDO y el pago queda RETENIDO (spec
+    2026-10-07 §2): «Caja registró tu pago de $X; tu Constancia de no adeudo
+    se libera cuando Biblioteca registre la entrega», con el motivo VIGENTE
+    de la observación (lo que falta entregar).
+
+    Re-validado al enviar (D8), obsoleto si hay un `library_payment_held` más
+    nuevo (sale ese) o si el pago YA NO está retenido
+    (`LibraryClearanceService.observation`: sin observación -Biblioteca ya
+    activó y sale el «quedó liberada»- u observación sin pago -Caja lo
+    revirtió-; aquí no se compara ningún estado, invariante 2)."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        OBS_WITH_DEBT, LibraryClearanceService, format_amount,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    fila = rows[-1]
+    if _hay_posterior(db, fila, "library_payment_held"):
+        return Obsolete("hay un aviso más reciente del pago")
+    obs = LibraryClearanceService.observation(db, process.id)
+    if obs is None or obs["kind"] != OBS_WITH_DEBT or obs["paid_at"] is None:
+        return Obsolete("el pago ya no está retenido por Biblioteca")
+    return _correo(user, _ASUNTO_PAGO_RETENIDO, "library_payment_held.html",
+                   _tablero(PhaseService.PHASE_COTEJO),
+                   total=format_amount(obs["total"]),
+                   receipt=_texto(obs["receipt"]),
+                   reason=_texto(obs["reason"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1194,6 +1263,7 @@ class MailComposer:
         "library_reminder": _compose_library_reminder,
         "library_observed": _compose_library_observed,
         "library_reenabled": _compose_library_reenabled,
+        "library_payment_held": _compose_library_payment_held,
     }
 
     # Los 4 correos de inscripción sin secreto (spec 2026-10-05 §3.7): con las

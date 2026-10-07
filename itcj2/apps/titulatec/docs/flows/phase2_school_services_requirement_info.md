@@ -155,7 +155,7 @@ módulo admin del CLAUDE.md §4):
   liberación (`SurveyReview`) que decide Gestión Tecnológica y Vinculación desde su propia
   bandeja, ⤵ ver [liberación GTV de la encuesta](phase2_tech_management_survey_release.md).
   Desde el 2026-10-01 (spec `2026-10-01-titulatec-biblioteca-caja-design.md` §4.3), el requisito
-  `library_clearance` («No-adeudo de biblioteca») pasa por el MISMO patrón: convocatoria por
+  `library_clearance` («Constancia de no adeudo de biblioteca») pasa por el MISMO patrón: convocatoria por
   convocatoria, `CotejoRequirementService.DEFAULTS` lo marca `auto_source='library_clearance'`
   (las YA sembradas las pone al día `titulatec activar-biblioteca-caja` —el paso 2 del
   despliegue, Ruling R19—, DML `biblioteca_2026_10/22_library_requirement_auto.sql`), y lo

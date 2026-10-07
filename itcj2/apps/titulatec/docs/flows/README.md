@@ -33,7 +33,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 |---|---|
 | 👤 | Acción del **alumno** (rol `graduate` desde 2026-09-15; antes `student`), mobile |
 | 🏛️ | Acción de **Servicios Escolares** (`titulatec_school_services`) |
-| 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) |
+| 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) o del **Departamento de Titulación** (`titulatec_titulacion`; desde 2026-10-07 solo Liberados + expediente resumido) |
 | 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
 | 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 💻 | Acción de **Centro de Cómputo** (`titulatec_computer_center` — desde 2026-09-24) |
@@ -78,8 +78,8 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [Motor de avance de fase: aprobar / rechazar](engine_approve_advance_phase.md) 🤖 — invocado por casi todos.
 - [Guarda de fase del alumno: solo la fase en curso se ejecuta](engine_student_phase_lock.md) 👤🤖 — gemela de la anterior: siguientes = informativas, anteriores = inmutables.
 - [Alcance por carrera + asignación delegada de encargados](engine_officer_scope.md) 🏛️ — `officer_programs` acota bandeja/kanban/citas; el jefe da de alta encargados.
-- [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados.
-- [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️ ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros.
+- [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) 🏛️🎓 ⤵ scope — tabla y kanban del mismo dataset, `idle_days` y filtro de atorados; la lista exige `process.page.list` (guarda propia desde 2026-10-07).
+- [Expediente del alumno](xcut_admin_process_expediente.md) 🏛️🎓 ⤵ scope — acordeón de las 9 fases con el historial de cada una; documentos de solo lectura, mover de fase en modal, y el `?from=` que devuelve a la pestaña de origen con sus filtros (Liberados incluida; sin `from`, el regreso depende de lo que el actor puede abrir). Desde 2026-10-07: enlaces a otras pestañas solo si el actor puede abrirlas, y vista **resumida** para el Departamento de Titulación (`process.page.summary`: cabecera + fases previas al corte, sin desglose ni acciones).
 - [Correos del proceso al egresado](xcut_student_email_notifications.md) 🤖 (2026-09-28/29; +4 `kind` el 2026-10-01) ⤵ compone casi todos los anteriores — bandeja `titulatec_email_outbox` escrita en la MISMA transacción del evento + despachador Celery cada 5 minutos (agrupado por espera D7, `FOR UPDATE SKIP LOCKED`, reintentos) + barrido diario de 4 recordatorios (cita, documentos, encuesta y, desde 2026-10-01, pago en Caja); catálogo de 15 `kind`, ligas `/itcj/login?next=`, `[TT-MAIL]` en dev sin cuenta Graph, y la bitácora `#exp-correos` que pinta el expediente.
 - [Pestaña «Correos»: la bandeja de salida, de solo lectura](xcut_mail_outbox_admin.md) 🛠️ (2026-10-06) ⤵ lee la anterior — solo el rol `admin` (`titulatec.email_outbox.page.list`, `init-outbox-admin`): pendientes, entregados, fallidos y descartados, con búsqueda, tipo y paginación en servidor; sin reintentar ni reenviar.
 - [Folios y constancias por lote: numeración, emisión, switch de impresión y PDF](xcut_certificates_batch.md) 🤖📚🛠️ (2026-10-01; folios por semestre 2026-10-05) ⤵ compone no adeudo de biblioteca, liberación GTV y constancias previas — folio atómico por tipo y semestre (`BIB-2026B-0001`), datos congelados, página «Folios» con buscador, backfill de previas y legado; la impresión por lote (WeasyPrint, 3 o 2 por hoja carta) sigue en el código pero apagada por omisión (`TITULATEC_CERTIFICATE_PRINTING`).
@@ -87,10 +87,13 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [El alumno consulta el detalle de una fase](xcut_student_phase_detail.md) 👤 — **acordeón en el dashboard** (la pantalla `/fase/{n}` ya no existe: redirige): estado, instrucciones, sub-progreso, CTA y timeline.
 - [La jefatura da de alta encargados por carrera](xcut_school_services_manage_officers.md) 🏛️🤖 ⤵ alimenta el alcance — un encargado es un `Position` con rol y carreras; nombrar a una cuenta INACTIVA la reactiva y le restablece la contraseña (9 de 11 usuarios de Servicios Escolares lo estaban), y la pantalla lo dice antes y después.
 - [El alumno usa TitulaTec dentro del shell mobile del core](xcut_student_shell_embed.md) 👤 — embebido vs standalone, drawer/rail, notificaciones por Avisos, mini-perfil.
-- [Corte a T-soft y bandeja de Liberados](xcut_titulacion_handoff.md) 👤🎓 ⤵ gemela de las dos
+- [Corte a T-soft y bandeja de Liberados](xcut_titulacion_handoff.md) 👤🎓🏛️ ⤵ gemela de las dos
   guardas — de la fase 3 en adelante el proceso deja de operarse aquí (lo sigue el Departamento
   de Titulación en T-soft); la pestaña **Liberados** (solo lectura) muestra a quién ya soltó
   Servicios Escolares (`ProcessPhase(2).status == 'approved'`). Reversible con una sola variable.
+  Desde 2026-10-07: el Departamento de Titulación aterriza en Liberados y solo ve eso más el
+  expediente resumido; Servicios Escolares (encargados y jefatura) también la ve y exporta; la
+  columna Correo es el correo personal del egresado y la modalidad nula dice «Sin elegir».
 
 ### Referencias
 - [Máquina de estados (proceso + fases + citas + documentos + solicitudes + checks del SII)](00_state_machine.md)

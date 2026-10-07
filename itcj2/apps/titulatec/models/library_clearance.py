@@ -25,16 +25,26 @@ Maquina de estados (detalle y guardas en `LibraryClearanceService`):
     cleared/no_charge|legacy ──Biblioteca revierte──────> pending
     cleared/prior     ──se deshace la previa────────────> pending
                          (Biblioteca o SE)
-    pending|awaiting  ──Biblioteca observa (motivo)─────> observed  (`ready_at` = NULL,
+    pending|awaiting  ──Biblioteca observa (motivo)─────> observed/blocking  (`ready_at` = NULL,
                                                                     montos intactos)
+    pending|awaiting  ──Biblioteca observa CON ADEUDO───> observed/with_debt (montos congelados
+                         (motivo + adeudo, total > 0)                 como al Registrar)
     observed          ──Biblioteca actualiza el motivo──> observed
-    observed          ──Biblioteca rehabilita──────────> pending   (montos intactos)
+    observed/with_debt (sin pago) ──Caja cobra──────────> observed/with_debt + pago (RETENIDO:
+                                                         sin folio, sin requisito, sin cita)
+    observed/with_debt + pago ──Caja revierte el pago──> observed/with_debt (sin pago)
+    observed/blocking ──Biblioteca activa──────────────> pending   (montos intactos)
+    observed/with_debt sin pago ──Biblioteca activa────> awaiting_payment (Caja cobra)
+    observed/with_debt + pago ──Biblioteca activa──────> cleared/payment (+folio BIB)
 
 Las tres reversas exigen la fase 2 SIN aprobar (`can_revert`); observar y
 rehabilitar tambien (spec `2026-10-05-titulatec-biblioteca-observaciones-
 design.md` §3.2). Desde `cleared` no se observa: primero se revierte. Con
-`observed` ni se registra, ni se cobra, ni se revierte, ni se aplica una
-constancia previa: primero se rehabilita.
+`observed` ni se registra, ni se aplica una constancia previa: primero se
+activa. La observacion NORMAL (`observation_kind='blocking'`) tampoco deja
+cobrar ni revertir (D4); la CON ADEUDO (`with_debt`, spec 2026-10-07 §2, D3)
+deja que Caja cobre y revierta su pago, pero ese pago NO libera: lo libera
+«Activar».
 
 `cleared_via='legacy'` no tiene arista de entrada: lo escribe el dato, nunca
 una transicion -- el backfill de la migracion `tt20261001a` y la promocion
@@ -65,6 +75,16 @@ from itcj2.models.base import Base
 # observaciones», spec 2026-10-05 §3.1): ni agenda ni paga hasta que Biblioteca
 # lo rehabilite (vuelve a 'pending'). Sin CHECK de dominio en la BD.
 LIBRARY_STATUSES = ("pending", "awaiting_payment", "observed", "cleared")
+
+# Dominio de `observation_kind` (spec 2026-10-07 §2, migracion `tt20261007a`).
+# NULL fuera de 'observed'. 'blocking' = la observacion de siempre: detiene
+# TODO, incluido el pago en Caja (D4); las filas `observed` que ya existian la
+# recibieron en la migracion. 'with_debt' = observacion CON ADEUDO (D3):
+# Biblioteca congela adeudo + donacion como al Registrar, Caja SI cobra, pero
+# el pago queda RETENIDO (sin folio, sin requisito, sin cita) hasta que
+# Biblioteca activa. Una fila `observed` con NULL (dato viejo) se lee como
+# 'blocking' (falla cerrado). Sin CHECK de dominio en la BD.
+OBSERVATION_KINDS = ("blocking", "with_debt")
 
 # Dominio de `cleared_via`. NULL salvo cuando `status='cleared'`.
 # 'payment' = Caja cobro el monto congelado. 'no_charge' = Biblioteca
@@ -127,6 +147,9 @@ class LibraryClearance(Base):
     observation_reason = Column(Text, nullable=True)
     observed_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     observed_at = Column(DateTime, nullable=True)
+    # Tipo de la observacion VIGENTE (spec 2026-10-07 §2, tt20261007a):
+    # dominio OBSERVATION_KINDS; NULL fuera de 'observed'.
+    observation_kind = Column(String(20), nullable=True)
 
     # --- Constancia previa (§4.12) ---
     prior_issued_on = Column(Date, nullable=True)

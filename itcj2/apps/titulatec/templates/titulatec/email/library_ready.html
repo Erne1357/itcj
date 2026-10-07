@@ -13,18 +13,18 @@
    con_donacion, total, note, info_html, library_required. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}{% if updated %}Biblioteca corrigió el monto de tu no adeudo{% else %}Ya puedes pasar a Caja{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block titulo %}{% if updated %}Biblioteca corrigió el monto de tu Constancia de no adeudo{% else %}Ya puedes pasar a Caja{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 {% if updated %}
 <p style="margin:0 0 20px;">
-  El Centro de Información (Biblioteca) <strong>corrigió el monto de tu no adeudo de
-  biblioteca</strong>. Este es el monto vigente que pagarás en Caja (Recursos Financieros):
+  El Centro de Información (Biblioteca) <strong>corrigió el monto de tu Constancia de no adeudo
+  de biblioteca</strong>. Este es el monto vigente que pagarás en Caja (Recursos Financieros):
 </p>
 {% else %}
 <p style="margin:0 0 20px;">
-  El Centro de Información (Biblioteca) revisó tu no adeudo de biblioteca:
-  <strong>ya puedes pasar a Caja</strong> (Recursos Financieros) a pagarlo.
+  El Centro de Información (Biblioteca) revisó tu Constancia de no adeudo de biblioteca:
+  <strong>ya puedes pasar a Caja</strong> (Recursos Financieros) a realizar el pago.
 </p>
 {% endif %}
 <table width="100%" cellpadding="0" cellspacing="0"
@@ -54,7 +54,7 @@
 </table>
 {% endif %}
 <p style="margin:0 0 24px;">
-  Cuando Caja registre tu pago se libera tu no adeudo de biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}. Te avisaremos por este medio.
+  Cuando Caja registre tu pago se libera tu Constancia de no adeudo de biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}. Te avisaremos por este medio.
 </p>
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

@@ -437,7 +437,7 @@ class TestInformacionDeCadaRequisito:
         )
         esc = alumno_en_cita
         item = CotejoRequirementService.create(db_session, esc["cohort"].id,
-                                               label="No-adeudo de biblioteca",
+                                               label="Constancia de no adeudo de biblioteca",
                                                hint=None, icon="book")
         item.info_html = self.SUCIO          # directo al ORM, saltandose el servicio
         db_session.flush()
@@ -447,7 +447,7 @@ class TestInformacionDeCadaRequisito:
         assert resp.status_code == 200, resp.text[:300]
         doc = self._doc(resp)
         [modal] = doc.xpath(f'//*[@id="tt-reqinfo-modal-{item.id}"]')
-        assert "No-adeudo de biblioteca" in modal.text_content()
+        assert "Constancia de no adeudo de biblioteca" in modal.text_content()
         assert modal.get("aria-labelledby") and doc.xpath(
             f'//*[@id="{modal.get("aria-labelledby")}"]'), "el modal se rotula con su titulo"
         [cuerpo] = modal.xpath('.//*[contains(@class, "modal-body")]')

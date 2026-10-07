@@ -64,6 +64,42 @@ def test_el_landing_manda_a_un_graduate_a_su_dashboard(
     assert resp.headers["location"] == STUDENT_DASHBOARD
 
 
+LIBERADOS = "/titulatec/admin/liberados"
+
+
+def test_titulacion_aterriza_en_liberados():
+    """D1 (spec 2026-10-07 §1.2): el Departamento de Titulación ya no ve la
+    Bandeja; su pantalla de trabajo es Liberados."""
+    assert resolve_dashboard_url({"titulatec_titulacion"}) == LIBERADOS
+
+
+def test_titulaciones_sigue_ganando_a_titulacion():
+    """La jefatura de la División (sin cambios) va antes en `_ROLE_DASHBOARD`."""
+    assert (resolve_dashboard_url({"titulatec_titulaciones", "titulatec_titulacion"})
+            == "/titulatec/admin/")
+
+
+def test_un_actor_de_escolares_y_de_titulacion_aterriza_por_escolares():
+    """Titulación es ahora una bandeja propia (como GTV, Cómputo, Biblioteca o
+    Caja) y va DESPUÉS de los roles con Bandeja completa."""
+    assert (resolve_dashboard_url({"titulatec_school_services", "titulatec_titulacion"})
+            == "/titulatec/admin/")
+
+
+def test_el_landing_manda_a_titulacion_a_liberados(
+    client_as, make_user, make_role, grant_user_role,
+):
+    """Con el nombre REAL del rol (el landing resuelve por nombre, no por
+    permisos): sus permisos no importan aquí, solo la asignación."""
+    user = make_user(first_name="JEFA", last_name="TITULACION")
+    grant_user_role(user, make_role("titulatec_titulacion"))
+
+    resp = client_as(user).get("/titulatec/", follow_redirects=False)
+
+    assert resp.status_code == 302, resp.text[:300]
+    assert resp.headers["location"] == LIBERADOS
+
+
 ACCESOS = "/titulatec/admin/accesos"
 
 

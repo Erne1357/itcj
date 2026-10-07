@@ -1,11 +1,17 @@
-# No adeudo de biblioteca: Biblioteca → Caja (Fase 2)
+# Constancia de no adeudo de biblioteca: Biblioteca → Caja (Fase 2)
+
+> **Vocabulario (2026-10-07):** el nombre VISIBLE del documento es «Constancia de no adeudo de
+> biblioteca» (femenino: «quedó liberada»), y «Rehabilitar» pasó a **«Activar»**. Solo cambió el
+> texto: rutas (`/rehabilitar`), funciones (`reenable`), eventos y tipos (`library_reenabled`,
+> `LIBRARY_REENABLED`) y plantillas conservan su nombre. En este documento, «el no adeudo» es
+> la forma corta de la Constancia.
 
 > **Objetivo:** el Centro de Información (Biblioteca) revisa en FIFO a **toda** inscripción
 > aceptada —desde la fase 1, sin esperar a la cita— y registra si el egresado debe algo; si
 > debe, el egresado pasa **sin cita** a Caja (Recursos Financieros) a pagar el adeudo más la
 > «Donación voluntaria de libro» de su convocatoria; Caja registra el pago y eso libera el
 > requisito de cotejo `library_clearance`. Donde la convocatoria exige este requisito, **nadie
-> agenda ni es agendado** sin el no adeudo liberado (D6) — misma severidad que la encuesta de
+> agenda ni es agendado** sin la Constancia de no adeudo liberada (D6) — misma severidad que la encuesta de
 > egresados liberada por GTV, ⤵ [ese flujo](phase2_tech_management_survey_release.md).
 
 | | |
@@ -70,7 +76,7 @@ LibraryClearanceService` (§5 invariante 1) — nadie más muta esa fila ni ese 
    encendido), más **«Constancia previa…»**/**«Deshacer»**
    de respaldo (D9, con `library_clearance.api.prior` y, desde la revisión final, nunca sobre una
    inscripción revocada —M2—).
-4. 👤 **Egresado**: dashboard → bloque «No adeudo de biblioteca» (visible desde la fase 1, solo
+4. 👤 **Egresado**: dashboard → bloque «Constancia de no adeudo de biblioteca» (visible desde la fase 1, solo
    si la convocatoria lo exige) y «Mi cita» → la misma fila con su píldora.
 
 ## Máquina de estados
@@ -115,7 +121,7 @@ fila —el backfill salta a propósito esos procesos— o con una fila que nunca
 **`not_applicable`** (no se guarda, como `missing`). `ClearanceGate` lo trata igual que
 `not_required` (no bloquea), las vistas del egresado no lo pintan y las de SE dicen «No aplica
 (cotejo ya liberado)». **Registrar**, el **lote** y la **constancia previa** lo rechazan («Este
-egresado ya pasó su cotejo; no necesita trámite de no adeudo.») y **«Por revisar»** (lista,
+egresado ya pasó su cotejo; no necesita tramitar su Constancia de no adeudo.») y **«Por revisar»** (lista,
 contador y aviso de donación, `_reviewable_clause`) no lo muestra. Caja sí cobra un monto que
 Biblioteca ya le mandó (`register_payment` no cambia).
 
@@ -162,7 +168,7 @@ evento, sin aviso, sin correo, sin firma nueva de Biblioteca (`_same_registratio
 
 Spec `2026-10-05-titulatec-biblioteca-observaciones-design.md` (no se commitea). Biblioteca puede
 **detener** a un egresado con un motivo: estado nuevo `observed`, etiqueta UI **«Con
-observaciones»**. Mientras dura, el egresado no agenda y no paga; Biblioteca lo **rehabilita** y
+observaciones»**. Mientras dura, el egresado no agenda y no paga; Biblioteca lo **activa** y
 vuelve a dictaminar. Gemelo de «GTV deja observaciones» en la encuesta, pero reversible por
 Biblioteca sin intervención del egresado.
 
@@ -171,7 +177,7 @@ stateDiagram-v2
     pending --> observed: 📚 Observar (motivo)
     awaiting_payment --> observed: 📚 Observar (motivo; ready_at = NULL, montos intactos)
     observed --> observed: 📚 Actualizar observación (nuevo motivo)
-    observed --> pending: 📚 Rehabilitar (montos precargan «Con adeudo…»)
+    observed --> pending: 📚 Activar (montos precargan «Con adeudo…»)
 ```
 
 - **Quién/qué permiso**: Biblioteca, con `titulatec.library_clearance.api.register` (el mismo de
@@ -187,7 +193,7 @@ stateDiagram-v2
   `.library_reenabled`) en la MISMA transacción.
 - **Motivo**: obligatorio, `strip()`, 1..1000 caracteres (`REASON_MAX`, `:130`). Se guarda en
   `observation_reason`/`observed_by_id`/`observed_at` (`models/library_clearance.py:125-129`),
-  que valen NULL fuera de `observed`; al rehabilitar se limpian y el motivo anterior queda en el
+  que valen NULL fuera de `observed`; al activar se limpian y el motivo anterior queda en el
   payload del evento `library_reenabled {previous_reason}`.
 - **Guardas de `observe`** (todas antes de mutar): proceso admitido (`active`/`on_hold`); no
   `cleared` («primero revierte la liberación»); **fase 2 sin aprobar** (`_assert_needs_clearance`,
@@ -197,18 +203,18 @@ stateDiagram-v2
 - **Desde Caja** (`awaiting_payment`): limpia `ready_at` (sale de «Por cobrar» y de los
   recordatorios de pago, que filtran por `awaiting_payment`) y **conserva los montos**. No cambia
   el requisito `library_clearance` (no estaba cumplido) ni emite/anula constancia.
-- **Rehabilitar** (`reenable`): `observed` → `pending` SIEMPRE (D2), aunque tuviera montos
+- **Activar** (`reenable`; antes «Rehabilitar»): `observed` → `pending` SIEMPRE (D2), aunque tuviera montos
   —la fila «Por revisar» los muestra («Montos previos») y precarga monto y nota del formulario «Con adeudo…», `templates/titulatec/admin/partials/library_body.html:161-169` y `:212-215`—; no vuelve a Caja solo. El candado sigue bloqueando
   agendar, ahora por `library_pending`, hasta que Biblioteca dictamine (Review Focus 2).
 - **Con `observed` ninguna otra transición aplica**: Registrar/Corregir, lote «Sin adeudo»,
   cobrar, revertir y constancia previa levantan `ClearanceObserved` (`:215`, subclase de
   `ValueError`; `_assert_not_observed` `:1715`; mensaje «Está con observaciones de Biblioteca;
-  rehabilítalo primero.»). Las páginas no leen literales de estado: capturan la excepción.
+  actívalo primero.»). Las páginas no leen literales de estado: capturan la excepción.
 - **Bandeja de Biblioteca**: cuarta pestaña **«Con observaciones»** (`pages/library_admin.py:63`,
   contador en `counts_by_status`, que ahora trae las 4 llaves de `LIBRARY_STATUSES`; orden
   `observed_at DESC, id DESC`, `list_for_inbox` `:1133`; paginación por `utils/paging.py` + macro
   `pager`). La fila muestra motivo, quién y cuándo, **«Actualizar observación…»** y
-  **«Rehabilitar»**; en «Por revisar»/«En caja» aparece **«Observar…»** (formulario con motivo).
+  **«Activar»**; en «Por revisar»/«En caja» aparece **«Observar…»** (formulario con motivo).
   Plantilla: `templates/titulatec/admin/partials/library_body.html`.
 - **Caja** (`pages/cashier_admin.py`): el buscador pinta «Con observaciones (Biblioteca)» (píldora
   `danger`, `cashier_body.html:71`) y **no** ofrece «Registrar pago»; el observado sale de «Por
@@ -219,8 +225,8 @@ stateDiagram-v2
   Focus 1).
 - **Constancia previa / importación** (⤵ [constancias previas](xcut_prior_clearances.md)):
   `prior_outcome` devuelve `"conflict"` para `observed` (`:360-380`); la importación de previas lo
-  lista en `conflicts` («Biblioteca registró observaciones en su no adeudo; lo decide
-  Biblioteca», `prior_clearance_service.py:393`) en vez de abortar el lote; primero lo rehabilita
+  lista en `conflicts` («Biblioteca registró observaciones en su Constancia de no adeudo; lo
+  decide Biblioteca», `prior_clearance_service.py:393`) en vez de abortar el lote; primero lo activa
   Biblioteca.
 - **Lectores** (invariante 2, solo por el dueño): `LibraryClearanceService.observation(db, pid)`
   (`:383`, `{"reason","observed_at"}` o `None`) para correos y vistas; `summary_for_process`
@@ -240,6 +246,95 @@ stateDiagram-v2
   upgrade head`** — sin DML, sin permisos nuevos, sin comando CLI, sin backfill (ninguna fila
   existente nace `observed`). Reversa: `alembic downgrade -1` devuelve las filas `observed` a
   `pending` antes de borrar las columnas.
+
+## Observación con adeudo (2026-10-07)
+
+Spec `2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md` §2 (D3/D4, no se commitea).
+Caso de uso: el egresado **tiene un libro** y debe entregarlo, **y además** debe dinero. Biblioteca
+registra una observación «con adeudo» (qué entregar + cuánto debe) para que en UNA visita pague
+en Caja y entregue en Biblioteca. **Caja cobra aunque haya observación, pero el pago NO libera**
+(ni folio, ni requisito, ni cita): Biblioteca libera al pulsar **«Activar»** cuando recibe lo
+pendiente. La observación **normal** (sin adeudo) sigue deteniendo todo, incluido el pago (D4).
+
+```mermaid
+stateDiagram-v2
+    pending --> observed_con_adeudo: 📚 Observar con adeudo (motivo + adeudo; total > 0)
+    awaiting_payment --> observed_con_adeudo: 📚 Observar con adeudo (sigue en Por cobrar)
+    observed_normal --> observed_con_adeudo: 📚 Cambiar a con adeudo
+    observed_con_adeudo --> observed_normal: 📚 Cambiar a normal (solo SIN pago)
+    observed_con_adeudo --> observed_con_adeudo: 💰 Registrar pago (RETENIDO) · 💰 Revertir pago retenido
+    observed_con_adeudo --> awaiting_payment: 📚 Activar SIN pago (ready_at = ahora)
+    observed_con_adeudo --> cleared: 📚 Activar CON pago (cleared/payment, +folio BIB, requisito)
+    observed_normal --> pending: 📚 Activar (como siempre, D2)
+```
+
+- **Dato**: columna `observation_kind` String(20) NULL en `titulatec_library_clearances`
+  (`blocking` | `with_debt`, `OBSERVATION_KINDS` en `models/library_clearance.py`; NULL fuera de
+  `observed`; una `observed` con NULL se lee `blocking`, falla cerrado). Migración
+  `tt20261007a` (`down_revision = tt20261006a`, a mano): agrega la columna y pone `blocking` a las
+  `observed` existentes. **Despliegue: `alembic upgrade head`** — sin DML, sin permisos nuevos.
+- **Observar con adeudo** (`LibraryClearanceService.observe(..., kind="with_debt",
+  debt_amount=)`, misma ruta `POST /titulatec/admin/biblioteca/{clearance_id}/observar` con
+  `kind=with_debt` + `debt_amount`): adeudo validado como al Registrar (`_check_amount`) y la
+  donación VIGENTE congelada (`_frozen_donation`, D19 si falta); total = adeudo + donación; total
+  0 → `400` «usa la observación normal». Firma de Biblioteca (`library_by_id`/`_at`). Entra a Caja:
+  `ready_at` = ahora si no estaba ya en Caja (desde `awaiting_payment` conserva su lugar FIFO).
+  Re-observar con adeudo sin pago re-congela; con el pago retenido solo cambia el motivo (otro
+  adeudo → `400`).
+- **Cambiar de tipo (Ruling de la Tarea E)**: normal → con adeudo, sí; con adeudo SIN pago →
+  normal, sí (sale de Caja, `ready_at` = NULL, montos como historia); con el pago retenido →
+  normal, **no** (`400` «pide a Caja que revierta el pago primero»): una normal no deja revertir y
+  el dinero quedaría atrapado.
+- **Caja** (`pages/cashier_admin.py`): «Por cobrar» = `LibraryClearanceService.list_for_cashier`/
+  `cashier_due_count` (`_cashier_due_clause`: `awaiting_payment` + `observed/with_debt` SIN pago,
+  procesos admitidos; la normal NO aparece). La fila con adeudo lleva la píldora «Con observación
+  de Biblioteca» + el motivo + «el pago no libera la Constancia de no adeudo hasta que Biblioteca
+  la active», y el mismo «Registrar pago» con `expected_status=observed` (todo formulario de
+  pago manda ahora `expected_status`: si Biblioteca observó la fila mientras la cajera la veía,
+  re-pinta con el aviso en vez de cobrar). Tras cobrar, `X-Tt-Notice` (warning): «Pago registrado.
+  Biblioteca tiene una observación pendiente…». La búsqueda pinta el retenido «Pagado — retenido
+  por Biblioteca» y ofrece «Revertir pago…» (`_rows`: `held`, `can_revert_held`).
+- **Pago retenido** (`register_payment` sobre `with_debt` sin pago): la fila sigue
+  `observed/with_debt` + `paid_at`/`paid_by_id`/`receipt_number`. Escribe el MISMO
+  `library_payment_registered` (`certificate: None`, `held: True`, `paid_at`) → el corte del día
+  lo cuenta el día del cobro. Sin `_fulfill`, sin `CertificateService.issue`, sin «liberada»:
+  aviso `LIBRARY_PAYMENT_HELD` + correo `library_payment_held`. Doble cobro → `400`.
+- **Revertir el pago retenido** (`revert_payment`): vuelve a `observed/with_debt` sin pago;
+  `library_payment_reverted` con su total (renglón negativo del corte de hoy), `certificate:
+  None`; sin anular folio ni descumplir requisito; sin correo (aviso in-app
+  `LIBRARY_PAYMENT_REVERTED`). En el corte, el cobro retenido ofrece «Revertir…» mientras su
+  `paid_at` siga siendo el pago vigente (`_payment_revertible_paid_at`).
+- **Activar** (`reenable`, 3 ramas): normal → `pending` (D2); con adeudo sin pago →
+  `awaiting_payment` (`ready_at` = ahora; correo `library_reenabled` con `to_status` →
+  «ya puedes pasar a Caja a pagar $X»); con adeudo y pago retenido → `_release_held_payment`:
+  `cleared/payment`, requisito, folio BIB, aviso `LIBRARY_CLEARED` + correo `library_cleared(via=
+  "payment")` y su PROPIO evento `library_cleared_after_observation` (NO se repite
+  `library_payment_registered`: el corte lo contaría doble). Después Caja puede revertir ese pago
+  como cualquier liberado por pago.
+- **Lo demás sigue bloqueado** para los dos tipos (`_assert_not_observed`): Registrar/Corregir,
+  lote, constancia previa, reversas de liberación. El pago y su reversa usan
+  `_assert_not_blocking` (solo la normal los bloquea).
+- **Gate**: sin cambios — `observed` (cualquier tipo) bloquea la cita con `library_observed`.
+- **Recordatorios de pago (Ruling)**: NO para `with_debt` sin pago (`payment_due`/
+  `awaiting_payment_clause` siguen siendo solo de `awaiting_payment`): el correo de la observación
+  ya dice que pague y entregue en la misma visita; tras Activar sin pago, `ready_at` reinicia la
+  cadencia normal.
+- **Correos**: `library_observed` con `kind` en el payload y variante con adeudo (montos
+  VIGENTES, «puedes pagar en Caja y entregar en Biblioteca en la misma visita; tu Constancia de
+  no adeudo se libera cuando Biblioteca registre la entrega»); `library_payment_held` (nuevo kind,
+  `OUTBOX_KINDS` 21 → 22; obsoleto si ya no está retenido); `library_reenabled` con `to_status`
+  (`pending` | `awaiting_payment`; hacia Caja obsoleto si ya no hay pago pendiente).
+- **Vistas**: Biblioteca («Observar con adeudo» con el atajo «Entregar libro» precargado y
+  editable, sin JS; adeudo precargado con el vigente; «Con observaciones» dice tipo, monto, si ya
+  pagó y qué hará «Activar», también en su `hx-confirm`); tablero del egresado y «Mi cita»;
+  panel de atender cotejo (`_appt_attend.html`) y expediente de SE (`_exp_phase.html`): «con
+  adeudo de $X: pagado en Caja el … / sin pagar». `summary_for_process` trae `observation_kind`;
+  `observation()` trae tipo, montos y pago.
+- **Reversa**: `alembic downgrade tt20261006a` desde la imagen nueva quita la columna. CON
+  PÉRDIDA: el código viejo trata toda `observed` como normal; las `with_debt` con pago retenido
+  conservan `paid_at`/`receipt_number` pero el código viejo no los ve (activarlas con él las
+  regresa a «Por revisar» y Caja podría cobrar otra vez). Antes de bajar, listarlas (SQL en el
+  docstring de la migración) y resolverlas.
 
 ## El candado único ClearanceGate
 
@@ -475,7 +570,7 @@ eventos no se editan ni se borran, así que el corte de HOY nunca lo mueve algo 
 
 ## Egresado
 
-- **Dashboard**: bloque «No adeudo de biblioteca» (visible desde la fase 1, como el de la
+- **Dashboard**: bloque «Constancia de no adeudo de biblioteca» (visible desde la fase 1, como el de la
   encuesta, **solo** si `ClearanceGate.library_required(cohort_id)`). `pages/student.py::
   _library_block_ctx` shapea `summary_for_process` con `total_fmt`/`breakdown` ya formateados
   («adeudo $800.00 + donación voluntaria de libro $200.00», solo las partes > 0):
@@ -552,10 +647,10 @@ antes decía que las áreas envían las constancias); lo de la constancia previa
 - **Convocatoria en pausa** (`on_hold`) → Biblioteca y Caja SÍ operan (D17: solo el agendado se
   bloquea mientras la convocatoria está cerrada, no estas bandejas).
 - **Ya pasó su cotejo** (fase 2 `approved`) → Registrar / lote / constancia previa: `ValueError`
-  «Este egresado ya pasó su cotejo; no necesita trámite de no adeudo.» (`400`, o «omitido» en el
+  «Este egresado ya pasó su cotejo; no necesita tramitar su Constancia de no adeudo.» (`400`, o «omitido» en el
   lote); «Por revisar» ni siquiera lo muestra (Ruling R20).
 - **Observar con la fase 2 ya `approved`, con el proceso cancelado/terminado o con la fila `cleared`** → `ValueError` → `400` + `X-Tt-Error`, nada escrito (2026-10-05).
-- **Cualquier acción sobre una fila `observed` que no sea Observar/Rehabilitar** → `ClearanceObserved` → `400` (en Caja, `200` + re-pintado, ver arriba).
+- **Cualquier acción sobre una fila `observed` que no sea Observar/Activar** → `ClearanceObserved` → `400` (en Caja, `200` + re-pintado, ver arriba).
 - **Motivo vacío o de más de 1000 caracteres** → `ValueError` → `400`.
 - **Dos personas sobre la misma fila** → `200` + bandeja re-pintada + aviso warning, ver
   «Concurrencia» arriba (Ruling R24).
@@ -702,10 +797,10 @@ Rediseño de presentación (spec `2026-10-05-titulatec-biblioteca-acciones-desig
 
 | Pestaña | Acción rápida | Despliegue | Opciones del panel (título · qué pasa · botón) |
 |---|---|---|---|
-| Por revisar | «Sin adeudo» (monto 0, `expected_status=pending`) | «Dictaminar…» | **Con adeudo**: pasa a Caja a pagar el adeudo más la donación · «Registrar adeudo» (monto + nota). **Constancia previa**: ya pagó antes, queda liberado sin pasar por Caja · «Registrar constancia previa» (fecha + nota). **Observar**: lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar · «Registrar observación» (motivo) |
+| Por revisar | «Sin adeudo» (monto 0, `expected_status=pending`) | «Dictaminar…» | **Con adeudo**: pasa a Caja a pagar el adeudo más la donación · «Registrar adeudo» (monto + nota). **Constancia previa**: ya pagó antes, queda liberado sin pasar por Caja · «Registrar constancia previa» (fecha + nota). **Observar**: lo detiene hasta que Biblioteca lo active; no podrá agendar · «Registrar observación» (motivo) |
 | En caja | ninguna | «Opciones…» | **Corregir monto**: cambia el adeudo y se recalcula con la donación vigente · «Corregir monto» (monto precargado, nota, `expected_status` + `expected_total`). **Observar**: igual que arriba y sale de Por cobrar · «Registrar observación» |
-| Con observaciones | «Rehabilitar» | «Actualizar…» | Opción única, sin selector: «Actualizar la observación de {alumno}» (cambia el motivo que ve el egresado) · «Actualizar observación» (textarea precargada y escapada) |
-| Liberados | ninguna | «Opciones…» solo si `can_revert` y vía `prior`/`no_charge`/`legacy` | Opción única con motivo obligatorio: constancia previa → «Deshacer constancia previa»; sin cargo/legado → «Revertir no adeudo». Vía pago → pastilla «Se revierte desde Caja»; fase 2 liberada → «Fase 2 liberada» (sin botón ni panel). Revocada: sin acciones |
+| Con observaciones | «Activar» | «Actualizar…» | Opción única, sin selector: «Actualizar la observación de {alumno}» (cambia el motivo que ve el egresado) · «Actualizar observación» (textarea precargada y escapada) |
+| Liberados | ninguna | «Opciones…» solo si `can_revert` y vía `prior`/`no_charge`/`legacy` | Opción única con motivo obligatorio: constancia previa → «Deshacer constancia previa»; sin cargo/legado → «Revertir Constancia de no adeudo». Vía pago → pastilla «Se revierte desde Caja»; fase 2 liberada → «Fase 2 liberada» (sin botón ni panel). Revocada: sin acciones |
 
 Pruebas: `tests/fastapi/titulatec/test_library_actions_ui.py` (estructura del panel, ids, aria por pestaña, labels, sin `style=` inline).
 

@@ -66,13 +66,15 @@ def sv_core(path: str) -> str:
 _ROLE_DASHBOARD = [
     ("admin",                          "/titulatec/admin/"),
     ("titulatec_titulaciones",         "/titulatec/admin/"),
-    # Rol nuevo del Departamento de Titulacion (2026-09-21, design doc
-    # 2026-09-21-titulatec-dpto-titulacion S3): sin esta fila, la primera
-    # persona asignada a `head_titulacion`/`aux_titulacion` aterriza en
-    # `/itcj/dashboard` tras el login en vez de la bandeja admin.
-    ("titulatec_titulacion",           "/titulatec/admin/"),
     ("titulatec_school_services_head", "/titulatec/admin/"),
     ("titulatec_school_services",      "/titulatec/admin/"),
+    # Departamento de Titulacion (rol de 2026-09-21; sin esta fila aterrizaba en
+    # `/itcj/dashboard`). Desde 2026-10-07 (spec 2026-10-07-titulatec-liberados-
+    # biblioteca-helpdesk-design.md D1) ya no ve la Bandeja: su pantalla de
+    # trabajo es Liberados, una bandeja propia como las de GTV, Computo,
+    # Biblioteca y Caja, y por eso va DESPUES de los roles con Bandeja completa
+    # (titulaciones, admin y Escolares ganan si alguien tiene ambos).
+    ("titulatec_titulacion",      "/titulatec/admin/liberados"),
     ("titulatec_tech_management", "/titulatec/admin/liberaciones"),  # GTV: bandeja de liberaciones (2026-09-15)
     # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
     # ademas `admin` por su puesto (D2) y por eso aterriza arriba, en la Bandeja.

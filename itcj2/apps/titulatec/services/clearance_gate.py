@@ -97,6 +97,8 @@ _LIBRARY_FREE = (_LIBRARY_RELEASED, LIBRARY_NOT_REQUIRED, LIBRARY_NOT_APPLICABLE
 SURVEY_BLOCKERS = ("survey_missing", "survey_in_review", "survey_rejected")
 # `library_observed` (spec 2026-10-05 §3.4): Biblioteca lo DETUVO con un
 # motivo («Con observaciones»); bloquea hasta que lo rehabilite y dictamine.
+# Vale para los DOS tipos de observación (spec 2026-10-07 §2): con adeudo, Caja
+# puede cobrar, pero ese pago retenido no abre la cita hasta «Activar».
 LIBRARY_BLOCKERS = ("library_pending", "library_awaiting_payment", "library_observed")
 BLOCKERS = SURVEY_BLOCKERS + LIBRARY_BLOCKERS
 

@@ -38,7 +38,11 @@ EXPLICA = {
     "debt": ("Con adeudo", "Pasa a Caja a pagar el adeudo más la donación."),
     "prior": ("Constancia previa",
               "Ya pagó antes y trae su constancia: queda liberado sin pasar por Caja."),
-    "observe": ("Observar", "Lo detiene hasta que Biblioteca lo rehabilite; no podrá agendar."),
+    "observe": ("Observar", "Lo detiene hasta que Biblioteca lo active; no podrá agendar."),
+    # Observación con adeudo (spec 2026-10-07 §2).
+    "obsdebt": ("Observar con adeudo",
+                "Debe entregar algo (por ejemplo, un libro) y pagar: puede pagar en Caja, "
+                "pero se libera hasta que Biblioteca lo active."),
 }
 
 
@@ -132,7 +136,7 @@ def test_panel_colspan_igual_a_columnas(client_as, staff, nuevo, token):
     assert n == 10, "casilla de lote + 9 columnas en «Por revisar»"
 
 
-def test_tres_opciones_con_rotulo_y_explicacion(client_as, staff, nuevo, token):
+def test_cuatro_opciones_con_rotulo_y_explicacion(client_as, staff, nuevo, token):
     esc = nuevo(token)
     i = esc.clearance.id
     panel = _tr(_body(client_as, staff, token), f"lib-{i}-panel")
@@ -144,7 +148,7 @@ def test_tres_opciones_con_rotulo_y_explicacion(client_as, staff, nuevo, token):
                                                        re.S).group(0))
     opciones = re.findall(r'<label class="tt-vis-opt" for="lib-%d-opt-(\w+)">(.*?)</label>' % i,
                           fs.group(1), re.S)
-    assert [k for k, _ in opciones] == ["debt", "prior", "observe"]
+    assert [k for k, _ in opciones] == ["debt", "prior", "observe", "obsdebt"]
     for key, cuerpo in opciones:
         rotulo, explica = EXPLICA[key]
         assert re.search(r'<span class="rotulo[^"]*">%s</span>' % re.escape(rotulo), cuerpo)
@@ -178,6 +182,9 @@ def test_formularios_conservan_endpoints_y_confirm(client_as, staff, nuevo, toke
                   "Registrar constancia previa", False),
         "observe": ("observar", "Observar", "Observar|¿Registrar observaciones a",
                     "Registrar observación", False),
+        "obsdebt": ("observar", "Observar",
+                    "Observar con adeudo|¿Registrar una observación con adeudo a",
+                    "Registrar observación con adeudo", False),
     }
     for key, (accion, ok, confirm, boton, expected) in esperado.items():
         f = _form(panel, i, key)
@@ -208,7 +215,7 @@ def test_campos_con_label_visible(client_as, staff, nuevo, token):
     panel = _tr(_body(client_as, staff, token), f"lib-{i}-panel")
     campos = re.findall(r"<(?:input|textarea)\b(?![^>]*type=\"(?:hidden|radio)\")[^>]*>", panel)
 
-    assert len(campos) == 5, campos  # monto+nota, fecha+nota, motivo
+    assert len(campos) == 7, campos  # monto+nota, fecha+nota, motivo, motivo+adeudo
     for c in campos:
         cid = re.search(r'id="([^"]+)"', c)
         assert cid, f"campo sin id: {c}"
@@ -232,7 +239,7 @@ def test_radios_por_fila(client_as, staff, nuevo, token):
         i = esc.clearance.id
         panel = _tr(html, f"lib-{i}-panel")
         radios = re.findall(r'<input[^>]*type="radio"[^>]*>', panel)
-        assert len(radios) == 3
+        assert len(radios) == 4
         assert all(f'name="lib-{i}-op"' in r for r in radios)
         # Fuera de cualquier <form>: el selector no viaja en el POST.
         fs = re.search(r"<fieldset.*?</fieldset>", panel, re.S).group(0)
@@ -283,7 +290,7 @@ def test_observar_boton_dice_registrar_observacion(client_as, staff, nuevo, toke
     assert _visible(boton.group(0)) == "Registrar observación"
 
 
-def test_en_caja_sin_accion_rapida_y_dos_opciones(client_as, staff, nuevo_en, token):
+def test_en_caja_sin_accion_rapida_y_tres_opciones(client_as, staff, nuevo_en, token):
     esc = nuevo_en(token, "awaiting_payment")
     i = esc.clearance.id
     html = _body_tab(client_as, staff, token, "awaiting_payment")
@@ -297,7 +304,7 @@ def test_en_caja_sin_accion_rapida_y_dos_opciones(client_as, staff, nuevo_en, to
     assert 'colspan="9"' in panel and "d-none" in panel
     opciones = re.findall(r'<label class="tt-vis-opt" for="lib-%d-opt-(\w+)">(.*?)</label>' % i,
                           panel, re.S)
-    assert [k for k, _ in opciones] == ["fix", "observe"]
+    assert [k for k, _ in opciones] == ["fix", "observe", "obsdebt"]
     assert "Corregir monto" in _visible(opciones[0][1])
     assert "Cambia el adeudo; se vuelve a calcular el total con la donación vigente." \
         in _visible(opciones[0][1])
@@ -331,13 +338,16 @@ def test_observadas_rehabilitar_visible_y_actualizar_en_panel(client_as, staff, 
     celda = _ultima_celda(_tr(html, f"lib-{i}"))
 
     botones = re.findall(r"<button[^>]*>(.*?)</button>", celda, re.S)
-    assert [_visible(b) for b in botones] == ["Rehabilitar", "Actualizar…"]
+    assert [_visible(b) for b in botones] == ["Activar", "Actualizar…"]
     assert f'hx-post="/titulatec/admin/biblioteca/{i}/rehabilitar"' in celda
-    assert 'hx-confirm="Rehabilitar|' in celda
+    assert 'hx-confirm="Activar|' in celda
 
     panel = _tr(html, f"lib-{i}-panel")
     assert 'colspan="9"' in panel and "d-none" in panel
-    assert "<fieldset" not in panel and "tt-lib-pick" not in panel, "opción única: sin selector"
+    # Observación normal: actualizar el motivo o cambiarla a una con adeudo
+    # (spec 2026-10-07 §2).
+    opciones = re.findall(r'<label class="tt-vis-opt" for="lib-%d-opt-(\w+)">' % i, panel)
+    assert opciones == ["update", "obsdebt"]
     upd = _form(panel, i, "update")
     assert f'hx-post="/titulatec/admin/biblioteca/{i}/observar"' in upd
     assert 'data-tt-confirm-ok="Actualizar"' in upd

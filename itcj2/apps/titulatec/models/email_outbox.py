@@ -84,7 +84,10 @@ OUTBOX_STATUSES = ("pending", "sent", "failed", "no_recipient", "obsolete")
 # (o se corrige el monto), quedo liberado, se revirtio y el recordatorio del
 # pago pendiente; todos individuales. Los 2 ultimos, «Con observaciones» de
 # Biblioteca (spec 2026-10-05-titulatec-biblioteca-observaciones-design.md
-# §3.3): observar (con el motivo) y rehabilitar; tambien individuales. Los 4
+# §3.3): observar (con el motivo) y rehabilitar; tambien individuales. Despues,
+# `library_payment_held` (spec 2026-10-07-titulatec-liberados-biblioteca-
+# helpdesk-design.md §2): Caja cobro una observacion CON ADEUDO y el pago
+# queda retenido hasta que Biblioteca active; individual. Los 4
 # del final son los correos de INSCRIPCION sin secreto (`ENROLLMENT_KINDS`,
 # abajo; spec 2026-10-05-titulatec-rendimiento-design.md §3.7): individuales,
 # sin `group_key`. Sin CHECK en la BD: crecer el catalogo no lleva migracion
@@ -107,6 +110,7 @@ OUTBOX_KINDS = (
     "library_reminder",
     "library_observed",
     "library_reenabled",
+    "library_payment_held",
     "enrollment_verified",
     "enrollment_rejected",
     "already_enrolled",

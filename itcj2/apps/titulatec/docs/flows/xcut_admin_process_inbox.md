@@ -6,9 +6,9 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services`) · 🏛️ Jefe (`titulatec_school_services_head`) · 🎓 Titulaciones (`titulatec_titulaciones`) |
-| **Permiso(s)** | **Home:** `titulatec.dashboard.titulaciones` · `titulatec.dashboard.school_services` · `titulatec.dashboard.admin` · `titulatec.process.page.list` (`pages/admin.py:288-293`).<br>**Procesos:** `_PROCESS_VIEW_PERMS` (`pages/admin.py:23-28`) = `process.page.list` · `process.page.detail` · `process.api.read.all` · los 3 `dashboard.*`. Basta **uno**: `require_page_app` intersecta (`itcj2/dependencies.py:131-135`). |
-| **Trigger** | Clic en **Bandeja** o **Procesos** del menú admin (`pages/nav.py:96-97`), o entrada directa por URL. |
+| **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services`) · 🏛️ Jefe (`titulatec_school_services_head`) · 🎓 Titulaciones (`titulatec_titulaciones`). El Departamento de Titulación (`titulatec_titulacion`) ya **no** entra a ninguna de las dos desde 2026-10-07 (D1): aterriza en Liberados ([`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md)) |
+| **Permiso(s)** | **Home:** `titulatec.dashboard.titulaciones` · `titulatec.dashboard.school_services` · `titulatec.dashboard.admin` · `titulatec.process.page.list` (`pages/admin.py:506-511`). Basta **uno**: `require_page_app` intersecta (`itcj2/dependencies.py:131-135`).<br>**Procesos (lista):** SOLO `titulatec.process.page.list` — `_PROCESS_LIST_PERMS` (`pages/admin.py:72`), el mismo código que revela la pestaña (desde 2026-10-07; antes compartía con el expediente el OR amplio `_PROCESS_VIEW_PERMS`, que la abría con `process.page.detail`, `read.all` o un `dashboard.*` sueltos). El expediente conserva su propia guarda, ver [`xcut_admin_process_expediente.md`](xcut_admin_process_expediente.md). |
+| **Trigger** | Clic en **Bandeja** o **Procesos** del menú admin (`pages/nav.py:122-123`), o entrada directa por URL. |
 | **Precondiciones** | Asignación en la app `titulatec` + al menos uno de los permisos de arriba. Para ver filas: procesos dentro del [alcance por carrera](engine_officer_scope.md). |
 | **Sub-flujos** | ⤵ [alcance por carrera](engine_officer_scope.md) (filtra el listado) · ⤵ el detalle abre [revisión de docs](phase1_admin_review_initial_docs.md) y el [motor de avance](engine_approve_advance_phase.md) |
 | **Estado final** | — (vista de lectura; ningún endpoint de este flujo escribe en BD) |
@@ -129,12 +129,12 @@ sequenceDiagram
 
 | # | Actor | UI / dónde | Acción | Endpoint | Código | Efecto en BD |
 |---|---|---|---|---|---|---|
-| 1 | 🏛️/🎓 | menú admin | Abrir Bandeja | `GET /titulatec/admin/` | `pages/admin.py:285-316` | (lectura) 3 `COUNT` sobre `titulatec_processes` + 1 sobre `titulatec_cohorts` |
-| 2 | 🏛️/🎓 | menú admin | Abrir Procesos | `GET /titulatec/admin/processes` | `pages/admin.py:614-734` | (lectura) |
+| 1 | 🏛️/🎓 | menú admin | Abrir Bandeja | `GET /titulatec/admin/` | `pages/admin.py:503-534` | (lectura) 3 `COUNT` sobre `titulatec_processes` + 1 sobre `titulatec_cohorts` |
+| 2 | 🏛️/🎓 | menú admin | Abrir Procesos | `GET /titulatec/admin/processes` | `pages/admin.py:2207-2247` (guarda `_PROCESS_LIST_PERMS`) → `_proc_ctx` (`:2135`) | (lectura) |
 | 3 | 🏛️/🎓 | KPI / chip | Filtrar por status | `…?status=active\|completed\|on_hold\|cancelled` | `pages/admin.py:658-659` | (lectura) |
 | 4 | 🏛️/🎓 | KPI "Atorados" | Ver solo `idle_level=crit` | `…?stuck=1` | `pages/admin.py:713-714` | (lectura) |
 | 5 | 🏛️/🎓 | botones Tabla/Tablero | Cambiar de vista | `…?view=table\|board` | `pages/admin.py:634` | (lectura) |
-| 6 | 🏛️/🎓 | fila / card | Abrir detalle | `GET /titulatec/admin/processes/{id}` | `pages/admin.py:737-752` → `_detail_ctx` (`:555`) | (lectura) |
+| 6 | 🏛️/🎓 | fila / card | Abrir detalle | `GET /titulatec/admin/processes/{id}` | `pages/admin.py:2280-2315` → `_detail_ctx` (`:1568`) o, para quien solo tiene el resumen, `_summary_ctx` (`:1914`) | (lectura) |
 
 ## Cómo se calcula `idle_days` (días sin moverse)
 
@@ -299,7 +299,7 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
    todo el instituto sin pasar por `officer_programs`: un encargado con 1 carrera ve en `/admin/`
    los números de las 9 carreras y en `/admin/processes` solo los suyos. Los dos tableros **no
    cuadran** entre sí.
-2. **"Procesos activos" y "Pendientes de revisar" son la misma query.** `pages/admin.py:305-306`
+2. **"Procesos activos" y "Pendientes de revisar" son la misma query.** `pages/admin.py:523-524`
    ejecuta dos veces `filter_by(status="active").count()`; las dos tarjetas
    (`dashboard.html:16-17`) siempre muestran el mismo número.
 3. **`cancelled` siempre es 0; `on_hold` ya no.** El comentario del modelo dice
@@ -311,9 +311,10 @@ contexto `_empty()` — 0 filas, 0 columnas, KPIs en cero, umbrales igual
    (regla D5). Cada flip deja un `ProcessEvent` `process_paused` / `process_resumed`. El KPI
    "En espera" (`processes.html:26-30`) y el chip `on_hold` (`processes.html:40`) ya cuentan algo;
    el chip `cancelled` sigue siendo un cascarón vacío.
-4. **El detalle no valida el alcance.** Un encargado scoped que no ve un proceso en la lista sí
-   puede abrirlo —y actuar sobre él— escribiendo `/titulatec/admin/processes/{id}`: el gate es
-   solo `_PROCESS_VIEW_PERMS`.
+4. ~~**El detalle no valida el alcance.**~~ **Saldado.** Toda ruta con `{process_id}` llama
+   `assert_process_in_scope` como primera sentencia del `try` (404 fuera de alcance; lo fija
+   `test_scope_guard.py`, ver [`engine_officer_scope.md`](engine_officer_scope.md)). Desde
+   2026-10-07 el gate del expediente ya no es el de la lista (`_PROCESS_LIST_PERMS`, arriba).
 5. **`updated_at` no se actualiza nunca.** `TitulationProcess.updated_at` (`models/process.py:29`)
    y `ProcessPhase.updated_at` (`models/process_phase.py:25`) tienen `server_default=NOW()` pero
    **sin** `onupdate`, y no existen triggers en las tablas `titulatec_*`. Como es el fallback de

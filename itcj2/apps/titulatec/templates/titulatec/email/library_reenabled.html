@@ -1,20 +1,40 @@
-{# Biblioteca rehabilitó al egresado: su no adeudo de biblioteca vuelve a
-   «Por revisar» (spec 2026-10-05-titulatec-biblioteca-observaciones-design.md
-   §3.3). Se re-valida al enviar (D8): si lo volvieron a observar, no sale
-   (`mail_compose._compose_library_reenabled`).
-   Contexto: first_name, link. #}
+{# Biblioteca activó al egresado (spec 2026-10-05-titulatec-biblioteca-
+   observaciones-design.md §3.3). Se re-valida al enviar (D8): si lo volvieron
+   a observar, no sale (`mail_compose._compose_library_reenabled`).
+
+   Dos variantes (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
+   design.md §2):
+   - `a_caja` falso: su no adeudo vuelve a «Por revisar» (la observación de
+     siempre).
+   - `a_caja`: era una observación CON ADEUDO sin pago; Biblioteca ya recibió
+     lo que debía entregar y ahora pasa a Caja a pagar `total` (el VIGENTE,
+     ya formateado). Hacia Caja no sale si ya no tiene un pago pendiente.
+   `library_required` = su convocatoria exige el no adeudo para agendar.
+   Contexto: first_name, link, a_caja, total, library_required. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Biblioteca te rehabilitó — TitulaTec ITCJ{% endblock %}
+{% block titulo %}Biblioteca activó tu trámite — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+{% if a_caja %}
 <p style="margin:0 0 20px;">
-  Biblioteca te rehabilitó: <strong>ya puedes continuar con tu trámite</strong> de no adeudo
+  Biblioteca registró tu entrega y activó tu trámite: <strong>ya puedes pasar a Caja</strong>
+  (Recursos Financieros) a pagar <strong>{{ total|e }}</strong> de tu Constancia de no adeudo
   de biblioteca.
+</p>
+{{ m.aviso("Acude a Caja (Recursos Financieros) con tu número de control; no necesitas cita.") }}
+<p style="margin:0 0 24px;">
+  Cuando Caja registre tu pago se libera tu Constancia de no adeudo de biblioteca{% if library_required %}, que necesitas para agendar tu cita de cotejo{% endif %}. Te avisaremos por este medio.
+</p>
+{% else %}
+<p style="margin:0 0 20px;">
+  Biblioteca activó tu trámite: <strong>ya puedes continuar</strong> con tu Constancia de no
+  adeudo de biblioteca.
 </p>
 <p style="margin:0 0 24px;">
   El Centro de Información volverá a revisar tu caso y te avisaremos en cuanto registre tu
-  no adeudo. Si tienes dudas, acude al Centro de Información.
+  Constancia de no adeudo. Si tienes dudas, acude al Centro de Información.
 </p>
+{% endif %}
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

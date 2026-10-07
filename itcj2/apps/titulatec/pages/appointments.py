@@ -62,6 +62,19 @@ _VIEW_PERMS = ["titulatec.appointment.page.list", "titulatec.dashboard.school_se
                "titulatec.dashboard.admin"]
 
 
+def _exigir_bandeja(db, user_id: int) -> None:
+    """Las ACCIONES de esta bandeja exigen poder ABRIRLA (`_VIEW_PERMS`), no solo
+    el permiso de la acción: Titulación conserva el dictamen dormido (D1) pero no
+    ve esta bandeja ni el desglose (D7, spec 2026-10-07-titulatec-liberados-
+    biblioteca-helpdesk-design.md §7). 403 como el gate, ANTES de escribir. Va
+    después de `assert_process_in_scope` (`test_scope_guard.py` lo exige primero)."""
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.exceptions import PageForbidden
+
+    if not (cached_perms(db, user_id, "titulatec") & set(_VIEW_PERMS)):
+        raise PageForbidden(has_app_access=True)
+
+
 def _day_label(d) -> str:
     """'07 sep 2026' — cabecera de la vista de dia."""
     return f"{d.day:02d} {_MONTHS_ES[d.month]} {d.year}" if d else "—"
@@ -2094,6 +2107,7 @@ def fase2_approve(
     db = SessionLocal()
     try:
         proc = assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
         try:
             PhaseService.approve_phase(db, proc, PhaseService.PHASE_COTEJO, uid)
         except ValueError as exc:
@@ -2145,6 +2159,7 @@ def _cuerpo_fase2_reject(process_id, request, user, form):
     db = SessionLocal()
     try:
         proc = assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
         try:
             PhaseService.reject_phase(db, proc, PhaseService.PHASE_COTEJO, uid, reason)
         except ValueError as exc:

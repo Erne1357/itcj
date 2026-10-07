@@ -62,7 +62,7 @@ DEFAULTS = [
      "La libera GTV; no necesitas llevar nada: tu liberación queda registrada para "
      "Servicios Escolares.",
      "graduate_survey", "graduate_survey", None),
-    ("book", "No-adeudo de biblioteca",
+    ("book", "Constancia de no adeudo de biblioteca",
      "Lo liberan Biblioteca y Caja; no necesitas llevar nada de biblioteca: tu liberación "
      "queda registrada para Servicios Escolares.",
      "library_clearance", "library_clearance", None),

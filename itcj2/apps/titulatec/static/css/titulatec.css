@@ -2813,8 +2813,10 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-lib-panel:has(.tt-lib-pick[value="debt"]:checked) .tt-lib-form--debt,
 .tt-lib-panel:has(.tt-lib-pick[value="prior"]:checked) .tt-lib-form--prior,
 .tt-lib-panel:has(.tt-lib-pick[value="observe"]:checked) .tt-lib-form--observe,
+.tt-lib-panel:has(.tt-lib-pick[value="obsdebt"]:checked) .tt-lib-form--obsdebt,
 .tt-lib-panel:has(.tt-lib-pick[value="fix"]:checked) .tt-lib-form--fix,
 .tt-lib-panel:has(.tt-lib-pick[value="update"]:checked) .tt-lib-form--update,
+.tt-lib-panel:has(.tt-lib-pick[value="toblock"]:checked) .tt-lib-form--toblock,
 .tt-lib-panel:has(.tt-lib-pick[value="revert"]:checked) .tt-lib-form--revert,
 .tt-lib-panel:has(.tt-lib-pick[value="undo"]:checked) .tt-lib-form--undo { display: block; }
 

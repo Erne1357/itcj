@@ -9,7 +9,7 @@ que `test_student_survey_badge.py` para la encuesta de egresados:
 
 * Home del alumno (`student/dashboard.html`, `_phases_ctx`): píldora en la
   fila del acordeón (desplegable Y actual) y en la tarjeta grande, más el
-  bloque "No adeudo de biblioteca" con los 4 estados de spec §4.10 dentro del
+  bloque "Constancia de no adeudo de biblioteca" con los 4 estados de spec §4.10 dentro del
   panel desplegable -- SOLO si la convocatoria exige el requisito
   (`ClearanceGate.library_required`).
 * Mi cita (`student/cita.html`, `_checklist_ctx`): la fila `auto_source =
@@ -41,7 +41,7 @@ AUTO_SOURCE_LIBRARY = "library_clearance"
 
 # Mensaje normal de `SelfBookingService.MENSAJES` para los dos motivos de
 # biblioteca: el que Ruling R12 prohíbe repetir bajo una cita ya puesta.
-_PROMETE_AGENDAR = "Podrás agendar en cuanto se libere tu no adeudo"
+_PROMETE_AGENDAR = "Podrás agendar en cuanto se libere tu Constancia de no adeudo"
 
 
 # ---------------------------------------------------------------------------
@@ -71,9 +71,9 @@ def _hero(doc):
 
 
 def _library_row(doc):
-    """Fila 'No-adeudo de biblioteca' del checklist de Mi cita (`cita.html`)."""
+    """Fila 'Constancia de no adeudo de biblioteca' del checklist de Mi cita (`cita.html`)."""
     hits = doc.xpath('//div[contains(@class,"flex-grow-1")]'
-                     '[contains(., "No-adeudo de biblioteca")]')
+                     '[contains(., "Constancia de no adeudo de biblioteca")]')
     assert hits, "no se encontro la fila del no adeudo en el checklist de Mi cita"
     return hits[0].getparent()
 
@@ -86,7 +86,7 @@ def _require_library(db_session, cohort):
     (`RequirementService.list_with_status` -> `list_or_seed`)."""
     from itcj2.apps.titulatec.models import CotejoRequirement
 
-    req = CotejoRequirement(cohort_id=cohort.id, label="No-adeudo de biblioteca",
+    req = CotejoRequirement(cohort_id=cohort.id, label="Constancia de no adeudo de biblioteca",
                             icon="book", auto_source=AUTO_SOURCE_LIBRARY, order_index=4)
     db_session.add(req)
     db_session.flush()
@@ -108,7 +108,7 @@ class TestDashboardSinRequisito:
         doc = _doc(client_as(student).get(DASHBOARD))
         fila = _text(_phase_item(doc, 2))
 
-        assert "No adeudo de biblioteca" not in fila
+        assert "Constancia de no adeudo de biblioteca" not in fila
         assert "En Biblioteca" not in fila
 
     def test_phases_ctx_no_cuelga_library_sin_el_requisito(
@@ -555,7 +555,7 @@ class TestYaPasoSuCotejo:
         doc = _doc(client_as(student).get(DASHBOARD))
         fase2 = _text(_phase_item(doc, 2))
 
-        assert "No adeudo de biblioteca" not in fase2
+        assert "Constancia de no adeudo de biblioteca" not in fase2
         assert "El Centro de Información está revisando tu adeudo" not in fase2
         assert "En Biblioteca" not in fase2
         assert "No aplica" not in fase2      # ni siquiera la píldora neutra
@@ -590,7 +590,7 @@ class TestYaPasoSuCotejo:
         process = make_process(make_student(), current_phase=3, library_clearance=None)
 
         filas = _checklist_ctx(db_session, process)
-        biblioteca = [f for f in filas if f["title"] == "No-adeudo de biblioteca"]
+        biblioteca = [f for f in filas if f["title"] == "Constancia de no adeudo de biblioteca"]
 
         assert biblioteca, "la convocatoria sembró el requisito (DEFAULTS)"
         assert biblioteca[0]["library"] is None
@@ -677,12 +677,12 @@ class TestNeedsDeLaFaseDeCotejo:
         doc = _doc(client_as(student).get(DASHBOARD))
         fila = _text(_phase_item(doc, 2))
 
-        assert "No-adeudo de biblioteca y comprobante de la encuesta" not in fila
+        assert "Constancia de no adeudo de biblioteca y comprobante de la encuesta" not in fila
         # Spec folios 2026-10-05, ampliación C4: ya no se «envía» una constancia
         # a Servicios Escolares; la liberación queda registrada. D9: la previa
         # tampoco se lleva (antes el texto seguía con «si registraste una
         # constancia previa, llévala»).
-        assert ("No necesitas llevar nada del no adeudo ni de la encuesta: tus "
+        assert ("No necesitas llevar nada de la Constancia de no adeudo ni de la encuesta: tus "
                 "liberaciones quedan registradas para Servicios Escolares.") in fila
         assert "las envían las áreas" not in fila
         assert "llévala" not in fila

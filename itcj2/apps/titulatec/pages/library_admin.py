@@ -6,7 +6,10 @@ adeudo») trabaja aquí la cola FIFO de TODA inscripción aceptada
 (monto + nota) y «Constancia previa…» (fecha + nota) desde «Por revisar»;
 «Corregir…» desde «En caja»; «Revertir…»/«Deshacer…» desde «Liberados»;
 «Observar…» desde «Por revisar»/«En caja» y, en «Con observaciones»,
-«Actualizar observación…» y «Rehabilitar» (spec 2026-10-05 §3.5).
+«Actualizar observación…» y «Activar» (spec 2026-10-05 §3.5). Observar tiene
+dos tipos (spec 2026-10-07 §2): la observación normal (detiene todo) y la CON
+ADEUDO (`kind=with_debt` + `debt_amount`: Caja cobra, el pago no libera hasta
+que Biblioteca active).
 
 Cada ruta lleva EXACTAMENTE un código en `perms=[...]`: la lista es OR
 (`itcj2/dependencies.py:131`), así que un código de más abre la bandeja
@@ -372,8 +375,12 @@ async def observe(clearance_id: int, request: Request,
     """Observar (desde «Por revisar»/«En caja») o Actualizar observación (desde
     «Con observaciones»): mismo verbo en el service
     (`LibraryClearanceService.observe`, spec 2026-10-05 §3.2/§3.5). Motivo
-    obligatorio (form `reason`); re-pinta la pestaña/página/búsqueda de donde
-    vino. Reglas de negocio -> 400 + `X-Tt-Error` (vía `_hdr`)."""
+    obligatorio (form `reason`); `kind` (`blocking` por omisión, o
+    `with_debt`) y, con adeudo, `debt_amount` tecleado (`parse_amount`; en
+    blanco = sin monto, que el service rechaza salvo que solo se actualice el
+    motivo de un pago retenido) -- spec 2026-10-07 §2. Re-pinta la
+    pestaña/página/búsqueda de donde vino. Reglas de negocio -> 400 +
+    `X-Tt-Error` (vía `_hdr`)."""
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_observe, clearance_id=clearance_id, request=request, user=user, form=form)
@@ -382,16 +389,22 @@ async def observe(clearance_id: int, request: Request,
 def _cuerpo_observe(clearance_id, request, user, form):
     """Cuerpo síncrono de `observe`: corre en el threadpool, no en el event loop."""
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        OBS_BLOCKING, LibraryClearanceService, parse_amount,
+    )
 
     reason = form.get("reason") or ""
+    kind = (form.get("kind") or "").strip() or OBS_BLOCKING
+    debt_raw = form.get("debt_amount")
     status, q, page = form.get("status"), form.get("q"), form.get("page")
 
     db = SessionLocal()
     try:
         uid = int(user["sub"])
         try:
-            LibraryClearanceService.observe(db, clearance_id, reason=reason, actor_id=uid)
+            debt_amount = parse_amount(debt_raw) if (debt_raw or "").strip() else None
+            LibraryClearanceService.observe(db, clearance_id, reason=reason, actor_id=uid,
+                                            kind=kind, debt_amount=debt_amount)
         except LookupError:
             return Response(status_code=404)
         except ValueError as e:
@@ -405,9 +418,12 @@ def _cuerpo_observe(clearance_id, request, user, form):
 @router.post("/{clearance_id}/rehabilitar", name="titulatec.pages.library.reenable")
 async def reenable(clearance_id: int, request: Request,
                    user: dict = Depends(require_page_app("titulatec", perms=_REGISTER))):
-    """Rehabilitar: `observed` -> `pending` («Por revisar») con los montos
-    que tuviera (`LibraryClearanceService.reenable`, spec 2026-10-05 §3.2).
-    Re-pinta la pestaña/página/búsqueda de donde vino."""
+    """Activar (antes «Rehabilitar»; la ruta conserva su nombre):
+    `LibraryClearanceService.reenable`, con tres ramas según la observación
+    (spec 2026-10-07 §2): la normal -> `pending` («Por revisar») con sus
+    montos; con adeudo sin pago -> `awaiting_payment` (Caja); con adeudo y
+    pago retenido -> `cleared/payment` (folio). Re-pinta la
+    pestaña/página/búsqueda de donde vino."""
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_reenable, clearance_id=clearance_id, request=request, user=user, form=form)

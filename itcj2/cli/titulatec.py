@@ -17,6 +17,7 @@ Comandos:
     titulatec emitir-folios-previos [--dry-run]  Folia las previas y el legado que quedaron sin folio vigente (idempotente).
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
+    titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
 """
 import os
 from pathlib import Path, PurePosixPath
@@ -299,7 +300,10 @@ def init_titulatec_command():
     'egresados' abierto. Y con `_verify_titulacion` (spec
     2026-09-21-titulatec-dpto-titulacion): el departamento `titulacion`
     colgado de `prof_studies_div`, sus 2 puestos, los 2 permisos de la bandeja
-    de liberados, el grant completo del rol `titulatec_titulacion` (22), sus
+    de liberados, el grant EXACTO del rol `titulatec_titulacion` (16 desde el
+    2026-10-07: sin Bandeja, Procesos, Documentos, Actos protocolarios ni el
+    expediente completo; con el resumido), Liberados en los dos roles de
+    Servicios Escolares, sus
     exactamente 2 filas puesto→rol (y 1 la del rol viejo, `head_prof_studies_div`),
     y que `titulatec_titulaciones` tenga el reparto PLENO (25) que el usuario
     pidió al revertir el recorte D6/D7 — dictamen, ceremony y cohort incluidos,
@@ -713,6 +717,9 @@ def _verify_survey_2026_09() -> list[str]:
 # Titulación. Hoy `titulatec_titulaciones` tiene el reparto PLENO (25) y
 # `titulatec_titulacion` se quedó igual (22) — ver spec secciones 3 y 6, y el
 # comentario de cada bloque del ARRAY en `03_insert_role_permissions.sql`.
+# 2026-10-07 (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk, D1 +
+# D7/D8): `titulatec_titulacion` queda en 16 EXACTOS (Liberados + expediente
+# resumido + dictamen); `titulatec_titulaciones` no cambia.
 # ---------------------------------------------------------------------------
 _DEPTO_TITULACION = "titulacion"
 _DEPTO_PADRE_TITULACION = "prof_studies_div"
@@ -754,22 +761,50 @@ _PERMISOS_CEREMONY_ESCRITURA = (
 # Los 3 de Convocatorias (cohort). Decisión explícita del usuario al revertir
 # D6/D7: la jefatura de la División (`titulatec_titulaciones`) también debe
 # ver Convocatorias, no solo dictaminar. `titulatec_titulacion` (Departamento
-# de Titulación) NO los tiene -- por eso ese rol se queda en 22 y este otro
-# sube a 25: la diferencia es intencional, no hay que "igualarlos".
+# de Titulación) NO los tiene -- por eso ese rol se quedó en 22 (16 desde el
+# 2026-10-07) y este otro sube a 25: la diferencia es intencional, no hay que
+# "igualarlos".
 _PERMISOS_COHORT_TITULACIONES_DIV = (
     "titulatec.cohort.page.list",
     "titulatec.cohort.page.detail",
     "titulatec.cohort.api.read",
 )
 
+# Permiso NUEVO del 2026-10-07 (spec 2026-10-07-titulatec-liberados-
+# biblioteca-helpdesk-design.md, D7): el expediente RESUMIDO -- solo las
+# fases previas al corte y su dictamen, sin desglose. Lo declaran el 02 (base)
+# y el delta `ajustes_2026_10/01` (producción).
+_PERM_PROCESS_SUMMARY = "titulatec.process.page.summary"
+
+# Los 7 que `titulatec_titulacion` (Departamento de Titulación) PIERDE el
+# 2026-10-07 (D1 «solo ocultar pantallas» + D8): Bandeja, Procesos,
+# Documentos, Actos protocolarios y el expediente COMPLETO con sus lecturas de
+# desglose -- en su lugar ve el expediente resumido. `titulatec_titulaciones`
+# (jefatura de la División) los conserva. La base (03) converge el rol a su
+# set exacto en cada corrida (DELETE de todo lo de titulatec fuera de los
+# 16); en producción lo converge el delta `ajustes_2026_10/01` (comando
+# `init-ajustes-2026-10`).
+_PERMISOS_RETIRADOS_TITULACION = (
+    "titulatec.dashboard.titulaciones",
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+    "titulatec.document.page.list",
+    "titulatec.document.api.read.all",
+    "titulatec.format_b.api.read.all",
+    "titulatec.ceremony.page.list",
+)
+
 # Los 12 permisos de SUPERVISIÓN (lectura de todo + la bandeja de liberados)
-# que comparten los dos roles de Titulación. Arreglo A3(c) (revisión final
-# 2026-09-21): antes `_verify_titulacion()` solo comprobaba que
-# `titulatec_titulacion` tuviera los 10 del delta (dictamen + ceremony), no
-# los 22 completos del rol -- una siembra que dejara sin sembrar alguno de
-# estos 12 (p.ej. si `02_insert_permissions.sql` se ejecutara truncado) pasaba
-# en verde. Mismo motivo por el que el verify de `titulatec_titulaciones`
-# (abajo) también exige el reparto completo, no un subconjunto.
+# de la jefatura de la División (`titulatec_titulaciones`). Hasta el
+# 2026-10-07 los compartía completos con `titulatec_titulacion`; desde
+# entonces ese rol solo conserva 5 (ver `_PERMISOS_CONSULTA_TITULACION`).
+# Arreglo A3(c) (revisión final 2026-09-21): antes `_verify_titulacion()`
+# solo comprobaba que `titulatec_titulacion` tuviera los 10 del delta
+# (dictamen + ceremony), no el reparto completo del rol -- una siembra que
+# dejara sin sembrar alguno de estos (p.ej. si `02_insert_permissions.sql`
+# se ejecutara truncado) pasaba en verde. Mismo motivo por el que el verify
+# de `titulatec_titulaciones` (abajo) también exige el reparto completo, no
+# un subconjunto.
 _PERMISOS_SUPERVISION_TITULACIONES = (
     "titulatec.dashboard.titulaciones",
     "titulatec.process.page.list",
@@ -784,18 +819,29 @@ _PERMISOS_SUPERVISION_TITULACIONES = (
     "titulatec.notifications.api.mark_read",
 )
 
-# Los 22 permisos completos de `titulatec_titulacion` (D5): los 12 de
-# supervision (arriba) mas los 10 de dictamen (8 de fase 3-8 + 2 de ceremony).
+# Lo que `titulatec_titulacion` consulta (6): de la supervisión conserva 5
+# (12 - 7) -- `process.api.read.all`, sin el cual la bandeja de Liberados sale
+# vacía (sus puestos no tienen carreras), Liberados y notificaciones -- y gana
+# el expediente resumido.
+_PERMISOS_CONSULTA_TITULACION = tuple(
+    code for code in _PERMISOS_SUPERVISION_TITULACIONES
+    if code not in _PERMISOS_RETIRADOS_TITULACION
+) + (_PERM_PROCESS_SUMMARY,)
+
+# Los 16 permisos EXACTOS de `titulatec_titulacion` desde el 2026-10-07
+# (eran 22, D5 de la spec 2026-09-21): los 6 de consulta (arriba) mas los 10
+# de dictamen (8 de fase 3-8 + 2 de ceremony), dormidos por el corte a T-soft.
 _PERMISOS_ROL_TITULACION = (
-    _PERMISOS_SUPERVISION_TITULACIONES
+    _PERMISOS_CONSULTA_TITULACION
     + _PERMISOS_DICTAMEN_FASES_3_8
     + _PERMISOS_CEREMONY_ESCRITURA
 )
 
 # Los 25 permisos completos de `titulatec_titulaciones` (jefatura de la
-# División) tras revertir el recorte D6/D7: los mismos 22 de arriba MÁS los 3
-# de cohort. Queda con MÁS permisos que `titulatec_titulacion` -- es
-# intencional (ver `_PERMISOS_COHORT_TITULACIONES_DIV`), no lo "corrijas".
+# División) tras revertir el recorte D6/D7: los 12 de supervisión, los 10 de
+# dictamen MÁS los 3 de cohort. No cambia el 2026-10-07 (D1). Queda con MÁS
+# permisos que `titulatec_titulacion` -- es intencional (ver
+# `_PERMISOS_COHORT_TITULACIONES_DIV`), no lo "corrijas".
 _PERMISOS_ROL_TITULACIONES_DIV = (
     _PERMISOS_SUPERVISION_TITULACIONES
     + _PERMISOS_DICTAMEN_FASES_3_8
@@ -816,11 +862,13 @@ def _verify_titulacion() -> list[str]:
     borrados. Ver spec 2026-09-21-titulatec-dpto-titulacion, sección 6.
 
     Fija el reparto COMPLETO de los dos roles de Titulación, no un subconjunto:
-    `titulatec_titulacion` con sus 22 (`_PERMISOS_ROL_TITULACION`) y
-    `titulatec_titulaciones` con sus 25 (`_PERMISOS_ROL_TITULACIONES_DIV`) —
-    el usuario revirtió el recorte D6/D7 del mismo día: la jefatura de la
-    División puede dictaminar, escribir ceremony y ver Convocatorias, aunque
-    el trabajo diario lo siga haciendo el Departamento de Titulación.
+    `titulatec_titulacion` con EXACTAMENTE sus 16 (`_PERMISOS_ROL_TITULACION`,
+    22 hasta el 2026-10-07) y `titulatec_titulaciones` con sus 25
+    (`_PERMISOS_ROL_TITULACIONES_DIV`) — el usuario revirtió el recorte D6/D7
+    del mismo día: la jefatura de la División puede dictaminar, escribir
+    ceremony y ver Convocatorias, aunque el trabajo diario lo siga haciendo el
+    Departamento de Titulación. Las reglas sobre los permisos de los roles
+    viven en `_problemas_grants_titulacion` (pura, probada sin BD).
     """
     from sqlalchemy import text
 
@@ -914,51 +962,68 @@ def _verify_titulacion() -> list[str]:
                 f"(hay {sorted(puestos_de[_ROL_TITULACIONES_DIV])})"
             )
 
-        # El rol nuevo debe tener el dictamen + la bandeja de liberados.
-        concedidos_nuevo = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT p.code FROM core_role_permissions rp "
-                    "  JOIN core_roles r ON r.id = rp.role_id "
-                    "  JOIN core_permissions p ON p.id = rp.perm_id "
-                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
-                    " WHERE r.name = :rol"
-                ),
-                {"rol": _ROL_TITULACION},
-            )
-        }
-        # Arreglo A3(c): los 22 completos, no solo los 10 del delta de dictamen.
-        for code in _PERMISOS_ROL_TITULACION:
-            if code not in concedidos_nuevo:
-                problemas.append(f"sin grant a {_ROL_TITULACION}: {code}")
+        # Los permisos de los 4 roles que fija este verify, en una consulta.
+        roles = (_ROL_TITULACION, _ROL_TITULACIONES_DIV,
+                 _ROL_OPERATIVO_ESCOLARES, _ROL_JEFATURA_ESCOLARES)
+        concedidos: dict[str, set[str]] = {rol: set() for rol in roles}
+        for rol, code in conn.execute(
+            text(
+                "SELECT r.name, p.code FROM core_role_permissions rp "
+                "  JOIN core_roles r ON r.id = rp.role_id "
+                "  JOIN core_permissions p ON p.id = rp.perm_id "
+                "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                " WHERE r.name = ANY(:roles)"
+            ),
+            {"roles": list(roles)},
+        ):
+            concedidos[rol].add(code)
 
-        # titulatec_titulaciones (jefatura de la División) debe tener su
-        # reparto PLENO: 25 -- los 12 de supervisión, los 8 de dictamen de
-        # fases 3-8, los 2 de escritura de ceremony y los 3 de cohort. El
-        # usuario revirtió el recorte D6/D7 del 2026-09-21: la jefatura puede
-        # hacer cualquier cosa en TitulaTec aunque el trabajo diario de
-        # dictamen lo siga haciendo el Departamento de Titulación (rol de
-        # arriba). Positivo, no negativo: antes de este cambio este verify
-        # exigía que el rol NO tuviera dictamen/ceremony; el usuario invirtió
-        # esa decisión, así que el verify se invierte con ella.
-        concedidos_div = {
-            row[0]
-            for row in conn.execute(
-                text(
-                    "SELECT p.code FROM core_role_permissions rp "
-                    "  JOIN core_roles r ON r.id = rp.role_id "
-                    "  JOIN core_permissions p ON p.id = rp.perm_id "
-                    "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
-                    " WHERE r.name = :rol"
-                ),
-                {"rol": _ROL_TITULACIONES_DIV},
-            )
-        }
-        for code in _PERMISOS_ROL_TITULACIONES_DIV:
-            if code not in concedidos_div:
-                problemas.append(f"sin grant a {_ROL_TITULACIONES_DIV}: {code}")
+    problemas.extend(_problemas_grants_titulacion(concedidos))
+    return problemas
 
+
+def _problemas_grants_titulacion(concedidos: dict[str, set[str]]) -> list[str]:
+    """Reglas de `_verify_titulacion` sobre los permisos de los roles, PURAS
+    (sin BD): `concedidos` es `{rol: {codigo, ...}}` en titulatec.
+
+    - `titulatec_titulacion` tiene EXACTAMENTE sus 16 (2026-10-07, D1 + D8;
+      arreglo A3(c): el reparto completo, no solo los 10 del delta de
+      dictamen). El 03 lo converge en cada corrida (DELETE de todo lo de
+      titulatec fuera de los 16), así que un permiso de más o de menos es
+      una siembra que no aterrizó.
+    - `titulatec_titulaciones` (jefatura de la División) CONTIENE su reparto
+      PLENO: 25 -- los 12 de supervisión, los 8 de dictamen de fases 3-8, los
+      2 de escritura de ceremony y los 3 de cohort. El usuario revirtió el
+      recorte D6/D7 del 2026-09-21: la jefatura puede hacer cualquier cosa en
+      TitulaTec aunque el trabajo diario de dictamen lo siga haciendo el
+      Departamento de Titulación. Positivo, no negativo: antes de ese cambio
+      este verify exigía que el rol NO tuviera dictamen/ceremony.
+    - Los dos roles de Servicios Escolares CONTIENEN Liberados (D2,
+      2026-10-07): `handoff.page.list` + `handoff.api.export`.
+
+    Semántica «contiene al menos» salvo titulación (mismo motivo que el
+    arreglo A7: un permiso extra concedido a mano no es un problema de la
+    siembra; titulación sí, porque el propio 03 lo converge).
+    """
+    problemas: list[str] = []
+    titulacion = concedidos.get(_ROL_TITULACION, set())
+    debe = set(_PERMISOS_ROL_TITULACION)
+    if titulacion != debe:
+        problemas.append(
+            f"{_ROL_TITULACION} no tiene exactamente sus {len(debe)} permisos "
+            f"(faltan {sorted(debe - titulacion)}, sobran {sorted(titulacion - debe)}; "
+            "el 03 lo converge en cada corrida)"
+        )
+
+    division = concedidos.get(_ROL_TITULACIONES_DIV, set())
+    for code in _PERMISOS_ROL_TITULACIONES_DIV:
+        if code not in division:
+            problemas.append(f"sin grant a {_ROL_TITULACIONES_DIV}: {code}")
+
+    for rol in (_ROL_OPERATIVO_ESCOLARES, _ROL_JEFATURA_ESCOLARES):
+        for code in _PERMISOS_HANDOFF:
+            if code not in concedidos.get(rol, set()):
+                problemas.append(f"sin grant a {rol}: {code} (Liberados, 2026-10-07)")
     return problemas
 
 
@@ -3343,5 +3408,322 @@ def init_outbox_admin_command(dry_run):
     click.echo(click.style(
         f"OK: {_OUTBOX_PERM} existe y el rol admin lo tiene. La pestaña «Correos» "
         "aparece en el menú admin en cuanto caduque la caché de permisos.",
+        fg="green",
+    ))
+
+
+# ---------------------------------------------------------------------------
+# Ajustes 2026-10 (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
+# design.md, D1/D2/D7/D8, §1.1, §3, §6, §7): delta de PRODUCCIÓN.
+#
+#   - permiso NUEVO `titulatec.process.page.summary` (expediente resumido);
+#   - `titulatec_titulacion` CONVERGE a su set EXACTO de 16 (el usuario editó
+#     a mano sus permisos en la BD: se le concede lo que le falte del set y se
+#     le quita todo lo de titulatec fuera de él);
+#   - `titulatec_school_services` y `titulatec_school_services_head` ganan
+#     Liberados (`handoff.page.list` + `handoff.api.export`), sin set exacto;
+#   - `admin` recibe el permiso nuevo EXPLÍCITO (en producción nunca se
+#     re-corre el 15, que se lo daría dinámicamente);
+#   - `titulatec_titulaciones` (25) NO cambia;
+#   - el requisito de cotejo `library_clearance` pasa de «No-adeudo de
+#     biblioteca» a «Constancia de no adeudo de biblioteca» (solo donde sigue
+#     con el texto viejo).
+#
+# NO va en `SEED_FILES`: una instalación desde cero ya nace con ese estado
+# (el 02 declara el permiso nuevo; el 03 trae los ARRAYs nuevos y converge a
+# titulación; el 15 da todo a `admin`; el 22 de `biblioteca_2026_10/` trae la
+# etiqueta nueva). Este comando es el único camino de despliegue a una base
+# ya sembrada (producción): el DML viejo nunca se re-corre allí.
+# ---------------------------------------------------------------------------
+_DML_AJUSTES_2026_10_DIR = "ajustes_2026_10"
+# Debe listar TODOS los .sql del directorio: lo fija
+# `test_todo_sql_del_directorio_esta_en_la_lista_del_comando`
+# (tests/fastapi/titulatec/test_cli_ajustes_2026_10.py).
+_DML_AJUSTES_2026_10_FILES = [
+    "01_liberados_permisos.sql",
+    "02_requisito_constancia.sql",
+]
+# Copia EXACTA de `CotejoRequirementService.DEFAULTS` (etiqueta nueva) y del
+# texto viejo; los dos `.sql` (el 02 del delta y el 22 de la base) llevan los
+# mismos literales.
+_ETIQUETA_BIBLIOTECA_VIEJA = "No-adeudo de biblioteca"
+_ETIQUETA_BIBLIOTECA = "Constancia de no adeudo de biblioteca"
+_ROLES_AJUSTES_2026_10 = (
+    _ROL_TITULACION,
+    _ROL_TITULACIONES_DIV,
+    _ROL_OPERATIVO_ESCOLARES,
+    _ROL_JEFATURA_ESCOLARES,
+)
+
+
+def _snapshot_ajustes_2026_10() -> dict:
+    """Foto de SOLO LECTURA de lo que toca el delta:
+
+    `{"roles": {rol existente, ...},
+      "perms": {rol: {codigo, ...}} (permisos de titulatec de los 4 roles),
+      "existe_summary": bool (el permiso nuevo ya está en core_permissions),
+      "admin_summary": bool (el rol `admin` ya lo tiene),
+      "etiquetas": {label: n} (filas `code='library_clearance'` por etiqueta)}`
+
+    Abre su PROPIA sesión (`SessionLocal`, import local) para que
+    `patched_session_local` la intercepte en las pruebas; solo SELECT, y la
+    cierra (sin `rollback` explícito, mismo criterio que
+    `_precheck_activar_biblioteca`).
+    """
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        roles = {
+            row[0]
+            for row in db.execute(
+                text("SELECT name FROM core_roles WHERE name = ANY(:roles)"),
+                {"roles": list(_ROLES_AJUSTES_2026_10)},
+            )
+        }
+        perms: dict[str, set[str]] = {rol: set() for rol in _ROLES_AJUSTES_2026_10}
+        for rol, code in db.execute(
+            text(
+                "SELECT r.name, p.code FROM core_role_permissions rp "
+                "  JOIN core_roles r ON r.id = rp.role_id "
+                "  JOIN core_permissions p ON p.id = rp.perm_id "
+                "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                " WHERE r.name = ANY(:roles)"
+            ),
+            {"roles": list(_ROLES_AJUSTES_2026_10)},
+        ):
+            perms[rol].add(code)
+        existe_summary = db.execute(
+            text(
+                "SELECT 1 FROM core_permissions p "
+                "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                " WHERE p.code = :code"
+            ),
+            {"code": _PERM_PROCESS_SUMMARY},
+        ).first() is not None
+        admin_summary = db.execute(
+            text(
+                "SELECT 1 FROM core_role_permissions rp "
+                "  JOIN core_roles r ON r.id = rp.role_id "
+                "  JOIN core_permissions p ON p.id = rp.perm_id "
+                "  JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                " WHERE r.name = :rol AND p.code = :code"
+            ),
+            {"rol": _ROL_ADMIN, "code": _PERM_PROCESS_SUMMARY},
+        ).first() is not None
+        etiquetas = {
+            label: int(n)
+            for label, n in db.execute(
+                text(
+                    "SELECT label, COUNT(*) FROM titulatec_cotejo_requirements "
+                    " WHERE code = 'library_clearance' GROUP BY label"
+                )
+            )
+        }
+    finally:
+        db.close()
+    return {"roles": roles, "perms": perms, "existe_summary": existe_summary,
+            "admin_summary": admin_summary, "etiquetas": etiquetas}
+
+
+def _esperado_ajustes_2026_10(perms_antes: dict[str, set[str]]) -> dict[str, set[str]]:
+    """Lo que el delta debe dejar a cada rol, a partir de lo que tenía:
+    titulación CONVERGE a su set exacto (lo que tuviera antes da igual);
+    Servicios Escolares = lo de antes + Liberados; titulaciones igual."""
+    liberados = set(_PERMISOS_HANDOFF)
+    return {
+        _ROL_TITULACION: set(_PERMISOS_ROL_TITULACION),
+        _ROL_TITULACIONES_DIV: set(perms_antes.get(_ROL_TITULACIONES_DIV, set())),
+        _ROL_OPERATIVO_ESCOLARES: set(perms_antes.get(_ROL_OPERATIVO_ESCOLARES, set())) | liberados,
+        _ROL_JEFATURA_ESCOLARES: set(perms_antes.get(_ROL_JEFATURA_ESCOLARES, set())) | liberados,
+    }
+
+
+def _faltan_sobran(rol: str, tiene: set[str], debe: set[str], que: str) -> str | None:
+    if tiene == debe:
+        return None
+    return (f"{rol} no quedó con {que} (faltan {sorted(debe - tiene)}, "
+            f"sobran {sorted(tiene - debe)})")
+
+
+def _verify_ajustes_2026_10(antes: dict, despues: dict) -> list[str]:
+    """Comprueba que el delta ATERRIZÓ. Pura (recibe las dos fotos de
+    `_snapshot_ajustes_2026_10`); devuelve problemas, mismo contrato de salida
+    que el resto de los `_verify_*` (los `RAISE NOTICE` del SQL son invisibles
+    para `itcj2/`).
+
+    - Los 4 roles existen y el permiso nuevo existe.
+    - `titulatec_titulacion` tiene EXACTAMENTE sus 16
+      (`_PERMISOS_ROL_TITULACION`): contrato absoluto (D8), no relativo a lo
+      que tenía antes (que el usuario editó a mano).
+    - Servicios Escolares quedó EXACTAMENTE con lo de antes + Liberados (el
+      delta no les quita nada) y titulaciones exactamente igual.
+    - `admin` tiene el permiso nuevo.
+    - Ninguna fila `library_clearance` conserva la etiqueta vieja.
+    """
+    problemas: list[str] = []
+    for rol in _ROLES_AJUSTES_2026_10:
+        if rol not in despues["roles"]:
+            problemas.append(f"rol ausente: {rol}")
+    if not despues["existe_summary"]:
+        problemas.append(f"permiso ausente: {_PERM_PROCESS_SUMMARY}")
+
+    esperado = _esperado_ajustes_2026_10(antes["perms"])
+    que = {
+        _ROL_TITULACION: f"exactamente sus {len(_PERMISOS_ROL_TITULACION)} permisos",
+        _ROL_TITULACIONES_DIV: "lo que tenía (no debe cambiar)",
+        _ROL_OPERATIVO_ESCOLARES: "lo que tenía más Liberados",
+        _ROL_JEFATURA_ESCOLARES: "lo que tenía más Liberados",
+    }
+    for rol in _ROLES_AJUSTES_2026_10:
+        p = _faltan_sobran(rol, despues["perms"].get(rol, set()), esperado[rol], que[rol])
+        if p:
+            problemas.append(p)
+
+    if not despues["admin_summary"]:
+        problemas.append(f"sin grant a {_ROL_ADMIN}: {_PERM_PROCESS_SUMMARY}")
+
+    viejas = despues["etiquetas"].get(_ETIQUETA_BIBLIOTECA_VIEJA, 0)
+    if viejas:
+        problemas.append(
+            f"{viejas} requisito(s) library_clearance conservan la etiqueta "
+            f"«{_ETIQUETA_BIBLIOTECA_VIEJA}» (el 02 no aterrizó)")
+    return problemas
+
+
+def _echo_reparto_ajustes(antes: dict, perms_despues: dict[str, set[str]],
+                          admin_summary_despues: bool) -> None:
+    """Por rol: `rol: N → M` y debajo cada código que sale (`-`) o entra (`+`);
+    luego la concesión explícita del permiso nuevo a `admin`."""
+    for rol in _ROLES_AJUSTES_2026_10:
+        tenia = antes["perms"].get(rol, set())
+        queda = perms_despues.get(rol, set())
+        click.echo(f"  {rol}: {len(tenia)} → {len(queda)}")
+        for code in sorted(tenia - queda):
+            click.echo(f"      - {code}")
+        for code in sorted(queda - tenia):
+            click.echo(f"      + {code}")
+    if not antes["admin_summary"] and admin_summary_despues:
+        click.echo(f"  {_ROL_ADMIN}: + {_PERM_PROCESS_SUMMARY}")
+
+
+def _echo_etiquetas_ajustes(etiquetas: dict[str, int]) -> None:
+    viejas = etiquetas.get(_ETIQUETA_BIBLIOTECA_VIEJA, 0)
+    nuevas = etiquetas.get(_ETIQUETA_BIBLIOTECA, 0)
+    otras = sum(n for label, n in etiquetas.items()
+                if label not in (_ETIQUETA_BIBLIOTECA_VIEJA, _ETIQUETA_BIBLIOTECA))
+    click.echo(f"  «{_ETIQUETA_BIBLIOTECA_VIEJA}»: {viejas} fila(s) · "
+               f"«{_ETIQUETA_BIBLIOTECA}»: {nuevas} fila(s) · "
+               f"otra etiqueta (editada a mano, no se toca): {otras} fila(s)")
+
+
+@titulatec_cli.command("init-ajustes-2026-10")
+@click.option("--dry-run", is_flag=True,
+              help="Reporta el estado actual y lo que agregaría/quitaría, sin escribir nada.")
+def init_ajustes_2026_10_command(dry_run):
+    """Ajustes 2026-10: Liberados para Servicios Escolares; Titulación solo ve
+    Liberados y el expediente resumido; requisito «Constancia de no adeudo de
+    biblioteca».
+
+    Corre SOLO los 2 archivos de `database/DML/titulatec/ajustes_2026_10/`
+    (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md, §6/§7):
+
+    - `01_liberados_permisos.sql`: crea `titulatec.process.page.summary`;
+      CONVERGE `titulatec_titulacion` a su set EXACTO de 16 (concede lo que
+      le falte y le quita todo lo de titulatec fuera de él: el usuario editó
+      a mano sus permisos); `titulatec_school_services` y
+      `titulatec_school_services_head` ganan `handoff.page.list` +
+      `handoff.api.export`; `admin` recibe el permiso nuevo.
+      `titulatec_titulaciones` no cambia.
+    - `02_requisito_constancia.sql`: el requisito `library_clearance` que
+      sigue llamándose «No-adeudo de biblioteca» pasa a «Constancia de no
+      adeudo de biblioteca» (respeta las etiquetas editadas a mano).
+
+    NO re-ejecuta el DML base (`init-titulatec`): en producción el DML viejo
+    nunca se re-corre. Idempotente: correrlo dos veces no cambia nada la
+    segunda.
+
+    Cada archivo corre con `execute_sql_file(..., invalidate_authz=False)` y,
+    con los dos ya aplicados, se invalida el caché de authz SOLO de titulatec
+    (`invalidate_app("titulatec")`; nunca `invalidate_all`, que tiraría el
+    caché de todas las apps). Después VERIFICA contra la BD
+    (`_verify_ajustes_2026_10`; titulación con igualdad exacta del set) y
+    aborta si algo no aterrizó. Imprime los permisos por rol antes y después
+    y el set COMPLETO que tenía titulación antes (para la reversa: lo que el
+    usuario editó a mano no se puede reconstruir de otro lado).
+
+    `--dry-run`: solo lectura -- comprueba los archivos en disco e imprime el
+    estado actual y qué agregaría/quitaría por código de permiso (y la
+    etiqueta), sin escribir nada ni invalidar el caché.
+
+    Reversa: el SQL inverso documentado en la cabecera de cada archivo del
+    delta.
+    """
+    dml_dir = DML_TITULATEC / _DML_AJUSTES_2026_10_DIR
+    faltan = [n for n in _DML_AJUSTES_2026_10_FILES if not (dml_dir / n).exists()]
+
+    if not dry_run and faltan:
+        _abortar_con([f"faltan archivos en disco en {dml_dir}: {faltan} "
+                      "(database/ está gitignored: súbelos al host)"])
+
+    antes = _snapshot_ajustes_2026_10()
+    click.echo(f"{_ROL_TITULACION} hoy ({len(antes['perms'][_ROL_TITULACION])}, "
+               "guárdalo para la reversa):")
+    for code in sorted(antes["perms"][_ROL_TITULACION]):
+        click.echo(f"      {code}")
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarían:")
+            for nombre in _DML_AJUSTES_2026_10_FILES:
+                click.echo(f"  {_DML_AJUSTES_2026_10_DIR}/{nombre}")
+        click.echo(f"[dry-run] Permiso {_PERM_PROCESS_SUMMARY}: "
+                   + ("ya existe" if antes["existe_summary"] else "se crearía"))
+        click.echo("[dry-run] Permisos en titulatec por rol (hoy → quedaría; "
+                   "- quitaría, + agregaría):")
+        _echo_reparto_ajustes(antes, _esperado_ajustes_2026_10(antes["perms"]), True)
+        click.echo("[dry-run] Requisito de cotejo de biblioteca (hoy):")
+        _echo_etiquetas_ajustes(antes["etiquetas"])
+        click.echo(f"[dry-run] {antes['etiquetas'].get(_ETIQUETA_BIBLIOTECA_VIEJA, 0)} "
+                   f"fila(s) pasarían a «{_ETIQUETA_BIBLIOTECA}».")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    from itcj2.cli.core import execute_sql_file
+
+    for nombre in _DML_AJUSTES_2026_10_FILES:
+        click.echo(f"   🔄 Ejecutando: {_DML_AJUSTES_2026_10_DIR}/{nombre}")
+        execute_sql_file(str(dml_dir / nombre), invalidate_authz=False)
+        click.echo(f"   ✅ Completado: {_DML_AJUSTES_2026_10_DIR}/{nombre}")
+
+    # Después del commit de los dos archivos (execute_sql_file commitea por
+    # dentro) y ANTES de verificar: si la verificación aborta, el SQL ya
+    # quedó aplicado y el caché tiene que reflejarlo igual. Best-effort:
+    # `invalidate_app` no levanta (un Redis caído lo deja al TTL, 5 min).
+    from itcj2.core.services.authz_cache import invalidate_app
+    invalidate_app("titulatec")
+    click.echo("Caché de authz de titulatec invalidado (solo esta app).")
+
+    despues = _snapshot_ajustes_2026_10()
+    click.echo("Permisos en titulatec por rol (antes → después):")
+    _echo_reparto_ajustes(antes, despues["perms"], despues["admin_summary"])
+    click.echo("Requisito de cotejo de biblioteca (después):")
+    _echo_etiquetas_ajustes(despues["etiquetas"])
+
+    problemas = _verify_ajustes_2026_10(antes, despues)
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {_ROL_TITULACION} con exactamente sus {len(_PERMISOS_ROL_TITULACION)}, "
+        "Liberados en los dos roles de Servicios Escolares, "
+        f"{_ROL_TITULACIONES_DIV} sin cambio, {_PERM_PROCESS_SUMMARY} con admin y "
+        f"el requisito «{_ETIQUETA_BIBLIOTECA}» verificados en la base.",
         fg="green",
     ))
