@@ -35,3 +35,5 @@
 }
 #tt-audit-table td { max-width: 22rem; overflow-wrap: anywhere; }
 #tt-audit-table { white-space: normal; }
+
+.tt-audit-close { cursor: pointer; color: var(--tt-slate); margin-bottom: .5rem; }

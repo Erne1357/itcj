@@ -277,3 +277,36 @@ def test_sin_permiso_no_hay_liga_ver_bitacora(client_as, make_head, make_user,
     assert r.status_code == 200, r.text[:300]
     assert "exp-ver-bitacora" not in r.text
     assert f"{URL}?process_id=" not in r.text
+
+
+# ---------------------------------------------------------------------------
+# 7. Ronda de arreglos
+# ---------------------------------------------------------------------------
+def test_con_process_id_no_hay_ventana_de_7_dias(client_as, db_session, admin, make_user,
+                                                 make_process):
+    t = _token()
+    proc = make_process(make_user(first_name="HIST", last_name="ORIAL"))
+    vieja = _fila(db_session, token=t, process_id=proc.id,
+                  occurred_at=_ahora() - timedelta(days=30))
+    c = client_as(admin)
+    assert vieja.id in _ids(c.get(f"{URL}?process_id={proc.id}&q={t}").text)
+    # Sin expediente, el default de 7 días sigue.
+    assert vieja.id not in _ids(c.get(f"{URL}?q={t}").text)
+
+
+def test_process_id_con_digitos_raros_no_truena(client_as, admin):
+    c = client_as(admin)
+    assert c.get(f"{URL}/body", params={"process_id": "²"}).status_code == 200
+    assert c.get(URL, params={"process_id": "²"}).status_code == 200
+
+
+def test_entry_fuera_de_rango_es_404(client_as, admin):
+    c = client_as(admin)
+    assert c.get(f"{URL}/entry/99999999999999999999").status_code == 404
+    assert c.get(f"{URL}/entry/0").status_code == 404
+
+
+def test_detalle_trae_control_para_cerrar(client_as, db_session, admin):
+    a = _fila(db_session, token=_token())
+    html = client_as(admin).get(f"{URL}/entry/{a.id}").text
+    assert f'id="tt-audit-cerrar-{a.id}"' in html and "<details open" in html

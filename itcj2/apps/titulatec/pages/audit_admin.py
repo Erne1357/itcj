@@ -36,6 +36,7 @@ router = APIRouter(prefix="/admin/bitacora", tags=["titulatec-pages-audit"])
 _LIST = ["titulatec.audit.page.list"]
 _DEFAULT_DAYS = 7
 _SIBLINGS_MAX = 50
+_BIGINT_MAX = 2**63 - 1
 _REASON_CLIP = 90
 
 # Insignia del tipo de actor distinto de un usuario con nombre.
@@ -63,7 +64,8 @@ def _date(raw) -> datetime | None:
 
 def _int(raw) -> int | None:
     raw = (raw or "").strip() if isinstance(raw, str) else ""
-    return int(raw) if raw.isdigit() and len(raw) < 10 else None
+    # `isdecimal` + `isascii`: `isdigit` acepta «²» y `int()` truena con él.
+    return int(raw) if raw.isdecimal() and raw.isascii() and len(raw) < 10 else None
 
 
 def _catalogo_acciones() -> dict[str, tuple[str, str]]:
@@ -272,8 +274,10 @@ def list_audit(request: Request, desde: str | None = None, hasta: str | None = N
     from itcj2.core.utils.timezone import db_now
     from itcj2.database import SessionLocal
 
-    if desde is None and hasta is None:
-        # Sin rango pedido: últimos 7 días (el parcial, en cambio, respeta vacío).
+    if desde is None and hasta is None and _int(process_id) is None:
+        # Sin rango pedido ni expediente: últimos 7 días. Con `process_id` (la
+        # liga del expediente) NO hay ventana: se ve todo su historial. El
+        # parcial, en cambio, respeta el vacío.
         desde = (db_now() - timedelta(days=_DEFAULT_DAYS)).strftime("%Y-%m-%d")
     f = _filters(desde=desde or "", hasta=hasta or "", module=module, action=action,
                  who=who, student=student, process_id=process_id, q=q, data=data)
@@ -355,6 +359,8 @@ def entry(entry_id: int, request: Request,
           user: dict = Depends(require_page_app("titulatec", perms=_LIST))):
     from itcj2.database import SessionLocal
 
+    if not 1 <= entry_id <= _BIGINT_MAX:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
     db = SessionLocal()
     try:
         ctx = _entry_ctx(db, entry_id)

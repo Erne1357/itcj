@@ -2,6 +2,9 @@
    inserta bajo la fila. Todo escapado por Jinja; el payload va en <pre>, nunca
    como HTML. #}
 <div class="tt-card tt-audit-entry m-2" id="tt-audit-entry-{{ e.id }}">
+  {# Cierre sin JS: <details> nativo; el resumen queda como «Mostrar detalle». #}
+  <details open class="tt-audit-det">
+  <summary class="small tt-audit-close" id="tt-audit-cerrar-{{ e.id }}">Ocultar detalle</summary>
   <div class="mb-2">
     <span class="tt-kicker">{{ e.module }} · {{ e.source }}</span>
     <div class="fw-medium">{{ e.label }}</div>
@@ -49,4 +52,5 @@
     {% endfor %}
   </ul>
   {% endif %}
+  </details>
 </div>
