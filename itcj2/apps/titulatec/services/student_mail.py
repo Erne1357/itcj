@@ -86,6 +86,10 @@ _APPT_ACTORS = ("officer", "student")
 # transición, así que nunca llega aquí) y a qué estado regresa al revertir.
 _LIBRARY_VIAS = ("payment", "no_charge", "prior")
 _LIBRARY_REVERTED_TO = ("awaiting_payment", "pending")
+# Observación de Biblioteca (spec 2026-10-07 §2): su tipo, y a dónde la manda
+# «Activar» (la con pago retenido se libera y su correo es `library_cleared`).
+_LIBRARY_OBSERVATION_KINDS = ("blocking", "with_debt")
+_LIBRARY_REENABLED_TO = ("pending", "awaiting_payment")
 
 
 def _settings():
@@ -248,6 +252,7 @@ class StudentMail:
         "library_reminder": "Recordatorio de pago en Caja",
         "library_observed": "Biblioteca registró observaciones",
         "library_reenabled": "Biblioteca activó el trámite",
+        "library_payment_held": "Caja registró el pago (falta que Biblioteca active)",
         "enrollment_verified": "Inscripción registrada (aviso con folio)",
         "enrollment_rejected": "Solicitud de inscripción rechazada",
         "already_enrolled": "Aviso de que ya tiene un proceso",
@@ -527,20 +532,43 @@ class StudentMail:
 
     @staticmethod
     @_best_effort
-    def library_observed(db: Session, process, *, reason: str) -> bool:
+    def library_observed(db: Session, process, *, reason: str,
+                         kind: str = "blocking") -> bool:
         """Biblioteca registró observaciones (o actualizó el motivo) en su no
-        adeudo (spec 2026-10-05 §3.3). El motivo va CONGELADO en el payload;
-        al ENVIAR solo sale si la fila sigue «Con observaciones»."""
+        adeudo (spec 2026-10-05 §3.3). El motivo va CONGELADO en el payload,
+        con su tipo (`kind`, spec 2026-10-07 §2): `blocking` (la de siempre)
+        o `with_debt` (con adeudo: puede pagar en Caja y entregar en la misma
+        visita; los montos los pinta el compositor con los VIGENTES). Al
+        ENVIAR solo sale si la fila sigue «Con observaciones»."""
+        if kind not in _LIBRARY_OBSERVATION_KINDS:
+            raise ValueError(f"tipo de observación desconocido: {kind!r}")
         return StudentMail.enqueue(db, kind="library_observed", process=process,
-                                   payload={"reason": reason})
+                                   payload={"reason": reason, "kind": kind})
 
     @staticmethod
     @_best_effort
-    def library_reenabled(db: Session, process) -> bool:
-        """Biblioteca lo rehabilitó: vuelve a «Por revisar» (spec 2026-10-05
-        §3.3). Al ENVIAR no sale si lo volvieron a observar."""
+    def library_reenabled(db: Session, process, *, to_status: str = "pending") -> bool:
+        """Biblioteca lo activó (spec 2026-10-05 §3.3): `to_status` es a dónde
+        regresó -`pending` («Por revisar», la observación de siempre) o
+        `awaiting_payment` (con adeudo sin pago: pasa a Caja, spec 2026-10-07
+        §2)-. Al ENVIAR no sale si lo volvieron a observar, ni -hacia Caja-
+        si ya no tiene un pago pendiente."""
+        if to_status not in _LIBRARY_REENABLED_TO:
+            raise ValueError(f"estado de activación desconocido: {to_status!r}")
         return StudentMail.enqueue(db, kind="library_reenabled", process=process,
-                                   payload={})
+                                   payload={"to_status": to_status})
+
+    @staticmethod
+    @_best_effort
+    def library_payment_held(db: Session, process, *, total, receipt: str | None) -> bool:
+        """Caja cobró una observación CON ADEUDO (spec 2026-10-07 §2): el pago
+        queda RETENIDO y la Constancia de no adeudo se libera cuando
+        Biblioteca registre la entrega («Activar»). Total como texto
+        «1100.00» y el recibo tal como quedó. Al ENVIAR solo sale si el pago
+        SIGUE retenido (si Biblioteca ya activó, sale el «quedó liberada»; si
+        Caja lo revirtió, nada)."""
+        return StudentMail.enqueue(db, kind="library_payment_held", process=process,
+                                   payload={"total": _monto(total), "receipt": receipt})
 
     # ---- Inscripción: los 4 correos SIN secreto (spec 2026-10-05-titulatec-
     # rendimiento-design.md §3.7, P-D1). Individuales. `False` (interruptor

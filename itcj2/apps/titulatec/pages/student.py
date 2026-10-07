@@ -332,6 +332,8 @@ _EVENT_LABELS = {
     # «Con observaciones» (spec 2026-10-05 §3.4).
     "library_observed":            "Biblioteca registró observaciones en tu Constancia de no adeudo",
     "library_reenabled":           "Biblioteca activó tu trámite; volverá a revisar tu Constancia de no adeudo",
+    # Observación con adeudo ya pagada (spec 2026-10-07 §2): «Activar» la libera.
+    "library_cleared_after_observation": "Biblioteca registró tu entrega y liberó tu Constancia de no adeudo",
 }
 
 

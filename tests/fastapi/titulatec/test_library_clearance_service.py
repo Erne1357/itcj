@@ -260,6 +260,8 @@ def test_los_diez_eventos_del_spec_caben_en_la_columna():
         "library_payment_reverted", "library_clearance_reverted", "library_prior_undone",
         # «Con observaciones» (spec 2026-10-05 §3.2).
         "library_observed", "library_reenabled",
+        # Activar una observación con adeudo ya pagada (spec 2026-10-07 §2).
+        "library_cleared_after_observation",
     )
     assert all(len(e) <= 40 for e in LIBRARY_EVENT_TYPES)   # ProcessEvent.event_type String(40)
 
@@ -438,7 +440,7 @@ class TestSummary:
     LLAVES = {"status", "via", "debt", "donation", "total", "note", "ready_at",
               "paid_at", "receipt",
               "prior_issued_on", "prior_note", "observation", "observed_at",
-              "can_revert", "clearance_id"}
+              "observation_kind", "can_revert", "clearance_id"}
 
     def test_sin_fila(self, db_session, nuevo):
         esc = nuevo(status=None)

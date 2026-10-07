@@ -1,15 +1,58 @@
 {# Biblioteca registró observaciones en el no adeudo de biblioteca («Con
    observaciones», spec 2026-10-05-titulatec-biblioteca-observaciones-
    design.md §3.3): el motivo CONGELADO en el payload y «Acude a la
-   Biblioteca». Mientras esté así no puede agendar su cita de cotejo ni pagar
-   en Caja. Se re-valida al enviar (D8): si ya lo rehabilitaron, o hay una
+   Biblioteca». Se re-valida al enviar (D8): si ya lo activaron, o hay una
    observación más reciente, no sale (`mail_compose._compose_library_observed`).
-   Contexto: first_name, link, reason. #}
+
+   Dos variantes (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
+   design.md §2):
+   - NORMAL (`con_adeudo` falso): mientras tenga observaciones no puede
+     agendar su cita de cotejo ni pagar en Caja.
+   - CON ADEUDO (`con_adeudo`): el monto VIGENTE (adeudo + donación = total,
+     ya formateado) y «puedes pagar en Caja y entregar en Biblioteca en la
+     misma visita; tu Constancia de no adeudo se libera cuando Biblioteca
+     registre la entrega». `pagado` = Caja ya cobró (se actualizó el motivo
+     con el pago retenido). Una donación de $0 no se pinta.
+   Contexto: first_name, link, reason, con_adeudo, debt, sin_adeudo, donation,
+   con_donacion, total, pagado. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}Biblioteca registró observaciones en tu Constancia de no adeudo — TitulaTec ITCJ{% endblock %}
+{% block titulo %}{% if con_adeudo %}Biblioteca registró una observación con adeudo en tu Constancia de no adeudo{% else %}Biblioteca registró observaciones en tu Constancia de no adeudo{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+{% if con_adeudo %}
+<p style="margin:0 0 20px;">
+  El Centro de Información (Biblioteca) <strong>registró una observación con adeudo</strong> en
+  tu Constancia de no adeudo de biblioteca.
+</p>
+{% if reason %}{{ m.motivo(reason, "Qué debes entregar") }}{% endif %}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border:1px solid #CFD8DC;border-radius:6px;margin-bottom:24px;">
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:13px;">Adeudo con la biblioteca</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:15px;text-align:right;">{% if sin_adeudo %}Sin adeudo{% else %}{{ debt|e }}{% endif %}</td>
+  </tr>
+  {%- if con_donacion %}
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:13px;border-top:1px solid #ECEFF1;">Donación voluntaria de libro</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:15px;text-align:right;border-top:1px solid #ECEFF1;">{{ donation|e }}</td>
+  </tr>
+  {%- endif %}
+  <tr>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;font-weight:700;border-top:1px solid #CFD8DC;">{% if pagado %}Ya pagado en Caja{% else %}Total a pagar{% endif %}</td>
+    <td style="padding:12px 16px;color:#1F3D7A;font-size:17px;font-weight:700;text-align:right;border-top:1px solid #CFD8DC;">{{ total|e }}</td>
+  </tr>
+</table>
+{% if pagado %}
+{{ m.aviso("Caja ya registró tu pago. Solo falta que entregues en la Biblioteca (Centro de Información) lo que se indica arriba.") }}
+{% else %}
+{{ m.aviso("Puedes pagar en Caja (Recursos Financieros) y entregar en la Biblioteca (Centro de Información) en la misma visita, con tu número de control; no necesitas cita.") }}
+{% endif %}
+<p style="margin:0 0 24px;">
+  Tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega. Mientras tanto no
+  podrás agendar tu cita de cotejo; te avisaremos en cuanto quede liberada.
+</p>
+{% else %}
 <p style="margin:0 0 20px;">
   El Centro de Información (Biblioteca) <strong>registró observaciones</strong> en tu
   Constancia de no adeudo de biblioteca.
@@ -20,5 +63,6 @@
   Acude a la Biblioteca (Centro de Información) para aclararlas; en cuanto Biblioteca active
   tu trámite te avisaremos.
 </p>
+{% endif %}
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

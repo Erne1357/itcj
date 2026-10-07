@@ -1354,6 +1354,9 @@ _EVENT_UI = {
     # a propósito no se repite (ya está en su `library_observed`).
     "library_observed":             ("Biblioteca registró observaciones", "chat-left-text", "amber"),
     "library_reenabled":            ("Biblioteca activó su trámite", "arrow-clockwise",     "neutral"),
+    # Observación con adeudo ya pagada en Caja (spec 2026-10-07 §2): «Activar»
+    # registra la entrega y libera con folio, sin repetir el evento de cobro.
+    "library_cleared_after_observation": ("Biblioteca registró la entrega y liberó la Constancia", "patch-check", "success"),
 }
 
 # Estado de `EmailOutbox.status` -> (etiqueta, tono) para la píldora de la

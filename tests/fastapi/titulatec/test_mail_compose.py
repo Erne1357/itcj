@@ -2600,6 +2600,24 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
     StudentMail.library_reenabled(db, p)
     _anota("Biblioteca activó el trámite", p)
 
+    # Observación CON ADEUDO (spec 2026-10-07 §2): la observación, el pago
+    # retenido y «Activar» hacia Caja.
+    con_adeudo = {"observation_kind": "with_debt", "debt_amount": Decimal("300.00"),
+                  "donation_amount": Decimal("800.00"), "total_amount": Decimal("1100.00")}
+    p = con_biblioteca(biblioteca="observed", observation_reason="Entregar libro",
+                       **con_adeudo)
+    StudentMail.library_observed(db, p, reason="Entregar libro", kind="with_debt")
+    _anota("observación con adeudo", p)
+
+    p = con_biblioteca(biblioteca="observed", observation_reason="Entregar libro",
+                       paid_at=db_now(), receipt_number=None, **con_adeudo)
+    StudentMail.library_payment_held(db, p, total=Decimal("1100.00"), receipt=None)
+    _anota("pago retenido por Biblioteca", p)
+
+    p = con_biblioteca(biblioteca="awaiting_payment")
+    StudentMail.library_reenabled(db, p, to_status="awaiting_payment")
+    _anota("Biblioteca activó: pasa a Caja", p)
+
     p = con_biblioteca(biblioteca="pending")
     _recordatorio(db, "survey_reminder", p)
     _anota("recordatorio de encuesta con candado de biblioteca", p)

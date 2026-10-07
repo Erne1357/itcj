@@ -673,6 +673,54 @@ def test_revertir_sin_cargo_y_deshacer_previa_encolan_library_reverted(db_sessio
         None, None)
 
 
+def _con_adeudo_observado(db_session, esc):
+    """Biblioteca observa CON ADEUDO (spec 2026-10-07 §2): $300 + la donación."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+    LibraryClearanceService.observe(db_session, esc.fila.id, reason="Entregar libro",
+                                    actor_id=esc.biblioteca.id, kind="with_debt",
+                                    debt_amount=Decimal("300.00"))
+
+
+def test_cobro_retenido_no_encola_liberado(db_session, biblio):
+    """Rama sin su correo del catálogo (`RAMAS_SIN_CORREO`): el cobro de una
+    observación con adeudo escribe `library_payment_registered` pero NO
+    libera; encola `library_payment_held`, nunca `library_cleared`."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    _con_adeudo_observado(db_session, esc)
+    LibraryClearanceService.register_payment(db_session, esc.fila.id, esc.caja.id,
+                                             receipt_number="R-1")
+
+    assert [k for k, *_ in _filas_biblioteca(db_session, esc.proc.id)] == [
+        "library_observed", "library_payment_held"]
+    assert _filas_biblioteca(db_session, esc.proc.id)[-1] == (
+        "library_payment_held", {"total": "1100.00", "receipt": "R-1"}, None, None)
+
+
+def test_revertir_pago_retenido_no_encola(db_session, biblio):
+    """Rama sin su correo del catálogo (`RAMAS_SIN_CORREO`): revertir un pago
+    RETENIDO no encola `library_reverted` (nunca se liberó: «se revirtió tu
+    Constancia» sería falso); queda solo el aviso in-app."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        LibraryClearanceService,
+    )
+
+    esc = biblio()
+    _con_adeudo_observado(db_session, esc)
+    LibraryClearanceService.register_payment(db_session, esc.fila.id, esc.caja.id)
+    antes = _filas_biblioteca(db_session, esc.proc.id)
+    LibraryClearanceService.revert_payment(db_session, esc.fila.id, esc.caja.id,
+                                           "Se cobró a otra persona")
+
+    assert _filas_biblioteca(db_session, esc.proc.id) == antes
+    assert len(_avisos(db_session, esc.proc.student_id, "LIBRARY_PAYMENT_REVERTED")) == 1
+
+
 def test_si_el_commit_del_cobro_falla_no_queda_correo(db_session, biblio, monkeypatch):
     """Review Focus 4 en Caja: el correo vive en la transacción del cobro. Si el
     COMMIT falla, se va con él (y el cobro también)."""
