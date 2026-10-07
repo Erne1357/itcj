@@ -11,6 +11,8 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 
+from tests.fastapi.titulatec.test_permissions_contract import requires_dml
+
 PERM = "titulatec.audit.page.list"
 ARCHIVO = "audit_2026_10/25_insert_audit_perm.sql"
 DML = Path(__file__).resolve().parents[3] / "database" / "DML" / "titulatec"
@@ -47,6 +49,7 @@ def test_el_comando_aborta_si_no_aterrizo():
     assert res.exit_code != 0
 
 
+@requires_dml
 def test_dry_run_no_ejecuta_nada():
     from itcj2.cli import titulatec as cli
 
@@ -57,6 +60,7 @@ def test_dry_run_no_ejecuta_nada():
     correr.assert_not_called()
 
 
+@requires_dml
 def test_el_sql_es_idempotente_y_no_concede_a_roles():
     sql = (DML / ARCHIVO).read_text(encoding="utf-8")
     assert PERM in sql
@@ -65,8 +69,24 @@ def test_el_sql_es_idempotente_y_no_concede_a_roles():
 
 
 def test_verify_lee_la_base(patched_session_local, make_role):
-    from itcj2.cli import titulatec as cli
+    """Con el permiso en un rol `admin` de prueba, nada que reportar; sin la
+    concesion o sin el permiso, lo dice."""
+    from itcj2.cli.titulatec import _verify_bitacora
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.role_permission import RolePermission
 
-    # Sin el permiso en la base de prueba (o sin admin con él) debe reportar.
-    problemas = cli._verify_bitacora()
-    assert isinstance(problemas, list)
+    make_role("admin", (PERM,))
+    assert _verify_bitacora() == []
+
+    db = patched_session_local
+    rol = db.query(Role).filter_by(name="admin").one()
+    perm = db.query(Permission).filter_by(code=PERM).one()
+    db.query(RolePermission).filter_by(role_id=rol.id, perm_id=perm.id).delete()
+    db.flush()
+    assert _verify_bitacora() == [f"el rol admin no tiene {PERM}"]
+
+    db.query(RolePermission).filter_by(perm_id=perm.id).delete()
+    db.query(Permission).filter_by(id=perm.id).delete()
+    db.flush()
+    assert _verify_bitacora() == [f"permiso ausente: {PERM}"]
