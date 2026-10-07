@@ -391,6 +391,37 @@ def test_las_acciones_del_expediente_no_le_responden(client_as, titulacion, db_s
             .filter_by(process_id=proc.id, phase_number=2).one().status) == "in_progress"
 
 
+@pytest.mark.parametrize("url,form", [
+    ("/titulatec/admin/appointments/{pid}/fase2/aprobar", {}),
+    ("/titulatec/admin/appointments/{pid}/fase2/rechazar", {"reason": "prueba"}),
+    ("/titulatec/admin/documents/{pid}/document/review",
+     {"type_code": "birth_certificate", "action": "approve"}),
+])
+def test_las_acciones_de_otras_bandejas_no_le_responden(client_as, titulacion, db_session,
+                                                        seed_phase_defs, seed_document_types,
+                                                        make_program, make_cohort,
+                                                        make_student, make_process,
+                                                        url, form):
+    """Mismo hueco que las acciones del expediente, en las bandejas de Citas y
+    Documentos: su guarda es solo el permiso de dictamen (`approve_phase`,
+    `reject_phase`, `document.api.*`), que Titulación conserva dormido (D1), y
+    responden pantallas con desglose. Sin vista completa: 403 sin escribir."""
+    from itcj2.apps.titulatec.models import ProcessPhase
+    seed_phase_defs()
+    seed_document_types()
+    alumno = make_student(control_number="99710030")
+    proc = make_process(alumno, cohort=make_cohort(),
+                        program=make_program("Ingenieria Titulacion Bandejas"),
+                        current_phase=2)
+
+    resp = client_as(titulacion()).post(url.format(pid=proc.id), data=form)
+
+    assert resp.status_code == 403, f"{url} -> {resp.status_code}"
+    db_session.expire_all()
+    assert (db_session.query(ProcessPhase)
+            .filter_by(process_id=proc.id, phase_number=2).one().status) == "in_progress"
+
+
 @pytest.mark.parametrize("url", [
     "/titulatec/admin/documents/{pid}/document/birth_certificate",
     "/titulatec/admin/appointments/{pid}/document/birth_certificate",

@@ -20,6 +20,19 @@ _VIEW_PERMS = ["titulatec.document.page.list", "titulatec.dashboard.school_servi
 _REVIEW_PERMS = ["titulatec.document.api.approve", "titulatec.document.api.reject"]
 
 
+def _exigir_bandeja(db, user_id: int) -> None:
+    """Las ACCIONES de esta bandeja exigen poder ABRIRLA (`_VIEW_PERMS`), no solo
+    el permiso de la acción: Titulación conserva el dictamen dormido (D1) pero no
+    ve esta bandeja ni el desglose (D7, spec 2026-10-07-titulatec-liberados-
+    biblioteca-helpdesk-design.md §7). 403 como el gate, ANTES de escribir. Va
+    después de `assert_process_in_scope` (`test_scope_guard.py` lo exige primero)."""
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.exceptions import PageForbidden
+
+    if not (cached_perms(db, user_id, "titulatec") & set(_VIEW_PERMS)):
+        raise PageForbidden(has_app_access=True)
+
+
 def _doc_rows(db, procs):
     """Filas COMPLETAS de la bandeja: las dos pasadas seguidas, en **4 consultas fijas**.
 
@@ -436,6 +449,7 @@ def _cuerpo_review(process_id, request, user, form):
         # El guard sustituye al `db.get` de mas abajo: dictaminar y, peor, auto-avanzar
         # la fase de un proceso de otra carrera pasaba sin que nada lo mirara.
         proc = assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_bandeja(db, int(user["sub"]))
         try:
             DocumentService.review(db, process_id, type_code, status=new_status, note=note,
                                    reviewer_id=int(user["sub"]))
