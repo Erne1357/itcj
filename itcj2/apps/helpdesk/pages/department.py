@@ -175,7 +175,7 @@ async def inventory(
 
 
 @router.get("/tickets/{ticket_id}", name="helpdesk.pages.department.ticket_detail")
-async def ticket_detail(
+def ticket_detail(
     request: Request,
     ticket_id: int,
     user: dict = Depends(require_page_app("helpdesk", perms=["helpdesk.tickets.page.my_tickets"])),

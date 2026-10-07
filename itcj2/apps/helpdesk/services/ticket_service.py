@@ -3,6 +3,7 @@ import os
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, or_
+from sqlalchemy import event as sa_event
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.orm.attributes import flag_modified
 from werkzeug.utils import secure_filename
@@ -21,6 +22,37 @@ from itcj2.core.models.department import Department
 from itcj2.models.base import paginate
 
 logger = logging.getLogger(__name__)
+
+
+# Perf 2026-10-07: la secretaría del Centro de Cómputo se pedía en CADA
+# `list_tickets`/`can_user_view_ticket`/`_summary_visible_departments`, y una
+# página hace varias en la misma sesión (asignar tickets: 3 listas; dashboard
+# del técnico: 4). Se recuerda en `db.info` hasta el siguiente commit o
+# rollback (también de savepoint), como la memoria de apps de core.
+_SECRETARY_CC_MEMO = "itcj2.helpdesk.secretary_cc_ids"
+
+
+@sa_event.listens_for(Session, "after_commit")
+@sa_event.listens_for(Session, "after_soft_rollback")
+def _forget_secretary_cc_memo(session, *_args) -> None:
+    session.info.pop(_SECRETARY_CC_MEMO, None)
+
+
+def _secretary_cc_ids(db: Session) -> set:
+    """Ids de usuarios con puesto `secretary_comp_center` activo.
+
+    Una sesión sin `info` real (un MagicMock en pruebas) no memoriza.
+    """
+    from itcj2.core.services.authz_service import _get_users_with_position
+
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return set(_get_users_with_position(db, ['secretary_comp_center']))
+    memo = info.get(_SECRETARY_CC_MEMO)
+    if memo is None:
+        memo = frozenset(_get_users_with_position(db, ['secretary_comp_center']))
+        info[_SECRETARY_CC_MEMO] = memo
+    return set(memo)
 
 
 # ==================== GUARDAR FOTO DEL TICKET ====================
@@ -481,11 +513,9 @@ def list_tickets(
     """
     Lista tickets según filtros y permisos del usuario.
     """
-    from itcj2.core.services.authz_service import _get_users_with_position
-
     query = db.query(Ticket)
 
-    secretary_comp_center = _get_users_with_position(db, ['secretary_comp_center'])
+    secretary_comp_center = _secretary_cc_ids(db)
 
     if 'admin' in user_roles or user_id in secretary_comp_center:
         pass
@@ -638,13 +668,13 @@ def _summary_visible_departments(db: Session, user_id: int, root_department_id: 
     centro de cómputo / técnicos; para el resto, el subárbol autorizado más el
     departamento raíz que ya gestiona (ese siempre lo ve, con permiso o sin él).
     """
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.core.services.scope_service import subtree_scope_for
 
     roles = set(user_roles_in_app(db, user_id, 'helpdesk'))
     if roles & {'admin', 'tech_desarrollo', 'tech_soporte'}:
         return None
-    if user_id in set(_get_users_with_position(db, ['secretary_comp_center'])):
+    if user_id in _secretary_cc_ids(db):
         return None
 
     return subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree") | {root_department_id}
@@ -993,10 +1023,10 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     """
     Verifica si un usuario puede ver un ticket específico.
     """
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_roles = user_roles_in_app(db, user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(db, ['secretary_comp_center'])
+    secretary_comp_center = _secretary_cc_ids(db)
 
     if 'admin' in user_roles or user_id in secretary_comp_center:
         return True
