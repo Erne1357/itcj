@@ -70,6 +70,20 @@ _APPROVE = ["titulatec.enrollment_request.api.approve"]
 _REJECT = ["titulatec.enrollment_request.api.reject"]
 _CANCEL = ["titulatec.process.api.cancel"]
 
+
+def _exigir_bandeja(db, user_id: int) -> None:
+    """«Revocar inscripción» exige poder ABRIR Solicitudes (`_LIST`), no solo
+    `process.api.cancel`: Titulación conserva ese permiso dormido (D8) con
+    alcance ALL por `read.all`, y la acción responde la bandeja entera (spec
+    2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md §7). Mismo
+    patrón que `appointments._exigir_bandeja`/`documents._exigir_bandeja`.
+    403 como el gate, ANTES de escribir."""
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.exceptions import PageForbidden
+
+    if not (cached_perms(db, user_id, "titulatec") & set(_LIST)):
+        raise PageForbidden(has_app_access=True)
+
 _MSG_ALTERNATE = "En este modo la revisión la hace Centro de Cómputo."
 _MSG_NOT_SII = "La consulta al SII solo existe en el modo sii."
 _MSG_SII_OFF = "El SII no está configurado."
@@ -1231,6 +1245,7 @@ def _cuerpo_revocar(req_id, request, user, form):
         req = _load_scoped_request(db, scope, req_id)
         if req is None:
             return Response(status_code=404)
+        _exigir_bandeja(db, uid)
         if req.status != "converted" or not req.converted_process_id:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_ENROLLED)})
         ok, msg = ProcessService.cancel(db, req.converted_process_id, reason=reason,

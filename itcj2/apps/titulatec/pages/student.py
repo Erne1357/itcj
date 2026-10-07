@@ -331,7 +331,9 @@ _EVENT_LABELS = {
     "library_prior_undone":        "Se deshizo tu constancia previa de biblioteca",
     # «Con observaciones» (spec 2026-10-05 §3.4).
     "library_observed":            "Biblioteca registró observaciones en tu Constancia de no adeudo",
-    "library_reenabled":           "Biblioteca activó tu trámite; volverá a revisar tu Constancia de no adeudo",
+    # Neutro a propósito: según la observación vuelve a revisión o pasa a Caja
+    # (spec 2026-10-07 §2); el aviso y el correo dicen cuál.
+    "library_reenabled":           "Biblioteca activó tu trámite de Constancia de no adeudo",
     # Observación con adeudo ya pagada (spec 2026-10-07 §2): «Activar» la libera.
     "library_cleared_after_observation": "Biblioteca registró tu entrega y liberó tu Constancia de no adeudo",
 }

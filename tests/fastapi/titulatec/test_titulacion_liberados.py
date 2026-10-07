@@ -452,3 +452,48 @@ def test_la_constancia_previa_habla_de_la_constancia_de_no_adeudo():
            / "partials" / "processes" / "_exp_phase.html").read_text(encoding="utf-8")
     assert "trae su Constancia de no adeudo? Queda liberada sin pasar por Caja." in src
     assert "su constancia de no adeudo?" not in src
+
+
+# ===========================================================================
+# 4. Revisión final: el gemelo que faltaba (Solicitudes → «Revocar inscripción»)
+# ===========================================================================
+def test_titulacion_no_revoca_desde_solicitudes(client_as, titulacion, db_session,
+                                                seed_phase_defs, make_program,
+                                                make_cohort, make_student, make_process):
+    """`revocar` se guardaba solo con `process.api.cancel`, que Titulación
+    conserva dormido (D8), y su alcance es ALL por `read.all`: cancelaba el
+    proceso y respondía la bandeja de Solicitudes entera, que ya no puede abrir.
+    Ahora exige poder abrir la bandeja: 403 y el proceso sigue vivo."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+    seed_phase_defs()
+    prog = make_program("Ingenieria Titulacion Solicitudes")
+    cohort = make_cohort(status="open")
+    proc = make_process(make_student(control_number="99710040"), cohort=cohort,
+                        program=prog, current_phase=1)
+    req = EnrollmentRequest(
+        cohort_id=cohort.id, control_number="99710040", first_name="EGRESADA",
+        last_name="INSCRITA", middle_name=None, program_id=prog.id,
+        program_text="Ingenieria", phone="6561234567",
+        contact_email="inscrita@example.invalid", has_efirma=False, kind="unknown",
+        status="converted", verify_send_count=0, converted_process_id=proc.id)
+    db_session.add(req)
+    db_session.flush()
+
+    resp = client_as(titulacion()).post(
+        f"/titulatec/admin/solicitudes/{req.id}/revocar",
+        data={"reason": "prueba", "status": "converted", "cohort_id": ""},
+        follow_redirects=False)
+
+    assert resp.status_code == 403, resp.status_code
+    db_session.expire_all()
+    assert db_session.get(TitulationProcess, proc.id).status == "active"
+
+
+def test_la_bitacora_del_egresado_no_promete_revision_al_activar():
+    """«Activar» con adeudo sin pagar lo manda a Caja, no a revisión: el
+    historial del egresado no debe decirle que espere a que Biblioteca revise."""
+    from itcj2.apps.titulatec.pages.student import _EVENT_LABELS
+
+    texto = _EVENT_LABELS["library_reenabled"]
+    assert "Biblioteca activó tu trámite" in texto
+    assert "revisar" not in texto
