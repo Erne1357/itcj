@@ -461,7 +461,11 @@ services:
     environment:
       TZ: America/Ciudad_Juarez
     volumes:
-      - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # La config real se monta como DIRECTORIO: un bind mount de archivo queda atado al
+      # inodo y `git reset --hard` (deploy.sh) lo reemplaza por uno nuevo, asi que `reload`
+      # recargaria la config vieja. nginx.main.conf es estable y solo hace include.
+      - ../../docker/nginx/nginx.main.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx:/etc/nginx/itcj:ro
       # upstream.conf generado por deploy.sh en el host
       - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj2/core/static:/www/static/core:ro
