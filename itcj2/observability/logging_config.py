@@ -77,6 +77,12 @@ _QUIET_LOGGERS = {
     "msal": logging.WARNING,
     "socketio.server": logging.ERROR,
     "engineio.server": logging.ERROR,
+    # Con tracing encendido y Alloy inalcanzable, el exportador OTLP loguea un
+    # WARNING "Transient error" y un ERROR "Failed to export" por intento y por
+    # proceso. Los WARNING son ruido de reintento (el batch acotado ya
+    # descarta); en ERROR siguen saliendo los fallos reales de exportación sin
+    # disparar la alerta de ráfaga de errores de la plataforma por un transitorio.
+    "opentelemetry.exporter.otlp.proto.grpc.exporter": logging.ERROR,
 }
 
 _FORMATS = ("json", "text")

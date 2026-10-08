@@ -7,7 +7,10 @@ psycopg2-binary>=2.9.0
 # Piso 0.142.2: `create_app()` pasa `FastAPI(telemetry=...)` para apagar la
 # telemetría OTel propia de FastAPI (Fase 7); una versión sin ese parámetro
 # no arranca.
-fastapi>=0.142.2
+# Techo <0.143: FastAPI >=0.142 trae su propia telemetría OTel (la que
+# `create_app` apaga); un minor nuevo podría cambiar esa API o exigir un
+# opentelemetry-api más nuevo que el fijado abajo.
+fastapi>=0.142.2,<0.143
 uvicorn[standard]>=0.34.0
 python-multipart>=0.0.12
 pydantic-settings>=2.0.0

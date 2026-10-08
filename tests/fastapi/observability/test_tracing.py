@@ -559,7 +559,7 @@ def test_el_provider_de_produccion_lleva_el_recurso_y_el_endpoint(monkeypatch):
         attrs = provider.resource.attributes
         assert attrs["service.name"] == "itcj"
         assert attrs["service.namespace"] == "green"
-        assert attrs["deployment.environment"] == "prod"
+        assert attrs["deployment.environment.name"] == "prod"
         assert attrs["itcj.app_role"] == "http"
         assert provider.sampler.get_description() == "AlwaysOnSampler"
         assert tracing.otlp_endpoint() == "http://alloy:4317"
@@ -570,3 +570,94 @@ def test_el_provider_de_produccion_lleva_el_recurso_y_el_endpoint(monkeypatch):
 def test_el_endpoint_sale_del_entorno(monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otro:4317")
     assert tracing.otlp_endpoint() == "http://otro:4317"
+
+
+# ---------------------------------------------------------------------------
+# Fail-safe: el tracing roto nunca rompe una petición, un evento ni un render
+# ---------------------------------------------------------------------------
+
+class _BrokenSpan:
+    """Proxy de un span real: `end`/`set_status` lanzan, el resto delega."""
+
+    def __init__(self, span):
+        self._span = span
+
+    def __getattr__(self, name):
+        return getattr(self._span, name)
+
+    def end(self, *args, **kwargs):
+        raise RuntimeError("span.end roto")
+
+    def set_status(self, *args, **kwargs):
+        raise RuntimeError("span.set_status roto")
+
+
+class _BrokenTracer:
+    def __init__(self, real, mode):
+        self._real, self._mode = real, mode
+
+    def start_span(self, *args, **kwargs):
+        if self._mode == "start_span":
+            raise RuntimeError("start_span roto")
+        return _BrokenSpan(self._real.start_span(*args, **kwargs))
+
+
+@pytest.fixture(params=["start_span", "end_y_set_status"])
+def tracer_roto(request, spans, monkeypatch):
+    monkeypatch.setattr(tracing, "_tracer", _BrokenTracer(tracing._tracer, request.param))
+    return request.param
+
+
+def test_failsafe_la_peticion_responde_normal_con_trace_id(tracer_roto, client):
+    response = client.get(f"{PREFIX}/items/9")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["trace_id"]) == 32
+    assert len(body["span_id"]) == 16
+
+
+def test_failsafe_la_peticion_con_error_sigue_dando_su_5xx(tracer_roto, client):
+    assert client.get(f"{PREFIX}/items/9/unavailable").status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_failsafe_el_handler_de_socket_corre(tracer_roto):
+    sio = InstrumentedAsyncServer(async_mode="asgi")
+    seen = {}
+
+    @sio.on("ping", namespace="/slots")
+    async def ping(sid):
+        seen["trace_id"] = context.current_trace_id()
+        return "ok"
+
+    assert await sio._trigger_event("ping", "/slots", "s1") == "ok"
+    assert seen["trace_id"]
+
+
+def test_failsafe_measured_devuelve_su_resultado(tracer_roto):
+    from itcj2.observability.work import measured
+
+    with measured("solicitud", "libreoffice"):
+        result = 21 * 2
+    assert result == 42
+
+
+def test_failsafe_measured_deja_pasar_la_excepcion_del_negocio(tracer_roto):
+    from itcj2.observability.work import measured
+
+    with pytest.raises(ProbeBoomError):
+        with measured("solicitud", "libreoffice"):
+            raise ProbeBoomError("del negocio")
+
+
+def test_celery_conecta_setup_tracing_a_worker_process_init():
+    from celery.signals import worker_process_init, worker_process_shutdown
+
+    import itcj2.celery_app as celery_app
+
+    def receivers(signal):
+        return [r() if callable(r) and not hasattr(r, "__name__") else r
+                for _, r in signal.receivers]
+
+    assert celery_app._setup_tracing in receivers(worker_process_init)
+    assert celery_app._shutdown_tracing in receivers(worker_process_shutdown)

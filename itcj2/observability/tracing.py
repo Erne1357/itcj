@@ -123,7 +123,7 @@ def build_provider(role: str | None = None):
     resource = Resource.create({
         "service.name": SERVICE_NAME,
         "service.namespace": namespace,
-        "deployment.environment": DEPLOYMENT_ENVIRONMENT,
+        "deployment.environment.name": DEPLOYMENT_ENVIRONMENT,
         "itcj.app_role": role,
     })
     provider = TracerProvider(resource=resource, sampler=ALWAYS_ON)
