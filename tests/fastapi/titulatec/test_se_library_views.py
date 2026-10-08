@@ -35,7 +35,7 @@ R14 y R17, sección 9).
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 from urllib.parse import unquote
@@ -43,10 +43,16 @@ from urllib.parse import unquote
 import pytest
 
 import itcj2.models  # noqa: F401
+from itcj2.core.utils.timezone import db_now
 
 from tests.fastapi.titulatec.conftest import HEAD_PERMS, OFFICER_PERMS
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
+
+
+def _hoy():
+    """«Hoy» de la app (Juárez), no el del runner (UTC): entre 18:00 y 24:00 Juárez ya es mañana en UTC."""
+    return db_now().date()
 
 # Servicios Escolares: alta/edición de convocatoria + respaldo de constancia
 # previa. Los tres códigos nuevos (`cohort.api.create/update` ya existían;
@@ -312,7 +318,7 @@ def caso(db_session, seed_phase_defs, seed_document_types, make_program, make_co
     cohort = make_cohort(book_donation_amount=Decimal("800.00"))
     CotejoRequirementService.seed_defaults(db_session, cohort.id, commit=False)
     db_session.flush()
-    dia = make_review_day(cohort, day=date.today() + timedelta(days=7))
+    dia = make_review_day(cohort, day=_hoy() + timedelta(days=7))
     officer, pos = make_officer([prog])
     window = make_review_window(dia, officer, start="09:00", end="11:00",
                                 slot=30, cap=1, position=pos)
@@ -382,7 +388,7 @@ class TestRespaldoConstanciaPrevia:
 
         resp = client_as(se).post(
             f"/titulatec/admin/processes/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat(), "note": "Trae su recibo"})
+            data={"issued_on": _hoy().isoformat(), "note": "Trae su recibo"})
 
         assert resp.status_code == 200, resp.text[:300]
         clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
@@ -396,7 +402,7 @@ class TestRespaldoConstanciaPrevia:
 
         resp = client_as(se).post(
             f"/titulatec/admin/appointments/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat()})
+            data={"issued_on": _hoy().isoformat()})
 
         assert resp.status_code == 200, resp.text[:300]
         clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
@@ -409,7 +415,7 @@ class TestRespaldoConstanciaPrevia:
 
         clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
         LibraryClearanceService.register_prior(db_session, clearance.id, se.id,
-                                               issued_on=date.today(), by="school_services")
+                                               issued_on=_hoy(), by="school_services")
 
         resp = client_as(se).post(
             f"/titulatec/admin/processes/{caso['proc'].id}/no-adeudo-previo/deshacer",
@@ -426,7 +432,7 @@ class TestRespaldoConstanciaPrevia:
 
         clearance = LibraryClearanceService.get_for_process(db_session, caso["proc"].id)
         LibraryClearanceService.register_prior(db_session, clearance.id, se.id,
-                                               issued_on=date.today(), by="school_services")
+                                               issued_on=_hoy(), by="school_services")
 
         resp = client_as(se).post(
             f"/titulatec/admin/appointments/{caso['proc'].id}/no-adeudo-previo/deshacer",
@@ -441,7 +447,7 @@ class TestRespaldoConstanciaPrevia:
 
         resp = client_as(otro).post(
             f"/titulatec/admin/processes/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat()})
+            data={"issued_on": _hoy().isoformat()})
 
         assert resp.status_code == 403
 
@@ -450,7 +456,7 @@ class TestRespaldoConstanciaPrevia:
 
         resp = client_as(otro).post(
             f"/titulatec/admin/appointments/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat()})
+            data={"issued_on": _hoy().isoformat()})
 
         assert resp.status_code == 403
 
@@ -463,14 +469,14 @@ class TestRespaldoConstanciaPrevia:
 
         resp = client_as(otro).post(
             f"/titulatec/admin/processes/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat()})
+            data={"issued_on": _hoy().isoformat()})
 
         assert resp.status_code == 404
 
     def test_fecha_futura_400(self, client_as, caso, se):
         resp = client_as(se).post(
             f"/titulatec/admin/processes/{caso['proc'].id}/no-adeudo-previo",
-            data={"issued_on": (date.today() + timedelta(days=1)).isoformat()})
+            data={"issued_on": (_hoy() + timedelta(days=1)).isoformat()})
 
         assert resp.status_code == 400, resp.text[:300]
         assert "futura" in _msg(resp)
@@ -534,7 +540,7 @@ class TestYaPasoSuCotejo:
 
         resp = client_as(se).post(
             f"/titulatec/admin/processes/{cotejado['proc'].id}/no-adeudo-previo",
-            data={"issued_on": date.today().isoformat()})
+            data={"issued_on": _hoy().isoformat()})
 
         assert resp.status_code == 400, resp.text[:300]
         assert _msg(resp) == ("Este egresado ya pasó su cotejo; no necesita tramitar su "
@@ -634,7 +640,7 @@ class TestCeldaDeConstanciaBiblioteca:
         with patch(NOTIFY):
             LibraryClearanceService.register_prior(
                 db_session, clearance.id, caso["officer"].id,
-                issued_on=date.today() - timedelta(days=10), note="Papel de antes",
+                issued_on=_hoy() - timedelta(days=10), note="Papel de antes",
                 by="library")
         cert = (db_session.query(Certificate)
                 .filter_by(source_ref=f"library_clearance:{clearance.id}",
@@ -719,7 +725,7 @@ class TestCeldaDeConstanciaEncuesta:
 
         with patch(NOTIFY):
             review = SurveyReviewService.register_prior(
-                db_session, caso["proc"], issued_on=date.today() - timedelta(days=10),
+                db_session, caso["proc"], issued_on=_hoy() - timedelta(days=10),
                 actor_id=caso["officer"].id)
         cert = (db_session.query(Certificate)
                 .filter_by(source_ref=f"survey_review:{review.id}", voided_at=None).one())
@@ -787,7 +793,7 @@ class TestFolioSinImpresion:
         with patch(NOTIFY):
             LibraryClearanceService.register_prior(
                 db_session, clearance.id, caso["officer"].id,
-                issued_on=date.today() - timedelta(days=10), note="Papel de antes",
+                issued_on=_hoy() - timedelta(days=10), note="Papel de antes",
                 by="library")
         cert = _cert_vigente(db_session, f"library_clearance:{clearance.id}")
 
@@ -801,7 +807,7 @@ class TestFolioSinImpresion:
 
         with patch(NOTIFY):
             review = SurveyReviewService.register_prior(
-                db_session, caso["proc"], issued_on=date.today() - timedelta(days=10),
+                db_session, caso["proc"], issued_on=_hoy() - timedelta(days=10),
                 actor_id=caso["officer"].id)
         cert = _cert_vigente(db_session, f"survey_review:{review.id}")
 

@@ -26,13 +26,20 @@ para la prueba de ese caso, mortal por accidente en cualquier otra.
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from urllib.parse import unquote
 
 import pytest
 
+from itcj2.core.utils.timezone import db_now
+
 URL = "/titulatec/admin/biblioteca"
+
+
+def _hoy():
+    """«Hoy» de la app (Juárez), no el del runner (UTC): entre 18:00 y 24:00 Juárez ya es mañana en UTC."""
+    return db_now().date()
 
 LIBRARY_PERMS = (
     "titulatec.library_clearance.page.list",
@@ -752,7 +759,7 @@ def test_constancia_previa_libera_sin_pasar_por_caja(
     proc = make_process(make_student(control_number="99600071"), cohort=cohort, current_phase=1,
                         library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (date.today() - timedelta(days=30)).isoformat()
+    fecha = (_hoy() - timedelta(days=30)).isoformat()
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/previa",
@@ -775,7 +782,7 @@ def test_constancia_previa_vencida_responde_400(
     proc = make_process(make_student(control_number="99600072"), cohort=cohort, current_phase=1,
                         library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (date.today() - timedelta(days=366)).isoformat()
+    fecha = (_hoy() - timedelta(days=366)).isoformat()
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/previa",
@@ -833,7 +840,7 @@ def test_deshacer_constancia_previa_regresa_a_pendiente(
     clearance = _clearance(db_session, proc)
     LibraryClearanceService.register_prior(
         db_session, clearance.id, staff.id,
-        issued_on=date.today() - timedelta(days=10), by="library")
+        issued_on=_hoy() - timedelta(days=10), by="library")
     db_session.refresh(clearance)
     assert clearance.status == "cleared" and clearance.cleared_via == "prior"
 
@@ -1023,7 +1030,7 @@ def test_columna_constancia_en_constancia_previa_muestra_su_folio(
     proc = make_process(make_student(control_number="99600213"), cohort=cohort,
                         current_phase=1, library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (date.today() - timedelta(days=30)).isoformat()
+    fecha = (_hoy() - timedelta(days=30)).isoformat()
 
     resp_post = client_as(staff).post(
         f"{URL}/{clearance.id}/previa",
@@ -1236,7 +1243,7 @@ def test_apagado_una_previa_con_folio_lleva_la_nota_previa(
     proc = make_process(make_student(control_number="99600232"), cohort=cohort,
                         current_phase=1, library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (date.today() - timedelta(days=30)).isoformat()
+    fecha = (_hoy() - timedelta(days=30)).isoformat()
     resp_post = client_as(staff).post(
         f"{URL}/{clearance.id}/previa",
         data={"status": "pending", "q": "", "page": "1", "issued_on": fecha})
@@ -1365,7 +1372,7 @@ def test_una_inscripcion_revocada_no_ofrece_acciones_y_se_etiqueta(
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("sufijo,form", [
     ("registrar", {"debt_amount": "0", "expected_status": "pending"}),
-    ("previa", {"issued_on": (date.today() - timedelta(days=1)).isoformat()}),
+    ("previa", {"issued_on": (_hoy() - timedelta(days=1)).isoformat()}),
     ("deshacer-previa", {"reason": "x"}),
     ("revertir", {"reason": "x"}),
 ])
@@ -1448,7 +1455,7 @@ def test_permiso_exacto_de_prior_basta_para_constancia_previa(
     proc = make_process(make_student(control_number="99600304"), cohort=cohort,
                         current_phase=1, library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (date.today() - timedelta(days=30)).isoformat()
+    fecha = (_hoy() - timedelta(days=30)).isoformat()
 
     resp = client_as(user).post(
         f"{URL}/{clearance.id}/previa",
@@ -1481,7 +1488,7 @@ def test_permiso_exacto_de_prior_basta_para_deshacer_previa(
     clearance = _clearance(db_session, proc)
     LibraryClearanceService.register_prior(
         db_session, clearance.id, user.id,
-        issued_on=date.today() - timedelta(days=10), by="library")
+        issued_on=_hoy() - timedelta(days=10), by="library")
     db_session.refresh(clearance)
     assert clearance.status == "cleared" and clearance.cleared_via == "prior"
 
