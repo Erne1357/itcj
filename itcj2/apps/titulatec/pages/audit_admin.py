@@ -151,9 +151,71 @@ def _process_control(db, process_id: int | None) -> str | None:
     return control or None
 
 
-def _predicates(f: dict, *, process_control: str | None = None) -> list:
+# Tope de alumnos que resuelve el filtro «Alumno» (una búsqueda de 1 letra no
+# debe armar un `OR` de miles de prefijos). Se recorta en silencio: quien
+# busca algo tan corto ve los más recientes que casan y afina el texto.
+_STUDENT_CAP = 200
+
+
+def _prefix_pattern(control: str) -> str:
+    r"""`control%` con `\`, `%` y `_` escapados: ANCLADO al inicio (sin `%`
+    delante), para que el btree `text_pattern_ops` de `subject_label` lo sirva."""
+    esc = control.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"{esc}%"
+
+
+def _resolve_student(db, text: str) -> dict:
+    """Resuelve el filtro «Alumno» en SU PROPIA consulta chica (revisión de
+    rendimiento 2026-10-07): ids de proceso y nºs de control como LISTAS
+    literales. Con una subconsulta dentro del `OR`, PostgreSQL no podía usar
+    ningún índice de la bitácora y leía ~450 mil filas por página.
+
+    Casan: nº de control o nombre (en cualquier orden) de `core_users`, y el
+    folio del proceso. Un texto con la forma de un nº de control
+    (`CONTROL_NUMBER_RE`) entra además como prefijo aunque no exista cuenta
+    (filas de una solicitud de inscripción previa a la cuenta).
+    """
+    from sqlalchemy import func, or_, select
+
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
+
+    def _like(col, t):
+        return col.ilike(like_pattern(t), escape="\\")
+
+    nombre = or_(
+        _like(func.concat_ws(" ", User.first_name, User.last_name, User.middle_name), text),
+        _like(func.concat_ws(" ", User.last_name, User.middle_name, User.first_name), text))
+    typed = text.strip().upper()
+    es_control = CONTROL_NUMBER_RE.fullmatch(typed) is not None
+    # Un nº de control completo no es un nombre: igualdad (índice único), no
+    # un `ILIKE` con `concat_ws` sobre toda `core_users`.
+    cond = User.control_number == typed if es_control else or_(
+        _like(User.control_number, text), nombre)
+    users = db.execute(select(User.id, User.control_number).where(cond)
+                       .order_by(User.id.desc()).limit(_STUDENT_CAP)).all()
+    uids = [u.id for u in users]
+    controls = {(u.control_number or "").strip() for u in users} - {""}
+
+    procs = db.execute(select(TitulationProcess.id, User.control_number)
+                       .join(User, User.id == TitulationProcess.student_id)
+                       .where(or_(TitulationProcess.student_id.in_(uids) if uids else False,
+                                  _like(TitulationProcess.folio, text)))
+                       .order_by(TitulationProcess.id.desc()).limit(_STUDENT_CAP)).all()
+    pids = [r.id for r in procs]
+    controls |= {(r.control_number or "").strip() for r in procs} - {""}
+
+    if es_control:
+        controls.add(typed)
+    return {"process_ids": pids, "controls": sorted(controls)}
+
+
+def _predicates(f: dict, *, process_control: str | None = None,
+                student: dict | None = None) -> list:
     """Predicados SQL de los filtros. `process_control` es el nº de control del
-    alumno de `f["process_id"]` (lo resuelve `_body_ctx`)."""
+    alumno de `f["process_id"]` y `student` el resultado de `_resolve_student`
+    (los dos los resuelve `_body_ctx`)."""
     from sqlalchemy import and_, func, or_, select
 
     from itcj2.core.models.user import User
@@ -202,12 +264,27 @@ def _predicates(f: dict, *, process_control: str | None = None) -> list:
         out.append(or_(A.actor_id.in_(quien), _like(A.actor_label, f["who"])))
     if f["student"]:
         # Nº de control, nombre o FOLIO del proceso: «Sobre qué» muestra el
-        # folio primero, así que también se busca por él.
-        alumnos = (select(TitulationProcess.id)
-                   .join(User, User.id == TitulationProcess.student_id)
-                   .where(or_(_like(User.control_number, f["student"]), _nombre(f["student"]),
-                              _like(TitulationProcess.folio, f["student"]))))
-        out.append(or_(A.process_id.in_(alumnos), _like(A.subject_label, f["student"])))
+        # folio primero, así que también se busca por él. Ids y controles ya
+        # vienen resueltos (`_resolve_student`): `process_id IN (literales)` o,
+        # en filas sin proceso, `subject_label` que EMPIEZA con el control: los
+        # dos índices (process_id+fecha y el parcial de `subject_label`) sirven
+        # por `BitmapOr`.
+        st = student or {"process_ids": [], "controls": []}
+        ramas = []
+        if st["process_ids"]:
+            ramas.append(A.process_id.in_(st["process_ids"]))
+        if st["controls"]:
+            ramas.append(and_(A.process_id.is_(None), or_(*[
+                A.subject_label.like(_prefix_pattern(c), escape="\\")
+                for c in st["controls"]])))
+        if not ramas:
+            # Nadie casó (ni cuenta, ni proceso, ni forma de nº de control): el
+            # texto puede ser el nombre de alguien SIN cuenta («2099… · Persona
+            # Ajena», solo en `subject_label`). Es la única rama sin índice y
+            # solo corre cuando el resto no encontró nada; si algo casó, las
+            # filas de ese alumno ya entran por proceso o por prefijo de control.
+            ramas.append(and_(A.process_id.is_(None), _like(A.subject_label, f["student"])))
+        out.append(or_(*ramas))
     if f["q"]:
         out.append(_like(A.reason, f["q"]))
     return out
@@ -245,7 +322,8 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
     from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES, entity_label
     from urllib.parse import quote
 
-    preds = _predicates(f, process_control=_process_control(db, f["process_id"]))
+    preds = _predicates(f, process_control=_process_control(db, f["process_id"]),
+                        student=_resolve_student(db, f["student"]) if f["student"] else None)
     query = (db.query(A).filter(*preds)
              .order_by(A.occurred_at.desc(), A.id.desc()))
     pagina = paginate_query(query, parse_page(page), per_page)

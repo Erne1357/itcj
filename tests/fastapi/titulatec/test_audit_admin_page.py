@@ -480,3 +480,65 @@ def test_el_detalle_abierto_no_aprieta_las_columnas(client_as, db_session, admin
                      css), css
     assert re.search(r"#tt-audit-table td\.tt-audit-nowrap\s*\{[^}]*white-space:\s*nowrap",
                      css), css
+
+
+# ---------------------------------------------------------------------------
+# Filtro «Alumno» resuelto en su propia consulta (rendimiento, 2026-10-07)
+# ---------------------------------------------------------------------------
+def test_alumno_por_nombre_encuentra_las_filas_de_sus_procesos(
+        client_as, db_session, admin, make_user, make_process):
+    t = _token()
+    ape = "NOMBRADA" + t[3:7].upper()
+    alumno = make_user(first_name="ELENA", last_name=ape,
+                       control_number="98" + str(uuid.uuid4().int)[:6])
+    proc = make_process(alumno)
+    otro = make_process(make_user(first_name="AJENO", last_name="SUJETO"))
+    suya = _fila(db_session, token=t, process_id=proc.id)
+    _fila(db_session, token=t, process_id=otro.id)
+    c = client_as(admin)
+    assert _ids(_body(c, q=t, student=ape)) == {suya.id}
+    assert _ids(_body(c, q=t, student=f"ELENA {ape}")) == {suya.id}
+    assert _ids(_body(c, q=t, student=f"{ape} ELENA")) == {suya.id}   # apellido nombre
+
+
+def test_alumno_por_control_sin_cuenta_encuentra_la_solicitud_previa(
+        client_as, db_session, admin):
+    """Una fila de inscripción previa a la cuenta solo tiene `subject_label`
+    («control · nombre»): el nº de control tecleado entra como prefijo aunque no
+    exista usuario. Un control más largo con otro dígito final NO casa con uno
+    distinto."""
+    t = _token()
+    control = "97" + str(uuid.uuid4().int)[:6]
+    sol = _fila(db_session, token=t, action="enrollment.approved", module="enrollment",
+                subject_label=f"{control} · SIN CUENTA")
+    solo = _fila(db_session, token=t, subject_label=control)
+    _fila(db_session, token=t, subject_label=f"{control[:-1]}0 · OTRO")
+    c = client_as(admin)
+    assert _ids(_body(c, q=t, student=control)) == {sol.id, solo.id}
+    assert _ids(_body(c, q=t, student=control.lower())) == {sol.id, solo.id}
+
+
+def test_alumno_por_folio_encuentra_filas_con_y_sin_proceso(
+        client_as, db_session, admin, make_user, make_process):
+    t = _token()
+    control = "96" + str(uuid.uuid4().int)[:6]
+    proc = make_process(make_user(first_name="FOLIO", last_name="DOS", control_number=control))
+    con_proc = _fila(db_session, token=t, process_id=proc.id)
+    previa = _fila(db_session, token=t, subject_label=f"{control} · FOLIO DOS")
+    c = client_as(admin)
+    assert _ids(_body(c, q=t, student=proc.folio)) == {con_proc.id, previa.id}
+
+
+def test_alumno_con_busqueda_corta_se_recorta_sin_error(
+        client_as, db_session, admin, make_user, monkeypatch):
+    from itcj2.apps.titulatec.pages import audit_admin
+
+    monkeypatch.setattr(audit_admin, "_STUDENT_CAP", 3)
+    t = _token()
+    for i in range(6):
+        make_user(first_name="CORTA", last_name=f"BUSQUEDA{i}")
+    _fila(db_session, token=t, subject_label="Persona CORTA")
+    c = client_as(admin)
+    r = c.get(f"{URL}/body", params={"q": t, "student": "c", "desde": ""})
+    assert r.status_code == 200
+    assert len(audit_admin._resolve_student(db_session, "CORTA")["controls"]) <= 3

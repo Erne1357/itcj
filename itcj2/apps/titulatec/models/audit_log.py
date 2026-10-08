@@ -110,6 +110,12 @@ class TitulatecAuditLog(Base):
         Index("ix_titulatec_audit_log_entity_type_entity_id", "entity_type", "entity_id"),
         Index("ix_titulatec_audit_log_request_id", "request_id"),
         Index("ix_titulatec_audit_log_action", "action"),
+        # Filas SIN proceso (solicitud de inscripción previa a la cuenta): el filtro
+        # «Alumno» y el expediente las buscan por prefijo del nº de control en
+        # `subject_label`. Migración `tt20261007c`.
+        Index("ix_titulatec_audit_log_subject_label_prefix", "subject_label",
+              postgresql_ops={"subject_label": "text_pattern_ops"},
+              postgresql_where=text("process_id IS NULL")),
     )
 
     def __repr__(self) -> str:
