@@ -165,6 +165,59 @@ def _option_values(config: dict) -> list[str]:
             if isinstance(opt, dict) and opt.get("value") is not None]
 
 
+def option_group_names(option) -> list[str]:
+    """Grupos de una opcion. `group` es un texto o una LISTA de textos: la misma
+    opcion (un solo `value`) puede listarse bajo varias carreras, como
+    «Tecnologia de montaje superficial». Sin `group` (o con basura), `[]`."""
+    raw = option.get("group") if isinstance(option, dict) else None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    return [g.strip() for g in raw if isinstance(g, str) and g.strip()]
+
+
+def _orden_es(texto) -> str:
+    """Llave de orden alfabetico en espanol sin depender del locale del
+    contenedor: sin acentos y en minusculas («Ing. Electrica» antes de
+    «Ing. Electromecanica», que un `sort` de Jinja invierte por el acento)."""
+    plano = unicodedata.normalize("NFKD", str(texto))
+    return "".join(c for c in plano if not unicodedata.combining(c)).casefold()
+
+
+def option_groups(options) -> list[tuple[str | None, list[dict]]] | None:
+    """Opciones agrupadas para pintar `<optgroup>`; `None` si ninguna trae `group`.
+
+    Devuelve `[(grupo, [opciones])]` con los grupos y, dentro de cada uno, las
+    opciones en orden alfabetico (`_orden_es`, por `label`): el orden del JSON
+    deja de importar. Una opcion con varios grupos sale en cada uno, con el
+    MISMO `value`. Las opciones sin grupo (p. ej. «No tiene») van al final como
+    `(None, [...])`, en su orden del JSON.
+
+    Solo cambia como se PINTA la lista: el valor que viaja, se valida y se
+    guarda es el mismo de siempre.
+    """
+    opciones = [o for o in (options or []) if isinstance(o, dict)]
+    if not any(option_group_names(o) for o in opciones):
+        return None
+    grupos: dict[str, list[dict]] = {}
+    sueltas: list[dict] = []
+    for opcion in opciones:
+        nombres = option_group_names(opcion)
+        if not nombres:
+            sueltas.append(opcion)
+        for nombre in nombres:
+            grupos.setdefault(nombre, []).append(opcion)
+    salida: list[tuple[str | None, list[dict]]] = [
+        (nombre, sorted(grupos[nombre],
+                        key=lambda o: _orden_es(o.get("label") or o.get("value"))))
+        for nombre in sorted(grupos, key=_orden_es)
+    ]
+    if sueltas:
+        salida.append((None, sueltas))
+    return salida
+
+
 def _as_bool(value):
     """Booleano de un valor de formulario. `None` si no se puede decidir."""
     if isinstance(value, bool):
@@ -785,6 +838,15 @@ def validate_schema(schema: dict) -> tuple[bool, list[str]]:
                 errors.append(f"'{key}': un campo {field_type} necesita `options`.")
             elif len(set(values)) != len(values):
                 errors.append(f"'{key}': hay valores repetidos en `options`.")
+            for opt in field.get("options") or []:
+                if not isinstance(opt, dict) or "group" not in opt:
+                    continue
+                raw = opt["group"]
+                grupos = raw if isinstance(raw, list) else [raw]
+                if not grupos or not all(isinstance(g, str) and g.strip() for g in grupos):
+                    errors.append(
+                        f"'{key}': el `group` de la opcion '{opt.get('value')}' debe ser un "
+                        f"texto o una lista de textos no vacios.")
         elif field.get("options"):
             errors.append(f"'{key}': un campo {field_type} no lleva `options`.")
 
