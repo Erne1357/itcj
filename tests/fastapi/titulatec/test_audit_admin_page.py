@@ -542,3 +542,121 @@ def test_alumno_con_busqueda_corta_se_recorta_sin_error(
     r = c.get(f"{URL}/body", params={"q": t, "student": "c", "desde": ""})
     assert r.status_code == 200
     assert len(audit_admin._resolve_student(db_session, "CORTA")["controls"]) <= 3
+
+
+# ---------------------------------------------------------------------------
+# 9. Etiquetas del alta, insignia «Recuperado» y «Aprobó la solicitud»
+#    (2026-10-08). Las llaves del payload son las REALES de
+#    `enrollment_request_service.py`: `activation` ("personal_email_link" en
+#    `_convert`, "nip_personal_email" en `_create_account`), `nip_source`
+#    ("sii" lo mete `event_extra`; "center" lo implica `granted_by_id` de Centro
+#    de Cómputo distinto de `approved_by_id`) y `approved_by_id`.
+# ---------------------------------------------------------------------------
+SELF = "process.enrollment_self_service"
+L_LIGA = "Activó su cuenta con la liga del correo"
+L_CENTRO = "Centro de Cómputo le dio acceso"
+L_APROBAR = "Se creó su cuenta al aprobar la solicitud"
+L_ACTUAL = "Se inscribió por el formulario"
+
+
+def _alta(db, t, payload, **kw):
+    return _fila(db, token=t, source="process_event", action=SELF, module="processes",
+                 actor_kind="system", payload=payload, **kw)
+
+
+def _fila_html(html: str, row_id: int) -> str:
+    m = re.search(rf'<tr id="tt-audit-{row_id}">.*?</tr>', html, re.S)
+    assert m, row_id
+    return m.group(0)
+
+
+@pytest.mark.parametrize("payload,esperada", [
+    ({"activation": "personal_email_link", "approved_by_id": 5}, L_LIGA),
+    ({"activation": "nip_personal_email", "nip_source": "center"}, L_CENTRO),
+    ({"activation": "nip_personal_email", "approved_by_id": 5, "granted_by_id": 9}, L_CENTRO),
+    ({"activation": "nip_personal_email", "approved_by_id": 5, "granted_by_id": 5}, L_APROBAR),
+    ({"activation": "nip_personal_email", "nip_source": "sii",
+      "approved_by_id": 5, "granted_by_id": 5}, L_APROBAR),
+    ({"request_id": 3}, L_ACTUAL),
+    (None, L_ACTUAL),
+])
+def test_etiqueta_del_alta_segun_el_payload(client_as, db_session, admin, payload, esperada):
+    t = _token()
+    r = _alta(db_session, t, payload)
+    celda = _fila_html(_body(client_as(admin), q=t), r.id)
+    assert esperada in celda
+    for otra in {L_LIGA, L_CENTRO, L_APROBAR, L_ACTUAL} - {esperada}:
+        assert otra not in celda
+
+
+def test_otras_filas_no_cambian_de_etiqueta(client_as, db_session, admin):
+    t = _token()
+    r = _fila(db_session, token=t, source="process_event", action="process.phase_approved",
+              module="processes", payload={"activation": "personal_email_link"})
+    celda = _fila_html(_body(client_as(admin), q=t), r.id)
+    assert L_LIGA not in celda
+
+
+def test_insignia_recuperado_solo_con_backfilled_true(client_as, db_session, admin):
+    t = _token()
+    si = _fila(db_session, token=t, payload={"backfilled": True})
+    no = _fila(db_session, token=t, payload={"backfilled": False})
+    sin = _fila(db_session, token=t, payload=None)
+    otro = _fila(db_session, token=t, payload=["lista"])
+    html = _body(client_as(admin), q=t)
+    c_si = _fila_html(html, si.id)
+    assert "Recuperado" in c_si and "title=" in c_si and "bit" in c_si.lower()
+    for r in (no, sin, otro):
+        assert "Recuperado" not in _fila_html(html, r.id)
+
+
+def test_detalle_dice_quien_aprobo_la_solicitud(client_as, db_session, admin, make_user):
+    t = _token()
+    jefa = make_user(first_name="MARISOL", last_name="APRUEBA")
+    a = _alta(db_session, t, {"activation": "personal_email_link", "approved_by_id": jefa.id})
+    sin = _alta(db_session, t, {"activation": "personal_email_link"})
+    ajeno = _fila(db_session, token=t, payload={"approved_by_id": jefa.id})
+    c = client_as(admin)
+    html = c.get(f"{URL}/entry/{a.id}").text
+    assert "Aprobó la solicitud" in html and jefa.full_name in html
+    assert "Aprobó la solicitud" not in c.get(f"{URL}/entry/{sin.id}").text
+    assert "Aprobó la solicitud" not in c.get(f"{URL}/entry/{ajeno.id}").text
+    huerfano = _alta(db_session, t, {"approved_by_id": 2_000_000_000})
+    assert "Usuario #2000000000" in c.get(f"{URL}/entry/{huerfano.id}").text
+
+
+def _sentencias(db_session, fn):
+    from sqlalchemy import event
+
+    n = []
+
+    def _cuenta(_c, _cur, statement, _p, _ctx, _many):
+        n.append(statement)
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _cuenta)
+    try:
+        fn()
+    finally:
+        event.remove(conn, "before_cursor_execute", _cuenta)
+    return len(n)
+
+
+def test_el_conteo_de_sentencias_no_crece_con_las_etiquetas(client_as, db_session, admin):
+    c = client_as(admin)
+    t1 = _token()
+    _alta(db_session, t1, {"activation": "personal_email_link", "approved_by_id": 1,
+                           "backfilled": True})
+    _body(c, q=t1)   # calienta cachés (authz, nav)
+    uno = _sentencias(db_session, lambda: _body(c, q=t1))
+    t20 = _token()
+    variantes = [
+        {"activation": "personal_email_link", "approved_by_id": 1, "backfilled": True},
+        {"activation": "nip_personal_email", "nip_source": "center"},
+        {"activation": "nip_personal_email", "approved_by_id": 1, "granted_by_id": 1},
+        {"backfilled": True},
+    ]
+    for i in range(20):
+        _alta(db_session, t20, variantes[i % 4])
+    veinte = _sentencias(db_session, lambda: _body(c, q=t20))
+    assert veinte == uno, (uno, veinte)

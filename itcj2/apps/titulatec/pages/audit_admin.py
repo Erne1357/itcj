@@ -84,7 +84,50 @@ def _catalogo_acciones() -> dict[str, tuple[str, str]]:
     return out
 
 
-def _label(action: str, entity_type) -> str:
+# Etiquetas del alta (`process.enrollment_self_service`) SOLO de esta pestaña:
+# el espejo trae un único `event_type` para cuatro hechos distintos y «Se
+# inscribió por el formulario» (la de `_EVENT_UI` y la del alumno) hacía parecer
+# que lo hizo el alumno. Se distinguen por las llaves reales del payload que
+# escribe `enrollment_request_service.py`.
+_ALTA_ACTION = "process.enrollment_self_service"
+_ALTA_LIGA = "Activó su cuenta con la liga del correo"
+_ALTA_CENTRO = "Centro de Cómputo le dio acceso"
+_ALTA_APROBAR = "Se creó su cuenta al aprobar la solicitud"
+
+
+def _alta_label(payload) -> str | None:
+    """Etiqueta del alta según su payload, o `None` (se queda la de siempre).
+
+    - `activation == "personal_email_link"` (`_convert`): el alumno abrió su liga.
+    - Centro de Cómputo (`grant_access` -> `_create_account`): `nip_source ==
+      "center"` si el payload lo trae, o, en lo real, `granted_by_id` (quien dio
+      el acceso) distinto de `approved_by_id` (quien aprobó en SE). Si la misma
+      persona hizo las dos cosas no hay forma de distinguirlas y cae en la
+      siguiente.
+    - Cuenta creada al aprobar (`activation == "nip_personal_email"`, NIP del
+      formulario o del SII): `granted_by_id == approved_by_id`.
+    """
+    if not isinstance(payload, dict):
+        return None
+    activation = payload.get("activation")
+    if activation == "personal_email_link":
+        return _ALTA_LIGA
+    if payload.get("nip_source") == "center":
+        return _ALTA_CENTRO
+    if activation == "nip_personal_email":
+        granted, approved = payload.get("granted_by_id"), payload.get("approved_by_id")
+        if granted is not None and approved is not None and granted != approved:
+            return _ALTA_CENTRO
+        return _ALTA_APROBAR
+    return None
+
+
+def _recuperado(payload) -> bool:
+    """`payload.backfilled == true`: fila reconstruida de datos previos a la bitácora."""
+    return isinstance(payload, dict) and payload.get("backfilled") is True
+
+
+def _label(action: str, entity_type, payload=None) -> str:
     """Etiqueta legible de una fila; nunca truena con un código desconocido."""
     from itcj2.apps.titulatec.pages.admin import _EVENT_UI
     from itcj2.apps.titulatec.services.audit_actions import (
@@ -93,6 +136,10 @@ def _label(action: str, entity_type) -> str:
 
     if action in AUDIT_ACTIONS:
         return AUDIT_ACTIONS[action][1]
+    if action == _ALTA_ACTION:
+        especial = _alta_label(payload)
+        if especial:
+            return especial
     if action.startswith(PROCESS_EVENT_PREFIX):
         tipo = action[len(PROCESS_EVENT_PREFIX):]
         ui = _EVENT_UI.get(tipo)
@@ -374,7 +421,8 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
             "actor": actor,
             "badge": badge,
             "module": AUDIT_MODULES.get(r.module, r.module),
-            "label": _label(r.action, r.entity_type),
+            "label": _label(r.action, r.entity_type, r.payload),
+            "recovered": _recuperado(r.payload),
             "is_data": r.source == "data",
             "about": sobre,
             "process_url": (f"/titulatec/admin/processes/{proc.id}?from={regreso}"
@@ -473,13 +521,23 @@ def _entry_ctx(db, entry_id: int) -> dict | None:
         for s in (db.query(A).filter(A.request_id == r.request_id, A.id != r.id)
                   .order_by(A.occurred_at.asc(), A.id.asc()).limit(_SIBLINGS_MAX).all()):
             hermanas.append({"id": s.id, "when": _fecha(s.occurred_at),
-                             "label": _label(s.action, s.entity_type)})
+                             "label": _label(s.action, s.entity_type, s.payload)})
+    # «Aprobó la solicitud»: solo el alta lleva `approved_by_id`; una consulta
+    # por GET /entry (no hay filas que multiplicar).
+    aprobo = ""
+    aid = r.payload.get("approved_by_id") if (
+        r.action == _ALTA_ACTION and isinstance(r.payload, dict)) else None
+    if isinstance(aid, int) and not isinstance(aid, bool) and 0 < aid <= _BIGINT_MAX:
+        u = db.get(User, aid)
+        aprobo = u.full_name if u is not None else f"Usuario #{aid}"
     payload = None
     if r.payload not in (None, {}, []):
         payload = json.dumps(r.payload, ensure_ascii=False, indent=2, default=str)
     return {
         "e": {
-            "id": r.id, "when": _fecha(r.occurred_at), "label": _label(r.action, r.entity_type),
+            "id": r.id, "when": _fecha(r.occurred_at),
+            "label": _label(r.action, r.entity_type, r.payload),
+            "recovered": _recuperado(r.payload), "approver": aprobo,
             "action": r.action, "source": r.source, "module": AUDIT_MODULES.get(r.module, r.module),
             "actor": actor or "—", "actor_kind": _KIND_BADGES.get(r.actor_kind, ""),
             "entity": (f"{entity_label(r.entity_type)} #{r.entity_id}"
