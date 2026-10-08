@@ -37,16 +37,27 @@ estado actual no basta para saber qué fue esa revisión:
   aprobación que se devolvió: se registra como `enrollment.approved`.
 - Cualquier otro caso con estado no decisivo no se inventa: sin fila.
 
-Idempotente y sin duplicar lo vivo: se salta toda `(action, entity_id)` que ya
-exista con `entity_type='enrollment_request'`, sea una fila en vivo o de una
-corrida previa. Dos SELECT en total (solicitudes y existentes), sin N+1, y un
-único INSERT por lote. No hace commit: lo hace quien llama.
+Solo lo ANTERIOR a la bitácora (corte): `cutoff` = el `occurred_at` más viejo
+de una fila `action`/`data` que NO sea recuperada (`payload.backfilled`); sin
+filas vivas, «ahora». Toda decisión cuya propia fecha (`reviewed_at`,
+`returned_at`, `reopened_at`) sea >= corte ya tiene su fila en vivo (acción
+explícita o el espejo `enrollment_self_service` de las aprobaciones que crean
+cuenta) y NO se recupera. Una decisión con `*_by_id` pero sin fecha se salta y
+se cuenta en `skipped_no_date`: nunca se fecha con «ahora» (sería permanente y
+falso).
+
+Idempotente: se salta toda `(action, entity_id)` que ya exista como fila
+RECUPERADA por este servicio (`payload.recovered_from`). NO se compara contra
+filas en vivo: con el corte, una fila en vivo nunca representa una decisión
+previa (p. ej. la aprobación de Centro de Cómputo no debe tapar la de Servicios
+Escolares anterior al despliegue). Tres SELECT en total (corte, solicitudes y
+recuperadas), sin N+1, y un único INSERT por lote. No hace commit.
 """
 from __future__ import annotations
 
 import logging
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +90,25 @@ class AuditBackfillService:
     """Rellena la bitácora con lo que las columnas de negocio todavía saben."""
 
     @staticmethod
+    def cutoff(db):
+        """Instante desde el que la bitácora ya registra en vivo (ver módulo)."""
+        from itcj2.apps.titulatec.models import TitulatecAuditLog
+        from itcj2.core.utils.timezone import db_now
+
+        L = TitulatecAuditLog
+        primero = (db.query(func.min(L.occurred_at))
+                   .filter(L.source.in_(("action", "data")),
+                           func.coalesce(L.payload["backfilled"].as_string(), "") != "true")
+                   .scalar())
+        return primero if primero is not None else db_now()
+
+    @staticmethod
     def enrollment_decisions(db, *, dry_run: bool) -> dict[str, int]:
         """Recupera las decisiones de solicitudes. Devuelve el conteo por acción.
 
         Con `dry_run=True` cuenta lo mismo que insertaría, sin escribir. No hace
-        commit (ni flush en dry-run).
+        commit (ni flush en dry-run). La llave extra `skipped_no_date` cuenta las
+        decisiones sin fecha que se saltaron.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulatecAuditLog
         from itcj2.apps.titulatec.services.audit_actions import AUDIT_ACTIONS
@@ -102,20 +127,27 @@ class AuditBackfillService:
             .order_by(R.id).all())
 
         # Lo que la bitácora ya trae (en vivo o de una corrida previa): un SELECT.
+        corte = AuditBackfillService.cutoff(db)
         existentes = {
             (a, e) for a, e in db.query(TitulatecAuditLog.action, TitulatecAuditLog.entity_id)
             .filter(TitulatecAuditLog.entity_type == _ENTITY,
-                    TitulatecAuditLog.action.in_(ACCIONES))}
+                    TitulatecAuditLog.action.in_(ACCIONES),
+                    TitulatecAuditLog.payload["recovered_from"].as_string() == _ENTITY)}
 
         conteo = {a: 0 for a in ACCIONES}
+        conteo["skipped_no_date"] = 0
         filas: list = []
 
         def _agrega(r, action, actor_id, cuando, motivo):
-            if (action, r.id) in existentes:
+            if cuando is None:
+                conteo["skipped_no_date"] += 1
+                return
+            if cuando >= corte or (action, r.id) in existentes:
                 return
             existentes.add((action, r.id))
             conteo[action] += 1
             cols = dict(
+                occurred_at=cuando,  # fecha ORIGINAL de la columna
                 source="action", action=action, module=AUDIT_ACTIONS[action][0],
                 actor_id=actor_id, actor_kind="user",
                 entity_type=_ENTITY, entity_id=r.id,
@@ -126,8 +158,6 @@ class AuditBackfillService:
                     "backfilled": True, "request_id": r.id,
                     "recovered_from": _ENTITY, "status_at_backfill": r.status}),
             )
-            if cuando is not None:
-                cols["occurred_at"] = cuando  # fecha ORIGINAL de la columna
             filas.append(TitulatecAuditLog(**cols))
 
         for r in solicitudes:

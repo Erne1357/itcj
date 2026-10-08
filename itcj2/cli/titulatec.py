@@ -4113,8 +4113,9 @@ def audit_backfill_solicitudes_command(dry_run):
     Lee `reviewed_*`, `returned_*` y `reopened_*` de las solicitudes de
     inscripción y escribe una fila por decisión (`enrollment.approved`,
     `enrollment.rejected`, `access.returned`, `enrollment.reopened`) con la
-    fecha ORIGINAL y `payload.backfilled = true`. Idempotente: no duplica lo que
-    la bitácora ya tiene. Correr primero con `--dry-run`. La bitácora es
+    fecha ORIGINAL y `payload.backfilled = true`, solo las ANTERIORES al corte
+    (la primera fila en vivo de la bitácora). Idempotente: no repite lo que una
+    corrida previa ya recuperó. Correr primero con `--dry-run`. La bitácora es
     inmutable: lo escrito no se puede deshacer salvo con `audit-purge`.
     """
     from itcj2.apps.titulatec.services.audit_backfill_service import AuditBackfillService
@@ -4122,8 +4123,11 @@ def audit_backfill_solicitudes_command(dry_run):
 
     db = SessionLocal()
     try:
+        corte = AuditBackfillService.cutoff(db)
         conteo = AuditBackfillService.enrollment_decisions(db, dry_run=dry_run)
-        total = sum(conteo.values())
+        total = sum(n for a, n in conteo.items() if a != "skipped_no_date")
+        click.echo(f"Corte (inicio de la bitácora en vivo): {corte:%Y-%m-%d %H:%M:%S}; "
+                   "solo se recuperan decisiones anteriores.")
         prefijo = "[DRY-RUN] Se recuperarían" if dry_run else "Recuperadas"
         for accion, n in conteo.items():
             click.echo(f"  {accion}: {n}")

@@ -217,22 +217,59 @@ def test_sin_reviewed_by_id_no_hay_fila_de_revision(patched_session_local, cohor
     assert _filas(db, a) == [] and _filas(db, b) == []
 
 
-def test_no_duplica_una_fila_en_vivo(patched_session_local, cohorte, make_user):
+def test_una_fila_en_vivo_de_computo_no_tapa_la_aprobacion_previa(
+        patched_session_local, cohorte, make_user):
+    """Regla 2: el dedupe es SOLO contra filas recuperadas. Una aprobación en
+    vivo de Centro de Cómputo (via=access) no debe tapar la de Servicios
+    Escolares anterior al despliegue."""
     from itcj2.apps.titulatec.services.audit_service import AuditService
 
     db = patched_session_local
     revisor = make_user()
-    req = _make_req(db, cohorte, control="99210011", status="awaiting_access",
+    req = _make_req(db, cohorte, control="99210011", status="converted",
                     reviewed_by_id=revisor.id, reviewed_at=datetime(2026, 9, 10, 9, 0))
     AuditService.record(db, "enrollment.approved", entity_type="enrollment_request",
-                        entity_id=req.id, actor_id=revisor.id)
+                        entity_id=req.id, actor_id=revisor.id, payload={"via": "access"})
     db.flush()
 
     _svc().enrollment_decisions(db, dry_run=False)
 
     filas = _filas(db, req)
-    assert len(filas) == 1
-    assert not (filas[0].payload or {}).get("backfilled")
+    assert len(filas) == 2
+    recuperada = [f for f in filas if (f.payload or {}).get("backfilled")]
+    assert len(recuperada) == 1 and recuperada[0].occurred_at == datetime(2026, 9, 10, 9, 0)
+
+
+def test_decision_posterior_al_corte_no_se_recupera(
+        patched_session_local, cohorte, make_user):
+    db = patched_session_local
+    revisor = make_user()
+    despues = datetime(2035, 1, 1, 9, 0)  # >= corte: ya tiene su fila en vivo
+    req = _make_req(db, cohorte, control="99210015", status="converted",
+                    reviewed_by_id=revisor.id, reviewed_at=despues,
+                    reopened_by_id=revisor.id, reopened_at=datetime(2026, 9, 1, 9, 0),
+                    reopen_note="r")
+
+    corte = _svc().cutoff(db)
+    assert datetime(2026, 9, 1) < corte < despues
+    _svc().enrollment_decisions(db, dry_run=False)
+
+    # la aprobación (2035) no se recupera; la reapertura previa al corte sí
+    assert list(_por_accion(db, req)) == ["enrollment.reopened"]
+
+
+def test_decision_sin_fecha_se_salta_y_se_cuenta(patched_session_local, cohorte, make_user):
+    db = patched_session_local
+    req = _make_req(db, cohorte, control="99210016", status="converted",
+                    reviewed_by_id=make_user().id, reviewed_at=None,
+                    returned_by_id=make_user().id, returned_at=None)
+    antes = _svc().enrollment_decisions(db, dry_run=True)["skipped_no_date"]
+    assert antes >= 2
+
+    res = _svc().enrollment_decisions(db, dry_run=False)
+
+    assert res["skipped_no_date"] >= 2
+    assert _filas(db, req) == []
 
 
 def test_segunda_corrida_no_inserta_nada(patched_session_local, cohorte, make_user):
@@ -245,7 +282,7 @@ def test_segunda_corrida_no_inserta_nada(patched_session_local, cohorte, make_us
     segunda = _svc().enrollment_decisions(db, dry_run=False)
 
     assert primera["enrollment.approved"] >= 1
-    assert segunda == {a: 0 for a in _ACCIONES}
+    assert all(segunda[a] == 0 for a in _ACCIONES)
     assert len(_filas(db, req)) == 1
 
 
