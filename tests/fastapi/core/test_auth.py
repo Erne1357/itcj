@@ -158,9 +158,9 @@ class TestMe:
         grueso de la suite —que usa `auth_headers`, sin `sv`— recorre un camino
         que producción nunca toma: el login siempre acuña el claim
         (`itcj2/core/api/auth.py`). Con `sv` presente, el middleware llama a
-        `current_version` y compara, que es la rama real.
+        `current_version_async` y compara, que es la rama real.
 
-        `current_version` va parcheada porque el usuario 200 de este harness es
+        `current_version_async` va parcheada porque el usuario 200 de este harness es
         un mock sin fila en `core_users`: sin parche el veredicto dependería del
         `session_epoch` que hubiera en la BD compartida de dev y el test sería
         no-determinista.
@@ -168,7 +168,7 @@ class TestMe:
         token = make_jwt(user_id=200, role="admin", name="MARTINEZ PEREZ MARIA", sv=4)
 
         with patch(
-            "itcj2.core.services.session_service.current_version", return_value=4
+            "itcj2.core.services.session_service.current_version_async", return_value=4
         ):
             resp = app_client.get(
                 "/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={token}"}
@@ -190,7 +190,7 @@ class TestMe:
         token = make_jwt(user_id=200, role="admin", name="MARTINEZ PEREZ MARIA", sv=4)
 
         with patch(
-            "itcj2.core.services.session_service.current_version", return_value=5
+            "itcj2.core.services.session_service.current_version_async", return_value=5
         ):
             resp = app_client.get(
                 "/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={token}"}

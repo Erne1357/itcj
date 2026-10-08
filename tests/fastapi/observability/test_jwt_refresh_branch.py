@@ -217,3 +217,79 @@ def test_token_without_sv_skips_epoch_lookup(client, user, monkeypatch):
     assert body["role"] == "admin"
     assert "sv" not in body
     assert calls == []
+
+
+def test_dispatch_does_no_sync_io_on_the_event_loop(
+    client, user, db_session, patched_session_local, monkeypatch
+):
+    """Fase 6: `dispatch` corre en el loop para TODA petición; una consulta
+    síncrona ahí frena todas las peticiones en vuelo del worker (alerta
+    `ItcjEventLoopBloqueosLargos`). Se registra quién llama a la E/S síncrona
+    con un loop corriendo EN SU HILO: tiene que ser nadie.
+
+    Se registra en vez de lanzar porque el primer chequeo de `sv` del
+    middleware se traga cualquier excepción (fail-open) y el test no vería nada.
+    Token con `sv` y dentro de la ventana de refresh: recorre los TRES sitios.
+    """
+    import asyncio
+
+    from itcj2 import database
+
+    on_loop: list[str] = []
+
+    def _on_loop() -> bool:
+        try:
+            asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            return False
+
+    def _spy(name, fn):
+        def wrapper(*a, **k):
+            if _on_loop():
+                on_loop.append(name)
+            return fn(*a, **k)
+        return wrapper
+
+    monkeypatch.setattr(ss, "current_version", _spy("current_version", ss.current_version))
+    monkeypatch.setattr(ss, "_read_epoch_from_db", _spy("_read_epoch_from_db", ss._read_epoch_from_db))
+    monkeypatch.setattr(database, "SessionLocal", _spy("SessionLocal", database.SessionLocal))
+    from itcj2.core.utils import redis_conn
+    monkeypatch.setattr(redis_conn, "get_redis", _spy("get_redis", redis_conn.get_redis))
+
+    # Caché frío: obliga al MISS que va a Postgres, el peor caso.
+    ss.forget_cached_version(user.id)
+    resp = client.get(WHOAMI, headers={"Cookie": f"itcj_token={_near_expiry(user.id, sv=0)}"})
+
+    assert resp.status_code == 200
+    assert resp.json()["current_user"]["sub"] == str(user.id)
+    assert len(_minted(resp)) == 1  # el refresh siguió funcionando
+    assert on_loop == []
+
+
+def test_current_version_async_matches_sync_semantics(user, db_session, patched_session_local):
+    """MISS → Postgres y repuebla el caché; HIT → Redis. Cada `asyncio.run` es
+    un loop nuevo: también fija que el cliente async no queda atado al primero."""
+    import asyncio
+
+    from itcj2.core.utils.redis_conn import get_redis
+
+    epoch = _bump(user, db_session)  # deja el caché vacío
+    assert asyncio.run(ss.current_version_async(user.id)) == epoch == ss.current_version(user.id)
+    assert get_redis().get(ss._KEY.format(uid=user.id)) == str(epoch)  # repoblado
+
+    get_redis().set(ss._KEY.format(uid=user.id), 7, ex=60)
+    assert asyncio.run(ss.current_version_async(user.id)) == 7  # HIT, otro loop
+
+
+def test_current_version_async_is_none_only_when_both_stores_fail(monkeypatch):
+    import asyncio
+
+    from itcj2.core.utils import redis_conn
+
+    monkeypatch.setattr(redis_conn, "REDIS_URL", "redis://127.0.0.1:1/15")
+    monkeypatch.setattr(ss, "_read_epoch_from_db", lambda uid: None)
+    assert asyncio.run(ss.current_version_async(1234567)) is None
+
+    monkeypatch.setattr(ss, "_read_epoch_from_db", lambda uid: 0)
+    assert asyncio.run(ss.current_version_async(1234567)) == 0  # inexistente ≠ None
