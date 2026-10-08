@@ -22,7 +22,7 @@
         <td class="small tt-audit-nowrap">{{ r.when }}</td>
         <td>{{ r.actor }}{% if r.badge %} {{ pill(r.badge, 'neutral') }}{% endif %}</td>
         <td class="small tt-audit-nowrap">{{ r.module }}</td>
-        <td>{{ r.label }}{% if r.is_data %} {{ pill('Dato', 'neutral') }}{% endif %}{% if r.recovered %} <span class="badge text-bg-light border fw-normal" id="tt-audit-rec-{{ r.id }}" title="Este registro se reconstruyó a partir de datos previos a la bitácora; la fecha y el actor son los que se conservaban entonces.">Recuperado</span>{% endif %}</td>
+        <td>{{ r.label }}{% if r.is_data %} {{ pill('Dato', 'neutral') }}{% endif %}{% if r.recovered %} <span class="badge text-bg-light border fw-normal" id="tt-audit-rec-{{ r.id }}" aria-label="{{ r.recovered_note }}" title="Este registro se reconstruyó a partir de datos previos a la bitácora; la fecha y el actor son los que se conservaban entonces.">Recuperado</span>{% endif %}</td>
         <td class="small">
           {% if r.process_url %}<a href="{{ r.process_url }}">{{ r.about }}</a>{% else %}{{ r.about }}{% endif %}
         </td>

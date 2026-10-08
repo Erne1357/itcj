@@ -127,6 +127,20 @@ def _recuperado(payload) -> bool:
     return isinstance(payload, dict) and payload.get("backfilled") is True
 
 
+_REC_TEXTO = ("Reconstruido a partir de datos anteriores a la bitácora: "
+              "puede faltar historial previo")
+_REC_SOLICITUD = "solo se conserva la última decisión de cada tipo"
+
+
+def _nota_recuperado(payload) -> str:
+    """Texto visible (no solo `title`) de una fila recuperada; vacío si no lo es."""
+    if not _recuperado(payload):
+        return ""
+    if payload.get("recovered_from") == "enrollment_request":
+        return f"{_REC_TEXTO}; {_REC_SOLICITUD}."
+    return _REC_TEXTO + "."
+
+
 def _label(action: str, entity_type, payload=None) -> str:
     """Etiqueta legible de una fila; nunca truena con un código desconocido."""
     from itcj2.apps.titulatec.pages.admin import _EVENT_UI
@@ -423,6 +437,7 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
             "module": AUDIT_MODULES.get(r.module, r.module),
             "label": _label(r.action, r.entity_type, r.payload),
             "recovered": _recuperado(r.payload),
+            "recovered_note": _nota_recuperado(r.payload),
             "is_data": r.source == "data",
             "about": sobre,
             "process_url": (f"/titulatec/admin/processes/{proc.id}?from={regreso}"
@@ -538,6 +553,7 @@ def _entry_ctx(db, entry_id: int) -> dict | None:
             "id": r.id, "when": _fecha(r.occurred_at),
             "label": _label(r.action, r.entity_type, r.payload),
             "recovered": _recuperado(r.payload), "approver": aprobo,
+            "recovered_note": _nota_recuperado(r.payload),
             "action": r.action, "source": r.source, "module": AUDIT_MODULES.get(r.module, r.module),
             "actor": actor or "—", "actor_kind": _KIND_BADGES.get(r.actor_kind, ""),
             "entity": (f"{entity_label(r.entity_type)} #{r.entity_id}"

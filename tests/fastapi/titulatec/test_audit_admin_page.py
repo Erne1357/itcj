@@ -660,3 +660,21 @@ def test_el_conteo_de_sentencias_no_crece_con_las_etiquetas(client_as, db_sessio
         _alta(db_session, t20, variantes[i % 4])
     veinte = _sentencias(db_session, lambda: _body(c, q=t20))
     assert veinte == uno, (uno, veinte)
+
+
+def test_recuperado_se_explica_en_texto_visible_y_aria(client_as, db_session, admin):
+    t = _token()
+    sol = _fila(db_session, token=t, payload={"backfilled": True,
+                                              "recovered_from": "enrollment_request"})
+    ev = _fila(db_session, token=t, payload={"backfilled": True})
+    normal = _fila(db_session, token=t, payload={"x": 1})
+    c = client_as(admin)
+    cuerpo = _body(c, q=t)
+    assert 'aria-label="Reconstruido a partir de datos anteriores' in _fila_html(cuerpo, ev.id)
+    h_sol = c.get(f"{URL}/entry/{sol.id}").text
+    assert "Reconstruido a partir de datos anteriores a la bitácora" in h_sol
+    assert "última decisión de cada tipo" in h_sol
+    h_ev = c.get(f"{URL}/entry/{ev.id}").text
+    assert "Reconstruido a partir de datos anteriores a la bitácora" in h_ev
+    assert "última decisión" not in h_ev
+    assert "Reconstruido" not in c.get(f"{URL}/entry/{normal.id}").text
