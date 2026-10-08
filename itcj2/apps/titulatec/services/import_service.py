@@ -44,6 +44,19 @@ _FOLIO_SEQ_RE = re.compile(r"(\d+)$")
 # importaciones que ya estén corriendo con el valor viejo.
 _FOLIO_LOCK_NS = 0x7454  # "tT"
 
+# Bitácora (revisión final I4, 2026-10-07). `import.students_committed` es el
+# resumen de una IMPORTACIÓN de verdad: CSV o alta manual de Servicios
+# Escolares. Las altas que nacen de una solicitud (`_create_account`, origen
+# `enrollment_request`; la liga de activación `_convert`, origen
+# `self_service`) ya dejan su propio rastro (`enrollment.approved`, el espejo de
+# `enrollment_self_service`), y un «Importó alumnos» por cada egresado que abre
+# su liga —firmado por «Público»— sería falso e imborrable.
+_SUMMARY_SOURCES = frozenset({"csv", "manual"})
+# Orígenes cuyo llamador CREA la cuenta en la misma transacción, justo antes de
+# llamar a `import_rows` (`EnrollmentRequestService._create_account`): para la
+# bitácora es una cuenta nueva, no un cambio de roles de una que ya existía.
+_FRESH_ACCOUNT_SOURCES = frozenset({"enrollment_request"})
+
 
 def set_initial_credential(user) -> None:
     """Credencial inicial del alumno: la contraseña ES su número de control.
@@ -78,7 +91,8 @@ GRADUATE_APP_KEYS = ("itcj", "titulatec")
 STUDENT_REVOKE_APP_KEYS = ("itcj", "titulatec", "agendatec")
 
 
-def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids) -> set[str]:
+def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids,
+                         detail: dict | None = None) -> set[str]:
     """Deja a `user` como egresado. Devuelve las claves de las apps cuyas filas cambió.
 
     - `graduate` en cada app de `GRADUATE_APP_KEYS` (el llamador ya comprobó que
@@ -91,6 +105,10 @@ def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids) -> s
     Una consulta por usuario y `flush()` solo si algo cambió; nunca `commit()`
     (ver ATOMICIDAD en `import_rows`). `role_id` no cuenta como cambio para el
     caché: el de authz sale de `core_user_app_roles` y de los puestos.
+
+    `detail` (opcional) se llena con `granted`/`revoked` (claves de app) y
+    `role_alias_changed`, para que el llamador pueda dejar rastro en la bitácora
+    de qué roles se otorgaron y cuáles se quitaron.
     """
     from itcj2.core.models.user_app_role import UserAppRole
 
@@ -104,22 +122,32 @@ def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids) -> s
                      UserAppRole.role_id.in_(role_ids))
              .all())
     tocadas: set[int] = set()
+    revocadas: set[int] = set()
+    otorgadas: set[int] = set()
     ya_graduate = {f.app_id for f in filas if f.role_id == graduate_role.id}
     for fila in filas:
         if (student_role is not None and fila.role_id == student_role.id
                 and fila.app_id in revoke_ids):
             db.delete(fila)
             tocadas.add(fila.app_id)
+            revocadas.add(fila.app_id)
     for app_id in sorted(grant_ids - ya_graduate):
         db.add(UserAppRole(user_id=user.id, app_id=app_id, role_id=graduate_role.id))
         tocadas.add(app_id)
+        otorgadas.add(app_id)
     if tocadas:
         db.flush()
 
+    alias_cambiado = False
     if user.role_id is None or (student_role is not None and user.role_id == student_role.id):
+        alias_cambiado = user.role_id != graduate_role.id
         user.role_id = graduate_role.id
 
     clave = {app_id: key for key, app_id in app_ids.items()}
+    if detail is not None:
+        detail["granted"] = sorted(clave[a] for a in otorgadas)
+        detail["revoked"] = sorted(clave[a] for a in revocadas)
+        detail["role_alias_changed"] = alias_cambiado
     return {clave[app_id] for app_id in tocadas}
 
 
@@ -202,11 +230,26 @@ class ImportService:
         return {}
 
     @staticmethod
-    def save_mapping(mapping: dict) -> None:
+    def save_mapping(mapping: dict, *, db: Session | None = None,
+                     actor_id: int | None = None) -> None:
+        """Guarda el mapeo de columnas reusable (archivo, no BD).
+
+        Con `db` deja además la fila de bitácora `import.mapping_saved` en la
+        sesión del llamador (se persiste con su próximo commit: en el asistente,
+        el del `import_rows` que sigue). Sin `db` se comporta como siempre.
+        """
         try:
             _mapping_store().write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
         except OSError:
-            pass
+            return
+        if db is not None:
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "import.mapping_saved",
+                entity_type="import_mapping",
+                after={"mapping": dict(mapping or {})},
+                actor_id=actor_id,
+            )
 
     # ---------- parsing ----------
     @staticmethod
@@ -515,6 +558,11 @@ class ImportService:
         parámetros nacen con el valor del comportamiento de hoy, para no tocar a
         `pages/admin.py:139` ni a `pages/admin.py:587`.
 
+        BITÁCORA (2026-10-07): UNA fila `import.students_committed` por llamada,
+        solo con `source` de `_SUMMARY_SOURCES` (CSV, alta manual), con los ids
+        de las cuentas creadas; `import.roles_synced` solo para cuentas que ya
+        existían antes de esta alta (ver `_FRESH_ACCOUNT_SOURCES`).
+
         Devuelve summary con created_users / matched_users / repaired_users /
         processes_created / skipped / authz_touched.
         """
@@ -564,7 +612,9 @@ class ImportService:
 
         created_users = matched_users = processes_created = skipped = 0
         repaired_users = 0
+        created_user_ids: list[int] = []
         touched: set[tuple[int, str]] = set()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         for r in rows:
             # MAYÚSCULA antes del merge: el punto de entrada real de la
@@ -595,9 +645,20 @@ class ImportService:
                                     detail=f"App '{faltan[0]}' no existe.")
 
             user = db.query(User).filter_by(control_number=control).first()
+            # ¿La cuenta ya existía ANTES de esta alta? Solo entonces su cambio
+            # de roles es un suceso propio en la bitácora (I4).
+            cuenta_previa = user is not None and source not in _FRESH_ACCOUNT_SOURCES
             if user:
                 matched_users += 1
                 if r.get("email") and not user.email:
+                    AuditService.record(
+                        db, "import.user_email_changed",
+                        entity_type="user", entity_id=user.id,
+                        subject=user.control_number,
+                        before={"email": user.email}, after={"email": r["email"]},
+                        payload={"cohort_id": cohort.id, "source": source},
+                        actor_id=actor_id,
+                    )
                     user.email = r["email"]
                 # Auto-reparación: hasta 2026-09 esta función creaba usuarios sin
                 # `password_hash`, y el reset del core está prohibido para quien
@@ -608,6 +669,15 @@ class ImportService:
                 if repair_credentials and not user.password_hash:
                     set_initial_credential(user)
                     repaired_users += 1
+                    # Solo el hecho: ni la contraseña ni su hash (D9).
+                    AuditService.record(
+                        db, "import.credential_set",
+                        entity_type="user", entity_id=user.id,
+                        subject=user.control_number,
+                        payload={"cohort_id": cohort.id, "source": source,
+                                 "bulk": False, "forced_change_on_login": True},
+                        actor_id=actor_id,
+                    )
             else:
                 # split simple: último token = apellido, resto = nombres
                 parts = full_name.split()
@@ -625,14 +695,28 @@ class ImportService:
                 db.add(user)
                 db.flush()
                 created_users += 1
+                created_user_ids.append(user.id)
 
             # Roles de egresado. Equivalente a `grant_role`/`revoke_role` de
             # `authz_service`, pero con `flush()` en vez de `commit()`: ver
             # ATOMICIDAD arriba.
+            roles_detail: dict = {}
             for app_key in _sync_graduate_roles(db, user, graduate_role=graduate_role,
                                                 student_role=student_role,
-                                                app_ids=app_ids):
+                                                app_ids=app_ids, detail=roles_detail):
                 touched.add((user.id, app_key))
+            # Solo cuentas que YA existían: a una que nace aquí (o que el
+            # llamador acaba de crear) darle el rol ES el alta, y su id viaja en
+            # el resumen. Sin esto, un CSV de 300 dejaba 300 filas (I4).
+            if cuenta_previa and (roles_detail.get("granted") or roles_detail.get("revoked")):
+                AuditService.record(
+                    db, "import.roles_synced",
+                    entity_type="user", entity_id=user.id,
+                    subject=user.control_number,
+                    payload={"role": GRADUATE_ROLE, "cohort_id": cohort.id,
+                             "source": source, **roles_detail},
+                    actor_id=actor_id,
+                )
 
             proc = db.query(TitulationProcess).filter_by(student_id=user.id, cohort_id=cohort.id).first()
             if not proc:
@@ -692,6 +776,26 @@ class ImportService:
                                process_id=proc.id, phase_number=1)
 
         authz_touched = sorted(touched)
+        if source in _SUMMARY_SOURCES and (
+                created_users or matched_users or processes_created or skipped):
+            # Un resumen por llamada, solo de CSV y alta manual (ver
+            # `_SUMMARY_SOURCES`). Con `commit=False` la fila viaja en la
+            # transacción del llamador. Las cuentas creadas van por id (el
+            # saneo de `record` acota la lista): así cada alta sigue siendo
+            # rastreable sin una fila por alumno.
+            AuditService.record(
+                db, "import.students_committed",
+                entity_type="cohort", entity_id=cohort.id,
+                subject=getattr(cohort, "name", None),
+                payload={"cohort_id": cohort.id, "source": source,
+                         "created_users": created_users,
+                         "created_user_ids": created_user_ids,
+                         "merged_users": matched_users,
+                         "repaired_users": repaired_users,
+                         "processes_created": processes_created,
+                         "skipped": skipped},
+                actor_id=actor_id,
+            )
         if commit:
             db.commit()
             # Después del commit (ver CACHÉ DE AUTHZ en el docstring). Con
@@ -760,8 +864,15 @@ class ImportService:
             q = q.filter(TitulationProcess.cohort_id == cohort_id)
 
         users = q.distinct().all()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         for user in users:
             set_initial_credential(user)
+            AuditService.record(
+                db, "import.credential_set",
+                entity_type="user", entity_id=user.id, subject=user.control_number,
+                payload={"bulk": True, "cohort_id": cohort_id,
+                         "forced_change_on_login": True},
+            )
         if users:
             db.commit()
         return len(users)

@@ -19,10 +19,13 @@ Comandos:
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
 """
+import logging
 import os
 from pathlib import Path, PurePosixPath
 
 import click
+
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 DML_TITULATEC = PROJECT_ROOT / "database" / "DML" / "titulatec"
@@ -141,11 +144,18 @@ SEED_FILES = [
     # SOLO con `titulatec init-outbox-admin` (mismo patron D10 que
     # `init-email-tasks`): es el unico camino de despliegue en produccion.
     "outbox_2026_10/24_insert_email_outbox_perm.sql",
+    # --- Delta 2026-10-07: bitacora de auditoria. El permiso
+    # `titulatec.audit.page.list` concedido SOLO al rol `admin`, explicito
+    # porque en produccion el 15 no se re-corre (mismo patron que el 24).
+    # Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO con
+    # `titulatec init-bitacora`.
+    "audit_2026_10/25_insert_audit_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
     # correr después de CUALQUIER archivo que inserte permisos (02, 07, 08,
-    # survey_2026_09/09, biblioteca_2026_10/21 y outbox_2026_10/24) para que "todos" sea de
+    # survey_2026_09/09, biblioteca_2026_10/21, outbox_2026_10/24 y
+    # audit_2026_10/25) para que "todos" sea de
     # verdad todos. Solo concede (ON CONFLICT DO NOTHING): re-correrlo nunca
     # revoca nada.
     "15_grant_admin_all_perms.sql",
@@ -271,7 +281,127 @@ def _run_sql_files(files: list[str]) -> None:
         click.echo(f"   ✅ Completado: {filename}")
 
 
-@click.group("titulatec")
+# Comandos de SOLO lectura que no dejan rastro en la bitácora (spec 2026-10-07 §6).
+_AUDIT_EXCLUDED_COMMANDS = frozenset({"sii-ping", "sii-rules-validate"})
+
+
+def _cli_user() -> str:
+    """Usuario del SO que lanzó el comando (en un contenedor sin /etc/passwd
+    para su uid, `getpass` truena: cae a «?»)."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "?"
+
+
+# Colas que SQLAlchemy pega al texto de sus errores: la sentencia y sus
+# parámetros (un número de control, un `password_hash`). Nunca a la bitácora.
+_ERROR_TAILS = ("[SQL:", "[parameters:")
+
+
+def _cli_error_text(error: BaseException) -> str:
+    """Clase + PRIMERA línea del mensaje del error, para `system.cli_command`.
+
+    El texto crudo de un error de la BD trae `DETAIL: Key (...)=(...)` en la
+    segunda línea y `[SQL: ...]`/`[parameters: ...]` al final: con la primera
+    línea, recortada desde esas marcas, no sale nada de eso (revisión final
+    M3). Luego la máscara D9: un mensaje que nombra un secreto (NIP,
+    contraseña, token, hash) se guarda como "***". Nunca truena.
+    """
+    from itcj2.apps.titulatec.services.audit_actions import is_sensitive_key
+    from itcj2.apps.titulatec.services.audit_service import MASK, AuditService
+
+    clase = type(error).__name__
+    try:
+        texto = str(error)
+    except Exception:
+        texto = ""
+    for marca in _ERROR_TAILS:
+        corte = texto.find(marca)
+        if corte >= 0:
+            texto = texto[:corte]
+    lineas = [ln.strip() for ln in texto.strip().splitlines() if ln.strip()]
+    mensaje = lineas[0] if lineas else ""
+    if mensaje and is_sensitive_key(mensaje):
+        mensaje = MASK
+    return AuditService.safe(f"{clase}: {mensaje}"[:300] if mensaje else clase)
+
+
+def _record_cli_command(name: str, params: dict, status: str, duration_ms: int,
+                        error: BaseException | None) -> None:
+    """Escribe `system.cli_command` y lo commitea, con la MISMA fábrica de
+    sesiones que usan los comandos (`itcj2.database.SessionLocal`, import local:
+    los tests la parchean). Es una de las dos excepciones a «la bitácora no
+    commitea» (D8). Nunca levanta: una bitácora caída no tumba el comando."""
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+    from itcj2.database import SessionLocal
+
+    payload = {
+        "command": name,
+        "status": status,
+        "duration_ms": duration_ms,
+        "params": AuditService.safe(params),
+    }
+    if error is not None:
+        payload["error"] = _cli_error_text(error)
+    try:
+        db = SessionLocal()
+        try:
+            AuditService.record(db, "system.cli_command", entity_type="cli_command",
+                                payload=payload)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+    except Exception:
+        logger.exception("bitácora: no se pudo registrar el comando %s", name)
+
+
+class _AuditedCommand(click.Command):
+    """Comando cuyo `invoke` corre dentro de un contexto `cli` de la bitácora y
+    deja una fila `system.cli_command` (ok / error) al terminar."""
+
+    def invoke(self, ctx):
+        import time
+
+        from itcj2.apps.titulatec.services.audit_context import audit_context
+
+        name = self.name or ctx.info_name or "?"
+        # Solo se audita al entrar POR EL GRUPO: invocar la función del comando
+        # suelta (los tests, `CliRunner().invoke(cmd)`) no deja fila.
+        por_el_grupo = ctx.parent is not None and isinstance(ctx.parent.command, _AuditedGroup)
+        if not por_el_grupo or name in _AUDIT_EXCLUDED_COMMANDS:
+            return super().invoke(ctx)
+
+        started = time.monotonic()
+        error: BaseException | None = None
+        status = "ok"
+        with audit_context("cli", label=f"cli: {name} ({_cli_user()})"):
+            try:
+                return super().invoke(ctx)
+            except BaseException as exc:  # se re-lanza SIEMPRE
+                code = getattr(exc, "exit_code", getattr(exc, "code", None))
+                if isinstance(exc, (click.exceptions.Exit, SystemExit)) and code in (0, None):
+                    pass
+                else:
+                    status, error = "error", exc
+                raise
+            finally:
+                _record_cli_command(
+                    name, dict(ctx.params), status,
+                    int((time.monotonic() - started) * 1000), error)
+
+
+class _AuditedGroup(click.Group):
+    """Grupo cuyos comandos nacen auditados (`_AuditedCommand`)."""
+    command_class = _AuditedCommand
+
+
+@click.group("titulatec", cls=_AuditedGroup)
 def titulatec_cli():
     """Comandos de inicialización de la app de TitulaTec."""
 
@@ -3413,6 +3543,90 @@ def init_outbox_admin_command(dry_run):
 
 
 # ---------------------------------------------------------------------------
+# Bitacora de auditoria (2026-10-07): permiso `titulatec.audit.page.list`
+# (solo `admin`). El 25 lo inserta Y lo concede explicito a `admin`, asi que el
+# comando corre SOLO el 25 (patron `init-outbox-admin`). Nunca el 15: en
+# produccion no se re-corre (concede TODO titulatec a `admin`, que por el
+# puesto D2 llega a la jefatura de Centro de Computo; revision final I3).
+# ---------------------------------------------------------------------------
+_DML_AUDIT_2026_10_DIR = "audit_2026_10"
+_DML_AUDIT_2026_10_FILES = ["25_insert_audit_perm.sql"]
+_AUDIT_PERM = "titulatec.audit.page.list"
+
+
+def _verify_bitacora() -> list[str]:
+    """Comprueba que el 25 ATERRIZO: el permiso existe y el rol
+    `admin` lo tiene. Devuelve problemas (mismo contrato que
+    `_verify_outbox_admin`). Sesion propia, solo lectura."""
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    problemas: list[str] = []
+    db = SessionLocal()
+    try:
+        existe = db.execute(
+            text("SELECT 1 FROM core_permissions p JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND p.code = :code"),
+            {"code": _AUDIT_PERM},
+        ).first()
+        if existe is None:
+            problemas.append(f"permiso ausente: {_AUDIT_PERM}")
+            return problemas
+        concedido = db.execute(
+            text("SELECT 1 FROM core_role_permissions rp "
+                 "JOIN core_roles r ON r.id = rp.role_id "
+                 "JOIN core_permissions p ON p.id = rp.perm_id "
+                 "JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND r.name = 'admin' AND p.code = :code"),
+            {"code": _AUDIT_PERM},
+        ).first()
+        if concedido is None:
+            problemas.append(f"el rol admin no tiene {_AUDIT_PERM}")
+    finally:
+        db.close()
+    return problemas
+
+
+@titulatec_cli.command("init-bitacora")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
+def init_bitacora_command(dry_run):
+    """Da de alta el permiso de la bitácora de auditoría para `admin`.
+
+    Corre SOLO `audit_2026_10/25_insert_audit_perm.sql`: inserta
+    `titulatec.audit.page.list` y lo concede EXPLÍCITO al rol `admin`. NO
+    re-ejecuta el 15 ni el resto de `SEED_FILES`: en producción el DML viejo
+    nunca se re-corre. Idempotente (ON CONFLICT). Al terminar VERIFICA con
+    `_verify_bitacora()` y aborta si algo no aterrizo. `--dry-run`: comprueba
+    que el archivo existe y lo lista, sin escribir.
+    """
+    archivos = [f"{_DML_AUDIT_2026_10_DIR}/{n}" for n in _DML_AUDIT_2026_10_FILES]
+    faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in archivos:
+                click.echo(f"  {nombre}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files(archivos)
+
+    problemas = _verify_bitacora()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {_AUDIT_PERM} existe y el rol admin lo tiene.", fg="green"))
+
+
+# ---------------------------------------------------------------------------
 # Ajustes 2026-10 (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
 # design.md, D1/D2/D7/D8, §1.1, §3, §6, §7): delta de PRODUCCIÓN.
 #
@@ -3727,3 +3941,160 @@ def init_ajustes_2026_10_command(dry_run):
         f"el requisito «{_ETIQUETA_BIBLIOTECA}» verificados en la base.",
         fg="green",
     ))
+
+
+# --- Purga de la bitácora (spec 2026-10-07 §6, D4) ---------------------------
+
+# Menos que esto exige --force: la bitácora existe para poder mirar atrás.
+_AUDIT_PURGE_MIN_DAYS = 365
+_AUDIT_PURGE_BATCH = 1000
+
+
+def _audit_row_to_dict(row) -> dict:
+    """Una fila de la bitácora como dict JSON-seguro (para el archivo JSONL)."""
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    out = {}
+    for col in TitulatecAuditLog.__table__.columns:
+        value = getattr(row, col.name)
+        out[col.name] = value.isoformat() if hasattr(value, "isoformat") else value
+    return out
+
+
+def _write_audit_archive(db, pred, archive: Path) -> int:
+    """Escribe el JSONL de lo que va a borrarse y devuelve cuántas filas puso.
+
+    Modo "x": si el archivo ya existe NO se pisa (sería destruir la única copia
+    de una purga anterior)."""
+    import json
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog as model
+
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    n = 0
+    try:
+        fh = archive.open("x", encoding="utf-8", newline="\n")
+    except FileExistsError:
+        raise click.ClickException(
+            f"El archivo {archive} ya existe; elige otra ruta (no se sobrescribe).")
+    with fh:
+        q = db.query(model).filter(pred).order_by(model.id).yield_per(_AUDIT_PURGE_BATCH)
+        for row in q:
+            fh.write(json.dumps(_audit_row_to_dict(row), ensure_ascii=False,
+                                default=str) + "\n")
+            n += 1
+        fh.flush()
+        os.fsync(fh.fileno())
+    db.expire_all()
+    return n
+
+
+def _do_audit_purge(db, cutoff, archive: Path | None, dry_run: bool) -> dict:
+    """Lógica pura de `audit-purge` (testeable sin Click).
+
+    Una sola transacción: `SET LOCAL titulatec.audit_purge = 'on'` (la única vía
+    que el trigger de PostgreSQL deja pasar), archivo JSONL con lo que se va a
+    borrar, `DELETE` y la fila `system.audit_purged`. Commitea quien llama.
+    """
+    import json
+
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+    from itcj2.apps.titulatec.services.audit_service import AuditService
+
+    model = TitulatecAuditLog
+    pred = model.occurred_at < cutoff
+    total = db.query(model).filter(pred).count()
+    result = {"count": total, "deleted": 0, "archive": None}
+    if dry_run or total == 0:
+        return result
+
+    # Misma transacción que el DELETE; muere con el commit o el rollback.
+    db.execute(text("SET LOCAL titulatec.audit_purge = 'on'"))
+
+    archived = None
+    if archive is not None:
+        archive = Path(archive).resolve()
+        archived = _write_audit_archive(db, pred, archive)
+        result["archive"] = str(archive)
+
+    deleted = db.query(model).filter(pred).delete(synchronize_session=False)
+    result["deleted"] = deleted
+    if archived is not None and archived != deleted:
+        # El archivo es la única copia de lo borrado: si no cuadra, nada se borra.
+        archive.unlink(missing_ok=True)
+        raise click.ClickException(
+            f"El archivo tiene {archived} filas y el DELETE tocó {deleted}; "
+            "se revierte todo, no se borró nada.")
+    AuditService.record(
+        db, "system.audit_purged", entity_type="audit_log",
+        payload={"deleted": deleted, "before": cutoff.date().isoformat(),
+                 "archive": result["archive"]},
+    )
+    return result
+
+
+@titulatec_cli.command("audit-purge")
+@click.option("--before", "before", required=True,
+              type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Borra las filas anteriores a esta fecha (AAAA-MM-DD, 00:00).")
+@click.option("--archive", "archive", default=None,
+              type=click.Path(dir_okay=False, path_type=Path),
+              help="Archivo JSONL donde guardar lo borrado ANTES de borrarlo.")
+@click.option("--dry-run", is_flag=True, help="Solo cuenta; no escribe ni borra nada.")
+@click.option("--yes", "-y", "yes", is_flag=True, help="No pide confirmación.")
+@click.option("--force", is_flag=True,
+              help=f"Permite cortes de menos de {_AUDIT_PURGE_MIN_DAYS} días.")
+def audit_purge_command(before, archive, dry_run, yes, force):
+    """Purga la bitácora de TitulaTec (ÚNICA vía para borrar filas).
+
+    La tabla es inmutable por trigger; este comando abre la compuerta
+    (`SET LOCAL titulatec.audit_purge = 'on'`) solo dentro de su transacción.
+    Deja una fila `system.audit_purged` con el conteo, el corte y el archivo.
+    """
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.database import SessionLocal
+
+    dias = (db_now() - before).days
+    if dias < _AUDIT_PURGE_MIN_DAYS and not force and not dry_run:
+        raise click.ClickException(
+            f"El corte {before:%Y-%m-%d} es de hace {dias} días (< "
+            f"{_AUDIT_PURGE_MIN_DAYS}). Usa --force si de verdad quieres purgar tan reciente.")
+
+    if archive is not None and Path(archive).exists():
+        raise click.ClickException(
+            f"El archivo {archive} ya existe; elige otra ruta (no se sobrescribe).")
+
+    db = SessionLocal()
+    try:
+        previo = _do_audit_purge(db, before, archive, dry_run=True)
+        if dry_run:
+            click.echo(f"[DRY-RUN] Se purgarían {previo['count']} filas anteriores a "
+                       f"{before:%Y-%m-%d}.")
+            return
+        if previo["count"] == 0:
+            click.echo(f"Nada que purgar antes de {before:%Y-%m-%d}.")
+            return
+        if archive is None:
+            click.echo(click.style(
+                "AVISO: sin --archive las filas se pierden para siempre.", fg="yellow"))
+        if not yes and not click.confirm(
+                f"¿Borrar {previo['count']} filas de la bitácora anteriores a "
+                f"{before:%Y-%m-%d}? No se puede deshacer", default=False):
+            raise click.Abort()
+
+        res = _do_audit_purge(db, before, archive, dry_run=False)
+        db.commit()
+        logger.warning("bitácora purgada: %s filas anteriores a %s (archivo=%s)",
+                       res["deleted"], before.date(), res["archive"])
+        click.echo(click.style(
+            f"OK: {res['deleted']} filas purgadas"
+            + (f"; archivo: {res['archive']}" if res["archive"] else ""), fg="green"))
+    except click.Abort:
+        raise  # confirmación negada: todavía no se escribió nada
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

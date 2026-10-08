@@ -205,10 +205,10 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_100_permisos_conocidos():
+def test_el_dml_declara_los_101_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    100 es el numero verificado en BD tras `titulatec init-ajustes-2026-10`
+    101 es el numero verificado en BD tras `titulatec init-ajustes-2026-10`
     (o tras `init-titulatec` desde cero). Eran 99 hasta el 2026-10-07, cuando
     el expediente resumido de Titulacion (spec 2026-10-07-titulatec-liberados-
     biblioteca-helpdesk, D7) anadio `titulatec.process.page.summary` al 02 y
@@ -251,10 +251,10 @@ def test_el_dml_declara_los_100_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 100, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 100 "
-        "(2026-10-07: sube de 99 a 100 por titulatec.process.page.summary, el "
-        "expediente resumido de Titulacion). Actualiza este numero "
+    assert len(declared) == 101, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 101 "
+        "(2026-10-07: sube de 100 a 101 por titulatec.audit.page.list, la "
+        "bitacora de auditoria). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )

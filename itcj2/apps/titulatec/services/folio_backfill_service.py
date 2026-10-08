@@ -206,5 +206,18 @@ class FolioBackfillService:
             conteo[clave] = conteo.get(clave, 0) + 1
 
         if not dry_run:
+            if conteo:
+                # Resumen de la corrida; cada folio ya quedó por `issue`.
+                from itcj2.apps.titulatec.services.audit_service import AuditService
+                AuditService.record(
+                    db, "certificate.backfill_run",
+                    entity_type="certificate",
+                    payload={
+                        "total": sum(conteo.values()),
+                        "por_tipo_semestre": {
+                            f"{k}/{sem}": n for (k, sem), n in sorted(conteo.items())
+                        },
+                    },
+                )
             db.commit()
         return dict(sorted(conteo.items()))

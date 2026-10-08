@@ -71,7 +71,7 @@ def encolado(monkeypatch):
     llamadas = []
     monkeypatch.setattr(
         "itcj2.apps.titulatec.services.eligibility_service.enqueue_check",
-        lambda req_id, **kw: llamadas.append((req_id, kw)) or True)
+        lambda req_id, db=None, **kw: llamadas.append((req_id, kw)) or True)
     return llamadas
 
 

@@ -266,6 +266,57 @@ def sin_constancias_de_dev(db_session):
     db_session.commit()          # checkpoint: el rollback de la app no resucita dev
 
 
+# ---------------------------------------------------------------------------
+# Bitácora: solo las filas que escribió ESTA prueba
+# ---------------------------------------------------------------------------
+AUDIT_MARK_KEY = "tt_audit_mark"
+
+
+@pytest.fixture()
+def audit_mark(db_session):
+    """`max(id)` de `titulatec_audit_log` al empezar la prueba (0 si está vacía).
+
+    La bitácora es INMUTABLE (trigger) y la BD de dev es compartida: ya trae el
+    backfill de `titulatec_process_events`, filas de la CLI y una purga real, y
+    cada uso de la app en dev deja más que nadie puede borrar. Una prueba que
+    cuenta `filter_by(action=...)` sobre la tabla entera, o que toma `[0]`, sale
+    roja para siempre en cuanto exista una fila real de esa acción (en CI pasa
+    solo porque la base nace vacía). Toda prueba que LEA la tabla pide esta
+    fixture y consulta con `audit_query(db)`, que agrega `id > marca`.
+
+    La marca se guarda en `db_session.info` para que los helpers de cada archivo
+    (que reciben la sesión, no la fixture) la encuentren; `patched_session_local`
+    es la MISMA sesión, así que también la ve. Se pide con
+    `pytestmark = pytest.mark.usefixtures("audit_mark")`: así se instancia ANTES
+    de las fixtures que siembran datos (las de `usefixtures` entran al cierre
+    antes que los argumentos de la prueba).
+    """
+    from sqlalchemy import func
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    marca = db_session.query(func.coalesce(func.max(TitulatecAuditLog.id), 0)).scalar()
+    db_session.info[AUDIT_MARK_KEY] = int(marca)
+    yield int(marca)
+    db_session.info.pop(AUDIT_MARK_KEY, None)
+
+
+def audit_query(db):
+    """`db.query(TitulatecAuditLog)` acotada a `id > audit_mark`.
+
+    Truena si la prueba no pidió `audit_mark`: sin la marca, la consulta
+    volvería a ver toda la bitácora de dev (justo lo que esto evita).
+    """
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    marca = db.info.get(AUDIT_MARK_KEY)
+    if marca is None:
+        raise AssertionError(
+            "audit_query() exige la fixture `audit_mark` "
+            '(pytestmark = pytest.mark.usefixtures("audit_mark"))')
+    return db.query(TitulatecAuditLog).filter(TitulatecAuditLog.id > marca)
+
+
 @pytest.fixture()
 def authz_congelada(monkeypatch):
     """Caché de authz que NO depende de Redis, para las pruebas de PRESUPUESTO

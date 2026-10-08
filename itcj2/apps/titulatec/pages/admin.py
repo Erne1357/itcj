@@ -652,6 +652,15 @@ def cohort_create(
             db.add(cohort)
             db.flush()          # hace falta el id para sembrar
             CotejoRequirementService.seed_defaults(db, cohort.id, commit=False)
+            # Bitácora: el alta viaja en la misma transacción que la siembra.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "cohort.created", entity_type="cohort", entity_id=cohort.id,
+                subject=cohort.name,
+                after={"period_id": period_id, "status": "draft",
+                       "opens_at": apertura, "closes_at": cierre,
+                       "book_donation_amount": str(donacion)},
+                actor_id=int(user["sub"]))
             db.commit()
     finally:
         db.close()
@@ -1272,7 +1281,7 @@ def _cuerpo_import_commit(cohort_id, request, user, form):
         preview = ImportService.build_preview(db, csv_rows, mapping,
                                               overrides=overrides, excluded=excluded)
         # guarda el mapeo usado para reusarlo la próxima vez
-        ImportService.save_mapping(mapping)
+        ImportService.save_mapping(mapping, db=db, actor_id=int(user["sub"]))
         summary = ImportService.import_rows(db, cohort,
                                             ImportService.rows_to_import(preview),
                                             actor_id=int(user["sub"]), source="csv")
@@ -1395,6 +1404,7 @@ _BACK_LABELS = (
     ("/titulatec/admin/processes", "Procesos"),
     ("/titulatec/admin/correos", "Correos"),
     ("/titulatec/admin/liberados", "Liberados"),
+    ("/titulatec/admin/bitacora", "Bitácora"),
 )
 _BACK_DEFAULT = "/titulatec/admin/processes"
 _BACK_LIBERADOS = "/titulatec/admin/liberados"

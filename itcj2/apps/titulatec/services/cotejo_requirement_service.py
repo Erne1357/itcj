@@ -12,6 +12,10 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+# Campos del requisito que la bitácora fotografía (before/after).
+_AUDIT_FIELDS = ("label", "hint", "icon", "is_required", "is_active",
+                 "order_index", "info_html")
+
 # Información por defecto. HTML ya CANÓNICO: `sanitize_info_html` lo devuelve
 # idéntico (lo fija test_cotejo_requirements.py), así que lo sembrado y lo que ve
 # el alumno —re-sanitizado al pintar— son la misma cadena.
@@ -140,6 +144,14 @@ class CotejoRequirementService:
             order_index=(last.order_index + 1 if last else 0),
         )
         db.add(item)
+        db.flush()
+        # Bitácora: el requisito nuevo.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "cohort.requirement_created", entity_type="cohort_requirement",
+            entity_id=item.id, subject=item.label,
+            after=AuditService.snapshot(item, _AUDIT_FIELDS),
+            payload={"cohort_id": cohort_id})
         db.commit()
         db.refresh(item)
         return item
@@ -171,6 +183,8 @@ class CotejoRequirementService:
         item = db.query(CotejoRequirement).filter_by(id=req_id, cohort_id=cohort_id).first()
         if not item:
             return None
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes = AuditService.snapshot(item, _AUDIT_FIELDS)
         cambia_info = "info_html" in fields
         info = sanitize_info_html(fields["info_html"]) if cambia_info else None
         if item.auto_source:
@@ -180,6 +194,14 @@ class CotejoRequirementService:
                 setattr(item, k, fields[k])
         if cambia_info:
             item.info_html = info
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes_c, despues_c = AuditService.changes(
+            antes, AuditService.snapshot(item, _AUDIT_FIELDS))
+        if antes_c or despues_c:
+            AuditService.record(
+                db, "cohort.requirement_updated", entity_type="cohort_requirement",
+                entity_id=item.id, subject=item.label,
+                before=antes_c, after=despues_c, payload={"cohort_id": cohort_id})
         db.commit()
         db.refresh(item)
         return item
@@ -205,6 +227,13 @@ class CotejoRequirementService:
                   .filter_by(requirement_id=req_id).count())
         if usados:
             return False, f"fulfilled:{usados}"
+        # Bitácora: borrado duro, así que la foto va antes de borrar.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "cohort.requirement_deleted", entity_type="cohort_requirement",
+            entity_id=item.id, subject=item.label,
+            before=AuditService.snapshot(item, _AUDIT_FIELDS),
+            payload={"cohort_id": cohort_id})
         db.delete(item)
         db.commit()
         return True, "ok"

@@ -209,6 +209,17 @@ class CertificateService:
         )
         db.add(cert)
         db.flush()          # el llamador puede necesitar cert.id/number de inmediato
+        # Un solo punto cubre a todos los llamadores (biblioteca, encuesta,
+        # backfill del CLI). Sin commit: la transacción del llamador decide.
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "certificate.issued",
+            entity_type="certificate", entity_id=cert.id,
+            process_id=process.id, subject=cert.number,
+            actor_id=actor_id,
+            payload={"folio": cert.number, "kind": kind,
+                     "source_ref": source_ref, "semester": semestre},
+        )
         return cert
 
     @staticmethod
@@ -260,6 +271,15 @@ class CertificateService:
         cert.voided_at = db_now()
         cert.voided_by_id = actor_id
         cert.void_reason = (reason or "").strip() or None
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "certificate.voided",
+            entity_type="certificate", entity_id=cert.id,
+            process_id=cert.process_id, subject=cert.number,
+            reason=cert.void_reason, actor_id=actor_id,
+            payload={"folio": cert.number, "kind": cert.kind,
+                     "source_ref": source_ref},
+        )
         return cert
 
     # --------------------------------------------------------------- lectura
@@ -628,6 +648,15 @@ class CertificateService:
         db.flush()
         for cert in filas:
             cert.batch_id = batch.id
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "certificate.batch_created",
+            entity_type="certificate_batch", entity_id=batch.id,
+            actor_id=actor_id,
+            payload={"kind": kind, "count": len(filas),
+                     "first_folio": min(c.number for c in filas),
+                     "last_folio": max(c.number for c in filas)},
+        )
         db.commit()
         return batch
 

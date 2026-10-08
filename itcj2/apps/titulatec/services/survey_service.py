@@ -424,6 +424,17 @@ class SurveyService:
                     credit_status = "in_review"
                 else:
                     credit_status = "no_process"
+            # Solo ids: NUNCA las respuestas del alumno. Va antes del único
+            # commit; si el envío pierde la carrera, el rollback se la lleva.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "survey.submitted",
+                entity_type="survey_response", entity_id=response.id,
+                process_id=(process.id if process is not None else None),
+                actor_id=user_id,
+                payload={"form_code": form.code, "form_version": form.version,
+                         "credit_status": credit_status},
+            )
             db.commit()
         except (IntegrityError, ValueError):
             db.rollback()

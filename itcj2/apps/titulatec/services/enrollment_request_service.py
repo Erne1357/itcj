@@ -455,6 +455,11 @@ def _full_name(req) -> str:
     return " ".join(x for x in (req.last_name, req.middle_name, req.first_name) if x).strip()
 
 
+def _audit_subject(req) -> str:
+    """«nº control · nombre» de la solicitud, para la bitácora (spec 2026-10-07)."""
+    return f"{(req.control_number or '').strip()} · {_full_name(req)}"
+
+
 def _has_process_in_other_cohort(db: Session, user_id: int, cohort_id: int) -> bool:
     """D5 exceptuando la convocatoria de la solicitud: impide entrar a una SEGUNDA
     convocatoria, no atender la propia."""
@@ -548,6 +553,7 @@ class EnrollmentRequestService:
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
         from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
         from itcj2.apps.titulatec.services.student_mail import StudentMail
 
@@ -615,6 +621,16 @@ class EnrollmentRequestService:
             created_ip_hash=_hash_ip(client_ip),
         )
         db.add(req)
+        db.flush()              # el id de la solicitud, para la bitácora
+        # Alta PÚBLICA: sin sesión el contexto sale `public`. Del contacto solo
+        # va el canal; ni correo, ni teléfono, ni IP (esa va en su columna).
+        AuditService.record(
+            db, "enrollment.request_created",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req),
+            payload={"channel": "public_form", "kind": req.kind,
+                     "cohort_id": cohort.id, "program_id": req.program_id,
+                     "has_efirma": req.has_efirma})
         db.commit()
         if EnrollmentRequestService.reviewer_mode() == "sii":
             # Modo `sii`: la consulta de elegibilidad corre en celery, DESPUÉS
@@ -863,12 +879,15 @@ class EnrollmentRequestService:
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.services.import_service import ImportService
 
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+
         control = (req.control_number or "").strip()
         if not CONTROL_NUMBER_RE.fullmatch(control) or not _full_name(req):
             return False, _MSG_BAD_DATA, None
 
         user = db.query(User).filter_by(control_number=control).first()
         now = datetime.now()
+        estado_previo = req.status
 
         if user is not None:
             # ── CON cuenta (todos los modos): liga de activación; la cuenta
@@ -879,6 +898,14 @@ class EnrollmentRequestService:
             req.program_id = program_id
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
+            antes, despues = AuditService.changes({"status": estado_previo},
+                                                  {"status": req.status})
+            AuditService.record(
+                db, "enrollment.approved",
+                entity_type="enrollment_request", entity_id=req.id,
+                subject=_audit_subject(req), before=antes, after=despues,
+                payload={"path": "existing_account", "cohort_id": req.cohort_id},
+                actor_id=actor_id)
             db.commit()
             _token_cache_put(raw)
             EnrollmentRequestService._mail_activation(db, req, raw)
@@ -921,10 +948,21 @@ class EnrollmentRequestService:
             req.program_id = program_id
             req.reviewed_by_id = actor_id
             req.reviewed_at = now
+            antes, despues = AuditService.changes({"status": estado_previo},
+                                                  {"status": req.status})
+            AuditService.record(
+                db, "enrollment.approved",
+                entity_type="enrollment_request", entity_id=req.id,
+                subject=_audit_subject(req), before=antes, after=despues,
+                payload={"path": "awaiting_access", "cohort_id": req.cohort_id},
+                actor_id=actor_id)
             db.commit()
             return True, "", None
 
         # ── SIN cuenta, modo alterno: usuario nuevo con el NIP, en un paso ──
+        # (Cuenta nueva, también la del SII de arriba: `_create_account` ya
+        # escribe el `enrollment_self_service` que la bitácora refleja; sin
+        # acción explícita para no duplicarlo.)
         ok, detalle, summary, user = EnrollmentRequestService._create_account(
             db, req, cohort, nip=nip, program_id=program_id,
             actor_id=actor_id, approved_by_id=actor_id, nip_source="form",
@@ -1005,6 +1043,20 @@ class EnrollmentRequestService:
                 return False, detalle
             req.access_granted_by_id = actor_id
             req.access_granted_at = datetime.now()
+            # Bitácora (revisión final M6): sin esto el paso `awaiting_access →
+            # approved` que dio Centro de Cómputo solo quedaba en filas
+            # `data.update`. Después de las validaciones (el `if not ok` de
+            # arriba), antes del commit; el NIP tecleado se ignora y no va.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            antes, despues = AuditService.changes({"status": "awaiting_access"},
+                                                  {"status": req.status})
+            AuditService.record(
+                db, "enrollment.approved",
+                entity_type="enrollment_request", entity_id=req.id,
+                subject=_audit_subject(req), before=antes, after=despues,
+                payload={"path": "existing_account", "via": "access",
+                         "cohort_id": req.cohort_id},
+                actor_id=actor_id)
             db.commit()
             _token_cache_put(raw)
             EnrollmentRequestService._mail_activation(db, req, raw)
@@ -1033,6 +1085,7 @@ class EnrollmentRequestService:
         alumno no se entera del paso intermedio.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         motivo = (note or "").strip()
         if not motivo:
@@ -1053,6 +1106,12 @@ class EnrollmentRequestService:
         req.returned_by_id = actor_id
         req.returned_at = datetime.now()
         req.return_note = motivo
+        AuditService.record(
+            db, "access.returned",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req), reason=motivo,
+            before={"status": "awaiting_access"}, after={"status": "pending_review"},
+            actor_id=actor_id)
         db.commit()
         return True, ""
 
@@ -1133,6 +1192,7 @@ class EnrollmentRequestService:
         """
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1150,7 +1210,13 @@ class EnrollmentRequestService:
         if user is None or proc is None or proc.student_id != user.id:
             return False, _MSG_NO_ACCESS_NOTICE
 
-        db.commit()          # nada escrito: solo suelta el lock antes del correo
+        # Lo único que este commit persiste es la petición de reenvío (sin NIP:
+        # el aviso del SII no lo lleva).
+        AuditService.record(
+            db, "enrollment.notice_resent",
+            entity_type="enrollment_request", entity_id=req.id,
+            process_id=req.converted_process_id, subject=_audit_subject(req))
+        db.commit()          # suelta el lock antes del correo
         if EnrollmentRequestService._mail_access(db, req, user, None, nip_source="sii"):
             return True, ""
         return False, _MSG_ACCESS_NOTICE_NOT_SENT
@@ -1666,6 +1732,7 @@ class EnrollmentRequestService:
         nada, el correo ya salió).
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
         from itcj2.apps.titulatec.services.student_mail import StudentMail
 
@@ -1682,6 +1749,7 @@ class EnrollmentRequestService:
             return False
 
         muerta = req.verify_token_hash
+        estado_previo = req.status
         req.status = "rejected"
         req.review_note = motivo[:2000]
         req.reviewed_by_id = actor_id
@@ -1690,6 +1758,12 @@ class EnrollmentRequestService:
         req.verify_expires_at = None
         # La fila del correo entra en ESTE commit (P-D1).
         encolado = StudentMail.enrollment_rejected(db, req)
+        AuditService.record(
+            db, "enrollment.rejected",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req), reason=motivo,
+            before={"status": estado_previo}, after={"status": "rejected"},
+            actor_id=actor_id)
         db.commit()
         _token_cache_delete(muerta)
         if not encolado and TitulaTecEmailHelper.send_enrollment_rejected(db, req):
@@ -1728,6 +1802,7 @@ class EnrollmentRequestService:
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         motivo = (note or "").strip()
         if not motivo:
@@ -1763,6 +1838,12 @@ class EnrollmentRequestService:
         req.reopened_at = datetime.now()
         req.reopen_note = motivo
         req.rejection_sent_at = None
+        AuditService.record(
+            db, "enrollment.reopened",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req), reason=motivo,
+            before={"status": "rejected"}, after={"status": "pending_review"},
+            actor_id=actor_id)
         try:
             db.commit()
         except IntegrityError:
@@ -1786,6 +1867,7 @@ class EnrollmentRequestService:
         `closes_at` sí (VENTANA, en el módulo).
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1802,6 +1884,11 @@ class EnrollmentRequestService:
         muerta = req.verify_token_hash
         raw = EnrollmentRequestService._issue_activation(req)
         req.verify_send_count = (req.verify_send_count or 0) + 1
+        # La liga nueva jamás entra a la bitácora; solo el hecho y quién lo pidió.
+        AuditService.record(
+            db, "enrollment.link_resent",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req), payload={"by": "admin"})
         db.commit()
         _token_cache_delete(muerta)
         _token_cache_put(raw)
@@ -1831,6 +1918,7 @@ class EnrollmentRequestService:
         from sqlalchemy import func
         from itcj2.core.utils.email_tools import normalize_email
         from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.cohort_service import CohortService
 
         control = (control_number or "").strip()
@@ -1868,6 +1956,10 @@ class EnrollmentRequestService:
             return "noop"
 
         req.verify_send_count = (req.verify_send_count or 0) + 1
+        AuditService.record(
+            db, "enrollment.link_resent",
+            entity_type="enrollment_request", entity_id=req.id,
+            subject=_audit_subject(req), payload={"by": "public"})
         db.commit()
         return "sent" if EnrollmentRequestService._mail_activation(db, req, raw) else "noop"
 

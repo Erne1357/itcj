@@ -186,6 +186,22 @@ class OfficerService:
             u.must_change_password = True
             tocados.append({"id": u.id, "name": u.full_name})
         if tocados:
+            # Bitácora ANTES del commit: la fila viaja con el cambio de cuenta y
+            # contraseña (si el commit revierte, el rastro también). Solo ids y el
+            # hecho del restablecimiento: nunca la contraseña ni su hash.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "officer.account_reactivated",
+                entity_type="user",
+                subject=f"{len(tocados)} cuenta(s) reactivada(s)",
+                payload={
+                    "user_ids": [t["id"] for t in tocados],
+                    "department_id": department_id,
+                    "credential_reset": True,
+                    "forced_change_on_login": True,
+                },
+                actor_id=actor_id,
+            )
             db.commit()
             logging.getLogger("itcj2.apps.titulatec.services.officer_service").info(
                 "Encargados: actor %s reactivó y restableció la contraseña de %s "
@@ -195,8 +211,8 @@ class OfficerService:
         return tocados
 
     @staticmethod
-    def set_programs(db: Session, position_id: int, program_ids: set[int]) -> None:
-        """Sincroniza ProgramPosition del puesto = program_ids."""
+    def _sync_programs(db: Session, position_id: int, program_ids: set[int]) -> tuple[list[int], list[int]]:
+        """Sincroniza ProgramPosition SIN commit. Devuelve (antes, después) ordenados."""
         from itcj2.core.models.position import ProgramPosition
         current = {pp.program_id for pp in
                    db.query(ProgramPosition).filter_by(position_id=position_id).all()}
@@ -204,6 +220,30 @@ class OfficerService:
             db.query(ProgramPosition).filter_by(position_id=position_id, program_id=pid).delete()
         for pid in set(program_ids) - current:
             db.add(ProgramPosition(position_id=position_id, program_id=pid))
+        return sorted(current), sorted(set(program_ids))
+
+    @staticmethod
+    def _position_title(db: Session, position_id: int) -> str | None:
+        """Nombre del encargado para el `subject` de la bitácora (nunca truena)."""
+        from itcj2.core.models.position import Position
+        pos = db.get(Position, position_id)
+        title = getattr(pos, "title", None)
+        return title if isinstance(title, str) else None
+
+    @staticmethod
+    def set_programs(db: Session, position_id: int, program_ids: set[int]) -> None:
+        """Sincroniza ProgramPosition del puesto = program_ids."""
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes, despues = OfficerService._sync_programs(db, position_id, program_ids)
+        if antes != despues:
+            # `program_position` es de core: la red ORM no la ve, esta fila es el
+            # único rastro de quién cambió el alcance por carrera.
+            AuditService.record(
+                db, "officer.programs_changed",
+                entity_type="position", entity_id=position_id,
+                subject=OfficerService._position_title(db, position_id),
+                before={"program_ids": antes}, after={"program_ids": despues},
+            )
         db.commit()
 
     @staticmethod
@@ -226,10 +266,47 @@ class OfficerService:
         from itcj2.core.models.position import UserPosition
         current = {up.user_id for up in
                    db.query(UserPosition).filter_by(position_id=position_id, is_active=True).all()}
-        for uid in current - set(user_ids):
-            positions_service.remove_user_from_position(db, uid, position_id)
-        for uid in set(user_ids) - current:
-            positions_service.assign_user_to_position(db, uid, position_id)
+        error: Exception | None = None
+        try:
+            for uid in current - set(user_ids):
+                positions_service.remove_user_from_position(db, uid, position_id)
+            for uid in set(user_ids) - current:
+                positions_service.assign_user_to_position(db, uid, position_id)
+        except Exception as exc:  # se registra lo que SÍ quedó y se re-lanza
+            error = exc
+        # `positions_service` commitea por dentro (una vez por persona): aunque una
+        # asignación falle a medias, las anteriores ya persistieron. La fila se
+        # escribe SIEMPRE y con lo que de verdad quedó (re-consultado), marcada
+        # `partial` si hubo error; la excepción original sigue su camino.
+        despues = OfficerService._active_user_ids(db, position_id)
+        if current != despues:
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            payload = {"assigned_role": assigned_role,
+                       "added": sorted(despues - current),
+                       "removed": sorted(current - despues)}
+            if error is not None:
+                payload.update(partial=True, error=type(error).__name__,
+                               requested=sorted(set(user_ids)))
+            AuditService.record(
+                db, "officer.users_changed",
+                entity_type="position", entity_id=position_id,
+                subject=OfficerService._position_title(db, position_id),
+                before={"user_ids": sorted(current)},
+                after={"user_ids": sorted(despues)},
+                payload=payload,
+            )
+            db.commit()
+        if error is not None:
+            raise error
+
+    @staticmethod
+    def _active_user_ids(db: Session, position_id: int) -> set[int]:
+        """Personas con asignación vigente al puesto, leídas de la BD."""
+        from itcj2.core.models.position import UserPosition
+        if not db.is_active:
+            db.rollback()
+        return {uid for (uid,) in db.query(UserPosition.user_id)
+                .filter_by(position_id=position_id, is_active=True).all()}
 
     @staticmethod
     def create_officer(db: Session, *, department_id: int, assigned_role: str,
@@ -244,13 +321,65 @@ class OfficerService:
         code = f"se_officer_{uuid.uuid4().hex[:8]}"
         pos = positions_service.create_position(
             db, code=code, title=name, department_id=department_id, allows_multiple=True)
-        positions_service.assign_role_to_position(db, pos.id, "titulatec", assigned_role)
-        for uid in user_ids:
-            positions_service.assign_user_to_position(db, uid, pos.id)
-        OfficerService.set_programs(db, pos.id, program_ids)
-        return pos.id
+        # El id se toma YA: si el `flush` de abajo falla, la sesión revierte y
+        # `pos` queda expirado (leer `pos.id` daría `PendingRollbackError`).
+        pos_id = pos.id
+        error: Exception | None = None
+        try:
+            positions_service.assign_role_to_position(db, pos_id, "titulatec", assigned_role)
+            for uid in user_ids:
+                positions_service.assign_user_to_position(db, uid, pos_id)
+            OfficerService._sync_programs(db, pos_id, program_ids)
+            # `_sync_programs` solo hace `db.add`, y la sesión de producción NO
+            # autoflushea: sin este flush la consulta de `carreras` de abajo no
+            # veía las filas nuevas y la bitácora decía «sin carreras» (revisión
+            # final I1). Además mete aquí, dentro del `try`, el error de una
+            # carrera que no existe (FK): antes salía en el `commit` final y la
+            # fila del alta se perdía con el puesto ya creado.
+            db.flush()
+        except Exception as exc:  # el puesto ya existe: se registra lo que quedó
+            error = exc
+        # Una sola fila para el alta (puesto + rol + personas + carreras), escrita
+        # SIEMPRE: `positions_service` commitea por dentro, así que un fallo a
+        # medias deja el puesto y a quienes ya se asignaron. `after` sale de la BD,
+        # no de lo solicitado; con error lleva `partial`, la clase del error y lo
+        # que se pidió (`requested`, como `set_users`).
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.core.models.position import ProgramPosition
+        usuarios = OfficerService._active_user_ids(db, pos_id)
+        carreras = sorted(pid for (pid,) in db.query(ProgramPosition.program_id)
+                          .filter_by(position_id=pos_id).all())
+        payload = {"department_id": department_id, "assigned_role": assigned_role,
+                   "code": code}
+        if error is not None:
+            payload.update(partial=True, error=type(error).__name__,
+                           requested={"user_ids": sorted(set(user_ids)),
+                                      "program_ids": sorted(set(program_ids))})
+        AuditService.record(
+            db, "officer.created",
+            entity_type="position", entity_id=pos_id, subject=name,
+            after={"user_ids": sorted(usuarios), "program_ids": carreras},
+            payload=payload,
+        )
+        db.commit()
+        if error is not None:
+            raise error
+        return pos_id
 
     @staticmethod
     def deactivate_officer(db: Session, position_id: int) -> None:
-        positions_service.deactivate_position(db, position_id)
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.core.models.position import UserPosition
+        # Quiénes ocupaban el puesto, ANTES: `deactivate_position` cierra sus
+        # UserPosition y commitea por dentro.
+        ocupantes = sorted(
+            uid for (uid,) in db.query(UserPosition.user_id)
+            .filter_by(position_id=position_id, is_active=True).all())
+        titulo = OfficerService._position_title(db, position_id)
+        if positions_service.deactivate_position(db, position_id):
+            AuditService.record(
+                db, "officer.deactivated",
+                entity_type="position", entity_id=position_id, subject=titulo,
+                before={"user_ids": ocupantes}, after={"user_ids": []},
+            )
         db.commit()

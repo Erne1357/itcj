@@ -558,6 +558,9 @@ def test_el_acordeon_recuerda_lo_desplegado():
     ("/titulatec/admin/processes?view=board&stuck=1", "Procesos"),
     ("/titulatec/admin/liberados?cohort_id=3&program_id=&modality_id=&q=ana&page=2",
      "Liberados"),
+    # Revisión final de la bitácora (M5): antes decía «Procesos».
+    ("/titulatec/admin/bitacora?desde=2026-09-01&module=documents&student=ana&page=2",
+     "Bitácora"),
 ])
 def test_regresar_vuelve_al_origen_con_sus_filtros(expediente, client_as, origen, etiqueta):
     """El `href` se compara DESESCAPADO: Jinja escribe `&amp;` en los atributos,
