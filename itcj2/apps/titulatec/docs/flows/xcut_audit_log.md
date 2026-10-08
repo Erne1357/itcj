@@ -17,6 +17,8 @@
 2. Filtros arriba (desde, hasta, módulo, acción, quién, alumno —nº de control, nombre o folio del proceso—, expediente, texto del motivo, «Incluir cambios de datos»): repintan solo `#tt-audit-body` por HTMX (`GET /body`); los filtros viven fuera del swap.
 3. Clic en una fila → detalle (`GET /entry/{id}`): antes/después, payload, huella de la petición (IP, navegador, ruta, `request_id`) y las filas hermanas del mismo `request_id`. «Ocultar detalle» lo pliega (y entonces dice «Ver detalle»); abrirlo no aprieta las columnas de la tabla.
 4. Desde el detalle de un expediente, el enlace a la bitácora (`?process_id=`) abre TODO su historial, sin ventana de 7 días: sus filas más las de su solicitud de inscripción (aprobar, rechazar, reabrir, devolver, reenviar liga), que no llevan `process_id` pero sí el nº de control del alumno en `subject_label`.
+5. Al revés: «Sobre qué» liga al expediente con `?from=` = la vista actual de la Bitácora (filtros + página); el botón Regresar del expediente dice «Bitácora» y vuelve a esa misma vista.
+6. Las entidades se leen con su nombre («Espacio de cotejo #12», «Solicitud de inscripción #40»), sean de la red (tabla) o de una acción explícita (nombre corto, `entity_label`).
 
 ## Secuencia
 

@@ -14,7 +14,7 @@
   </div>
   <dl class="row small mb-2">
     {% if e.subject %}<dt class="col-sm-3">Sujeto</dt><dd class="col-sm-9">{{ e.subject }}</dd>{% endif %}
-    {% if e.entity %}<dt class="col-sm-3">Entidad</dt><dd class="col-sm-9"><span class="tt-mono">{{ e.entity }}</span></dd>{% endif %}
+    {% if e.entity %}<dt class="col-sm-3">Entidad</dt><dd class="col-sm-9">{{ e.entity }}{% if e.entity_code and e.entity_code != e.entity %} <span class="tt-mono text-body-secondary">({{ e.entity_code }})</span>{% endif %}</dd>{% endif %}
     {% if e.process_id %}<dt class="col-sm-3">Expediente</dt><dd class="col-sm-9"><span class="tt-mono">{{ e.process_id }}</span></dd>{% endif %}
     {% if e.reason %}<dt class="col-sm-3">Motivo</dt><dd class="col-sm-9">{{ e.reason }}</dd>{% endif %}
     <dt class="col-sm-3">IP</dt><dd class="col-sm-9 tt-mono">{{ e.ip or '—' }}</dd>

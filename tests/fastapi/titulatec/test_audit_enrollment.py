@@ -263,6 +263,48 @@ def test_devolver_a_revision_registra_access_returned(
     _sin_secretos(fila)
 
 
+def test_dar_acceso_con_cuenta_que_aparecio_registra_approved_via_access(
+    db_session, make_cohort, make_user, correo_ok,
+):
+    """D10 (revisión final M6): Centro de Cómputo da acceso y la cuenta ya
+    existe (un CSV o un alta manual la creó entretanto): la solicitud pasa de
+    `awaiting_access` a `approved` y sale la liga. Antes solo lo contaban filas
+    `data.update` ocultas; ahora es UNA acción del módulo, sin el NIP tecleado."""
+    se, cc = make_user(), make_user()
+    req = _make_req(db_session, make_cohort(status="open"), control="99860030",
+                    status="awaiting_access", reviewed_by_id=se.id,
+                    reviewed_at=datetime.now() - timedelta(hours=1))
+    _cuenta(db_session, "99860030")
+
+    ok = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=cc.id)
+
+    assert ok == (True, "")
+    fila = _fila_unica(db_session, "enrollment.approved", req)
+    assert fila.payload == {"path": "existing_account", "via": "access",
+                            "cohort_id": req.cohort_id}
+    assert fila.actor_id == cc.id
+    assert fila.before == {"status": "awaiting_access"}
+    assert fila.after == {"status": "approved"}
+    assert fila.subject_label.startswith("99860030 · ")
+    _sin_secretos(fila)
+
+
+def test_dar_acceso_frenado_con_cuenta_no_deja_fila(db_session, make_cohort, make_user,
+                                                     correo_ok):
+    """La cuenta que apareció no tiene contraseña: `_issue_link_for_account`
+    la frena ANTES de escribir; nada de «aprobado» fantasma."""
+    se, cc = make_user(), make_user()
+    req = _make_req(db_session, make_cohort(status="open"), control="99860031",
+                    status="awaiting_access", reviewed_by_id=se.id,
+                    reviewed_at=datetime.now() - timedelta(hours=1))
+    _cuenta(db_session, "99860031", password=False)
+
+    ok = _svc().grant_access(db_session, req.id, nip=NIP, actor_id=cc.id)
+
+    assert ok[0] is False
+    assert _acciones(db_session, "enrollment.approved", entity_id=req.id) == []
+
+
 # ---------------------------------------------------------------------------
 # Reenvíos
 # ---------------------------------------------------------------------------

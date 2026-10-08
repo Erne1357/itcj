@@ -453,3 +453,75 @@ def test_las_acciones_de_la_red_tienen_etiqueta():
     assert _vocab().DATA_ACTIONS == {
         "data.insert": "Alta", "data.update": "Cambio", "data.delete": "Baja",
     }
+
+
+# ---------------------------------------------------------------------------
+# (e) Todo `entity_type` de una acción explícita tiene nombre legible
+# ---------------------------------------------------------------------------
+def _entity_types_de(source: str, origen: str) -> tuple[list, list]:
+    """-> ([(origen:línea, entity_type literal)], [origen:línea no literales])."""
+    tree = ast.parse(source, filename=origen)
+    literales, no_literales = [], []
+    for node in ast.walk(tree):
+        if not _es_llamada_a_record(node):
+            continue
+        for kw in node.keywords:
+            if kw.arg != "entity_type":
+                continue
+            donde = f"{origen}:{node.lineno}"
+            if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                literales.append((donde, kw.value.value))
+            elif not (isinstance(kw.value, ast.Constant) and kw.value.value is None):
+                no_literales.append(donde)
+    return literales, no_literales
+
+
+def test_el_barrido_de_entity_type_ve_literales_y_variables():
+    fuente = (
+        "AuditService.record(db, 'cohort.created', entity_type='cohort', entity_id=1)\n"
+        "AuditService.record(db, 'window.paused', entity_type=tipo)\n"
+        "AuditService.record(db, 'window.resumed')\n"
+        "OtraCosa.record(db, 'x.y', entity_type='no_cuenta')\n"
+    )
+    literales, no_literales = _entity_types_de(fuente, "sintetico.py")
+    assert literales == [("sintetico.py:1", "cohort")]
+    assert no_literales == ["sintetico.py:2"]
+
+
+def test_todo_entity_type_de_record_tiene_etiqueta():
+    """Las acciones explícitas usan nombres cortos (`review_window`,
+    `cohort_requirement`, `certificate`…) y la red usa la tabla: sin una
+    etiqueta, «Sobre qué» y el detalle pintaban «review_window #12» (revisión
+    final M8). Un `entity_type` nuevo en un `record(` obliga a nombrarlo en
+    `ENTITY_LABELS`, y como literal (el barrido no puede seguir una variable)."""
+    vocab = _vocab()
+    vistos, no_literales = [], []
+    for ruta in _fuentes_instrumentadas():
+        rel = ruta.relative_to(_REPO).as_posix()
+        lits, nl = _entity_types_de(ruta.read_text(encoding="utf-8"), rel)
+        vistos += lits
+        no_literales += nl
+    assert len({t for _, t in vistos}) >= 10, f"el barrido solo vio {vistos}"
+    assert not no_literales, (
+        "`entity_type=` de `AuditService.record(` debe ser un literal:\n  "
+        + "\n  ".join(no_literales))
+    sin_etiqueta = sorted({f"{t!r} ({donde})" for donde, t in vistos
+                           if t not in vocab.ENTITY_LABELS})
+    assert not sin_etiqueta, (
+        "entity_type sin nombre legible en `ENTITY_LABELS` "
+        f"(services/audit_actions.py): {sin_etiqueta}")
+
+
+def test_las_etiquetas_de_entidad_son_frases_y_coinciden_con_su_tabla():
+    """Una misma entidad se lee igual en las dos fuentes: el nombre corto de
+    una tabla titulatec usa la etiqueta de `TABLE_LABELS`."""
+    vocab = _vocab()
+    for clave, etiqueta in vocab.ENTITY_LABELS.items():
+        assert etiqueta and etiqueta[:1].isupper() and "_" not in etiqueta, (clave, etiqueta)
+    for corto, tabla in vocab.ENTITY_TABLES.items():
+        assert tabla in vocab.TABLE_LABELS, (corto, tabla)
+        assert vocab.ENTITY_LABELS[corto] == vocab.TABLE_LABELS[tabla], corto
+    assert vocab.entity_label("review_window") == "Espacio de cotejo"
+    assert vocab.entity_label("titulatec_review_windows") == "Espacio de cotejo"
+    assert vocab.entity_label("algo_desconocido") == "algo_desconocido"
+    assert vocab.entity_label(None) == ""

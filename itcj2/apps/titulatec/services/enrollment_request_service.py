@@ -1043,6 +1043,20 @@ class EnrollmentRequestService:
                 return False, detalle
             req.access_granted_by_id = actor_id
             req.access_granted_at = datetime.now()
+            # Bitácora (revisión final M6): sin esto el paso `awaiting_access →
+            # approved` que dio Centro de Cómputo solo quedaba en filas
+            # `data.update`. Después de las validaciones (el `if not ok` de
+            # arriba), antes del commit; el NIP tecleado se ignora y no va.
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            antes, despues = AuditService.changes({"status": "awaiting_access"},
+                                                  {"status": req.status})
+            AuditService.record(
+                db, "enrollment.approved",
+                entity_type="enrollment_request", entity_id=req.id,
+                subject=_audit_subject(req), before=antes, after=despues,
+                payload={"path": "existing_account", "via": "access",
+                         "cohort_id": req.cohort_id},
+                actor_id=actor_id)
             db.commit()
             _token_cache_put(raw)
             EnrollmentRequestService._mail_activation(db, req, raw)

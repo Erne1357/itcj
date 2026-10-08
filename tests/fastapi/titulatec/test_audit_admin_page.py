@@ -214,6 +214,27 @@ def test_etiquetas_y_actores(client_as, db_session, admin, make_user):
     assert {a.id, d.id, e.id} <= _ids(html)
 
 
+def test_entity_type_corto_se_lee_con_su_nombre(client_as, db_session, admin):
+    """Revisión final M8: las acciones explícitas guardan nombres cortos
+    (`review_window`); «Sobre qué» y el detalle los traducen igual que la red
+    traduce la tabla. El valor guardado no cambia."""
+    t = _token()
+    a = _fila(db_session, token=t, action="window.updated", module="windows",
+              entity_type="review_window", entity_id=12)
+    d = _fila(db_session, token=t, source="data", action="data.update", module="windows",
+              entity_type="titulatec_review_windows", entity_id=12)
+    c = client_as(admin)
+    html = _body(c, q=t, data="1")
+    assert {a.id, d.id} <= _ids(html)
+    assert html.count("Espacio de cotejo #12") == 2
+    assert "review_window #12" not in html
+    det = c.get(f"{URL}/entry/{a.id}").text
+    assert "Espacio de cotejo #12" in det
+    assert "review_window #12" not in det
+    db_session.refresh(a)
+    assert a.entity_type == "review_window"
+
+
 # ---------------------------------------------------------------------------
 # 4. Paginación
 # ---------------------------------------------------------------------------
@@ -266,6 +287,59 @@ def test_liga_ver_bitacora_con_permiso(client_as, make_head, make_user, make_pro
     r = client_as(con).get(f"/titulatec/admin/processes/{proc.id}")
     assert r.status_code == 200, r.text[:300]
     assert f"{URL}?process_id={proc.id}" in r.text
+
+
+def _liga_expediente(html: str, proc_id: int) -> str:
+    """El `from` (desescapado) de la liga «Sobre qué» al expediente."""
+    import html as _html
+    from urllib.parse import parse_qs, urlsplit
+
+    m = re.search(rf'href="(/titulatec/admin/processes/{proc_id}\?[^"]*)"', html)
+    assert m, "la fila no liga al expediente"
+    return parse_qs(urlsplit(_html.unescape(m.group(1))).query)["from"][0]
+
+
+def test_liga_al_expediente_lleva_los_filtros_de_la_bitacora(
+        client_as, db_session, make_head, make_user, make_process):
+    """Revisión final M5: el expediente abierto desde la Bitácora regresa a la
+    Bitácora CON sus filtros (y página), no a «Procesos» ni a la vista limpia."""
+    from urllib.parse import parse_qs, urlsplit
+    from tests.fastapi.titulatec.conftest import HEAD_PERMS
+
+    t = _token()
+    proc = make_process(make_user(first_name="REGRESO", last_name="BITACORA"))
+    _fila(db_session, token=t, process_id=proc.id, action="window.created",
+          module="windows")
+    c = client_as(make_head(perm_codes=HEAD_PERMS + (PERM,)))
+
+    desde = _ahora().strftime("%Y-%m-%d")
+    back = _liga_expediente(_body(c, q=t, module="windows", desde=desde, data="1"), proc.id)
+    partes = urlsplit(back)
+    assert partes.path == URL
+    assert parse_qs(partes.query) == {"q": [t], "module": ["windows"],
+                                      "desde": [desde], "data": ["1"]}
+
+    # El expediente valida ese `from` con `_back_ctx` y pinta «Bitácora».
+    pagina = c.get(f"/titulatec/admin/processes/{proc.id}",
+                   params={"from": back}).text
+    m = re.search(r'id="exp-back"[^>]*href="([^"]*)"[^>]*>(.*?)</a>', pagina, re.S)
+    assert m, "no hay botón de regresar"
+    import html as _html
+    assert _html.unescape(m.group(1)) == back
+    assert "Bitácora" in m.group(2)
+
+
+def test_un_filtro_con_dos_puntos_no_rompe_el_regreso(client_as, db_session, make_head,
+                                                      make_user, make_process):
+    """`_back_ctx` rechaza `..`: con un texto así la liga vuelve a la Bitácora
+    sin filtros (nunca a un `from` que el expediente descartaría)."""
+    from tests.fastapi.titulatec.conftest import HEAD_PERMS
+
+    t = _token()
+    proc = make_process(make_user(first_name="PUNTOS", last_name="DOBLES"))
+    _fila(db_session, token=t, process_id=proc.id, reason_extra="a..b")
+    c = client_as(make_head(perm_codes=HEAD_PERMS + (PERM,)))
+    assert _liga_expediente(_body(c, q=f"{t} a..b"), proc.id) == URL
 
 
 def test_sin_permiso_no_hay_liga_ver_bitacora(client_as, make_head, make_user,

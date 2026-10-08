@@ -213,6 +213,27 @@ def _predicates(f: dict, *, process_control: str | None = None) -> list:
     return out
 
 
+_BITACORA = "/titulatec/admin/bitacora"
+
+
+def _bitacora_from(f: dict, page: int) -> str:
+    """URL de ESTA vista de la Bitácora (filtros + página) para el `?from=` del
+    expediente (revisión final M5): Regresar vuelve aquí y no a «Procesos» ni a
+    la vista limpia. `pages/admin.py::_back_ctx` rechaza un `from` con `..`
+    (texto libre de un filtro): entonces vuelve a la Bitácora sin filtros."""
+    from urllib.parse import urlencode
+
+    pares = [(k, f[k]) for k in ("desde", "hasta", "module", "action", "who", "student",
+                                 "process_id", "q")
+             if f.get(k) not in (None, "")]
+    if f.get("data"):
+        pares.append(("data", "1"))
+    if page and page > 1:
+        pares.append(("page", page))
+    url = f"{_BITACORA}?{urlencode(pares)}" if pares else _BITACORA
+    return _BITACORA if ".." in url else url
+
+
 def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> dict:
     """Contexto compartido por la página y el parcial. `rows` son dicts planos
     (la plantilla se pinta después del `db.close()` de la ruta); actores y
@@ -221,7 +242,8 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
     from itcj2.apps.titulatec.models import TitulationProcess
     from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog as A
     from itcj2.apps.titulatec.pages.mail_admin import _process_opener
-    from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES, TABLE_LABELS
+    from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES, entity_label
+    from urllib.parse import quote
 
     preds = _predicates(f, process_control=_process_control(db, f["process_id"]))
     query = (db.query(A).filter(*preds)
@@ -240,6 +262,8 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
     if sids:
         alumnos = {u.id: u for u in db.query(User).filter(User.id.in_(sids)).all()}
     puede_abrir = _process_opener(db, user_id) if procesos else (lambda _p: False)
+    # A dónde regresa el expediente: esta MISMA vista (filtros + página).
+    regreso = quote(_bitacora_from(f, pagina.page), safe="/")
 
     rows = []
     for r in filas:
@@ -258,7 +282,9 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
         elif proc is not None:
             sobre = f"{proc.folio} · {alumno.full_name}" if alumno is not None else proc.folio
         elif r.entity_type:
-            sobre = TABLE_LABELS.get(r.entity_type, r.entity_type)
+            # Tabla de la red o nombre corto de una acción, con el MISMO nombre
+            # legible (`entity_label`): nunca «review_window #12».
+            sobre = entity_label(r.entity_type)
             if r.entity_id is not None:
                 sobre = f"{sobre} #{r.entity_id}"
         else:
@@ -273,7 +299,7 @@ def _body_ctx(db, *, user_id: int, f: dict, page, per_page: int = PAGE_SIZE) -> 
             "label": _label(r.action, r.entity_type),
             "is_data": r.source == "data",
             "about": sobre,
-            "process_url": (f"/titulatec/admin/processes/{proc.id}?from=/titulatec/admin/bitacora"
+            "process_url": (f"/titulatec/admin/processes/{proc.id}?from={regreso}"
                             if proc is not None and puede_abrir(proc) else ""),
             "reason": reason if len(reason) <= _REASON_CLIP else reason[:_REASON_CLIP - 1] + "…",
         })
@@ -347,7 +373,7 @@ def _entry_ctx(db, entry_id: int) -> dict | None:
     from sqlalchemy import func  # noqa: F401
     from itcj2.core.models.user import User
     from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog as A
-    from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES
+    from itcj2.apps.titulatec.services.audit_actions import AUDIT_MODULES, entity_label
 
     r = db.get(A, entry_id)
     if r is None:
@@ -378,8 +404,10 @@ def _entry_ctx(db, entry_id: int) -> dict | None:
             "id": r.id, "when": _fecha(r.occurred_at), "label": _label(r.action, r.entity_type),
             "action": r.action, "source": r.source, "module": AUDIT_MODULES.get(r.module, r.module),
             "actor": actor or "—", "actor_kind": _KIND_BADGES.get(r.actor_kind, ""),
-            "entity": (f"{r.entity_type} #{r.entity_id}" if r.entity_type and r.entity_id is not None
-                       else (r.entity_type or "")),
+            "entity": (f"{entity_label(r.entity_type)} #{r.entity_id}"
+                       if r.entity_type and r.entity_id is not None
+                       else entity_label(r.entity_type)),
+            "entity_code": r.entity_type or "",
             "subject": r.subject_label or "", "process_id": r.process_id,
             "reason": r.reason or "", "ip": r.ip or "", "user_agent": r.user_agent or "",
             "route": r.route or "", "request_id": r.request_id or "",

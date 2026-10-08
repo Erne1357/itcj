@@ -1404,6 +1404,7 @@ _BACK_LABELS = (
     ("/titulatec/admin/processes", "Procesos"),
     ("/titulatec/admin/correos", "Correos"),
     ("/titulatec/admin/liberados", "Liberados"),
+    ("/titulatec/admin/bitacora", "Bitácora"),
 )
 _BACK_DEFAULT = "/titulatec/admin/processes"
 _BACK_LIBERADOS = "/titulatec/admin/liberados"

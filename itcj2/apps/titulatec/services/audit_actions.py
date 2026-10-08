@@ -245,6 +245,39 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_synodal_assignments": "Sinodal asignado",
 }
 
+# `entity_type` CORTO de las acciones explícitas (`AuditService.record(...,
+# entity_type="review_window")`) -> su tabla titulatec: la etiqueta sale de
+# `TABLE_LABELS`, así una misma entidad se lee igual en `action` y en `data`
+# (revisión final M8). Solo para MOSTRAR: el valor guardado no cambia.
+ENTITY_TABLES: dict[str, str] = {
+    "certificate": "titulatec_certificates",
+    "certificate_batch": "titulatec_certificate_batches",
+    "cohort": "titulatec_cohorts",
+    "cohort_requirement": "titulatec_cotejo_requirements",
+    "enrollment_request": "titulatec_enrollment_requests",
+    "format_b": "titulatec_format_b",
+    "prior_clearance": "titulatec_prior_clearances",
+    "review_window": "titulatec_review_windows",
+    "survey_response": "titulatec_survey_responses",
+}
+# Los que no son una tabla de titulatec (core, archivos, la propia consola).
+ENTITY_LABELS: dict[str, str] = {
+    **{corto: TABLE_LABELS[tabla] for corto, tabla in ENTITY_TABLES.items()},
+    "audit_log": "Bitácora",
+    "cli_command": "Comando de consola",
+    "import_mapping": "Mapeo de columnas de importación",
+    "position": "Encargado (puesto)",
+    "user": "Cuenta de usuario",
+}
+
+
+def entity_label(entity_type) -> str:
+    """Nombre legible de un `entity_type` de la bitácora: tabla de la red o
+    nombre corto de una acción. Desconocido -> el mismo texto; vacío -> ""."""
+    if not entity_type:
+        return ""
+    return TABLE_LABELS.get(entity_type) or ENTITY_LABELS.get(entity_type) or str(entity_type)
+
 # D14: la bitácora misma, la tabla de eventos (ya espejada, no se duplica) y la
 # bandeja de correos (es su propio registro y Celery la toca cada 5 minutos).
 NET_EXCLUDED_TABLES: frozenset[str] = frozenset({
