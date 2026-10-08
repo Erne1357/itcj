@@ -38,6 +38,7 @@ ITEM_TEMPLATE = f"{PREFIX}/items/{{item_id}}"
 
 CONTEXT_FIELDS = (
     "trace_id", "span_id", "request_id", "user_id", "route", "app", "celery_task_id",
+    "sid",
 )
 BASE_FIELDS = ("ts", "level", "logger", "msg")
 
@@ -249,7 +250,7 @@ def test_extra_cannot_spoof_the_request_id(client, json_logs):
 
 
 # Ids que `ContextFilter` escribe SIEMPRE desde el contexto de la petición.
-_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id", "celery_task_id"})
+_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id", "celery_task_id", "sid"})
 
 
 def _extra_keys_that_collide(tree) -> list:

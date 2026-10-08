@@ -36,12 +36,15 @@ _trace_id: ContextVar[str] = ContextVar("itcj_trace_id")
 _span_id: ContextVar[str] = ContextVar("itcj_span_id")
 _request_id: ContextVar[str] = ContextVar("itcj_request_id")
 _scope: ContextVar[dict] = ContextVar("itcj_scope")
+# Id de la conexión Socket.IO del evento en curso; vacío en HTTP y Celery.
+_sid: ContextVar[str] = ContextVar("itcj_sid")
 
 _VARS = {
     "trace_id": _trace_id,
     "span_id": _span_id,
     "request_id": _request_id,
     "scope": _scope,
+    "sid": _sid,
 }
 
 # ---------------------------------------------------------------------------
@@ -215,6 +218,10 @@ def current_span_id() -> str:
 
 def current_request_id() -> str:
     return _request_id.get(None) or ""
+
+
+def current_sid() -> str:
+    return _sid.get(None) or ""
 
 
 def current_scope() -> dict | None:

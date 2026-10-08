@@ -88,6 +88,27 @@ HTTP_EXCEPTIONS = Counter(
 
 
 # ---------------------------------------------------------------------------
+# Eventos de Socket.IO (Fase 5c) — los alimenta `sockets/instrumentation.py`
+# ---------------------------------------------------------------------------
+# `namespace` y `event` salen de conjuntos CERRADOS (los 6 namespaces y los
+# eventos con handler registrado, más `connect`/`disconnect`); lo demás
+# colapsa a "otro". Un cliente puede emitir nombres arbitrarios y no debe
+# poder abrir series. Nunca `sid`, `user_id` ni `room`.
+SOCKET_EVENTS = Counter(
+    "itcj_socket_events_total",
+    "Eventos de Socket.IO atendidos por un handler, por namespace y resultado.",
+    ("namespace", "event", "status"),
+)
+
+SOCKET_EVENT_DURATION = Histogram(
+    "itcj_socket_event_duration_seconds",
+    "Duración de los handlers de eventos de Socket.IO.",
+    ("namespace", "event"),
+    buckets=DURATION_BUCKETS,
+)
+
+
+# ---------------------------------------------------------------------------
 # Saturación (Fase 3) — los actualiza `saturation.update_gauges()`
 # ---------------------------------------------------------------------------
 # Gauges REALES con `.set()` desde cada worker, no un colector personalizado:
