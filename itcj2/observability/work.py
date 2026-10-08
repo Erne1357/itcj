@@ -48,6 +48,12 @@ olvido ni suponga que el panel los cubre:
   anotaron para una ronda posterior, cada uno sería un `kind` nuevo en
   `DOCUMENT_KIND_ENGINE`).
 
+Fase 7: con el tracing encendido, `measured()` abre además un span hijo
+(`libreoffice.convert` / `<engine>.render`, ver `_render_span_name`). Las
+llamadas salientes NO: msgraph, msal y football_api ya salen como spans
+cliente de los instrumentors de requests/httpx; `sii` (ODBC) queda como hueco
+dentro del span padre.
+
 Sin `returncode` como etiqueta: es un entero abierto (cada código de salida,
 y los negativos de cada señal, sería una serie nueva por cada `kind`), y sin
 el stderr no explica nada. Va en la línea de log del servicio cuando es != 0.
@@ -66,6 +72,7 @@ from time import monotonic, perf_counter
 from types import MappingProxyType
 
 from itcj2.config import get_settings
+from itcj2.observability import tracing
 
 logger = logging.getLogger("itcj2.observability")
 
@@ -302,10 +309,38 @@ def _observe(attr: str, labels: dict | None, outcome: str, seconds: float) -> No
             pass
 
 
-def _timed(attr: str, labels: dict | None):
-    """El cronómetro común (generador, lo delegan los dos context managers)."""
+def _render_span_name(labels: dict | None) -> str:
+    """Nombre del span de un render (Fase 7).
+
+    LibreOffice es `libreoffice.convert` (el nombre que usa el plan y el que
+    se busca en Tempo: es el subprocess de segundos dentro de una petición);
+    el resto `<engine>.render` (`openpyxl.render`, `csv.render`...). El `kind`
+    va como atributo y no en el nombre: así un motor es UNA operación en
+    Tempo, filtrable por kind. Con etiquetas fuera del conjunto cerrado
+    (producción tolerante) no hay engine fiable: `document.render`.
+    """
+    if labels is None:
+        return "document.render"
+    if labels["engine"] == "libreoffice":
+        return "libreoffice.convert"
+    return f"{labels['engine']}.render"
+
+
+def _timed(attr: str, labels: dict | None, span_name: str | None = None):
+    """El cronómetro común (generador, lo delegan los dos context managers).
+
+    Con `span_name` y el tracing encendido (Fase 7) abre además un span HIJO
+    del activo (el servidor de la petición o el de la tarea Celery), ERROR si
+    el resultado no es `ok`. Atributos: solo las etiquetas del conjunto
+    cerrado (`kind`/`engine`), nunca nada del documento. Apagado,
+    `start_span` regresa `None` y nada cambia.
+    """
+    active = None
+    if span_name is not None:
+        active = tracing.start_span(span_name)
     measurement = Measurement()
     outcome = "ok"
+    error = None
     start = perf_counter()
     try:
         yield measurement
@@ -315,12 +350,24 @@ def _timed(attr: str, labels: dict | None):
         # El `raise` desnudo re-lanza el MISMO objeto y `contextmanager` lo
         # deja salir tal cual (identidad).
         outcome = "timeout" if _is_timeout(exc) else "error"
+        error = exc
         raise
     finally:
         seconds = perf_counter() - start
         if outcome == "ok" and measurement.failed:
             outcome = "error"
         _observe(attr, labels, outcome, seconds)
+        # `end_span` nunca lanza (este `finally` no puede tapar la excepción
+        # del negocio); no-op con `active is None`.
+        tracing.end_span(
+            active,
+            attributes=(
+                {f"itcj.document.{k}": v for k, v in labels.items()}
+                if labels else None
+            ),
+            error=outcome != "ok",
+            exception=error,
+        )
 
 
 @contextmanager
@@ -337,7 +384,7 @@ def measured(kind: str, engine: str):
         _RENDER_METRIC, "(kind, engine)", (kind, engine), _DOCUMENT_PAIRS
     )
     labels = {"kind": kind, "engine": engine} if pair_ok else None
-    yield from _timed("DOCUMENT_RENDER_DURATION", labels)
+    yield from _timed("DOCUMENT_RENDER_DURATION", labels, _render_span_name(labels))
 
 
 @contextmanager

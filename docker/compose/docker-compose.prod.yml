@@ -122,11 +122,13 @@ services:
       - INSTANCE_COLOR=blue
       - APP_ROLE=http
       # Fase 7 — trazas OTel a Alloy (alloy:4317, red itcj_default) -> Tempo.
-      # Apagadas salvo OTEL_ENABLED=1. OJO: el valor se INTERPOLA al correr
-      # `docker compose` (entorno del shell o .env del directorio del compose),
-      # y esta entrada PISA la de env_file: un OTEL_ENABLED=1 puesto solo en
-      # .env.prod no enciende nada. Rollback: 0 y recrear.
-      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      # El INTERRUPTOR es OTEL_ENABLED en .env.prod (env_file), y a propósito
+      # NO se declara aquí: una entrada `OTEL_ENABLED=${...}` en `environment:`
+      # se interpola del shell que corre `docker compose` y PISA la de
+      # env_file, así que un 1 en .env.prod no encendería nada. Sin la
+      # variable (o con cualquier valor que no sea "1") el código no traza.
+      # Rollback: 0 (o quitarla) en .env.prod y recrear. El endpoint sí va
+      # aquí: es infraestructura, no un interruptor.
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
@@ -208,7 +210,6 @@ services:
       - INSTANCE_COLOR=green
       - APP_ROLE=http
       # Fase 7: ver backend-blue.
-      - OTEL_ENABLED=${OTEL_ENABLED:-0}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
@@ -295,7 +296,6 @@ services:
       - INSTANCE_COLOR=sockets
       - APP_ROLE=socket
       # Fase 7: ver backend-blue.
-      - OTEL_ENABLED=${OTEL_ENABLED:-0}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=1
       # Los handlers de socket pegan a la BD via asyncio.to_thread (slots.py,
@@ -369,9 +369,9 @@ services:
       - CELERY_QUEUES=default,notifications
       - CELERY_HOSTNAME=worker
       # Fase 7: ver backend-blue. Cada hijo del prefork arma su provider en
-      # worker_process_init. celery-beat NO lleva estas variables a propósito:
-      # solo encola, y la tarea abre su span raíz aquí, en el worker.
-      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      # worker_process_init. celery-beat no traza aunque herede OTEL_ENABLED
+      # del env_file: solo encola (no corre worker_process_init), y la tarea
+      # abre su span raíz aquí, en el worker.
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..
@@ -416,7 +416,6 @@ services:
       - CELERY_SKIP_SYNC=1
       - CELERY_HOSTNAME=reports
       # Fase 7: ver backend-blue y celery-worker.
-      - OTEL_ENABLED=${OTEL_ENABLED:-0}
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..

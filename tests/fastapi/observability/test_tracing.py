@@ -298,6 +298,59 @@ def test_create_app_no_suma_la_telemetria_propia_de_fastapi(spans):
 
 
 # ---------------------------------------------------------------------------
+# Trabajo pesado medido (Fase 4: `measured`)
+# ---------------------------------------------------------------------------
+
+def test_render_de_libreoffice_es_un_span_hijo_libreoffice_convert(spans):
+    from itcj2.observability.work import measured
+
+    parent = tracing.start_span("GET /petición")
+    try:
+        with measured("orden_trabajo", "libreoffice"):
+            inner_trace_id = context.current_trace_id()
+    finally:
+        tracing.end_span(parent)
+
+    (span,) = [s for s in spans.get_finished_spans() if s.name == "libreoffice.convert"]
+    assert _hex_trace(span) == parent.trace_id == inner_trace_id
+    assert format(span.parent.span_id, "016x") == parent.span_id
+    assert dict(span.attributes) == {
+        "itcj.document.kind": "orden_trabajo",
+        "itcj.document.engine": "libreoffice",
+    }
+    assert span.status.status_code == StatusCode.UNSET
+
+
+def test_render_que_falla_marca_error_y_otros_motores_se_llaman_engine_render(spans):
+    from itcj2.observability.work import measured
+
+    with pytest.raises(ProbeBoomError):
+        with measured("inventory_export", "openpyxl"):
+            raise ProbeBoomError("render")
+    with measured("agendatec_report", "xlsxwriter") as call:
+        call.mark_error()
+
+    by_name = {s.name: s for s in spans.get_finished_spans()}
+    failed = by_name["openpyxl.render"]
+    assert failed.status.status_code == StatusCode.ERROR
+    assert [e.name for e in failed.events] == ["exception"]
+    marked = by_name["xlsxwriter.render"]
+    assert marked.status.status_code == StatusCode.ERROR
+    assert marked.events == ()
+
+
+def test_render_con_tracing_apagado_no_abre_span(monkeypatch):
+    from itcj2.observability.work import measured
+
+    monkeypatch.delenv("OTEL_ENABLED", raising=False)
+    assert tracing.setup_tracing() is None
+    with measured("solicitud", "libreoffice"):
+        # Ningún span activo dentro del bloque: el contexto queda como hoy.
+        assert context.current_otel_ids() is None
+    assert context.current_otel_ids() is None
+
+
+# ---------------------------------------------------------------------------
 # Socket.IO
 # ---------------------------------------------------------------------------
 
