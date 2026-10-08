@@ -121,6 +121,13 @@ services:
     environment:
       - INSTANCE_COLOR=blue
       - APP_ROLE=http
+      # Fase 7 — trazas OTel a Alloy (alloy:4317, red itcj_default) -> Tempo.
+      # Apagadas salvo OTEL_ENABLED=1. OJO: el valor se INTERPOLA al correr
+      # `docker compose` (entorno del shell o .env del directorio del compose),
+      # y esta entrada PISA la de env_file: un OTEL_ENABLED=1 puesto solo en
+      # .env.prod no enciende nada. Rollback: 0 y recrear.
+      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
       # worker, default de anyio). Los endpoints `def` corren ahi, y cada uno
@@ -200,6 +207,9 @@ services:
     environment:
       - INSTANCE_COLOR=green
       - APP_ROLE=http
+      # Fase 7: ver backend-blue.
+      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
       # worker, default de anyio). Los endpoints `def` corren ahi, y cada uno
@@ -284,6 +294,9 @@ services:
     environment:
       - INSTANCE_COLOR=sockets
       - APP_ROLE=socket
+      # Fase 7: ver backend-blue.
+      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=1
       # Los handlers de socket pegan a la BD via asyncio.to_thread (slots.py,
       # helpdesk.py, maint.py). El techo de concurrencia real lo pone el
@@ -355,6 +368,11 @@ services:
     environment:
       - CELERY_QUEUES=default,notifications
       - CELERY_HOSTNAME=worker
+      # Fase 7: ver backend-blue. Cada hijo del prefork arma su provider en
+      # worker_process_init. celery-beat NO lleva estas variables a propósito:
+      # solo encola, y la tarea abre su span raíz aquí, en el worker.
+      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -397,6 +415,9 @@ services:
       - CELERY_WORKER_CONCURRENCY=2
       - CELERY_SKIP_SYNC=1
       - CELERY_HOSTNAME=reports
+      # Fase 7: ver backend-blue y celery-worker.
+      - OTEL_ENABLED=${OTEL_ENABLED:-0}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi

@@ -25,13 +25,20 @@ Decisiones:
   hay sesión y queda vacío.
 - Nada de la instrumentación rompe ni silencia al handler: todo va en
   `try/except Exception` y la excepción original sube intacta.
+- Fase 7 (OTel encendido): cada evento abre además un span RAÍZ
+  `"socketio <namespace> <event>"` (las mismas etiquetas colapsadas de la
+  métrica: el nombre no es entrada libre del cliente) y sus ids son los que se
+  ligan, para que el `trace_id` de una línea de socket en Loki exista en
+  Tempo. ERROR cuando la métrica cuenta `error`; un intento que la métrica no
+  cuenta (firma vieja de `connect`, cancelación) tampoco se exporta. Apagado,
+  `tracing.start_span` regresa `None` y todo queda igual que antes.
 """
 import logging
 from time import perf_counter
 
 import socketio
 
-from itcj2.observability import context
+from itcj2.observability import context, tracing
 
 logger = logging.getLogger("itcj2.sockets.instrumentation")
 
@@ -96,10 +103,17 @@ def _record(namespace, event, status, started) -> None:
 class InstrumentedAsyncServer(socketio.AsyncServer):
     async def _trigger_event(self, event, namespace, *args):
         tokens = None
+        active = None
         labels = (OTHER, OTHER)
         started = perf_counter()
         try:
-            trace_id, span_id = context.new_ids()
+            # Raíz aunque haya un span activo: un evento no es hijo de nadie.
+            # El nombre definitivo se pone al cerrar, con las etiquetas.
+            active = tracing.start_span("socketio", root=True, server=True)
+            if active is not None:
+                trace_id, span_id = active.trace_id, active.span_id
+            else:
+                trace_id, span_id = context.new_ids()
             user_id = await _user_id(self, event, namespace, args)
             # `scope` mínimo con la forma que lee el filtro de logs: así
             # `user_id` sale en cada línea de log del handler.
@@ -117,6 +131,7 @@ class InstrumentedAsyncServer(socketio.AsyncServer):
 
         status = "ok"
         counted = True
+        error = None
         try:
             return await super()._trigger_event(event, namespace, *args)
         except Exception as exc:
@@ -130,6 +145,7 @@ class InstrumentedAsyncServer(socketio.AsyncServer):
                 counted = False
             else:
                 status = "error"
+                error = exc
             raise
         except BaseException:
             # Cancelación (cierre del servidor): ni éxito ni fallo del handler.
@@ -141,6 +157,13 @@ class InstrumentedAsyncServer(socketio.AsyncServer):
                     _record(*labels, status, started)
             except Exception:
                 logger.warning("socket: no se pudo registrar la métrica", exc_info=True)
+            tracing.end_span(
+                active,
+                name=f"socketio {labels[0]} {labels[1]}",
+                error=status == "error",
+                exception=error,
+                export=counted,
+            )
             if tokens is not None:
                 try:
                     context.reset(tokens)

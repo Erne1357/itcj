@@ -176,6 +176,10 @@ async def lifespan(app: FastAPI):
 
     from itcj2.database import engine
     engine.dispose()
+
+    # Vacía el batch de spans pendiente (Fase 7); no-op con el tracing apagado.
+    from itcj2.observability.tracing import shutdown_tracing
+    shutdown_tracing()
     logger.info("FastAPI ITCJ v2 detenido.")
 
 
@@ -185,6 +189,14 @@ def create_app() -> FastAPI:
     # ya sale con el formato y los niveles buenos.
     from itcj2.observability.logging_config import configure_logging
     configure_logging()
+
+    # Trazas OTel (Fase 7), solo con OTEL_ENABLED=1. Aquí y no al importar:
+    # con `uvicorn --workers 4` cada worker es un proceso nuevo que corre
+    # `create_app()`, así que cada uno arma su propio provider y su hilo de
+    # exportación. Antes de registrar routers: lo que instrumenta (el engine
+    # de SQLAlchemy, Redis, requests, httpx, Celery) es global al proceso.
+    from itcj2.observability.tracing import setup_tracing
+    setup_tracing()
 
     from itcj2.config import get_settings
 
@@ -201,6 +213,21 @@ def create_app() -> FastAPI:
         redoc_url=None if _is_prod else "/api/redoc",
         openapi_url=None if _is_prod else "/api/openapi.json",
         lifespan=lifespan,
+        # TRAMPA (Fase 7): FastAPI trae su propia telemetría OTel ENCENDIDA
+        # por defecto, y se activa sola en cuanto hay un TracerProvider global
+        # — el que fija `setup_tracing()`. Envolvería la app POR FUERA del
+        # middleware de observabilidad: un segundo span servidor (sin la
+        # regla `__unmatched__`) del que el nuestro quedaría como hijo, más
+        # spans por dependencia/serialización y registros de excepciones con
+        # sus mensajes. Las trazas, métricas y logs de la app ya los da
+        # `itcj2.observability`: se apaga entera.
+        telemetry={
+            "tracing": False,
+            "metrics": False,
+            "logs": False,
+            "operation_spans": False,
+            "auto_configure": False,
+        },
     )
 
     # Middleware (JWT, CORS)

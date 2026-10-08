@@ -212,6 +212,21 @@ def current_trace_id() -> str:
     return _trace_id.get(None) or ""
 
 
+def current_otel_ids() -> tuple[str, str] | None:
+    """`(trace_id, span_id)` del span OTel activo, o `None` si no hay uno.
+
+    Sin el tracing de la Fase 7 encendido nadie activa spans (la API la
+    arrastra fastapi, pero sin SDK el span actual es siempre el inválido), así
+    que regresa `None` y quien llama acuña sus ids como siempre.
+    """
+    if _otel_trace is None:
+        return None
+    span_context = _otel_trace.get_current_span().get_span_context()
+    if not span_context.is_valid:
+        return None
+    return format(span_context.trace_id, "032x"), format(span_context.span_id, "016x")
+
+
 def current_span_id() -> str:
     return _span_id.get(None) or ""
 

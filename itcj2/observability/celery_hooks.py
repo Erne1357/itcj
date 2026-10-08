@@ -49,6 +49,7 @@ from celery.signals import before_task_publish, task_postrun, task_prerun
 
 from itcj2.observability.context import (
     bind,
+    current_otel_ids,
     new_ids,
     reset,
     sanitize_carried,
@@ -58,6 +59,7 @@ from itcj2.observability.context import (
 logger = logging.getLogger(__name__)
 
 HEADER = "itcj_ctx"
+_PRERUN_UID = "itcj2.observability.restore"
 
 # Tokens de `bind()` de cada ejecución en curso, por `id()` de su
 # `task.request`: Celery arma un `Context` nuevo por ejecución y es el mismo
@@ -83,7 +85,7 @@ def _inject_context(headers=None, **kwargs) -> None:
         logger.exception("celery_hooks: no se pudo adjuntar el contexto al mensaje")
 
 
-@task_prerun.connect(weak=False, dispatch_uid="itcj2.observability.restore")
+@task_prerun.connect(weak=False, dispatch_uid=_PRERUN_UID)
 def _bind_task_context(task=None, **kwargs) -> None:
     try:
         request = task.request
@@ -95,17 +97,38 @@ def _bind_task_context(task=None, **kwargs) -> None:
         # cabecera la escribe cualquiera con acceso a Redis, y un productor
         # viejo o ajeno puede no mandarla o mandar otra cosa.
         carried = sanitize_carried(request.get(HEADER))
-        trace_id, span_id = new_ids()
-        # La tarea abre su propio span: el del snapshot es el de quien encoló
-        # (su padre), igual que un `traceparent` entrante en el middleware.
+        # Con OTel (Fase 7) el span de la tarea ya lo abrió CeleryInstrumentor
+        # (corre antes, ver `run_after_otel_prerun`): sus ids mandan, para que
+        # el `trace_id` de los logs y de `task_events` exista en Tempo.
+        otel_ids = current_otel_ids()
+        if otel_ids is not None:
+            trace_id, span_id = otel_ids
+        else:
+            # La tarea abre su propio span: el del snapshot es el de quien
+            # encoló (su padre), igual que un `traceparent` en el middleware.
+            trace_id, span_id = new_ids()
+            trace_id = carried.get("trace_id", trace_id)
         tokens = bind(
-            trace_id=carried.get("trace_id", trace_id),
+            trace_id=trace_id,
             span_id=span_id,
             request_id=carried.get("request_id", secrets.token_hex(16)),
         )
         _tokens[id(request)] = tokens
     except Exception:
         logger.exception("celery_hooks: no se pudo ligar el contexto de la tarea")
+
+
+def run_after_otel_prerun() -> None:
+    """Reconecta `_bind_task_context` para que corra DESPUÉS del `task_prerun`
+    de `CeleryInstrumentor` (Fase 7).
+
+    Celery llama a los receptores en orden de conexión, y este módulo se
+    conecta al importar `celery_app`, antes de que `setup_tracing()` instale
+    el instrumentor: sin esto, la tarea ligaría ids propios antes de que
+    exista su span y los logs no casarían con Tempo. Idempotente.
+    """
+    task_prerun.disconnect(dispatch_uid=_PRERUN_UID)
+    task_prerun.connect(_bind_task_context, weak=False, dispatch_uid=_PRERUN_UID)
 
 
 @task_postrun.connect(weak=False, dispatch_uid="itcj2.observability.reset")
