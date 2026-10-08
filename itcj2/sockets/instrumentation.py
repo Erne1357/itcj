@@ -109,6 +109,7 @@ class InstrumentedAsyncServer(socketio.AsyncServer):
                 span_id=span_id,
                 request_id=context.new_ids()[0],
                 scope=scope,
+                sid=str(args[0]) if args else "",
             )
             labels = _labels(self, event, namespace)
         except Exception:

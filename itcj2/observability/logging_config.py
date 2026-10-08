@@ -31,6 +31,7 @@ from itcj2.config import get_settings
 from itcj2.observability.context import (
     current_request_id,
     current_scope,
+    current_sid,
     current_span_id,
     current_trace_id,
     user_id_from_scope,
@@ -59,6 +60,7 @@ _OWN_MARK = "_itcj_observability"
 # `core_task_runs.celery_task_id`: une las líneas de un worker con su fila.
 CONTEXT_FIELDS = (
     "trace_id", "span_id", "request_id", "user_id", "route", "app", "celery_task_id",
+    "sid",
 )
 
 # Librerías que emiten INFO por cada llamada saliente o por cada archivo
@@ -161,6 +163,7 @@ class ContextFilter(logging.Filter):
         record.span_id = current_span_id()
         record.request_id = current_request_id()
         record.celery_task_id = _celery_task_id()
+        record.sid = current_sid()
         if not all(hasattr(record, name) for name in ("route", "app", "user_id")):
             route, app, user_id = _scope_fields()
             for name, value in (("route", route), ("app", app), ("user_id", user_id)):

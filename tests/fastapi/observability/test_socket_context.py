@@ -12,7 +12,7 @@ import socketio
 from prometheus_client import REGISTRY
 
 from itcj2.observability import context
-from itcj2.observability.logging_config import ContextFilter
+from itcj2.observability.logging_config import ContextFilter, JsonFormatter
 from itcj2.observability.metrics import SOCKET_EVENT_DURATION, SOCKET_EVENTS
 from itcj2.sockets.instrumentation import InstrumentedAsyncServer
 
@@ -45,10 +45,12 @@ class Boom(Exception):
 
 async def test_cada_evento_acuna_su_propio_trace_id_y_no_filtra(sio):
     vistos = []
+    sids = []
 
     @sio.on("ping", namespace="/slots")
     async def ping(sid):
         vistos.append((context.current_trace_id(), context.current_request_id()))
+        sids.append(context.current_sid())
 
     assert context.current_trace_id() == ""
     await sio._trigger_event("ping", "/slots", "s1")
@@ -61,6 +63,8 @@ async def test_cada_evento_acuna_su_propio_trace_id_y_no_filtra(sio):
     assert context.current_trace_id() == ""
     assert context.current_request_id() == ""
     assert context.current_scope() is None
+    assert sids == ["s1", "s1"]
+    assert context.current_sid() == ""
 
 
 async def test_user_id_de_la_sesion_llega_a_las_lineas_de_log(sio):
@@ -186,3 +190,24 @@ async def test_fallo_de_la_instrumentacion_no_impide_correr_el_handler(sio, monk
     assert await sio._trigger_event("ping", "/requests", "s1") == "pong"
     assert corrio == [True]
     assert context.current_trace_id() == ""
+
+
+async def test_la_linea_json_de_un_handler_lleva_el_sid(sio):
+    import json
+
+    lineas = []
+
+    @sio.on("ping", namespace="/slots")
+    async def ping(sid):
+        record = logging.LogRecord("x", logging.INFO, "f", 1, "m", (), None)
+        ContextFilter().filter(record)
+        lineas.append(json.loads(JsonFormatter().format(record)))
+
+    await sio._trigger_event("ping", "/slots", "sid-abc")
+
+    assert lineas[0]["sid"] == "sid-abc"
+    assert lineas[0]["trace_id"]
+    # fuera del evento (HTTP, Celery) el campo existe y va vacío
+    record = logging.LogRecord("x", logging.INFO, "f", 1, "m", (), None)
+    ContextFilter().filter(record)
+    assert json.loads(JsonFormatter().format(record))["sid"] == ""
