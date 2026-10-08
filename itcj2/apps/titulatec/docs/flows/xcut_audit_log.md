@@ -78,6 +78,7 @@ sequenceDiagram
 1. `alembic upgrade head` (`tt20261007b`) **antes** de que el código sirva tráfico: sin la tabla, toda escritura de TitulaTec falla. Hace backfill del historial de `titulatec_process_events`.
 2. Copiar `database/DML/titulatec/audit_2026_10/` al servidor y `python -m itcj2.cli.main titulatec init-bitacora --dry-run` → sin `--dry-run`. Corre SOLO el `25_insert_audit_perm.sql` (permiso `titulatec.audit.page.list` + concesión EXPLÍCITA a `admin`); **nunca re-corre el `15_grant_admin_all_perms.sql`**, que en producción no se re-ejecuta (concede todo titulatec a `admin`).
 3. Recrear los workers de Celery.
+4. **Una sola vez, en el servidor** (2026-10-08): recuperar las decisiones de solicitudes previas a la bitácora (quién aprobó, rechazó, devolvió o reabrió, con la fecha original; `payload.backfilled = true`): `python -m itcj2.cli.main titulatec audit-backfill-solicitudes --dry-run` y, si los conteos cuadran, sin `--dry-run`. Idempotente (no duplica filas en vivo ni de una corrida previa), pero la bitácora es inmutable: revisar el dry-run antes. Regla del rechazo reabierto: `reviewed_at < reopened_at` => la revisión guardada fue un rechazo (`services/audit_backfill_service.py`).
 
 ## Reversa (en este orden)
 

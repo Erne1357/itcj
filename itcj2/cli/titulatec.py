@@ -18,6 +18,7 @@ Comandos:
     titulatec import-prior-clearances --tipo encuesta|biblioteca ARCHIVO.csv [opts]  Constancias previas (D9).
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
+    titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
 """
 import logging
 import os
@@ -4093,6 +4094,49 @@ def audit_purge_command(before, archive, dry_run, yes, force):
             + (f"; archivo: {res['archive']}" if res["archive"] else ""), fg="green"))
     except click.Abort:
         raise  # confirmación negada: todavía no se escribió nada
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Recuperación de decisiones de solicitudes previas a la bitácora (2026-10-08).
+# Lógica en `AuditBackfillService.enrollment_decisions`; aquí solo el comando.
+# ---------------------------------------------------------------------------
+@titulatec_cli.command("audit-backfill-solicitudes")
+@click.option("--dry-run", is_flag=True, help="Solo cuenta; no escribe nada.")
+def audit_backfill_solicitudes_command(dry_run):
+    """Recupera en la bitácora las decisiones de solicitudes anteriores a ella.
+
+    Lee `reviewed_*`, `returned_*` y `reopened_*` de las solicitudes de
+    inscripción y escribe una fila por decisión (`enrollment.approved`,
+    `enrollment.rejected`, `access.returned`, `enrollment.reopened`) con la
+    fecha ORIGINAL y `payload.backfilled = true`, solo las ANTERIORES al corte
+    (la primera fila en vivo de la bitácora). Idempotente: no repite lo que una
+    corrida previa ya recuperó. Correr primero con `--dry-run`. La bitácora es
+    inmutable: lo escrito no se puede deshacer salvo con `audit-purge`.
+    """
+    from itcj2.apps.titulatec.services.audit_backfill_service import AuditBackfillService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        corte = AuditBackfillService.cutoff(db)
+        conteo = AuditBackfillService.enrollment_decisions(db, dry_run=dry_run)
+        total = sum(n for a, n in conteo.items() if a != "skipped_no_date")
+        click.echo(f"Corte (inicio de la bitácora en vivo): {corte:%Y-%m-%d %H:%M:%S}; "
+                   "solo se recuperan decisiones anteriores.")
+        prefijo = "[DRY-RUN] Se recuperarían" if dry_run else "Recuperadas"
+        for accion, n in conteo.items():
+            click.echo(f"  {accion}: {n}")
+        if dry_run:  # el servicio no escribe en dry-run: nada que revertir
+            click.echo(f"{prefijo} {total} filas. No se escribió nada.")
+            return
+        db.commit()
+        logger.warning("bitácora: %s decisiones de solicitudes recuperadas: %s", total, conteo)
+        click.echo(click.style(f"OK: {prefijo.lower()} {total} filas.", fg="green"))
     except Exception:
         db.rollback()
         raise

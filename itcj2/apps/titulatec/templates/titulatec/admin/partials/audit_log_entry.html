@@ -12,7 +12,9 @@
     <div class="fw-medium">{{ e.label }}</div>
     <div class="small text-body-secondary">{{ e.when }} · {{ e.actor }}{% if e.actor_kind %} ({{ e.actor_kind }}){% endif %} · <span class="tt-mono">{{ e.action }}</span></div>
   </div>
+  {% if e.recovered_note %}<p class="small text-body-secondary mb-2" id="tt-audit-rec-note-{{ e.id }}"><i class="bi bi-info-circle me-1" aria-hidden="true"></i>{{ e.recovered_note }}</p>{% endif %}
   <dl class="row small mb-2">
+    {% if e.approver %}<dt class="col-sm-3">Aprobó la solicitud</dt><dd class="col-sm-9">{{ e.approver }}</dd>{% endif %}
     {% if e.subject %}<dt class="col-sm-3">Sujeto</dt><dd class="col-sm-9">{{ e.subject }}</dd>{% endif %}
     {% if e.entity %}<dt class="col-sm-3">Entidad</dt><dd class="col-sm-9">{{ e.entity }}{% if e.entity_code and e.entity_code != e.entity %} <span class="tt-mono text-body-secondary">({{ e.entity_code }})</span>{% endif %}</dd>{% endif %}
     {% if e.process_id %}<dt class="col-sm-3">Expediente</dt><dd class="col-sm-9"><span class="tt-mono">{{ e.process_id }}</span></dd>{% endif %}
