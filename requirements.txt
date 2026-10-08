@@ -20,7 +20,9 @@ jinja2>=3.1.0
 python-dateutil>=2.8.0
 
 # Socket.IO
-python-socketio[asyncio]>=5.11.0
+# Fijado a 5.17.x: itcj2/sockets/instrumentation.py sobrescribe AsyncServer._trigger_event
+# y depende del reintento de conexión legado; un minor bump podría contar cada conexión como error.
+python-socketio[asyncio]>=5.17,<5.18
 
 # File handling
 Pillow>=10.0.0

@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 # atado al loop donde abrió sus conexiones; reutilizarlo desde otro loop da
 # «attached to a different loop». En producción hay un loop por proceso
 # uvicorn (4 clientes con --workers 4), pero `TestClient` crea un loop nuevo por
-# cliente y un singleton ingenuo rompería la suite. Las claves son débiles: al
-# morir un loop su entrada desaparece y un `id()` reciclado no puede devolver un
-# cliente de un loop muerto.
+# cliente y un singleton ingenuo rompería la suite. Las claves son débiles: aunque
+# idealmente desaparecerían al morir un loop, la realidad es que el valor (client
+# → pool → Connection → StreamWriter) mantiene una referencia fuerte al loop, así
+# que la clave débil nunca muere. En producción no importa (un loop por proceso),
+# pero en los tests cada TestClient/asyncio.run deja un cliente vivo hasta el exit.
 _clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, aioredis.Redis]" = (
     weakref.WeakKeyDictionary()
 )
