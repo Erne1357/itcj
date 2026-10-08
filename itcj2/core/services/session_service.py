@@ -14,13 +14,13 @@ un barrido accidental) no resucita sesiones cerradas ni desloguea a nadie — el
 valor se repuebla desde la BD. Antes el entero vivía SOLO en Redis (sin AOF,
 compartido con Celery/Socket.IO/holds de AgendaTec).
 
-Coste: cuando el caché de Redis falla (MISS), ``current_version`` hace una
-consulta SÍNCRONA a Postgres desde dentro del ``dispatch`` async de
-``JWTMiddleware`` — bloquea el event loop mientras dura. En régimen permanente
-es ~1 consulta por usuario por hora (``_TTL``) y da igual; pero con el caché
-FRÍO —justo después de un despliegue o de un restart de Redis— es una consulta
-bloqueante por request y por usuario hasta que el caché se calienta. Tenerlo
-presente antes de bajar ``_TTL`` o de añadir consultas a esta ruta.
+Coste: cuando el caché de Redis falla (MISS) se consulta Postgres. En régimen
+permanente es ~1 consulta por usuario por hora (``_TTL``); con el caché FRÍO
+—justo después de un despliegue o de un restart de Redis— es una por request y
+por usuario hasta que se calienta. ``JWTMiddleware`` corre en el event loop y
+por eso usa ``current_version_async`` (Redis async, Postgres en el threadpool):
+la síncrona, llamada desde ``dispatch``, bloqueaba el loop entero del worker.
+Tenerlo presente antes de bajar ``_TTL`` o de añadir consultas a esta ruta.
 
 Modo de fallo: ``current_version`` devuelve ``None`` SOLO cuando no puede
 consultar ningún almacén (Redis y Postgres caídos). Los consumidores (middleware,
@@ -148,6 +148,49 @@ def current_version(user_id: int) -> int | None:
     if r is not None:
         _cache_epoch(r, user_id, epoch)
     return epoch
+
+
+def _epoch_from_db_and_cache(user_id: int, cache: bool) -> int | None:
+    """Mitad síncrona de `current_version_async`: Postgres y escritura del caché
+    en UN solo salto al threadpool, en vez de dos."""
+    epoch = _read_epoch_from_db(user_id)
+    if epoch is None:
+        return None
+    if cache:
+        r = _redis()
+        if r is not None:
+            _cache_epoch(r, user_id, epoch)
+    return epoch
+
+
+async def current_version_async(user_id: int) -> int | None:
+    """``current_version`` para quien corre EN el event loop (``JWTMiddleware``).
+
+    Misma semántica exacta (``0`` / ``N`` / ``None``, fail-open). La versión
+    síncrona, llamada desde ``dispatch``, bloqueaba el loop del worker en cada
+    request con ``sv`` —y con el caché frío además hacía una consulta a
+    Postgres—: la alerta ``ItcjEventLoopBloqueosLargos`` lo vio en producción.
+    Aquí Redis va por el cliente async y lo que sigue siendo síncrono (la
+    lectura de Postgres en un MISS, el ``_cache_epoch``) va al threadpool.
+    ``current_version`` se queda como está: tiene llamadores síncronos.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    from itcj2.core.utils.redis_conn_async import get_redis_async
+
+    r = get_redis_async()
+    if r is not None:
+        try:
+            raw = await r.get(_KEY.format(uid=user_id))
+            if raw is not None:
+                return int(raw)
+        except Exception as e:
+            logger.warning("session_service: current_version_async redis err (%s)", e)
+            r = None
+
+    # Como en la síncrona: si Redis falló no se intenta cachear, que sería
+    # otro viaje a un Redis que acaba de fallar.
+    return await run_in_threadpool(_epoch_from_db_and_cache, user_id, r is not None)
 
 
 def forget_cached_version(user_id: int) -> None:
