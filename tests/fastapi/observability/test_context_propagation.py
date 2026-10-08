@@ -186,24 +186,26 @@ def test_request_id_reaches_the_celery_task_it_enqueues(client):
 # Negativos: fronteras que HOY no llevan contexto
 # ---------------------------------------------------------------------------
 
-def test_socketio_handler_outside_request_has_no_request_id():
-    # NEGATIVO HOY — SE INVIERTE EN LA FASE 5c: cada evento de Socket.IO
-    # tendrá ids propios. Hoy un handler no tiene petición HTTP de la que
-    # heredar. Se registra en el servidor REAL (en un namespace de prueba que
-    # se retira al final) y se dispara por la misma vía interna que usa
-    # python-socketio para llamar a los handlers.
+def test_socketio_handler_gets_its_own_request_id_per_event():
+    # INVERTIDO EN LA FASE 5c (antes negativo): `InstrumentedAsyncServer`
+    # acuña ids propios por evento, y no se filtran al terminar. Se registra
+    # en el servidor REAL (en un namespace de prueba que se retira al final)
+    # y se dispara por la misma vía interna que usa python-socketio.
     from itcj2.sockets.server import sio
 
     namespace = "/obs-probe"
-    seen = {}
+    seen = []
 
     async def on_probe(sid, data):
-        seen["request_id"] = current_request_id()
+        seen.append(current_request_id())
 
     sio.on("probe", handler=on_probe, namespace=namespace)
     try:
         asyncio.run(sio._trigger_event("probe", namespace, "sid-probe", {}))
+        asyncio.run(sio._trigger_event("probe", namespace, "sid-probe", {}))
     finally:
         sio.handlers.pop(namespace, None)
 
-    assert seen == {"request_id": ""}
+    assert len(seen) == 2 and all(len(r) == 32 for r in seen)
+    assert seen[0] != seen[1]
+    assert current_request_id() == ""

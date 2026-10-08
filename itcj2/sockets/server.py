@@ -7,6 +7,7 @@ sin crear imports circulares con itcj2/sockets/__init__.py.
 import socketio
 
 from itcj2.config import get_settings
+from itcj2.sockets.instrumentation import InstrumentedAsyncServer
 
 
 def _cors_origins() -> list[str]:
@@ -38,7 +39,8 @@ _WRITE_ONLY = get_settings().APP_ROLE == "http"
 # AsyncServer — modo ASGI nativo, sin eventlet
 # AsyncRedisManager usa el mismo protocolo Redis que Flask-SocketIO,
 # por lo que mensajes emitidos desde Flask también llegan a los clientes.
-sio = socketio.AsyncServer(
+# InstrumentedAsyncServer: métricas y contexto por evento en UN punto (Fase 5c).
+sio = InstrumentedAsyncServer(
     async_mode="asgi",
     client_manager=socketio.AsyncRedisManager(
         get_settings().REDIS_URL, write_only=_WRITE_ONLY

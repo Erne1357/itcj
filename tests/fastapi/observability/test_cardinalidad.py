@@ -81,9 +81,23 @@ WORK_SERIES = (
 # Tareas en segundo plano (Fase 5b): un contador, sitio x resultado, los dos
 # conjuntos CERRADOS que valida `spawn.py`.
 BACKGROUND_SERIES = len(BACKGROUND_TASK_NAMES) * len(BACKGROUND_TASK_STATUSES)
+# Eventos de Socket.IO (Fase 5c): (namespace, evento) con handler registrado,
+# contados del servidor REAL (un handler nuevo sube la cuenta solo), más el par
+# ("otro", "otro") y un "otro" por namespace. Por par: histograma (buckets +
+# Inf, `_sum`, `_count`) y contador `ok`/`error`.
+def _socket_event_pairs() -> int:
+    import itcj2.sockets  # noqa: F401  (registra los 6 namespaces)
+    from itcj2.sockets.instrumentation import NAMESPACES
+    from itcj2.sockets.server import sio
+
+    real = sum(len(handlers) for ns, handlers in sio.handlers.items() if ns in NAMESPACES)
+    return real + len(NAMESPACES) + 1
+
+
+SOCKET_EVENT_SERIES = _socket_event_pairs() * (len(DURATION_BUCKETS) + 3 + 2)
 EXTRA_SERIES = (
     IN_FLIGHT_SERIES + UNMATCHED_SERIES + EXCEPTION_SERIES + FIXED_SERIES
-    + WORK_SERIES + BACKGROUND_SERIES
+    + WORK_SERIES + BACKGROUND_SERIES + SOCKET_EVENT_SERIES
 )
 
 RUTAS_CON_NUMERO_ESTATICO: set[str] = set()
