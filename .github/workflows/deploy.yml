@@ -4,138 +4,122 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:  # Permite ejecutar manualmente
+  # Manual: siempre carril completo. Desde una rama que no sea main, deploy.sh
+  # rechaza el commit (solo despliega commits de origin/main).
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Gate de calidad (1.4). El deploy depende de este job (needs: test).
-  # - compileall: BLOQUEANTE — ataja el riesgo #1 (un syntax error / import roto
-  #   llegando a prod en cada push a main).
-  # - pytest: BLOQUEANTE — la deuda legacy ("itcj." pre-migración) ya se limpió;
-  #   la suite completa (891 tests) pasa. Si tarda mucho, optimizar con
-  #   pytest-xdist (-n auto) más adelante.
-  # - ruff: informativo (continue-on-error) — aún hay estilo por limpiar.
+  # Carril del deploy:
+  # - full (por omisión): suite completa en 8 shards ANTES del deploy (~6-8 min).
+  # - hotfix: el PR fusionado trae el label `hotfix` → solo humo antes del
+  #   deploy (compile + tests/fastapi/infra: la app arranca, /ready ve BD y
+  #   Redis, invariantes de compose/nginx/deploy.sh) y la suite completa
+  #   DESPUÉS. Ante cualquier duda (API caída, push directo sin PR, dispatch
+  #   manual) → full.
   # ---------------------------------------------------------------------------
-  test:
-    name: Quality gate (compile + lint + tests)
+  plan:
+    name: Carril
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: itcj_test
-        ports:
-          - "5432:5432"
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - "6379:6379"
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lane: ${{ steps.lane.outputs.lane }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Instalar dependencias
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install ruff
-
-      - name: Compile (BLOQUEANTE — ataja syntax/import roto)
-        run: python -m compileall -q itcj2 asgi.py
-
-      - name: Lint (ruff, informativo)
-        continue-on-error: true
-        run: ruff check itcj2
-
-      # Los tests con `db_session` (test_app_style_*, test_department_*,
-      # test_hierarchy_service, org-scope, …) golpean Postgres REAL y asumen que
-      # el esquema YA existe (el fixture solo envuelve cada test en transacción +
-      # rollback; crean sus propios datos, no dependen de seed). Sin esquema:
-      # "relation core_apps does not exist".
-      #
-      # Se construye desde los MODELOS (create_all), NO con `alembic upgrade head`:
-      # las migraciones no reconstruyen desde cero (la base 4fc261c4f603 crea
-      # role_permissions con FK a roles/permissions que un DDL legacy creó fuera de
-      # Alembic → falla "relation roles does not exist"). Los modelos son la fuente
-      # de verdad del esquema que consulta el código, que es justo lo que los tests
-      # necesitan.
-      - name: Preparar esquema de BD de test (modelos → create_all)
+      - name: Elegir carril por el label del PR fusionado
+        id: lane
         env:
-          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
-          MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
         run: |
-          python - <<'PY'
-          import os
-          import itcj2.models                    # core + helpdesk/agendatec/vistetec/warehouse/maint
-          import itcj2.apps.titulatec.models      # noqa: F401
-          import itcj2.apps.directory.models       # noqa: F401
-          from sqlalchemy import create_engine
-          from sqlalchemy.dialects.postgresql import ENUM as PGEnum
-          from itcj2.models.base import Base
-          engine = create_engine(os.environ["MIGRATE_DATABASE_URL"], future=True)
-          # Los modelos declaran los ENUM de Postgres con create_type=False (los crea la
-          # migración), así que create_all NO emite el CREATE TYPE. Los creamos EXPLÍCITO
-          # antes (idempotente con checkfirst). No sirve solo flipear create_type: el
-          # evento de creación se registra al construir el ENUM, no después.
-          _enums = {}
-          for _t in Base.metadata.tables.values():
-              for _c in _t.columns:
-                  if isinstance(_c.type, PGEnum):
-                      _enums.setdefault(_c.type.name, _c.type)
-          with engine.begin() as _conn:
-              for _e in _enums.values():
-                  _e.create(_conn, checkfirst=True)
-          Base.metadata.create_all(engine, checkfirst=True)
-          print(f"[ci] esquema de test listo: {len(Base.metadata.tables)} tablas; enums: {sorted(_enums)}")
-          PY
+          lane=full
+          labels=""
+          if [ "$EVENT" = "push" ]; then
+            labels=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+              --jq '[.[] | select(.merged_at != null) | .labels[].name] | join(",")' \
+              2>/dev/null) || labels=""
+            case ",$labels," in
+              *,hotfix,*) lane=hotfix ;;
+            esac
+          fi
+          echo "lane=$lane" >> "$GITHUB_OUTPUT"
+          echo "### Carril: \`$lane\` (labels del PR: ${labels:-ninguno})" >> "$GITHUB_STEP_SUMMARY"
 
-      # WeasyPrint (constancias de TitulaTec, spec
-      # 2026-10-01-titulatec-biblioteca-caja-design.md §6) necesita Pango para
-      # el layout de texto; cairo y gdk-pixbuf ya vienen en el runner de
-      # `ubuntu-latest`. `libharfbuzz-subset0` (m07, triage-minors.md) evita
-      # el DeprecationWarning de WeasyPrint por el subconjunto de HarfBuzz
-      # ausente. Mismos paquetes que `docker/backend/Dockerfile.fastapi`.
-      - name: Dependencias de sistema para WeasyPrint (constancias)
-        run: sudo apt-get update && sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0
+  tests:
+    name: Tests
+    needs: plan
+    if: ${{ needs.plan.outputs.lane == 'full' }}
+    uses: ./.github/workflows/_tests.yml
 
-      # Nota: create_all() solo construye tablas vacías, sin filas de referencia
-      # (core_apps, core_roles). tests/fastapi/conftest.py siembra el mínimo
-      # necesario (fixture `_seed_minimal_reference_data`, autouse, session-scope)
-      # para que las páginas/servicios que hacen `get_or_404_app` no truene contra
-      # una BD de test recién creada. database/DML/ (con datos reales/PII) nunca
-      # llega al checkout de CI — está gitignored a propósito.
-      - name: Tests (BLOQUEANTE — suite completa)
-        env:
-          DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
-          MIGRATE_DATABASE_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/itcj_test
-          REDIS_URL: redis://localhost:6379/0
-        run: pytest tests/fastapi -q
+  smoke:
+    name: Humo (hotfix)
+    needs: plan
+    if: ${{ needs.plan.outputs.lane == 'hotfix' }}
+    uses: ./.github/workflows/_tests.yml
+    with:
+      serial: true
+      target: tests/fastapi/infra
 
   # ---------------------------------------------------------------------------
-  # Deploy — solo si el gate pasó (needs: test) y, si se configura el Environment
-  # "production" con required reviewers, tras aprobación humana (ver RUNBOOK 1.4).
+  # Carril full: si main ya avanzó más allá de este commit, NO se despliega —
+  # el run del commit más nuevo lo hará, y lo incluye. Sobre todo evita que
+  # este run entre a la cola de production-deploy: GitHub cancela al deploy
+  # PENDIENTE cuando llega otro, por orden de llegada y no por antigüedad del
+  # commit, así que un run viejo desplazaría a un hotfix que esperaba turno.
+  # Si la API falla → no superado (deploy.sh trae su propia guarda de orden).
+  # ---------------------------------------------------------------------------
+  gate:
+    name: ¿Sigue siendo la punta de main?
+    needs: [plan, tests]
+    if: ${{ needs.plan.outputs.lane == 'full' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      superseded: ${{ steps.tip.outputs.superseded }}
+    steps:
+      - name: Comparar con main
+        id: tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          ahead=$(gh api "repos/$REPO/compare/$SHA...main" --jq '.ahead_by' 2>/dev/null) || ahead=0
+          superseded=false
+          if [ "${ahead:-0}" -gt 0 ] 2>/dev/null; then
+            superseded=true
+            echo "### main ya avanzó $ahead commit(s) más allá de este: el deploy lo hará el run más nuevo." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Deploy del commit EXACTO que se probó (github.sha), no de la punta de main.
+  # El deploy.sh que corre es el de ese commit (git show), no el del checkout
+  # del servidor: así un cambio al script surte efecto en el mismo deploy.
+  # concurrency: un deploy a la vez; deploy.sh además se niega a regresar prod
+  # a un ancestro de lo que ya sirve (run viejo que terminó tras un hotfix).
   # ---------------------------------------------------------------------------
   deploy:
     name: Deploy to Server (Zero-Downtime)
-    needs: test
+    needs: [plan, tests, smoke, gate]
+    if: >-
+      ${{ always() && needs.plan.result == 'success' && (
+        (needs.plan.outputs.lane == 'full' && needs.tests.result == 'success' &&
+         needs.gate.result == 'success' && needs.gate.outputs.superseded != 'true') ||
+        (needs.plan.outputs.lane == 'hotfix' && needs.smoke.result == 'success')
+      ) }}
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
       - name: Deploy via SSH (Blue-Green)
         uses: appleboy/ssh-action@v1.0.3
@@ -147,14 +131,66 @@ jobs:
           command_timeout: 20m
           script: |
             set -e
-            echo ">>> Iniciando deploy blue-green..."
-            bash /home/cuaderno/ITCJ/docker/scripts/deploy.sh 2>&1
+            echo ">>> Iniciando deploy blue-green de ${{ github.sha }}..."
+            cd /home/cuaderno/ITCJ
+            git fetch origin
+            DEPLOY_SCRIPT=$(mktemp)
+            trap 'rm -f "$DEPLOY_SCRIPT"' EXIT
+            git show "${{ github.sha }}:docker/scripts/deploy.sh" > "$DEPLOY_SCRIPT"
+            bash "$DEPLOY_SCRIPT" "${{ github.sha }}" 2>&1
 
       - name: Notify deployment status
         if: always()
+        env:
+          STATUS: ${{ job.status }}
+          LANE: ${{ needs.plan.outputs.lane }}
         run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "Deployment successful - Zero downtime achieved"
+          if [ "$STATUS" == "success" ]; then
+            echo "Deployment successful ($LANE) - Zero downtime achieved"
           else
-            echo "Deployment failed - Check logs for details"
+            echo "Deployment failed ($LANE) - Check logs for details"
           fi
+
+  # Respaldo del gate: si el deploy de un hotfix queda cancelado (desplazado de
+  # la cola o cancelado a mano), el hotfix NO está en prod y un job cancelado
+  # no pone el run en rojo ni manda correo.
+  deploy-cancel-alert:
+    name: Alerta (deploy de hotfix cancelado)
+    needs: [plan, deploy]
+    if: ${{ always() && needs.plan.outputs.lane == 'hotfix' && needs.deploy.result == 'cancelled' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Avisar
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          msg="El deploy del hotfix $SHA se canceló y NO está en prod. Re-ejecuta el job «Deploy to Server» de este run (deploy.sh no regresa prod si ya sirve algo más nuevo)."
+          echo "::error::$msg"
+          { echo "## Hotfix sin desplegar"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Solo carril hotfix: la suite completa corre DESPUÉS del deploy. Si sale
+  # roja, el run queda rojo (correo de GitHub) y verify-alert lo explica.
+  # always(): sin él, el `tests` saltado del carril hotfix saltaría este job.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verificación post-deploy (hotfix)
+    needs: [plan, deploy]
+    if: ${{ always() && needs.plan.outputs.lane == 'hotfix' && needs.deploy.result == 'success' }}
+    uses: ./.github/workflows/_tests.yml
+
+  verify-alert:
+    name: Alerta (hotfix con suite roja)
+    needs: verify
+    if: ${{ always() && needs.verify.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Avisar
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          msg="El hotfix $SHA ya está en prod y la suite completa salió ROJA. Corrige con otro PR o revierte en el servidor con docker/scripts/rollback.sh (no revierte la BD)."
+          echo "::error::$msg"
+          { echo "## Hotfix con suite roja"; echo; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+          exit 1

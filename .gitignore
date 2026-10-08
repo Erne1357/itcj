@@ -54,6 +54,8 @@ logs/
 .cache/
 __cache__/
 .cache-*
+# Duraciones de pytest-split: viven en el caché de Actions (las escribe nightly.yml)
+.test_durations
 .claude/
 CLAUDE.md
 .playwright-mcp/

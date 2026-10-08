@@ -1,0 +1,23 @@
+# CI de cada PR a main: la suite completa en 8 shards (_tests.yml).
+# El check «Tests / Resultado» es el que exige el ruleset de main; como admin
+# se puede mergear sin esperarlo (bypass), que es el primer paso del carril
+# de emergencia (label `hotfix`, ver deploy.yml).
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+# Un push nuevo al PR cancela la corrida anterior: solo importa la punta.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/_tests.yml

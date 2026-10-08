@@ -86,7 +86,7 @@ def escenario(make_department, make_position, make_user, make_role,
         #
         # En dev lo siembra `database/DML/titulatec/`, asi que estos tests pasaban
         # ahi y fallaban en CI, que arranca de una base VACIA (create_all sin DML,
-        # `.github/workflows/deploy.yml`). Medido el 2026-09-18 contra `itcj_ci`:
+        # `.github/workflows/_tests.yml`). Medido el 2026-09-18 contra `itcj_ci`:
         # 5 rojos que en dev eran verdes. Los roles sinteticos de arriba son para
         # los PERMISOS del actor; este es el que la ruta escribe.
         make_role("titulatec_school_services", OFFICER_PERMS)

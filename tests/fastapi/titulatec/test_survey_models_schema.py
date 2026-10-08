@@ -7,7 +7,7 @@ escribir la migracion.
 
 Los dos indices UNICOS PARCIALES estan declarados en el `__table_args__` de su
 modelo ADEMAS de en la migracion con `op.execute`. Sin esa declaracion, el
-`create_all` del CI (base vacia, sin Alembic — `.github/workflows/deploy.yml:78-105`)
+`create_all` del CI (base vacia, sin Alembic — `.github/workflows/_tests.yml`)
 no los crearia y `test_solo_una_version_abierta_por_codigo` fallaria solo alli.
 
 Patron para las violaciones de restriccion: `with db_session.begin_nested():`.
