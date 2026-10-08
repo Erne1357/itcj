@@ -172,10 +172,28 @@ def test_aprobar_a_accesos_registra_camino_awaiting_access(
     _sin_secretos(fila)
 
 
+def _apps_y_rol_graduate(db_session):
+    """La alta de cuenta nueva concede `graduate` en `itcj` y `titulatec`: en una
+    base vacía (CI, `create_all` sin DML) hacen falta esas dos apps y el rol."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+
+    for key in ("itcj", "titulatec"):
+        if db_session.query(App).filter_by(key=key).first() is None:
+            db_session.add(App(key=key, name=key, is_active=True,
+                               visible_to_students=True, mobile_enabled=True))
+    if db_session.query(Role).filter_by(name="graduate").first() is None:
+        db_session.add(Role(name="graduate"))
+    db_session.flush()
+
+
 def test_aprobar_cuenta_nueva_no_duplica_el_evento_de_proceso(
     db_session, make_cohort, make_user, modo_alterno, correo_ok,
+    titulatec_app, seed_phase_defs,
 ):
     """La cuenta nueva ya escribe `enrollment_self_service`: lo refleja el espejo."""
+    _apps_y_rol_graduate(db_session)
+    seed_phase_defs()
     se = make_user()
     req = _make_req(db_session, make_cohort(status="open"), control="99860004")
 
