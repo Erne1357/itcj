@@ -165,9 +165,27 @@
               aria-labelledby="{{ fid }}-lbl"{{ tt_aria(err, desc) }}
               {% if foco %}autofocus data-tt-focus="1"{% endif %}>
         <option value="">Selecciona una opción…</option>
+        {# Opciones con `group` (p. ej. especialidad por carrera): un <optgroup>
+           por grupo, en orden alfabético (`tt_option_groups`, nav.py). Una opción
+           de varias carreras se repite con el MISMO `value`; se marca solo la
+           primera para que el navegador no dude cuál mostrar. #}
+        {% set grupos = tt_option_groups(f.options) %}
+        {% if grupos %}
+        {% set ns = namespace(marcado=false) %}
+        {% for nombre, opciones in grupos %}
+        {% if nombre %}<optgroup label="{{ nombre }}">{% endif %}
+          {% for opt in opciones %}
+          {% set sel = (not ns.marcado) and v == opt.value|string %}
+          {% if sel %}{% set ns.marcado = true %}{% endif %}
+          <option value="{{ opt.value }}"{% if sel %} selected{% endif %}>{{ opt.label }}</option>
+          {% endfor %}
+        {% if nombre %}</optgroup>{% endif %}
+        {% endfor %}
+        {% else %}
         {% for opt in f.options %}
         <option value="{{ opt.value }}"{% if v == opt.value|string %} selected{% endif %}>{{ opt.label }}</option>
         {% endfor %}
+        {% endif %}
       </select>
 
     {% elif f.type == 'radio' %}

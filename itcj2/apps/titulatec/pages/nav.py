@@ -15,6 +15,8 @@ from fastapi.templating import Jinja2Templates
 # Import a nivel de módulo SEGURO: `certificate_service` solo importa
 # `db_now` arriba (modelos y servicios son locales) y no toca páginas.
 from itcj2.apps.titulatec.services.certificate_service import printing_enabled
+# Seguro también: el validador de encuestas es casi puro (solo `re`/`unicodedata`).
+from itcj2.apps.titulatec.utils.survey_validator import option_groups
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages")
 
@@ -30,6 +32,11 @@ titulatec_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 # certificate_cell %}`); el contexto de la página no-. Se evalúa en cada
 # render: `printing_enabled()` lee `get_settings()` cada vez.
 titulatec_templates.env.globals["tt_certificate_printing"] = printing_enabled
+
+# Lista desplegable de la encuesta agrupada por `group` (<optgroup>), en orden
+# alfabético en español. Global y no filtro por lo mismo que el de arriba: lo
+# llama la macro `tt_field` de `public/partials/survey_form.html`.
+titulatec_templates.env.globals["tt_option_groups"] = option_groups
 
 
 def sv(path: str) -> str:

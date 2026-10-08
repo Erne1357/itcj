@@ -226,11 +226,21 @@ def _option_key(texto) -> str:
 
 
 def _match_option(field: dict, texto: str) -> Optional[str]:
+    """Valor canónico de la opción que dice `texto`, o `None` (se guarda crudo).
+
+    Primero contra el VALOR; la etiqueta solo si UNA sola opción la tiene. Desde
+    que las especialidades se agrupan por carrera (2026-10-08) varias comparten
+    etiqueta corta («Diseño» en Mecánica y en Electromecánica, con valores
+    distintos): una etiqueta repetida no decide la carrera, así que no se adivina.
+    """
     buscado = _option_key(texto)
-    for valor, etiqueta in _option_values(field):
-        if buscado in (_option_key(valor), _option_key(etiqueta)):
+    opciones = _option_values(field)
+    for valor, _etiqueta in opciones:
+        if buscado == _option_key(valor):
             return valor
-    return None
+    por_etiqueta = [valor for valor, etiqueta in opciones
+                    if buscado == _option_key(etiqueta)]
+    return por_etiqueta[0] if len(por_etiqueta) == 1 else None
 
 
 def _parse_date_text(texto: str) -> Optional[date]:

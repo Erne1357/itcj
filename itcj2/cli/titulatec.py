@@ -19,6 +19,7 @@ Comandos:
     titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]  Encuesta de egresados desde Forms.
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
     titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
+    titulatec init-especialidades [--dry-run]  Especialidades de la encuesta de egresados por carrera (retículas 2014+).
 """
 import logging
 import os
@@ -151,6 +152,12 @@ SEED_FILES = [
     # Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO con
     # `titulatec init-bitacora`.
     "audit_2026_10/25_insert_audit_perm.sql",
+    # --- Delta 2026-10-08: especialidades de la encuesta de egresados por
+    # carrera (opciones con `group`, reticulas 2014+ del SII). Reescribe SOLO
+    # las opciones de `especialidad` del formulario abierto que siembra el 11,
+    # asi que va DESPUES del 11; no inserta permisos. Tambien corre SOLO con
+    # `titulatec init-especialidades` (produccion: el 11 nunca se re-corre).
+    "survey_2026_10/26_especialidades_por_carrera.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -3625,6 +3632,93 @@ def init_bitacora_command(dry_run):
 
     click.echo(click.style(
         f"OK: {_AUDIT_PERM} existe y el rol admin lo tiene.", fg="green"))
+
+
+# ---------------------------------------------------------------------------
+# Especialidades de la encuesta de egresados (2026-10-08): el 26 reescribe
+# SOLO las opciones de `especialidad` del formulario 'egresados' abierto (en
+# sitio, misma version), con `group` = carrera. Nunca quita un valor actual
+# (aborta si lo haria). En produccion el 11 nunca se re-corre: este comando es
+# el unico camino de despliegue; en una instalacion desde cero lo corre
+# `init-titulatec` despues del 11.
+# ---------------------------------------------------------------------------
+_DML_SURVEY_2026_10_DIR = "survey_2026_10"
+_DML_SURVEY_2026_10_FILES = ["26_especialidades_por_carrera.sql"]
+
+
+def _verify_especialidades() -> list[str]:
+    """Comprueba que el 26 ATERRIZO en el formulario 'egresados' abierto: el
+    esquema sigue pasando `validate_schema` y toda opcion de `especialidad`
+    trae carrera salvo «No tiene». Devuelve problemas (contrato de
+    `_verify_bitacora`). Sesion propia, solo lectura."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_service import SurveyService
+    from itcj2.apps.titulatec.utils.survey_validator import (
+        option_group_names, validate_schema,
+    )
+
+    problemas: list[str] = []
+    db = SessionLocal()
+    try:
+        form = SurveyService.open_form(db, "egresados")
+        if form is None:
+            return ["no hay formulario 'egresados' abierto"]
+        schema = form.schema or {}
+        ok, errores = validate_schema(schema)
+        if not ok:
+            problemas.extend(f"esquema invalido: {e}" for e in errores)
+        campo = next((f for f in schema.get("fields") or []
+                      if isinstance(f, dict) and f.get("key") == "especialidad"), None)
+        if campo is None:
+            return problemas + ["el formulario abierto no tiene el campo 'especialidad'"]
+        sin_carrera = [o.get("value") for o in campo.get("options") or []
+                       if isinstance(o, dict) and o.get("value") != "No tiene"
+                       and not option_group_names(o)]
+        if sin_carrera:
+            problemas.append(f"opciones de especialidad sin carrera: {sin_carrera}")
+    finally:
+        db.close()
+    return problemas
+
+
+@titulatec_cli.command("init-especialidades")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba el archivo en disco y lo lista, sin escribir nada.")
+def init_especialidades_command(dry_run):
+    """Especialidades de la encuesta de egresados agrupadas por carrera.
+
+    Corre SOLO `survey_2026_10/26_especialidades_por_carrera.sql`: reescribe
+    las opciones de `especialidad` del formulario 'egresados' abierto (sin
+    cambiar ni quitar ningun valor que ya tenga respuestas) y agrega las de las
+    reticulas 2014 en adelante. NO re-ejecuta el 11 ni el resto de
+    `SEED_FILES`. Idempotente. Al terminar VERIFICA con
+    `_verify_especialidades()` y aborta si algo no aterrizo. `--dry-run`:
+    comprueba que el archivo existe y lo lista, sin escribir.
+    """
+    archivos = [f"{_DML_SURVEY_2026_10_DIR}/{n}" for n in _DML_SURVEY_2026_10_FILES]
+    faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutaría:")
+            for nombre in archivos:
+                click.echo(f"  {nombre}")
+        click.echo("Dry-run: no se ejecutó nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    _run_sql_files(archivos)
+
+    problemas = _verify_especialidades()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        "OK: la encuesta de egresados muestra las especialidades agrupadas por carrera.",
+        fg="green"))
 
 
 # ---------------------------------------------------------------------------
