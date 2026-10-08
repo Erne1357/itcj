@@ -508,7 +508,7 @@ def test_alumno_por_control_sin_cuenta_encuentra_la_solicitud_previa(
     exista usuario. Un control más largo con otro dígito final NO casa con uno
     distinto."""
     t = _token()
-    control = "97" + str(uuid.uuid4().int)[:6]
+    control = "97" + str(uuid.uuid4().int)[:5] + "7"   # último dígito nunca 0: el «OTRO» siempre difiere
     sol = _fila(db_session, token=t, action="enrollment.approved", module="enrollment",
                 subject_label=f"{control} · SIN CUENTA")
     solo = _fila(db_session, token=t, subject_label=control)
