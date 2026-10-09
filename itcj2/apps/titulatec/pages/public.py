@@ -1596,7 +1596,9 @@ def _cuerpo_enroll_submit(request, form):
     # solo hace `.strip()` sobre lo que le llega, y su lookup por control es
     # exacto. Normalizar aquí, en la ruta, es lo único que evita que "b..." y
     # "B..." abran dos solicitudes para la misma persona.
-    values["control_number"] = values["control_number"].upper()
+    # `normalize_control` además quita la «L» de licenciatura (2026-10-09).
+    from itcj2.apps.titulatec.services.import_service import normalize_control
+    values["control_number"] = normalize_control(values["control_number"])
     values["has_efirma"] = "1" if (form.get("has_efirma") or "") == "1" else "0"
     # «¿Ya acreditaste el inglés?»: SIN valor por omisión, al revés que e.firma.
     # Solo "1"/"0" cuentan como respuesta; cualquier otra cosa es "no contestó".
@@ -1941,7 +1943,9 @@ def _cuerpo_enroll_resend(request, form):
     # `.strip()`, y compara contra `EnrollmentRequest.control_number`, que
     # `enroll_submit` ya guarda normalizado. Sin esto, reenviar con la letra
     # en minúscula no encontraría la solicitud aprobada.
-    control = (form.get("control_number") or "").strip().upper()
+    # `normalize_control` además quita la «L» de licenciatura (2026-10-09).
+    from itcj2.apps.titulatec.services.import_service import normalize_control
+    control = normalize_control(form.get("control_number"))
     email = (form.get("contact_email") or "").strip()
 
     db = SessionLocal()

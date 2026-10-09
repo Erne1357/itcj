@@ -149,6 +149,10 @@ LISTA_BLANCA = {
     "ImportService.import_rows":
         "alta del proceso: la fase 0 (intake) nace `approved`; no es un "
         "dictamen y el alta tiene sus propios avisos.",
+    "ControlFixService._rechazar":
+        "`titulatec fix-control-l` (2026-10-09): rechaza la solicitud DUPLICADA "
+        "que entró con la «L» cuando la persona ya tiene la correcta; no es un "
+        "dictamen y a propósito no se avisa (la vigente sigue su camino).",
 }
 
 # Ramas SIN correo dentro de funciones mapeadas: el detector solo ve que la

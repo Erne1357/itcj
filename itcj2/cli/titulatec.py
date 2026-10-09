@@ -20,6 +20,7 @@ Comandos:
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
     titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
     titulatec init-especialidades [--dry-run]  Especialidades de la encuesta de egresados por carrera (retículas 2014+).
+    titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura a solicitudes y cuentas.
 """
 import logging
 import os
@@ -4234,5 +4235,66 @@ def audit_backfill_solicitudes_command(dry_run):
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Corrección de la «L» de licenciatura (2026-10-09). Quien escribió
+# «L21111134» quedaba «sin cuenta» y Centro de Cómputo podía crearle una
+# segunda cuenta. Desde este cambio el formulario quita la L
+# (`import_service.normalize_control`); este comando corrige lo que ya entró.
+# Lógica y reglas: `services/control_fix_service.py`. Sin DML: corre sobre los
+# datos con el ORM (la bitácora registra cada cambio) y mueve los archivos.
+# ---------------------------------------------------------------------------
+@titulatec_cli.command("fix-control-l")
+@click.option("--dry-run", is_flag=True, help="Solo muestra qué haría con cada solicitud.")
+@click.option("--sin-correo", "sin_correo", is_flag=True,
+              help="No envía avisos ni ligas (la liga se puede reenviar desde Solicitudes).")
+@click.option("--solicitud", "solo", type=int, multiple=True,
+              help="Solo estas solicitudes (repetible). Por omisión, todas las que tienen L.")
+def fix_control_l_command(dry_run, sin_correo, solo):
+    """Quita la «L» de licenciatura de solicitudes y cuentas de TitulaTec.
+
+    Cada solicitud se corrige en su propia transacción: si una falla, las demás
+    siguen y el comando sale con 1. Idempotente: una segunda corrida no
+    encuentra nada que corregir.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.control_fix_service import ControlFixService
+
+    db = SessionLocal()
+    try:
+        plan = ControlFixService.plan(db)
+        if solo:
+            plan = [a for a in plan if a.request_id in set(solo)]
+        if not plan:
+            click.echo("No hay solicitudes con la «L» de licenciatura. Nada que hacer.")
+            return
+        click.echo(f"{len(plan)} solicitud(es) con L:")
+        for a in plan:
+            otra = f" (otra: #{a.otra_id})" if a.otra_id else ""
+            click.echo(f"  #{a.request_id} {a.control} -> {a.plain} [{a.status}] "
+                       f"{a.tipo}: {a.detalle}{otra}")
+        if dry_run:
+            click.echo("Dry-run: no se cambió nada.")
+            return
+        db.rollback()       # suelta la lectura del plan antes de escribir
+
+        errores = 0
+        for a in plan:
+            if a.tipo == "revisar":
+                click.echo(click.style(f"  #{a.request_id}: se deja para revisar a mano "
+                                       f"({a.detalle})", fg="yellow"))
+                continue
+            ControlFixService.apply(db, a, send_mail=not sin_correo)
+            ok = not a.resultado.startswith("ERROR")
+            errores += 0 if ok else 1
+            extra = "".join(f"; {x}" for x in (a.correo,
+                            f"{len(a.movidos)} archivo(s) movido(s)" if a.movidos else "") if x)
+            click.echo(click.style(f"  #{a.request_id} {a.tipo}: {a.resultado}{extra}",
+                                   fg="green" if ok else "red"))
+        if errores:
+            raise SystemExit(1)
     finally:
         db.close()

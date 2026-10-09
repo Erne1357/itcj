@@ -389,7 +389,8 @@ def student_lookup(cohort_id: int, request: Request, control: str = "",
     from itcj2.core.models.user import User
     # MAYÚSCULA antes de buscar: el lookup es un filter_by exacto y una letra
     # en minúscula no encontraría a un alumno ya dado de alta con "B...".
-    control = control.strip().upper()
+    from itcj2.apps.titulatec.services.import_service import normalize_control
+    control = normalize_control(control)      # también quita la «L» de licenciatura
     db = SessionLocal()
     try:
         found = db.query(User).filter_by(control_number=control).first() if control else None
@@ -426,7 +427,8 @@ def _cuerpo_student_add(cohort_id, request, user, form):
     # MAYÚSCULA antes de buscar/crear: `_add_student` -> `ImportService.
     # import_rows` hace el merge con un filter_by exacto, y una letra en
     # minúscula duplicaría la cuenta en vez de encontrar/adjuntar la existente.
-    control = (form.get("control_number") or "").strip().upper()
+    from itcj2.apps.titulatec.services.import_service import normalize_control
+    control = normalize_control(form.get("control_number"))   # también quita la «L»
     db = SessionLocal()
     try:
         cohort = db.get(Cohort, cohort_id)
