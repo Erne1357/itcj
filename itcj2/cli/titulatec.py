@@ -20,6 +20,7 @@ Comandos:
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
     titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
     titulatec init-especialidades [--dry-run]  Especialidades de la encuesta de egresados por carrera (retículas 2014+).
+    titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura y emite folios faltantes.
 """
 import logging
 import os
@@ -4234,5 +4235,110 @@ def audit_backfill_solicitudes_command(dry_run):
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Corrección de la «L» de licenciatura (2026-10-09). Quien escribió
+# «L21111134» quedaba «sin cuenta» y Centro de Cómputo podía crearle una
+# segunda cuenta. Desde este cambio el formulario quita la L
+# (`import_service.normalize_control`); este comando corrige lo que ya entró.
+# Lógica y reglas: `services/control_fix_service.py`. Sin DML: corre sobre los
+# datos con el ORM (la bitácora registra cada cambio) y mueve los archivos.
+# ---------------------------------------------------------------------------
+@titulatec_cli.command("fix-control-l")
+@click.option("--dry-run", is_flag=True, help="Solo muestra qué haría con cada solicitud.")
+@click.option("--sin-correo", "sin_correo", is_flag=True,
+              help="No envía avisos ni ligas (la liga se puede reenviar desde Solicitudes).")
+@click.option("--solicitud", "solo", type=int, multiple=True,
+              help="Solo estas solicitudes (repetible). Por omisión, todas las que tienen L.")
+def fix_control_l_command(dry_run, sin_correo, solo):
+    """Quita la «L» de licenciatura de solicitudes y cuentas de TitulaTec.
+
+    Cada solicitud se corrige en su propia transacción: si una falla, las demás
+    siguen y el comando sale con 1. Idempotente: una segunda corrida no
+    encuentra nada que corregir.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.control_fix_service import ControlFixService
+
+    db = SessionLocal()
+    try:
+        plan = ControlFixService.plan(db)
+        def _etq(a):
+            # Las constancias previas (encuesta de Forms o CSV) llevan su propio id.
+            return (f"previa #{a.request_id}" if a.status.startswith("previa")
+                    else f"#{a.request_id}")
+
+        if solo:
+            plan = [a for a in plan if not a.status.startswith("previa")
+                    and a.request_id in set(solo)]
+        # Folios faltantes (2026-10-09): liberaciones vigentes sin folio, p. ej.
+        # las encuestas liberadas antes de desplegar los folios. Se emiten al
+        # final, después de las correcciones (una previa aplicada aquí ya trae
+        # el suyo). Con `--solicitud` no se tocan.
+        from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillService
+        folios = [] if solo else FolioBackfillService.candidates(db)
+        if not plan and not folios:
+            click.echo("No hay solicitudes ni constancias previas con la «L» de licenciatura, "
+                       "ni liberaciones sin folio. Nada que hacer.")
+            return
+        if plan:
+            click.echo(f"{len(plan)} registro(s) con L:")
+        for a in plan:
+            otra = f" (otra: #{a.otra_id})" if a.otra_id else ""
+            click.echo(f"  {_etq(a)} {a.control} -> {a.plain} [{a.status}] "
+                       f"{a.tipo}: {a.detalle}{otra}")
+        if folios:
+            from itcj2.apps.titulatec.models import TitulationProcess
+            click.echo(f"{len(folios)} liberación(es) sin folio:")
+            for c in folios:
+                proc = db.get(TitulationProcess, c["process_id"])
+                click.echo(f"  {c['source_ref']} {proc.folio if proc else ''} "
+                           f"liberada {c['anchor']:%d/%m/%Y} -> folio {c['kind']} {c['semester']}")
+        if dry_run:
+            click.echo("Dry-run: no se cambió nada.")
+            return
+        if plan and not sin_correo:
+            # El aviso de usuario cambiado y la liga salen UNA vez, al aplicar:
+            # una segunda corrida ya no encuentra nada que corregir. Sin la cuenta
+            # de correo conectada no se toca nada (salvo `--sin-correo`, y
+            # entonces se avisa a mano).
+            from itcj2.apps.titulatec.services.email_helper import _acquire_token
+            if _acquire_token("fix_control_l") is None:
+                click.echo(click.style(
+                    "ERROR: el correo de TitulaTec no está conectado; los avisos y la liga "
+                    "no saldrían. No se cambió nada. Conéctalo y vuelve a correr, o usa "
+                    "--sin-correo y avisa a mano.", fg="red"), err=True)
+                raise SystemExit(1)
+        db.rollback()       # suelta la lectura del plan antes de escribir
+
+        errores = 0
+        for a in plan:
+            if a.tipo == "revisar":
+                click.echo(click.style(f"  {_etq(a)}: se deja para revisar a mano "
+                                       f"({a.detalle})", fg="yellow"))
+                continue
+            ControlFixService.apply(db, a, send_mail=not sin_correo)
+            ok = not a.resultado.startswith("ERROR")
+            errores += 0 if ok else 1
+            extra = "".join(f"; {x}" for x in (a.correo,
+                            f"{len(a.movidos)} archivo(s) movido(s)" if a.movidos else "") if x)
+            click.echo(click.style(f"  {_etq(a)} {a.tipo}: {a.resultado}{extra}",
+                                   fg="green" if ok else "red"))
+        if not solo:
+            try:
+                conteo = FolioBackfillService.run(db, dry_run=False)
+            except Exception as exc:
+                db.rollback()
+                errores += 1
+                click.echo(click.style(f"  folios: ERROR {type(exc).__name__}: {exc}",
+                                       fg="red"), err=True)
+            else:
+                for (kind, sem), n in conteo.items():
+                    click.echo(click.style(f"  folios: {n} de {kind} en {sem}", fg="green"))
+        if errores:
+            raise SystemExit(1)
     finally:
         db.close()

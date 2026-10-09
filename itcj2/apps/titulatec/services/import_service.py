@@ -170,6 +170,27 @@ def _norm(s: str) -> str:
 # lookups son filter_by(control_number=...) exactos.
 CONTROL_NUMBER_RE = re.compile(r"^[A-Za-z]?\d{8}$")
 
+# La «L» inicial es el prefijo del correo institucional de licenciatura
+# (L21111134@cdjuarez.tecnm.mx), NO parte del número de control: aquí las
+# cuentas de licenciatura son los 8 dígitos (2026-10-09). Las letras de traslado
+# o posgrado (B, C, D, M) sí son parte del número y se conservan.
+_PREFIJO_LICENCIATURA_RE = re.compile(r"^L(\d{8})$")
+
+
+def normalize_control(raw) -> str:
+    """Número de control tal como se guarda y se busca en TitulaTec.
+
+    Sin espacios en los extremos, la letra en MAYÚSCULA (los lookups son
+    `filter_by` exactos: «b…» y «B…» duplicarían la cuenta) y SIN la «L» de
+    licenciatura: «L21111134» -> «21111134». Quien escribió la L no encontraba su
+    cuenta y Centro de Cómputo le creaba una segunda. Único punto de entrada
+    para todo número de control que captura TitulaTec (formulario público,
+    reenvío, alta manual, importación CSV); no valida, solo normaliza.
+    """
+    control = str(raw or "").strip().upper()
+    m = _PREFIJO_LICENCIATURA_RE.fullmatch(control)
+    return m.group(1) if m else control
+
 
 def _imports_dir() -> Path:
     d = Path(get_settings().TITULATEC_UPLOAD_PATH) / "_imports"
@@ -446,7 +467,7 @@ class ImportService:
             # el valor crudo del CSV, que es la línea de comparación para
             # volver a derivar `overrides` en el próximo POST (docstring de
             # build_preview).
-            control = control.strip().upper()
+            control = normalize_control(control)
 
             issues = []
             if not control:
@@ -622,7 +643,7 @@ class ImportService:
             # esto, "b21221523" y "B21221523" son DOS filter_by distintos y
             # el segundo alta crea una cuenta duplicada en vez de encontrar
             # la primera.
-            control = (r.get("control_number") or "").strip().upper()
+            control = normalize_control(r.get("control_number"))
             full_name = (r.get("full_name") or "").strip()
             if not control or not full_name:
                 skipped += 1

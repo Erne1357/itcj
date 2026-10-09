@@ -174,8 +174,9 @@ class PriorClearanceService:
         control.
         """
         from itcj2.apps.titulatec.models import PriorClearance
+        from itcj2.apps.titulatec.services.import_service import normalize_control
 
-        control = (control_number or "").strip().upper()
+        control = normalize_control(control_number)    # también sin la «L» (2026-10-09)
         if not control:
             return []
 
@@ -333,7 +334,9 @@ class PriorClearanceService:
         del CSV.
         """
         from itcj2.apps.titulatec.models.prior_clearance import PRIOR_KINDS
-        from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
+        from itcj2.apps.titulatec.services.import_service import (
+            CONTROL_NUMBER_RE, normalize_control,
+        )
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
         )
@@ -355,7 +358,7 @@ class PriorClearanceService:
 
         for row in rows:
             crudo = row.get("control_number") or ""
-            control = crudo.strip().upper()
+            control = normalize_control(crudo)   # también sin la «L» (2026-10-09)
             if not control or not CONTROL_NUMBER_RE.fullmatch(control):
                 _add("invalid", crudo.strip() or "(vacío)", "número de control inválido")
                 continue
@@ -476,9 +479,10 @@ class PriorClearanceService:
         quedó ligada la respuesta, o `None` si no se adjuntó a nada. Sin
         commit."""
         from itcj2.apps.titulatec.models import PriorClearance, TitulationProcess
+        from itcj2.apps.titulatec.services.import_service import normalize_control
         from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
 
-        control = (control_number or "").strip().upper()
+        control = normalize_control(control_number)    # también sin la «L» (2026-10-09)
         if response_id is None or not control:
             return None
         previa = (db.query(PriorClearance)

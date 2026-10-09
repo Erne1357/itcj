@@ -400,7 +400,10 @@ class SurveyImportService:
         validacion = field.get("validation") or {}
 
         if key == "no_control":
-            texto = _as_text(raw).upper().replace(" ", "")
+            # Sin espacios internos y sin la «L» de licenciatura (2026-10-09):
+            # con ella la previa nunca se aplicaba al inscribirse.
+            from itcj2.apps.titulatec.services.import_service import normalize_control
+            texto = normalize_control(_as_text(raw).replace(" ", ""))
             return texto, not bool(CONTROL_NUMBER_RE.fullmatch(texto))
 
         if tipo in ("radio", "select"):

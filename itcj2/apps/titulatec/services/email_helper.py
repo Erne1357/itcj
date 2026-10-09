@@ -82,6 +82,7 @@ SUBJECT_ALREADY_ENROLLED = "[TitulaTec ITCJ] Ya tienes un proceso de titulación
 SUBJECT_ENROLLMENT_DONE = "[TitulaTec ITCJ] Tu inscripción quedó registrada"
 SUBJECT_ENROLLMENT_REJECTED = "[TitulaTec ITCJ] Sobre tu solicitud de inscripción"
 SUBJECT_PROCESS_CANCELLED = "[TitulaTec ITCJ] Cambio en tu inscripción a titulación"
+SUBJECT_USERNAME_CHANGED = "[TitulaTec ITCJ] Tu usuario ahora es tu número de control"
 
 
 def process_cancelled_recipients(db: Session, process, user) -> list[str]:
@@ -331,6 +332,28 @@ class TitulaTecEmailHelper:
         except Exception:
             logger.exception("[titulatec] Error inesperado en send_enrollment_approved")
             return False
+
+    @staticmethod
+    def send_username_changed(user, process, *, old_control: str,
+                              personal_emails: list[str]) -> tuple[bool, str | None]:
+        """Aviso de `titulatec fix-control-l` (2026-10-09): su cuenta pasó de
+        «L########» a su número de control de siempre. Al institucional y a los
+        correos personales que la persona escribió (UN mensaje, como la
+        revocación). No lleva NIP: sigue siendo el del SII. Nunca lanza;
+        devuelve `(salió, motivo)` de `deliver_detailed`."""
+        try:
+            from itcj2.core.utils.email_tools import student_email
+            destinos = list(dict.fromkeys(
+                d for d in [student_email(user), *personal_emails] if d))
+            return deliver_detailed(
+                template="username_changed.html",
+                context={"user": user, "process": process, "old_control": old_control,
+                         "app_url": _STUDENT_URL},
+                subject=SUBJECT_USERNAME_CHANGED, to=destinos, que="username_changed",
+            )
+        except Exception:
+            logger.exception("[titulatec] Error inesperado en send_username_changed")
+            return False, "envio"
 
     @staticmethod
     def send_process_cancelled(db: Session, process) -> bool:

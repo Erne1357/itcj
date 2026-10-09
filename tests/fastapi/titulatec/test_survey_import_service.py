@@ -294,7 +294,10 @@ class TestNormalizacion:
 
     def test_no_control(self):
         campo = {"key": "no_control", "type": "text"}
-        assert _svc().normalize(campo, " l12345678 ") == ("L12345678", False)
+        # La «L» de licenciatura no es parte del número (2026-10-09): con ella la
+        # previa diferida nunca se aplicaba al inscribirse. Traslado sí conserva.
+        assert _svc().normalize(campo, " l12345678 ") == ("12345678", False)
+        assert _svc().normalize(campo, " b12345678 ") == ("B12345678", False)
         assert _svc().normalize(campo, 20111222) == ("20111222", False)
         assert _svc().normalize(campo, "1234567") == ("1234567", True)
 

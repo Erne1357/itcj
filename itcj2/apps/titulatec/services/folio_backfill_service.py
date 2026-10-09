@@ -12,9 +12,16 @@ grupos que ese código nunca ve:
   de la migración `tt20261001a` y la promoción D17 de
   `titulatec activar-biblioteca-caja`.
 
+2026-10-09: también las liberaciones NORMALES que se dieron antes de desplegar
+los folios (2026-10-06): sus dueños ya emiten al liberar, pero las anteriores
+nunca recibieron folio (2 encuestas en producción, liberadas el 30-sep y el
+05-oct). Su semestre es el de la liberación (`semester_key(ancla)`), la misma
+regla que al liberar hoy.
+
 `FolioBackfillService.candidates` las lista y `run` las folia con
-`CertificateService.issue(actor_id=None, semester=previous_semester_key(ancla))`
-(misma regla de D5/D6: el semestre ANTERIOR al de la fecha de registro). Es
+`CertificateService.issue(actor_id=None, semester=...)`: previa/legado ->
+`previous_semester_key(ancla)` (D5/D6: el semestre ANTERIOR al de la fecha de
+registro); normal -> `semester_key(ancla)`. Es
 idempotente: una liberación con folio VIGENTE ya no es candidata, así que una
 segunda corrida da 0. Lo usa el comando `titulatec emitir-folios-previos` y el
 paso «folios de previas y legado» de `activar-biblioteca-caja`.
@@ -81,19 +88,22 @@ class FolioBackfillService:
             _LIBRARY_RELEASED, _SURVEY_RELEASED,
         )
 
+        # Cualquier liberación vigente sin folio, también las NORMALES
+        # (2026-10-09): las que se liberaron antes de desplegar los folios
+        # (2026-10-06) nunca recibieron el suyo. `es_previa` decide el semestre.
         if kind == "survey_release":
             modelo, ancla = SurveyReview, SurveyReview.reviewed_at
-            filtros = (SurveyReview.status == _SURVEY_RELEASED,
-                       SurveyReview.origin == "prior")
+            filtros = (SurveyReview.status == _SURVEY_RELEASED,)
+            es_previa = SurveyReview.origin == "prior"
         elif kind == "library_clearance":
             modelo, ancla = LibraryClearance, LibraryClearance.updated_at
-            filtros = (LibraryClearance.status == _LIBRARY_RELEASED,
-                       LibraryClearance.cleared_via.in_(("prior", "legacy")))
+            filtros = (LibraryClearance.status == _LIBRARY_RELEASED,)
+            es_previa = LibraryClearance.cleared_via.in_(("prior", "legacy"))
         else:
             raise ValueError(f"Tipo de folio desconocido: {kind!r}")
 
         q = (
-            db.query(modelo.id, modelo.process_id, ancla)
+            db.query(modelo.id, modelo.process_id, ancla, es_previa.label("es_previa"))
             .join(TitulationProcess, TitulationProcess.id == modelo.process_id)
             .filter(
                 *filtros,
@@ -132,7 +142,7 @@ class FolioBackfillService:
         `(anchor, kind, id de la fila)`.
         """
         from itcj2.apps.titulatec.services.certificate_service import (
-            previous_semester_key,
+            previous_semester_key, semester_key,
         )
         from itcj2.apps.titulatec.services.library_clearance_service import (
             LibraryClearanceService,
@@ -142,20 +152,24 @@ class FolioBackfillService:
         )
 
         ahora = db_now()
-        filas: list[tuple] = []     # (ancla, kind, id, process_id, source_ref)
+        filas: list[tuple] = []     # (ancla, kind, id, process_id, source_ref, es_previa)
         # Los tipos en el MISMO orden en que `run` emite: los candados de las
         # filas fuente se toman siempre en un orden fijo (tipo, id).
         for kind, ref_de in (("library_clearance", LibraryClearanceService.certificate_ref),
                              ("survey_release", SurveyReviewService.certificate_ref)):
-            for fila_id, process_id, ancla in FolioBackfillService._consulta(
+            for fila_id, process_id, ancla, es_previa in FolioBackfillService._consulta(
                     db, kind, lock=lock):
-                filas.append((ancla or ahora, kind, fila_id, process_id, ref_de(fila_id)))
+                filas.append((ancla or ahora, kind, fila_id, process_id, ref_de(fila_id),
+                              bool(es_previa)))
 
         filas.sort(key=lambda f: (f[0], f[1], f[2]))
+        # Previa/legado: semestre ANTERIOR al registro (D5/D6). Normal: el
+        # semestre en que se liberó, la misma regla que al liberar hoy (C1).
         return [
             {"kind": kind, "source_ref": ref, "process_id": process_id,
-             "anchor": ancla, "semester": previous_semester_key(ancla)}
-            for ancla, kind, _id, process_id, ref in filas
+             "anchor": ancla,
+             "semester": previous_semester_key(ancla) if es_previa else semester_key(ancla)}
+            for ancla, kind, _id, process_id, ref, es_previa in filas
         ]
 
     @staticmethod

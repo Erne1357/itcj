@@ -83,6 +83,9 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "enrollment.link_resent": ("enrollment", "Reenvió la liga de activación"),
     "enrollment.notice_resent": ("enrollment", "Reenvió el aviso de acceso"),
     "enrollment.sii_recheck_requested": ("enrollment", "Pidió volver a consultar al SII"),
+    # `titulatec fix-control-l` (2026-10-09): quitar la «L» de licenciatura.
+    "enrollment.control_corrected": ("enrollment", "Corrigió el número de control de una solicitud"),
+    "enrollment.account_merged": ("enrollment", "Unificó una cuenta duplicada en la del alumno"),
 
     # --- access: bandeja de Accesos de Centro de Cómputo ---------------------
     "access.returned": ("access", "Devolvió una solicitud a revisión"),

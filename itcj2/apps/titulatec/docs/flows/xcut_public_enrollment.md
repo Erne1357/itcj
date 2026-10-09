@@ -488,7 +488,13 @@ número de control fuera de `CONTROL_NUMBER_RE`, correo inválido, **«Los dos c
 **Número de control (2026-09-17):** `CONTROL_NUMBER_RE = ^[A-Za-z]?\d{8}$` — 8 dígitos, o una letra
 + 8 dígitos si viene de traslado (`B21221523`). Se retiró el formato viejo «letra + 7 a 9 dígitos».
 El mensaje del campo es «Tu número de control son 8 dígitos, o una letra y 8 dígitos si vienes de
-traslado (ej. 21111182 o B21221523).». `enroll_submit` pasa la letra a MAYÚSCULA (y recorta) ANTES de
+traslado (ej. 21111182 o B21221523).». **La «L» de licenciatura se quita sola (2026-10-09)**:
+«L21111134» es el prefijo del correo institucional, no el número; quien la escribía quedaba «sin cuenta»
+y Centro de Cómputo le creaba una segunda cuenta «L…». La regla vive en
+`import_service.normalize_control` (formulario, reenvío, alta manual e importación CSV; el login del
+core NO la aplica); lo que ya entró con L lo corrige `titulatec fix-control-l [--dry-run]`
+(`services/control_fix_service.py`: corrige, emite liga si ya hay cuenta, rechaza duplicadas o unifica
+la cuenta «L…» con la del alumno, archivos incluidos, con aviso por correo). `enroll_submit` pasa la letra a MAYÚSCULA (y recorta) ANTES de
 validar y guardar, y `enroll_resend` antes de buscar: `EnrollmentRequestService.create()`/`.resend()`
 solo hacen `.strip()` y sus lookups por `control_number` son exactos, así que `b21221523` abriría una
 segunda solicitud (o no encontraría la aprobada) frente a `B21221523`. El `<input>` lleva
