@@ -156,18 +156,20 @@ class TestCandidates:
 
         assert [c["source_ref"] for c in candidatos] == [activo.ref]
 
-    def test_solo_cuentan_las_liberaciones_vigentes_y_previas(
+    def test_cuenta_toda_liberacion_vigente_sin_folio_y_nada_mas(
             self, db_session, sembrar):
-        """Una liberación NORMAL (`submission`, `payment`, `no_charge`) la
-        emiten los dueños al liberar: nunca es candidata, aunque aquí se haya
-        sembrado sin folio. Tampoco lo que no está liberado."""
+        """Toda liberación VIGENTE sin folio es candidata, también una NORMAL
+        (`submission`, `payment`, `no_charge`): las liberadas antes de desplegar
+        los folios (2026-10-06) nunca recibieron el suyo -2 encuestas en
+        producción- (2026-10-09; antes las normales se excluían). Lo que no
+        está liberado, nunca."""
         previa = sembrar.encuesta()                                    # sí
-        normal = sembrar.encuesta(origin="submission")                  # no
+        normal = sembrar.encuesta(origin="submission")                  # sí
         en_revision = sembrar.encuesta(status="in_review")              # no
         observada = sembrar.encuesta(status="rejected")                 # no
         legado = sembrar.biblioteca(via="legacy")                       # sí
-        por_pago = sembrar.biblioteca(via="payment")                    # no
-        sin_cargo = sembrar.biblioteca(via="no_charge")                 # no
+        por_pago = sembrar.biblioteca(via="payment")                    # sí
+        sin_cargo = sembrar.biblioteca(via="no_charge")                 # sí
         pendiente = sembrar.biblioteca(status="pending")                # no
         en_caja = sembrar.biblioteca(status="awaiting_payment")         # no
         observado = sembrar.biblioteca(status="observed")               # no
@@ -176,7 +178,20 @@ class TestCandidates:
             db_session, previa, normal, en_revision, observada, legado, por_pago,
             sin_cargo, pendiente, en_caja, observado)
 
-        assert {c["source_ref"] for c in candidatos} == {previa.ref, legado.ref}
+        assert {c["source_ref"] for c in candidatos} == {
+            previa.ref, normal.ref, legado.ref, por_pago.ref, sin_cargo.ref}
+
+    def test_una_normal_toma_el_semestre_en_que_se_libero(self, db_session, sembrar):
+        """Previa/legado: semestre ANTERIOR al registro (D5/D6). Normal: el de
+        su liberación, como si se hubiera foliado ese día (C1)."""
+        normal = sembrar.encuesta(origin="submission")                  # oct 2093 = B
+        pagada = sembrar.biblioteca(via="payment")
+        previa = sembrar.encuesta()
+
+        semestres = {c["source_ref"]: c["semester"]
+                     for c in _candidatos_de(db_session, normal, pagada, previa)}
+
+        assert semestres == {normal.ref: "2093B", pagada.ref: "2093B", previa.ref: "2093A"}
 
     def test_con_folio_vigente_no_es_candidato_y_con_uno_anulado_si(
             self, db_session, sembrar):

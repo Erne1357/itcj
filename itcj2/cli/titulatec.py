@@ -20,7 +20,7 @@ Comandos:
     titulatec init-ajustes-2026-10 [--dry-run]  Liberados para SE; Titulación: Liberados + expediente resumido (16 exactos); «Constancia de no adeudo de biblioteca».
     titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
     titulatec init-especialidades [--dry-run]  Especialidades de la encuesta de egresados por carrera (retículas 2014+).
-    titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura a solicitudes y cuentas.
+    titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura y emite folios faltantes.
 """
 import logging
 import os
@@ -4274,19 +4274,33 @@ def fix_control_l_command(dry_run, sin_correo, solo):
         if solo:
             plan = [a for a in plan if not a.status.startswith("previa")
                     and a.request_id in set(solo)]
-        if not plan:
-            click.echo("No hay solicitudes ni constancias previas con la «L» de licenciatura. "
-                       "Nada que hacer.")
+        # Folios faltantes (2026-10-09): liberaciones vigentes sin folio, p. ej.
+        # las encuestas liberadas antes de desplegar los folios. Se emiten al
+        # final, después de las correcciones (una previa aplicada aquí ya trae
+        # el suyo). Con `--solicitud` no se tocan.
+        from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillService
+        folios = [] if solo else FolioBackfillService.candidates(db)
+        if not plan and not folios:
+            click.echo("No hay solicitudes ni constancias previas con la «L» de licenciatura, "
+                       "ni liberaciones sin folio. Nada que hacer.")
             return
-        click.echo(f"{len(plan)} registro(s) con L:")
+        if plan:
+            click.echo(f"{len(plan)} registro(s) con L:")
         for a in plan:
             otra = f" (otra: #{a.otra_id})" if a.otra_id else ""
             click.echo(f"  {_etq(a)} {a.control} -> {a.plain} [{a.status}] "
                        f"{a.tipo}: {a.detalle}{otra}")
+        if folios:
+            from itcj2.apps.titulatec.models import TitulationProcess
+            click.echo(f"{len(folios)} liberación(es) sin folio:")
+            for c in folios:
+                proc = db.get(TitulationProcess, c["process_id"])
+                click.echo(f"  {c['source_ref']} {proc.folio if proc else ''} "
+                           f"liberada {c['anchor']:%d/%m/%Y} -> folio {c['kind']} {c['semester']}")
         if dry_run:
             click.echo("Dry-run: no se cambió nada.")
             return
-        if not sin_correo:
+        if plan and not sin_correo:
             # El aviso de usuario cambiado y la liga salen UNA vez, al aplicar:
             # una segunda corrida ya no encuentra nada que corregir. Sin la cuenta
             # de correo conectada no se toca nada (salvo `--sin-correo`, y
@@ -4313,6 +4327,17 @@ def fix_control_l_command(dry_run, sin_correo, solo):
                             f"{len(a.movidos)} archivo(s) movido(s)" if a.movidos else "") if x)
             click.echo(click.style(f"  {_etq(a)} {a.tipo}: {a.resultado}{extra}",
                                    fg="green" if ok else "red"))
+        if not solo:
+            try:
+                conteo = FolioBackfillService.run(db, dry_run=False)
+            except Exception as exc:
+                db.rollback()
+                errores += 1
+                click.echo(click.style(f"  folios: ERROR {type(exc).__name__}: {exc}",
+                                       fg="red"), err=True)
+            else:
+                for (kind, sem), n in conteo.items():
+                    click.echo(click.style(f"  folios: {n} de {kind} en {sem}", fg="green"))
         if errores:
             raise SystemExit(1)
     finally:
