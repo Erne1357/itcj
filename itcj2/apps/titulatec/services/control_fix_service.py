@@ -85,6 +85,7 @@ class ControlFixService:
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest as ER
         from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.process_service import ProcessService
 
         acciones: list[Accion] = []
         reqs = (db.query(ER).filter(func.upper(ER.control_number).op("~")(r"^L[0-9]{8}$"))
@@ -138,6 +139,25 @@ class ControlFixService:
                 else:
                     _a("corregir", "se le quita la L" + (" (tiene cuenta)" if u_plain else ""))
             # rechazadas y demás ya resueltas: nada que hacer
+
+        # Constancias previas (encuesta de Forms, CSV) guardadas con la L: nunca
+        # se aplicaban al inscribirse, porque `apply_pending` busca por el número
+        # de la cuenta. `request_id` aquí es el id de la PREVIA.
+        from itcj2.apps.titulatec.models import PriorClearance as PC
+        for pc in (db.query(PC).filter(func.upper(PC.control_number).op("~")(r"^L[0-9]{8}$"))
+                   .order_by(PC.id).all()):
+            plain = _L_RE.fullmatch(pc.control_number.strip().upper()).group(1)
+            if db.query(PC.id).filter_by(kind=pc.kind, control_number=plain).first():
+                acciones.append(Accion(pc.id, pc.control_number, plain, f"previa {pc.kind}",
+                                       "revisar", "ya hay otra previa con su número"))
+                continue
+            u = db.query(User).filter_by(control_number=plain).first()
+            proc = (ProcessService.creditable_process(db, u.id) if u is not None
+                    and pc.applied_process_id is None else None)
+            detalle = ("se le quita la L y se APLICA a su proceso " + proc.folio if proc is not None
+                       else "se le quita la L (se aplicará cuando se inscriba)")
+            acciones.append(Accion(pc.id, pc.control_number, plain, f"previa {pc.kind}",
+                                   "previa", detalle))
         return acciones
 
     # ----------------------------------------------------------------- apply
@@ -268,6 +288,42 @@ class ControlFixService:
     def _accesos_en_otra(db, a, movidos):
         otra = ControlFixService._heredar(db, a)
         otra.status = "awaiting_access"
+
+    @staticmethod
+    def _previa(db, a, movidos):
+        """Constancia previa con L: su número (y el de su respuesta de encuesta)
+        sin la L y, si el alumno ya tiene proceso vivo, se aplica ahí mismo con
+        `apply_pending` -el mismo camino que al inscribirse, con su folio, aviso
+        y correo de liberación-."""
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.models import PriorClearance, SurveyResponse
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
+        from itcj2.apps.titulatec.services.process_service import ProcessService
+
+        pc = db.query(PriorClearance).filter_by(id=a.request_id).with_for_update().one()
+        antes = pc.control_number
+        pc.control_number = a.plain
+        if pc.response_id:
+            db.query(SurveyResponse).filter(SurveyResponse.id == pc.response_id,
+                                            SurveyResponse.control_number == antes).update(
+                {"control_number": a.plain}, synchronize_session=False)
+        db.flush()
+        aplicadas, proc = [], None
+        u = db.query(User).filter_by(control_number=a.plain).first()
+        if u is not None and pc.applied_process_id is None:
+            proc = ProcessService.creditable_process(db, u.id)
+            if proc is not None:
+                aplicadas = PriorClearanceService.apply_pending(db, proc, a.plain)
+        AuditService.record(
+            db, "enrollment.control_corrected",
+            entity_type="prior_clearance", entity_id=pc.id,
+            process_id=proc.id if proc is not None else None, subject=a.plain,
+            before={"control_number": antes}, after={"control_number": a.plain},
+            payload={"path": "prior_clearance", "kind": pc.kind, "applied": aplicadas})
+        a.resultado = ("aplicada a " + proc.folio) if aplicadas else (
+            "corregida (se aplicará al inscribirse)" if proc is None else
+            "corregida; NO se pudo aplicar (revisar vigencia)")
 
     # ------------------------------------------------ unificar / renombrar
     @staticmethod

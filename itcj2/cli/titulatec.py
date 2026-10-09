@@ -4266,25 +4266,44 @@ def fix_control_l_command(dry_run, sin_correo, solo):
     db = SessionLocal()
     try:
         plan = ControlFixService.plan(db)
+        def _etq(a):
+            # Las constancias previas (encuesta de Forms o CSV) llevan su propio id.
+            return (f"previa #{a.request_id}" if a.status.startswith("previa")
+                    else f"#{a.request_id}")
+
         if solo:
-            plan = [a for a in plan if a.request_id in set(solo)]
+            plan = [a for a in plan if not a.status.startswith("previa")
+                    and a.request_id in set(solo)]
         if not plan:
-            click.echo("No hay solicitudes con la «L» de licenciatura. Nada que hacer.")
+            click.echo("No hay solicitudes ni constancias previas con la «L» de licenciatura. "
+                       "Nada que hacer.")
             return
-        click.echo(f"{len(plan)} solicitud(es) con L:")
+        click.echo(f"{len(plan)} registro(s) con L:")
         for a in plan:
             otra = f" (otra: #{a.otra_id})" if a.otra_id else ""
-            click.echo(f"  #{a.request_id} {a.control} -> {a.plain} [{a.status}] "
+            click.echo(f"  {_etq(a)} {a.control} -> {a.plain} [{a.status}] "
                        f"{a.tipo}: {a.detalle}{otra}")
         if dry_run:
             click.echo("Dry-run: no se cambió nada.")
             return
+        if not sin_correo:
+            # El aviso de usuario cambiado y la liga salen UNA vez, al aplicar:
+            # una segunda corrida ya no encuentra nada que corregir. Sin la cuenta
+            # de correo conectada no se toca nada (salvo `--sin-correo`, y
+            # entonces se avisa a mano).
+            from itcj2.apps.titulatec.services.email_helper import _acquire_token
+            if _acquire_token("fix_control_l") is None:
+                click.echo(click.style(
+                    "ERROR: el correo de TitulaTec no está conectado; los avisos y la liga "
+                    "no saldrían. No se cambió nada. Conéctalo y vuelve a correr, o usa "
+                    "--sin-correo y avisa a mano.", fg="red"), err=True)
+                raise SystemExit(1)
         db.rollback()       # suelta la lectura del plan antes de escribir
 
         errores = 0
         for a in plan:
             if a.tipo == "revisar":
-                click.echo(click.style(f"  #{a.request_id}: se deja para revisar a mano "
+                click.echo(click.style(f"  {_etq(a)}: se deja para revisar a mano "
                                        f"({a.detalle})", fg="yellow"))
                 continue
             ControlFixService.apply(db, a, send_mail=not sin_correo)
@@ -4292,7 +4311,7 @@ def fix_control_l_command(dry_run, sin_correo, solo):
             errores += 0 if ok else 1
             extra = "".join(f"; {x}" for x in (a.correo,
                             f"{len(a.movidos)} archivo(s) movido(s)" if a.movidos else "") if x)
-            click.echo(click.style(f"  #{a.request_id} {a.tipo}: {a.resultado}{extra}",
+            click.echo(click.style(f"  {_etq(a)} {a.tipo}: {a.resultado}{extra}",
                                    fg="green" if ok else "red"))
         if errores:
             raise SystemExit(1)

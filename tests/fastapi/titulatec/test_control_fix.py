@@ -248,3 +248,50 @@ def test_el_aviso_va_al_institucional_y_a_los_personales_sin_repetir(monkeypatch
     assert enviados["template"] == "username_changed.html"
     assert enviados["to"][1:] == ["a@x.com", "b@x.com"]
     assert "20110908" in enviados["to"][0]
+
+
+# ---------------------------------------------------------------------------
+# Constancias previas (encuesta de Forms / CSV) guardadas con la L
+# ---------------------------------------------------------------------------
+def _previa(db_session, control):
+    from datetime import date
+    from itcj2.apps.titulatec.models import PriorClearance
+    pc = PriorClearance(kind="survey", control_number=control, issued_on=date.today(),
+                        source="test-control-l")
+    db_session.add(pc)
+    db_session.flush()
+    return pc
+
+
+def test_previa_con_l_sin_proceso_se_corrige_para_aplicarse_al_inscribirse(db_session, escena):
+    from itcj2.apps.titulatec.models import PriorClearance
+    alumno = escena.alumno()
+    pc = _previa(db_session, "L" + alumno.control_number)
+
+    a = _accion(db_session, pc.id)
+    assert (a.tipo, a.status) == ("previa", "previa survey")
+    a = _aplicar(db_session, pc.id)
+
+    assert _fresca(db_session, PriorClearance, pc.id).control_number == alumno.control_number
+    assert a.resultado == "corregida (se aplicará al inscribirse)"
+
+
+def test_previa_con_l_de_un_inscrito_se_aplica_a_su_proceso(db_session, escena, monkeypatch):
+    from itcj2.apps.titulatec.services.prior_clearance_service import PriorClearanceService
+    alumno = escena.alumno()
+    proc = escena.proceso(alumno, cohort=escena.cohort)
+    pc = _previa(db_session, "L" + alumno.control_number)
+    llamadas = []
+    monkeypatch.setattr(PriorClearanceService, "apply_pending", staticmethod(
+        lambda db, process, control: llamadas.append((process.id, control)) or ["survey"]))
+
+    a = _aplicar(db_session, pc.id)
+
+    assert llamadas == [(proc.id, alumno.control_number)]
+    assert a.resultado == f"aplicada a {proc.folio}"
+
+
+def test_los_importadores_de_previas_y_de_forms_quitan_la_l():
+    from itcj2.apps.titulatec.services.survey_import_service import SurveyImportService
+    assert SurveyImportService.normalize({"key": "no_control", "type": "text"},
+                                         "L 21111134") == ("21111134", False)
