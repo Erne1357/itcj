@@ -337,9 +337,12 @@ def test_posgrado_excused_sigue_igual_paginado(db_session, escena, make_program,
     pag1 = _ctx(db_session, oficial, page=1, per_page=1)
     pag2 = _ctx(db_session, oficial, page=2, per_page=1)
     assert _ids(pag1) == [en_fase.id] and _ids(pag2) == [pasado.id]
-    # 3 pendientes + 4 extras sin subir (fase 1 en curso: no se dispensan).
-    assert pag1["rows"][0]["pending"] == 7
-    assert pag1["total_pending"] == pag2["total_pending"] == 7
+    # 3 subidos por evaluar + 4 extras sin subir (fase 1 en curso: no se
+    # dispensan). Los sin subir esperan al alumno: no cuentan «por evaluar»
+    # (2026-10-09; antes daba 7).
+    assert pag1["rows"][0]["pending"] == 3
+    assert pag1["rows"][0]["missing"] == 4
+    assert pag1["total_pending"] == pag2["total_pending"] == 3
 
 
 # ---------------------------------------------------------------------------

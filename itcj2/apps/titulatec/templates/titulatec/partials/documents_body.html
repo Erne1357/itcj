@@ -80,9 +80,11 @@
        DISPENSADOS (spec §5, invariante 8) no tienen archivo -- `has_file` es
        False, igual que uno realmente `missing` -- pero SE deben distinguir:
        Servicios Escolares tiene que saber que a ESTE alumno se le piden en
-       el cotejo, no que "le falta subirlo". Un `missing` de verdad se queda
-       SIN pintar aquí, como siempre. #}
+       el cotejo, no que "le falta subirlo". Un `missing` de verdad sale como
+       «Sin enviar» (2026-10-09): sin él, una fila que decía «1» no mostraba
+       nada pendiente y no se veía que el alumno aún debe ese documento. #}
     {% set en_cotejo = detail.docs | selectattr('status', 'equalto', 'excused') | list %}
+    {% set sin_enviar = detail.docs | selectattr('status', 'equalto', 'missing') | list %}
     <div id="tt-doc-review" data-process="{{ detail.process_id }}"
          data-phase-closed="{{ '1' if detail.phase_closed else '0' }}">
       {# El expediente contesta lo que esta bandeja no puede: si este documento
@@ -117,6 +119,11 @@
           {# Sin archivo que abrir (nada que picar): un span, no un button --
              no hay `data-url` que llevarlo a ningun lado. #}
           {% for d in en_cotejo %}
+          <span class="btn btn-sm tt-btn-ghost" aria-disabled="true">
+            {{ d.name }} {{ estado_pill(d.status) }}
+          </span>
+          {% endfor %}
+          {% for d in sin_enviar %}
           <span class="btn btn-sm tt-btn-ghost" aria-disabled="true">
             {{ d.name }} {{ estado_pill(d.status) }}
           </span>

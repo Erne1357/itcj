@@ -25,6 +25,7 @@
   {% elif estado == "pending" %}{{ pill("Pendiente", "neutral", "hourglass-split") }}
   {% elif estado == "skipped" %}{{ pill("No aplica", "neutral", "dash-circle") }}
   {% elif estado == "excused" %}{{ pill("En cotejo", "neutral", "calendar-check") }}
+  {% elif estado == "missing" %}{{ pill("Sin enviar", "neutral", "dash-circle") }}
   {% else %}{{ pill(estado, "neutral") }}{% endif %}
 {% endmacro %}
 

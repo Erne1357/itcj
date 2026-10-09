@@ -85,10 +85,13 @@ def test_bandeja_perfiles_mezclados_3_7_3_y_pildora_solo_en_posgrado(
     assert {d["type_code"] for d in filas[proc_lic.id]["docs"]} == set(
         c for c, _, _ in INITIAL_DOC_TYPES)
     assert {d["type_code"] for d in filas[proc_pos.id]["docs"]} == set(ALL_CODES)
-    # "por evaluar" suma por el SET DE CADA FILA, no un 3 fijo.
-    assert filas[proc_lic.id]["pending"] == 3
-    assert filas[proc_pos.id]["pending"] == 7
-    assert filas[proc_sin.id]["pending"] == 3
+    # Cada fila subió solo el acta: 1 «por evaluar»; lo que falta se cuenta
+    # aparte y por el SET DE CADA FILA, no un 3 fijo (2026-10-09: antes los
+    # faltantes se sumaban a «por evaluar» y daban 3/7/3).
+    assert [filas[p.id]["pending"] for p in (proc_lic, proc_pos, proc_sin)] == [1, 1, 1]
+    assert filas[proc_lic.id]["missing"] == 2
+    assert filas[proc_pos.id]["missing"] == 6
+    assert filas[proc_sin.id]["missing"] == 2
 
     # HTML: un oficial ACOTADO a `lic`/`pos` (Menor #2, revisión final
     # 2026-09-30 -- antes usaba a la jefa, que ve TODO: la aserción exacta de

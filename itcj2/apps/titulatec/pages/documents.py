@@ -62,7 +62,9 @@ def _doc_states(db, procs):
     `{"process_id", "created_at", "current_phase", "student_id", "program_id",
     "track", "folio", "program_name", "docs": [{"type_code", "status",
     "has_file", "created_at", "mime", "note", "view_url"}], "pending",
-    "all_approved"}`.
+    "missing", "all_approved"}`. `pending` cuenta SOLO lo subido sin dictaminar
+    («por evaluar»: el número de la fila, la pestaña y el contador); `missing`,
+    lo que el alumno no ha subido.
 
     **Aquí, y solo aquí, vive la regla de estados** (`pending`/`missing`/
     `excused`/`all_approved`): la bandeja filtra, ordena y cuenta sobre estos
@@ -139,15 +141,22 @@ def _doc_states(db, procs):
         excused = DocumentService.excused_initial_docs(
             p, present_codes, initial_docs_phase=initial_docs_phase)
         docs_out = []
+        # `pending` = «por evaluar»: archivo SUBIDO esperando dictamen (espera
+        # al revisor). `missing` = sin subir (espera al ALUMNO). Antes los dos
+        # se sumaban en `pending` y la fila decía «1» sin nada que abrir
+        # (2026-10-09, alumno 21111134 en producción).
         pending = 0
+        missing = 0
         for code in codes:
             doc = docs.get((p.id, code))
             if doc is None and code in excused:
                 status = "excused"
             else:
                 status = doc.review_status if doc else "missing"
-            if status in ("pending", "missing", "in_review"):
+            if doc is not None and status in ("pending", "in_review"):
                 pending += 1
+            elif status == "missing":
+                missing += 1
             docs_out.append({
                 "type_code": code, "status": status,
                 "has_file": doc is not None,
@@ -167,7 +176,7 @@ def _doc_states(db, procs):
             # Alimenta la píldora "Posgrado" (`track_pill`, `_macros.html`).
             "track": tracks_by_pid[p.id],
             "folio": p.folio, "program_name": prog.name if prog else None,
-            "docs": docs_out, "pending": pending,
+            "docs": docs_out, "pending": pending, "missing": missing,
             # Un dispensado (R-G) no bloquea el "listo para agendar cotejo": solo
             # los realmente exigibles -- aprobados o dispensados -- cuentan.
             "all_approved": all(d["status"] in ("approved", "excused") for d in docs_out),
@@ -244,10 +253,10 @@ def _order_pending_by_wait(db, rows):
     cargado por `_doc_states`, sin consulta extra). Desempate por `process_id`
     ascendente.
 
-    Las filas cuyo unico pendiente es "missing" (nada subido: se espera al
-    alumno, no al revisor) no tienen ningun tiempo que medir -- van al final,
-    SIN reordenarse entre si, asi que conservan el orden que traian
-    (`created_at desc, id desc`).
+    Una fila cuyo unico pendiente fuera "missing" (nada subido: se espera al
+    alumno, no al revisor) ya no llega aqui: desde 2026-10-09 `pending` no
+    cuenta faltantes y la pestana no la incluye. Si alguna fila llegara sin
+    tiempo que medir, va al final SIN reordenarse (`created_at desc, id desc`).
 
     Una sola consulta por lote (`_last_uploads`); no se llama desde `_doc_states`
     para que las otras 3 pestanas sigan sin pagarla.

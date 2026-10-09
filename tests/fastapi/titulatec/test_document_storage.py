@@ -428,6 +428,33 @@ def _doc_row(db, process_id, type_code="curp"):
 
 
 class TestDocumentServiceSave:
+    def test_reenviar_un_rechazado_lo_deja_pendiente_y_sin_dictamen_previo(
+            self, proceso, base, db_session, make_head):
+        """El reenvío vuelve a «Pendiente» (cuenta «por evaluar») y no arrastra
+        nada del dictamen anterior: ni la nota ni QUIÉN lo rechazó (2026-10-09:
+        `reviewed_by_id` se quedaba con el revisor viejo)."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, student = proceso()
+        revisora = make_head()
+
+        DocumentService.save(db_session, proc, "curp", raw=small_pdf(),
+                             original_name="curp.pdf", content_type="application/pdf",
+                             uploaded_by_id=student.id)
+        assert DocumentService.review(db_session, proc.id, "curp", status="rejected",
+                                      note="Ilegible", reviewer_id=revisora.id)
+        rechazado = _doc_row(db_session, proc.id)
+        assert (rechazado.review_status, rechazado.reviewed_by_id) == ("rejected", revisora.id)
+
+        DocumentService.save(db_session, proc, "curp", raw=small_pdf(),
+                             original_name="curp-bien.pdf", content_type="application/pdf",
+                             uploaded_by_id=student.id)
+        doc = _doc_row(db_session, proc.id)
+
+        assert doc.review_status == "pending"
+        assert doc.version == 2
+        assert doc.review_note is None
+        assert doc.reviewed_by_id is None
+
     def test_comprimible_guarda_fila_con_tamano_real_y_nombre_nuevo(self, proceso, base,
                                                                     db_session):
         from itcj2.apps.titulatec.services.document_service import DocumentService
