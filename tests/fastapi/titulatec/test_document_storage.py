@@ -455,6 +455,56 @@ class TestDocumentServiceSave:
         assert doc.review_note is None
         assert doc.reviewed_by_id is None
 
+    def test_quien_rechazo_y_quien_aprobo_siguen_en_el_historial_y_la_bitacora(
+            self, audit_mark, proceso, base, db_session, make_head):
+        """`reviewed_by_id` es solo el ÚLTIMO dictamen de la fila: limpiarlo al
+        reenviar no borra historia. Cada dictamen deja su `ProcessEvent` (con
+        actor y motivo), que la bitácora espeja; y la red de datos de la
+        bitácora registra el propio cambio de `reviewed_by_id`."""
+        from itcj2.apps.titulatec.models import ProcessEvent
+        from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        from tests.fastapi.titulatec.conftest import audit_query
+        proc, student = proceso()
+        rechaza, aprueba = make_head(), make_head()
+
+        def _subir():
+            DocumentService.save(db_session, proc, "curp", raw=small_pdf(),
+                                 original_name="curp.pdf", content_type="application/pdf",
+                                 uploaded_by_id=student.id)
+
+        _subir()
+        DocumentService.review(db_session, proc.id, "curp", status="rejected",
+                               note="Ilegible", reviewer_id=rechaza.id)
+        _subir()
+        DocumentService.review(db_session, proc.id, "curp", status="approved",
+                               note=None, reviewer_id=aprueba.id)
+
+        eventos = [(e.event_type, e.actor_id, (e.payload or {}).get("note"))
+                   for e in db_session.query(ProcessEvent)
+                   .filter_by(process_id=proc.id).order_by(ProcessEvent.id)
+                   if e.event_type.startswith("document_")]
+        assert eventos == [
+            ("document_uploaded", student.id, None),
+            ("document_rejected", rechaza.id, "Ilegible"),
+            ("document_uploaded", student.id, None),
+            ("document_approved", aprueba.id, None),
+        ]
+
+        bitacora = audit_query(db_session).filter(TitulatecAuditLog.process_id == proc.id)
+        espejo = [(r.action, r.actor_id) for r in bitacora.filter(
+            TitulatecAuditLog.source == "process_event").order_by(TitulatecAuditLog.id)]
+        assert ("process.document_rejected", rechaza.id) in espejo
+        assert ("process.document_approved", aprueba.id) in espejo
+        # El reenvío deja su rastro de datos: de quién rechazó a «sin revisor».
+        cambios = [r for r in bitacora.filter(
+            TitulatecAuditLog.source == "data",
+            TitulatecAuditLog.entity_type == "titulatec_documents")
+            if "reviewed_by_id" in (r.after or {})]
+        assert any((r.before or {}).get("reviewed_by_id") == rechaza.id
+                   and r.after["reviewed_by_id"] is None for r in cambios), [
+            (r.before, r.after) for r in cambios]
+
     def test_comprimible_guarda_fila_con_tamano_real_y_nombre_nuevo(self, proceso, base,
                                                                     db_session):
         from itcj2.apps.titulatec.services.document_service import DocumentService
