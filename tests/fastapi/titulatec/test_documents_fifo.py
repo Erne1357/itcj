@@ -158,13 +158,14 @@ def test_sin_evento_de_bitacora_usa_created_at_del_documento(db_session, bandeja
 
 
 # ---------------------------------------------------------------------------
-# (d) Solo documentos "missing" -> al final, sin rebarajarse entre si
+# (d) Solo documentos "missing" -> NO estan en «Por evaluar»
 # ---------------------------------------------------------------------------
-def test_las_filas_solo_con_documentos_faltantes_van_al_final(db_session, bandeja, make_head):
-    """Dos filas con SOLO un documento missing (nada que dictaminar, se
-    espera al alumno) van despues de la que si tiene un pendiente con
-    archivo, y entre ellas mantienen el orden previo: `created_at desc, id
-    desc`, o sea la mas nueva primero."""
+def test_las_filas_solo_con_documentos_faltantes_no_salen_en_por_evaluar(
+        db_session, bandeja, make_head):
+    """Dos filas cuyo unico pendiente es un documento missing (nada que
+    dictaminar, se espera al alumno) NO aparecen en «Por evaluar»: ahi solo
+    queda la que tiene un archivo esperando dictamen (2026-10-09; antes iban
+    al final de la cola y la fila decia «1» sin nada que abrir)."""
     from itcj2.apps.titulatec.pages.documents import _body_ctx
 
     t_w = datetime(2001, 1, 1, 9, 0)
@@ -178,11 +179,15 @@ def test_las_filas_solo_con_documentos_faltantes_van_al_final(db_session, bandej
     assert solo_faltantes_1.id < solo_faltantes_2.id
 
     jefa = make_head()
-    ctx = _body_ctx(db_session, user_id=jefa.id, status_filter="pending", selected_id=None)
+    # Una sola página con TODO el universo: la base de dev ya trae decenas de
+    # filas en «Por evaluar» y, paginado, una fila del test podía quedar en la
+    # página 2 y «no salir» aunque el filtro la dejara pasar.
+    ctx = _body_ctx(db_session, user_id=jefa.id, status_filter="pending", selected_id=None,
+                    per_page=10000)
 
     mios_ids = {esperando.id, solo_faltantes_1.id, solo_faltantes_2.id}
-    mios = [f["process_id"] for f in ctx["rows"] if f["process_id"] in mios_ids]
-    assert mios == [esperando.id, solo_faltantes_2.id, solo_faltantes_1.id], mios
+    mios = [f["process_id"] for f in ctx["page"].items if f["process_id"] in mios_ids]
+    assert mios == [esperando.id], mios
 
 
 # ---------------------------------------------------------------------------

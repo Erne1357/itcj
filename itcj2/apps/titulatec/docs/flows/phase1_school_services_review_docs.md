@@ -34,6 +34,11 @@
    (también en MAYÚSCULA) o folio (`#docs-filters`, `partials/documents_body.html`;
    `process_search`, `services/process_service.py`). Encabezado "N por evaluar" y «Procesos (N)» =
    del **universo filtrado** (alcance + búsqueda + pestaña), no de la página ni del scope completo.
+   **«Por evaluar» = archivo SUBIDO sin dictaminar** (2026-10-09): el número de la fila, la pestaña
+   y el encabezado cuentan solo `review_status == 'pending'` con archivo. Un documento que el alumno
+   no ha subido (`missing`) espera al alumno, no al revisor: va aparte (`missing` en `_doc_states`) y
+   el detalle lo pinta «Sin enviar». Antes se sumaban y una fila decía «1» sin nada que abrir
+   (alumno 21111134 en producción: 147 «por evaluar» contra 134 archivos reales).
 4. **Paginada (2026-10-04, spec `2026-10-04-titulatec-paginacion-design.md` §6)**: 50 procesos por
    página (`utils/paging.PAGE_SIZE`), pager `‹ Anteriores · a–b de N · Siguientes ›`. Cambiar de
    pestaña o de búsqueda vuelve a la página 1; el dictamen re-pinta la MISMA pestaña, página y
@@ -219,8 +224,8 @@ ni `updated_at`: ninguna de las dos sirve sola, porque una resubida actualiza la
 `Document` en su lugar en vez de crear una nueva. Sin evento en la bitácora (fila sembrada, o
 subida antes de `2f43e7e5` —2026-09-03—, cuando las subidas empezaron a dejar ese evento) el
 respaldo es `Document.created_at`. Las filas cuyo único pendiente es "missing" (nada subido: se espera al
-alumno, no al revisor) no tienen ningún tiempo que medir y van al final, sin reordenarse entre
-sí —conservan el orden de arriba—. Lo resuelven `_last_uploads` y `_order_pending_by_wait`
+alumno, no al revisor) ya no entran a esta pestaña (2026-10-09; antes iban al final de la cola).
+Lo resuelven `_last_uploads` y `_order_pending_by_wait`
 (`pages/documents.py`), en una consulta de lote adicional que solo paga esta pestaña.
 
 El lote es **equivalente** al bucle, no una aproximación: `DocumentType.code` es `UNIQUE` y
@@ -355,9 +360,10 @@ fase, se impide**.
 - Rechazar sin comentario → `400` + `X-Tt-Error` (`pages/documents.py:244-245`). (El endpoint
   gemelo del "detalle de proceso" que aceptaba rechazar sin motivo se borró con el rediseño del
   expediente, 2026-09-03 — ver "El dictamen de documentos…" arriba.)
-- Rechazar un doc → `review_status=rejected`; el proceso NO avanza; sigue en "Por evaluar" / "Con
-  rechazo". Cuando el alumno re-sube, `DocumentService.save` lo devuelve a `pending`
-  (`services/document_service.py:301`). **Solo mientras la fase 1 sea la actual**: con la fase
+- Rechazar un doc → `review_status=rejected`; el proceso NO avanza; sale en "Con rechazo" (y en
+  "Por evaluar" solo si le queda OTRO archivo sin dictaminar). Cuando el alumno re-sube,
+  `DocumentService.save` lo devuelve a `pending` —vuelve a «Por evaluar»— y limpia nota y revisor
+  (`review_note`, `reviewed_by_id`; este último se quedaba con el revisor anterior hasta el 2026-10-09). **Solo mientras la fase 1 sea la actual**: con la fase
   ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba).
 - Aprobar solo una parte del set (p. ej. 2 de 3 en licenciatura, o 6 de 7 en posgrado) → no avanza
   (el avance solo dispara con el set COMPLETO del perfil aprobado y `current_phase == 1`).

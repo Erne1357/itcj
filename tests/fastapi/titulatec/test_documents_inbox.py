@@ -198,7 +198,10 @@ def test_un_proceso_con_documentos_incompletos_marca_missing_los_que_faltan(
     assert por_codigo["curp"]["status"] == "missing"
     assert por_codigo["curp"]["has_file"] is False
     assert por_codigo["curp"]["view_url"] is None
-    assert fila["pending"] == 3          # 1 pending + 2 missing
+    # «Por evaluar» es solo lo SUBIDO sin dictaminar; lo que falta subir espera
+    # al alumno y se cuenta aparte (2026-10-09: antes daba 3).
+    assert fila["pending"] == 1
+    assert fila["missing"] == 2
     assert fila["all_approved"] is False
     # El nombre sale del catalogo aunque el documento no exista.
     assert por_codigo["curp"]["name"] == "CURP certificada"

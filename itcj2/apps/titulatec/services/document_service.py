@@ -584,8 +584,12 @@ class DocumentService:
             doc.mime_type = meta["mime_type"]
             doc.size_bytes = meta["size_bytes"]
             doc.version = (doc.version or 1) + 1
+            # Reenvío = archivo nuevo sin dictaminar: vuelve a «por evaluar» y no
+            # arrastra NADA del dictamen anterior, tampoco quién lo dio
+            # (2026-10-09: `reviewed_by_id` se quedaba con el revisor viejo).
             doc.review_status = "pending"
             doc.review_note = None
+            doc.reviewed_by_id = None
             doc.uploaded_by_id = uploaded_by_id
         else:
             doc = Document(
