@@ -88,6 +88,9 @@ async def _redis_task_subscriber() -> None:
 
     while True:
         try:
+            # Cliente PROPIO y SIN socket_timeout, a propósito: `listen()` bloquea
+            # horas esperando mensajes y el timeout de 2 s de `get_redis_async`
+            # lo mataría y lo reconectaría en bucle. No migrarlo a ese cliente.
             async with aioredis.from_url(settings.REDIS_URL) as r:
                 async with r.pubsub() as pubsub:
                     await pubsub.subscribe("task_events")
