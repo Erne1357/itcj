@@ -72,7 +72,7 @@ def register_notification_namespace(sio_server):
     async def on_connect(sid, environ):
         from itcj2.core.services import presence_service
 
-        user = current_user_from_environ(environ)
+        user = await current_user_from_environ(environ)
         if not user:
             return False
         uid = int(user["sub"])

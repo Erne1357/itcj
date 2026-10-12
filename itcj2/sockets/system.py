@@ -28,7 +28,7 @@ def register_system_namespace(sio_server):
 
     @sio_server.on("connect", namespace=NAMESPACE)
     async def on_connect(sid, environ):
-        user = current_user_from_environ(environ)
+        user = await current_user_from_environ(environ)
         if not user:
             # Rechazar handshakes anónimos: evita que un cliente sin sesión
             # reciba los broadcasts de active_users.
