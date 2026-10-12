@@ -2931,7 +2931,7 @@ def import_prior_clearances_command(archivo, tipo, fecha_fija, columna_control,
     - ya estaba liberado -> Ya liberadas.
     - encuesta con una solicitud en revisión u observada -> Conflictos (lo
       decide GTV desde su bandeja, no esta CLI).
-    - `issued_on` con más de 365 días -> Vencidas.
+    - `issued_on` fuera de su semestre y los 2 siguientes -> Vencidas.
     - número de control o fecha inválidos -> Inválidas.
 
     La columna del número de control se autodetecta (mismo heurístico que la
@@ -3114,8 +3114,10 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
 
     Guarda cada respuesta (marcada como importada) ligada a su pregunta de la
     encuesta `egresados` abierta, y libera al egresado por la maquinaria de
-    constancias previas (fecha = «Completion time»; Id en naranja = constancia
-    en papel por recoger).
+    constancias previas (fecha = «Completion time» / «Hora de finalización»;
+    Id en naranja = constancia en papel por recoger). Acepta el Excel de Forms
+    exportado en inglés o en español. Vigencia: el semestre de la respuesta y
+    los 2 siguientes.
 
     \b
     - Guardadas y liberadas: tenía proceso abierto; se liberó y se ligó.
@@ -3124,6 +3126,8 @@ def import_survey_xlsx_command(archivo, hoja, dry_run):
       si era una previa sin respuesta).
     - Guardadas (conflicto): ya envió la encuesta aquí o GTV revocó; lo decide GTV.
     - Guardadas sin liberar: control inválido/vacío o constancia vencida.
+    - (diferida) «ya tenía una liberación pendiente más nueva»: se conserva
+      esa; esta respuesta se guarda pero no la reemplaza.
     - Duplicadas: mismo control repetido; solo se importa la más reciente.
     - Ya importadas: re-correr el archivo no duplica nada.
     - Inválidas (no guardadas): «Completion time» vacío o ilegible.

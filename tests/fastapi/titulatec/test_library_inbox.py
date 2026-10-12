@@ -776,13 +776,15 @@ def test_constancia_previa_libera_sin_pasar_por_caja(
 def test_constancia_previa_vencida_responde_400(
     client_as, db_session, make_library_staff, make_student, make_cohort, make_process,
 ):
-    """§4.2: `issued_on < hoy - 365 días` -> `ValueError` legible."""
+    """§4.2: vencida (fuera de su semestre y los 2 siguientes) -> `ValueError`
+    legible."""
     staff = make_library_staff()
     cohort = make_cohort(book_donation_amount=Decimal("0.00"))
     proc = make_process(make_student(control_number="99600072"), cohort=cohort, current_phase=1,
                         library_clearance="pending")
     clearance = _clearance(db_session, proc)
-    fecha = (_hoy() - timedelta(days=366)).isoformat()
+    from itcj2.apps.titulatec.services.library_clearance_service import prior_valid_since
+    fecha = (prior_valid_since(_hoy()) - timedelta(days=1)).isoformat()
 
     resp = client_as(staff).post(
         f"{URL}/{clearance.id}/previa",

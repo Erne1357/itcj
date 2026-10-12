@@ -20,6 +20,7 @@ import itcj2.models  # noqa: F401
 from itcj2.apps.titulatec.services.survey_review_service import (
     REASON_MAX, REVIEW_STATUSES, SurveyReviewService,
 )
+from itcj2.apps.titulatec.services.library_clearance_service import prior_valid_since
 
 AUTO_SURVEY = "graduate_survey"
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
@@ -472,7 +473,7 @@ class TestRegisterPriorFolio:
         with pytest.raises(ValueError):
             SurveyReviewService.register_prior(
                 db_session, escenario["process"],
-                issued_on=cuando.date() - timedelta(days=400))
+                issued_on=prior_valid_since(cuando.date()) - timedelta(days=1))
 
         assert del_proceso.count() == antes
 

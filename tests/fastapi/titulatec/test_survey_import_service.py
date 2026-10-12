@@ -129,6 +129,24 @@ class TestLectura:
         assert row["answers_raw"]["no_control"] == "99600007"
         assert row["answers_raw"]["nombre_completo"] == "EGRESADO SINTETICO"
 
+    def test_metadatos_de_forms_en_espanol(self):
+        """El Excel de Ago-Dic 2025 se exportó con Forms en español: «Hora de
+        inicio», «Hora de finalización», «Correo electrónico», «Nombre». Se
+        leen igual que sus gemelas en inglés; «Nombre» exacto no se come
+        «Nombre (s) y apellidos completos»."""
+        headers = list(HEADERS)
+        headers[1:5] = ["Hora de inicio", "Hora de finalización", "Correo electrónico",
+                        "Nombre"]
+        rows = _svc().read_xlsx(build_xlsx(
+            [fila(8, control="99600008", completed=datetime(2025, 9, 17, 11, 46, 54))],
+            headers=headers))
+        (row,) = rows
+        assert row["ms_id"] == 8
+        assert row["completed_at"] == datetime(2025, 9, 17, 11, 46, 54)
+        assert row["full_name"] == "EGRESADO SINTETICO"
+        assert row["answers_raw"]["nombre_completo"] == "EGRESADO SINTETICO"
+        assert len(row["answers_raw"]) == 64
+
     def test_encabezado_desconocido_aborta(self):
         headers = list(HEADERS)
         headers[20] = "Pregunta que no existe en la encuesta"
@@ -717,6 +735,45 @@ class TestImportacion:
                   .filter_by(kind="survey", control_number="99600134").one())
         assert previa.issued_on == datetime(2026, 6, 15).date()
         assert previa.note == "CSV"
+
+    @pytest.mark.parametrize("ms_id, control, completado, bote", [
+        # HOY_FIJO = 2026-10-01 (2026B): vale desde 2025B (2025-07-01).
+        (101, "99600141", datetime(2025, 7, 1, 8, 0), "deferred"),
+        (102, "99600142", datetime(2025, 9, 17, 11, 46), "deferred"),   # 366+ días: hoy vale
+        (103, "99600143", datetime(2025, 6, 30, 23, 0), "saved_unreleased"),
+    ])
+    def test_vigencia_por_semestre(self, db_session, reloj, form, ms_id, control,
+                                   completado, bote):
+        out = _importar(db_session, [fila(ms_id, control=control, completed=completado)])
+        assert _controles(out, bote) == [control]
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    def test_previa_pendiente_mas_nueva_con_respuesta_no_se_toca(
+            self, db_session, reloj, form, dry_run):
+        """El Excel de 2025B cargado DESPUÉS del de 2026A: a quien ya tenía su
+        liberación de 2026A pendiente (con su respuesta) no se le toca nada.
+        Antes conservaba la fecha nueva pero re-ligaba la respuesta vieja."""
+        from itcj2.apps.titulatec.models import PriorClearance
+
+        _importar(db_session, [fila(104, control="99600144",
+                                    completed=datetime(2026, 3, 2, 9, 0), orange=True)])
+        previa = (db_session.query(PriorClearance)
+                  .filter_by(kind="survey", control_number="99600144").one())
+        nueva = previa.response_id
+        assert nueva is not None and previa.paper_pending is True
+
+        out = _importar(db_session, [fila(105, control="99600144",
+                                          completed=datetime(2025, 10, 1, 9, 0))],
+                        dry_run=dry_run)
+
+        assert _controles(out, "deferred") == ["99600144"]
+        assert "más nueva" in out["deferred"][0]["reason"]
+        db_session.refresh(previa)
+        assert previa.issued_on == datetime(2026, 3, 2).date()
+        assert previa.response_id == nueva
+        assert previa.paper_pending is True
+        # La respuesta de 2025B se guarda igual (salvo en dry-run).
+        assert len(_respuestas(db_session, form)) == (1 if dry_run else 2)
 
     def test_botes_completos(self, db_session, reloj, form):
         out = _importar(db_session, [fila(81, control="99600113")], dry_run=True)
