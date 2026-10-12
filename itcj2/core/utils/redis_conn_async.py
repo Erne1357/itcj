@@ -1,7 +1,9 @@
 """Cliente `redis.asyncio` para el código que corre EN el event loop.
 
 Espejo de `redis_conn.get_redis()`: misma URL/host/puerto/db, mismo
-`decode_responses`, y —como allí— sin timeouts propios. Existe porque el
+`decode_responses` y los mismos timeouts (1 s conectar / 2 s por operación; ver
+el porqué en `redis_conn`). NO sirve para pub/sub `listen()` ni comandos con
+bloqueo: el `socket_timeout` los cortaría. Existe porque el
 cliente síncrono, llamado desde una corrutina, bloquea el loop entero del
 worker mientras espera a Redis (alerta `ItcjEventLoopBloqueosLargos`).
 """
@@ -42,14 +44,21 @@ def get_redis_async() -> aioredis.Redis | None:
     try:
         client = _clients.get(loop)
         if client is None:
+            timeouts = dict(
+                socket_connect_timeout=redis_conn.REDIS_SOCKET_CONNECT_TIMEOUT,
+                socket_timeout=redis_conn.REDIS_SOCKET_TIMEOUT,
+            )
             if redis_conn.REDIS_URL:
-                client = aioredis.Redis.from_url(redis_conn.REDIS_URL, decode_responses=True)
+                client = aioredis.Redis.from_url(
+                    redis_conn.REDIS_URL, decode_responses=True, **timeouts
+                )
             else:
                 client = aioredis.Redis(
                     host=redis_conn.REDIS_HOST,
                     port=redis_conn.REDIS_PORT,
                     db=redis_conn.REDIS_DB,
                     decode_responses=True,
+                    **timeouts,
                 )
             _clients[loop] = client
         return client
