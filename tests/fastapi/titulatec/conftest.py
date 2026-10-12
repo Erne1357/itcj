@@ -552,7 +552,8 @@ def make_user(db_session):
     from itcj2.core.models.user import User
 
     def _make(first_name="ACTOR", last_name="PRUEBA", control_number=None,
-              username=None, email=None, global_role=None, is_active=True):
+              username=None, email=None, global_role=None, is_active=True,
+              middle_name=None):
         n = _n()
         role_id = None
         if global_role:
@@ -566,6 +567,7 @@ def make_user(db_session):
         user = User(
             first_name=first_name,
             last_name=last_name,
+            middle_name=middle_name,
             username=username or f"tt_test_{n}",
             control_number=control_number,
             email=email or f"tt.test.{n}@example.invalid",

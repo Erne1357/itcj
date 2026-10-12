@@ -26,7 +26,7 @@ URL = "/titulatec/admin/liberados"
 HANDOFF_LIST_PERMS = ("titulatec.handoff.page.list", "titulatec.process.api.read.all")
 HANDOFF_EXPORT_PERMS = ("titulatec.handoff.api.export", "titulatec.process.api.read.all")
 
-CSV_HEADER = "No. control,Nombre,Correo,Carrera,Modalidad,Convocatoria,Liberado el"
+CSV_HEADER = "No. control,Nombres,Apellidos,Carrera,Promedio,Teléfono,Correo electrónico"
 
 
 @pytest.fixture(autouse=True)
@@ -117,9 +117,9 @@ def test_la_bandeja_lista_al_egresado_liberado(
 
     assert resp.status_code == 200, resp.text[:500]
     assert "99700001" in resp.text
-    assert "EGRESADA LIBERADA" in resp.text
+    assert ">EGRESADA</td>" in resp.text
+    assert ">LIBERADA</td>" in resp.text
     assert program.name in resp.text
-    assert cohort.name in resp.text
 
 
 def test_el_no_liberado_no_aparece(
@@ -227,7 +227,8 @@ def test_export_csv_trae_cabecera_y_una_fila_por_liberado(
     assert primera_linea == CSV_HEADER
     assert "99700007" in cuerpo
     assert program.name in cuerpo
-    assert cohort.name in cuerpo
+    # Convocatoria, modalidad y fecha ya no viajan (2026-10-12): el CSV es la tabla.
+    assert cohort.name not in cuerpo
 
 
 def test_export_csv_respeta_el_alcance_por_carrera(
@@ -271,7 +272,7 @@ def test_export_csv_escapa_celdas_que_empiezan_como_formula(
 
     assert resp.status_code == 200, resp.text[:500]
     cuerpo = resp.content.decode("utf-8")
-    assert "'=CMD('calc') RIESGO" in cuerpo
+    assert "'=CMD('calc'),RIESGO" in cuerpo
     # La celda cruda NO puede aparecer sin el apóstrofo antepuesto.
     assert ",=CMD" not in cuerpo
 
@@ -438,30 +439,82 @@ def test_servicios_escolares_ve_liberados_y_el_expediente_regresa_ahi(
 
 
 # ---------------------------------------------------------------------------
-# Correo personal y modalidad «Sin elegir» (spec 2026-10-07 §7, D9)
+# Columnas (2026-10-12): No. control · Nombres · Apellidos · Carrera ·
+# Promedio · Teléfono · Correo electrónico, y nada más (más «Ver expediente»)
 # ---------------------------------------------------------------------------
-def test_la_tabla_muestra_el_correo_personal_y_sin_elegir(
+def _fila(html, process_id):
+    import re
+    return re.search(r'<tr id="tt-hdf-%d">.*?</tr>' % process_id, html, re.S).group(0)
+
+
+def _celdas(fila_html):
+    import re
+    return [re.sub(r"<[^>]+>", "", c).strip()
+            for c in re.findall(r"<td[^>]*>(.*?)</td>", fila_html, re.S)]
+
+
+def test_la_tabla_trae_exactamente_las_columnas_pactadas(
     client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
 ):
-    """La fila pinta el correo PERSONAL (perfil), no el institucional, y una
-    modalidad nula se lee «Sin elegir». El CSV lleva el mismo correo y la
-    modalidad vacía."""
+    import re
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+    _liberado(db_session, make_program, make_cohort, make_user, make_process,
+              control="99700060")
+
+    html = client_as(head).get(URL, params={"q": "99700060"}).text
+
+    thead = re.search(r"<thead>.*?</thead>", html, re.S).group(0)
+    titulos = [re.sub(r"<[^>]+>", "", t).strip()
+               for t in re.findall(r"<th[^>]*>(.*?)</th>", thead, re.S)]
+    assert titulos == ["No. control", "Nombres", "Apellidos", "Carrera", "Promedio",
+                       "Teléfono", "Correo electrónico", ""]
+
+
+def test_la_fila_pinta_nombre_completo_telefono_promedio_y_correo_personal(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """Apellidos COMPLETOS (paterno + materno), teléfono y correo PERSONALES
+    (perfil), promedio oficial con dos decimales. La modalidad y la
+    convocatoria ya no se pintan. El CSV lleva lo mismo, en el mismo orden."""
+    from decimal import Decimal
     from itcj2.core.models.student_profile import StudentProfile
     head = make_head(perm_codes=HANDOFF_LIST_PERMS + ("titulatec.handoff.api.export",))
-    proc, program, cohort, alumno = _liberado(
-        db_session, make_program, make_cohort, make_user, make_process, control="99700050")
-    db_session.add(StudentProfile(user_id=alumno.id, contact_email="personal.50@example.invalid"))
+    program = make_program("Ingenieria Liberados Columnas")
+    cohort = make_cohort()
+    alumno = make_user(first_name="ANA SOFIA", last_name="PEREZ", middle_name="LUNA",
+                       control_number="99700061")
+    proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+    proc.final_average = Decimal("88.5")
+    _release(db_session, proc, datetime(2026, 1, 23, 9, 0))
+    db_session.add(StudentProfile(user_id=alumno.id, phone="6561234567",
+                                  contact_email="personal.61@example.invalid"))
     db_session.flush()
     cli = client_as(head)
 
-    html = cli.get(URL, params={"q": "99700050"}).text
-    csv = cli.get(f"{URL}/export.csv", params={"q": "99700050"}).content.decode("utf-8")
+    fila = _fila(cli.get(URL, params={"q": "99700061"}).text, proc.id)
+    csv = cli.get(f"{URL}/export.csv", params={"q": "99700061"}).content.decode("utf-8")
 
-    import re
-    fila = re.search(r'<tr id="tt-hdf-%d">.*?</tr>' % proc.id, html, re.S).group(0)
-    assert "personal.50@example.invalid" in fila
+    assert _celdas(fila)[:7] == ["99700061", "ANA SOFIA", "PEREZ LUNA", program.name,
+                                 "88.50", "6561234567", "personal.61@example.invalid"]
     assert alumno.email not in fila
-    assert "Sin elegir" in fila
-    linea = [ln for ln in csv.splitlines() if "99700050" in ln][0]
-    assert "personal.50@example.invalid" in linea
-    assert "Sin elegir" not in linea
+    assert cohort.name not in fila and "Sin elegir" not in fila
+    assert "Ver expediente" in fila
+    linea = [ln for ln in csv.splitlines() if "99700061" in ln][0]
+    assert linea == ("99700061,ANA SOFIA,PEREZ LUNA," + program.name
+                     + ",88.50,6561234567,personal.61@example.invalid")
+
+
+def test_sin_promedio_ni_telefono_la_tabla_pinta_raya_y_el_csv_vacio(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS + ("titulatec.handoff.api.export",))
+    proc, program, _cohort, alumno = _liberado(
+        db_session, make_program, make_cohort, make_user, make_process, control="99700062")
+    cli = client_as(head)
+
+    celdas = _celdas(_fila(cli.get(URL, params={"q": "99700062"}).text, proc.id))
+    csv = cli.get(f"{URL}/export.csv", params={"q": "99700062"}).content.decode("utf-8")
+
+    assert celdas[4] == "—" and celdas[5] == "—"
+    linea = [ln for ln in csv.splitlines() if "99700062" in ln][0]
+    assert linea == f"99700062,EGRESADA,LIBERADA,{program.name},,,{alumno.email}"

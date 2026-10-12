@@ -80,7 +80,7 @@ sequenceDiagram
     T->>FE: abre «Liberados» / cambia un filtro / pagina
     FE->>API: GET /admin/liberados/body?cohort_id=...&program_id=...&q=...
     API->>SVC: list_released(allowed_program_ids=scope, ...)
-    SVC->>DB: JOIN ProcessPhase(phase_number=2, status='approved') + User + Program (INNER) + Cohort + Modality, StudentProfile, última EnrollmentRequest (LEFT)
+    SVC->>DB: JOIN ProcessPhase(phase_number=2, status='approved') + User + Program (INNER) + Cohort + Modality, StudentProfile, última EnrollmentRequest (LEFT) — correo y teléfono personales, promedio del proceso
     DB-->>SVC: filas + total
     SVC-->>API: [ReleasedRow], total
     API-->>FE: partials/handoff_table.html
@@ -406,8 +406,31 @@ la resolución de `StudentMail.contact_email` —`core_student_profile.contact_e
 `contact_email` de la `EnrollmentRequest` más reciente que convirtió ESE proceso— y, sin ninguno,
 el institucional como último respaldo. Viaja en la MISMA consulta (`services/handoff_service.py:115-145`:
 perfil por PK + un agregado `max(id)` por proceso, unidos una vez; `converted_process_id` no tiene
-índice, así que nada de subconsulta por fila). Modalidad nula se lee «Sin elegir» en la tabla
-(`handoff_table.html:101`); en el CSV va vacía.
+índice, así que nada de subconsulta por fila). Hasta el 2026-10-11 la modalidad nula se leía «Sin
+elegir» en la tabla; desde el 2026-10-12 la modalidad ya no se pinta (ver «Columnas de la bandeja»).
+
+## Columnas de la bandeja (2026-10-12)
+
+Pedido de Titulación: la tabla y el CSV muestran **únicamente** No. control · Nombres · Apellidos ·
+Carrera · Promedio · Teléfono · Correo electrónico, en ese orden (`handoff_table.html`,
+`pages/handoff_admin.py::_CSV_HEADERS`), más el botón «Ver expediente» en la tabla. Modalidad,
+convocatoria y «Liberado el» dejan de pintarse (siguen en `ReleasedRow`: filtros y orden las usan).
+
+| Columna | Fuente (`services/handoff_service.py`, misma consulta, sin N+1) |
+|---|---|
+| Nombres | `core_users.first_name` |
+| Apellidos | `last_name` (paterno) + `middle_name` (materno), COMPLETOS. Antes la fila pintaba `first_name + last_name` y el materno se perdía |
+| Teléfono | `core_student_profile.phone` → `phone` de la `EnrollmentRequest` más reciente que convirtió ESE proceso (misma resolución que el correo; sin respaldo institucional). Vacío/espacios = ausente; la tabla pinta «—» y el CSV vacío |
+| Promedio | `titulatec_processes.final_average` Numeric(5,2), CHECK 0–100 (`ck_titulatec_processes_final_average_range`, migración `tt20261012a`). Es el OFICIAL y **aún no tiene fuente ni captura**: nace NULL («—» en la tabla, vacío en el CSV). Nunca se rellena con el «Promedio final» autodeclarado en la encuesta de egresados. Con valor se pinta con 2 decimales |
+
+El buscador ve lo mismo que la tabla: nº de control o nombre completo (con materno) en los dos
+órdenes (`concat_ws`, mismo criterio que `process_service.process_search`). Nombres, apellidos y
+carrera se parten en renglones (`tt-td-wrap`): a 1440+ la tabla cabe sin scroll; abajo de eso hace
+scroll dentro de `.tt-table-wrap` con la acción anclada.
+
+**Despliegue:** `alembic upgrade head` (→ `tt20261012a`, solo agrega la columna y el CHECK, sin
+backfill). Sin DML ni permisos. Reversa: `rollback.sh` y luego `downgrade tt20261007c` (pierde los
+promedios capturados, si los hubiera); el código viejo no lee la columna, así que el orden no rompe nada.
 
 **Pendiente fuera de este cambio (auditoría D7).** Dos rutas con `{process_id}` que NO viven bajo
 `/processes/{id}` siguen abiertas a Titulación por los permisos de dictamen que conserva y

@@ -85,22 +85,26 @@
                    ~ (('&page=' ~ pg.page) if pg and pg.page > 1 else '')) | urlencode %}
   <div class="tt-table-wrap">
     <table class="table table-sm align-middle">
+      {# Columnas pactadas con Titulación (2026-10-12), las mismas y en el mismo
+         orden que el CSV (`pages/handoff_admin.py::_CSV_HEADERS`). Apellidos =
+         paterno + materno; teléfono y correo PERSONALES; promedio OFICIAL, «—»
+         mientras no se capture (`HandoffService`). Nombres, apellidos y carrera
+         se parten en renglones (`tt-td-wrap`) para que la tabla quepa en
+         escritorio sin que la acción anclada tape el correo. #}
       <thead><tr>
-        <th>No. control</th><th>Nombre</th><th>Correo</th><th>Carrera</th>
-        <th>Modalidad</th><th>Convocatoria</th><th>Liberado el</th><th></th>
+        <th>No. control</th><th class="tt-td-wrap">Nombres</th><th class="tt-td-wrap">Apellidos</th><th class="tt-td-wrap">Carrera</th>
+        <th>Promedio</th><th>Teléfono</th><th>Correo electrónico</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
       <tr id="tt-hdf-{{ r.process_id }}">
         <td class="tt-mono">{{ r.control_number }}</td>
-        <td>{{ r.full_name }}</td>
+        <td class="tt-td-wrap">{{ r.first_names }}</td>
+        <td class="tt-td-wrap">{{ r.last_names }}</td>
+        <td class="tt-td-wrap">{{ r.program_name }}</td>
+        <td class="tt-mono">{{ '%.2f' | format(r.final_average) if r.final_average is not none else '—' }}</td>
+        <td class="tt-mono">{{ r.phone or '—' }}</td>
         <td>{{ r.email or '—' }}</td>
-        <td>{{ r.program_name }}</td>
-        {# Modalidad nula = el egresado aún no la elige (spec 2026-10-07 D9); el CSV
-           la deja vacía. El correo es el PERSONAL (`HandoffService`, D9). #}
-        <td>{{ r.modality_name or 'Sin elegir' }}</td>
-        <td>{{ r.cohort_name }}</td>
-        <td class="tt-mono">{{ r.released_at.strftime('%Y-%m-%d %H:%M') if r.released_at else '—' }}</td>
         <td><a class="btn btn-sm tt-btn-ghost"
                href="/titulatec/admin/processes/{{ r.process_id }}?from={{ VOLVER }}">Ver expediente</a></td>
       </tr>

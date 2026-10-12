@@ -24,6 +24,16 @@ solo espacios cuenta como ausente. Viaja en la MISMA consulta (perfil por PK y
 un agregado `max(id)` por proceso, unidos UNA vez): sin N+1 y sin subconsulta
 por fila (`converted_process_id` no tiene indice).
 
+Columnas de la bandeja (2026-10-12): No. control, Nombres, Apellidos, Carrera,
+Promedio, Telefono y Correo. Los apellidos van COMPLETOS: `last_name` es el
+paterno y `middle_name` el materno (como en toda la app); antes la fila solo
+traia `first_name + last_name` y el materno se perdia. El telefono sigue la
+MISMA resolucion que el correo -- perfil -> solicitud mas reciente que
+convirtio el proceso -- sin respaldo institucional (`core_users` no tiene
+telefono) y viaja en la misma consulta. El promedio es el OFICIAL
+(`titulatec_processes.final_average`, NULL mientras no haya fuente); nunca el
+autodeclarado en la encuesta de egresados.
+
 Servicio de SOLO LECTURA: ningun `commit`, ningun `add`. Lo consumira
 `pages/handoff_admin.py` (Tarea 5): `list_released` pagina la bandeja,
 `export_rows` arma el CSV sin paginar. El llamador resuelve el alcance por
@@ -34,6 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Iterable, Literal
 
 from sqlalchemy import and_, func, or_
@@ -55,10 +66,10 @@ def _like_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _limpio(correo: str | None) -> str | None:
+def _limpio(valor: str | None) -> str | None:
     """`None` si vacio o solo espacios; si no, sin espacios a los lados."""
-    correo = (correo or "").strip()
-    return correo or None
+    valor = (valor or "").strip()
+    return valor or None
 
 
 @dataclass(frozen=True)
@@ -66,8 +77,11 @@ class ReleasedRow:
     process_id: int
     folio: str
     control_number: str
-    full_name: str
+    first_names: str
+    last_names: str                # paterno + materno (ver docstring del modulo)
     email: str | None              # personal -> institucional (ver docstring del modulo)
+    phone: str | None              # perfil -> solicitud (ver docstring del modulo)
+    final_average: Decimal | None  # oficial; None = aun sin capturar
     program_name: str
     modality_name: str | None
     cohort_name: str
@@ -124,7 +138,8 @@ class HandoffService:
         query = (
             db.query(TitulationProcess, User, Program, Cohort, Modality,
                      ProcessPhase.completed_at,
-                     StudentProfile.contact_email, Solicitud.contact_email)
+                     StudentProfile.contact_email, Solicitud.contact_email,
+                     StudentProfile.phone, Solicitud.phone)
             .join(ProcessPhase, and_(
                 ProcessPhase.process_id == TitulationProcess.id,
                 ProcessPhase.phase_number == release_phase,
@@ -157,19 +172,23 @@ class HandoffService:
             query = query.filter(TitulationProcess.modality_id == modality_id)
         if q and q.strip():
             needle = f"%{_like_escape(q.strip())}%"
-            # Misma forma que `AppointmentService.list_appointments`
-            # (services/appointment_service.py:150-189): `core_users` no
-            # tiene columna `full_name`, se arma primer+ultimo apellido con
-            # coalesce para que un NULL no apague el concat entero.
-            nombre = func.concat(func.coalesce(User.first_name, ""), " ",
-                                 func.coalesce(User.last_name, ""))
-            query = query.filter(or_(User.control_number.ilike(needle, escape="\\"),
-                                     nombre.ilike(needle, escape="\\")))
+            # El buscador ve lo mismo que la tabla: nombres + apellidos
+            # COMPLETOS, en los dos ordenes (mismo criterio que
+            # `process_service.process_search`). `concat_ws` salta los NULL,
+            # asi que un materno ausente no apaga el concat entero.
+            query = query.filter(or_(
+                User.control_number.ilike(needle, escape="\\"),
+                func.concat_ws(" ", User.first_name, User.last_name, User.middle_name)
+                .ilike(needle, escape="\\"),
+                func.concat_ws(" ", User.last_name, User.middle_name, User.first_name)
+                .ilike(needle, escape="\\"),
+            ))
         return query
 
     @staticmethod
     def _row(proc, user, program, cohort, modality, completed_at,
-             perfil_email=None, solicitud_email=None) -> ReleasedRow:
+             perfil_email=None, solicitud_email=None,
+             perfil_phone=None, solicitud_phone=None) -> ReleasedRow:
         # Personal (perfil -> solicitud, como `StudentMail.contact_email`) y,
         # sin ninguno, el institucional como ultimo respaldo de la bandeja.
         personal = _limpio(perfil_email) or _limpio(solicitud_email)
@@ -177,8 +196,11 @@ class HandoffService:
             process_id=proc.id,
             folio=proc.folio,
             control_number=user.control_number,
-            full_name=f"{user.first_name} {user.last_name}",
+            first_names=user.first_name,
+            last_names=" ".join(x for x in (user.last_name, user.middle_name) if x),
             email=personal or _limpio(user.email),
+            phone=_limpio(perfil_phone) or _limpio(solicitud_phone),
+            final_average=proc.final_average,
             program_name=program.name,
             modality_name=modality.name if modality else None,
             cohort_name=cohort.name,

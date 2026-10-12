@@ -40,8 +40,9 @@ router = APIRouter(prefix="/admin/liberados", tags=["titulatec-pages-handoff"])
 _LIST = ["titulatec.handoff.page.list"]
 _EXPORT = ["titulatec.handoff.api.export"]
 
-_CSV_HEADERS = ("No. control", "Nombre", "Correo", "Carrera", "Modalidad",
-                "Convocatoria", "Liberado el")
+# Las mismas columnas y en el mismo orden que la tabla (`handoff_table.html`).
+_CSV_HEADERS = ("No. control", "Nombres", "Apellidos", "Carrera", "Promedio",
+                "Teléfono", "Correo electrónico")
 
 
 def _to_int(raw):
@@ -174,12 +175,12 @@ def export(request: Request, cohort_id: str = "", program_id: str = "",
     for r in rows:
         crudas = [
             r.control_number,
-            r.full_name,
-            r.email or "",
+            r.first_names,
+            r.last_names,
             r.program_name,
-            r.modality_name or "",
-            r.cohort_name,
-            r.released_at.isoformat(sep=" ", timespec="seconds") if r.released_at else "",
+            f"{r.final_average:.2f}" if r.final_average is not None else "",
+            r.phone or "",
+            r.email or "",
         ]
         writer.writerow([escape_formula(c) for c in crudas])
 
