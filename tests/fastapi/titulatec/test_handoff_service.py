@@ -290,7 +290,7 @@ def test_q_busca_por_nombre_insensible_a_mayusculas(db_session, make_program, ma
 
     assert total == 1
     assert rows[0].process_id == proc.id
-    assert rows[0].full_name == "GABRIELA NUNEZ"
+    assert (rows[0].first_names, rows[0].last_names) == ("GABRIELA", "NUNEZ")
 
 
 def test_q_escapa_el_comodin_porcentaje(db_session, make_program, make_cohort,
@@ -441,17 +441,17 @@ def test_export_rows_respeta_alcance_vacio(db_session, make_program, make_cohort
 # respaldo de la bandeja, el institucional (`core_users.email`, casi siempre
 # vacío en egresados). Vacío o solo espacios cuenta como ausente.
 
-def _perfil(db, user, correo):
+def _perfil(db, user, correo, telefono=None):
     from itcj2.core.models.student_profile import StudentProfile
-    db.add(StudentProfile(user_id=user.id, contact_email=correo))
+    db.add(StudentProfile(user_id=user.id, contact_email=correo, phone=telefono))
     db.flush()
 
 
-def _solicitud(db, proc, user, correo, cohort):
+def _solicitud(db, proc, user, correo, cohort, telefono="6560000000"):
     from itcj2.apps.titulatec.models import EnrollmentRequest
     req = EnrollmentRequest(
         cohort_id=cohort.id, control_number=user.control_number,
-        first_name="ALUMNO", last_name="FICTICIO", phone="6560000000",
+        first_name="ALUMNO", last_name="FICTICIO", phone=telefono,
         contact_email=correo, has_efirma=False, kind="known",
         status="converted", converted_process_id=proc.id)
     db.add(req)
@@ -582,3 +582,157 @@ def test_el_correo_no_agrega_consultas_por_fila(db_session, make_program, make_c
 
     assert pagina_4 == pagina_1, f"la página crece con las filas: {pagina_1} -> {pagina_4}"
     assert csv_4 == csv_1, f"el CSV crece con las filas: {csv_1} -> {csv_4}"
+
+
+# =========================================================================
+# Columnas de la bandeja (2026-10-12): nombres, apellidos completos,
+# teléfono y promedio
+# =========================================================================
+
+def test_apellidos_completos_paterno_y_materno(db_session, make_program, make_cohort,
+                                               make_user, make_process):
+    """`last_name` es el paterno y `middle_name` el materno (como en toda la
+    app: `requests_admin`, `access_admin`). Antes la fila solo pintaba
+    `first_name + last_name` y el materno se perdía."""
+    program = make_program("Ingenieria Apellidos (T4-AP1)")
+    alumno = make_user(first_name="MARIA FERNANDA", last_name="LOPEZ",
+                       middle_name="GARCIA", control_number=_cn())
+    proc = make_process(alumno, cohort=make_cohort(), program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 3, 1, 9, 0))
+
+    (fila,), _ = _released(db_session, allowed_program_ids={program.id})
+    (csv,) = HandoffService.export_rows(db_session, allowed_program_ids={program.id})
+
+    assert (fila.first_names, fila.last_names) == ("MARIA FERNANDA", "LOPEZ GARCIA")
+    assert (csv.first_names, csv.last_names) == ("MARIA FERNANDA", "LOPEZ GARCIA")
+
+
+def test_sin_apellido_materno_no_deja_espacios(db_session, make_program, make_cohort,
+                                              make_user, make_process):
+    program = make_program("Ingenieria Apellidos (T4-AP2)")
+    alumno = make_user(first_name="JOSE", last_name="RUIZ", control_number=_cn())
+    proc = make_process(alumno, cohort=make_cohort(), program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 3, 1, 9, 0))
+
+    (fila,), _ = _released(db_session, allowed_program_ids={program.id})
+
+    assert fila.last_names == "RUIZ"
+
+
+@pytest.mark.parametrize("q", ["garcia", "lopez garcia", "maria fernanda lopez",
+                               "LOPEZ GARCIA MARIA"])
+def test_q_busca_tambien_por_apellido_materno(db_session, make_program, make_cohort,
+                                              make_user, make_process, q):
+    """El buscador ve lo mismo que la tabla: el materno cuenta, en orden
+    «nombres apellidos» o «apellidos nombres» (mismo criterio que
+    `ProcessService`)."""
+    program = make_program(f"Ingenieria Buscar Materno ({q})")
+    cohort = make_cohort()
+    alumno = make_user(first_name="MARIA FERNANDA", last_name="LOPEZ",
+                       middle_name="GARCIA", control_number=_cn())
+    otro = make_user(first_name="MARIA", last_name="LOPEZ", middle_name="SOTO",
+                     control_number=_cn())
+    proc = make_process(alumno, cohort=cohort, program=program, current_phase=1)
+    proc_otro = make_process(otro, cohort=cohort, program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 3, 2, 9, 0))
+    _release(db_session, proc_otro, datetime(2026, 3, 2, 9, 0))
+
+    rows, total = _released(db_session, allowed_program_ids={program.id}, q=q)
+
+    assert total == 1
+    assert rows[0].process_id == proc.id
+
+
+# --- Teléfono: misma resolución que el correo personal (sin el institucional,
+# que `core_users` no tiene): perfil → solicitud MÁS RECIENTE que convirtió
+# ESTE proceso → None. Vacío o solo espacios cuenta como ausente.
+
+def _telefono_de(db, program):
+    (fila,), _ = _released(db, allowed_program_ids={program.id})
+    (csv,) = HandoffService.export_rows(db, allowed_program_ids={program.id})
+    assert fila.phone == csv.phone, "la bandeja y el CSV no coinciden"
+    return fila.phone
+
+
+def test_el_telefono_del_perfil_gana(db_session, liberado_con_correo):
+    proc, alumno, program, cohort = liberado_con_correo("T1")
+    _perfil(db_session, alumno, None, telefono="6561112233")
+    _solicitud(db_session, proc, alumno, "s@example.invalid", cohort, telefono="6569998877")
+
+    assert _telefono_de(db_session, program) == "6561112233"
+
+
+def test_sin_telefono_en_perfil_usa_la_solicitud_mas_reciente(db_session,
+                                                              liberado_con_correo):
+    proc, alumno, program, cohort = liberado_con_correo("T2")
+    _perfil(db_session, alumno, "perfil@example.invalid", telefono="   ")
+    _solicitud(db_session, proc, alumno, "s1@example.invalid", cohort, telefono="6560000001")
+    _solicitud(db_session, proc, alumno, "s2@example.invalid", cohort, telefono=" 6560000002 ")
+
+    assert _telefono_de(db_session, program) == "6560000002"
+
+
+def test_sin_ningun_telefono_es_none(db_session, liberado_con_correo):
+    _proc, _alumno, program, _cohort = liberado_con_correo("T3")
+
+    assert _telefono_de(db_session, program) is None
+
+
+# --- Promedio: `titulatec_processes.final_average` (oficial). Sin captura
+# todavía: NULL hasta que exista el dato; nunca se rellena con el que el
+# alumno autodeclaró en la encuesta.
+
+def test_promedio_sin_capturar_es_none(db_session, make_program, make_cohort,
+                                       make_user, make_process):
+    program = make_program("Ingenieria Promedio (T4-PR1)")
+    alumno = make_user(first_name="SIN", last_name="PROMEDIO", control_number=_cn())
+    proc = make_process(alumno, cohort=make_cohort(), program=program, current_phase=1)
+    _release(db_session, proc, datetime(2026, 3, 3, 9, 0))
+
+    (fila,), _ = _released(db_session, allowed_program_ids={program.id})
+
+    assert fila.final_average is None
+
+
+def test_promedio_capturado_viaja_en_la_fila_y_en_el_csv(db_session, make_program,
+                                                        make_cohort, make_user, make_process):
+    from decimal import Decimal
+    program = make_program("Ingenieria Promedio (T4-PR2)")
+    alumno = make_user(first_name="CON", last_name="PROMEDIO", control_number=_cn())
+    proc = make_process(alumno, cohort=make_cohort(), program=program, current_phase=1)
+    proc.final_average = Decimal("91.5")
+    _release(db_session, proc, datetime(2026, 3, 3, 9, 0))
+
+    (fila,), _ = _released(db_session, allowed_program_ids={program.id})
+    (csv,) = HandoffService.export_rows(db_session, allowed_program_ids={program.id})
+
+    assert fila.final_average == Decimal("91.50")
+    assert csv.final_average == Decimal("91.50")
+
+
+@pytest.mark.parametrize("valor", ["-0.01", "100.01"])
+def test_el_promedio_fuera_de_0_a_100_lo_rechaza_la_bd(db_session, make_cohort, make_user,
+                                                      make_process, valor):
+    """CHECK `ck_titulatec_processes_final_average_range`: la captura que
+    llegue después (SII, CSV o a mano) no puede colar un 910 por un punto
+    perdido. Patrón `begin_nested()`: ver `test_appointment_history.py`."""
+    from decimal import Decimal
+    from sqlalchemy.exc import IntegrityError
+    proc = make_process(make_user(control_number=_cn()), cohort=make_cohort())
+
+    with pytest.raises(IntegrityError):
+        with db_session.begin_nested():
+            proc.final_average = Decimal(valor)
+            db_session.flush()
+
+
+@pytest.mark.parametrize("valor", ["0", "70", "100"])
+def test_el_promedio_en_rango_lo_acepta_la_bd(db_session, make_cohort, make_user,
+                                             make_process, valor):
+    from decimal import Decimal
+    proc = make_process(make_user(control_number=_cn()), cohort=make_cohort())
+
+    proc.final_average = Decimal(valor)
+    db_session.flush()
+
+    assert proc.final_average == Decimal(valor)

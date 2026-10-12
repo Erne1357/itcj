@@ -1,6 +1,7 @@
 """Proceso de titulación — entidad raíz (1 por alumno × convocatoria)."""
 from sqlalchemy import (
-    BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint,
+    BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric,
+    String, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -22,6 +23,9 @@ class TitulationProcess(Base):
     current_phase = Column(Integer, nullable=False, server_default=text("0"))     # 0..8
     status = Column(String(20), nullable=False, server_default=text("'active'"), index=True)  # active|completed|cancelled|on_hold
     is_app_active = Column(Boolean, nullable=False, server_default=text("TRUE"), index=True)   # bloqueo login app-level (≠ SII)
+    # Promedio OFICIAL de la carrera (0-100). NULL hasta que haya fuente; NUNCA se
+    # rellena con el «Promedio final» autodeclarado en la encuesta de egresados.
+    final_average = Column(Numeric(5, 2), nullable=True)
 
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
@@ -42,6 +46,10 @@ class TitulationProcess(Base):
 
     __table_args__ = (
         UniqueConstraint("student_id", "cohort_id", name="uq_titulatec_process_student_cohort"),
+        # Declarado aquí Y en la migración `tt20261012a`: el CI arma el esquema con
+        # `create_all`, dev/prod con Alembic.
+        CheckConstraint("final_average BETWEEN 0 AND 100",
+                        name="ck_titulatec_processes_final_average_range"),
     )
 
     def __repr__(self) -> str:
