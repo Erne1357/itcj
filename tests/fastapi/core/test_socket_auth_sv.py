@@ -1,7 +1,9 @@
 """Handshake WS: revocación por token-version (claim sv), espejo de middleware.py:60-69.
 
+Los tests de excepción/None parchean `current_version_async` (lo que llama el
+handshake, socket_auth.py:33), no `current_version`.
 Afecta a TODOS los namespaces (helpdesk, maint, agendatec, /notify, /system)
-porque todos autentican vía current_user_from_environ. Las 4 ramas:
+porque todos autentican vía current_user_from_environ. Las ramas:
   1. sv presente y desactualizado -> rechazado (None)
   2. sv AUSENTE -> pasa aunque haya versión bumpeada (compat; los tokens de
      e2e/global-setup no traen sv)
@@ -10,14 +12,14 @@ porque todos autentican vía current_user_from_environ. Las 4 ramas:
      "por accidente"; no ejercita el guard `cur is not None`)
   4. current_version_async() devuelve None explícitamente (Redis inalcanzable, sin
      excepción) -> fail-open real, es el guard `cur is not None` agregado en la
-     Tarea 4 (socket_auth.py:28-29)
+     Tarea 4 (socket_auth.py:34)
 
 Desde la Tarea 5 la época vive en `core_users.session_epoch` y Redis solo la
 cachea, así que `bump_version` sobre un uid FICTICIO no hace nada: el
 `UPDATE ... WHERE id = :uid` no encuentra fila, devuelve None y no toca Redis.
-Las ramas 1-3 usan por eso un usuario REAL (fixture `user`) y pasan la sesión
-del test (`db=db_session`). Las ramas 4-5 parchean `current_version` entero, así
-que nunca llegan ni a Postgres ni a Redis y pueden seguir con uids ficticios.
+Las ramas 1-2 (y el caso sv vigente) usan por eso un usuario REAL (fixture
+`user`) y pasan la sesión del test (`db=db_session`). Las ramas 3-4 parchean
+`current_version_async` entero, así que nunca llegan ni a Postgres ni a Redis y pueden seguir con uids ficticios.
 
 El fixture autouse del conftest limpia el CACHÉ de authz (roles/perms/has) pero NO
 las épocas de sesión: barrerlas desloguearía usuarios reales si la suite corre

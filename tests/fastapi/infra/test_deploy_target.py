@@ -128,3 +128,21 @@ def test_el_reset_va_al_commit_resuelto_y_nunca_a_la_punta():
     resolve_at = body.index('resolve_deploy_target "$TARGET_SHA"')
     reset_at = body.index('git reset --hard "$DEPLOY_SHA"')
     assert resolve_at < reset_at
+
+
+def test_deploy_no_recrea_redis_ni_postgres_por_cambios_de_env_file():
+    """Ambos cargan todo `.env.prod` como env_file: sin `--no-recreate`, editar
+    ese archivo reiniciaría Postgres (shared_buffers frios) en el siguiente
+    deploy. Ninguna otra línea de deploy/rollback debe levantarlos."""
+    lines = [
+        l for l in _deploy_text().splitlines()
+        if "up -d" in l and not l.lstrip().startswith("#")
+        and (" redis" in l or " postgres" in l)
+    ]
+    assert len(lines) == 1, lines
+    assert "--no-recreate" in lines[0], lines[0]
+    rollback = (DEPLOY_SH.parent / "rollback.sh").read_text(encoding="utf-8")
+    assert not any(
+        "up -d" in l and (" redis" in l or " postgres" in l)
+        for l in rollback.splitlines()
+    )

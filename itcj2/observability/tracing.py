@@ -48,6 +48,9 @@ el muestreo la juzga por su propio ERROR o su latencia, y el link lleva de la
 tarea a la petición en Tempo. Es la opción del propio instrumentor y no una
 instrumentación propia: un solo span por ejecución, con ERROR y la excepción
 en `task_failure`, como antes.
+- Modo eager (`task_always_eager`, sin `traceparent` en las cabeceras): no hay
+  raíz nueva ni link, el span de la tarea sigue siendo hijo de quien la llamó.
+  En producción no se usa eager.
 
 - Logs: dentro de la tarea, `trace_id`/`span_id` son los de la raíz nueva (el
   botón Loki -> Tempo abre la traza de la tarea), y el `request_id` de quien
@@ -65,12 +68,12 @@ en `task_failure`, como antes.
 - Apagado no cambia nada: la tarea hereda la traza de quien la encoló (5a).
 
 LÍMITE: la raíz se exporta al TERMINAR la tarea, y sus hijos (SQL, Redis)
-según van terminando. En una tarea de más de 30 s, Alloy decide con los hijos
-de los primeros 30 s; si esos caben en menos de 1 s y ninguno falló, la traza
-cae en la línea base del 2 % y la raíz con ERROR llega tarde. Ya no depende
-de la cola ni de la petición, pero una tarea larga con un arranque corto y
-limpio sigue sin estar garantizada en Tempo: para esa, Loki por
-`celery_task_id`/`request_id`, o subir `decision_wait` en Alloy.
+según van terminando. Alloy enruta las trazas cuyo `service.namespace` es
+`worker` o `reports` (CELERY_HOSTNAME) a un tail sampler aparte con ventana de
+decisión de 12 min; la de 30 s queda para HTTP y sockets. Una tarea que dure
+más que esa ventana, o que `time_limit` mate antes de exportar su raíz, aún
+puede perderse (la raíz con ERROR llega tarde o nunca). Para esas, Loki por
+`celery_task_id`/`request_id`.
 
 Qué NO se instrumenta, a propósito: FastAPI (`-instrumentation-fastapi`
 abriría un segundo span servidor sin la regla `__unmatched__`) y logging

@@ -83,6 +83,45 @@ def test_current_version_async_failopen_con_redis_agujero_negro(blackhole, monke
     asyncio.run(_run())
 
 
+def _concurrentes(n, monkeypatch):
+    """Lanza n `current_version_async` a la vez y devuelve (resultados, segundos)."""
+    monkeypatch.setattr(ss, "_read_epoch_from_db", lambda uid: None)
+
+    async def _run():
+        t0 = time.monotonic()
+        res = await asyncio.gather(
+            *(ss.current_version_async(1000 + i) for i in range(n))
+        )
+        return res, time.monotonic() - t0
+
+    return asyncio.run(_run())
+
+
+def test_async_concurrente_no_se_serializa_con_redis_agujero_negro(
+    blackhole, monkeypatch
+):
+    """`ConnectionPool.get_connection` de redis-py 6.4 sostiene su lock durante el
+    handshake: con Redis mudo, cada conexión caducada se descarta y los demás
+    llamadores hacen cola (50 concurrentes = 100 s). Con `BlockingConnectionPool`
+    todos esperan EN PARALELO su propio timeout."""
+    res, dt = _concurrentes(20, monkeypatch)
+    assert all(r is None for r in res)
+    assert dt < 3.5, f"20 llamadas concurrentes tardaron {dt:.1f}s (serializadas)"
+
+
+def test_async_concurrente_no_se_serializa_con_syn_descartado(monkeypatch):
+    """Variante red partida: el SYN se pierde (IP no enrutable de TEST-NET-1).
+    Si el entorno rechaza la ruta de inmediato, la prueba pasa trivialmente."""
+    monkeypatch.setattr(redis_conn, "REDIS_URL", "redis://192.0.2.1:6379/0")
+    redis_conn_async._clients.clear()
+    try:
+        res, dt = _concurrentes(20, monkeypatch)
+    finally:
+        redis_conn_async._clients.clear()
+    assert all(r is None for r in res)
+    assert dt < 3.5, f"20 llamadas concurrentes tardaron {dt:.1f}s (serializadas)"
+
+
 def test_async_client_falla_en_segundos_no_se_cuelga(blackhole):
     async def _run():
         t0 = time.monotonic()

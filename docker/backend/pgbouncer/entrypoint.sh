@@ -34,6 +34,18 @@ if [ -n "${MONITORING_USER:-}" ] && [ -n "${MONITORING_PASSWORD:-}" ]; then
   printf '"%s" "%s"\n' "${MONITORING_USER}" "${MONITORING_PASSWORD}" >> /tmp/pgbouncer/userlist.txt
   echo "[pgBouncer] userlist.txt incluye el rol de monitoreo: ${MONITORING_USER}"
 fi
+# Avisos (a stderr, sin abortar): pgbouncer.ini fija `stats_users = postgres,
+# monitoring`, asi que otro nombre autenticaria pero recibiria "not allowed" al
+# consultar SHOW POOLS; y con solo una de las dos variables el rol se omite
+# en silencio, que parece un exporter roto sin causa visible.
+if [ -n "${MONITORING_USER:-}" ] && [ "${MONITORING_USER}" != "monitoring" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_USER='${MONITORING_USER}' no es 'monitoring'; pgbouncer.ini solo lista 'monitoring' en stats_users, asi que SHOW POOLS/STATS le daran 'not allowed'." >&2
+fi
+if [ -n "${MONITORING_USER:-}" ] && [ -z "${MONITORING_PASSWORD:-}" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_USER esta definido pero MONITORING_PASSWORD no; se omite el rol de monitoreo." >&2
+elif [ -z "${MONITORING_USER:-}" ] && [ -n "${MONITORING_PASSWORD:-}" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_PASSWORD esta definido pero MONITORING_USER no; se omite el rol de monitoreo." >&2
+fi
 chmod 600 /tmp/pgbouncer/userlist.txt
 chown -R pgb:pgb /tmp/pgbouncer
 

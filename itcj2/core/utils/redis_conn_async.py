@@ -44,22 +44,35 @@ def get_redis_async() -> aioredis.Redis | None:
     try:
         client = _clients.get(loop)
         if client is None:
-            timeouts = dict(
+            # BlockingConnectionPool y no el ConnectionPool por defecto: este
+            # sostiene su `_lock` durante TODO `get_connection()` (connect +
+            # handshake CLIENT SETINFO). Con Redis mudo cada conexión caducada
+            # se descarta y las demás llamadas hacen cola: medido, 50
+            # concurrentes = 100 s contra un agujero negro (2 s con este pool).
+            # `max_connections` ~100 por proceso: holgura sobre la concurrencia
+            # real del loop (threadpool anyio 40 + ráfagas de handshakes WS),
+            # solo conexiones cliente baratas. `timeout` = el de operación: si
+            # el pool se agota, lanza ConnectionError y entra en el fail-open
+            # existente en vez de esperar sin fin.
+            pool_kwargs = dict(
+                max_connections=100,
+                timeout=redis_conn.REDIS_SOCKET_TIMEOUT,
                 socket_connect_timeout=redis_conn.REDIS_SOCKET_CONNECT_TIMEOUT,
                 socket_timeout=redis_conn.REDIS_SOCKET_TIMEOUT,
+                decode_responses=True,
             )
             if redis_conn.REDIS_URL:
-                client = aioredis.Redis.from_url(
-                    redis_conn.REDIS_URL, decode_responses=True, **timeouts
+                pool = aioredis.BlockingConnectionPool.from_url(
+                    redis_conn.REDIS_URL, **pool_kwargs
                 )
             else:
-                client = aioredis.Redis(
+                pool = aioredis.BlockingConnectionPool(
                     host=redis_conn.REDIS_HOST,
                     port=redis_conn.REDIS_PORT,
                     db=redis_conn.REDIS_DB,
-                    decode_responses=True,
-                    **timeouts,
+                    **pool_kwargs,
                 )
+            client = aioredis.Redis(connection_pool=pool)
             _clients[loop] = client
         return client
     except Exception as e:

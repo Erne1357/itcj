@@ -135,7 +135,14 @@ bash docker/scripts/generate-static-manifest.sh
 
 # -- 3. Asegurar que infraestructura esta corriendo --
 echo ">>> Verificando infraestructura (Redis + PostgreSQL + pgBouncer)..."
-docker compose -f "$COMPOSE_FILE" up -d redis postgres
+# --no-recreate: redis y postgres cargan TODO `.env.prod` como env_file y Compose
+# recrea un servicio cuando cambia su env_file. Sin esto, cualquier edicion de
+# .env.prod (OTEL_ENABLED, MONITORING_*...) reiniciaria Postgres en el siguiente
+# deploy y lo dejaria con shared_buffers frios. Consecuencia: un cambio
+# INTENCIONAL de la definicion de postgres/redis en el compose ya no se aplica
+# solo; hay que hacerlo a mano con
+#   docker compose -f "$COMPOSE_FILE" up -d --force-recreate postgres
+docker compose -f "$COMPOSE_FILE" up -d --no-recreate redis postgres
 
 # Esperar a que Redis este listo
 echo ">>> Esperando a que Redis este listo..."

@@ -137,6 +137,8 @@ def _record_publisher_trace(task, publisher_trace_id: str) -> None:
     línea: basta para saltar de Loki a la traza de la petición. Aparte del
     `bind`: si esto falla, la tarea conserva sus ids.
     """
+    # try separados: que falle el log no debe saltarse el atributo del span ni
+    # al revés.
     try:
         logger.info(
             "celery: %s corre en su propia traza; la de quien la encoló va en "
@@ -144,9 +146,12 @@ def _record_publisher_trace(task, publisher_trace_id: str) -> None:
             task.name,
             extra={"publisher_trace_id": publisher_trace_id},
         )
-        set_current_span_attribute("itcj.publisher.trace_id", publisher_trace_id)
     except Exception:
         logger.exception("celery_hooks: no se pudo registrar la traza de quien encoló")
+    try:
+        set_current_span_attribute("itcj.publisher.trace_id", publisher_trace_id)
+    except Exception:
+        logger.exception("celery_hooks: no se pudo poner itcj.publisher.trace_id")
 
 
 def run_after_otel_prerun() -> None:
