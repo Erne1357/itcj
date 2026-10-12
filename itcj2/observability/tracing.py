@@ -18,8 +18,9 @@ FUENTE de los ids y el contexto propio (`context.py`) es su copia:
      viene (validado con el mismo `parse_traceparent`, así el id heredado es
      el mismo con OTel encendido o apagado).
    - Socket.IO (`sockets/instrumentation.py`): span raíz por evento.
-   - Celery: el span lo abre `CeleryInstrumentor` en su `task_prerun`, y el
-     receptor propio de `celery_hooks` se reconecta para correr DESPUÉS
+   - Celery: el span lo abre `CeleryInstrumentor` en su `task_prerun` (raíz
+     de su propia traza, ver «CELERY» abajo), y el receptor propio de
+     `celery_hooks` se reconecta para correr DESPUÉS
      (`run_after_otel_prerun`) y ligar los ids de ese span. Celery llama a los
      receptores en orden de conexión, y los hooks propios se conectan al
      importar `celery_app`, antes que el instrumentor: sin reordenar, la tarea
@@ -32,6 +33,44 @@ FUENTE de los ids y el contexto propio (`context.py`) es su copia:
    consulta SQL) el `trace_id` sigue siendo el mismo.
 3. Apagado, `start_span()` regresa `None` y cada frontera cae a `new_ids()`
    como siempre: la rama apagada no cambia ni una línea de su comportamiento.
+
+CELERY — cada ejecución de una tarea es su propia traza
+-------------------------------------------------------
+`CeleryInstrumentor` va con `use_span_links=True`: el span de ejecución
+(`run/<tarea>`) es la RAÍZ de una traza nueva y lleva un `Link` al span
+`apply_async/<tarea>` de quien la encoló (el `traceparent` que viajó en las
+cabeceras), en vez de colgarse como hijo de la traza HTTP. Por qué: el tail
+sampling de Alloy decide cada traza 30 s después de su PRIMER span y tira lo
+que llegue después a una traza ya descartada. Colgada de la petición, una
+tarea que esperó en cola o que corre minutos llegaba tarde y se perdía el 98 %
+de las veces aunque fallara (medido en la revisión final de WS-14). Como raíz,
+el muestreo la juzga por su propio ERROR o su latencia, y el link lleva de la
+tarea a la petición en Tempo. Es la opción del propio instrumentor y no una
+instrumentación propia: un solo span por ejecución, con ERROR y la excepción
+en `task_failure`, como antes.
+
+- Logs: dentro de la tarea, `trace_id`/`span_id` son los de la raíz nueva (el
+  botón Loki -> Tempo abre la traza de la tarea), y el `request_id` de quien
+  la encoló se conserva (`celery_hooks`): es la llave HTTP <-> Celery <->
+  sockets en Loki.
+- De la tarea a la petición sin pasar por Tempo: la traza de quien la encoló
+  queda en el atributo `itcj.publisher.trace_id` del span (TraceQL encuentra
+  las tareas de una petición) y en el campo `publisher_trace_id` de UNA línea
+  de arranque de `celery_hooks`. Ninguna columna nueva en `core_task_runs`.
+- `task_events`: su `itcj_ctx` lleva el `trace_id` de la TAREA. El aviso de
+  fin es parte de la ejecución y esa es la traza que Tempo tiene para él; la
+  petición se une por `request_id`.
+- `Task.retry()`: cada intento es su propia raíz, enlazada al anterior (el que
+  re-publicó); el `request_id` sigue siendo el de la petición.
+- Apagado no cambia nada: la tarea hereda la traza de quien la encoló (5a).
+
+LÍMITE: la raíz se exporta al TERMINAR la tarea, y sus hijos (SQL, Redis)
+según van terminando. En una tarea de más de 30 s, Alloy decide con los hijos
+de los primeros 30 s; si esos caben en menos de 1 s y ninguno falló, la traza
+cae en la línea base del 2 % y la raíz con ERROR llega tarde. Ya no depende
+de la cola ni de la petición, pero una tarea larga con un arranque corto y
+limpio sigue sin estar garantizada en Tempo: para esa, Loki por
+`celery_task_id`/`request_id`, o subir `decision_wait` en Alloy.
 
 Qué NO se instrumenta, a propósito: FastAPI (`-instrumentation-fastapi`
 abriría un segundo span servidor sin la regla `__unmatched__`) y logging
@@ -238,7 +277,12 @@ def _celery(provider):
     from itcj2.observability import celery_hooks
 
     instrumentor = CeleryInstrumentor()
-    instrumentor.instrument(tracer_provider=provider)
+    # `use_span_links`: cada ejecución es la raíz de su propia traza, enlazada
+    # a quien la encoló (ver «CELERY» en el docstring del módulo). Lo vigila
+    # `test_tarea_celery_es_raiz_de_su_propia_traza_con_link_a_la_peticion`:
+    # el instrumentor lee la opción con `kwargs.get`, así que una versión que
+    # la renombre volvería en silencio a colgar la tarea de la petición.
+    instrumentor.instrument(tracer_provider=provider, use_span_links=True)
     # Ver el docstring del módulo, punto 1: el receptor propio tiene que ver
     # el span que acaba de abrir el instrumentor.
     celery_hooks.run_after_otel_prerun()

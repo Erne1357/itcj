@@ -23,6 +23,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -36,9 +37,10 @@ from opentelemetry.trace import SpanKind, StatusCode
 
 from itcj2.main import _register_error_handlers
 from itcj2.middleware import setup_middleware
-from itcj2.observability import context, tracing
+from itcj2.observability import celery_hooks, context, tracing
 from itcj2.observability.logging_config import ContextFilter, JsonFormatter
 from itcj2.sockets.instrumentation import InstrumentedAsyncServer
+from itcj2.tasks.base import LoggedTask
 from tests.conftest import TEST_SECRET
 from tests.fastapi.observability._celery_helpers import (
     consume,
@@ -410,38 +412,80 @@ async def test_evento_sin_handler_no_pone_el_nombre_del_cliente_en_el_span(spans
 
 celery = memory_app("itcj-obs-tracing")
 _task_seen: list[dict] = []
+_REQUEST_ID = "c" * 31 + "3"
+_HOOKS_LOGGER = "itcj2.observability.celery_hooks"
 
 
 @celery.task(name="tests.observability.tracing.probe", shared=False)
 def celery_probe():
+    logging.getLogger("tests.otel_probe").info("dentro de la tarea")
     _task_seen.append({
         "trace_id": context.current_trace_id(),
         "span_id": context.current_span_id(),
+        "request_id": context.current_request_id(),
         "snapshot_trace_id": context.snapshot()["trace_id"],
     })
 
 
-def _run_task(publish_bound: bool):
-    """Publica (con o sin una petición activa) y ejecuta como el worker, cada
-    lado en su propio contexto: son procesos distintos en producción."""
-    _task_seen.clear()
-    queue = unique_queue()
+@celery.task(name="tests.observability.tracing.boom", shared=False)
+def celery_boom():
+    raise ProbeBoomError("tarea")
 
-    def _publish():
+
+@celery.task(
+    name="tests.observability.tracing.retry",
+    bind=True, shared=False, max_retries=1,
+)
+def celery_retry(self):
+    _task_seen.append({
+        "trace_id": context.current_trace_id(),
+        "request_id": context.current_request_id(),
+    })
+    if self.request.retries == 0:
+        raise self.retry(countdown=0)
+
+
+@celery.task(
+    name="tests.observability.tracing.logged",
+    base=LoggedTask, bind=True, shared=False,
+)
+def celery_logged(self, task_run_id=None):
+    return {"ok": True}
+
+
+def _publish(task, queue: str, *, from_request: bool, **options):
+    """Encola `task` en un contexto propio: con `from_request`, desde una
+    "petición" con su span activo y sus ids ligados (lo que hace el
+    middleware)."""
+    def _run():
         active = None
-        if publish_bound:
+        if from_request:
             active = tracing.start_span("GET /petición")
-            context.bind(trace_id=active.trace_id, span_id=active.span_id)
+            context.bind(
+                trace_id=active.trace_id, span_id=active.span_id, request_id=_REQUEST_ID,
+            )
         try:
-            celery_probe.apply_async(queue=queue)
+            task.apply_async(queue=queue, **options)
         finally:
             if active is not None:
                 tracing.end_span(active)
         return active
 
-    publisher = contextvars.Context().run(_publish)
-    message = consume(celery, queue)
-    contextvars.Context().run(run_as_worker, celery, message)
+    return contextvars.Context().run(_run)
+
+
+def _publish_and_run(task, *, from_request: bool, **options):
+    """Publica y ejecuta como el worker, cada lado en su propio contexto: son
+    procesos distintos en producción."""
+    _task_seen.clear()
+    queue = unique_queue()
+    publisher = _publish(task, queue, from_request=from_request, **options)
+    contextvars.Context().run(run_as_worker, celery, consume(celery, queue))
+    return publisher
+
+
+def _run_task(publish_bound: bool):
+    publisher = _publish_and_run(celery_probe, from_request=publish_bound)
     (seen,) = _task_seen
     return publisher, seen
 
@@ -454,14 +498,167 @@ def _run_span(exporter):
     return span
 
 
-def test_tarea_celery_ve_el_trace_id_del_span_de_celery_instrumentor(spans):
+def _publish_span(exporter):
+    (span,) = [
+        s for s in exporter.get_finished_spans()
+        if s.kind == SpanKind.PRODUCER
+    ]
+    return span
+
+
+@pytest.fixture()
+def hooks_lines():
+    """Líneas JSON de `celery_hooks`, con el filtro y el formato REALES."""
+    buffer = io.StringIO()
+    handler = logging.StreamHandler(buffer)
+    handler.addFilter(ContextFilter())
+    handler.setFormatter(JsonFormatter())
+    hooks_logger = logging.getLogger(_HOOKS_LOGGER)
+    previous_level = hooks_logger.level
+    hooks_logger.addHandler(handler)
+    hooks_logger.setLevel(logging.INFO)
+    try:
+        yield lambda: [json.loads(line) for line in buffer.getvalue().splitlines()]
+    finally:
+        hooks_logger.removeHandler(handler)
+        hooks_logger.setLevel(previous_level)
+
+
+def test_tarea_celery_es_raiz_de_su_propia_traza_con_link_a_la_peticion(spans, json_lines):
+    # El tail sampling de Alloy decide cada traza 30 s después de su primer
+    # span: colgada de la traza HTTP, una tarea en cola o larga llegaba tarde
+    # y se tiraba aunque fallara. Raíz propia + link a quien la encoló.
     publisher, seen = _run_task(publish_bound=True)
 
     run = _run_span(spans)
-    assert _hex_trace(run) == publisher.trace_id
-    assert seen["trace_id"] == publisher.trace_id
-    assert seen["snapshot_trace_id"] == publisher.trace_id
+    published = _publish_span(spans)
+    assert run.parent is None
+    assert _hex_trace(run) != publisher.trace_id
+    # El link apunta al span que viajó en las cabeceras: el `apply_async`
+    # hijo de la petición.
+    (link,) = run.links
+    assert format(link.context.trace_id, "032x") == publisher.trace_id
+    assert link.context.span_id == published.context.span_id
+    assert format(published.parent.span_id, "016x") == publisher.span_id
+
+    # Dentro de la tarea: los ids de la raíz nueva (el botón Loki -> Tempo
+    # abre la traza de la tarea) y el request_id de la petición (la llave
+    # HTTP <-> Celery en Loki).
+    assert seen["trace_id"] == seen["snapshot_trace_id"] == _hex_trace(run)
     assert seen["span_id"] == _hex_span(run)
+    assert seen["request_id"] == _REQUEST_ID
+    (line,) = [l for l in json_lines() if l["msg"] == "dentro de la tarea"]
+    assert line["trace_id"] == _hex_trace(run)
+    assert line["span_id"] == _hex_span(run)
+    assert line["request_id"] == _REQUEST_ID
+
+
+def test_la_tarea_registra_la_traza_de_quien_la_encolo(spans, hooks_lines):
+    publisher, _ = _run_task(publish_bound=True)
+
+    run = _run_span(spans)
+    assert run.attributes["itcj.publisher.trace_id"] == publisher.trace_id
+    # Una sola línea de arranque, ya bajo los ids de la tarea, con la traza de
+    # la petición en su propio campo (el `trace_id` es el de la tarea).
+    (start,) = [l for l in hooks_lines() if "publisher_trace_id" in l]
+    assert start["publisher_trace_id"] == publisher.trace_id
+    assert start["trace_id"] == _hex_trace(run)
+    assert start["request_id"] == _REQUEST_ID
+    assert start["celery_task_id"]
+
+
+def test_tarea_que_lanza_marca_su_span_como_error(spans):
+    _publish_and_run(celery_boom, from_request=True)
+
+    run = _run_span(spans)
+    assert run.parent is None
+    assert run.status.status_code == StatusCode.ERROR
+    events = [e for e in run.events if e.name == "exception"]
+    assert len(events) == 1
+    assert events[0].attributes["exception.type"].endswith("ProbeBoomError")
+
+
+def test_cada_reintento_es_su_traza_enlazada_al_intento_anterior(spans):
+    _task_seen.clear()
+    queue = unique_queue()
+    publisher = _publish(celery_retry, queue, from_request=True)
+    worker = contextvars.Context()
+    worker.run(run_as_worker, celery, consume(celery, queue))
+    worker.run(run_as_worker, celery, consume(celery, queue))
+
+    first, second = sorted(
+        (s for s in spans.get_finished_spans() if s.kind == SpanKind.CONSUMER),
+        key=lambda s: s.start_time,
+    )
+    assert first.parent is None and second.parent is None
+    assert len({_hex_trace(first), _hex_trace(second), publisher.trace_id}) == 3
+    (link,) = second.links
+    assert format(link.context.trace_id, "032x") == _hex_trace(first)
+    # El request_id de la petición sigue uniendo los dos intentos en Loki.
+    assert [seen["request_id"] for seen in _task_seen] == [_REQUEST_ID, _REQUEST_ID]
+    assert [seen["trace_id"] for seen in _task_seen] == [
+        _hex_trace(first), _hex_trace(second),
+    ]
+
+
+def test_task_events_lleva_la_traza_de_la_tarea_y_el_request_id_de_la_peticion(spans):
+    published = []
+    fake = SimpleNamespace(
+        publish=lambda channel, raw: published.append((channel, json.loads(raw)))
+    )
+
+    with patch.object(LoggedTask, "_update_run", return_value=7), patch(
+        "redis.from_url", return_value=fake
+    ):
+        publisher = _publish_and_run(
+            celery_logged, from_request=True, kwargs={"task_run_id": 41},
+        )
+
+    run = _run_span(spans)
+    [(channel, payload)] = published
+    assert channel == "task_events"
+    # El aviso de fin es parte de la ejecución: la traza que existe en Tempo
+    # para él es la de la tarea; la petición se une por request_id.
+    assert payload["itcj_ctx"]["trace_id"] == _hex_trace(run) != publisher.trace_id
+    assert payload["itcj_ctx"]["request_id"] == _REQUEST_ID
+
+
+def test_apagado_la_tarea_hereda_la_traza_y_no_suma_la_linea_de_arranque(
+    monkeypatch, hooks_lines,
+):
+    # Sin OTel no hay span ni link: todo queda como en la Fase 5a.
+    monkeypatch.delenv("OTEL_ENABLED", raising=False)
+    assert tracing.setup_tracing() is None
+    _task_seen.clear()
+    queue = unique_queue()
+
+    def _publish_bound():
+        context.bind(trace_id=_TRACE, span_id=_PARENT_SPAN, request_id=_REQUEST_ID)
+        celery_probe.apply_async(queue=queue)
+
+    contextvars.Context().run(_publish_bound)
+    contextvars.Context().run(run_as_worker, celery, consume(celery, queue))
+
+    (seen,) = _task_seen
+    assert seen["trace_id"] == _TRACE
+    assert seen["request_id"] == _REQUEST_ID
+    assert not [l for l in hooks_lines() if "publisher_trace_id" in l]
+
+
+def test_failsafe_registrar_la_traza_del_publicador_no_rompe_la_tarea(spans, caplog):
+    with patch.object(
+        celery_hooks, "set_current_span_attribute", side_effect=RuntimeError("roto"),
+    ):
+        with caplog.at_level(logging.ERROR, logger=_HOOKS_LOGGER):
+            _, seen = _run_task(publish_bound=True)
+
+    run = _run_span(spans)
+    # La tarea corrió con sus ids ligados; el fallo quedó dicho por los hooks.
+    assert seen["trace_id"] == _hex_trace(run)
+    assert seen["request_id"] == _REQUEST_ID
+    assert any(
+        r.name == _HOOKS_LOGGER and r.levelno == logging.ERROR for r in caplog.records
+    )
 
 
 def test_tarea_sin_peticion_detras_liga_la_raiz_del_span_de_celery(spans):
