@@ -227,6 +227,17 @@ def current_otel_ids() -> tuple[str, str] | None:
     return format(span_context.trace_id, "032x"), format(span_context.span_id, "016x")
 
 
+def set_current_span_attribute(key: str, value: str) -> None:
+    """Pone un atributo en el span OTel activo (sin span, la API lo ignora).
+
+    Aquí y no en `tracing` por la misma razón que `current_otel_ids()`:
+    `celery_hooks` está en la cadena de imports de Celery y de itcj2 solo
+    puede importar este módulo.
+    """
+    if _otel_trace is not None:
+        _otel_trace.get_current_span().set_attribute(key, value)
+
+
 def current_span_id() -> str:
     return _span_id.get(None) or ""
 

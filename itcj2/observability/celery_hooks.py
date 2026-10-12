@@ -22,7 +22,9 @@ Casos que explican la forma:
   misma `itcj2.celery_app`, así que estos receptores también están ahí; como
   no tiene nada ligado, no agrega la cabecera.
 - `Task.retry()` re-publica desde dentro de la tarea, con los ids ya
-  restaurados: el reintento continúa la misma traza.
+  restaurados: el reintento continúa la misma traza. Con OTel (Fase 7) cada
+  intento es la raíz de su propia traza, enlazada al anterior (ver «CELERY»
+  en `tracing.py`); lo que continúa es el `request_id`.
 - Sin cabecera se acuña la raíz SIEMPRE, sin mirar lo que ya esté ligado en
   el hilo: si un `reset` de `task_postrun` fallara alguna vez, el worker
   quedaría con ids ligados entre tareas, y heredarlos pegaría en silencio las
@@ -53,6 +55,7 @@ from itcj2.observability.context import (
     new_ids,
     reset,
     sanitize_carried,
+    set_current_span_attribute,
     snapshot,
 )
 
@@ -99,7 +102,10 @@ def _bind_task_context(task=None, **kwargs) -> None:
         carried = sanitize_carried(request.get(HEADER))
         # Con OTel (Fase 7) el span de la tarea ya lo abrió CeleryInstrumentor
         # (corre antes, ver `run_after_otel_prerun`): sus ids mandan, para que
-        # el `trace_id` de los logs y de `task_events` exista en Tempo.
+        # el `trace_id` de los logs y de `task_events` exista en Tempo. Ese
+        # span es la raíz de una traza NUEVA, no la de quien encoló (ver
+        # «CELERY» en `tracing.py`): lo que cruza a la petición es el
+        # `request_id`, que se liga igual con OTel o sin él.
         otel_ids = current_otel_ids()
         if otel_ids is not None:
             trace_id, span_id = otel_ids
@@ -116,6 +122,31 @@ def _bind_task_context(task=None, **kwargs) -> None:
         _tokens[id(request)] = tokens
     except Exception:
         logger.exception("celery_hooks: no se pudo ligar el contexto de la tarea")
+        return
+    publisher_trace_id = carried.get("trace_id")
+    if otel_ids is not None and publisher_trace_id and publisher_trace_id != trace_id:
+        _record_publisher_trace(task, publisher_trace_id)
+
+
+def _record_publisher_trace(task, publisher_trace_id: str) -> None:
+    """Deja dicho, bajo los ids de la tarea, de qué traza viene.
+
+    Con OTel la tarea no comparte `trace_id` con quien la encoló: sin esto,
+    desde la tarea solo se llega a la petición por el link en Tempo (y solo si
+    Tempo conservó las dos trazas). Una línea por tarea y no un campo en cada
+    línea: basta para saltar de Loki a la traza de la petición. Aparte del
+    `bind`: si esto falla, la tarea conserva sus ids.
+    """
+    try:
+        logger.info(
+            "celery: %s corre en su propia traza; la de quien la encoló va en "
+            "publisher_trace_id",
+            task.name,
+            extra={"publisher_trace_id": publisher_trace_id},
+        )
+        set_current_span_attribute("itcj.publisher.trace_id", publisher_trace_id)
+    except Exception:
+        logger.exception("celery_hooks: no se pudo registrar la traza de quien encoló")
 
 
 def run_after_otel_prerun() -> None:
