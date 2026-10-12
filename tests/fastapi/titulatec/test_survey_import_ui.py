@@ -640,7 +640,15 @@ def test_sin_import_diferido_vigente_el_egresado_ve_el_formulario(
     elif caso == "importada_sin_previa":
         student, _, _ = diferida("99470035", con_previa=False)
     else:
-        student, _, _ = diferida("99470036", dias=400)
+        # Un día antes del semestre más viejo aún vigente (vigencia por
+        # semestres, 2026-10-12): vencida contra el reloj real, sea cual sea.
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            prior_valid_since,
+        )
+        from itcj2.core.utils.timezone import db_now
+        hoy = db_now().date()
+        student, _, _ = diferida("99470036",
+                                 dias=(hoy - prior_valid_since(hoy)).days + 1)
 
     resp = client_as(student).get(SURVEY_PUBLIC, follow_redirects=False)
 

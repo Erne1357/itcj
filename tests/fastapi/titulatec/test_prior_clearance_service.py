@@ -20,10 +20,10 @@ Dos caminos, un mismo servicio:
   import-prior-clearances`: clasifica cada fila del CSV en una de las 6 llaves
   de `IMPORT_BUCKETS` sin escribir nada en `dry_run=True`.
 
-Vigencia (D9, Review Focus #7): `issued_on` obligatoria, no futura y
-`>= hoy - PRIOR_VALIDITY_DAYS` (365 días; exactamente 365 vale, 366 vencida) --
-el MISMO límite de `LibraryClearanceService.PRIOR_VALIDITY_DAYS`, reusado de
-allá.
+Vigencia (D9, Review Focus #7; POR SEMESTRES desde 2026-10-12): `issued_on`
+obligatoria, no futura y vigente -el semestre en que se emitió y los
+`PRIOR_VALIDITY_SEMESTERS` siguientes, `prior_expired` de
+`library_clearance_service`, reusada de allá-.
 """
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ import pytest
 
 import itcj2.models  # noqa: F401
 import itcj2.apps.titulatec.services.prior_clearance_service as _prior_mod
+from itcj2.apps.titulatec.services.library_clearance_service import prior_valid_since
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 HOY_FIJO = datetime(2026, 10, 1, 10, 0, 0)
@@ -275,15 +276,16 @@ class TestSurveyRegisterPrior:
         assert correo.call_args.kwargs["result"] == "approved"
         assert correo.call_args.kwargs["origin"] == "prior"
 
-    @pytest.mark.parametrize("dias, valida", [
-        (0, True),
-        (365, True),            # D9: exactamente 365 días vale
-        (366, False),            # 366: vencida
-        (-1, False),              # futura
+    # HOY_FIJO = 2026-10-01 (2026B): acepta desde 2025B (2025-07-01).
+    @pytest.mark.parametrize("fecha, valida", [
+        (date(2026, 10, 1), True),     # hoy
+        (date(2025, 9, 30), True),     # 366 días: con la regla vieja vencía
+        (date(2025, 7, 1), True),      # primer día de 2025B
+        (date(2025, 6, 30), False),    # 2025A: vencida
+        (date(2026, 10, 2), False),    # futura
     ])
-    def test_vigencia(self, db_session, proceso, reloj, dias, valida):
+    def test_vigencia(self, db_session, proceso, reloj, fecha, valida):
         proc = proceso()
-        fecha = reloj - timedelta(days=dias)
         if valida:
             with patch(NOTIFY):
                 review = _review_svc().register_prior(
@@ -292,8 +294,8 @@ class TestSurveyRegisterPrior:
             return
         with pytest.raises(ValueError) as exc:
             _review_svc().register_prior(db_session, proc, issued_on=fecha, note=None)
-        if dias > 0:
-            assert "vencida" in str(exc.value) or "venció" in str(exc.value)
+        if fecha < reloj:
+            assert "venció" in str(exc.value)
         else:
             assert "futura" in str(exc.value)
         assert _review_svc().get_for_process(db_session, proc.id) is None
@@ -745,7 +747,7 @@ class TestImportRowsSurvey:
         resultado = _svc().import_rows(
             db_session, kind="survey", source="t.csv",
             rows=[{"control_number": "99700004",
-                  "issued_on": (reloj - timedelta(days=366)).isoformat()}])
+                  "issued_on": (prior_valid_since(reloj) - timedelta(days=1)).isoformat()}])
 
         assert [f["control_number"] for f in resultado["expired"]] == ["99700004"]
         assert _review_svc().get_for_process(db_session, proc.id) is None
@@ -950,7 +952,7 @@ class TestImportRowsGeneral:
         resultado = _svc().import_rows(
             db_session, kind="survey", source="t.csv", today=hoy,
             rows=[{"control_number": "99700020",
-                  "issued_on": (hoy - timedelta(days=366)).isoformat()}])
+                  "issued_on": (prior_valid_since(hoy) - timedelta(days=1)).isoformat()}])
 
         assert [f["control_number"] for f in resultado["expired"]] == ["99700020"]
         assert resultado["applied"] == []

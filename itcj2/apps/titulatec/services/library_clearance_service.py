@@ -178,8 +178,35 @@ from sqlalchemy.orm import Session
 from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, paginate_query
 from itcj2.core.utils.timezone import db_now
 
-# Vigencia de una constancia previa (D9): `issued_on >= hoy - 365 días`.
-PRIOR_VALIDITY_DAYS = 365
+# Vigencia de una constancia previa (D9; POR SEMESTRES desde 2026-10-12, antes
+# 365 días): vale el semestre en que se emitió y los `PRIOR_VALIDITY_SEMESTERS`
+# siguientes. Semestre = el mismo corte que los folios (`certificate_service.
+# semester_key`): A = enero-junio, B = julio-diciembre. Una de 2025B vale en
+# 2025B, 2026A y 2026B; el 2027-01-01 vence. FUENTE ÚNICA de la regla: todo
+# lugar que decide «¿sigue vigente?» llama `prior_valid_since`/`prior_expired`.
+PRIOR_VALIDITY_SEMESTERS = 2
+
+
+def prior_valid_since(today: date) -> date:
+    """Primer día del semestre MÁS VIEJO cuyas constancias siguen vigentes
+    `today`: una previa vale si `issued_on >= prior_valid_since(today)`.
+    (`2026-10-12` -> `2025-07-01`; `2027-01-01` -> `2026-01-01`.)"""
+    indice = today.year * 2 + (0 if today.month <= 6 else 1) - PRIOR_VALIDITY_SEMESTERS
+    anio, mitad = divmod(indice, 2)
+    return date(anio, 1 if mitad == 0 else 7, 1)
+
+
+def prior_expired(issued_on: date, today: date) -> bool:
+    """¿Ya venció una constancia previa emitida `issued_on`? (ver arriba)."""
+    return issued_on < prior_valid_since(today)
+
+
+def prior_expired_message(today: date) -> str:
+    """Motivo legible de una previa vencida (UI, X-Tt-Error y CLI)."""
+    from itcj2.apps.titulatec.services.certificate_service import semester_key
+    return ("La constancia venció: vale el semestre en que se emitió y los "
+            f"{PRIOR_VALIDITY_SEMESTERS} siguientes (hoy se aceptan desde "
+            f"{semester_key(prior_valid_since(today))}).")
 
 # Tope de cualquier monto tecleado (adeudo, donación): $100,000.00.
 AMOUNT_MAX = Decimal("100000.00")
@@ -904,8 +931,8 @@ class LibraryClearanceService:
         """Constancia previa (D9): `pending|awaiting_payment` → `cleared/prior`.
 
         El egresado ya pagó y trae su papel: `issued_on` obligatoria, no
-        futura y vigente (`>= hoy - PRIOR_VALIDITY_DAYS`: exactamente 365 días
-        vale, 366 no). EMITE el folio BIB (`source_ref=_ref(id)`) con
+        futura y vigente (`prior_expired`: el semestre en que se emitió y los
+        `PRIOR_VALIDITY_SEMESTERS` siguientes). EMITE el folio BIB (`source_ref=_ref(id)`) con
         `semester=previous_semester_key(registered_at or ahora)`: la previa es
         del semestre ANTERIOR al del registro (spec folios 2026-10-05 §3.3);
         `actor_id=None` lo deja sin emisor. `by` ∈ `PRIOR_BY` va al
@@ -2256,8 +2283,8 @@ class LibraryClearanceService:
         hoy = db_now().date()
         if issued_on > hoy:
             raise ValueError("La fecha de la constancia previa no puede ser futura.")
-        if issued_on < hoy - timedelta(days=PRIOR_VALIDITY_DAYS):
-            raise ValueError("La constancia venció: tiene más de un año.")
+        if prior_expired(issued_on, hoy):
+            raise ValueError(prior_expired_message(hoy))
         return issued_on
 
     @staticmethod

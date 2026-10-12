@@ -47,8 +47,8 @@ import itcj2.models  # noqa: F401
 
 from itcj2.apps.titulatec.services.library_clearance_service import (
     AMOUNT_MAX, AUTO_SOURCE_LIBRARY, LIBRARY_EVENT_TYPES, PHASE_COTEJO,
-    PRIOR_VALIDITY_DAYS, REASON_MAX, LibraryClearanceService, format_amount,
-    parse_amount,
+    PRIOR_VALIDITY_SEMESTERS, REASON_MAX, LibraryClearanceService, format_amount,
+    parse_amount, prior_expired, prior_expired_message, prior_valid_since,
 )
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
@@ -246,7 +246,7 @@ def _pagar(db, esc, actor, receipt="R-100"):
 # Constantes y vocabulario de eventos
 # ---------------------------------------------------------------------------
 def test_constantes_publicas():
-    assert PRIOR_VALIDITY_DAYS == 365
+    assert PRIOR_VALIDITY_SEMESTERS == 2
     assert AMOUNT_MAX == Decimal("100000.00")
     assert REASON_MAX == 1000
     assert AUTO_SOURCE_LIBRARY == "library_clearance"
@@ -1501,15 +1501,17 @@ class TestRegisterPrior:
         assert _events(db_session, esc.process.id,
                        "library_prior_registered")[0].payload["from_status"] == "awaiting_payment"
 
-    @pytest.mark.parametrize("dias, valida", [
-        (0, True),
-        (PRIOR_VALIDITY_DAYS, True),           # exactamente 365 días: vigente
-        (PRIOR_VALIDITY_DAYS + 1, False),      # 366: vencida
-        (-1, False),                           # futura
+    # Vigencia POR SEMESTRES (2026-10-12): HOY_FIJO = 2026-10-01 (2026B) acepta
+    # desde 2025B (2025-07-01). 366 días atrás (2025-09-30) antes vencía y hoy vale.
+    @pytest.mark.parametrize("fecha, valida", [
+        (date(2026, 10, 1), True),             # hoy
+        (date(2025, 9, 30), True),             # 366 días: con la regla vieja vencía
+        (date(2025, 7, 1), True),              # primer día de 2025B: vigente
+        (date(2025, 6, 30), False),            # último día de 2025A: vencida
+        (date(2026, 10, 2), False),            # futura
     ])
-    def test_vigencia(self, db_session, nuevo, actores, reloj, dias, valida):
+    def test_vigencia(self, db_session, nuevo, actores, reloj, fecha, valida):
         esc = nuevo()
-        fecha = reloj - timedelta(days=dias)
         if valida:
             with patch(NOTIFY):
                 fila = LibraryClearanceService.register_prior(
@@ -1522,8 +1524,9 @@ class TestRegisterPrior:
             LibraryClearanceService.register_prior(
                 db_session, esc.clearance.id, actores.biblioteca.id,
                 issued_on=fecha, note=None, by="library")
-        if dias > 0:
-            assert str(exc.value) == "La constancia venció: tiene más de un año."
+        if fecha < reloj:
+            assert str(exc.value) == prior_expired_message(reloj)
+            assert "2025B" in str(exc.value)
         else:
             assert "futura" in str(exc.value)
         assert esc.clearance.status == "pending"
@@ -1847,7 +1850,7 @@ class TestRegisterPriorFolio:
         with pytest.raises(ValueError):
             LibraryClearanceService.register_prior(
                 db_session, esc.clearance.id, actores.biblioteca.id,
-                issued_on=hoy - timedelta(days=PRIOR_VALIDITY_DAYS + 1),
+                issued_on=prior_valid_since(hoy) - timedelta(days=1),
                 note=None, by="library")
 
         assert _certs(db_session, esc.clearance.id) == []
@@ -2764,3 +2767,26 @@ class TestAltaDelProceso:
         assert len(pids) == 2
         assert (db_session.query(LibraryClearance)
                 .filter(LibraryClearance.process_id.in_(pids)).count()) == 2
+
+
+# ---------------------------------------------------------------------------
+# Vigencia por semestres (2026-10-12): el semestre de la constancia y los 2
+# siguientes. A = enero-junio, B = julio-diciembre (el corte de los folios).
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("hoy, desde", [
+    (date(2026, 10, 12), date(2025, 7, 1)),     # 2026B acepta 2025B, 2026A, 2026B
+    (date(2026, 7, 1), date(2025, 7, 1)),       # primer día de B
+    (date(2026, 6, 30), date(2025, 1, 1)),      # último día de A: acepta 2025A..2026A
+    (date(2027, 1, 1), date(2026, 1, 1)),       # 2027A: 2025B ya venció
+    (date(2026, 1, 1), date(2025, 1, 1)),
+])
+def test_prior_valid_since(hoy, desde):
+    assert prior_valid_since(hoy) == desde
+
+
+def test_una_de_ago_dic_2025_vale_todo_2026_y_vence_en_2027():
+    emitida = date(2025, 9, 17)                 # primera respuesta del Excel 2025B
+    assert not prior_expired(emitida, date(2025, 12, 31))
+    assert not prior_expired(emitida, date(2026, 6, 30))
+    assert not prior_expired(emitida, date(2026, 12, 31))
+    assert prior_expired(emitida, date(2027, 1, 1))

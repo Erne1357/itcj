@@ -87,6 +87,13 @@ _HEADER_MAP: tuple[tuple[str, str, bool], ...] = (
     ("completion time", _META_COMPLETED, True),
     ("email", _META_IGNORED, True),
     ("name", _META_IGNORED, True),
+    # Las mismas columnas de metadatos cuando Forms exporta en español (el
+    # Excel de Ago-Dic 2025, 2026-10-12). EXACTAS: «nombre» no puede comerse
+    # «Nombre (s) y apellidos completos» ni «Nombre de la institución».
+    ("hora de inicio", _META_IGNORED, True),
+    ("hora de finalizacion", _META_COMPLETED, True),
+    ("correo electronico", _META_IGNORED, True),
+    ("nombre", _META_IGNORED, True),
     ("nombre (s) y apellidos completos", "nombre_completo", False),
     ("no. control", "no_control", False),
     ("fecha de nacimiento", "fecha_nacimiento", False),
@@ -551,8 +558,8 @@ class SurveyImportService:
 
         Solo cuenta si su liberación quedó DIFERIDA y todavía puede aplicarse:
         `PriorClearance(kind='survey')` del control del usuario, sin aplicar
-        (`applied_process_id IS NULL`), vigente (`issued_on >= hoy -
-        PRIOR_VALIDITY_DAYS`) y ligada a una respuesta `identity_source=
+        (`applied_process_id IS NULL`), vigente (`issued_on >=
+        prior_valid_since(hoy)`, por semestres) y ligada a una respuesta `identity_source=
         'import'` de un formulario `egresados` (cualquier versión). Así el
         aviso «se liberará cuando completes tu inscripción» siempre es cierto:
         una importada que no liberará nada (vencida, sin control válido) no
@@ -561,11 +568,9 @@ class SurveyImportService:
         La consultan `pages/public.py::_solicitud_existente` (tarjeta de
         estatus en lugar del formulario) y `SurveyService.submit` (rechazo del
         envío, del lado del servidor). Solo lectura."""
-        from datetime import timedelta
-
         from itcj2.apps.titulatec.models import PriorClearance, SurveyForm, SurveyResponse
         from itcj2.apps.titulatec.services.library_clearance_service import (
-            PRIOR_VALIDITY_DAYS,
+            prior_valid_since,
         )
         from itcj2.apps.titulatec.services.survey_service import SURVEY_CODE
         from itcj2.core.models.user import User
@@ -578,7 +583,7 @@ class SurveyImportService:
                    if user is not None else "")
         if not control:
             return None
-        limite = db_now().date() - timedelta(days=PRIOR_VALIDITY_DAYS)
+        limite = prior_valid_since(db_now().date())
         fila = (db.query(SurveyResponse.id, SurveyResponse.submitted_at)
                 .join(PriorClearance, PriorClearance.response_id == SurveyResponse.id)
                 .join(SurveyForm, SurveyForm.id == SurveyResponse.form_id)

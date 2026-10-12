@@ -13,7 +13,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares (UI, respaldo D9) · 📚 Biblioteca (UI) · 🛠️ GTV (ve las previas en su bandeja, no las crea) · 🤖 Desarrollador vía CLI (carga masiva) |
 | **Permiso(s)** | `titulatec.library_clearance.api.prior` (UI de no adeudo, Biblioteca o SE) — la de encuesta SOLO existe vía CLI (`import-prior-clearances` o, desde 2026-10-05, `import-survey-xlsx`), sin UI que la registre a mano |
 | **Trigger** | 🏛️/📚 clic en «Constancia previa…» sobre un caso concreto · 🤖 `titulatec import-prior-clearances --tipo encuesta\|biblioteca ARCHIVO.csv` · 🤖 alta de un proceso nuevo (`ImportService.import_rows`) cuyo número de control tiene una previa diferida esperando |
-| **Precondiciones** | `issued_on` obligatoria, no futura, vigente (`<= 365 días`, D9) |
+| **Precondiciones** | `issued_on` obligatoria, no futura, vigente (su semestre y los 2 siguientes, D9; antes del 2026-10-12, 365 días) |
 | **Sub-flujos** | ⤵ compone [no adeudo de biblioteca](phase2_library_clearance.md) (`LibraryClearanceService.register_prior`) y [liberación GTV de la encuesta](phase2_tech_management_survey_release.md) (`SurveyReviewService.register_prior`) — este flujo NUNCA muta esas tablas directamente |
 | **Estado final** | con proceso: `LibraryClearance.cleared_via='prior'` o `SurveyReview.status='approved', origin='prior'` — aplicado de inmediato. Sin proceso: `PriorClearance` diferida, a la espera |
 
@@ -109,9 +109,15 @@ final, cubriendo TODAS las filas del archivo.
 
 ## Reglas de vigencia
 
-`issued_on` obligatoria, no futura y `>= hoy − 365 días` (`PRIOR_VALIDITY_DAYS`, declarada una
-vez en `LibraryClearanceService` y reusada por `PriorClearanceService` para no declarar el
-número dos veces): **exactamente 365 días vale, 366 no**. El mismo límite aplica a las dos
+**Por semestres desde el 2026-10-12** (antes: 365 días estrictos). Una constancia vale el
+semestre en que se emitió y los `PRIOR_VALIDITY_SEMESTERS` (2) siguientes. Semestre = el mismo
+corte que los folios: A = enero–junio, B = julio–diciembre. Una de 2025B (p. ej. el Excel de
+Ago-Dic 2025) vale en 2025B, 2026A y 2026B, y el 2027-01-01 vence. La regla vive UNA vez en
+`library_clearance_service.py` (`prior_valid_since(hoy)` = primer día del semestre más viejo
+aún vigente; `prior_expired(fecha, hoy)`; `prior_expired_message(hoy)`) y la usan los cuatro
+puntos que deciden: `LibraryClearanceService._check_prior_date`,
+`SurveyReviewService._check_prior_date`, `prior_clearance_service._parse_date` (clasificación
+de la CLI) y `SurveyImportService.pending_import_for_user`. El mismo límite aplica a las dos
 `kind`. Esta validación de aquí es solo de CLASIFICACIÓN (decide en qué bote cae la fila); la
 mutación real la vuelve a validar el service dueño (`LibraryClearanceService._check_prior_date`,
 `SurveyReviewService.register_prior`) — defensa en profundidad.
@@ -119,8 +125,8 @@ mutación real la vuelve a validar el service dueño (`LibraryClearanceService._
 | Entrada | Resultado |
 |---|---|
 | Fecha futura | `invalid` — «la fecha de emisión no puede ser futura» |
-| Exactamente hoy − 365 días | vigente, se aplica/difiere normal |
-| Hoy − 366 días (o más vieja) | `expired` — «la constancia venció (más de 365 días)» |
+| Desde el primer día del semestre `hoy − 2` (hoy 2026B → desde 2025-07-01) | vigente, se aplica/difiere normal |
+| Anterior a ese día (hoy 2026B → 2025-06-30 o antes) | `expired` — «La constancia venció: vale el semestre en que se emitió y los 2 siguientes (hoy se aceptan desde 2025B).» |
 | Ausente, sin columna ni `--fecha` | la CLI rechaza el comando entero ANTES de leer ninguna fila |
 | Ausente en una fila suelta (columna por fila, esa celda vacía) | `invalid` — «fecha de emisión ausente» |
 
@@ -221,7 +227,10 @@ titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2
   por letra, R2). El texto de Forms trae instrucciones largas detrás, así que casi todos se
   comparan por prefijo (gana el más largo). Un encabezado desconocido, uno faltante o uno repetido
   **aborta sin escribir nada** (`ValueError` → `ClickException`).
-- `Id`, `Start time`, `Completion time`, `Email`, `Name` son de Forms. `Completion time` es la
+- `Id`, `Start time`, `Completion time`, `Email`, `Name` son de Forms. Si Forms exportó **en
+  español** (el Excel de Ago-Dic 2025, 2026-10-12) son `Id`, `Hora de inicio`, `Hora de
+  finalización`, `Correo electrónico`, `Nombre`: se leen igual (alias EXACTOS: «Nombre» no se come
+  «Nombre (s) y apellidos completos»). `Completion time` / `Hora de finalización` es la
   fecha de emisión de la liberación (`issued_on`). Una fila con datos pero sin `Id` aborta; las
   filas totalmente vacías se ignoran.
 - **Id en naranja = constancia en papel pendiente de recoger.** `_is_orange` (`:245`) lee el
@@ -280,7 +289,7 @@ quienes Forms obligó a contestar las escalas y el tamaño de empresa.
 | Guardadas, liberación diferida | sin proceso abierto: `PriorClearance` con `response_id`/`paper_pending`; se aplica en `apply_pending` al inscribirse |
 | Guardadas (ya liberadas) | ya tenía liberación: si venía de una previa SIN respuesta (p. ej. el CSV) se le **adjunta** la respuesta y el papel (abajo) |
 | Guardadas (conflicto) | ya envió la encuesta aquí o GTV revocó su previa: la respuesta se guarda, la liberación la decide GTV |
-| Guardadas sin liberar | control inválido/vacío o constancia vencida (> 365 días): solo la respuesta |
+| Guardadas sin liberar | control inválido/vacío o constancia vencida (fuera de su semestre y los 2 siguientes): solo la respuesta |
 | Duplicadas (no guardadas) | mismo control repetido en el archivo; se importa la más reciente |
 | Ya importadas | re-correr el archivo no duplica nada |
 | Inválidas (no guardadas) | `Completion time` vacío o ilegible |
@@ -332,8 +341,8 @@ DIFERIDA, `_defer(link=…)` la reapunta a la nueva y la vieja queda huérfana (
 Decisión del usuario tras la revisión final: un egresado SIN solicitud (sin proceso acreditable o
 sin revisión todavía) cuya respuesta de Forms se importó y quedó **diferida** ya no ve el
 formulario vacío. `SurveyImportService.pending_import_for_user` (`survey_import_service.py:531`)
-lo detecta: `PriorClearance(kind='survey')` de su control, sin aplicar, vigente (`issued_on >= hoy
-- 365`) y ligada a una respuesta `identity_source='import'` de un formulario `egresados`.
+lo detecta: `PriorClearance(kind='survey')` de su control, sin aplicar, vigente (`issued_on >=
+prior_valid_since(hoy)`, por semestres) y ligada a una respuesta `identity_source='import'` de un formulario `egresados`.
 `pages/public.py::_solicitud_existente` (`:586`) devuelve entonces el pseudo-estado `imported` y
 `public/partials/survey_status.html:61-67` pinta «Ya recibimos tu encuesta — Tu encuesta de Microsoft
 Forms ya está registrada; se liberará cuando completes tu inscripción.» en lugar del formulario
@@ -380,6 +389,20 @@ no conoce `tt20261005b`). Las respuestas ya importadas sobreviven como filas con
 `test_survey_import_service.py`, `test_survey_import_model.py`, `test_cli_import_survey_xlsx.py`
 y `test_survey_import_ui.py`, con libros sintéticos de `_survey_xlsx.py`.
 
+
+### Cargar el Excel de otro semestre (2026-10-12)
+
+El mismo comando sirve para otro semestre (Ago-Dic 2025 después de Ene-Jun 2026): la idempotencia
+es por `Id` + fecha de envío, así que los `Id` que se repiten entre formularios no chocan, y quien
+contestó los dos queda con dos respuestas importadas. La previa (`PriorClearance`, una por control
+y tipo) sigue la regla de siempre —gana la fecha MÁS NUEVA— con un arreglo: si la pendiente que ya
+había es más nueva **y ya trae su respuesta ligada**, la carga más vieja NO la toca
+(`_defer` → `"kept"`, bote «Guardadas, liberación diferida», motivo «ya tenía una liberación
+pendiente más nueva; se conserva esa»). Antes conservaba la fecha nueva pero le re-ligaba la
+respuesta vieja. Si la pendiente más nueva vino del CSV, sin respuesta, se le liga esta como
+siempre. Dry-run del Excel real de Ago-Dic 2025 contra la copia de prod (2026-10-12): 683 filas →
+1 liberada, 628 diferidas (22 de ellas «se conserva esa»), 4 ya liberadas, 1 conflicto, 2
+controles inválidos, 47 duplicadas, 0 vencidas (con la regla de 365 días habrían vencido ~430).
 
 ## Pasos detallados
 

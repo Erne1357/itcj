@@ -35,10 +35,11 @@ real. El MOTIVO fino de un conflicto de encuesta (¿GTV revocó una previa
 aquí, o hay una solicitud real en revisión? m39) es, por la misma regla, otro
 predicado de solo lectura del dueño: `SurveyReviewService.
 prior_conflict_reason`. `test_el_servicio_nunca_lee_status_directo`
-(`test_prior_clearance_service.py`) lo barre por AST. Vigencia (D9): `issued_on`
-obligatoria, no futura y `>= hoy - PRIOR_VALIDITY_DAYS` (365 días; exactamente
-365 vale, 366 no) -- el MISMO límite que `LibraryClearanceService.
-PRIOR_VALIDITY_DAYS`, reusado de allá para no declarar el número dos veces.
+(`test_prior_clearance_service.py`) lo barre por AST. Vigencia (D9, POR
+SEMESTRES desde 2026-10-12): `issued_on` obligatoria, no futura y vigente
+(`prior_expired` de `library_clearance_service`: el semestre en que se emitió
+y los `PRIOR_VALIDITY_SEMESTERS` siguientes), reusada de allá para no
+declarar la regla dos veces.
 Esa validación de aquí es solo de CLASIFICACIÓN (decide en qué bote cae la
 fila); la mutación real la vuelve a validar el service dueño -defensa en
 profundidad, igual que el resto de la app-, así que una `PriorClearance`
@@ -49,7 +50,7 @@ se salta, sin tumbar el alta del proceso-.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -93,9 +94,12 @@ def _parse_date(value, *, today: date) -> tuple[Optional[date], Optional[str], O
     """Texto (cualquiera de `_FECHA_FORMATOS`, R13)/`date`/`datetime` ->
     `(fecha, None, None)` si es vigente, o `(None, bote, motivo)` si no se
     puede aplicar. `bote` ∈ `"invalid"` (ausente, no parseable o futura) |
-    `"expired"` (> 365 días, D9: exactamente 365 vale, 366 no); `motivo` ya
-    es el texto legible que imprime la CLI."""
-    from itcj2.apps.titulatec.services.library_clearance_service import PRIOR_VALIDITY_DAYS
+    `"expired"` (`prior_expired`: fuera de su semestre y los
+    `PRIOR_VALIDITY_SEMESTERS` siguientes, D9); `motivo` ya es el texto
+    legible que imprime la CLI."""
+    from itcj2.apps.titulatec.services.library_clearance_service import (
+        prior_expired, prior_expired_message,
+    )
 
     if value is None or (isinstance(value, str) and not value.strip()):
         return None, "invalid", "fecha de emisión ausente"
@@ -110,8 +114,8 @@ def _parse_date(value, *, today: date) -> tuple[Optional[date], Optional[str], O
                 "con hora opcional)")
     if value > today:
         return None, "invalid", "la fecha de emisión no puede ser futura"
-    if value < today - timedelta(days=PRIOR_VALIDITY_DAYS):
-        return None, "expired", "la constancia venció (más de 365 días)"
+    if prior_expired(value, today):
+        return None, "expired", prior_expired_message(today)
     return value, None, None
 
 
@@ -384,6 +388,10 @@ class PriorClearanceService:
                 if bote == "already":
                     _add("already", control,
                         "ya registrada: se aplicó antes y esta no es más nueva")
+                elif bote == "kept":
+                    _add("deferred", control,
+                        "ya tenía una liberación pendiente más nueva; se conserva "
+                        "esa y se aplicará cuando se inscriba")
                 elif bote == "replaced":
                     _add("deferred", control,
                         "más nueva que la que ya se aplicó antes; se aplicará "
@@ -522,7 +530,15 @@ class PriorClearanceService:
           `SurveyReview`/`LibraryClearance`); solo deja de estar en este
           registro;
         * `"already"` -- la que había ya se aplicó y esta NO es más nueva
-          (misma fecha o anterior): ya registrada, no se toca nada.
+          (misma fecha o anterior): ya registrada, no se toca nada;
+        * `"kept"` -- (2026-10-12) la que había sigue PENDIENTE, es MÁS
+          NUEVA que esta y YA trae su respuesta ligada (p. ej. el Excel de
+          2025B cargado después del de 2026A): no se toca nada -ni fecha, ni
+          respuesta, ni origen-. Antes conservaba la fecha nueva pero
+          re-ligaba la respuesta vieja, y la previa quedaba con la fecha de una
+          encuesta y las respuestas de otra. Si la pendiente más nueva NO
+          tiene respuesta (vino del CSV), sigue el camino de siempre: conserva
+          su fecha y se le liga esta respuesta (GTV ve «Ver respuestas»).
 
         `link` = `(response_id, paper_pending)` de la importación del Excel
         (R7), o `None` si la fila no los trae: en una fila NUEVA o
@@ -540,6 +556,9 @@ class PriorClearanceService:
             if fila.issued_on is not None and issued_on <= fila.issued_on:
                 return "already"
             reemplaza = True
+        elif (fila is not None and fila.issued_on is not None
+              and issued_on < fila.issued_on and fila.response_id is not None):
+            return "kept"
         if dry_run:
             return "replaced" if reemplaza else "deferred"
         response_id, paper_pending = link if link is not None else (None, False)
@@ -558,10 +577,10 @@ class PriorClearanceService:
             fila.note = note
             fila.source = source
         else:
-            # Pendiente que se actualiza (ruling Tarea 2 de la importación del
-            # Excel): gana la fecha MÁS NUEVA -una carga posterior con fecha
-            # vieja no acorta la vigencia- y una nota vacía no borra la que
-            # ya había (el Excel no trae nota; la del CSV se conserva).
+            # Pendiente que se actualiza con una fecha IGUAL o MÁS NUEVA (la
+            # más vieja ya salió arriba como `"kept"`): gana la fecha más
+            # nueva y una nota vacía no borra la que ya había (el Excel no
+            # trae nota; la del CSV se conserva).
             if fila.issued_on is None or issued_on > fila.issued_on:
                 fila.issued_on = issued_on
             if note:

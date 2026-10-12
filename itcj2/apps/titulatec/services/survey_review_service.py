@@ -66,7 +66,7 @@ Reglas fijas, iguales a `RequirementService`/`PhaseService`:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
@@ -371,10 +371,10 @@ class SurveyReviewService:
         a comprobar TODO por su cuenta (defensa en profundidad, igual que el
         resto de la app).
 
-        `issued_on` obligatoria, no futura y vigente (`>= hoy -
-        PRIOR_VALIDITY_DAYS`, el MISMO límite que
-        `LibraryClearanceService.PRIOR_VALIDITY_DAYS`: exactamente 365 días
-        vale, 366 no). Acredita `graduate_survey` con
+        `issued_on` obligatoria, no futura y vigente (`prior_expired` de
+        `library_clearance_service`, la MISMA regla que la biblioteca: el
+        semestre en que se emitió y los `PRIOR_VALIDITY_SEMESTERS`
+        siguientes). Acredita `graduate_survey` con
         `external_ref=f"survey_prior:{review.id}"` -DISTINTO del
         `survey_review:{id}` que usa `approve()`, para que el cumplimiento
         diga de dónde vino-. EMITE el folio `survey_release` (`source_ref=
@@ -407,9 +407,6 @@ class SurveyReviewService:
         payload de `survey_review_prior`.
         """
         from itcj2.apps.titulatec.models import SurveyReview
-        from itcj2.apps.titulatec.services.library_clearance_service import (
-            PRIOR_VALIDITY_DAYS,
-        )
 
         if process.status not in ("active", "on_hold"):
             raise ValueError(
@@ -417,7 +414,7 @@ class SurveyReviewService:
         if SurveyReviewService.get_for_process(db, process.id) is not None:
             raise ValueError(
                 "Ya existe una solicitud de liberación para este proceso.")
-        fecha = SurveyReviewService._check_prior_date(issued_on, PRIOR_VALIDITY_DAYS)
+        fecha = SurveyReviewService._check_prior_date(issued_on)
         nota = SurveyReviewService._clean_note(note)
         requirement = SurveyReviewService._graduate_survey_requirement(
             db, process.cohort_id)
@@ -913,10 +910,14 @@ class SurveyReviewService:
         return limpio or None
 
     @staticmethod
-    def _check_prior_date(issued_on, validity_days: int) -> date:
+    def _check_prior_date(issued_on) -> date:
         """`issued_on` de una constancia previa (D9): obligatoria, no futura
-        y vigente (`>= hoy - validity_days`). Gemela de
+        y vigente (`prior_expired`, por semestres). Gemela de
         `LibraryClearanceService._check_prior_date`."""
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            prior_expired, prior_expired_message,
+        )
+
         if issued_on is None:
             raise ValueError("Escribe la fecha de la constancia previa.")
         if isinstance(issued_on, datetime):
@@ -926,6 +927,6 @@ class SurveyReviewService:
         hoy = db_now().date()
         if issued_on > hoy:
             raise ValueError("La fecha de la constancia previa no puede ser futura.")
-        if issued_on < hoy - timedelta(days=validity_days):
-            raise ValueError("La constancia venció: tiene más de un año.")
+        if prior_expired(issued_on, hoy):
+            raise ValueError(prior_expired_message(hoy))
         return issued_on
