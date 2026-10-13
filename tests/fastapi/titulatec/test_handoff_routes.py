@@ -518,3 +518,24 @@ def test_sin_promedio_ni_telefono_la_tabla_pinta_raya_y_el_csv_vacio(
     assert celdas[4] == "—" and celdas[5] == "—"
     linea = [ln for ln in csv.splitlines() if "99700062" in ln][0]
     assert linea == f"99700062,EGRESADA,LIBERADA,{program.name},,,{alumno.email}"
+
+
+def test_liberados_pinta_el_promedio_cargado_en_lote(
+    client_as, db_session, make_head, make_program, make_cohort, make_user, make_process,
+):
+    """Tarea 6 (promedios): lo que deja `load_rows` en `final_average` es lo que
+    la bandeja pinta con `'%.2f' | format(...)`, tal cual («85,5» -> «85.50»)."""
+    from itcj2.apps.titulatec.services.official_average_service import (
+        OfficialAverageService,
+    )
+    head = make_head(perm_codes=HANDOFF_LIST_PERMS)
+    proc, _program, _cohort, _alumno = _liberado(
+        db_session, make_program, make_cohort, make_user, make_process, control="99700063")
+    actor = make_user(username="tt_handoff_carga")
+
+    res = OfficialAverageService.load_rows(
+        db_session, [("99700063", "85,5")], actor_id=actor.id, dry_run=False)
+    assert [c for c, _ in res["applied"]] == ["99700063"]
+
+    celdas = _celdas(_fila(client_as(head).get(URL, params={"q": "99700063"}).text, proc.id))
+    assert celdas[4] == "85.50"
