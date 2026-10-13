@@ -64,6 +64,21 @@ def _controles_vivos(db: Session) -> set[str]:
                          .filter(EnrollmentRequest.status.in_(OPEN_STATUSES)).all())
 
 
+def _rechazo_reabrible(db: Session, cerrando: int) -> set[str]:
+    """Controles con una solicitud `rejected` en una convocatoria distinta de
+    `cerrando` que NO está `closed`. La que se cierra cuenta como cerrada;
+    misma regla que `purge_stale` (todas las rechazadas, de convocatorias
+    cerradas)."""
+    from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+
+    return _normalizados(
+        c for (c,) in db.query(EnrollmentRequest.control_number)
+        .join(Cohort, Cohort.id == EnrollmentRequest.cohort_id)
+        .filter(EnrollmentRequest.status == "rejected",
+                EnrollmentRequest.cohort_id != cerrando,
+                Cohort.status != "closed").all())
+
+
 def _con_cuenta(db: Session, llaves: set[str]) -> set[str]:
     from itcj2.core.models.user import User
 
@@ -175,7 +190,10 @@ class NipStashService:
         candidatos = _normalizados(del_cohorte) & guardados
         if not candidatos:
             return 0
-        victimas = (candidatos - _controles_vivos(db)) | (candidatos & _con_cuenta(db, candidatos))
+        # Una rechazada en otra convocatoria que sigue abierta aún se puede
+        # reabrir: su NIP se queda hasta que ESA convocatoria cierre.
+        sin_uso = candidatos - _controles_vivos(db) - _rechazo_reabrible(db, cohort_id)
+        victimas = sin_uso | (candidatos & _con_cuenta(db, candidatos))
         return _borrar(db, victimas)
 
     @staticmethod

@@ -239,3 +239,22 @@ def test_cli_borra_e_imprime_solo_el_conteo(db_session, patched_session_local,
     assert not _hay(db_session, "99580020")
     assert re.search(r"\b\d+\b", res.output)
     assert "99580020" not in res.output and not _CENTINELA_RE.search(res.output)
+
+
+def test_rechazada_en_otra_convocatoria_abierta_conserva_el_nip_hasta_que_cierre(
+    db_session, make_cohort, make_head, llave,
+):
+    """Rechazada en A (abierta, reabrible) y en B: cerrar B no purga; cerrar A sí."""
+    a = make_cohort(status="open")
+    b = make_cohort(status="open")
+    _make_req(db_session, a, control="99580030", status="rejected")
+    _make_req(db_session, b, control="99580030", status="rejected")
+    _guardar(db_session, "99580030")
+    jefa = make_head()
+
+    _cerrar(db_session, b, jefa)
+    assert _hay(db_session, "99580030")
+    assert _stash().purge_stale(db_session) >= 0 and _hay(db_session, "99580030")
+
+    _cerrar(db_session, a, jefa)
+    assert not _hay(db_session, "99580030")
