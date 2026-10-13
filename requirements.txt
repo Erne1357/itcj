@@ -84,6 +84,8 @@ opentelemetry-instrumentation-redis==0.66b1
 opentelemetry-instrumentation-requests==0.66b1
 opentelemetry-instrumentation-httpx==0.66b1
 opentelemetry-instrumentation-celery==0.66b1
+# El render de plantillas era el hueco más común entre consultas en Tempo.
+opentelemetry-instrumentation-jinja2==0.66b1
 # SQLAlchemyInstrumentor importa `sqlalchemy.ext.asyncio` (para envolver
 # `create_async_engine`) aunque la app no use async, y desde SQLAlchemy 2.1 ese
 # módulo exige greenlet, que ya no viene por defecto: sin él, el instrumentor

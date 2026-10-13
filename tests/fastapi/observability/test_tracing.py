@@ -353,6 +353,102 @@ def test_render_con_tracing_apagado_no_abre_span(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Spans propios (`traced`) y render de plantillas (Jinja2)
+#
+# En producción el hueco entre consultas de una traza era Python sin span:
+# compresión de PDFs, scrypt, render de Jinja. Estos tests fijan qué abre span
+# y, sobre todo, qué NO viaja a Tempo (el mensaje de una excepción).
+# ---------------------------------------------------------------------------
+
+def test_traced_abre_un_span_hijo_con_sus_atributos(spans):
+    parent = tracing.start_span("GET /petición")
+    try:
+        with tracing.traced("prueba.trabajo", {"itcj.fijo": 1}) as span:
+            span.set_attribute("itcj.tardio", "visto al final")
+            inner_trace_id = context.current_trace_id()
+    finally:
+        tracing.end_span(parent)
+
+    (finished,) = [s for s in spans.get_finished_spans() if s.name == "prueba.trabajo"]
+    assert _hex_trace(finished) == parent.trace_id == inner_trace_id
+    assert format(finished.parent.span_id, "016x") == parent.span_id
+    assert dict(finished.attributes) == {"itcj.fijo": 1, "itcj.tardio": "visto al final"}
+    assert finished.status.status_code == StatusCode.UNSET
+
+
+def test_traced_que_falla_marca_error_con_el_tipo_y_sin_el_mensaje(spans):
+    # El mensaje de un OSError de `write_document` trae la ruta con el número
+    # de control: a Tempo solo llega el NOMBRE de la clase.
+    original = ProbeBoomError("/uploads/2029A/99000401/documents/99000401_ACTA.pdf")
+    with pytest.raises(ProbeBoomError) as raised:
+        with tracing.traced("prueba.trabajo"):
+            raise original
+    assert raised.value is original
+
+    (finished,) = spans.get_finished_spans()
+    assert finished.status.status_code == StatusCode.ERROR
+    assert dict(finished.attributes) == {"error.type": "ProbeBoomError"}
+    assert finished.events == ()
+    assert "99000401" not in str(finished.to_json())
+
+
+def test_traced_sirve_de_decorador_con_un_span_por_llamada(spans):
+    @tracing.traced("prueba.decorada")
+    def doble(x):
+        return x * 2
+
+    assert doble(2) == 4
+    assert doble(5) == 10
+    assert [s.name for s in spans.get_finished_spans()] == ["prueba.decorada"] * 2
+
+
+def test_traced_apagado_no_abre_span_y_acepta_atributos(monkeypatch):
+    monkeypatch.delenv("OTEL_ENABLED", raising=False)
+    assert tracing.setup_tracing() is None
+    with tracing.traced("prueba.trabajo", {"itcj.fijo": 1}) as span:
+        span.set_attribute("itcj.tardio", 2)
+        assert context.current_otel_ids() is None
+    assert context.current_otel_ids() is None
+
+
+def test_el_render_de_una_plantilla_es_un_span_jinja2_render_sin_spans_de_carga(spans):
+    # `jinja2.load` abriría un span por cada `extends`/`include` aunque la
+    # plantilla ya esté en caché: ruido en cada página. Solo queda el render
+    # (y `jinja2.compile`, la primera vez que un worker ve la plantilla).
+    from jinja2 import DictLoader, Environment
+
+    env = Environment(loader=DictLoader({
+        "pagina.html": "{% extends 'base.html' %}{% block c %}{% include 'parcial.html' %}{% endblock %}",
+        "base.html": "<b>{% block c %}{% endblock %}</b>",
+        "parcial.html": "hola",
+    }))
+    parent = tracing.start_span("GET /petición")
+    try:
+        html = env.get_template("pagina.html").render()
+    finally:
+        tracing.end_span(parent)
+
+    assert html == "<b>hola</b>"
+    finished = spans.get_finished_spans()
+    assert not [s for s in finished if s.name == "jinja2.load"]
+    (render,) = [s for s in finished if s.name == "jinja2.render"]
+    assert render.attributes["jinja2.template_name"] == "pagina.html"
+    assert format(render.parent.span_id, "016x") == parent.span_id
+
+
+def test_apagar_deshace_el_instrumentor_de_jinja2(spans):
+    from jinja2 import Environment
+
+    provider = tracing.setup_tracing()
+    with patch.object(provider, "shutdown"):
+        tracing.shutdown_tracing()
+    spans.clear()
+
+    assert Environment().from_string("{{ 1 + 1 }}").render() == "2"
+    assert spans.get_finished_spans() == ()
+
+
+# ---------------------------------------------------------------------------
 # Socket.IO
 # ---------------------------------------------------------------------------
 
@@ -693,7 +789,7 @@ def test_apagado_no_instala_provider_y_los_ids_salen_como_hoy(monkeypatch, clien
     tracing.shutdown_tracing()  # sin nada instalado, no lanza
 
 
-def test_en_un_proceso_nuevo_se_instrumentan_las_cinco_bibliotecas():
+def test_en_un_proceso_nuevo_se_instrumentan_las_seis_bibliotecas():
     # Proceso nuevo, como un worker de uvicorn o un hijo del prefork: un
     # instrumentor que falla al importar (pasó con SQLAlchemy 2.1 sin
     # greenlet) solo deja un ERROR en el log; dentro de la suite lo taparía
@@ -722,7 +818,7 @@ print(any("SELECT 1" in str(s.attributes) for s in exporter.get_finished_spans()
     assert result.returncode == 0, result.stderr
     assert "no se pudo instrumentar" not in result.stderr + result.stdout
     assert result.stdout.splitlines()[-2:] == [
-        "['celery', 'httpx', 'redis', 'requests', 'sqlalchemy']",
+        "['celery', 'httpx', 'jinja2', 'redis', 'requests', 'sqlalchemy']",
         "True",
     ]
 
@@ -845,6 +941,21 @@ def test_failsafe_measured_deja_pasar_la_excepcion_del_negocio(tracer_roto):
     with pytest.raises(ProbeBoomError):
         with measured("solicitud", "libreoffice"):
             raise ProbeBoomError("del negocio")
+
+
+def test_failsafe_traced_devuelve_su_resultado(tracer_roto):
+    with tracing.traced("prueba.trabajo", {"itcj.fijo": 1}) as span:
+        span.set_attribute("itcj.tardio", 2)
+        result = 21 * 2
+    assert result == 42
+
+
+def test_failsafe_traced_deja_pasar_la_excepcion_del_negocio(tracer_roto):
+    original = ProbeBoomError("del negocio")
+    with pytest.raises(ProbeBoomError) as raised:
+        with tracing.traced("prueba.trabajo"):
+            raise original
+    assert raised.value is original
 
 
 def test_celery_conecta_setup_tracing_a_worker_process_init():
