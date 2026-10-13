@@ -196,6 +196,10 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_format_b": "format_b",
     "titulatec_library_clearances": "library",
     "titulatec_modalities": "processes",
+    # NIPs del SII precargados (spec 2026-10-13 N): la red registra quién cargó
+    # y cuándo se borró cada uno; `nip_cipher` sale como "***" (D9: la llave
+    # contiene «nip»), así que la bitácora inmutable nunca guarda el token.
+    "titulatec_nip_stash": "enrollment",
     "titulatec_phase_definitions": "processes",
     "titulatec_prior_clearances": "library",
     "titulatec_process_events": "processes",
@@ -232,6 +236,7 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_format_b": "Formato B",
     "titulatec_library_clearances": "No adeudo de biblioteca",
     "titulatec_modalities": "Modalidad de titulación",
+    "titulatec_nip_stash": "NIP precargado",
     "titulatec_phase_definitions": "Definición de fase",
     "titulatec_prior_clearances": "Liberación previa",
     "titulatec_process_events": "Evento del proceso",
