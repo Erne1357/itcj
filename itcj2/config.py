@@ -602,7 +602,9 @@ class Settings(BaseSettings):
     # 9:00). 0 = sin recordatorio de cita.
     TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    # `hide_input_in_errors`: el ValidationError de un validador (p. ej. la llave
+    # Fernet mal formada) no debe imprimir el dict de entrada, que lleva secretos.
+    model_config = {"env_file": ".env", "extra": "ignore", "hide_input_in_errors": True}
 
     @model_validator(mode="after")
     def _sii_fake_no_en_produccion(self):
