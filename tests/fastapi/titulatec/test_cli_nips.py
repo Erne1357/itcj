@@ -309,6 +309,23 @@ def test_exporta_marca_si_hay_nip_precargado_sin_descifrarlo(
     assert not _CENTINELA_RE.search(res.output)
 
 
+def test_exporta_marca_nip_precargado_de_una_solicitud_legada_con_L(
+    db_session, patched_session_local, llave, make_cohort,
+):
+    """El stash se llena con el control normalizado; la solicitud legada "L…"
+    debe encontrarlo igual (revisión final M7)."""
+    from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
+
+    _make_req(db_session, make_cohort(status="open"), control="L99600008")
+    NipStashService.put(db_session, "99600008", CENTINELA, actor_id=None)
+
+    res = _exporta()
+
+    por_control = {f["control"]: f["nip_precargado"] for f in _filas(res.output)}
+    assert por_control["L99600008"] == "si"
+    assert not _CENTINELA_RE.search(res.output)
+
+
 def test_exporta_a_archivo_utf8_con_bom(
     tmp_path, db_session, patched_session_local, llave, make_cohort,
 ):
@@ -363,5 +380,6 @@ def test_archivo_donde_nada_se_puede_cargar_sale_con_1_y_titular_rojo(
     res = _carga([str(archivo), "--actor", actor.username, *extra])
 
     assert res.exit_code == 1, res.output
-    assert "Ninguna fila se pudo cargar" in res.output
+    assert "Ninguna fila requiere cambios o todas fueron rechazadas" in res.output
+    assert "culpa" not in res.output and "se pudo cargar" not in res.output
     assert res.output.index("Ninguna fila") < res.output.index("NIP inválido: 2")

@@ -4436,6 +4436,7 @@ def exportar_sin_cuenta_command(salida):
 
     from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, NipStash
     from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+    from itcj2.apps.titulatec.services.import_service import normalize_control
     from itcj2.core.models.program import Program
     from itcj2.core.models.user import User
     from itcj2.database import SessionLocal
@@ -4456,7 +4457,8 @@ def exportar_sin_cuenta_command(salida):
                     "convocatoria", "nip_precargado"])
         n = 0
         for req, cohorte, programa in consulta.all():
-            hay_nip = db.get(NipStash, req.control_number) is not None
+            # El stash va por el control normalizado, igual que la carga.
+            hay_nip = db.get(NipStash, normalize_control(req.control_number or "")) is not None
             apellidos = " ".join(x for x in (req.last_name, req.middle_name) if x)
             w.writerow([req.control_number, req.first_name, apellidos,
                         req.program_text or programa or "", req.status, cohorte,
@@ -4538,14 +4540,15 @@ def cargar_nips_command(archivo, actor, dry_run, sin_correo):
     finally:
         db.close()
 
-    # Nada que cargar y nada que falló: casi seguro es el archivo (separador,
-    # encabezado, NIP sin ceros), no la gente. No debe verse como corrida normal.
+    # Nada que cargar y nada que falló: puede ser el archivo (separador, encabezado,
+    # NIP sin ceros) o un archivo correcto sin nada que hacer (todos con cuenta).
+    # Sale con 1 para no verse como corrida normal, pero el texto no culpa a nadie.
     nada = bool(filas) and not resultado["failed"] and not (
         resultado["granted"] or resultado["stored"] or resultado["stored_rejected"])
     if nada:
         click.secho(
-            "Ninguna fila se pudo cargar: revisa el separador (usa «;»), los "
-            "encabezados `control`/`nip` y el formato del NIP (4 dígitos).",
+            "Ninguna fila requiere cambios o todas fueron rechazadas: revisa el "
+            "detalle abajo. Si esperabas cargas, revisa separador/encabezados.",
             fg="red", bold=True, err=True)
     prefijo = "[dry-run] " if dry_run else ""
     click.echo(f"{prefijo}{len(filas)} fila(s) de {Path(archivo).name}.")
@@ -4744,8 +4747,8 @@ def cargar_promedios_command(archivo, actor, dry_run):
         resultado[k] for k in ("applied", "stored", "updated", "same"))
     if nada:
         click.secho(
-            "Ninguna fila se pudo cargar: revisa el separador (usa «;»), los "
-            "encabezados `control`/`promedio` y el formato del promedio.",
+            "Ninguna fila requiere cambios o todas fueron rechazadas: revisa el "
+            "detalle abajo. Si esperabas cargas, revisa separador/encabezados.",
             fg="red", bold=True, err=True)
     prefijo = "[dry-run] " if dry_run else ""
     click.echo(f"{prefijo}{len(filas)} fila(s) de {Path(archivo).name}.")

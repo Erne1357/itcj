@@ -133,7 +133,8 @@ def test_archivo_donde_nada_aterriza_sale_con_1_y_titular_rojo(
     res = _carga([str(archivo), "--actor", actor.username, *extra])
 
     assert res.exit_code == 1, res.output
-    assert "Ninguna fila se pudo cargar" in res.output
+    assert "Ninguna fila requiere cambios o todas fueron rechazadas" in res.output
+    assert "culpa" not in res.output and "se pudo cargar" not in res.output
     assert res.output.index("Ninguna fila") < res.output.index("Formato inválido: 2")
     assert _fila(db_session, "99720020") is None
 
