@@ -570,6 +570,12 @@ class Settings(BaseSettings):
     # el tope el check se queda en `error` y ya nadie lo retoma solo
     # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
     TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
+    # Llave Fernet (base64 url-safe de 32 bytes) con la que se cifran los NIPs
+    # precargados del SII (`titulatec_nip_stash`). Sin ella la precarga queda
+    # deshabilitada y aprobar cae a Accesos como siempre. Generarla con
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    # `repr=False`: que ni el nombre del campo salga en un traceback de arranque.
+    TITULATEC_NIP_STASH_KEY: str | None = Field(default=None, repr=False)
 
     # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
     # `titulatec_email_outbox` + despachador Celery cada 5 minutos). Cambiar
@@ -606,6 +612,20 @@ class Settings(BaseSettings):
         if self.TITULATEC_SII_BACKEND == "fake" and self.FLASK_ENV == "production":
             raise ValueError("TITULATEC_SII_BACKEND=fake no se permite con "
                              "FLASK_ENV=production: usa odbc o disabled.")
+        return self
+
+    @model_validator(mode="after")
+    def _nip_stash_key_valida(self):
+        """Una llave Fernet mal formada truena al arrancar: si no, cada carga
+        fallaría después con un error confuso. El mensaje no incluye la llave."""
+        key = self.TITULATEC_NIP_STASH_KEY
+        if key:
+            from cryptography.fernet import Fernet
+            try:
+                Fernet(key.encode())
+            except Exception:
+                raise ValueError("TITULATEC_NIP_STASH_KEY no es una llave Fernet válida "
+                                 "(32 bytes en base64 url-safe).") from None
         return self
 
     def _extra_cors_origins(self) -> list[str]:

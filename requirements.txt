@@ -50,6 +50,8 @@ requests>=2.31.0
 click>=8.1.0
 httpx>=0.27.0
 msal>=1.24.0
+# Fernet para cifrar los NIPs precargados de TitulaTec (antes solo transitiva de msal).
+cryptography>=42
 
 # SII (TitulaTec, elegibilidad automática): FreeTDS vía unixODBC. `pyodbc` se
 # importa perezosamente en el cliente ODBC -- el backend y la suite corren
