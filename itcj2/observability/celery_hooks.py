@@ -22,7 +22,9 @@ Casos que explican la forma:
   misma `itcj2.celery_app`, así que estos receptores también están ahí; como
   no tiene nada ligado, no agrega la cabecera.
 - `Task.retry()` re-publica desde dentro de la tarea, con los ids ya
-  restaurados: el reintento continúa la misma traza.
+  restaurados: el reintento continúa la misma traza. Con OTel (Fase 7) cada
+  intento es la raíz de su propia traza, enlazada al anterior (ver «CELERY»
+  en `tracing.py`); lo que continúa es el `request_id`.
 - Sin cabecera se acuña la raíz SIEMPRE, sin mirar lo que ya esté ligado en
   el hilo: si un `reset` de `task_postrun` fallara alguna vez, el worker
   quedaría con ids ligados entre tareas, y heredarlos pegaría en silencio las
@@ -49,15 +51,18 @@ from celery.signals import before_task_publish, task_postrun, task_prerun
 
 from itcj2.observability.context import (
     bind,
+    current_otel_ids,
     new_ids,
     reset,
     sanitize_carried,
+    set_current_span_attribute,
     snapshot,
 )
 
 logger = logging.getLogger(__name__)
 
 HEADER = "itcj_ctx"
+_PRERUN_UID = "itcj2.observability.restore"
 
 # Tokens de `bind()` de cada ejecución en curso, por `id()` de su
 # `task.request`: Celery arma un `Context` nuevo por ejecución y es el mismo
@@ -83,7 +88,7 @@ def _inject_context(headers=None, **kwargs) -> None:
         logger.exception("celery_hooks: no se pudo adjuntar el contexto al mensaje")
 
 
-@task_prerun.connect(weak=False, dispatch_uid="itcj2.observability.restore")
+@task_prerun.connect(weak=False, dispatch_uid=_PRERUN_UID)
 def _bind_task_context(task=None, **kwargs) -> None:
     try:
         request = task.request
@@ -95,17 +100,71 @@ def _bind_task_context(task=None, **kwargs) -> None:
         # cabecera la escribe cualquiera con acceso a Redis, y un productor
         # viejo o ajeno puede no mandarla o mandar otra cosa.
         carried = sanitize_carried(request.get(HEADER))
-        trace_id, span_id = new_ids()
-        # La tarea abre su propio span: el del snapshot es el de quien encoló
-        # (su padre), igual que un `traceparent` entrante en el middleware.
+        # Con OTel (Fase 7) el span de la tarea ya lo abrió CeleryInstrumentor
+        # (corre antes, ver `run_after_otel_prerun`): sus ids mandan, para que
+        # el `trace_id` de los logs y de `task_events` exista en Tempo. Ese
+        # span es la raíz de una traza NUEVA, no la de quien encoló (ver
+        # «CELERY» en `tracing.py`): lo que cruza a la petición es el
+        # `request_id`, que se liga igual con OTel o sin él.
+        otel_ids = current_otel_ids()
+        if otel_ids is not None:
+            trace_id, span_id = otel_ids
+        else:
+            # La tarea abre su propio span: el del snapshot es el de quien
+            # encoló (su padre), igual que un `traceparent` en el middleware.
+            trace_id, span_id = new_ids()
+            trace_id = carried.get("trace_id", trace_id)
         tokens = bind(
-            trace_id=carried.get("trace_id", trace_id),
+            trace_id=trace_id,
             span_id=span_id,
             request_id=carried.get("request_id", secrets.token_hex(16)),
         )
         _tokens[id(request)] = tokens
     except Exception:
         logger.exception("celery_hooks: no se pudo ligar el contexto de la tarea")
+        return
+    publisher_trace_id = carried.get("trace_id")
+    if otel_ids is not None and publisher_trace_id and publisher_trace_id != trace_id:
+        _record_publisher_trace(task, publisher_trace_id)
+
+
+def _record_publisher_trace(task, publisher_trace_id: str) -> None:
+    """Deja dicho, bajo los ids de la tarea, de qué traza viene.
+
+    Con OTel la tarea no comparte `trace_id` con quien la encoló: sin esto,
+    desde la tarea solo se llega a la petición por el link en Tempo (y solo si
+    Tempo conservó las dos trazas). Una línea por tarea y no un campo en cada
+    línea: basta para saltar de Loki a la traza de la petición. Aparte del
+    `bind`: si esto falla, la tarea conserva sus ids.
+    """
+    # try separados: que falle el log no debe saltarse el atributo del span ni
+    # al revés.
+    try:
+        logger.info(
+            "celery: %s corre en su propia traza; la de quien la encoló va en "
+            "publisher_trace_id",
+            task.name,
+            extra={"publisher_trace_id": publisher_trace_id},
+        )
+    except Exception:
+        logger.exception("celery_hooks: no se pudo registrar la traza de quien encoló")
+    try:
+        set_current_span_attribute("itcj.publisher.trace_id", publisher_trace_id)
+    except Exception:
+        logger.exception("celery_hooks: no se pudo poner itcj.publisher.trace_id")
+
+
+def run_after_otel_prerun() -> None:
+    """Reconecta `_bind_task_context` para que corra DESPUÉS del `task_prerun`
+    de `CeleryInstrumentor` (Fase 7).
+
+    Celery llama a los receptores en orden de conexión, y este módulo se
+    conecta al importar `celery_app`, antes de que `setup_tracing()` instale
+    el instrumentor: sin esto, la tarea ligaría ids propios antes de que
+    exista su span y los logs no casarían con Tempo. Idempotente.
+    """
+    task_prerun.disconnect(dispatch_uid=_PRERUN_UID)
+    task_prerun.connect(_bind_task_context, weak=False, dispatch_uid=_PRERUN_UID)
 
 
 @task_postrun.connect(weak=False, dispatch_uid="itcj2.observability.reset")

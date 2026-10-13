@@ -38,6 +38,7 @@ ITEM_TEMPLATE = f"{PREFIX}/items/{{item_id}}"
 
 CONTEXT_FIELDS = (
     "trace_id", "span_id", "request_id", "user_id", "route", "app", "celery_task_id",
+    "sid",
 )
 BASE_FIELDS = ("ts", "level", "logger", "msg")
 
@@ -249,7 +250,7 @@ def test_extra_cannot_spoof_the_request_id(client, json_logs):
 
 
 # Ids que `ContextFilter` escribe SIEMPRE desde el contexto de la petición.
-_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id", "celery_task_id"})
+_CONTEXT_ID_KEYS = frozenset({"trace_id", "span_id", "request_id", "celery_task_id", "sid"})
 
 
 def _extra_keys_that_collide(tree) -> list:
@@ -626,3 +627,19 @@ def test_celery_setup_logging_signal_configures_logging(capsys):
     assert responses, "ningún receptor: Celery secuestraría el root logger"
     logger.warning("desde celery")
     assert "desde celery" in capsys.readouterr().out
+
+
+def test_el_exportador_otlp_solo_loguea_errores_reales():
+    # Alloy caído: sus WARNING "Transient error" por intento y por proceso
+    # dispararían la alerta de ráfaga de errores; los ERROR reales siguen.
+    name = "opentelemetry.exporter.otlp.proto.grpc.exporter"
+    exporter_logger = logging.getLogger(name)
+    previous = exporter_logger.level
+    try:
+        exporter_logger.setLevel(logging.NOTSET)
+        configure_logging(log_format="json", level="INFO")
+        assert exporter_logger.level == logging.ERROR
+        assert not exporter_logger.isEnabledFor(logging.WARNING)
+        assert exporter_logger.isEnabledFor(logging.ERROR)
+    finally:
+        exporter_logger.setLevel(previous)

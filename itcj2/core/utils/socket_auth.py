@@ -1,10 +1,15 @@
 from itcj2.core.utils.jwt_tools import decode_jwt
 
 
-def current_user_from_environ(environ):
+async def current_user_from_environ(environ):
     """
     Extrae el usuario actual desde la cookie 'itcj_token' en el handshake WS.
     Devuelve un dict {sub, role, cn, name} o None si no hay cookie válida.
+
+    Es `async` porque la llama el handler `connect` de los 6 namespaces, en el
+    loop único del contenedor `sockets`: la versión síncrona hacía Redis (y
+    Postgres con el caché frío) sobre ese loop, justo en la ráfaga de conexiones
+    de /slots. No hay llamadores síncronos, así que no se conserva una gemela.
     """
     cookie_header = environ.get("HTTP_COOKIE", "") or ""
     token = None
@@ -24,8 +29,8 @@ def current_user_from_environ(environ):
     # pudo consultar el almacén: en ese caso NO se revoca (fail-open real).
     if "sv" in data:
         try:
-            from itcj2.core.services.session_service import current_version
-            cur = current_version(int(data["sub"]))
+            from itcj2.core.services.session_service import current_version_async
+            cur = await current_version_async(int(data["sub"]))
             if cur is not None and int(data.get("sv", 0)) != cur:
                 return None
         except Exception:

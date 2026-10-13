@@ -121,6 +121,15 @@ services:
     environment:
       - INSTANCE_COLOR=blue
       - APP_ROLE=http
+      # Fase 7 — trazas OTel a Alloy (alloy:4317, red itcj_default) -> Tempo.
+      # El INTERRUPTOR es OTEL_ENABLED en .env.prod (env_file), y a propósito
+      # NO se declara aquí: una entrada `OTEL_ENABLED=${...}` en `environment:`
+      # se interpola del shell que corre `docker compose` y PISA la de
+      # env_file, así que un 1 en .env.prod no encendería nada. Sin la
+      # variable (o con cualquier valor que no sea "1") el código no traza.
+      # Rollback: 0 (o quitarla) en .env.prod y recrear. El endpoint sí va
+      # aquí: es infraestructura, no un interruptor.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
       # worker, default de anyio). Los endpoints `def` corren ahi, y cada uno
@@ -200,6 +209,8 @@ services:
     environment:
       - INSTANCE_COLOR=green
       - APP_ROLE=http
+      # Fase 7: ver backend-blue.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=4
       # INVARIANTE: pool+overflow >= hilos del threadpool de FastAPI (40 por
       # worker, default de anyio). Los endpoints `def` corren ahi, y cada uno
@@ -284,13 +295,20 @@ services:
     environment:
       - INSTANCE_COLOR=sockets
       - APP_ROLE=socket
+      # Fase 7: ver backend-blue.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
       - UVICORN_WORKERS=1
       # Los handlers de socket pegan a la BD via asyncio.to_thread (slots.py,
-      # helpdesk.py, maint.py). El techo de concurrencia real lo pone el
-      # executor por defecto de asyncio: min(32, os.cpu_count()+4) -> 16 en el
-      # host de prod (12 vCPU), 32 si el host crece. El pool DEBE quedar por
-      # encima de ese techo, si no el pool es el cuello y las esperas se comen
-      # el pool_timeout=10s.
+      # helpdesk.py, maint.py). El techo de esas llamadas lo pone el executor
+      # por defecto de asyncio: min(32, os.cpu_count()+4) -> 16 en el host de
+      # prod (12 vCPU), 32 si el host crece.
+      # Desde el handshake async, un fallo de cache de la epoca de sesion
+      # (`current_version_async`) lee la BD por el threadpool de anyio (40),
+      # que se suma al executor: peor caso 40+16 = 56 checkouts simultaneos
+      # contra un pool de 32. No es un bug a corregir subiendo el pool: las
+      # consultas duran ms, el pool rota rapido, y si una espera agota el
+      # pool_timeout el handshake cae en el fail-open (deja pasar), no en
+      # error. El pool de 32 sigue siendo el techo del executor, no del 56.
       # Medido (ensayo 2026-08-13, 300 alumnos entrando a /slots a la vez): con
       # 10+10 el pico se clavaba en 20/20 = pool 100% saturada, sin margen.
       # 16+16=32 cubre el peor caso aunque el host tenga mas cores.
@@ -354,7 +372,15 @@ services:
     # 2.5: worker principal — colas latency-sensitive (NO reports).
     environment:
       - CELERY_QUEUES=default,notifications
+      # El Alloy de platform enruta las trazas de Celery por estos valores
+      # literales (via service.namespace); renombrarlos las manda en silencio a
+      # la ventana de 30 s y se pierden las tareas largas.
       - CELERY_HOSTNAME=worker
+      # Fase 7: ver backend-blue. Cada hijo del prefork arma su provider en
+      # worker_process_init. celery-beat no traza aunque herede OTEL_ENABLED
+      # del env_file: solo encola (no corre worker_process_init), y la tarea
+      # abre su span raíz aquí, en el worker.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -396,7 +422,10 @@ services:
       - CELERY_QUEUES=reports
       - CELERY_WORKER_CONCURRENCY=2
       - CELERY_SKIP_SYNC=1
+      # Ver CELERY_HOSTNAME=worker: Alloy enruta por este valor literal.
       - CELERY_HOSTNAME=reports
+      # Fase 7: ver backend-blue y celery-worker.
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://alloy:4317
     build:
       context: ../..
       dockerfile: docker/backend/Dockerfile.fastapi
@@ -461,7 +490,11 @@ services:
     environment:
       TZ: America/Ciudad_Juarez
     volumes:
-      - ../../docker/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      # La config real se monta como DIRECTORIO: un bind mount de archivo queda atado al
+      # inodo y `git reset --hard` (deploy.sh) lo reemplaza por uno nuevo, asi que `reload`
+      # recargaria la config vieja. nginx.main.conf es estable y solo hace include.
+      - ../../docker/nginx/nginx.main.conf:/etc/nginx/nginx.conf:ro
+      - ../../docker/nginx:/etc/nginx/itcj:ro
       # upstream.conf generado por deploy.sh en el host
       - ../../docker/nginx/upstream.conf:/etc/nginx/conf.d/upstream.conf:ro
       - ../../itcj2/core/static:/www/static/core:ro

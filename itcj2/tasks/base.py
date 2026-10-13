@@ -38,11 +38,13 @@ def with_itcj_ctx(payload: dict) -> dict:
     Lleva el contexto de la tarea (ya restaurado por `task_prerun`, ver
     `itcj2/observability/celery_hooks.py`) hasta el tier sockets, que
     retransmite el aviso bajo esos ids: así la petición que disparó la tarea
-    también se encuentra en sus líneas. Campo nuevo y compatible hacia atrás:
-    un consumidor viejo lo ignora, y el nuevo tolera que falte (despliegue
-    mixto). Un solo lugar para los tres publicadores (`task_completed` aquí,
-    `user_notification` en helpdesk y en las notificaciones masivas), para que
-    ninguno se quede sin el campo.
+    también se encuentra en sus líneas. Con OTel (Fase 7) el `trace_id` es el
+    de la TAREA, que es raíz de su propia traza (ver «CELERY» en
+    `itcj2/observability/tracing.py`): la petición se une por `request_id`.
+    Campo nuevo y compatible hacia atrás: un consumidor viejo lo ignora, y el
+    nuevo tolera que falte (despliegue mixto). Un solo lugar para los tres
+    publicadores (`task_completed` aquí, `user_notification` en helpdesk y en
+    las notificaciones masivas), para que ninguno se quede sin el campo.
     """
     try:
         payload["itcj_ctx"] = snapshot()

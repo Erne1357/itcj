@@ -23,6 +23,7 @@ from time import monotonic, perf_counter
 
 from starlette.datastructures import MutableHeaders
 
+from itcj2.observability import tracing
 from itcj2.observability.context import (
     bind,
     new_ids,
@@ -104,6 +105,31 @@ def _metric_route_method(route: str, method: str, status: int) -> tuple[str, str
     return route, method if method in METRIC_METHODS else "OTHER"
 
 
+def _end_server_span(active, method, route, status, exc, raw_path) -> None:
+    """Cierra el span servidor de la Fase 7 (no-op si el tracing está
+    apagado). `tracing.end_span` no lanza; los atributos se arman aquí, donde
+    está la regla de qué entra a la traza (ver el docstring de `tracing`)."""
+    if active is None:
+        return
+    known = method in METRIC_METHODS
+    attributes = {
+        # `_OTHER` es el valor de la convención semántica para un método
+        # fuera de los conocidos: el nombre del span no es entrada libre.
+        "http.request.method": method if known else "_OTHER",
+        "http.route": route,
+        "http.response.status_code": status,
+    }
+    if raw_path is not None:
+        attributes["url.path"] = raw_path
+    tracing.end_span(
+        active,
+        name=f"{method if known else 'HTTP'} {route}",
+        attributes=attributes,
+        error=status >= 500,
+        exception=exc,
+    )
+
+
 def _header(scope: dict, name: bytes) -> str | None:
     for key, value in scope.get("headers") or ():
         if key == name:
@@ -142,12 +168,22 @@ class ObservabilityMiddleware:
             await self.app(scope, receive, send)
             return
 
-        trace_id, span_id = new_ids()
         incoming = parse_traceparent(_header(scope, _TRACEPARENT))
-        if incoming is not None:
-            # Del traceparent solo se hereda la traza: su span es el del
-            # LLAMANTE (el padre), esta petición abre uno propio.
-            trace_id = incoming[0]
+        # Fase 7: con el tracing encendido, los ids SON los del span servidor
+        # (un solo trace id para logs y Tempo); apagado, `None` y todo igual.
+        # El nombre definitivo (la plantilla) se pone al cerrar: aún no se ha
+        # enrutado.
+        active = tracing.start_span(
+            scope["method"], parent=incoming, server=True
+        )
+        if active is not None:
+            trace_id, span_id = active.trace_id, active.span_id
+        else:
+            trace_id, span_id = new_ids()
+            if incoming is not None:
+                # Del traceparent solo se hereda la traza: su span es el del
+                # LLAMANTE (el padre), esta petición abre uno propio.
+                trace_id = incoming[0]
         # Siempre generado, nunca el X-Request-ID entrante: un id elegido por
         # el cliente podría hacerse pasar por el de otra petición en los logs.
         request_id = secrets.token_hex(16)
@@ -157,6 +193,7 @@ class ObservabilityMiddleware:
 
         status = None
         exc_type = None
+        error = None
 
         async def send_wrapper(message):
             nonlocal status
@@ -190,6 +227,7 @@ class ObservabilityMiddleware:
             # respuesta quedó cortada, para el cliente también es un fallo.
             status = 500
             exc_type = type(exc).__name__
+            error = exc
             # Re-lanzar SIEMPRE: el 500 (y el logger.exception del handler
             # global) lo sigue emitiendo ServerErrorMiddleware, por fuera.
             raise
@@ -235,11 +273,12 @@ class ObservabilityMiddleware:
                 _report_metrics_failure("RED")
             # La línea y el reset FUERA de la guarda de métricas: se emiten
             # aunque las métricas hayan fallado.
+            # `path` (ruta cruda) solo para `route == UNMATCHED`: es lo único
+            # que le queda al log para investigar ese 15 % de tráfico sin
+            # plantilla (un 405 ya trae la plantilla real en `route`, no hace
+            # falta duplicarla). `scope["path"]` nunca trae la query string.
+            raw_path = None
             try:
-                # `path` (ruta cruda) solo para `route == UNMATCHED`: es lo
-                # único que le queda al log para investigar ese 15 % de
-                # tráfico sin plantilla (un 405 ya trae la plantilla real en
-                # `route`, no hace falta duplicarla).
                 raw_path = (
                     scope["path"][:_MAX_UNMATCHED_PATH_LENGTH]
                     if route == UNMATCHED else None
@@ -249,6 +288,11 @@ class ObservabilityMiddleware:
                     user_id_from_scope(scope), exc_type, raw_path,
                 )
             finally:
+                # Después de la línea-resumen: así sale con el span aún activo.
+                # Se desactiva también en el camino de excepción (a diferencia
+                # del `reset` de abajo): el `logger.exception` de por fuera
+                # cae al ContextVar, que lleva el MISMO trace id.
+                _end_server_span(active, method, route, status, error, raw_path)
                 # R4: sin reset en el camino de excepción, para que el
                 # logger.exception del handler global (ServerErrorMiddleware,
                 # por fuera) y el log de error de uvicorn lleven el

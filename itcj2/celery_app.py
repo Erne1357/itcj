@@ -8,7 +8,7 @@ Los workers se arrancan desde Docker con:
     celery -A itcj2.celery_app worker --loglevel=info
 """
 from celery import Celery
-from celery.signals import setup_logging
+from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
 
 from itcj2.config import get_settings
 from itcj2.observability.logging_config import configure_logging
@@ -34,6 +34,28 @@ def _configure_logging(**kwargs) -> None:
     `LOG_LEVEL`, igual que en la app.
     """
     configure_logging()
+
+
+@worker_process_init.connect
+def _setup_tracing(**kwargs) -> None:
+    """Trazas OTel (Fase 7) en CADA hijo del prefork, solo con OTEL_ENABLED=1.
+
+    Nunca al importar ni en el proceso padre: el hilo del `BatchSpanProcessor`
+    y el canal gRPC del exportador no sobreviven al `fork`, y un hijo que los
+    heredara encolaría spans que nadie manda. El import es perezoso por la
+    misma regla que el resto de la cadena de Celery.
+    """
+    from itcj2.observability.tracing import setup_tracing
+
+    setup_tracing(role="celery")
+
+
+@worker_process_shutdown.connect
+def _shutdown_tracing(**kwargs) -> None:
+    """Vacía el batch de spans al morir el hijo (reinicio, `max_tasks`)."""
+    from itcj2.observability.tracing import shutdown_tracing
+
+    shutdown_tracing()
 
 
 def create_celery_app() -> Celery:
