@@ -4510,8 +4510,14 @@ def cargar_nips_command(archivo, actor, dry_run, sin_correo):
                     "--sin-correo y avisa a mano.", fg="red"), err=True)
                 raise SystemExit(1)
 
+        def _en_vivo(bucket, control, motivo):
+            # Rastro al instante: si el lote se corta, se sabe a quién ya le llegó.
+            click.echo(f"  [{_NIPS_ETIQUETAS[bucket]}] {control}"
+                       + (f": {motivo}" if motivo else ""))
+
         resultado = NipStashService.load_rows(
-            db, filas, actor_id=actor_id, dry_run=dry_run, send_mail=not sin_correo)
+            db, filas, actor_id=actor_id, dry_run=dry_run, send_mail=not sin_correo,
+            on_row=None if dry_run else _en_vivo)
     finally:
         db.close()
 

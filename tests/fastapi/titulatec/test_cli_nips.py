@@ -322,3 +322,32 @@ def test_exporta_a_archivo_utf8_con_bom(
     assert crudo.startswith(b"\xef\xbb\xbf")
     assert "Ingeniería Eléctrica" in crudo.decode("utf-8-sig")
     assert "99600007" not in res.output, "con --salida el CSV no sale por stdout"
+
+
+def test_linea_por_fila_en_vivo_antes_del_resumen_y_sin_nip(
+    tmp_path, db_session, patched_session_local, llave, actor, make_cohort, listo,
+    espia_correo,
+):
+    _make_req(db_session, make_cohort(status="open"), control="99590020",
+              status="awaiting_access", reviewed_by_id=actor.id)
+    archivo = _archivo(tmp_path, f"control,nip\n99590020,{CENTINELA}\n")
+
+    res = _carga([str(archivo), "--actor", actor.username])
+
+    assert res.exit_code == 0, res.output
+    en_vivo = "[Acceso dado ahora] 99590020"
+    assert en_vivo in res.output
+    assert res.output.index(en_vivo) < res.output.index("Acceso dado ahora: 1")
+    assert not _CENTINELA_RE.search(res.output)
+
+
+def test_dry_run_no_imprime_lineas_en_vivo(
+    tmp_path, db_session, patched_session_local, llave, actor, make_cohort, listo,
+):
+    _make_req(db_session, make_cohort(status="open"), control="99590021",
+              status="awaiting_access", reviewed_by_id=actor.id)
+    archivo = _archivo(tmp_path, f"control,nip\n99590021,{CENTINELA}\n")
+
+    res = _carga([str(archivo), "--actor", actor.username, "--dry-run"])
+
+    assert "[Acceso dado ahora]" not in res.output

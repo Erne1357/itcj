@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
+from collections.abc import Callable
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func
@@ -105,7 +106,9 @@ class NipStashService:
 
     @staticmethod
     def load_rows(db: Session, rows: list[tuple[str, str]], *, actor_id: int,
-                  dry_run: bool, send_mail: bool) -> dict[str, list[tuple[str, str]]]:
+                  dry_run: bool, send_mail: bool,
+                  on_row: Callable[[str, str, str], None] | None = None,
+                  ) -> dict[str, list[tuple[str, str]]]:
         """Carga en lote `(control, nip)` del SII. Devuelve `{bucket: [(control, motivo)]}`.
 
         Los buckets (`LOAD_BUCKETS`) y sus motivos NUNCA llevan el NIP. Por control:
@@ -125,6 +128,10 @@ class NipStashService:
         el lote sigue. `dry_run` clasifica (solo lee) y no escribe nada: ni
         guardado, ni acceso, ni bitácora. `send_mail=False`: la cuenta se crea
         sin correo y `access_sent_at` queda NULL.
+
+        `on_row(bucket, control, motivo)`: se llama AL MOMENTO por cada fila
+        `granted` o `failed` (fuera de `dry_run`), para que el CLI deje rastro
+        si el lote se interrumpe a medias. Nunca recibe el NIP.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest
         from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
@@ -177,6 +184,7 @@ class NipStashService:
                 continue
 
             req_id = req.id
+            antes = (len(out["granted"]), len(out["failed"]))
             try:
                 if bucket == "granted":
                     ok, detalle = EnrollmentRequestService.grant_access(
@@ -203,4 +211,8 @@ class NipStashService:
                 # Solo el tipo: el texto de una excepción podría arrastrar datos.
                 logger.error("Carga de NIP: falló una fila (%s).", type(exc).__name__)
                 out["failed"].append((control, f"Error inesperado ({type(exc).__name__})."))
+            if on_row is not None:
+                for b in ("granted", "failed"):
+                    if len(out[b]) > antes[0 if b == "granted" else 1]:
+                        on_row(b, control, out[b][-1][1])
         return out

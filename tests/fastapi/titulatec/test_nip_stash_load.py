@@ -419,3 +419,93 @@ def test_ningun_motivo_ni_bucket_contiene_el_nip(
     assert not _CENTINELA_RE.search(json.dumps(res, default=str))
     for f in audit_query(db_session).all():
         assert not _CENTINELA_RE.search(json.dumps(f.payload, default=str))
+
+
+# ---------------------------------------------------------------------------
+# Excepción a media carga: la fila falla, las demás se aplican, la sesión sirve
+# ---------------------------------------------------------------------------
+def test_excepcion_en_grant_access_deja_la_fila_en_failed_y_sigue(
+    db_session, make_cohort, make_user, listo, llave, espia_correo, monkeypatch,
+):
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    for c in ("99580060", "99580061", "99580062"):
+        _make_req(db_session, cohort, control=c, status="awaiting_access",
+                  reviewed_by_id=actor.id)
+    real = _svc().grant_access
+    llamadas = []
+
+    def _grant(db, req_id, **kw):
+        llamadas.append(req_id)
+        if len(llamadas) == 2:
+            raise RuntimeError(f"revienta con {CENTINELA}")
+        return real(db, req_id, **kw)
+
+    monkeypatch.setattr(_svc(), "grant_access", staticmethod(_grant))
+
+    res = _carga(db_session, [("99580060", CENTINELA), ("99580061", CENTINELA),
+                              ("99580062", CENTINELA)], actor)
+
+    assert _controles(res, "granted") == ["99580060", "99580062"]
+    (control, motivo), = res["failed"]
+    assert control == "99580061"
+    assert "RuntimeError" in motivo and not _CENTINELA_RE.search(motivo)
+    assert _usuario(db_session, "99580060") is not None
+    assert _usuario(db_session, "99580062") is not None
+    assert _usuario(db_session, "99580061") is None
+    # La sesión sigue sirviendo después del rollback.
+    assert db_session.query(type(actor)).filter_by(id=actor.id).first() is not None
+
+
+def test_excepcion_en_put_deja_la_fila_en_failed_y_sigue(
+    db_session, make_cohort, make_user, llave, monkeypatch,
+):
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    for c in ("99580070", "99580071", "99580072"):
+        _make_req(db_session, cohort, control=c)
+    real = _stash().put
+
+    def _put(db, control, nip, *, actor_id):
+        if control == "99580071":
+            raise RuntimeError(f"revienta con {nip}")
+        return real(db, control, nip, actor_id=actor_id)
+
+    monkeypatch.setattr(_stash(), "put", staticmethod(_put))
+
+    res = _carga(db_session, [("99580070", CENTINELA), ("99580071", CENTINELA),
+                              ("99580072", "4321")], actor)
+
+    assert _controles(res, "stored") == ["99580070", "99580072"]
+    (control, motivo), = res["failed"]
+    assert control == "99580071"
+    assert "RuntimeError" in motivo and not _CENTINELA_RE.search(motivo)
+    assert _hay_nip(db_session, "99580070") and _hay_nip(db_session, "99580072")
+    assert not _hay_nip(db_session, "99580071")
+    assert db_session.query(type(actor)).filter_by(id=actor.id).first() is not None
+
+
+def test_on_row_avisa_granted_y_failed_al_momento_y_sin_nip(
+    db_session, make_cohort, make_user, listo, llave, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    resultados = iter([True, False])
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: next(resultados)))
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    for c in ("99580080", "99580081"):
+        _make_req(db_session, cohort, control=c, status="awaiting_access",
+                  reviewed_by_id=actor.id)
+    _make_req(db_session, cohort, control="99580082")
+    avisos = []
+
+    _stash().load_rows(db_session, [("99580080", CENTINELA), ("99580081", CENTINELA),
+                                    ("99580082", CENTINELA)],
+                       actor_id=actor.id, dry_run=False, send_mail=True,
+                       on_row=lambda *a: avisos.append(a))
+
+    assert [(b, c) for b, c, _ in avisos] == [("granted", "99580080"),
+                                              ("failed", "99580081")]
+    assert not _CENTINELA_RE.search(json.dumps(avisos))
