@@ -20,6 +20,7 @@ from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Literal, Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.audit_service import AuditService
@@ -119,6 +120,8 @@ class OfficialAverageService:
             return "same"
         row.average = average
         row.loaded_by_id = actor_id
+        # La fecha refleja la última carga, no la primera (igual que `NipStashService.put`).
+        row.loaded_at = func.now()
         db.flush()
         return "updated"
 

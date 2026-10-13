@@ -58,6 +58,23 @@ def test_upsert_created_updated_same(db_session, make_user):
     assert _fila(db_session, "99700001").average == D("90.00")
 
 
+def test_upsert_updated_refresca_loaded_at_y_loaded_by(db_session, make_user):
+    """Como `NipStashService.put`: la fecha/autor reflejan la ÚLTIMA carga."""
+    import datetime as dt
+
+    a, b = make_user(), make_user()
+    Svc.upsert(db_session, "99700003", D("85"), actor_id=a.id)
+    fila = _fila(db_session, "99700003")
+    fila.loaded_at = dt.datetime(2020, 1, 1)
+    db_session.flush()
+
+    assert Svc.upsert(db_session, "99700003", D("90"), actor_id=b.id) == "updated"
+
+    db_session.refresh(fila)
+    assert fila.loaded_by_id == b.id
+    assert fila.loaded_at > dt.datetime(2021, 1, 1)
+
+
 def test_upsert_normaliza_el_control(db_session):
     assert Svc.upsert(db_session, " l99700002 ", D("80"), actor_id=None) == "created"
     assert _fila(db_session, "99700002") is not None
