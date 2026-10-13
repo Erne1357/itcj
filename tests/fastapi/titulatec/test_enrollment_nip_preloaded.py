@@ -717,3 +717,98 @@ def test_d11_ruta_aprobar_con_nip_precargado_avisa_el_folio_y_el_correo(
     assert not _CENTINELA_RE.search(resp.text)
     assert not _CENTINELA_RE.search(" ".join(f"{k}: {v}" for k, v in resp.headers.items()))
     assert not _CENTINELA_RE.search(caplog.text)
+
+
+# ---------------------------------------------------------------------------
+# Repaso de la tarea 2: legibilidad, D10 y el predicado único
+# ---------------------------------------------------------------------------
+def test_readable_devuelve_solo_los_que_descifran_con_un_warning_agregado(
+    db_session, llave, caplog, monkeypatch,
+):
+    """Con la llave cambiada ninguno descifra: UN WARNING (no uno por fila), sin
+    controles ni NIP."""
+    from itcj2.config import get_settings
+
+    for c in ("99570040", "99570041", "99570042"):
+        _guardar(db_session, c)
+    assert _stash().readable(db_session, ["99570040", "99570041", "99570099"]) == {
+        "99570040", "99570041"}
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY",
+                        Fernet.generate_key().decode())
+    with caplog.at_level(logging.DEBUG):
+        ok = _stash().readable(db_session, ["99570040", "99570041", "99570042"])
+
+    assert ok == set()
+    avisos = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(avisos) == 1
+    assert "9957004" not in caplog.text and not _CENTINELA_RE.search(caplog.text)
+
+
+def test_readable_sin_llave_es_vacio_y_sin_warning(db_session, llave, caplog, monkeypatch):
+    from itcj2.config import get_settings
+
+    _guardar(db_session, "99570043")
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", None)
+    with caplog.at_level(logging.DEBUG):
+        assert _stash().readable(db_session, ["99570043"]) == set()
+    assert not [r for r in caplog.records if r.levelname == "WARNING"]
+
+
+def test_llave_cambiada_la_fila_no_promete_el_nip_y_ofrece_pasar_a_accesos(
+    client_as, db_session, make_head, make_cohort, d11, llave, monkeypatch,
+):
+    """Repaso T2 Minor 1: un guardado que no se puede descifrar no se promete."""
+    from itcj2.config import get_settings
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99570044")
+    _guardar(db_session, "99570044")
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY",
+                        Fernet.generate_key().decode())
+
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+    assert "Aprobar y pasar a Accesos" in fila and TO_ACCESS_INPUT in fila
+    assert NOTA_PRECARGADO not in _plano(fila)
+
+
+def test_dar_acceso_con_cuenta_aparecida_d10_descarta_el_nip_precargado(
+    db_session, make_cohort, make_user, listo, llave, correo_falso,
+):
+    """Repaso T2 Minor 2: la rama D10 de `grant_access` también borra el guardado."""
+    se, cc = make_user(), make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99570045", status="awaiting_access",
+                    reviewed_by_id=se.id)
+    _cuenta(db_session, "99570045")
+    _guardar(db_session, "99570045")
+
+    ok, detalle = _svc().grant_access(db_session, req.id, nip="", actor_id=cc.id)
+
+    assert (ok, detalle) == (True, "")
+    assert req.status == "approved"
+    assert not _hay_nip(db_session, "99570045")
+
+
+@pytest.mark.parametrize("mode,forced,esperado", [
+    ("school_services", False, True),
+    ("school_services", True, True),
+    ("sii", True, True),
+    ("sii", False, False),
+    ("computer_center", False, False),
+    ("computer_center", True, False),
+])
+def test_preloaded_applies_tabla(mode, forced, esperado):
+    assert _svc().preloaded_applies(mode, forced_access=forced) is esperado
+
+
+def test_bandeja_y_servicio_usan_el_mismo_predicado():
+    """Repaso T2 Minor 3: la condición de modo vive en un solo sitio."""
+    import inspect
+
+    from itcj2.apps.titulatec.pages import requests_admin
+
+    assert "preloaded_applies" in inspect.getsource(requests_admin._preloaded_controls)
+    assert "preloaded_applies" in inspect.getsource(_svc()._preloaded_nip)

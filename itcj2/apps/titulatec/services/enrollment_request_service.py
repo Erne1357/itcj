@@ -842,6 +842,16 @@ class EnrollmentRequestService:
         return ApproveResult(ok, detalle, nip_failure)
 
     @staticmethod
+    def preloaded_applies(mode: str, *, forced_access: bool) -> bool:
+        """¿Aprobar en este modo caería a Accesos y por tanto usaría el NIP del SII
+        precargado? Sí en el modo oficial, o en `sii` cuando el acceso es forzado
+        (SII apagado, D11, o `to_access` explícito); nunca en el alterno ni en
+        `sii` con el SII vivo. Única fuente para `_preloaded_nip` y para la
+        bandeja (`_preloaded_controls`): si se separan, la fila promete algo que
+        no ocurre."""
+        return mode == "school_services" or (mode == "sii" and forced_access)
+
+    @staticmethod
     def _preloaded_nip(db: Session, req, to_access: bool) -> str | None:
         """El NIP del SII precargado para aprobar `req`, o `None` si no aplica.
 
@@ -863,8 +873,8 @@ class EnrollmentRequestService:
         from itcj2.apps.titulatec.services.import_service import normalize_control
         from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
-        mode = EnrollmentRequestService.reviewer_mode()
-        if mode == "computer_center" or (mode == "sii" and not to_access):
+        if not EnrollmentRequestService.preloaded_applies(
+                EnrollmentRequestService.reviewer_mode(), forced_access=to_access):
             return None
         if not NipStashService.available():
             return None
@@ -1141,7 +1151,10 @@ class EnrollmentRequestService:
         """
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest
-        from itcj2.apps.titulatec.services.import_service import ImportService
+        from itcj2.apps.titulatec.services.import_service import (
+            ImportService, normalize_control,
+        )
+        from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1185,6 +1198,10 @@ class EnrollmentRequestService:
                 payload={"path": "existing_account", "via": "access",
                          "cohort_id": req.cohort_id},
                 actor_id=actor_id)
+            # Igual que la rama con cuenta de aprobar: un NIP precargado de una
+            # cuenta que ya existe no se usará nunca.
+            with db.no_autoflush:
+                NipStashService.discard(db, normalize_control(control))
             db.commit()
             _token_cache_put(raw)
             if send_mail:

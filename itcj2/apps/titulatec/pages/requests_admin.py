@@ -505,23 +505,24 @@ def _approve_notice(db, req, detail: str):
 
 def _preloaded_controls(db, reqs, *, mode: str, configured: bool) -> set[str]:
     """`control_number` (tal cual en la fila) de las solicitudes por revisar con
-    NIP del SII precargado, donde aprobar lo usaría. UNA consulta.
+    NIP del SII precargado, donde aprobar lo usaría. Una consulta por lote.
 
-    La MISMA condición que `EnrollmentRequestService._preloaded_nip`: modo
-    oficial, o `sii` con el SII apagado (D11), y con llave. Si la bandeja y el
-    servicio se separan, la fila promete una cuenta que no se crea o manda a
-    Accesos una que sí. «¿Tiene cuenta?» lo descarta quien llama (la fila ya
-    lo sabe). Con la llave cambiada la fila aún lo promete; al aprobar cae a
-    Accesos con su WARNING y el aviso lo dice («Pasó a Accesos»). Solo mira si
-    hay fila: nunca descifra.
+    La MISMA condición que `EnrollmentRequestService._preloaded_nip`
+    (`EnrollmentRequestService.preloaded_applies`: modo oficial, o `sii` con el
+    SII apagado, D11), y con llave. Solo promete el NIP que SÍ se descifra
+    (`NipStashService.readable`; un WARNING agregado sin datos si la llave
+    cambió): lo ilegible aprobaría por Accesos, así que la fila muestra el
+    botón normal. «¿Tiene cuenta?» lo descarta quien llama (la fila ya lo sabe).
     """
-    from itcj2.apps.titulatec.models import NipStash
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
     from itcj2.apps.titulatec.services.import_service import (
         CONTROL_NUMBER_RE, normalize_control,
     )
     from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
-    if not (mode == "school_services" or (mode == "sii" and not configured)):
+    if not EnrollmentRequestService.preloaded_applies(mode, forced_access=not configured):
         return set()
     if not NipStashService.available():
         return set()
@@ -532,8 +533,8 @@ def _preloaded_controls(db, reqs, *, mode: str, configured: bool) -> set[str]:
             por_llave.setdefault(normalize_control(control), set()).add(r.control_number)
     if not por_llave:
         return set()
-    hay = db.query(NipStash.control_number).filter(NipStash.control_number.in_(por_llave))
-    return {crudo for (llave,) in hay.all() for crudo in por_llave[llave]}
+    legibles = NipStashService.readable(db, por_llave)
+    return {crudo for llave in legibles for crudo in por_llave[llave]}
 
 
 def _filters_from(form) -> dict:
