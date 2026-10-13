@@ -86,6 +86,8 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # `titulatec fix-control-l` (2026-10-09): quitar la «L» de licenciatura.
     "enrollment.control_corrected": ("enrollment", "Corrigió el número de control de una solicitud"),
     "enrollment.account_merged": ("enrollment", "Unificó una cuenta duplicada en la del alumno"),
+    # `titulatec cargar-nips` (2026-10-13): NIP del SII guardado cifrado. Sin el NIP.
+    "enrollment.nip_preloaded": ("enrollment", "Precargó el NIP del SII de una solicitud"),
 
     # --- access: bandeja de Accesos de Centro de Cómputo ---------------------
     "access.returned": ("access", "Devolvió una solicitud a revisión"),

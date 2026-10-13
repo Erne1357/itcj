@@ -21,6 +21,8 @@ Comandos:
     titulatec audit-backfill-solicitudes [--dry-run]  Recupera en la bitácora las decisiones de solicitudes previas a ella (idempotente).
     titulatec init-especialidades [--dry-run]  Especialidades de la encuesta de egresados por carrera (retículas 2014+).
     titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura y emite folios faltantes.
+    titulatec exportar-sin-cuenta [--salida RUTA]  Solicitudes vivas sin cuenta (CSV para pedir los NIP al SII).
+    titulatec cargar-nips ARCHIVO --actor USUARIO [--dry-run] [--sin-correo]  Carga los NIP del SII (acceso o guardado cifrado).
 """
 import logging
 import os
@@ -4346,3 +4348,181 @@ def fix_control_l_command(dry_run, sin_correo, solo):
             raise SystemExit(1)
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# NIPs del SII precargados (spec 2026-10-13-titulatec-nip-precargado-design.md §5.3)
+# ---------------------------------------------------------------------------
+_NIPS_COLUMNAS_CONTROL = {"control", "no_control", "numero_control", "numero_de_control",
+                          "num_control", "n_control", "no._control"}
+_NIPS_ETIQUETAS = {
+    "granted": "Acceso dado ahora",
+    "stored": "Guardados para la aprobación",
+    "stored_rejected": "Guardados (solicitud rechazada)",
+    "has_account": "Ya tienen cuenta",
+    "no_request": "Sin solicitud",
+    "invalid_nip": "NIP inválido",
+    "duplicate": "Duplicados",
+    "failed": "Fallaron",
+}
+
+
+def _leer_nips(ruta: Path) -> list[tuple[str, str]]:
+    """Lee `(control, nip)` de un CSV/TXT con encabezado. Acepta BOM (Excel),
+    `,` `;` o tabulador, y `no_control`/`numero_control` como encabezado del
+    control. El NIP se deja TAL CUAL: validarlo (y avisar si Excel le quitó un
+    cero) es de `NipStashService.load_rows`. `ClickException` si falta una columna."""
+    import csv
+    import io
+    import unicodedata
+
+    texto = ruta.read_bytes().decode("utf-8-sig", errors="replace")
+    primera = texto.splitlines()[0] if texto.strip() else ""
+    delim = max(("\t", ";", ","), key=primera.count)
+    lector = csv.reader(io.StringIO(texto), delimiter=delim)
+
+    def _norm(h: str) -> str:
+        sin = unicodedata.normalize("NFKD", h or "").encode("ascii", "ignore").decode()
+        return sin.strip().lower().replace(" ", "_")
+
+    encabezado = [_norm(h) for h in next(lector, [])]
+    i_control = next((i for i, h in enumerate(encabezado)
+                      if h in _NIPS_COLUMNAS_CONTROL), None)
+    i_nip = next((i for i, h in enumerate(encabezado) if h == "nip"), None)
+    if i_control is None or i_nip is None:
+        raise click.ClickException(
+            "El archivo necesita un encabezado con las columnas «control» y «nip» "
+            "(también vale «no_control» o «numero_control»).")
+    filas = []
+    for r in lector:
+        if not any((c or "").strip() for c in r):
+            continue
+        filas.append((r[i_control] if i_control < len(r) else "",
+                      r[i_nip] if i_nip < len(r) else ""))
+    return filas
+
+
+@titulatec_cli.command("exportar-sin-cuenta")
+@click.option("--salida", "salida", type=click.Path(dir_okay=False, path_type=Path),
+              default=None, help="Archivo CSV de salida (por omisión, la pantalla).")
+def exportar_sin_cuenta_command(salida):
+    """Lista las solicitudes vivas cuyo control aún no tiene cuenta.
+
+    Es la lista que se lleva al SII para pedir los NIP. Una fila por solicitud:
+    control, nombre, apellidos, carrera, estado, convocatoria y si ya hay un NIP
+    precargado (si/no; NUNCA se descifra ni se imprime).
+    """
+    import csv
+    import io
+
+    from sqlalchemy import exists
+
+    from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest, NipStash
+    from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.user import User
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        consulta = (db.query(EnrollmentRequest, Cohort.name, Program.name)
+                    .join(Cohort, Cohort.id == EnrollmentRequest.cohort_id)
+                    .outerjoin(Program, Program.id == EnrollmentRequest.program_id)
+                    .filter(EnrollmentRequest.status.in_(OPEN_STATUSES),
+                            ~exists().where(User.control_number
+                                            == EnrollmentRequest.control_number))
+                    .order_by(EnrollmentRequest.cohort_id, EnrollmentRequest.control_number,
+                              EnrollmentRequest.id))
+        buf = io.StringIO()
+        w = csv.writer(buf, lineterminator="\n")
+        w.writerow(["control", "nombre", "apellidos", "carrera", "estado",
+                    "convocatoria", "nip_precargado"])
+        n = 0
+        for req, cohorte, programa in consulta.all():
+            hay_nip = db.get(NipStash, req.control_number) is not None
+            apellidos = " ".join(x for x in (req.last_name, req.middle_name) if x)
+            w.writerow([req.control_number, req.first_name, apellidos,
+                        req.program_text or programa or "", req.status, cohorte,
+                        "si" if hay_nip else "no"])
+            n += 1
+    finally:
+        db.close()
+
+    if salida is None:
+        click.echo(buf.getvalue(), nl=False)
+        return
+    # `utf-8-sig`: con el BOM, Excel abre el CSV como UTF-8 y respeta los acentos;
+    # sin él los lee como ANSI y «Ingeniería» sale «IngenierÃ­a».
+    with open(salida, "w", encoding="utf-8-sig", newline="") as fh:
+        fh.write(buf.getvalue())
+    click.echo(f"{n} solicitud(es) sin cuenta escritas en {salida}.")
+
+
+@titulatec_cli.command("cargar-nips")
+@click.argument("archivo", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--actor", "actor", required=True,
+              help="Usuario (username) que queda como autor de la carga.")
+@click.option("--dry-run", is_flag=True, help="Solo clasifica cada fila; no escribe ni manda nada.")
+@click.option("--sin-correo", "sin_correo", is_flag=True,
+              help="Crea las cuentas sin mandar el correo (Accesos las ve como «correo no enviado»).")
+def cargar_nips_command(archivo, actor, dry_run, sin_correo):
+    """Carga los NIP del SII de las solicitudes sin cuenta.
+
+    El archivo trae las columnas `control` y `nip` (CSV de Excel con BOM, `;`
+    o tabulador). Por cada control: si su solicitud espera acceso se crea la
+    cuenta y sale el correo; si sigue en otra etapa viva (o fue rechazada) el NIP
+    se guarda cifrado y se usa al aprobar. Volver a cargar un control reemplaza
+    su NIP. Sin llave `TITULATEC_NIP_STASH_KEY` no se hace nada.
+
+    El reporte nunca imprime un NIP. Sale con 1 si alguna fila falló.
+    """
+    from itcj2.apps.titulatec.services.nip_stash_service import (
+        LOAD_BUCKETS, NipStashService,
+    )
+    from itcj2.core.models.user import User
+    from itcj2.database import SessionLocal
+
+    if not NipStashService.available():
+        click.echo(click.style(
+            "ERROR: falta TITULATEC_NIP_STASH_KEY (o no es una llave Fernet válida); "
+            "sin ella no se puede guardar ningún NIP. No se leyó el archivo.",
+            fg="red"), err=True)
+        raise SystemExit(1)
+
+    db = SessionLocal()
+    try:
+        usuario = db.query(User).filter(User.username == actor).first()
+        if usuario is None:
+            click.echo(click.style(f"ERROR: no existe el usuario {actor!r} (--actor).",
+                                   fg="red"), err=True)
+            raise SystemExit(1)
+        actor_id = usuario.id
+        filas = _leer_nips(Path(archivo))
+
+        if not dry_run and not sin_correo:
+            # Igual que `fix-control-l`: sin la cuenta de correo conectada los
+            # accesos se crearían sin avisar a nadie. Antes de escribir nada.
+            from itcj2.apps.titulatec.services.email_helper import _acquire_token
+            if _acquire_token("cargar_nips") is None:
+                click.echo(click.style(
+                    "ERROR: el correo de TitulaTec no está conectado; los accesos no "
+                    "saldrían. No se cambió nada. Conéctalo y vuelve a correr, o usa "
+                    "--sin-correo y avisa a mano.", fg="red"), err=True)
+                raise SystemExit(1)
+
+        resultado = NipStashService.load_rows(
+            db, filas, actor_id=actor_id, dry_run=dry_run, send_mail=not sin_correo)
+    finally:
+        db.close()
+
+    prefijo = "[dry-run] " if dry_run else ""
+    click.echo(f"{prefijo}{len(filas)} fila(s) de {Path(archivo).name}.")
+    for bucket in LOAD_BUCKETS:
+        items = resultado[bucket]
+        click.echo(f"  {_NIPS_ETIQUETAS[bucket]}: {len(items)}")
+        for control, motivo in items:
+            click.echo(f"    · {control}" + (f": {motivo}" if motivo else ""))
+    if dry_run:
+        click.echo("Dry-run: no se escribió nada.")
+    if resultado["failed"]:
+        raise SystemExit(1)

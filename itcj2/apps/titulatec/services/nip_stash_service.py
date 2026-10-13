@@ -6,6 +6,7 @@ número de control NUNCA van a un log ni a un mensaje de excepción.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func
@@ -16,6 +17,18 @@ from itcj2.apps.titulatec.services.enrollment_request_service import nip_format_
 from itcj2.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# Llaves FIJAS del resultado de `load_rows` (el orden es el del reporte).
+LOAD_BUCKETS = ("granted", "stored", "stored_rejected", "has_account", "no_request",
+                "invalid_nip", "duplicate", "failed")
+
+_MSG_EXCEL = ("NIP inválido: deben ser 4 dígitos (¿Excel quitó un cero a la "
+              "izquierda?).")
+_MSG_NIP = "NIP inválido: deben ser 4 dígitos."
+_MSG_CONTROL = "Número de control inválido."
+_MSG_DUP = "El control aparece más de una vez en el archivo; no se cargó ninguna."
+_MSG_NO_MAIL = ("La cuenta se creó pero el correo no salió: Accesos la muestra como "
+                "«correo no enviado».")
 
 
 def _fernet() -> Fernet | None:
@@ -89,3 +102,105 @@ class NipStashService:
         db.delete(fila)
         db.flush()
         return True
+
+    @staticmethod
+    def load_rows(db: Session, rows: list[tuple[str, str]], *, actor_id: int,
+                  dry_run: bool, send_mail: bool) -> dict[str, list[tuple[str, str]]]:
+        """Carga en lote `(control, nip)` del SII. Devuelve `{bucket: [(control, motivo)]}`.
+
+        Los buckets (`LOAD_BUCKETS`) y sus motivos NUNCA llevan el NIP. Por control:
+
+        - repetido en el archivo -> `duplicate` (ninguna aparición se carga);
+        - NIP que no son 4 dígitos -> `invalid_nip` (con la pista de Excel si son 1-3);
+        - ya hay cuenta en `core_users` -> `has_account`, sea cual sea la solicitud;
+        - solicitud VIVA (`OPEN_STATUSES`; si hay varias, la `awaiting_access` y
+          luego la más nueva): `awaiting_access` recibe el acceso
+          (`grant_access(nip_source="preloaded")`) -> `granted`; el resto guarda
+          el NIP cifrado -> `stored`;
+        - solo solicitudes `rejected` -> se guarda igual (se puede reabrir) ->
+          `stored_rejected`; ninguna -> `no_request`.
+
+        Una transacción por fila (`grant_access` y el guardado commitean). Un
+        fallo, un correo que no sale o una excepción dejan esa fila en `failed` y
+        el lote sigue. `dry_run` clasifica (solo lee) y no escribe nada: ni
+        guardado, ni acceso, ni bitácora. `send_mail=False`: la cuenta se crea
+        sin correo y `access_sent_at` queda NULL.
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+        from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.apps.titulatec.services.enrollment_request_service import (
+            CONTROL_NUMBER_RE, EnrollmentRequestService, _audit_subject,
+        )
+        from itcj2.apps.titulatec.services.import_service import normalize_control
+        from itcj2.core.models.user import User
+
+        out: dict[str, list[tuple[str, str]]] = {b: [] for b in LOAD_BUCKETS}
+        limpias = [(normalize_control(c), (n or "").strip()) for c, n in rows]
+        limpias = [(c, n) for c, n in limpias if c or n]
+        veces = Counter(c for c, _ in limpias)
+        vistos: set[str] = set()
+
+        for control, nip in limpias:
+            if veces[control] > 1:
+                if control not in vistos:
+                    out["duplicate"].append((control, _MSG_DUP))
+                vistos.add(control)
+                continue
+            if not nip_format_ok(nip):
+                pista = nip.isascii() and nip.isdigit() and 1 <= len(nip) <= 3
+                out["invalid_nip"].append((control, _MSG_EXCEL if pista else _MSG_NIP))
+                continue
+            if not CONTROL_NUMBER_RE.fullmatch(control):
+                out["no_request"].append((control, _MSG_CONTROL))
+                continue
+            if db.query(User.id).filter(User.control_number == control).first():
+                out["has_account"].append((control, "Ya tiene cuenta."))
+                continue
+
+            solicitudes = (db.query(EnrollmentRequest)
+                           .filter(EnrollmentRequest.control_number == control)
+                           .order_by(EnrollmentRequest.id.desc()).all())
+            vivas = [r for r in solicitudes if r.status in OPEN_STATUSES]
+            if vivas:
+                req = next((r for r in vivas if r.status == "awaiting_access"), vivas[0])
+                bucket = "granted" if req.status == "awaiting_access" else "stored"
+            elif any(r.status == "rejected" for r in solicitudes):
+                req = next(r for r in solicitudes if r.status == "rejected")
+                bucket = "stored_rejected"
+            else:
+                out["no_request"].append((control, "Sin solicitud de inscripción."))
+                continue
+
+            if dry_run:
+                out[bucket].append((control, ""))
+                continue
+
+            req_id = req.id
+            try:
+                if bucket == "granted":
+                    ok, detalle = EnrollmentRequestService.grant_access(
+                        db, req_id, nip=nip, actor_id=actor_id,
+                        nip_source="preloaded", send_mail=send_mail)
+                    if not ok:
+                        out["failed"].append((control, detalle))
+                    elif send_mail and req.access_sent_at is None:
+                        # La cuenta ya existe y está commiteada; solo falta el aviso.
+                        out["failed"].append((control, _MSG_NO_MAIL))
+                    else:
+                        out["granted"].append((control, ""))
+                else:
+                    reemplazo = NipStashService.put(db, control, nip, actor_id=actor_id)
+                    AuditService.record(
+                        db, "enrollment.nip_preloaded",
+                        entity_type="enrollment_request", entity_id=req_id,
+                        subject=_audit_subject(req),
+                        payload={"replaced": reemplazo}, actor_id=actor_id)
+                    db.commit()
+                    out[bucket].append((control, "Reemplazó el NIP anterior." if reemplazo else ""))
+            except Exception as exc:
+                db.rollback()
+                # Solo el tipo: el texto de una excepción podría arrastrar datos.
+                logger.error("Carga de NIP: falló una fila (%s).", type(exc).__name__)
+                out["failed"].append((control, f"Error inesperado ({type(exc).__name__})."))
+        return out
