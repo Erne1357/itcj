@@ -75,6 +75,7 @@ __all__ = [
     "CertificateBatch",
     "CertificateCounter",
     "PriorClearance",
+    "NipStash",
     "OfficialAverage",
     "TitulatecAuditLog",
 ]
