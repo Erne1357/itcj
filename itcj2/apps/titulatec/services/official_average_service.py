@@ -15,7 +15,7 @@ Nada aquí hace commit: la transacción es del llamador.
 from __future__ import annotations
 
 import re
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Literal, Optional
 
 from sqlalchemy.orm import Session
@@ -57,7 +57,12 @@ class OfficialAverageService:
         text = str(raw).strip()
         if not _NUMBER_RE.fullmatch(text):
             return None
-        return _q(text.replace(",", "."))
+        try:
+            return _q(text.replace(",", "."))
+        except InvalidOperation:
+            # Cifras de más (30 dígitos): `quantize` desborda la precisión. Una
+            # celda absurda no debe tumbar el archivo entero.
+            return None
 
     @staticmethod
     def in_range(value: Decimal) -> bool:

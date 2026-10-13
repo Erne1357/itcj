@@ -143,3 +143,10 @@ def test_import_rows_aplica_el_promedio_guardado(db_session, titulatec_app, make
 def test_import_rows_sin_promedio_guardado_lo_deja_nulo(db_session, titulatec_app, make_cohort):
     ImportService.import_rows(db_session, make_cohort(), [_row("99700009")])
     assert _proceso_de(db_session, "99700009").final_average is None
+
+
+def test_parse_average_absurdo_devuelve_none_en_vez_de_levantar():
+    """R12: una celda absurda no debe abortar todo el archivo."""
+    assert Svc.parse_average("9" * 30) is None
+    assert Svc.parse_average("9" * 30 + ".5") is None
+    assert Svc.parse_average("1" + "0" * 40) is None
