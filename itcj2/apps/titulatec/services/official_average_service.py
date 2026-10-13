@@ -60,6 +60,25 @@ def _fmt(value) -> Optional[str]:
     return None if value is None else str(_q(value))
 
 
+def _procesos_de(db: Session, controles: set[str]) -> list[tuple[str, object]]:
+    """`(control normalizado, proceso)` de los procesos NO cancelados de esos
+    controles. Lookup ÚNICO de `load_rows` (para clasificar) y de
+    `apply_to_processes` (para escribir): si difirieran, el reporte diría
+    `applied` sin que se escribiera nada. Acepta al usuario guardado aún con la
+    «L» de licenciatura."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.core.models.user import User
+
+    buscar = set(controles) | {"L" + c for c in controles}
+    if not buscar:
+        return []
+    return [(normalize_control(ctrl), proc)
+            for ctrl, proc in (db.query(User.control_number, TitulationProcess)
+                               .join(TitulationProcess, TitulationProcess.student_id == User.id)
+                               .filter(User.control_number.in_(buscar),
+                                       TitulationProcess.status != "cancelled").all())]
+
+
 class OfficialAverageService:
 
     @staticmethod
@@ -116,16 +135,10 @@ class OfficialAverageService:
                            actor_id=None) -> int:
         """Escribe `final_average` en los procesos no cancelados del alumno con
         ese control. Devuelve cuántos CAMBIARON (mismo valor no cuenta ni audita)."""
-        from itcj2.apps.titulatec.models import TitulationProcess
-        from itcj2.core.models.user import User
-
         control = normalize_control(control)
         average = _q(average)
-        procesos = (db.query(TitulationProcess)
-                    .join(User, User.id == TitulationProcess.student_id)
-                    .filter(User.control_number == control,
-                            TitulationProcess.status != "cancelled")
-                    .order_by(TitulationProcess.id).all())
+        procesos = sorted((proc for _c, proc in _procesos_de(db, {control})),
+                          key=lambda p: p.id)
         cambiados = 0
         for proc in procesos:
             antes = proc.final_average
@@ -180,9 +193,7 @@ class OfficialAverageService:
         exactamente el de la corrida real. Sin commit: es del llamador.
         """
         from itcj2.apps.titulatec.models import EnrollmentRequest, OfficialAverage
-        from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
-        from itcj2.core.models.user import User
 
         out: dict[str, list[tuple[str, str]]] = {b: [] for b in LOAD_BUCKETS}
         limpias = [(normalize_control(c), p) for c, p in rows]
@@ -196,11 +207,8 @@ class OfficialAverageService:
         con_proceso: Counter = Counter()
         con_solicitud: dict[str, list[str]] = {}
         if buscar:
-            for ctrl, n in (db.query(User.control_number, TitulationProcess.id)
-                            .join(TitulationProcess, TitulationProcess.student_id == User.id)
-                            .filter(User.control_number.in_(buscar),
-                                    TitulationProcess.status != "cancelled").all()):
-                con_proceso[normalize_control(ctrl)] += 1
+            for ctrl, _proc in _procesos_de(db, validos):
+                con_proceso[ctrl] += 1
             for ctrl, status in (db.query(EnrollmentRequest.control_number,
                                           EnrollmentRequest.status)
                                  .filter(EnrollmentRequest.control_number.in_(buscar)).all()):

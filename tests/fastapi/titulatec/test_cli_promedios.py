@@ -108,7 +108,7 @@ def test_coma_decimal_en_csv_separado_por_comas_es_invalido(
 
     res = _carga([str(archivo), "--actor", actor.username])
 
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output  # única fila e inválida: nada aterrizó
     assert _fila(db_session, "99720004") is None
     assert "Formato inválido" in res.output and "99720004" in res.output
 
@@ -122,6 +122,20 @@ def test_coma_decimal_entrecomillada_si_se_acepta(
 
     assert res.exit_code == 0, res.output
     assert _fila(db_session, "99720005").average == Decimal("85.50")
+
+
+@pytest.mark.parametrize("extra", [[], ["--dry-run"]])
+def test_archivo_donde_nada_aterriza_sale_con_1_y_titular_rojo(
+        tmp_path, db_session, patched_session_local, actor, make_cohort, extra):
+    _req(db_session, make_cohort(), control="99720020")
+    archivo = _archivo(tmp_path, "control,promedio\n99720020,85,5\n99720021,abc\n")
+
+    res = _carga([str(archivo), "--actor", actor.username, *extra])
+
+    assert res.exit_code == 1, res.output
+    assert "Ninguna fila se pudo cargar" in res.output
+    assert res.output.index("Ninguna fila") < res.output.index("Formato inválido: 2")
+    assert _fila(db_session, "99720020") is None
 
 
 def test_dry_run_no_escribe_nada(

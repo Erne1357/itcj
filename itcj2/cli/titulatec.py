@@ -4538,6 +4538,15 @@ def cargar_nips_command(archivo, actor, dry_run, sin_correo):
     finally:
         db.close()
 
+    # Nada que cargar y nada que falló: casi seguro es el archivo (separador,
+    # encabezado, NIP sin ceros), no la gente. No debe verse como corrida normal.
+    nada = bool(filas) and not resultado["failed"] and not (
+        resultado["granted"] or resultado["stored"] or resultado["stored_rejected"])
+    if nada:
+        click.secho(
+            "Ninguna fila se pudo cargar: revisa el separador (usa «;»), los "
+            "encabezados `control`/`nip` y el formato del NIP (4 dígitos).",
+            fg="red", bold=True, err=True)
     prefijo = "[dry-run] " if dry_run else ""
     click.echo(f"{prefijo}{len(filas)} fila(s) de {Path(archivo).name}.")
     for bucket in LOAD_BUCKETS:
@@ -4547,7 +4556,7 @@ def cargar_nips_command(archivo, actor, dry_run, sin_correo):
             click.echo(f"    · {control}" + (f": {motivo}" if motivo else ""))
     if dry_run:
         click.echo("Dry-run: no se escribió nada.")
-    if resultado["failed"]:
+    if resultado["failed"] or nada:
         raise SystemExit(1)
 
 
@@ -4729,6 +4738,15 @@ def cargar_promedios_command(archivo, actor, dry_run):
     finally:
         db.close()
 
+    # Ninguna fila aterrizó: casi seguro es el archivo (separador, encabezado,
+    # coma decimal), no los datos. No debe verse como una corrida normal.
+    nada = bool(filas) and not any(
+        resultado[k] for k in ("applied", "stored", "updated", "same"))
+    if nada:
+        click.secho(
+            "Ninguna fila se pudo cargar: revisa el separador (usa «;»), los "
+            "encabezados `control`/`promedio` y el formato del promedio.",
+            fg="red", bold=True, err=True)
     prefijo = "[dry-run] " if dry_run else ""
     click.echo(f"{prefijo}{len(filas)} fila(s) de {Path(archivo).name}.")
     for bucket in LOAD_BUCKETS:
@@ -4738,3 +4756,5 @@ def cargar_promedios_command(archivo, actor, dry_run):
             click.echo(f"    · {control}" + (f": {motivo}" if motivo else ""))
     if dry_run:
         click.echo("Dry-run: no se escribió nada.")
+    if nada:
+        raise SystemExit(1)

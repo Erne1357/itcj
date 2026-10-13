@@ -223,3 +223,15 @@ def test_una_fila_que_truena_va_a_invalid_y_el_lote_sigue(
     assert _controles(res, "stored") == ["99710017"]
     assert _fila(db_session, "99710016") is None
     assert _fila(db_session, "99710017") is not None
+
+
+def test_usuario_guardado_con_L_se_clasifica_y_se_escribe_igual(
+        db_session, actor, make_student, make_process, make_cohort):
+    """R13: el bucket `applied` solo vale si el proceso de verdad recibe el valor."""
+    proc = make_process(make_student(control_number="L99710030"), cohort=make_cohort())
+
+    res = _carga(db_session, [("99710030", "84")], actor)
+
+    assert _controles(res, "applied") == ["99710030"]
+    db_session.refresh(proc)
+    assert proc.final_average == D("84.00")

@@ -148,7 +148,8 @@ def test_nip_sin_cero_de_excel_cae_en_invalido_con_la_pista(
 
     res = _carga([str(archivo), "--actor", actor.username])
 
-    assert res.exit_code == 0, res.output
+    # Única fila y es inválida: ahora sale con 1 (nada se pudo cargar).
+    assert res.exit_code == 1, res.output
     assert "NIP inválido" in res.output
     assert "99590004" in res.output and "Excel" in res.output
     assert not _hay_nip(db_session, "99590004")
@@ -351,3 +352,16 @@ def test_dry_run_no_imprime_lineas_en_vivo(
     res = _carga([str(archivo), "--actor", actor.username, "--dry-run"])
 
     assert "[Acceso dado ahora]" not in res.output
+
+
+@pytest.mark.parametrize("extra", [[], ["--dry-run"]])
+def test_archivo_donde_nada_se_puede_cargar_sale_con_1_y_titular_rojo(
+    tmp_path, db_session, patched_session_local, llave, actor, extra,
+):
+    archivo = _archivo(tmp_path, "control,nip\n99590040,12\n99590041,abc\n")
+
+    res = _carga([str(archivo), "--actor", actor.username, *extra])
+
+    assert res.exit_code == 1, res.output
+    assert "Ninguna fila se pudo cargar" in res.output
+    assert res.output.index("Ninguna fila") < res.output.index("NIP inválido: 2")
