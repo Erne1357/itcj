@@ -86,6 +86,8 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # `titulatec fix-control-l` (2026-10-09): quitar la «L» de licenciatura.
     "enrollment.control_corrected": ("enrollment", "Corrigió el número de control de una solicitud"),
     "enrollment.account_merged": ("enrollment", "Unificó una cuenta duplicada en la del alumno"),
+    # `titulatec cargar-nips` (2026-10-13): NIP del SII guardado cifrado. Sin el NIP.
+    "enrollment.nip_preloaded": ("enrollment", "Precargó el NIP del SII de una solicitud"),
 
     # --- access: bandeja de Accesos de Centro de Cómputo ---------------------
     "access.returned": ("access", "Devolvió una solicitud a revisión"),
@@ -109,6 +111,9 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "certificate.voided": ("certificates", "Anuló un folio"),
     "certificate.batch_created": ("certificates", "Generó un lote de impresión de folios"),
     "certificate.backfill_run": ("certificates", "Emitió folios de previas y legado"),
+
+    # --- processes: promedio oficial (`process.*` es de la escucha, por eso `average.*`)
+    "average.final_set": ("processes", "Fijó el promedio final de un proceso"),
 
     # --- library: liberaciones previas ----------------------------------------
     "prior_clearance.deferred": ("library", "Dejó pendiente una liberación previa"),
@@ -196,6 +201,13 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_format_b": "format_b",
     "titulatec_library_clearances": "library",
     "titulatec_modalities": "processes",
+    # NIPs del SII precargados (spec 2026-10-13 N): la red registra quién cargó
+    # y cuándo se borró cada uno (`discard` y las purgas, que borran por el ORM
+    # fila a fila a propósito: un DELETE masivo no lo vería la red);
+    # `nip_cipher` sale como "***" (D9: la llave contiene «nip»), así que la
+    # bitácora inmutable nunca guarda el token.
+    "titulatec_nip_stash": "enrollment",
+    "titulatec_official_averages": "processes",
     "titulatec_phase_definitions": "processes",
     "titulatec_prior_clearances": "library",
     "titulatec_process_events": "processes",
@@ -232,6 +244,8 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_format_b": "Formato B",
     "titulatec_library_clearances": "No adeudo de biblioteca",
     "titulatec_modalities": "Modalidad de titulación",
+    "titulatec_nip_stash": "NIP precargado",
+    "titulatec_official_averages": "Promedio oficial",
     "titulatec_phase_definitions": "Definición de fase",
     "titulatec_prior_clearances": "Liberación previa",
     "titulatec_process_events": "Evento del proceso",
@@ -260,6 +274,7 @@ ENTITY_TABLES: dict[str, str] = {
     "enrollment_request": "titulatec_enrollment_requests",
     "format_b": "titulatec_format_b",
     "prior_clearance": "titulatec_prior_clearances",
+    "process": "titulatec_processes",
     "review_window": "titulatec_review_windows",
     "survey_response": "titulatec_survey_responses",
 }

@@ -230,6 +230,11 @@ class CohortService:
                     payload={"cohort_id": cohort.id},
                 ))
                 paused += 1
+            # Cerrar cierra también el ciclo del NIP precargado: el de quien ya
+            # no tiene solicitud viva (o ya tiene cuenta) no debe quedar
+            # guardado. Misma transacción; reabrir no lo restaura.
+            from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
+            NipStashService.purge_for_cohort(db, cohort.id)
 
         # Bitácora: qué movió la ventana y cuántos procesos pausó/reanudó.
         # Antes del commit: viaja en la misma transacción.

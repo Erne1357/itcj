@@ -138,3 +138,22 @@ class TestElSecretoNuncaSeAsoma:
         texto = repr(Settings())
         assert "TITULATEC_SII_ODBC" not in texto
         assert "un-secreto-que-no-debe-salir" not in texto
+
+
+class TestLlaveDelStashMalFormada:
+    def test_el_error_de_arranque_no_filtra_la_llave(self):
+        """Pydantic envuelve el `ValueError` en un `ValidationError` cuyo texto
+        trae un `repr` recortado del dict de entrada (revisión final M2): sin
+        `hide_input_in_errors` la cola de la llave mal tecleada llegaba al log."""
+        from pydantic import ValidationError
+
+        from itcj2.config import Settings
+
+        mala = "casi-una-llave-SECRETA-xyz"
+        with pytest.raises(ValidationError) as exc:
+            Settings(_env_file=None, TITULATEC_NIP_STASH_KEY=mala)
+
+        texto = str(exc.value)
+        assert "TITULATEC_NIP_STASH_KEY no es una llave Fernet válida" in texto
+        assert mala not in texto
+        assert "SECRETA" not in texto and "-xyz" not in texto

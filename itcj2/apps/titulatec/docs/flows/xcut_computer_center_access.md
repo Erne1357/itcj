@@ -350,6 +350,53 @@ Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §5. Quita el tope
 
 **Medido (EXPLAIN ANALYZE, dev, 2026-10-04)**: consulta de la página ≤0.02 ms, contadores 0.02 ms, con `q` ≤0.03 ms. La base de dev es chica (4 solicitudes, 2 procesos): el plan es `Seq Scan` y el tiempo no extrapola a producción; con volumen real, la búsqueda `ILIKE '%...%'` no usa índice (aceptado, ver spec). Sin índices ni migración en este cambio.
 
+## NIP precargado: cuentas `preloaded` y la carga en lote
+
+Con los NIP del SII cargados de antemano ([flujo de inscripción](xcut_public_enrollment.md#nip-del-sii-precargado-aprobar-y-dar-acceso-sin-pasar-por-accesos)),
+parte del trabajo de Centro de Cómputo llega hecho:
+
+- **«Con acceso» las muestra.** Una cuenta con `nip_source = "preloaded"` aparece en esa pestaña
+  igual que una dada a mano (el filtro solo excluye `nip_source = 'sii'`, donde CC no intervino).
+  CC puede **reasignar el NIP** (D8). **No hay reenvío del correo de acceso** para estas cuentas: el NIP
+  ya se borró del guardado y `/reenviar` solo reenvía la liga de activación; «Reenviar aviso» es solo
+  de las cuentas `sii`. Si el correo no salió, CC reasigna el NIP y el alumno recibe uno nuevo.
+- **`cargar-nips` da acceso en lote** a las solicitudes `awaiting_access` cuyo control tenga NIP en
+  el archivo (`grant_access(nip_source="preloaded")`, una transacción por fila). Las demás solicitudes
+  vivas guardan el NIP cifrado para que SE lo use al aprobar. Tras una carga, **«Por dar acceso»**
+  pierde lo que tenía NIP: CC conserva solo lo que el SII no pudo dar.
+- **Relación con CC:** la carga no sustituye a Accesos, la deja de respaldo. Lo que no tenga NIP, o
+  cuyo NIP no sirva, sigue el camino de siempre. Con `--sin-correo` la cuenta nace sin correo y
+  `access_sent_at` queda en `NULL` («correo no enviado»): CC le reasigna el NIP desde Accesos (o lo dicta).
+
+## Operación: NIP precargado y promedios oficiales
+
+Runbook del dueño (comandos de `itcj2/cli/titulatec.py`). Los promedios se describen en
+[el traspaso a Titulación](xcut_titulacion_handoff.md#de-dónde-sale-final_average-promedio-oficial).
+
+1. **Generar la llave** (una vez):
+   `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+   y ponerla en `.env.prod` como `TITULATEC_NIP_STASH_KEY`. **Respaldarla FUERA del servidor**: sin
+   ella los NIP guardados no se recuperan.
+2. **Desplegar** (migraciones `tt20261013a` y `tt20261013b`) y reiniciar los procesos backend.
+3. **NIP:** `titulatec exportar-sin-cuenta` → pedir esos NIP al SII → `titulatec cargar-nips ARCHIVO
+   --actor USUARIO --dry-run` (clasifica sin escribir) → revisar → la misma orden sin `--dry-run`.
+   **Borrar el CSV con NIP al terminar**: es el único lugar donde quedan en claro.
+4. **Promedios:** `titulatec exportar-controles` → pedir los promedios al SII → `titulatec
+   cargar-promedios ARCHIVO --actor USUARIO --dry-run` → la misma orden sin `--dry-run`.
+5. **Avisos operativos de la carga:**
+   - **Recargar la bandeja de Solicitudes después de `cargar-nips`.** Una fila pintada antes de la carga
+     manda `to_access=1`, va a Accesos y el NIP queda guardado sin uso.
+   - **No cerrar una convocatoria mientras corre una carga** (o correr `purgar-nips` después): un NIP
+     guardado a media carga de una solicitud de la convocatoria que cierra puede quedar huérfano.
+   - **Borrar el CSV con NIP en todos lados donde se copió**, también **dentro del contenedor** si se
+     pasó con `docker cp`: la capa del contenedor lo conserva hasta el próximo deploy.
+6. **Mantenimiento:** `titulatec purgar-nips [--dry-run]` barre lo que ya no puede usarse (también
+   ocurre solo al cerrar cada convocatoria).
+
+**Cambiar la llave** deja los NIP guardados inservibles: no se pueden descifrar, así que las
+aprobaciones caen a Accesos como antes. Nada se rompe, pero hay que volver a cargarlos con la llave
+nueva.
+
 ## Flujos relacionados
 
 - ← [Consulta de elegibilidad al SII](xcut_sii_eligibility.md) — el modo `sii` (por omisión): cuándo

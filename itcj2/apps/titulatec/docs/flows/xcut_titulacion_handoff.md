@@ -438,6 +438,29 @@ devuelven pantallas con desglose: `POST /admin/appointments/{id}/fase2/aprobar|r
 (`process.api.approve_phase`/`reject_phase`) y `POST /admin/documents/{id}/document/review`
 (`document.api.approve`/`reject`). No las cierra el corte (fases < 3).
 
+## De dónde sale `final_average` (promedio oficial)
+
+El promedio que se ve en Liberados y en el expediente **no es el de la encuesta**: el promedio
+declarado por el alumno (GPA de la encuesta) lo escribe él mismo y nunca se copia a `final_average`.
+La fuente es una carga oficial del SII.
+
+- **Carga:** `titulatec exportar-controles` saca los controles con solicitud no rechazada o proceso
+  (para pedirle al SII sus promedios) y `titulatec cargar-promedios ARCHIVO --actor USUARIO
+  [--dry-run]` los carga. Acepta valores de **70 a 100 con 2 decimales**; fuera de rango o con
+  formato dudoso se rechazan fila por fila (un «9.5» casi seguro es un «95» mal escrito). Un control
+  repetido en el archivo no se carga.
+- **La tabla es la fuente:** `titulatec_official_averages` (una fila por control); el `final_average`
+  del proceso es su copia aplicada (`OfficialAverageService`). Se guarda por control, no por proceso,
+  para que el promedio exista aunque el alumno aún no se haya inscrito.
+- **Procesos existentes:** al cargar, se escribe en los procesos no cancelados de ese control y cada
+  cambio deja su evento de bitácora (antes/después).
+- **Procesos nuevos:** `ImportService.import_rows` llama a `apply_pending` al crear el proceso, así
+  que un promedio cargado antes de la inscripción llega solo, sea cual sea la vía de alta
+  (aprobación, Accesos, liga o CSV). Nunca pisa un `final_average` ya puesto.
+
+El procedimiento de operación (orden, `--dry-run`) está en
+[Accesos de Centro de Cómputo, Operación](xcut_computer_center_access.md#operación-nip-precargado-y-promedios-oficiales).
+
 ## Flujos relacionados
 
 - ⇄ Gemelas: [motor de avance de fase (dictamen del admin)](engine_approve_advance_phase.md),

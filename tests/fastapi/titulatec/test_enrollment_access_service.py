@@ -484,7 +484,8 @@ def test_crear_la_cuenta_exige_decir_de_donde_salio_el_nip():
     default) y su dominio es el de la columna."""
     from itcj2.apps.titulatec.services import enrollment_request_service as mod
 
-    assert mod.NIP_SOURCES == ("sii", "center", "form")
+    # `preloaded`: el NIP del SII cargado en lote (spec 2026-10-13 N §5.2).
+    assert mod.NIP_SOURCES == ("sii", "center", "form", "preloaded")
     param = inspect.signature(mod.EnrollmentRequestService._create_account).parameters[
         "nip_source"]
     assert param.kind is inspect.Parameter.KEYWORD_ONLY

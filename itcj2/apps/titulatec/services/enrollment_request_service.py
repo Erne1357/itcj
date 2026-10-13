@@ -19,6 +19,10 @@ el ALTERNO, CC hace las dos cosas en un paso.
                                  se escribe y la bandeja ofrece esta rama.
                                  (el SII solo INFORMA —veredicto, reglas y estado del NIP en
                                  la bandeja—; nada se aprueba solo: ver eligibility_service.py)
+    approve() [SE, oficial o sii sin SII (D11)], SIN cuenta, con NIP PRECARGADO
+                             ─── converted   usuario + NIP precargado al correo, como Accesos
+                                 (spec 2026-10-13 N §5.2; `nip_source="preloaded"`). No si
+                                 `to_access` vino EXPLÍCITO: eso sigue yendo a Accesos.
     grant_access() [CC]      ─── awaiting_access ─┬─ SIN cuenta ─► converted  usuario + NIP
                                                   └─ CON cuenta (D10) ─► approved  liga
     return_to_review() [CC]  ─── awaiting_access ─► pending_review      return_note, sin correo
@@ -362,9 +366,12 @@ _NOTE_LINK_NO_PROCESS = ("No se pudo crear el proceso al abrir la liga; revisa l
 # De dónde salió el NIP de la cuenta que CREÓ la solicitud
 # (`EnrollmentRequest.nip_source`, spec 2026-09-27 §A6): `sii` = el de la
 # consulta al SII; `center` = el que capturó Centro de Cómputo en Accesos
-# (`grant_access`); `form` = el del formulario del modo alterno. Lo escribe
-# SOLO `_create_account`; «Con acceso» deja fuera las `sii`.
-NIP_SOURCES = ("sii", "center", "form")
+# (`grant_access`); `form` = el del formulario del modo alterno; `preloaded` =
+# el del SII cargado en lote (`NipStashService`, spec 2026-10-13 N §5.2) que se
+# usó al aprobar. Lo escribe SOLO `_create_account`; «Con acceso» deja fuera
+# las `sii`. Fuera de eso `preloaded` se porta como `center`: el correo lleva
+# el NIP, CC puede reasignarlo y la cuenta sale en «Con acceso».
+NIP_SOURCES = ("sii", "center", "form", "preloaded")
 
 # Camino de aprobación que ofrece la bandeja (`approval_path`, Ruling R8) ->
 # texto del botón. Lo leen la bandeja y `sii-check --cohort`, que así dicen lo
@@ -383,8 +390,8 @@ class ApproveResult(NamedTuple):
     modo `sii` con el SII configurado, sin cuenta y sin `to_access`, el SII no
     dio un NIP válido AL APROBAR: nada escrito de la solicitud y la bandeja
     ofrece pasarla a Accesos. En cualquier otro caso `None` (sin SII
-    configurado, aprobar sin cuenta ya es pasarla a Accesos). `detail` nunca
-    lleva el NIP.
+    configurado, aprobar sin cuenta ya es pasarla a Accesos, o crear la
+    cuenta con el NIP precargado). `detail` nunca lleva el NIP.
     """
     ok: bool
     detail: str
@@ -741,6 +748,16 @@ class EnrollmentRequestService:
             caché) se trata como `to_access=True`, sin consultar al SII ni
             dejar un WARNING por clic. «¿Tiene cuenta?» se sigue decidiendo
             bajo el lock en `_approve_locked`: con cuenta sale la liga.
+        - NIP PRECARGADO (spec 2026-10-13 N §5.2): SIN cuenta, cuando aprobar
+          cae a Accesos SIN que lo hayan pedido —modo oficial, o `sii` con el
+          `to_access` FORZADO por D11— y hay un NIP del SII cargado en lote
+          para ese control (`_preloaded_nip`, leído bajo el lock), la cuenta
+          nace con él como en `grant_access` (`nip_source="preloaded"`) ->
+          `converted`, y sale el correo de Accesos con el NIP. Un `to_access`
+          EXPLÍCITO (el argumento, «Aprobar y pasar a Accesos») va a Accesos
+          como siempre y el NIP se queda guardado; el alterno nunca lo usa; con
+          el SII conectado manda el SII vivo. Sin NIP precargado (o sin llave,
+          o con la llave cambiada) todo sigue exactamente como arriba.
 
         La convocatoria solo tiene que estar `open`: pasada `closes_at` se sigue
         aprobando lo que entró a tiempo (VENTANA, en el módulo).
@@ -760,6 +777,10 @@ class EnrollmentRequestService:
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
             return ApproveResult(False, _MSG_GONE, None)
+        # El `to_access` que PIDIERON («Aprobar y pasar a Accesos»), antes de que
+        # D11 lo fuerce abajo: solo el forzado (o el modo oficial) puede usar el
+        # NIP precargado; el explícito va a Accesos y lo deja guardado.
+        explicit_access = to_access
         if not to_access and EnrollmentRequestService.reviewer_mode() == "sii":
             from itcj2.apps.titulatec.services.eligibility_service import (
                 EligibilityService,
@@ -795,10 +816,18 @@ class EnrollmentRequestService:
                     continue
             break
 
+        # Ya con el lock y la convocatoria validada (la vuelta de arriba nunca
+        # suelta el lock después del `break`). Se lee DESPUÉS de la vuelta y no
+        # dentro: la única vuelta que se repite es la del SII conectado, donde
+        # el precargado no aplica, así que el orden de lock, refresh y SII no
+        # cambia en nada cuando no hay NIP precargado.
+        preloaded_nip = (None if explicit_access
+                         else EnrollmentRequestService._preloaded_nip(db, req, to_access))
         ok, detalle, nip_failure = EnrollmentRequestService._approve_locked(
             db, req, cohort, actor_id=actor_id,
             program_id=program_id if program_id else req.program_id, nip=nip,
-            sii_nip=sii_nip, to_access=to_access)
+            sii_nip=sii_nip, to_access=to_access, preloaded_nip=preloaded_nip)
+        del preloaded_nip
         if nip_failure is not None:
             # `_approve_locked` no escribió nada: se cierra la transacción (suelta
             # el lock de la solicitud) y la consulta vigente guarda lo que el SII
@@ -811,6 +840,57 @@ class EnrollmentRequestService:
             db.commit()
             EligibilityService.record_nip_status(db, rid, check_id, nip_failure)
         return ApproveResult(ok, detalle, nip_failure)
+
+    @staticmethod
+    def preloaded_applies(mode: str, *, forced_access: bool) -> bool:
+        """¿Aprobar en este modo caería a Accesos y por tanto usaría el NIP del SII
+        precargado? Sí en el modo oficial, o en `sii` cuando el acceso es forzado
+        (SII apagado, D11: `forced_access`); el `to_access` explícito del botón «pasar a
+        Accesos» NO cuenta y nunca usa el NIP; nunca en el alterno ni en
+        `sii` con el SII vivo. Única fuente para `_preloaded_nip` y para la
+        bandeja (`_preloaded_controls`): si se separan, la fila promete algo que
+        no ocurre."""
+        return mode == "school_services" or (mode == "sii" and forced_access)
+
+    @staticmethod
+    def _preloaded_nip(db: Session, req, to_access: bool) -> str | None:
+        """El NIP del SII precargado para aprobar `req`, o `None` si no aplica.
+
+        Precondiciones: el lock de la solicitud tomado y su `to_access` NO
+        explícito (eso lo decide `approve_detailed`). Aplica solo donde aprobar
+        sin cuenta caería a Accesos: el modo oficial, o `sii` con `to_access`
+        (ya forzado por D11). Nunca en el alterno (quien aprueba teclea el NIP)
+        ni en `sii` con el SII conectado (manda el SII vivo).
+
+        `None` también sin llave (`NipStashService.available()`), con número
+        de control mal formado, si el control YA tiene cuenta (sale la liga y
+        el NIP no se lee) o si el guardado no se puede usar: llave cambiada
+        (`peek` deja su WARNING genérico) o un valor que no pasa
+        `nip_format_ok`. En todos esos casos se sigue el camino de hoy y el NIP
+        guardado no se toca. Nunca escribe; el NIP no sale de aquí más que
+        como valor de retorno.
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.services.import_service import normalize_control
+        from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
+
+        if not EnrollmentRequestService.preloaded_applies(
+                EnrollmentRequestService.reviewer_mode(), forced_access=to_access):
+            return None
+        if not NipStashService.available():
+            return None
+        control = (req.control_number or "").strip()
+        if not CONTROL_NUMBER_RE.fullmatch(control):
+            return None
+        if db.query(User.id).filter_by(control_number=control).first() is not None:
+            return None
+        nip = NipStashService.peek(db, normalize_control(control))
+        if nip is not None and not nip_format_ok(nip):
+            # `put` ya lo valida: esto solo pasa si alguien escribió la tabla a
+            # mano. Sin el valor ni el control, igual que `peek`.
+            logger.warning("NIP precargado con formato inválido; se ignora.")
+            return None
+        return nip
 
     @staticmethod
     def _sii_nip_unlocked(db: Session, req):
@@ -844,7 +924,7 @@ class EnrollmentRequestService:
     def _approve_locked(db: Session, req, cohort, *, actor_id: int | None,
                         program_id: int | None, nip: str | None = None,
                         event_extra: dict | None = None, sii_nip=None,
-                        to_access: bool = False):
+                        to_access: bool = False, preloaded_nip: str | None = None):
         """Núcleo ÚNICO de la aprobación. Solo lo llama `approve_detailed()` (la
         bandeja de Servicios Escolares; `approve()` le delega; una prueba
         estructural recorre `itcj2/` y lo exige). `actor_id` sigue admitiendo
@@ -875,9 +955,23 @@ class EnrollmentRequestService:
         `sii_nip` = `(Secret | None, falla)` ya pedido SIN el lock
         (`_sii_nip_unlocked`). Si falta —la cuenta desapareció entre las dos
         vueltas— se pide aquí, con el lock: es la excepción, no el camino.
+
+        `preloaded_nip` = el NIP del SII cargado en lote (`_preloaded_nip`; ya
+        es `None` si el `to_access` fue explícito o el modo no lo admite). Solo
+        cambia la rama «SIN cuenta → Accesos»: con él, la cuenta nace como en
+        `grant_access` (`nip_source="preloaded"`, `must_change_password`,
+        `access_granted_*` de quien aprueba), commit, caché de authz y el correo
+        de Accesos con ese NIP. La fila de `titulatec_nip_stash` la borra
+        `_create_account` en su savepoint: si algo falla, el NIP sigue.
+
+        CON cuenta, si la aprobación sale, el NIP precargado de ese control se
+        borra en la misma transacción (spec N §7.5): con cuenta ya no se usará.
         """
         from itcj2.core.models.user import User
-        from itcj2.apps.titulatec.services.import_service import ImportService
+        from itcj2.apps.titulatec.services.import_service import (
+            ImportService, normalize_control,
+        )
+        from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
         from itcj2.apps.titulatec.services.audit_service import AuditService
 
@@ -906,6 +1000,14 @@ class EnrollmentRequestService:
                 subject=_audit_subject(req), before=antes, after=despues,
                 payload={"path": "existing_account", "cohort_id": req.cohort_id},
                 actor_id=actor_id)
+            # Un NIP precargado de una cuenta que ya existe no se usará nunca
+            # («¿tiene cuenta?» se decide contra `core_users`): se borra en esta
+            # transacción, ya validado todo. `no_autoflush`: sin fila es solo un
+            # SELECT y la escritura sale en el flush del commit, como siempre
+            # (un flush a media aprobación partiría en dos las filas de la red
+            # de la bitácora).
+            with db.no_autoflush:
+                NipStashService.discard(db, normalize_control(control))
             db.commit()
             _token_cache_put(raw)
             EnrollmentRequestService._mail_activation(db, req, raw)
@@ -939,6 +1041,36 @@ class EnrollmentRequestService:
             db.commit()
             ImportService.invalidate_authz((summary or {}).get("authz_touched"))
             EnrollmentRequestService._mail_access(db, req, user, None, nip_source="sii")
+            return True, detalle, None
+
+        if mode != "computer_center" and preloaded_nip is not None:
+            # ── SIN cuenta, modo oficial (o `sii` con el SII apagado, D11) y
+            #    NIP del SII precargado: la rama «sin cuenta» de `grant_access`
+            #    con quien aprueba como quien da el acceso ──
+            ok, detalle, summary, user = EnrollmentRequestService._create_account(
+                db, req, cohort, nip=preloaded_nip, program_id=program_id,
+                actor_id=actor_id, approved_by_id=actor_id, nip_source="preloaded",
+                must_change_password=True,
+                event_extra={**(event_extra or {}), "nip_source": "preloaded"})
+            if not ok:
+                return False, detalle, None
+            req.reviewed_by_id = actor_id
+            req.reviewed_at = now
+            # Spec N §5.5: aquí SÍ hay `enrollment.approved` (además del espejo
+            # del `enrollment_self_service`), para distinguir en la bitácora las
+            # cuentas que salieron del lote. Sin el NIP.
+            antes, despues = AuditService.changes({"status": estado_previo},
+                                                  {"status": req.status})
+            AuditService.record(
+                db, "enrollment.approved",
+                entity_type="enrollment_request", entity_id=req.id,
+                subject=_audit_subject(req), before=antes, after=despues,
+                payload={"path": "preloaded", "cohort_id": req.cohort_id},
+                actor_id=actor_id)
+            db.commit()
+            ImportService.invalidate_authz((summary or {}).get("authz_touched"))
+            EnrollmentRequestService._mail_access(db, req, user, preloaded_nip,
+                                                  nip_source="preloaded")
             return True, detalle, None
 
         if mode != "computer_center":
@@ -979,8 +1111,15 @@ class EnrollmentRequestService:
         return True, detalle, None
 
     @staticmethod
-    def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int):
+    def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int,
+                     send_mail: bool = True, nip_source: str = "center"):
         """Centro de Cómputo da el acceso a una solicitud `awaiting_access`.
+
+        `send_mail=False` (la carga en lote `--sin-correo`): la cuenta se crea y
+        se commitea, pero NO sale ningún correo y `access_sent_at` queda NULL,
+        así que Accesos la ve como «correo no enviado» (igual que
+        `reassign_nip(send_mail=False)`). `nip_source` es el origen del NIP que
+        se sella en la solicitud (`"preloaded"` desde `NipStashService.load_rows`).
 
         Devuelve `(ok, detalle)`: en éxito el folio (cuenta creada) o `""` (liga
         emitida, D10); en fallo, el motivo que ve CC.
@@ -1013,7 +1152,10 @@ class EnrollmentRequestService:
         """
         from itcj2.core.models.user import User
         from itcj2.apps.titulatec.models import EnrollmentRequest
-        from itcj2.apps.titulatec.services.import_service import ImportService
+        from itcj2.apps.titulatec.services.import_service import (
+            ImportService, normalize_control,
+        )
+        from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
         req = db.get(EnrollmentRequest, req_id)
         if req is None:
@@ -1057,19 +1199,29 @@ class EnrollmentRequestService:
                 payload={"path": "existing_account", "via": "access",
                          "cohort_id": req.cohort_id},
                 actor_id=actor_id)
+            # Igual que la rama con cuenta de aprobar: un NIP precargado de una
+            # cuenta que ya existe no se usará nunca.
+            with db.no_autoflush:
+                NipStashService.discard(db, normalize_control(control))
             db.commit()
             _token_cache_put(raw)
-            EnrollmentRequestService._mail_activation(db, req, raw)
+            if send_mail:
+                EnrollmentRequestService._mail_activation(db, req, raw)
             return True, ""
 
         ok, detalle, summary, user = EnrollmentRequestService._create_account(
             db, req, cohort, nip=nip, program_id=req.program_id,
-            actor_id=actor_id, approved_by_id=req.reviewed_by_id, nip_source="center")
+            actor_id=actor_id, approved_by_id=req.reviewed_by_id, nip_source=nip_source)
         if not ok:
             return False, detalle
         db.commit()
         ImportService.invalidate_authz((summary or {}).get("authz_touched"))
-        EnrollmentRequestService._mail_access(db, req, user, nip)
+        if send_mail:
+            # Para el helper del correo solo importa `"sii"` (no aplica aquí) y,
+            # por trazabilidad, `"preloaded"`; el `center` de hoy sigue "manual".
+            EnrollmentRequestService._mail_access(
+                db, req, user, nip,
+                nip_source="preloaded" if nip_source == "preloaded" else "manual")
         return True, detalle
 
     @staticmethod
@@ -1339,7 +1491,8 @@ class EnrollmentRequestService:
         `grant_access()`.
         `nip_source` (obligatorio, `NIP_SOURCES`) dice de dónde salió el NIP y
         queda en `req.nip_source`: `"form"` el alterno, `"center"` Centro de
-        Cómputo, `"sii"` el modo `sii`. En este último el NIP es el del SII:
+        Cómputo, `"preloaded"` el del SII cargado en lote (al aprobar),
+        `"sii"` el modo `sii`. En este último el NIP es el del SII:
         `must_change_password` `False` (es suyo, no uno que alguien le dictó) y
         `event_extra` suma al payload del `ProcessEvent` también su
         `nip_source`. NIP de 4 dígitos
@@ -1356,6 +1509,12 @@ class EnrollmentRequestService:
         una excepción lo deshace y sube. No commitea, no tira el caché de authz
         ni manda correo: eso es del llamador, después de SU commit, con
         `summary["authz_touched"]` y `_mail_access`.
+
+        Dentro del mismo savepoint borra el NIP precargado del control
+        (`NipStashService.discard`, spec 2026-10-13 N §5.4), venga de donde
+        venga el NIP de la cuenta: aprobar con el precargado, el que tecleó
+        Centro de Cómputo o el del alterno. Así no queda un NIP huérfano, y si
+        la cuenta no se crea, el NIP sigue.
         """
         from itcj2.core.models.role import Role
         from itcj2.core.models.user import User
@@ -1363,8 +1522,9 @@ class EnrollmentRequestService:
         from itcj2.core.utils.security import hash_nip
         from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
         from itcj2.apps.titulatec.services.import_service import (
-            GRADUATE_ROLE, ImportService,
+            GRADUATE_ROLE, ImportService, normalize_control,
         )
+        from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
 
         if nip_source not in NIP_SOURCES:
             raise ValueError(f"nip_source fuera de {NIP_SOURCES}: {nip_source!r}")
@@ -1374,6 +1534,10 @@ class EnrollmentRequestService:
 
         savepoint = db.begin_nested()
         try:
+            # Primero, ya dentro del savepoint (`begin_nested` acaba de hacer
+            # flush, así que sin fila es solo un SELECT): cualquier falla de
+            # abajo lo deshace junto con la cuenta y el NIP se conserva.
+            NipStashService.discard(db, normalize_control(control))
             # El alias legado nace `graduate`: el mismo que `import_rows` le deja
             # a una cuenta que ya existía (`_sync_graduate_roles`).
             graduate_role = db.query(Role).filter_by(name=GRADUATE_ROLE).first()
@@ -1480,6 +1644,9 @@ class EnrollmentRequestService:
         `reassigned=True` (desde `reassign_nip`): el correo dice que el NIP
         reemplaza al anterior. `nip_source="sii"` (modo `sii`): la cuenta nació
         con el NIP del SII y el correo NO lo lleva (`nip` es `None`).
+        `nip_source="preloaded"` (aprobar con el NIP precargado): el MISMO
+        correo que el de Accesos, con el NIP (spec 2026-10-13 N1); para el
+        helper solo `"sii"` cambia el texto.
 
         Si el correo sale, sella `access_sent_at` en un commit propio (mismo
         patrón que `_mail_activation`/`verify_sent_at`); si no, la fila queda

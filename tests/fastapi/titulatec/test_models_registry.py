@@ -55,7 +55,7 @@ def _declared_models() -> dict[str, str]:
     return found
 
 
-def test_hay_33_modelos_declarados():
+def test_hay_35_modelos_declarados():
     """Guarda del propio test: si el AST deja de ver clases, lo de abajo pasaria
     en verde sin verificar nada.
 
@@ -69,14 +69,16 @@ def test_hay_33_modelos_declarados():
     (Certificate, CertificateBatch, CertificateCounter); `PriorClearance`.
 
     + 1 de la bitácora (2026-10-07): `TitulatecAuditLog`.
+    + 2 de la carga masiva (2026-10-13, migraciones tt20261013a/b): `NipStash` y
+    `OfficialAverage`.
 
     El spec dice «23» en §3.9 porque ahi cuenta cinco tablas de titulatec; §3.2
     a §3.7 definen seis. El numero bueno es el que ve el AST.
     """
     declared = _declared_models()
 
-    assert len(declared) == 33, (
-        f"se esperaban 33 modelos titulatec, el AST vio {len(declared)}: "
+    assert len(declared) == 35, (
+        f"se esperaban 35 modelos titulatec, el AST vio {len(declared)}: "
         f"{sorted(declared)}"
     )
 

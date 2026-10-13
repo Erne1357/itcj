@@ -79,6 +79,17 @@ Qué NO se instrumenta, a propósito: FastAPI (`-instrumentation-fastapi`
 abriría un segundo span servidor sin la regla `__unmatched__`) y logging
 (`-instrumentation-logging`: el filtro propio ya pone los ids).
 
+CÓDIGO PROPIO — `traced()`
+--------------------------
+Los instrumentors solo ven bibliotecas: en Tempo, todo lo que es Python
+(comprimir un PDF, un scrypt, armar permisos) quedaba como un hueco sin
+nombre entre dos consultas (medido 2026-10-13: en casi todas las rutas lentas
+el tiempo sin span superaba al de SQL). `traced()` abre un span hijo en los
+puntos donde los datos dijeron que se va el tiempo; no es para envolver cada
+función. Si el bloque lanza, el span sale ERROR con `error.type` (la CLASE) y
+SIN el mensaje: el de un `OSError` de disco trae la ruta con el número de
+control, y una excepción de BD, los parámetros.
+
 Privacidad: atributos HTTP solo `http.request.method`, `http.route` (la
 plantilla) y `http.response.status_code`; `url.path` SOLO cuando la ruta es
 `__unmatched__` (un 404 no tiene plantilla y es lo único que permite
@@ -107,6 +118,7 @@ importar (nada de `prometheus_client`, ni del SDK).
 """
 import logging
 import os
+from contextlib import contextmanager
 from typing import Any, NamedTuple
 
 logger = logging.getLogger("itcj2.observability.tracing")
@@ -230,7 +242,7 @@ def shutdown_tracing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Instrumentors: cinco llamadas que cubren todo el código sin tocarlo
+# Instrumentors: seis llamadas que cubren todo el código sin tocarlo
 # ---------------------------------------------------------------------------
 
 def _sqlalchemy(provider):
@@ -292,12 +304,29 @@ def _celery(provider):
     return instrumentor
 
 
+def _jinja2(provider):
+    import jinja2
+    from opentelemetry.instrumentation.jinja2 import Jinja2Instrumentor
+    from opentelemetry.instrumentation.utils import unwrap
+
+    instrumentor = Jinja2Instrumentor()
+    instrumentor.instrument(tracer_provider=provider)
+    # Se queda `jinja2.render` (uno por página) y `jinja2.compile` (la primera
+    # vez que un worker ve la plantilla). `jinja2.load` se quita: abre un span
+    # por CADA `extends`/`include`/`import` aunque la plantilla ya esté en
+    # caché, decenas de spans de microsegundos por página que Alloy retiene 30 s.
+    # Lo vigila `test_el_render_de_una_plantilla_es_un_span_jinja2_render_sin_spans_de_carga`.
+    unwrap(jinja2.Environment, "_load_template")
+    return instrumentor
+
+
 _INSTRUMENTATIONS = (
     ("sqlalchemy", _sqlalchemy),
     ("redis", _redis),
     ("requests", _requests),
     ("httpx", _httpx),
     ("celery", _celery),
+    ("jinja2", _jinja2),
 )
 
 
@@ -410,3 +439,43 @@ def end_span(
             otel_context.detach(active.token)
         except Exception:
             logger.warning("tracing: no se pudo desactivar el span", exc_info=True)
+
+
+class _SpanAttributes:
+    """Lo que recibe el bloque de `traced()`: junta atributos y los aplica al
+    cerrar. Así el mismo código corre con el tracing apagado (no hay span que
+    tocar) y nunca lanza por un atributo."""
+
+    __slots__ = ("values",)
+
+    def __init__(self, values: dict) -> None:
+        self.values = values
+
+    def set_attribute(self, key: str, value) -> None:
+        self.values[key] = value
+
+
+@contextmanager
+def traced(name: str, attributes: dict | None = None):
+    """Span hijo del activo alrededor de código propio (ver «CÓDIGO PROPIO»).
+
+        with traced("titulatec.prepare_document", {"itcj.file_kind": kind}) as span:
+            ...
+            span.set_attribute("itcj.compress_passes", passes)
+
+    También como decorador (`@traced("x")`, un span por llamada). Apagado no
+    abre nada. Nunca lanza, y la excepción del bloque sale tal cual (misma
+    identidad): el span queda ERROR con `error.type` y sin el mensaje.
+    """
+    active = start_span(name)
+    span = _SpanAttributes(dict(attributes or {}))
+    error = None
+    try:
+        yield span
+    except BaseException as exc:
+        error = exc
+        raise
+    finally:
+        if error is not None:
+            span.values["error.type"] = type(error).__qualname__
+        end_span(active, attributes=span.values, error=error is not None)

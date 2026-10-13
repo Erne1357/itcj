@@ -167,6 +167,7 @@ stateDiagram-v2
     [*] --> pending_review: POST /inscripcion (create)
     pending_review --> awaiting_access: aprobar SIN cuenta · modo SII «pasar a Accesos» u OFICIAL · SIN correo
     pending_review --> converted: aprobar SIN cuenta · modo SII con el NIP del SII (correo sin NIP) o ALTERNO (usuario + NIP por correo)
+    pending_review --> converted: aprobar SIN cuenta con NIP del SII PRECARGADO (oficial, o sii con acceso forzado) · nip_source preloaded, correo de Accesos
     pending_review --> approved: aprobar CON cuenta (todos los modos) · liga por correo
     awaiting_access --> converted: Centro de Cómputo da el acceso · usuario + NIP por correo
     awaiting_access --> approved: Centro de Cómputo da el acceso, D10 (apareció cuenta) · liga por correo
@@ -638,6 +639,40 @@ Junto a la búsqueda, en `#tt-req-filters`: dos `<select>` (`#tt-req-program`, `
 - **Qué acota cada uno**: la carrera acota TODO como si fuera el alcance (KPIs, «Por año de ingreso», contadores de pestaña y lista). El año acota la lista y los contadores de pestaña, como `q`; KPIs y el bloque «Por año de ingreso» siguen mostrando el universo de la carrera, con todos sus años.
 - **Viajan** como `q`: en `tab_fields` (campos ocultos `program`/`year` de cada formulario de fila: aprobar, rechazar, cancelar, reenviar, reenviar aviso, reconsultar, revocar y deshacer rechazo; `_filters_from(form)` en cada `_cuerpo_*`), en los links de pestaña (`qs_filters`) y en el pager (`hx-include`). Una acción de fila re-pinta con la misma carrera y el mismo año.
 - «Rechazada antes» sigue usando el alcance REAL del oficial, no la carrera del filtro: un antecedente en otra de sus carreras se sigue anunciando.
+
+## NIP del SII precargado: aprobar y dar acceso sin pasar por Accesos
+
+Para el arranque, Servicios Escolares puede tener **ya cargados** los NIP del SII de las
+solicitudes sin cuenta (comando `cargar-nips`, ver [Operación](xcut_computer_center_access.md#operación-nip-precargado-y-promedios-oficiales)).
+Así, aprobar una solicitud sin cuenta no obliga a que Centro de Cómputo dé el NIP a mano después.
+
+- **Camino nuevo:** `pending_review → converted`. Al aprobar sin cuenta, `_preloaded_nip` busca el
+  NIP guardado de ese control; si hay uno utilizable, la cuenta nace con él como en `grant_access`
+  (`nip_source = "preloaded"`, `must_change_password = True`, `access_granted_by_id/at` de quien
+  aprueba) y sale el **mismo correo de Accesos** (usuario + NIP) que enviaría Centro de Cómputo.
+  Por eso el alumno no distingue un camino del otro.
+- **Dónde aplica:** `EnrollmentRequestService.preloaded_applies(mode, forced_access)`, única fuente
+  tanto de la aprobación como de la bandeja: modo oficial, o `sii` con el acceso forzado por SII
+  apagado (D11). El botón explícito «pasar a Accesos» NO cuenta: nunca usa el NIP. Nunca en el alterno (quien aprueba teclea el NIP) ni en `sii` con el
+  SII vivo (manda el SII). Es una sola función porque si la bandeja y la aprobación decidieran por
+  su cuenta, la fila prometería un acceso que no ocurre.
+- **La bandeja:** una solicitud sin cuenta con NIP legible ofrece **«Aprobar y dar acceso»**
+  (`_preloaded_controls` en `pages/requests_admin.py`). Solo se promete si el NIP se puede
+  descifrar; si no, el botón sigue siendo el de antes. Una fila con NIP legible **no ofrece** «Aprobar y pasar a
+  Accesos» (R6): muestra «Aprobar y dar acceso». El `to_access` explícito, donde exista, manda a
+  Accesos sin usar el NIP y **lo deja** guardado; para esas filas la única salida a Accesos es que
+  CC devuelva o reasigne.
+- **Ciclo de vida del guardado** (`titulatec_nip_stash`, `NipStashService`): el NIP vive **cifrado**
+  con Fernet usando `TITULATEC_NIP_STASH_KEY`. Se borra cuando se crea *cualquier* cuenta para ese
+  control (por este camino, por Accesos o por liga; lo hace `_create_account` en su savepoint, así
+  que si algo falla el NIP sigue). **No** se borra al rechazar: SE puede deshacer el rechazo y el NIP
+  vuelve a servir. Al **cerrar la convocatoria** (`cohort_service`) se purgan los de controles que
+  siguen rechazados (sin otra solicitud viva ni otra convocatoria abierta que pueda reabrirlos) y los
+  de controles que ya tienen cuenta. `purgar-nips` hace ese barrido a mano. Un NIP es un secreto de
+  larga vida: no se deja guardado lo que ya no puede usarse.
+- **Respaldo:** sin llave configurada, con la llave cambiada o con un valor que no descifra, el NIP
+  se ignora (WARNING genérico, sin control ni NIP) y la aprobación sigue **exactamente como antes**:
+  la solicitud pasa a Accesos. Nada se rompe; solo se pierde el atajo.
 
 ## Flujos relacionados
 
