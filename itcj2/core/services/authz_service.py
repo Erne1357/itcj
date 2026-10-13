@@ -8,6 +8,8 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 
+from itcj2.observability.tracing import traced
+
 from itcj2.core.models.app import App
 from itcj2.core.models.role import Role
 from itcj2.core.models.permission import Permission
@@ -466,27 +468,30 @@ def effective_perms(db: Session, user_id: int, app_key: str, include_positions: 
     ``effective = (direct | via_roles) - denied`` — un deny explícito (allow=False)
     gana sobre cualquier otorgamiento.
     """
-    roles = user_roles_in_app(db, user_id, app_key, include_positions)
-    direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
-    via = perms_via_roles(db, user_id, app_key, include_positions)
-    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
-    effective = (direct | via) - denied
+    # Su propio span: `/itcj/profile` lo llama una vez por app y cada llamada
+    # son ~15 consultas; en Tempo se veía como una pared de SELECT sin dueño.
+    with traced("authz.effective_perms", {"itcj.app_key": app_key}):
+        roles = user_roles_in_app(db, user_id, app_key, include_positions)
+        direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
+        via = perms_via_roles(db, user_id, app_key, include_positions)
+        denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+        effective = (direct | via) - denied
 
-    result = {
-        "roles": sorted(list(roles)),
-        "direct_perms": sorted(list(direct)),
-        "via_roles": sorted(list(via)),
-        "denied": sorted(list(denied)),
-        "effective": sorted(list(effective)),
-    }
+        result = {
+            "roles": sorted(list(roles)),
+            "direct_perms": sorted(list(direct)),
+            "via_roles": sorted(list(via)),
+            "denied": sorted(list(denied)),
+            "effective": sorted(list(effective)),
+        }
 
-    # Si se incluyeron puestos, agregar desglose
-    if include_positions:
-        result["roles_via_positions"] = sorted(list(user_roles_via_positions(db, user_id, app_key)))
-        result["perms_via_positions_direct"] = sorted(list(user_perms_via_positions_direct(db, user_id, app_key)))
-        result["perms_via_position_roles"] = sorted(list(user_perms_via_position_roles(db, user_id, app_key)))
+        # Si se incluyeron puestos, agregar desglose
+        if include_positions:
+            result["roles_via_positions"] = sorted(list(user_roles_via_positions(db, user_id, app_key)))
+            result["perms_via_positions_direct"] = sorted(list(user_perms_via_positions_direct(db, user_id, app_key)))
+            result["perms_via_position_roles"] = sorted(list(user_perms_via_position_roles(db, user_id, app_key)))
 
-    return result
+        return result
 
 def list_roles(db: Session) -> Iterable[str]:
     return [r[0] for r in db.query(Role.name).order_by(Role.name.asc()).all()]

@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from itcj2.config import get_settings
+from itcj2.observability.tracing import traced
 
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "webp"}
 _PDF_EXTS = {"pdf"}
@@ -285,7 +286,22 @@ def prepare_document(
     (antes de gastar CPU comprimiendo); comprime imágenes y los PDFs que pasan
     de ``TITULATEC_MAX_PDF_SIZE``. ``StorageError`` con el mensaje para el
     alumno si algo no pasa.
+
+    Es el hueco más largo de una subida en Tempo (un PDF escaneado de 2 MB
+    tarda ~250 ms en comprimirse): por eso su propio span, con tamaños y
+    pasadas y nada del archivo.
     """
+    with traced("titulatec.prepare_document",
+                {"itcj.file_kind": file_kind, "itcj.bytes_in": len(raw)}) as span:
+        prepared = _prepare_document(raw=raw, original_name=original_name,
+                                     control_number=control_number, file_kind=file_kind)
+        span.set_attribute("itcj.bytes_out", len(prepared.data))
+        span.set_attribute("itcj.compress_passes", prepared.compress_passes)
+        return prepared
+
+
+def _prepare_document(*, raw: bytes, original_name: str, control_number: str,
+                      file_kind: str) -> PreparedDocument:
     settings = get_settings()
     ext = _ext_of(original_name)
     stats = {"passes": 0}
@@ -355,6 +371,14 @@ def write_document(
     Retorna: {file_path (relativo a TITULATEC_UPLOAD_PATH), original_name,
     mime_type, size_bytes (del archivo GUARDADO)}.
     """
+    # El `fsync` es E/S que bloquea el hilo; un disco lento se ve aquí.
+    with traced("titulatec.write_document", {"itcj.bytes": len(prepared.data)}):
+        return _write_document(prepared, period_code=period_code,
+                               control_number=control_number, type_code=type_code)
+
+
+def _write_document(prepared: PreparedDocument, *, period_code: str,
+                    control_number: str, type_code: str) -> dict:
     from itcj2.core.utils.safe_paths import UnsafePath, safe_join
 
     filename = document_filename(control_number, type_code, prepared.ext)

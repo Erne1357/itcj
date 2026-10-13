@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from itcj2.observability.tracing import traced
+
 # Contraseña que recibe toda cuenta recién dada de alta o restablecida por un
 # administrador. Vive AQUÍ, junto a las funciones que la hashean y verifican,
 # porque tenía dos copias literales (`core/api/users.py` y
@@ -19,6 +21,10 @@ def hash_nip(nip: str) -> str:
     return generate_password_hash(nip)
 
 
+# Un scrypt (~100 ms de CPU) era el hueco sin nombre de cada login y de cada
+# fallo de caché de `password_state`. Sin atributos: ni el resultado ni nada
+# del usuario (el login también verifica contra un hash ficticio).
+@traced("auth.password_verify")
 def verify_nip(nip: str, nip_hash: str) -> bool:
     try:
         return check_password_hash(nip_hash, nip)

@@ -448,6 +448,63 @@ def test_apagar_deshace_el_instrumentor_de_jinja2(spans):
     assert spans.get_finished_spans() == ()
 
 
+def test_preparar_un_documento_es_un_span_con_tamanos_y_pasadas(spans):
+    from itcj2.apps.titulatec.utils import storage
+    from tests.fastapi.titulatec._pdf_samples import photo_pdf
+
+    raw = photo_pdf()
+    prepared = storage.prepare_document(raw=raw, original_name="escaneo.pdf",
+                                        control_number="99000401", file_kind="pdf")
+
+    (span,) = [s for s in spans.get_finished_spans() if s.name == "titulatec.prepare_document"]
+    assert prepared.compress_passes >= 1
+    assert dict(span.attributes) == {
+        "itcj.file_kind": "pdf",
+        "itcj.bytes_in": len(raw),
+        "itcj.bytes_out": len(prepared.data),
+        "itcj.compress_passes": prepared.compress_passes,
+    }
+
+
+def test_escribir_un_documento_es_un_span_con_su_tamano(spans, tmp_path, monkeypatch):
+    from itcj2.apps.titulatec.utils import storage
+    from tests.fastapi.titulatec._pdf_samples import small_pdf
+
+    monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+    prepared = storage.prepare_document(raw=small_pdf(), original_name="x.pdf",
+                                        control_number="99000401", file_kind="pdf")
+    spans.clear()
+
+    storage.write_document(prepared, period_code="2029A", control_number="99000401",
+                           type_code="curp")
+
+    (span,) = spans.get_finished_spans()
+    assert span.name == "titulatec.write_document"
+    assert dict(span.attributes) == {"itcj.bytes": len(prepared.data)}
+
+
+def test_verificar_una_contrasena_es_un_span_sin_atributos(spans):
+    # El login verifica también contra un hash ficticio cuando el usuario no
+    # existe (anti-enumeración): el span es idéntico en los dos caminos.
+    from itcj2.core.utils.security import hash_nip, verify_nip
+
+    stored = hash_nip("clave-de-prueba")
+    assert verify_nip("clave-de-prueba", stored) is True
+
+    (span,) = spans.get_finished_spans()
+    assert span.name == "auth.password_verify"
+    assert dict(span.attributes) == {}
+
+
+def test_los_permisos_efectivos_son_un_span_con_la_app(spans, db_session):
+    from itcj2.core.services import authz_service
+
+    authz_service.effective_perms(db_session, 999_999_999, "helpdesk")
+
+    (span,) = [s for s in spans.get_finished_spans() if s.name == "authz.effective_perms"]
+    assert dict(span.attributes) == {"itcj.app_key": "helpdesk"}
+
+
 # ---------------------------------------------------------------------------
 # Socket.IO
 # ---------------------------------------------------------------------------
