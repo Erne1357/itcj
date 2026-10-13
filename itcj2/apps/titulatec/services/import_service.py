@@ -782,6 +782,13 @@ class ImportService:
                 )
                 PriorClearanceService.apply_pending(db, proc, control)
 
+                # Promedio oficial guardado de antes (spec 2026-10-13 promedios):
+                # mismo molde, misma transaccion, sin commit propio.
+                from itcj2.apps.titulatec.services.official_average_service import (
+                    OfficialAverageService,
+                )
+                OfficialAverageService.apply_pending(db, proc, control)
+
                 # Alta del alumno = el unico suceso de la fase 0. Sin el, el
                 # expediente empieza en blanco y no dice ni como entro.
                 db.add(ProcessEvent(
