@@ -175,11 +175,13 @@ class EnrollmentRequest(Base):
                            nullable=True)
 
     # De donde salio el NIP de la cuenta que esta solicitud creo (2026-09-27):
-    # `sii|center|form`; NULL = cuenta preexistente (aprobar con liga) o fila
-    # anterior a esta migracion. Lo escriben `_create_account`/
+    # `sii|center|form|preloaded`; NULL = cuenta preexistente (aprobar con
+    # liga) o fila anterior a esta migracion. Lo escriben `_create_account`/
     # `grant_access`: `sii` cuando el NIP nacio de la consulta al SII,
     # `center` cuando lo dio Centro de Computo a mano, `form` en el modo
-    # alterno (sin SII). La bandeja de Accesos ("Con acceso") filtra
+    # alterno (sin SII), `preloaded` cuando se aprobo con el NIP del SII
+    # cargado en lote (2026-10-13; se porta como `center`). La bandeja de
+    # Accesos ("Con acceso") filtra
     # `nip_source IS DISTINCT FROM 'sii'` para no listar las cuentas que ya
     # mandaron su propio correo con NIP. Migracion `tt20260927a`.
     nip_source = Column(String(20), nullable=True)
