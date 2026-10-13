@@ -23,6 +23,7 @@ Comandos:
     titulatec fix-control-l [--dry-run] [--sin-correo] [--solicitud ID]  Quita la «L» de licenciatura y emite folios faltantes.
     titulatec exportar-sin-cuenta [--salida RUTA]  Solicitudes vivas sin cuenta (CSV para pedir los NIP al SII).
     titulatec cargar-nips ARCHIVO --actor USUARIO [--dry-run] [--sin-correo]  Carga los NIP del SII (acceso o guardado cifrado).
+    titulatec purgar-nips [--dry-run]  Borra los NIP precargados que ya no se pueden usar (solo imprime el conteo).
 """
 import logging
 import os
@@ -4532,3 +4533,39 @@ def cargar_nips_command(archivo, actor, dry_run, sin_correo):
         click.echo("Dry-run: no se escribió nada.")
     if resultado["failed"]:
         raise SystemExit(1)
+
+
+@titulatec_cli.command("purgar-nips")
+@click.option("--dry-run", is_flag=True, help="Solo cuenta lo que se borraría; no borra nada.")
+def purgar_nips_command(dry_run):
+    """Borra los NIP del SII precargados que ya no sirven.
+
+    Los de quien ya tiene cuenta y los de quien solo tiene solicitudes
+    rechazadas de convocatorias cerradas. Cerrar una convocatoria ya purga los
+    suyos; esto barre lo que haya quedado. Imprime únicamente el conteo: nunca
+    un control ni un NIP.
+    """
+    from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        # SAVEPOINT: el dry-run borra de verdad y lo deshace, así el conteo es
+        # exactamente el de la corrida real.
+        savepoint = db.begin_nested()
+        n = NipStashService.purge_stale(db)
+        if dry_run:
+            savepoint.rollback()
+        else:
+            savepoint.commit()
+            db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    if dry_run:
+        click.echo(f"[dry-run] {n} NIP(s) se borrarían. No se borró nada.")
+    else:
+        click.echo(f"{n} NIP(s) precargado(s) borrado(s).")

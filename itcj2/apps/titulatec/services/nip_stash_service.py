@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import func
@@ -43,6 +43,43 @@ def _fernet() -> Fernet | None:
         return Fernet(key.encode())
     except (ValueError, TypeError):
         return None
+
+
+def _stash_keys(db: Session) -> set[str]:
+    return {c for (c,) in db.query(NipStash.control_number).all()}
+
+
+def _normalizados(controles) -> set[str]:
+    from itcj2.apps.titulatec.services.import_service import normalize_control
+
+    return {normalize_control(c or "") for c in controles} - {""}
+
+
+def _controles_vivos(db: Session) -> set[str]:
+    """Controles con alguna solicitud viva en CUALQUIER convocatoria."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+
+    return _normalizados(c for (c,) in db.query(EnrollmentRequest.control_number)
+                         .filter(EnrollmentRequest.status.in_(OPEN_STATUSES)).all())
+
+
+def _con_cuenta(db: Session, llaves: set[str]) -> set[str]:
+    from itcj2.core.models.user import User
+
+    if not llaves:
+        return set()
+    return _normalizados(c for (c,) in db.query(User.control_number)
+                         .filter(User.control_number.in_(llaves)).all()) & llaves
+
+
+def _borrar(db: Session, llaves: set[str]) -> int:
+    if not llaves:
+        return 0
+    n = (db.query(NipStash).filter(NipStash.control_number.in_(llaves))
+         .delete(synchronize_session="fetch"))
+    db.flush()
+    return n
 
 
 class NipStashService:
@@ -93,6 +130,80 @@ class NipStashService:
             logger.warning("NIP precargado ilegible con la llave actual "
                            "(¿cambió TITULATEC_NIP_STASH_KEY?).")
             return None
+
+    @staticmethod
+    def readable(db: Session, controls: Iterable[str]) -> set[str]:
+        """Los `controls` (ya normalizados) cuyo NIP guardado SÍ se descifra.
+
+        Para la bandeja, que solo debe prometer «dar acceso» donde aprobar podrá
+        usar el NIP. Sin llave -> vacío y sin aviso (ya es el caso conocido). Con
+        filas ilegibles (llave cambiada) deja UN solo WARNING agregado, sin
+        controles ni NIP, en vez de uno por fila como `peek`. Solo lee.
+        """
+        f = _fernet()
+        llaves = set(controls)
+        if f is None or not llaves:
+            return set()
+        ok: set[str] = set()
+        mal = 0
+        for fila in db.query(NipStash).filter(NipStash.control_number.in_(llaves)).all():
+            try:
+                f.decrypt(fila.nip_cipher.encode("ascii"))
+                ok.add(fila.control_number)
+            except (InvalidToken, UnicodeError):
+                mal += 1
+        if mal:
+            logger.warning("%d NIP(s) precargado(s) ilegible(s) con la llave actual "
+                           "(¿cambió TITULATEC_NIP_STASH_KEY?).", mal)
+        return ok
+
+    @staticmethod
+    def purge_for_cohort(db: Session, cohort_id: int) -> int:
+        """Borra los NIP de los controles con solicitud en `cohort_id` que ya no
+        pueden usarlos: (a) ninguna solicitud VIVA (`OPEN_STATUSES`) en NINGUNA
+        convocatoria, o (b) ya tienen cuenta. Devuelve cuántas filas borró. Sin
+        commit (lo hace `set_window`) y sin llave: borrar no descifra. No loguea
+        controles ni NIP.
+        """
+        from itcj2.apps.titulatec.models import EnrollmentRequest
+
+        guardados = _stash_keys(db)
+        if not guardados:
+            return 0
+        del_cohorte = {c for (c,) in db.query(EnrollmentRequest.control_number)
+                       .filter(EnrollmentRequest.cohort_id == cohort_id).all()}
+        candidatos = _normalizados(del_cohorte) & guardados
+        if not candidatos:
+            return 0
+        victimas = (candidatos - _controles_vivos(db)) | (candidatos & _con_cuenta(db, candidatos))
+        return _borrar(db, victimas)
+
+    @staticmethod
+    def purge_stale(db: Session) -> int:
+        """Barrido de todo el guardado: borra (b) los que ya tienen cuenta y los
+        controles sin solicitud viva cuyas solicitudes son TODAS `rejected` de
+        convocatorias `closed`. Un control sin ninguna solicitud no se toca.
+        Devuelve cuántas filas borró. Sin commit (el CLI decide). No loguea datos.
+        """
+        from itcj2.apps.titulatec.models import Cohort, EnrollmentRequest
+        from itcj2.apps.titulatec.services.import_service import normalize_control
+
+        guardados = _stash_keys(db)
+        if not guardados:
+            return 0
+        victimas = _con_cuenta(db, guardados)
+        vivos = _controles_vivos(db)
+        por_control: dict[str, list[bool]] = {}
+        for control, status, cohorte in (
+                db.query(EnrollmentRequest.control_number, EnrollmentRequest.status,
+                         Cohort.status)
+                .join(Cohort, Cohort.id == EnrollmentRequest.cohort_id).all()):
+            llave = normalize_control(control or "")
+            if llave in guardados:
+                por_control.setdefault(llave, []).append(
+                    status == "rejected" and cohorte == "closed")
+        victimas |= {c for c, todas in por_control.items() if all(todas)} - vivos
+        return _borrar(db, victimas)
 
     @staticmethod
     def discard(db: Session, control: str) -> bool:
