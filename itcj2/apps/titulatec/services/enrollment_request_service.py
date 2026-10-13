@@ -845,7 +845,8 @@ class EnrollmentRequestService:
     def preloaded_applies(mode: str, *, forced_access: bool) -> bool:
         """¿Aprobar en este modo caería a Accesos y por tanto usaría el NIP del SII
         precargado? Sí en el modo oficial, o en `sii` cuando el acceso es forzado
-        (SII apagado, D11, o `to_access` explícito); nunca en el alterno ni en
+        (SII apagado, D11: `forced_access`); el `to_access` explícito del botón «pasar a
+        Accesos» NO cuenta y nunca usa el NIP; nunca en el alterno ni en
         `sii` con el SII vivo. Única fuente para `_preloaded_nip` y para la
         bandeja (`_preloaded_controls`): si se separan, la fila promete algo que
         no ocurre."""

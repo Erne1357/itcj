@@ -652,14 +652,16 @@ Así, aprobar una solicitud sin cuenta no obliga a que Centro de Cómputo dé el
   aprueba) y sale el **mismo correo de Accesos** (usuario + NIP) que enviaría Centro de Cómputo.
   Por eso el alumno no distingue un camino del otro.
 - **Dónde aplica:** `EnrollmentRequestService.preloaded_applies(mode, forced_access)`, única fuente
-  tanto de la aprobación como de la bandeja: modo oficial, o `sii` con el acceso forzado (SII
-  apagado o «pasar a Accesos»). Nunca en el alterno (quien aprueba teclea el NIP) ni en `sii` con el
+  tanto de la aprobación como de la bandeja: modo oficial, o `sii` con el acceso forzado por SII
+  apagado (D11). El botón explícito «pasar a Accesos» NO cuenta: nunca usa el NIP. Nunca en el alterno (quien aprueba teclea el NIP) ni en `sii` con el
   SII vivo (manda el SII). Es una sola función porque si la bandeja y la aprobación decidieran por
   su cuenta, la fila prometería un acceso que no ocurre.
 - **La bandeja:** una solicitud sin cuenta con NIP legible ofrece **«Aprobar y dar acceso»**
   (`_preloaded_controls` en `pages/requests_admin.py`). Solo se promete si el NIP se puede
-  descifrar; si no, el botón sigue siendo el de antes. «Aprobar y pasar a Accesos» (`to_access`
-  explícito) sigue mandando a Accesos y **deja** el NIP guardado.
+  descifrar; si no, el botón sigue siendo el de antes. Una fila con NIP legible **no ofrece** «Aprobar y pasar a
+  Accesos» (R6): muestra «Aprobar y dar acceso». El `to_access` explícito, donde exista, manda a
+  Accesos sin usar el NIP y **lo deja** guardado; para esas filas la única salida a Accesos es que
+  CC devuelva o reasigne.
 - **Ciclo de vida del guardado** (`titulatec_nip_stash`, `NipStashService`): el NIP vive **cifrado**
   con Fernet usando `TITULATEC_NIP_STASH_KEY`. Se borra cuando se crea *cualquier* cuenta para ese
   control (por este camino, por Accesos o por liga; lo hace `_create_account` en su savepoint, así
