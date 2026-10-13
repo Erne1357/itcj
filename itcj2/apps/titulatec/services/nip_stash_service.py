@@ -91,10 +91,15 @@ def _con_cuenta(db: Session, llaves: set[str]) -> set[str]:
 def _borrar(db: Session, llaves: set[str]) -> int:
     if not llaves:
         return 0
-    n = (db.query(NipStash).filter(NipStash.control_number.in_(llaves))
-         .delete(synchronize_session="fetch"))
+    # Borrado por el ORM, fila a fila, a propósito: un `query.delete()` masivo
+    # no lo ve la red de bitácora y la purga de secretos quedaría sin rastro.
+    # Así cada baja deja su `data.delete` con `nip_cipher="***"`. El volumen es
+    # de cientos de filas como mucho.
+    filas = db.query(NipStash).filter(NipStash.control_number.in_(llaves)).all()
+    for fila in filas:
+        db.delete(fila)
     db.flush()
-    return n
+    return len(filas)
 
 
 class NipStashService:

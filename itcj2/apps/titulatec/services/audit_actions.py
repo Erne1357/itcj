@@ -202,8 +202,10 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_library_clearances": "library",
     "titulatec_modalities": "processes",
     # NIPs del SII precargados (spec 2026-10-13 N): la red registra quién cargó
-    # y cuándo se borró cada uno; `nip_cipher` sale como "***" (D9: la llave
-    # contiene «nip»), así que la bitácora inmutable nunca guarda el token.
+    # y cuándo se borró cada uno (`discard` y las purgas, que borran por el ORM
+    # fila a fila a propósito: un DELETE masivo no lo vería la red);
+    # `nip_cipher` sale como "***" (D9: la llave contiene «nip»), así que la
+    # bitácora inmutable nunca guarda el token.
     "titulatec_nip_stash": "enrollment",
     "titulatec_official_averages": "processes",
     "titulatec_phase_definitions": "processes",

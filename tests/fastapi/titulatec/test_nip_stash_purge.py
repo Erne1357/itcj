@@ -183,6 +183,49 @@ def test_la_purga_no_loguea_controles_ni_nips(db_session, make_cohort, llave, ca
     assert "99580010" not in caplog.text and not _CENTINELA_RE.search(caplog.text)
 
 
+def _bajas_del_stash(db_session):
+    from tests.fastapi.titulatec.conftest import audit_query
+
+    return [f for f in audit_query(db_session).all()
+            if f.action == "data.delete" and f.entity_type == "titulatec_nip_stash"]
+
+
+def _sin_secretos(filas):
+    for f in filas:
+        for valor in (f.before, f.after, f.payload, f.reason, f.subject_label):
+            assert CENTINELA not in str(valor), (f.action, valor)
+            assert "gAAAA" not in str(valor), (f.action, valor)  # token Fernet
+
+
+def test_cerrar_deja_rastro_de_cada_nip_purgado_sin_cifrado(
+    db_session, make_cohort, make_head, llave,
+):
+    cohort = make_cohort(status="open")
+    for c in ("99580101", "99580102"):
+        _make_req(db_session, cohort, control=c, status="rejected")
+        _guardar(db_session, c)
+
+    _cerrar(db_session, cohort, make_head())
+
+    bajas = _bajas_del_stash(db_session)
+    assert sorted(b.before["control_number"] for b in bajas) == ["99580101", "99580102"]
+    assert all(b.before["nip_cipher"] == "***" for b in bajas)
+    _sin_secretos(bajas)
+
+
+def test_purge_stale_deja_rastro_de_cada_nip_purgado(db_session, make_cohort, llave):
+    cerrada = make_cohort(status="closed")
+    _make_req(db_session, cerrada, control="99580103", status="rejected")
+    _guardar(db_session, "99580103")
+
+    assert _stash().purge_stale(db_session) >= 1
+
+    bajas = _bajas_del_stash(db_session)
+    assert [b.before["control_number"] for b in bajas] == ["99580103"]
+    assert bajas[0].before["nip_cipher"] == "***"
+    _sin_secretos(bajas)
+
+
 # ---------------------------------------------------------------------------
 # purge_stale
 # ---------------------------------------------------------------------------
