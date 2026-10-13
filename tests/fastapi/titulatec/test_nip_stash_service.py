@@ -16,14 +16,6 @@ CENTINELA = "7391"
 
 
 @pytest.fixture
-def llave(monkeypatch):
-    from itcj2.config import get_settings
-    k = Fernet.generate_key().decode()
-    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", k)
-    return k
-
-
-@pytest.fixture
 def sin_llave(monkeypatch):
     from itcj2.config import get_settings
     monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", None)

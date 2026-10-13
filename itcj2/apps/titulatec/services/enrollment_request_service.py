@@ -1100,8 +1100,15 @@ class EnrollmentRequestService:
         return True, detalle, None
 
     @staticmethod
-    def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int):
+    def grant_access(db: Session, req_id: int, *, nip: str, actor_id: int,
+                     send_mail: bool = True, nip_source: str = "center"):
         """Centro de Cómputo da el acceso a una solicitud `awaiting_access`.
+
+        `send_mail=False` (la carga en lote `--sin-correo`): la cuenta se crea y
+        se commitea, pero NO sale ningún correo y `access_sent_at` queda NULL,
+        así que Accesos la ve como «correo no enviado» (igual que
+        `reassign_nip(send_mail=False)`). `nip_source` es el origen del NIP que
+        se sella en la solicitud (`"preloaded"` desde `NipStashService.load_rows`).
 
         Devuelve `(ok, detalle)`: en éxito el folio (cuenta creada) o `""` (liga
         emitida, D10); en fallo, el motivo que ve CC.
@@ -1180,17 +1187,23 @@ class EnrollmentRequestService:
                 actor_id=actor_id)
             db.commit()
             _token_cache_put(raw)
-            EnrollmentRequestService._mail_activation(db, req, raw)
+            if send_mail:
+                EnrollmentRequestService._mail_activation(db, req, raw)
             return True, ""
 
         ok, detalle, summary, user = EnrollmentRequestService._create_account(
             db, req, cohort, nip=nip, program_id=req.program_id,
-            actor_id=actor_id, approved_by_id=req.reviewed_by_id, nip_source="center")
+            actor_id=actor_id, approved_by_id=req.reviewed_by_id, nip_source=nip_source)
         if not ok:
             return False, detalle
         db.commit()
         ImportService.invalidate_authz((summary or {}).get("authz_touched"))
-        EnrollmentRequestService._mail_access(db, req, user, nip)
+        if send_mail:
+            # Para el helper del correo solo importa `"sii"` (no aplica aquí) y,
+            # por trazabilidad, `"preloaded"`; el `center` de hoy sigue "manual".
+            EnrollmentRequestService._mail_access(
+                db, req, user, nip,
+                nip_source="preloaded" if nip_source == "preloaded" else "manual")
         return True, detalle
 
     @staticmethod

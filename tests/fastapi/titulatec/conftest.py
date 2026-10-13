@@ -1518,3 +1518,37 @@ def agenda_slots_lleno(agenda_slots, make_student, make_process):
                  for _ in range(2)]
     esc["procesos"] = procesos
     return esc
+
+
+# ---------------------------------------------------------------------------
+# NIP precargado (spec 2026-10-13): fixtures compartidas por varios archivos
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def llave(monkeypatch):
+    """Llave Fernet válida en el singleton de `get_settings()`."""
+    from cryptography.fernet import Fernet
+    from itcj2.config import get_settings
+
+    k = Fernet.generate_key().decode()
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", k)
+    return k
+
+
+@pytest.fixture()
+def espia_correo(monkeypatch):
+    """Sustituye TODOS los `send_*` del helper por un registro `(nombre, kwargs)`
+    que dice «salió»."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    llamadas = []
+    for nombre in [n for n in dir(TitulaTecEmailHelper) if n.startswith("send_")]:
+        monkeypatch.setattr(
+            TitulaTecEmailHelper, nombre,
+            staticmethod(lambda *a, _n=nombre, **k: llamadas.append((_n, k)) or True))
+    return llamadas
+
+
+@pytest.fixture()
+def listo(seed_phase_defs, titulatec_app):
+    """Fases y app sembradas: `_create_account` crea el proceso de verdad."""
+    seed_phase_defs()
