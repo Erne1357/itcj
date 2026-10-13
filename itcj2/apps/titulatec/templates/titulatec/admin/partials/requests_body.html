@@ -51,6 +51,10 @@
    configurar (D11) hay un aviso arriba de la tabla, `#tt-req-sii-off`, sin
    «Reintentar consulta» ni «Se reintenta sola»; solo confirma una consulta
    VIEJA que marcó «No apta» o la identidad (`_approve_action`).
+   NIP del SII precargado (spec 2026-10-13 N §5.2; modo oficial o D11, con
+   llave): la fila sin cuenta dice «Aprobar y dar acceso», SIN `to_access`
+   (`r.approve.preloaded`, `_preloaded_controls`), y avisa que el correo lleva
+   el NIP: aprobarla crea la cuenta con él.
    Una cuenta desactivada lleva la píldora «Cuenta desactivada: se reactiva al
    abrir la liga» mientras la liga puede abrirse (por revisar o liga enviada):
    abrirla la reactiva, la única escritura sobre la cuenta además de roles y
@@ -395,6 +399,9 @@
             <p class="small mt-1 mb-1"><i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>La
                liga de activación irá a este correo, que escribió el solicitante. Confirma su
                identidad antes de aprobar.</p>
+            {% elif r.approve.preloaded %}
+            <p class="small mt-1 mb-1"><i class="bi bi-key me-1" aria-hidden="true"></i>La cuenta
+               nace con el NIP del SII que se cargó en lote; el correo lo lleva.</p>
             {% elif sii and r.approve.to_access %}
             <p class="small mt-1 mb-1"><i class="bi bi-pc-display me-1" aria-hidden="true"></i>Centro
                de Cómputo le captura el NIP en Accesos; el correo sale entonces.</p>

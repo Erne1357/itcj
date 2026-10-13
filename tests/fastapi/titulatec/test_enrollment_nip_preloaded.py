@@ -595,3 +595,156 @@ def test_la_bitacora_dice_que_la_cuenta_nacio_al_aprobar_no_en_accesos():
 
     assert _alta_label({"activation": "nip_personal_email", "nip_source": "preloaded",
                         "approved_by_id": 7, "granted_by_id": 7}) == _ALTA_APROBAR
+
+
+# ---------------------------------------------------------------------------
+# Bandeja de Solicitudes: la fila con NIP precargado lo promete y no manda
+# `to_access` (con D11 la fila sin cuenta manda `to_access=1`, que es el
+# EXPLÍCITO: sin esto el NIP precargado nunca se usaría desde la bandeja)
+# ---------------------------------------------------------------------------
+URL = "/titulatec/admin/solicitudes"
+LIST_PERMS = (
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+    "titulatec.process.api.read.all",      # -> officer_programs() == "ALL"
+)
+TO_ACCESS_INPUT = '<input type="hidden" name="to_access" value="1">'
+NOTA_PRECARGADO = "La cuenta nace con el NIP del SII que se cargó en lote; el correo lo lleva."
+
+
+def _fila(html: str, req) -> str:
+    """El `<tr>` de la solicitud en la bandeja."""
+    marca = f'id="tt-req-{req.id}"'
+    assert marca in html, f"no está la fila de la solicitud {req.id}"
+    return html.split(marca, 1)[1].split("</tr>", 1)[0]
+
+
+def _plano(html: str) -> str:
+    return " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def _aviso(resp) -> tuple[str, str]:
+    from urllib.parse import unquote
+    return (unquote(resp.headers.get("X-Tt-Notice", "")),
+            resp.headers.get("X-Tt-Notice-Kind", ""))
+
+
+def test_d11_la_fila_con_nip_precargado_ofrece_dar_acceso_sin_to_access(
+    client_as, db_session, make_head, make_cohort, d11, llave,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    con_nip = _make_req(db_session, cohort, control="99570020")
+    _guardar(db_session, "99570020")
+    sin_nip = _make_req(db_session, cohort, control="99570021")
+    _cuenta(db_session, "99570022")
+    con_cuenta = _make_req(db_session, cohort, control="99570022")
+    _guardar(db_session, "99570022")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    fila = _fila(html, con_nip)
+    assert "Aprobar y dar acceso" in fila
+    assert TO_ACCESS_INPUT not in fila and 'name="to_access"' not in fila
+    assert NOTA_PRECARGADO in _plano(fila)
+    assert CENTINELA not in html
+    otra = _fila(html, sin_nip)
+    assert "Aprobar y pasar a Accesos" in otra and TO_ACCESS_INPUT in otra, (
+        "sin NIP precargado la fila no cambia")
+    assert NOTA_PRECARGADO not in _plano(otra)
+    liga = _fila(html, con_cuenta)
+    assert "Aprobar y enviar liga" in liga and NOTA_PRECARGADO not in _plano(liga)
+
+
+def test_sin_llave_la_fila_sigue_ofreciendo_pasar_a_accesos(
+    client_as, db_session, make_head, make_cohort, d11, llave, monkeypatch,
+):
+    """Sin llave aprobar no puede usar el NIP: la fila no lo promete."""
+    from itcj2.config import get_settings
+
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99570023")
+    _guardar(db_session, "99570023")
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", None)
+
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+    assert "Aprobar y pasar a Accesos" in fila and TO_ACCESS_INPUT in fila
+    assert NOTA_PRECARGADO not in _plano(fila)
+
+
+def test_con_el_sii_conectado_la_fila_no_promete_el_nip_precargado(
+    client_as, db_session, make_head, make_cohort, modo_sii, llave, monkeypatch,
+):
+    """SII conectado: manda el SII vivo (spec N §3), el precargado no se usa."""
+    from itcj2.apps.titulatec.services.sii.client import SiiConfig
+
+    monkeypatch.setattr(SiiConfig, "backend", staticmethod(lambda: "fake"))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99570024")
+    _guardar(db_session, "99570024")
+
+    fila = _fila(client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text, req)
+
+    assert NOTA_PRECARGADO not in _plano(fila)
+    assert TO_ACCESS_INPUT in fila, "sin consulta, la fila ofrece pasar a Accesos"
+
+
+def test_modo_oficial_la_fila_con_nip_precargado_ofrece_dar_acceso(
+    client_as, db_session, make_head, make_cohort, llave,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    con_nip = _make_req(db_session, cohort, control="99570025")
+    _guardar(db_session, "99570025")
+    sin_nip = _make_req(db_session, cohort, control="99570026")
+
+    html = client_as(head).get(f"{URL}/body?cohort_id={cohort.id}").text
+
+    fila = _fila(html, con_nip)
+    assert "Aprobar y dar acceso" in fila and 'name="to_access"' not in fila
+    assert NOTA_PRECARGADO in _plano(fila)
+    otra = _fila(html, sin_nip)
+    assert "Aprobar y dar acceso" not in otra and NOTA_PRECARGADO not in _plano(otra)
+
+
+@pytest.mark.parametrize("sale", [True, False], ids=["correo_sale", "correo_no_sale"])
+def test_d11_ruta_aprobar_con_nip_precargado_avisa_el_folio_y_el_correo(
+    client_as, db_session, make_head, make_cohort, listo, d11, llave, monkeypatch, caplog,
+    sale,
+):
+    """Lo que manda la fila (sin `to_access`): cuenta creada, y el aviso dice el
+    folio y si el correo salió (patrón de F9). Nunca el NIP."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                        staticmethod(lambda *a, **k: sale))
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99570027")
+    _guardar(db_session, "99570027")
+
+    with caplog.at_level(logging.DEBUG):
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    db_session.refresh(req)
+    assert (req.status, req.nip_source) == ("converted", "preloaded")
+    folio = db_session.get(TitulationProcess, req.converted_process_id).folio
+    if sale:
+        assert _aviso(resp) == (
+            f"Cuenta creada (folio {folio}) con el NIP precargado; se le mandó por "
+            "correo.", "success")
+    else:
+        assert _aviso(resp) == (
+            f"Cuenta creada (folio {folio}) con el NIP precargado, pero el correo no "
+            "salió: Centro de Cómputo le reasigna el NIP desde Accesos.", "warning")
+    assert not _CENTINELA_RE.search(resp.text)
+    assert not _CENTINELA_RE.search(" ".join(f"{k}: {v}" for k, v in resp.headers.items()))
+    assert not _CENTINELA_RE.search(caplog.text)

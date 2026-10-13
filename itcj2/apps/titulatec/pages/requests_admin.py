@@ -32,7 +32,11 @@ coincide (D7). Con el SII sin configurar (D11) hay un aviso de página, sin
 consulta VIEJA que marcó «No apta» o la identidad, y aprobar sin cuenta ES
 pasar a Accesos. «Reintentar consulta» (`reconsultar`) encola una consulta
 forzada. En este modo aprobar responde con un aviso (`_approve_notice`): cuenta
-creada y si el correo salió, pasó a Accesos, o liga enviada. El NIP del SII nunca pasa por aquí: la bandeja lee
+creada y si el correo salió, pasó a Accesos, o liga enviada. Con un NIP del SII
+precargado en lote (spec 2026-10-13 N §5.2; modo oficial o D11) la fila sin
+cuenta ofrece «Aprobar y dar acceso» SIN `to_access` (`_preloaded_controls`):
+la cuenta nace con ese NIP y el correo de Accesos lo lleva; la bandeja solo
+sabe que existe, nunca lo descifra. El NIP del SII nunca pasa por aquí: la bandeja lee
 la `EligibilityCheck`, que solo guarda su ESTADO (`nip_status`). En Inscritas,
 una cuenta que nació con el NIP del SII y cuyo correo de acceso no salió lleva
 «correo no enviado» y «Reenviar aviso» (`reenviar-aviso`, D12): el correo no
@@ -105,6 +109,13 @@ _MSG_ACCOUNT_MAILED = "Cuenta creada (folio {folio}); se le avisó por correo."
 _MSG_ACCOUNT_UNMAILED = ("Cuenta creada (folio {folio}), pero el correo no salió: "
                          "reenvíalo desde Inscritas.")
 _MSG_TO_ACCESS = "Pasó a Accesos: Centro de Cómputo le capturará el NIP."
+# Cuenta creada con el NIP del SII precargado (spec 2026-10-13 N §5.2): el
+# correo lleva el NIP, así que si no salió no hay «Reenviar aviso» (el NIP ya
+# se borró); lo resuelve Centro de Cómputo con «Reasignar NIP», como en Accesos.
+_MSG_PRELOADED_MAILED = ("Cuenta creada (folio {folio}) con el NIP precargado; se le mandó "
+                         "por correo.")
+_MSG_PRELOADED_UNMAILED = ("Cuenta creada (folio {folio}) con el NIP precargado, pero el "
+                           "correo no salió: Centro de Cómputo le reasigna el NIP desde Accesos.")
 _MSG_LINK_MAILED = "Liga enviada al correo del solicitante."
 _MSG_LINK_UNMAILED = "Liga generada, pero el correo no salió: reenvíala desde Liga enviada."
 # Sigue al motivo de `ApproveResult.detail` cuando el SII no dio un NIP válido
@@ -460,6 +471,9 @@ def _approve_notice(db, req, detail: str):
     - `converted` con `nip_source == "sii"` («Aprobar y dar acceso»): folio y,
       con `EnrollmentRequestService.access_mail_unsent` (ÚNICO predicado de
       «correo no enviado»), si el correo de acceso salió.
+    - `converted` con `nip_source == "preloaded"` (NIP del SII precargado,
+      spec 2026-10-13 N §5.2): lo mismo, con su propio texto (el correo lleva
+      el NIP; si no salió, lo resuelve Centro de Cómputo desde Accesos).
     - `awaiting_access` (pasó a Accesos): a dónde fue.
     - `approved` (liga): si salió (`verify_sent_at`; `_issue_activation` lo
       pone en NULL al emitir, así que no es el de una liga anterior).
@@ -469,14 +483,17 @@ def _approve_notice(db, req, detail: str):
         EnrollmentRequestService,
     )
 
-    if req.status == "converted" and req.nip_source == "sii":
+    textos = {"sii": (_MSG_ACCOUNT_MAILED, _MSG_ACCOUNT_UNMAILED),
+              "preloaded": (_MSG_PRELOADED_MAILED, _MSG_PRELOADED_UNMAILED)}
+    if req.status == "converted" and req.nip_source in textos:
+        salio, no_salio = textos[req.nip_source]
         folio = detail
         if not folio and req.converted_process_id:
             proc = db.get(TitulationProcess, req.converted_process_id)
             folio = proc.folio if proc is not None else ""
         if EnrollmentRequestService.access_mail_unsent(req):
-            return _MSG_ACCOUNT_UNMAILED.format(folio=folio), "warning"
-        return _MSG_ACCOUNT_MAILED.format(folio=folio), "success"
+            return no_salio.format(folio=folio), "warning"
+        return salio.format(folio=folio), "success"
     if req.status == "awaiting_access":
         return _MSG_TO_ACCESS, "success"
     if req.status == "approved":
@@ -484,6 +501,39 @@ def _approve_notice(db, req, detail: str):
             return _MSG_LINK_MAILED, "success"
         return _MSG_LINK_UNMAILED, "warning"
     return None
+
+
+def _preloaded_controls(db, reqs, *, mode: str, configured: bool) -> set[str]:
+    """`control_number` (tal cual en la fila) de las solicitudes por revisar con
+    NIP del SII precargado, donde aprobar lo usaría. UNA consulta.
+
+    La MISMA condición que `EnrollmentRequestService._preloaded_nip`: modo
+    oficial, o `sii` con el SII apagado (D11), y con llave. Si la bandeja y el
+    servicio se separan, la fila promete una cuenta que no se crea o manda a
+    Accesos una que sí. «¿Tiene cuenta?» lo descarta quien llama (la fila ya
+    lo sabe). Con la llave cambiada la fila aún lo promete; al aprobar cae a
+    Accesos con su WARNING y el aviso lo dice («Pasó a Accesos»). Solo mira si
+    hay fila: nunca descifra.
+    """
+    from itcj2.apps.titulatec.models import NipStash
+    from itcj2.apps.titulatec.services.import_service import (
+        CONTROL_NUMBER_RE, normalize_control,
+    )
+    from itcj2.apps.titulatec.services.nip_stash_service import NipStashService
+
+    if not (mode == "school_services" or (mode == "sii" and not configured)):
+        return set()
+    if not NipStashService.available():
+        return set()
+    por_llave: dict[str, set[str]] = {}
+    for r in reqs:
+        control = (r.control_number or "").strip()
+        if r.status in _TAB_STATUSES["pending_review"] and CONTROL_NUMBER_RE.fullmatch(control):
+            por_llave.setdefault(normalize_control(control), set()).add(r.control_number)
+    if not por_llave:
+        return set()
+    hay = db.query(NipStash.control_number).filter(NipStash.control_number.in_(por_llave))
+    return {crudo for (llave,) in hay.all() for crudo in por_llave[llave]}
 
 
 def _filters_from(form) -> dict:
@@ -717,6 +767,8 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
     queued = StudentMail.queued_requests(
         db, [r.id for r in reqs if r.status == "rejected" and r.rejection_sent_at is None])
 
+    preloaded = _preloaded_controls(db, reqs, mode=mode, configured=configured)
+
     for r in reqs:
         # Un control mal formado no se busca (ya viene en el lote, sin N+1):
         # `approve` tampoco lo haría, así que la fila no promete la liga.
@@ -749,6 +801,14 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
             approve = {"label": (APPROVAL_LABELS["link"] if has_account
                                  else _LABEL_TO_COMPUTER_CENTER),
                        "to_access": False, "confirm": None}
+        if approve is not None and not has_account and r.control_number in preloaded:
+            # NIP del SII precargado (spec 2026-10-13 N §5.2): «dar acceso»,
+            # como el del SII, y SIN `to_access`. Con D11 la fila sin cuenta
+            # manda `to_access=1`, que el servicio toma como «pasar a Accesos»
+            # EXPLÍCITO y entonces guarda el NIP sin usarlo; sin él, D11 lo
+            # fuerza y el servicio crea la cuenta. La confirmación (D7) queda.
+            approve = {**approve, "label": APPROVAL_LABELS["sii_nip"],
+                       "to_access": False, "preloaded": True}
         anteriores = [c for c in rejected_by_control.get(r.control_number, ()) if c[1] < r.id]
         prior_reject = None
         if anteriores:
@@ -866,7 +926,9 @@ async def approve(req_id: int, request: Request,
     `X-Tt-Notice` (warning): un 4xx no dejaría a HTMX re-pintar la fila, que
     ya ofrece Accesos. Cualquier otro fallo, 400 + `X-Tt-Error`. Con el SII
     sin configurar (D11) aprobar sin cuenta ES pasar a Accesos
-    (`approve_detailed`, revisión final F8).
+    (`approve_detailed`, revisión final F8), salvo que haya NIP del SII
+    precargado: entonces la fila no manda `to_access` y la cuenta nace con
+    él (spec 2026-10-13 N §5.2).
 
     En el modo `sii` un éxito lleva además `X-Tt-Notice` con lo que pasó
     (`_approve_notice`, revisión final F9): cuenta creada con su folio y si
