@@ -11,6 +11,11 @@ Dos capas:
   moverlo (`balls`, una entrada por actor de `ACTORS`) y cuántos días lleva
   quieto (`idle_days`/`level`). «Hoy» entra como parámetro: nada aquí llama a
   `date.today()`.
+* **Motivos con código** (Ronda 2, R2): `MOTIVES` cataloga cada texto de
+  pelota con un código estable y su actor, en orden del proceso;
+  `item_motives`/`first_motives` (puras, desde el texto de `balls`) dan los
+  códigos de un pendiente y el PRIMERO de cada área, la regla con la que la
+  barra partida suma exactamente el total del área.
 * **Carga en lote** (`load_snapshot`): dos consultas propias (solicitudes
   vivas; procesos con su usuario, carrera, fase 2, cita vigente + ventana,
   último evento y documentos por dictaminar) más las de
@@ -57,6 +62,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
+from functools import lru_cache
 from urllib.parse import urlencode
 
 from sqlalchemy.orm import Session
@@ -119,6 +125,42 @@ MOTIVE_FIX_PHASE2 = "Corregir lo señalado"
 # Respaldo para un código de bloqueo que el gate agregue sin regla aquí (la
 # prueba de contrato lo atrapa antes; en producción no truena la página).
 MOTIVE_UNKNOWN_BLOCKER = "Revisar requisitos de cotejo"
+
+# Catálogo de motivos con CÓDIGO estable (Ronda 2, R2): `(código, actor,
+# texto)` en ORDEN DEL PROCESO. Ese orden es contrato: un pendiente con dos
+# motivos del mismo actor cuenta, en la barra partida de su área, SOLO en el
+# primero de este catálogo (así la suma de los motivos = el total del área), y
+# el filtro `?motive=` de Atorados usa la misma regla (cifra y lista cuadran).
+# El código viaja en la URL; el texto es el de `balls`. El de respaldo va al
+# final: no debería salir nunca.
+MOTIVES: list[tuple[str, str, str]] = [
+    ("review_request_legacy", "escolares", MOTIVE_REVIEW_LEGACY),
+    ("review_request", "escolares", MOTIVE_REVIEW_REQUEST),
+    ("give_nip", "computo", MOTIVE_GIVE_NIP),
+    ("activate_account", "alumno", MOTIVE_ACTIVATE_ACCOUNT),
+    ("resend_link", "escolares", MOTIVE_RESEND_LINK),
+    ("review_docs", "escolares", MOTIVE_REVIEW_DOCS),
+    ("upload_docs", "alumno", MOTIVE_UPLOAD_DOCS),
+    ("fill_survey", "alumno", MOTIVE_FILL_SURVEY),
+    ("release_survey", "gtv", MOTIVE_RELEASE_SURVEY),
+    ("fix_survey", "alumno", MOTIVE_FIX_SURVEY),
+    ("register_clearance", "biblioteca", MOTIVE_REGISTER_CLEARANCE),
+    ("pay", "alumno", MOTIVE_PAY),
+    ("library_observed", "alumno", MOTIVE_LIBRARY_OBSERVED),
+    ("book", "alumno", MOTIVE_BOOK),
+    ("close_appt", "escolares", MOTIVE_CLOSE_APPT),
+    ("in_attention", "escolares", MOTIVE_IN_ATTENTION),
+    ("review_phase2", "escolares", MOTIVE_REVIEW_PHASE2),
+    ("reschedule", "alumno", MOTIVE_RESCHEDULE),
+    ("fix_phase2", "alumno", MOTIVE_FIX_PHASE2),
+    ("unknown_blocker", "escolares", MOTIVE_UNKNOWN_BLOCKER),
+]
+MOTIVE_CODES: tuple[str, ...] = tuple(code for code, _, _ in MOTIVES)
+MOTIVE_ACTOR: dict[str, str] = {code: actor for code, actor, _ in MOTIVES}
+MOTIVE_LABEL: dict[str, str] = {code: label for code, _, label in MOTIVES}
+_MOTIVE_BY_LABEL = {label: code for code, _, label in MOTIVES}
+_MOTIVE_ORDER = {code: i for i, code in enumerate(MOTIVE_CODES)}
+_BALL_SEP = " · "                  # `balls` une dos motivos del mismo actor con esto
 
 # Números de fase (mismo literal que `PhaseService.PHASE_COTEJO` y los dueños
 # de las liberaciones; la spec define las etapas por número).
@@ -332,8 +374,45 @@ def _merge_balls(pairs) -> tuple[tuple[str, str], ...]:
         motivos = by_actor.setdefault(actor, [])
         if motive not in motivos:
             motivos.append(motive)
-    return tuple((actor, " · ".join(by_actor[actor]))
+    return tuple((actor, _BALL_SEP.join(by_actor[actor]))
                  for actor in sorted(by_actor, key=lambda a: _ACTOR_ORDER.get(a, len(ACTORS))))
+
+
+def motive_code(label: str) -> str | None:
+    """Código de catálogo (`MOTIVES`) de un texto de motivo; `None` si no es
+    uno del catálogo."""
+    return _MOTIVE_BY_LABEL.get(label)
+
+
+@lru_cache(maxsize=512)
+def _motives_of(balls: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+    pares = set()
+    for actor, texto in balls:
+        for parte in texto.split(_BALL_SEP):
+            code = _MOTIVE_BY_LABEL.get(parte)
+            if code is not None:
+                pares.add((actor, code))
+    return tuple(sorted(pares, key=lambda p: (_MOTIVE_ORDER[p[1]],
+                                              _ACTOR_ORDER.get(p[0], len(ACTORS)))))
+
+
+def item_motives(item: Item) -> tuple[tuple[str, str], ...]:
+    """`((actor, código), ...)` de TODOS los motivos de `item.balls`, en el
+    orden de `MOTIVES`. Sale del texto de `balls` (fuente única); un texto
+    fuera del catálogo se ignora (solo puede venir de un `Item` armado a mano:
+    el clasificador siempre usa los del catálogo, lo fija la prueba)."""
+    return _motives_of(tuple(tuple(b) for b in item.balls))
+
+
+def first_motives(item: Item) -> dict[str, str]:
+    """`{actor: código}`: el PRIMER motivo de cada área en el orden de
+    `MOTIVES` (Ronda 2, R2). Es la regla de la barra partida por motivo y del
+    filtro `?motive=`: cada pendiente cuenta una sola vez por área. `{}` sin
+    pelota."""
+    salida: dict[str, str] = {}
+    for actor, code in item_motives(item):
+        salida.setdefault(actor, code)
+    return salida
 
 
 def _link_expired(expires_at: datetime | None, today: date) -> bool:

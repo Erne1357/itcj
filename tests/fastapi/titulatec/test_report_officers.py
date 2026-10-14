@@ -472,6 +472,36 @@ def test_produccion_sin_convocatorias_o_rango_invertido_no_consulta(db_session, 
     assert ro.production(db_session, cohort_ids=None, **al_reves) == {}
 
 
+def test_produccion_con_serie_ampliada_no_cambia_los_totales(db_session, fabrica):
+    """Ronda 2 (R4a): la proyección por encargado mide los últimos 10 días
+    hábiles aunque el rango sea de 7 días. `by_day_from` alarga SOLO la serie
+    `by_day`; los totales siguen siendo del rango."""
+    f = fabrica
+    ana, beto = f["make_user"](), f["make_user"]()
+    ini, fin = LUNES + timedelta(days=7), LUNES + timedelta(days=11)
+    mar_antes, mie_antes = LUNES + timedelta(days=1), LUNES + timedelta(days=2)
+    f["evento"](f["p1"], ana, "document_approved", _a_las(mar_antes))   # antes del rango
+    f["evento"](f["p1"], ana, "document_rejected", _a_las(ini))
+    f["evento"](f["p1"], ana, "appointment_attended", _a_las(mar_antes))  # no es serie
+    f["revisada"](f["c1"], beto, _a_las(mie_antes))                    # beto: solo antes
+    db_session.flush()
+    kw = {"start": ini, "end": fin, "cohort_ids": [f["c1"].id]}
+
+    amplia = ro.production(db_session, by_day_from=LUNES, **kw)
+    a = amplia[ana.id]
+    assert (a["docs_approved"], a["docs_rejected"], a["attended"]) == (0, 1, 0)
+    assert a["reject_rate"] == pytest.approx(1.0)
+    assert a["by_day"] == {mar_antes: 1, ini: 1}
+    b = amplia[beto.id]
+    assert (b["req_reviewed"], b["reject_rate"], b["by_day"]) == (0, None, {mie_antes: 1})
+
+    normal = ro.production(db_session, **kw)
+    assert set(normal) == {ana.id} and normal[ana.id]["by_day"] == {ini: 1}
+    # Un `by_day_from` posterior al inicio no recorta nada.
+    assert ro.production(db_session, by_day_from=fin, **kw) == normal
+    assert _contar(db_session, lambda: ro.production(db_session, by_day_from=LUNES, **kw)) == 2
+
+
 def test_produccion_reject_rate_none_sin_dictamenes(db_session, fabrica):
     f = fabrica
     ana = f["make_user"]()

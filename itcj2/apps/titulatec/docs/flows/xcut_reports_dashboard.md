@@ -51,6 +51,7 @@ un valor inválido cae a su default y no viaja en ninguna liga (ni 422 ni 500).
 | `px` | ids de carrera OCULTAS, csv; `0` = «Sin carrera» | vacío |
 | `ox` | user ids de encargados OCULTOS, csv (solo pestaña Encargados) | vacío |
 | `ball` | `escolares\|alumno\|gtv\|biblioteca\|computo` (Atorados) | vacío |
+| `motive` | código de `report_snapshot.MOTIVES` (Atorados; Ronda 2). Basura o de otra área que `ball` → se ignora | vacío |
 | `level` | `warn\|crit\|all` (Atorados): `warn` = Lento o peor, `crit` = solo Atorado | `warn` |
 | `stage` | código de etapa (Atorados) | vacío |
 | `page` | paginación de Atorados | `1` |
@@ -221,9 +222,10 @@ Se compara contra los «listos para agendar»: si **listos > libres**, el cuello
   automáticamente) · faltas (`appointment_no_show`) · **liberados** (`phase_approved` con `phase_number = 2`).
   Eventos sin actor (sistema) no cuentan.
 - **«Dictámenes por día»** (sparks) = dictámenes de documentos **+ revisiones de solicitud**, solo días hábiles.
-- **Días para vaciar la cola** = `total_escolares ÷ (producción por día hábil)`, donde producción = dictámenes +
-  revisiones del rango ÷ días hábiles del rango. `—` si no produjo nada. Umbral visible = `round(CRIT × 5/7)`
-  días hábiles (14 → 10).
+- **Días para vaciar la cola** = `total_escolares ÷ ritmo`, donde ritmo = dictámenes + revisiones por día hábil
+  de los **últimos 10 días hábiles** (independiente del rango; desde la Ronda 2 es el MISMO ritmo de la
+  proyección de la tarjeta, `report_service._officer_pace`). La producción que se muestra sigue siendo la del
+  rango. `—` si no produjo nada en esos 10 días. Umbral visible = `round(CRIT × 5/7)` días hábiles (14 → 10).
 - **Lugares**: capacidad abierta vs ocupada de sus ventanas en los próximos 5 días hábiles. Un encargado sin
   carreras sale con «Sin carreras asignadas» y cola 0.
 
@@ -250,18 +252,38 @@ Aunque solo la jefa y `admin` tienen el permiso, el servicio filtra igual:
 
 ## Presupuesto de consultas
 
-Cada pestaña (`/body`, caché de authz tibia) tiene techo de **20 sentencias SQL**, fijado por
+Cada pestaña (`/body`, caché de authz tibia) tiene techo de **24 sentencias SQL** (subió de 20 en la Ronda 2 por
+las salidas por motivo), fijado por
 `tests/fastapi/titulatec/test_reports_pages.py::test_presupuesto_de_consultas_por_pestana` (con 4 y con 16
-procesos: **no crece con el número de procesos**). Medido el 2026-10-14 en el **peor camino** (con `px` y `ox`):
+procesos: **no crece con el número de procesos**). Medido el 2026-10-14 (Ronda 2) en el **peor camino** (con
+`px` y `ox`; Atorados además con `motive`):
 
 | Pestaña | Panorama | Ritmo | Encargados | Carreras | Atorados |
 |---|---|---|---|---|---|
-| Consultas | 17 | 16 | 16 | 12 | 12 |
+| Consultas | 19 | 16 | 16 | 12 | 12 |
 
-(sin `ox`: Panorama 13, Ritmo 12; un usuario acotado por carrera suma 1). Piezas: convocatorias 1 · catálogo de
-carreras 0-1 (solo con `px`) · encargados 0-4 (4 si hay `ox` o la pestaña los usa) · instantánea 2 + ≤4
-(`ClearanceGate.status_map`, solo para procesos en fase 2) · series diarias 3 · capacidad 0-2 · producción 2.
-Todo se calcula en Python desde filas cargadas en lote (cero N+1). Al tocar el servicio, vuelve a medir.
+(un usuario acotado por carrera suma 1). Piezas: convocatorias 1 · catálogo de carreras 0-1 (solo con `px`) ·
+encargados 0-4 (4 si hay `ox` o la pestaña los usa) · instantánea 2 + ≤4 (`ClearanceGate.status_map`, solo para
+procesos en fase 2) · series diarias 3 · salidas por motivo 2 (`report_flow.exit_counts`, Panorama) · capacidad
+0-2 · producción 2 (con la serie alargada a 10 días hábiles, mismas 2). Todo se calcula en Python desde filas
+cargadas en lote (cero N+1). Al tocar el servicio, vuelve a medir.
+
+## Ronda 2 (servicios, 2026-10-14)
+
+- **Motivos con código** (`report_snapshot.MOTIVES`, en orden del proceso; `first_motives`): «¿Quién tiene la
+  pelota?» parte cada área por motivo y **cada pendiente cuenta una sola vez por área, en su PRIMER motivo**, así
+  que los motivos suman exactamente el total del área (Escolares 246 = 219 solicitudes + 26 expedientes con 42
+  documentos + 1 cita, en la copia de prod).
+- **Atorados `?motive=<código>`**: la lista de ese primer motivo (cuadra con la cifra de Panorama); los chips se
+  agrupan por área; un código basura o de otra área que `ball` se ignora.
+- **Proyecciones** (`report_service._projection`, siempre «a este ritmo, sin feriados ni nuevas entradas», ritmo
+  de los últimos 10 días hábiles, ritmo 0 → «Sin ritmo medible»): **por motivo** con salida clara (revisiones,
+  dictámenes de documento, dictámenes de encuesta de GTV, registros de Biblioteca, accesos de Cómputo:
+  `report_flow.exit_counts`), **por carrera** (pendientes ÷ liberados por día de la carrera) y **por encargado**
+  (cola de Escolares ÷ su ritmo; mismo número que «Días para vaciar»). El alumno no lleva proyección.
+- **Encargados**: tarjetas (el más cargado primero) con barras de cola y producción a escala COMÚN (ocultos
+  incluidos: `ox` no reescala) y **mapa de calor** encargado × día hábil del rango (5 cubetas + vacío; fila
+  «Otros» al final; con más de 22 columnas, `wide`).
 
 ## Estado resultante
 

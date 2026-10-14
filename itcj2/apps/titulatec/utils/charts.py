@@ -61,6 +61,41 @@ def stack_segments(parts: list[tuple[str, float]]) -> list[dict]:
     return out
 
 
+def scaled_segments(parts: list[tuple[str, float]], vmax: float) -> list[dict]:
+    """Segmentos de una barra partida a una escala COMUN (`vmax`), no a su
+    propio total: `{"key", "value", "x_pct", "w_pct"}` con `w_pct = value /
+    vmax * 100`. Asi dos barras con la misma `vmax` se comparan a lo largo.
+
+    Omite las partes en 0; `vmax <= 0` -> lista vacia. Si la suma rebasa
+    `vmax`, la barra se recorta en 100 (nunca desborda).
+    """
+    if vmax <= 0:
+        return []
+    out, acum = [], 0.0
+    for key, value in parts:
+        if value <= 0 or acum >= 100:
+            continue
+        w = min(value / vmax * 100, 100 - acum)
+        out.append({"key": key, "value": value, "x_pct": acum, "w_pct": w})
+        acum += w
+    return out
+
+
+def tints(hex_color: str, n: int, *, lightest: float = 0.7) -> list[str]:
+    """`n` tintes de `hex_color` («#rrggbb»): el primero es el color tal cual y
+    el ultimo lo mezcla con blanco al `lightest` (0-1), en pasos iguales. Para
+    partir la barra de un area por motivo sin salir de su identidad (spec §12
+    + §7); por debajo de 3:1 el texto va FUERA de la marca."""
+    if n <= 0:
+        return []
+    base = [int(hex_color[i:i + 2], 16) for i in (1, 3, 5)]
+    out = []
+    for i in range(n):
+        t = 0.0 if n == 1 else lightest * i / (n - 1)
+        out.append("#" + "".join(f"{round(c + (255 - c) * t):02x}" for c in base))
+    return out
+
+
 def line_points(values: list[float], *, width: int, height: int, vmax: float,
                 pad: int = 0) -> list[tuple[float, float]]:
     """Puntos (x, y) de una linea: x equiespaciado, y invertido (SVG).

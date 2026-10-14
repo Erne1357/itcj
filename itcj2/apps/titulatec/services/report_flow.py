@@ -1,8 +1,11 @@
 """Flujo, ritmo y pronostico del tablero de la jefa de Servicios Escolares.
 
-Solo lectura. `daily_counts` agrupa por dia en SQL (tres consultas); el resto
-son funciones puras sobre series de `(fecha, conteo)`. El ritmo se mide en
-dias habiles (lun-vie, sin feriados) con `utils/business_days`.
+Solo lectura. `daily_counts` agrupa por dia en SQL (tres consultas) y
+`exit_counts` las salidas de cada cola de trabajo (dos consultas, Ronda 2,
+R4c); el resto son funciones puras sobre series de `(fecha, conteo)`
+(`pace`, `clear_days`, `forecast`, `liberated_by_day`,
+`liberated_by_program`). El ritmo se mide en dias habiles (lun-vie, sin
+feriados) con `utils/business_days`.
 """
 from __future__ import annotations
 
@@ -115,13 +118,122 @@ def pace(liberated: dict[date, int], today: date, n: int = 10) -> float:
     return sum(liberated.get(d, 0) for d in dias) / n
 
 
+def clear_days(queue: int, per_day: float) -> int | None:
+    """Dias habiles para vaciar `queue` a `per_day` por dia habil:
+    ⌈queue ÷ per_day⌉, sin el error de coma flotante (21 ÷ 0.7 son 30, no 31).
+
+    Sin cola (0 o negativa), 0; con cola y ritmo no positivo, `None` («sin
+    ritmo medible»): nunca divide entre cero.
+    """
+    if queue <= 0:
+        return 0
+    if per_day <= 0:
+        return None
+    return math.ceil(Fraction(int(queue)) / Fraction(per_day).limit_denominator(10**6))
+
+
 def forecast(pending: int, pace: float, today: date) -> date | None:
-    """Fecha estimada en que se vacian los pendientes, sin contar feriados.
+    """Fecha estimada en que se vacian los pendientes, sin contar feriados:
+    `add_business_days(today, clear_days(pending, pace))`.
 
     `None` si el ritmo no es positivo; sin pendientes, `today`.
     """
     if pending <= 0:
         return today
-    if pace <= 0:
-        return None
-    return add_business_days(today, math.ceil(Fraction(pending) / Fraction(pace).limit_denominator(10**6)))
+    dias = clear_days(pending, pace)
+    return None if dias is None else add_business_days(today, dias)
+
+
+def liberated_by_program(items: list[Item]) -> dict[int | None, dict[date, int]]:
+    """Liberados por carrera y dia (`{program_id: {fecha: n}}`, `None` = sin
+    carrera), desde `item.liberated_on`; los `None` se saltan. Puro: sale de la
+    instantanea, sin consultar (Ronda 2, R4b: ritmo de cada carrera)."""
+    out: dict[int | None, dict[date, int]] = {}
+    for it in items:
+        d = it.liberated_on
+        if d is not None:
+            serie = out.setdefault(it.program_id, {})
+            serie[d] = serie.get(d, 0) + 1
+    return out
+
+
+# Ritmos de salida por motivo (Ronda 2, R4c): de que cola sale cada serie.
+EXIT_KEYS = ("requests_reviewed", "access_granted", "docs_reviewed", "survey_reviewed",
+             "library_registered")
+# Eventos del expediente que son una SALIDA de su cola: dictamen de documento
+# (Escolares), dictamen de la encuesta (GTV) y registro de Biblioteca (con
+# adeudo o sin cargo). Revocar, revertir u observar no vacian la cola.
+_EXIT_EVENTS = {
+    "document_approved": "docs_reviewed",
+    "document_rejected": "docs_reviewed",
+    "survey_review_approved": "survey_reviewed",
+    "survey_review_rejected": "survey_reviewed",
+    "library_debt_registered": "library_registered",
+    "library_no_charge": "library_registered",
+}
+
+
+def exit_counts(db: Session, *, cohort_ids, programs, include_unmapped: bool,
+                start: date, end: date) -> dict[str, dict[date, int]]:
+    """Salidas por dia de `start` a `end` (inclusivos), con el mismo alcance
+    que `daily_counts`. Dos consultas, sin importar cuantas filas haya:
+
+    1. solicitudes (UNION ALL de dos agregados):
+       - `requests_reviewed`: revisadas (`reviewed_at`, la ULTIMA revision);
+       - `access_granted`: accesos que dio Centro de Computo
+         (`access_granted_at` con `access_granted_by_id` distinto de quien la
+         reviso: la cuenta que Servicios Escolares crea al aprobar no es de
+         Computo);
+    2. eventos del expediente (`_EXIT_EVENTS`), por la carrera y convocatoria
+       del proceso: `docs_reviewed` (dictamenes de documento),
+       `survey_reviewed` (encuestas liberadas u observadas por GTV) y
+       `library_registered` (registros de Biblioteca).
+
+    Siempre trae las 5 llaves de `EXIT_KEYS` (dias sin salidas no aparecen).
+    Sin nada visible (lista vacia de convocatorias, o ningun alcance sin
+    `include_unmapped`) no consulta.
+    """
+    from sqlalchemy import literal_column, select, union_all
+
+    from itcj2.apps.titulatec.models import (
+        EnrollmentRequest,
+        ProcessEvent,
+        TitulationProcess,
+    )
+
+    out: dict[str, dict[date, int]] = {k: {} for k in EXIT_KEYS}
+    if cohort_ids is not None and not list(cohort_ids):
+        return out
+    if programs != "ALL" and not programs and not include_unmapped:
+        return out
+    kw = {"cohort_ids": cohort_ids, "programs": programs, "include_unmapped": include_unmapped}
+    desde = datetime.combine(start, datetime.min.time())
+    antes_de = datetime.combine(end + timedelta(days=1), datetime.min.time())
+
+    ER = EnrollmentRequest
+    p_req = _filtros(ER, **kw)
+    d_rev, d_acc = cast(ER.reviewed_at, Date), cast(ER.access_granted_at, Date)
+    revisadas = (select(literal_column("'requests_reviewed'").label("k"), d_rev.label("d"),
+                        func.count().label("n"))
+                 .where(ER.reviewed_at >= desde, ER.reviewed_at < antes_de, *p_req)
+                 .group_by(d_rev))
+    accesos = (select(literal_column("'access_granted'").label("k"), d_acc.label("d"),
+                      func.count().label("n"))
+               .where(ER.access_granted_at >= desde, ER.access_granted_at < antes_de,
+                      ER.access_granted_by_id.isnot(None),
+                      ER.access_granted_by_id.is_distinct_from(ER.reviewed_by_id), *p_req)
+               .group_by(d_acc))
+    for k, d, n in db.execute(union_all(revisadas, accesos)).all():
+        out[k][d] = out[k].get(d, 0) + int(n)
+
+    PE, TP = ProcessEvent, TitulationProcess
+    dia = cast(PE.created_at, Date)
+    q = (db.query(PE.event_type, dia.label("d"), func.count().label("n"))
+         .join(TP, TP.id == PE.process_id)
+         .filter(PE.event_type.in_(sorted(_EXIT_EVENTS)),
+                 PE.created_at >= desde, PE.created_at < antes_de, *_filtros(TP, **kw))
+         .group_by(PE.event_type, dia))
+    for tipo, d, n in q.all():
+        serie = out[_EXIT_EVENTS[tipo]]
+        serie[d] = serie.get(d, 0) + int(n)
+    return out

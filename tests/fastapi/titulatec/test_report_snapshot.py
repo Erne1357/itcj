@@ -956,3 +956,132 @@ def test_consultas_fijas_con_3_que_con_12_procesos(db_session, tablero):
     # Medido el 2026-10-14: 6 (solicitudes, procesos y las 4 de
     # `ClearanceGate.status_map`). El techo del brief es 9.
     assert len(grande) <= 9, grande.sentencias
+
+
+# ===========================================================================
+# 9. Motivos con código (Ronda 2, R2): catálogo + primer motivo por área
+# ===========================================================================
+# El orden ES el contrato: «cada pendiente cuenta una vez por área, en su
+# PRIMER motivo» se decide con él (spec §12, R2), y las barras partidas lo
+# pintan tal cual.
+_MOTIVOS_EN_ORDEN = [
+    ("review_request_legacy", "escolares", rs.MOTIVE_REVIEW_LEGACY),
+    ("review_request", "escolares", rs.MOTIVE_REVIEW_REQUEST),
+    ("give_nip", "computo", rs.MOTIVE_GIVE_NIP),
+    ("activate_account", "alumno", rs.MOTIVE_ACTIVATE_ACCOUNT),
+    ("resend_link", "escolares", rs.MOTIVE_RESEND_LINK),
+    ("review_docs", "escolares", rs.MOTIVE_REVIEW_DOCS),
+    ("upload_docs", "alumno", rs.MOTIVE_UPLOAD_DOCS),
+    ("fill_survey", "alumno", rs.MOTIVE_FILL_SURVEY),
+    ("release_survey", "gtv", rs.MOTIVE_RELEASE_SURVEY),
+    ("fix_survey", "alumno", rs.MOTIVE_FIX_SURVEY),
+    ("register_clearance", "biblioteca", rs.MOTIVE_REGISTER_CLEARANCE),
+    ("pay", "alumno", rs.MOTIVE_PAY),
+    ("library_observed", "alumno", rs.MOTIVE_LIBRARY_OBSERVED),
+    ("book", "alumno", rs.MOTIVE_BOOK),
+    ("close_appt", "escolares", rs.MOTIVE_CLOSE_APPT),
+    ("in_attention", "escolares", rs.MOTIVE_IN_ATTENTION),
+    ("review_phase2", "escolares", rs.MOTIVE_REVIEW_PHASE2),
+    ("reschedule", "alumno", rs.MOTIVE_RESCHEDULE),
+    ("fix_phase2", "alumno", rs.MOTIVE_FIX_PHASE2),
+    ("unknown_blocker", "escolares", rs.MOTIVE_UNKNOWN_BLOCKER),
+]
+
+
+def test_el_catalogo_de_motivos_en_orden_del_proceso():
+    assert rs.MOTIVES == _MOTIVOS_EN_ORDEN
+    assert rs.MOTIVE_CODES == tuple(c for c, _, _ in _MOTIVOS_EN_ORDEN)
+    assert rs.MOTIVE_ACTOR["pay"] == "alumno" and rs.MOTIVE_ACTOR["give_nip"] == "computo"
+    assert rs.MOTIVE_LABEL["review_docs"] == "Dictaminar documentos"
+
+
+def test_cada_texto_de_motivo_del_modulo_esta_en_el_catalogo():
+    """Un `MOTIVE_*` nuevo sin código truena aquí, no en la barra partida."""
+    constantes = {v for k, v in vars(rs).items()
+                  if k.startswith("MOTIVE_") and isinstance(v, str)}
+    assert constantes == {label for _, _, label in rs.MOTIVES}
+    codigos = [c for c, _, _ in rs.MOTIVES]
+    assert len(set(codigos)) == len(codigos)
+    assert all(c.isascii() and c == c.lower() and " " not in c for c in codigos)
+    assert {a for _, a, _ in rs.MOTIVES} <= {a for a, _, _ in rs.ACTORS}
+    # Ningún texto lleva el separador de `balls`: si no, no se podría partir.
+    assert all(" · " not in label for _, _, label in rs.MOTIVES)
+
+
+def _todas_las_situaciones():
+    """Un item por cada fila de §4.3 que produce el clasificador."""
+    from itcj2.apps.titulatec.models.enrollment_request import OPEN_STATUSES
+    from itcj2.apps.titulatec.services.clearance_gate import BLOCKERS
+
+    items = [rs.classify_request(_req(s), HOY, CFG) for s in OPEN_STATUSES]
+    items.append(rs.classify_request(_req("approved", verify_expires_at=_hace(1)), HOY, CFG))
+    items.append(rs.classify_process(_proc(pending_docs=2), HOY, CFG))
+    items.append(rs.classify_process(_proc(pending_docs=0), HOY, CFG))
+    items += [rs.classify_process(_fase2(blockers=(b,)), HOY, CFG) for b in BLOCKERS]
+    items.append(rs.classify_process(_fase2(blockers=("codigo_nuevo",)), HOY, CFG))
+    items.append(rs.classify_process(_fase2(), HOY, CFG))
+    for estado, dias in (("confirmed", -1), ("in_progress", 0), ("attended", -2),
+                         ("no_show", -3)):
+        items.append(rs.classify_process(
+            _fase2(appt_status=estado, appt_scheduled_at=_hace(-dias)), HOY, CFG))
+    items.append(rs.classify_process(_fase2(phase2_status="rejected"), HOY, CFG))
+    return items
+
+
+def test_cada_pelota_del_clasificador_tiene_codigo():
+    vistos = set()
+    for it in _todas_las_situaciones():
+        for actor, texto in it.balls:
+            for parte in texto.split(" · "):
+                code = rs.motive_code(parte)
+                assert code is not None, parte
+                assert rs.MOTIVE_ACTOR[code] == actor, (parte, actor)
+                vistos.add(code)
+    # Todo el catálogo es alcanzable (salvo nada: el legado y el de respaldo
+    # también salen de una situación de arriba).
+    assert vistos == set(rs.MOTIVE_CODES)
+
+
+def test_motivos_de_un_item_en_orden_del_catalogo():
+    item = rs.classify_process(
+        _fase2(blockers=("survey_missing", "library_awaiting_payment")), HOY, CFG)
+    assert rs.item_motives(item) == (("alumno", "fill_survey"), ("alumno", "pay"))
+    assert rs.first_motives(item) == {"alumno": "fill_survey"}
+
+
+def test_el_primer_motivo_sigue_el_catalogo_no_el_texto():
+    """Fase 2 rechazada + encuesta sin enviar: el texto empieza con «Corregir
+    lo señalado», pero en el orden del proceso la encuesta va antes."""
+    item = rs.classify_process(
+        _fase2(phase2_status="rejected", blockers=("survey_missing",)), HOY, CFG)
+    assert item.balls == (("alumno", "Corregir lo señalado · Llenar encuesta de egresados"),)
+    assert rs.first_motives(item) == {"alumno": "fill_survey"}
+
+
+def test_un_motivo_por_area_con_doble_pelota():
+    item = rs.classify_process(
+        _fase2(blockers=("survey_in_review", "library_awaiting_payment")), HOY, CFG)
+    assert rs.first_motives(item) == {"alumno": "pay", "gtv": "release_survey"}
+    con_respaldo = rs.classify_process(
+        _fase2(appt_status="attended", appt_scheduled_at=_hace(2),
+               blockers=("codigo_nuevo",)), HOY, CFG)
+    assert rs.first_motives(con_respaldo) == {"escolares": "review_phase2"}
+
+
+def test_sin_pelota_no_hay_motivos():
+    item = rs.classify_process(
+        _fase2(appt_status="confirmed", appt_scheduled_at=_hace(-3)), HOY, CFG)
+    assert item.balls == ()
+    assert rs.item_motives(item) == () and rs.first_motives(item) == {}
+
+
+def test_un_texto_desconocido_no_truena():
+    """Un `Item` armado a mano con un texto fuera del catálogo se ignora (la
+    página nunca da 500); los del clasificador siempre tienen código."""
+    from dataclasses import replace
+
+    base = rs.classify_process(_proc(pending_docs=1), HOY, CFG)
+    raro = replace(base, balls=(("alumno", "Algo que no existe"),
+                                ("escolares", "Dictaminar documentos")))
+    assert rs.first_motives(raro) == {"escolares": "review_docs"}
+    assert rs.motive_code("Algo que no existe") is None

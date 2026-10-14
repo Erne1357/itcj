@@ -7,10 +7,11 @@
 * cada pestaña responde 200 con la jefa (página completa y parcial);
 * params basura (`cohort=abc`, `range=-3`, `px=1,,x`, `tab=foo`, `page=0`, ...)
   se ignoran: 200, nunca 422/500;
-* presupuesto de consultas por pestaña: ≤ 20 sentencias SQL en `/body` y las
-  MISMAS con 4 que con 16 procesos (patrón de CLAUDE.md de la app §18: filas
-  sembradas en una convocatoria propia, caché de authz tibia, nunca un total
-  absoluto de la base).
+* presupuesto de consultas por pestaña: ≤ 24 sentencias SQL en `/body` (spec
+  §12, R5: sube de 20 por los ritmos de salida por motivo) y las MISMAS con 4
+  que con 16 procesos (patrón de CLAUDE.md de la app §18: filas sembradas en
+  una convocatoria propia, caché de authz tibia, nunca un total absoluto de la
+  base).
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ URL = "/titulatec/admin/tablero"
 BODY = f"{URL}/body"
 PERM = "titulatec.reports.page.view"
 TABS = ("panorama", "ritmo", "encargados", "carreras", "atorados")
-TECHO = 20
+TECHO = 24                               # spec §12, R5 (antes 20)
 _SEQ = count(1)
 
 
@@ -189,6 +190,33 @@ def test_params_basura_responden_200(client_as, jefa, mundo, url):
     assert 'data-tt-tab="ritmo"' in r.text
 
 
+@pytest.mark.parametrize("url", [URL, BODY])
+@pytest.mark.parametrize("params", [
+    {"tab": "atorados", "motive": "<script>"},
+    {"tab": "atorados", "motive": "pay", "ball": "gtv"},          # de otra área
+    {"tab": "atorados", "motive": "review_docs" * 400},
+    {"tab": "panorama", "motive": "review_docs"},
+])
+def test_motivo_basura_o_de_otra_area_responde_200(client_as, jefa, mundo, url, params):
+    mundo.poblar(1)
+    r = client_as(jefa).get(url, params=params)
+    assert r.status_code == 200, r.text[:800]
+    assert f'data-tt-tab="{params["tab"]}"' in r.text
+
+
+def test_atorados_filtra_por_motivo_en_la_ruta(client_as, jefa, mundo):
+    """Con `motive` la lista trae solo los de ese PRIMER motivo: aquí, los
+    expedientes con documentos por dictaminar (uno por ronda)."""
+    mundo.poblar(2)
+    c = client_as(jefa)
+    base = {"tab": "atorados", "cohort": mundo.c.id, "level": "all"}
+    r = c.get(BODY, params={**base, "ball": "escolares", "motive": "review_docs"})
+    total = 'id="tt-rep-ator-total">2 pendientes con estos filtros'
+    assert r.status_code == 200
+    assert total in r.text
+    assert total not in c.get(BODY, params=base).text
+
+
 @pytest.mark.parametrize("tab", ["atorados", "ritmo"])
 def test_la_pestana_se_normaliza(client_as, jefa, mundo, tab):
     r = client_as(jefa).get(BODY, params={"tab": f"  {tab.upper()} "})
@@ -198,14 +226,18 @@ def test_la_pestana_se_normaliza(client_as, jefa, mundo, tab):
 
 @pytest.mark.parametrize("tab", TABS)
 def test_presupuesto_de_consultas_por_pestana(client_as, jefa, mundo, db_session, tab):
-    """≤ 20 sentencias y las MISMAS con 4 que con 16 procesos. Se mide el peor
+    """≤ 24 sentencias y las MISMAS con 4 que con 16 procesos. Se mide el peor
     camino: una carrera oculta (`px`, carga el catálogo de carreras), un
-    encargado oculto (`ox`, valida contra la lista de encargados) y, en Ritmo,
-    un día seleccionado (nombres de quien liberó)."""
+    encargado oculto (`ox`, valida contra la lista de encargados), en Ritmo un
+    día seleccionado (nombres de quien liberó) y en Atorados un motivo.
+    Medido el 2026-10-14 (Ronda 2): Panorama 19 · Ritmo 16 · Encargados 16 ·
+    Carreras 12 · Atorados 12."""
     c = client_as(jefa)
     params = {"tab": tab, "cohort": mundo.c.id, "px": mundo.oculta.id, "ox": mundo.enc.id}
     if tab == "ritmo":
         params["day"] = mundo.b0.isoformat()
+    if tab == "atorados":
+        params.update({"ball": "escolares", "motive": "review_docs"})
 
     def medir():
         assert c.get(BODY, params=params).status_code == 200      # caché de authz tibia

@@ -176,3 +176,29 @@ def test_calendar_weeks_sin_datos_y_rango_invertido():
     assert len(weeks) == 1
     assert all(c["n"] == 0 and c["bin"] == 0 and not c["is_today"] for c in weeks[0])
     assert ch.calendar_weeks({}, date(2026, 10, 16), date(2026, 10, 12), today=LUN) == []
+
+
+# === RONDA 2: segmentos a escala comun y tintes de un color ===
+def test_scaled_segments_a_escala_comun():
+    s = ch.scaled_segments([("a", 2), ("b", 0), ("c", 3)], 10)
+    assert [(x["key"], x["value"], x["x_pct"], x["w_pct"]) for x in s] == [
+        ("a", 2, 0, 20), ("c", 3, 20, 30)]
+
+
+def test_scaled_segments_tope_y_vacio():
+    assert ch.scaled_segments([("a", 5)], 0) == []
+    assert ch.scaled_segments([], 10) == []
+    assert ch.scaled_segments([("a", 0)], 10) == []
+    s = ch.scaled_segments([("a", 8), ("b", 8)], 10)       # la suma rebasa la escala
+    assert s[-1]["x_pct"] + s[-1]["w_pct"] == pytest.approx(100)
+    assert all(0 <= x["w_pct"] <= 100 for x in s)
+
+
+def test_tints_del_color_base_hacia_el_claro():
+    t = ch.tints("#2a78d6", 4)
+    assert len(t) == 4 and t[0] == "#2a78d6"
+    canales = [sum(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in t]
+    assert canales == sorted(canales) and len(set(t)) == 4
+    assert ch.tints("#2a78d6", 1) == ["#2a78d6"]
+    assert ch.tints("#000000", 2, lightest=0.5) == ["#000000", "#808080"]
+    assert ch.tints("#2a78d6", 0) == []

@@ -15,7 +15,8 @@ Spec `docs/superpowers/specs/2026-10-14-titulatec-tablero-design.md` §2 (D2),
 * `production(db, ...)` — lo que hizo cada persona en un rango, por `actor_id`
   de `ProcessEvent` y `reviewed_by_id` de `EnrollmentRequest`; NO por alcance
   (la jefa o el admin también producen: la fachada los junta en «Otros»).
-  2 consultas fijas.
+  2 consultas fijas. `by_day_from` (Ronda 2) alarga solo la serie `by_day`
+  hasta los 10 días hábiles del ritmo, sin tocar los totales del rango.
 * `capacity(db, ...)` — lugares de las ventanas abiertas en los próximos días
   hábiles, por dueño. 2 consultas fijas; la ocupación es la de
   `SlotService.window_occupancy_map` (regla única «¿esta cita ocupa lugar?»,
@@ -193,8 +194,16 @@ def _empty_production() -> dict:
             "by_day": {}}
 
 
-def production(db: Session, *, start: date, end: date, cohort_ids) -> dict[int, dict]:
+def production(db: Session, *, start: date, end: date, cohort_ids,
+               by_day_from: date | None = None) -> dict[int, dict]:
     """Lo que hizo cada persona entre `start` y `end` (días inclusivos).
+
+    `by_day_from` (Ronda 2, R4a) alarga SOLO la serie `by_day` hacia atrás,
+    hasta ese día: la proyección por encargado mide los últimos 10 días
+    hábiles aunque el rango sea más corto. Los totales siguen siendo del rango
+    y un actor que solo produjo en la parte alargada sale con totales en 0 (y
+    su `by_day`). Un `by_day_from` posterior a `start` no recorta nada. Las
+    mismas dos consultas, con la ventana ampliada.
 
     `{actor_id: {...}}` solo para quien hizo algo:
 
@@ -226,7 +235,8 @@ def production(db: Session, *, start: date, end: date, cohort_ids) -> dict[int, 
         return {}
     if start > end:
         return {}
-    desde = datetime.combine(start, time.min)
+    serie_desde = min(start, by_day_from) if by_day_from is not None else start
+    desde = datetime.combine(serie_desde, time.min)
     antes_de = datetime.combine(end + timedelta(days=1), time.min)
 
     PE = ProcessEvent
@@ -254,14 +264,18 @@ def production(db: Session, *, start: date, end: date, cohort_ids) -> dict[int, 
 
     salida: dict[int, dict] = {}
     for actor, tipo, dia, n in q_ev.all():
-        fila = salida.setdefault(int(actor), _empty_production())
         llave = _EVENT_KEYS[tipo]
-        fila[llave] += int(n)
+        if dia < start and llave not in _DICTAMEN_KEYS:
+            continue                    # fuera del rango y no es de la serie
+        fila = salida.setdefault(int(actor), _empty_production())
+        if dia >= start:
+            fila[llave] += int(n)
         if llave in _DICTAMEN_KEYS:
             fila["by_day"][dia] = fila["by_day"].get(dia, 0) + int(n)
     for actor, dia, n in q_req.all():
         fila = salida.setdefault(int(actor), _empty_production())
-        fila["req_reviewed"] += int(n)
+        if dia >= start:
+            fila["req_reviewed"] += int(n)
         fila["by_day"][dia] = fila["by_day"].get(dia, 0) + int(n)
     for fila in salida.values():
         dictamenes = fila["docs_approved"] + fila["docs_rejected"]

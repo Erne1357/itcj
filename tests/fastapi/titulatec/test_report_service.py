@@ -28,6 +28,7 @@ import pytest
 
 from itcj2.apps.titulatec.services import report_officers as ro
 from itcj2.apps.titulatec.services import report_service as rsv
+from itcj2.apps.titulatec.services import report_snapshot as rsn
 from itcj2.apps.titulatec.services.report_service import ReportFilters, ReportService
 from itcj2.apps.titulatec.utils.business_days import (
     add_business_days,
@@ -240,7 +241,8 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
     def hace(dias, h=8):
         return datetime.combine(hoy - timedelta(days=dias), time(h, 0))
 
-    def solicitud(status, program, *, creada, revisada=None, por=None, vence=None):
+    def solicitud(status, program, *, creada, revisada=None, por=None, vence=None,
+                  acceso=None, acceso_por=None):
         n = next(_SEQ)
         row = EnrollmentRequest(
             cohort_id=c.id, control_number=f"96{n:06d}", first_name="SOLICITANTE",
@@ -248,7 +250,8 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
             phone="6560000000", contact_email=f"tt6.{n}@example.invalid", has_efirma=False,
             kind="unknown", status=status, verify_send_count=0, created_at=creada,
             reviewed_at=revisada, reviewed_by_id=getattr(por, "id", por),
-            verify_expires_at=vence)
+            verify_expires_at=vence, access_granted_at=acceso,
+            access_granted_by_id=getattr(acceso_por, "id", acceso_por))
         db_session.add(row)
         db_session.flush()
         return row
@@ -265,6 +268,10 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
             p = make_process(alumno, cohort=c, program=program, status=status, current_phase=3)
         else:
             biblioteca, encuesta = {"doble": ("awaiting_payment", "in_review"),
+                                    # Ronda 2: dos motivos del ALUMNO (encuesta sin
+                                    # enviar + pago) y uno solo de Biblioteca.
+                                    "dos_del_alumno": ("awaiting_payment", None),
+                                    "biblio_pend": ("pending", "approved"),
                                     "listo": ("cleared", "approved"),
                                     "futura": ("cleared", "approved"),
                                     "pasada": ("cleared", "approved"),
@@ -272,7 +279,8 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
                                     "en_curso_ayer": ("cleared", "approved")}[clase]
             p = make_process(alumno, cohort=c, program=program, status=status,
                              current_phase=2, library_clearance=biblioteca)
-            make_survey_review(p, status=encuesta)
+            if encuesta is not None:
+                make_survey_review(p, status=encuesta)
             cita = {"futura": (w_fut, sig, "confirmed"),
                     "pasada": (w_pas, hoy - timedelta(days=1), "confirmed"),
                     "en_curso_hoy": (None, hoy, "in_progress"),        # «Atender ahora»
@@ -887,3 +895,396 @@ def test_atorados_stage_req_review_incluye_el_legado_y_cuadra_con_la_kpi(lleno):
     assert lista.total == req["pending"]
     solo_legado = _build(t, "atorados", stage="req_unverified", idle_level="all")["atorados"]["page"]
     assert 0 < solo_legado.total < lista.total
+
+
+# ===========================================================================
+# 3. Ronda 2 (spec §12): motivos, proyecciones, tarjetas y mapa de calor
+# ===========================================================================
+_ESCOLARES_EN_ORDEN = [c for c, a, _ in rsn.MOTIVES if a == "escolares"]
+
+
+def test_parse_motivo_valido_basura_y_de_otra_area():
+    assert ReportFilters.parse({"motive": " PAY "}).motive == "pay"
+    assert ReportFilters.parse({"motive": "<script>"}).motive is None
+    assert ReportFilters.parse({"motive": "pay", "ball": "alumno"}).motive == "pay"
+    assert ReportFilters.parse({"motive": "pay", "ball": "gtv"}).motive is None   # otra área
+    # Construido a mano también se normaliza, y al cambiar de pelota se cae solo.
+    assert ReportFilters(ball="gtv", motive="pay").motive is None
+    assert ReportFilters(motive="nada").motive is None
+    f = ReportFilters(tab="atorados", ball="alumno", motive="pay", idle_level="all")
+    assert f.query() == "tab=atorados&ball=alumno&motive=pay&level=all"
+    assert "motive" not in f.query(ball="gtv")
+    assert f.query(ball=None) == "tab=atorados&motive=pay&level=all"
+    assert ReportFilters.parse(dict(parse_qsl(f.query()))) == f
+
+
+def test_proyeccion_pura_sin_dividir_entre_cero():
+    lunes = date(2026, 10, 12)
+    al_dia = rsv._projection(0, 0.0, lunes, unit="documentos", verb="dictámenes")
+    assert (al_dia["status"], al_dia["days"], al_dia["date"], al_dia["text"]) == (
+        "clear", 0, lunes, "Al día")
+    sin = rsv._projection(5, 0.0, lunes, unit="documentos", verb="dictámenes")
+    assert (sin["status"], sin["days"], sin["date"], sin["date_text"]) == (
+        "no_pace", None, None, None)
+    assert sin["text"] == "Sin ritmo medible" and sin["queue"] == 5
+    ok = rsv._projection(21, 0.7, lunes, unit="documentos", verb="dictámenes")
+    assert (ok["status"], ok["days"], ok["date"]) == ("ok", 30, add_business_days(lunes, 30))
+    assert ok["per_day_text"] == "0.7" and ok["unit"] == "documentos"
+    assert ok["rate_text"] == "0.7 dictámenes por día hábil"
+    assert ok["text"] == "Se vacía el " + ok["date_text"] + " (30 días hábiles)"
+    uno = rsv._projection(1, 1.0, lunes, unit="solicitudes", verb="revisiones")
+    assert uno["text"].endswith("(1 día hábil)")
+    sobre = rsv._projection(21, 0.7, lunes, unit="documentos", verb="dictámenes", threshold=10)
+    assert (sobre["status"], sobre["over_threshold"]) == ("over", True)
+    justo = rsv._projection(10, 1.0, lunes, unit="documentos", verb="dictámenes", threshold=10)
+    assert (justo["status"], justo["over_threshold"]) == ("ok", False)
+
+
+# ---------------------------------------------------------------------------
+# Panorama: cada área partida por motivo (R2) con su proyección (R4c)
+# ---------------------------------------------------------------------------
+def _motivos(area):
+    return [(m["code"], m["value"]) for m in area["motives"]]
+
+
+def test_panorama_cada_area_partida_por_su_primer_motivo(lleno):
+    t = lleno
+    p = _build(t)["panorama"]
+    areas = _por_codigo(p["balls"])
+    assert _motivos(areas["escolares"]) == [("review_request", 2), ("review_docs", 2),
+                                            ("close_appt", 1)]
+    assert _motivos(areas["alumno"]) == [("activate_account", 1), ("upload_docs", 1),
+                                         ("pay", 1), ("book", 1)]
+    assert _motivos(areas["gtv"]) == [("release_survey", 1)]
+    assert _motivos(areas["biblioteca"]) == []
+    assert _motivos(areas["computo"]) == [("give_nip", 1)]
+    for b in p["balls"]:
+        assert sum(m["value"] for m in b["motives"]) == b["value"], b["code"]
+        if b["motives"]:
+            assert sum(m["share_pct"] for m in b["motives"]) == pytest.approx(100)
+            # Segmentos sobre el MISMO eje de las barras de área: suman su largo.
+            assert sum(m["w_pct"] for m in b["motives"]) == pytest.approx(b["pct"])
+            assert b["motives"][0]["x_pct"] == 0
+    esc = {m["code"]: m for m in areas["escolares"]["motives"]}
+    docs = esc["review_docs"]
+    assert (docs["label"], docs["docs"], esc["review_request"]["docs"]) == (
+        "Dictaminar documentos", 2, None)
+    assert docs["url"] == (f"/titulatec/admin/tablero?tab=atorados&cohort={t.c.id}"
+                           f"&ball=escolares&motive=review_docs&level=all")
+    assert docs["body_url"].startswith("/titulatec/admin/tablero/body?tab=atorados")
+    colores = [m["color"] for m in areas["escolares"]["motives"]]
+    assert len(set(colores)) == 3 and all(c.startswith("#") and len(c) == 7 for c in colores)
+    assert "Dictaminar documentos: 2" in docs["tip"]
+    assert "primer motivo" in p["motive_note"]
+    assert p["projection_note"] == "a este ritmo, sin feriados ni nuevas entradas"
+    assert p["projection_window"] == 10
+
+
+def test_dos_motivos_del_mismo_actor_cuentan_una_vez_en_el_primero(lleno):
+    t = lleno
+    antes = _por_codigo(_build(t)["panorama"]["balls"])["alumno"]["value"]
+    t.proceso("dos_del_alumno", t.pa)           # encuesta sin enviar + pago en Caja
+    alumno = _por_codigo(_build(t)["panorama"]["balls"])["alumno"]
+    assert alumno["value"] == antes + 1
+    m = dict(_motivos(alumno))
+    assert (m["fill_survey"], m["pay"]) == (1, 1)    # el pago sigue siendo solo el «doble»
+    assert sum(m.values()) == alumno["value"]
+    # La lista de Atorados de ese motivo cuadra con la cifra (misma regla).
+    lista = _build(t, "atorados", ball="alumno", motive="pay", idle_level="all")["atorados"]
+    assert lista["total"] == m["pay"] == 1
+    assert [r["id"] for r in lista["page"].items] == [t.p_a_doble.id]
+
+
+def test_panorama_proyeccion_por_motivo(lleno):
+    t = lleno
+    areas = _por_codigo(_build(t)["panorama"]["balls"])
+    esc = {m["code"]: m for m in areas["escolares"]["motives"]}
+    rev = esc["review_request"]["forecast"]          # Beto revisó 2 en b1
+    assert (rev["queue"], rev["unit"], rev["status"], rev["days"]) == (2, "solicitudes", "ok", 10)
+    assert rev["per_day"] == pytest.approx(0.2)
+    assert rev["date"] == add_business_days(t.hoy, 10)
+    docs = esc["review_docs"]["forecast"]            # 2 documentos, 5 dictámenes en b0
+    assert (docs["queue"], docs["unit"], docs["days"]) == (2, "documentos", 4)
+    assert docs["per_day"] == pytest.approx(0.5)
+    assert esc["close_appt"]["forecast"] is None     # sin un ritmo de salida claro
+    nip = areas["computo"]["motives"][0]["forecast"]
+    assert (nip["status"], nip["date"], nip["text"]) == ("no_pace", None, "Sin ritmo medible")
+    assert areas["gtv"]["motives"][0]["forecast"]["status"] == "no_pace"
+    assert all(m["forecast"] is None for m in areas["alumno"]["motives"])   # no es una cola
+
+
+def test_panorama_ritmos_de_gtv_biblioteca_y_computo(lleno):
+    t = lleno
+    t.proceso("biblio_pend", t.pb)
+    t.evento(t.jefa, "survey_review_approved", t.b0, t.p_a_lib)
+    t.evento(t.jefa, "library_debt_registered", t.b0, t.p_b_lib)
+    t.evento(t.jefa, "library_no_charge", t.b1, t.p_b_lib)
+    t.solicitud("converted", t.pa, creada=t.hace(5), revisada=datetime.combine(t.b1, time(8)),
+                por=t.beto, acceso=datetime.combine(t.b0, time(9)), acceso_por=t.ana)
+    areas = _por_codigo(_build(t)["panorama"]["balls"])
+    gtv = areas["gtv"]["motives"][0]["forecast"]
+    assert (gtv["queue"], gtv["days"], gtv["unit"]) == (1, 10, "encuestas")
+    bib = areas["biblioteca"]["motives"][0]
+    assert (bib["code"], bib["value"]) == ("register_clearance", 1)
+    assert (bib["forecast"]["per_day"], bib["forecast"]["days"]) == (pytest.approx(0.2), 5)
+    nip = areas["computo"]["motives"][0]["forecast"]
+    assert (nip["per_day"], nip["days"]) == (pytest.approx(0.1), 10)
+
+
+def test_las_proyecciones_no_dependen_del_rango(lleno):
+    t = lleno
+    viejo = last_business_days(t.hoy, 10)[0]          # dentro de 10 hábiles, fuera de 7 días
+    t.evento(t.ana, "document_approved", viejo, t.p_a_lib)
+
+    def docs(**kw):
+        areas = _por_codigo(_build(t, **kw)["panorama"]["balls"])
+        return {m["code"]: m for m in areas["escolares"]["motives"]}["review_docs"]["forecast"]
+
+    assert docs(range_days=7) == docs() == docs(range_days=None)
+    assert docs()["per_day"] == pytest.approx(0.6)
+
+
+# ---------------------------------------------------------------------------
+# Encargados: tarjetas (R1), mapa de calor (R3) y proyección (R4a)
+# ---------------------------------------------------------------------------
+def _cards(t, **kw):
+    e = _build(t, "encargados", **kw)["encargados"]
+    return e, {c["user_id"]: c for c in e["cards"]}
+
+
+def test_encargados_tarjetas_con_segmentos_a_escala_comun(lleno):
+    t = lleno
+    e, cards = _cards(t)
+    ana, beto = cards[t.ana.id], cards[t.beto.id]
+    assert [(s["key"], s["value"]) for s in ana["queue_segments"]] == [
+        ("req_review", 2), ("docs_pending", 1), ("appts_to_close", 1), ("ready_to_book", 1)]
+    assert (ana["queue"]["total"], ana["queue"]["total_escolares"]) == (5, 4)
+    assert [(s["key"], s["value"]) for s in beto["queue_segments"]] == [
+        ("req_review", 1), ("docs_pending", 1)]
+    assert e["card_scale"] == {"queue": 5, "prod": 4}
+    assert sum(s["w_pct"] for s in ana["queue_segments"]) == pytest.approx(100)
+    assert sum(s["w_pct"] for s in beto["queue_segments"]) == pytest.approx(40)
+    assert [(s["key"], s["value"]) for s in ana["prod_segments"]] == [
+        ("docs_approved", 3), ("docs_rejected", 1)]
+    assert [(s["key"], s["value"]) for s in beto["prod_segments"]] == [("req_reviewed", 2)]
+    assert sum(s["w_pct"] for s in beto["prod_segments"]) == pytest.approx(50)
+    assert ana["prod"]["total"] == 4 and ana["prod"]["liberated"] == 1
+    assert all(s["color"].startswith("#") and s["label"] and s["tip"]
+               for s in ana["queue_segments"] + ana["prod_segments"])
+    assert [x["key"] for x in e["queue_legend"]] == ["req_review", "docs_pending",
+                                                     "appts_to_close", "ready_to_book"]
+    assert [x["key"] for x in e["prod_legend"]] == ["req_reviewed", "docs_approved",
+                                                    "docs_rejected"]
+    assert ana["places"] == {"occupied": 1, "capacity": 2, "free": 1, "pct": 50.0,
+                             "text": "1 de 2"}
+    assert beto["places"]["pct"] is None
+    assert ana["programs"] and ana["no_programs"] is False
+
+
+def test_encargados_proyeccion_y_orden_el_mas_cargado_primero(lleno):
+    t = lleno
+    e, cards = _cards(t)
+    ana, beto = cards[t.ana.id]["projection"], cards[t.beto.id]["projection"]
+    assert (ana["queue"], ana["days"], ana["status"]) == (4, 10, "ok")       # 4 ÷ 0.4
+    assert ana["per_day"] == pytest.approx(0.4) and ana["over_threshold"] is False
+    assert ana["date"] == add_business_days(t.hoy, 10)
+    assert (beto["queue"], beto["days"]) == (2, 10)                          # 2 ÷ 0.2
+    assert e["projection_threshold"] == {"days": 10, "text": "10 días hábiles"}
+    propios = [c["user_id"] for c in e["cards"] if c["user_id"] in (t.ana.id, t.beto.id)]
+    assert propios == [t.ana.id, t.beto.id]          # empate de días: la cola mayor primero
+    # Ana produce más: vacía antes y Beto pasa al frente; una solicitud nueva
+    # de A empuja a Beto sobre el umbral.
+    for _ in range(6):
+        t.evento(t.ana, "document_approved", t.b0, t.p_a_lib)
+    t.solicitud("pending_review", t.pa, creada=t.hace(1))
+    e, cards = _cards(t)
+    propios = [c["user_id"] for c in e["cards"] if c["user_id"] in (t.ana.id, t.beto.id)]
+    assert propios == [t.beto.id, t.ana.id]
+    b = cards[t.beto.id]["projection"]
+    assert (b["queue"], b["days"], b["status"], b["over_threshold"]) == (3, 15, "over", True)
+    assert cards[t.ana.id]["projection"]["days"] == 5                        # 5 ÷ 1.0
+
+
+def test_encargados_sin_ritmo_van_primero_y_sin_cola_al_final():
+    def card(nombre, status, queue, days):
+        return {"name": nombre, "projection": {"status": status, "queue": queue, "days": days}}
+
+    orden = rsv._cards_sorted([card("A", "clear", 0, 0), card("B", "ok", 3, 2),
+                               card("C", "no_pace", 4, None), card("D", "over", 9, 30),
+                               card("E", "no_pace", 9, None)])
+    assert [c["name"] for c in orden] == ["E", "C", "D", "B", "A"]
+
+
+def test_la_proyeccion_del_encargado_no_depende_del_rango(lleno):
+    t = lleno
+    viejo = last_business_days(t.hoy, 10)[0]
+    t.evento(t.ana, "document_approved", viejo, t.p_a_lib)
+    e7, siete = _cards(t, range_days=7)
+    e14, catorce = _cards(t)
+    assert siete[t.ana.id]["projection"] == catorce[t.ana.id]["projection"]
+    assert siete[t.ana.id]["projection"]["per_day"] == pytest.approx(0.5)
+    # La producción de la tarjeta sí es del rango.
+    assert (siete[t.ana.id]["prod"]["docs_approved"],
+            catorce[t.ana.id]["prod"]["docs_approved"]) == (3, 4)
+    # Decisión del controlador (Ronda 0): «Días para vaciar» de la tabla sale del
+    # MISMO ritmo que la proyección (10 hábiles): 4 ÷ 0.5 = 8 con 7 o 14 días.
+    for e in (e7, e14):
+        fila = next(r for r in e["rows"] if r["user_id"] == t.ana.id)
+        assert fila["days_to_clear"] == pytest.approx(8.0)
+        assert fila["days_to_clear_text"] == "8"
+        assert fila["prod"]["docs_approved"] == (3 if e is e7 else 4)
+    assert e7["projection_window"] == 10
+
+
+def test_dias_para_vaciar_y_proyeccion_coinciden_en_el_umbral(lleno):
+    t = lleno
+    t.solicitud("pending_review", t.pa, creada=t.hace(1))     # Beto: 3 ÷ 0.2 = 15 > 10
+    e, cards = _cards(t, range_days=30)
+    fila = next(r for r in e["rows"] if r["user_id"] == t.beto.id)
+    pj = cards[t.beto.id]["projection"]
+    assert fila["days_to_clear"] == pytest.approx(15.0) and pj["days"] == 15
+    assert fila["over_threshold"] is pj["over_threshold"] is True
+
+
+def test_mapa_de_calor_lleva_la_fila_otros_al_final(lleno):
+    t = lleno
+    for oculto in (frozenset(), frozenset({t.ana.id, t.beto.id})):
+        e = _build(t, "encargados", hidden_officers=oculto)["encargados"]
+        h = e["heatmap"]
+        otros = h["rows"][-1]
+        assert otros["is_others"] is True and otros["user_id"] is None
+        assert otros["name"] == "Otros" and otros["actors"] == e["others"]["actors"] == 1
+        celdas = {c["iso"]: c for c in otros["cells"]}
+        assert celdas[t.b0.isoformat()]["n"] == 1 and otros["total"] == 1   # la jefa, en b0
+        assert "Otros" in celdas[t.b0.isoformat()]["tip"]
+        assert all(r["is_others"] is False for r in h["rows"][:-1])
+        assert h["vmax"] == 4                       # la escala incluye «Otros»
+
+
+def test_sin_otros_no_hay_fila_otros(esc):
+    t = esc
+    h = _build(t, "encargados")["encargados"]["heatmap"]
+    assert not any(r["is_others"] for r in h["rows"])
+
+
+def test_ocultar_encargados_no_cambia_la_escala_ni_el_mapa(lleno):
+    t = lleno
+    todos, c_todos = _cards(t)
+    sin_ana, c_sin = _cards(t, hidden_officers=frozenset({t.ana.id}))
+    assert sin_ana["card_scale"] == todos["card_scale"]
+    assert c_sin[t.beto.id]["queue_segments"] == c_todos[t.beto.id]["queue_segments"]
+    assert t.ana.id not in c_sin
+    assert sin_ana["heatmap"]["vmax"] == todos["heatmap"]["vmax"]
+    assert t.ana.id not in {r["user_id"] for r in sin_ana["heatmap"]["rows"]}
+
+
+def test_encargados_mapa_de_calor_por_dia_habil(lleno):
+    from itcj2.apps.titulatec.utils.business_days import is_business_day
+
+    t = lleno
+    h = _build(t, "encargados")["encargados"]["heatmap"]
+    n_bd = _bdays_en_rango(t.hoy)
+    assert h["n_days"] == len(h["days"]) == n_bd and h["wide"] is False
+    assert all(is_business_day(d["date"]) and d["show_label"] for d in h["days"])
+    assert h["days"][0]["label"] and h["days"][0]["week_start"] is False
+    filas = {r["user_id"]: r for r in h["rows"]}
+    ana = {c["iso"]: c for c in filas[t.ana.id]["cells"]}
+    beto = {c["iso"]: c for c in filas[t.beto.id]["cells"]}
+    assert h["vmax"] == 4
+    assert (ana[t.b0.isoformat()]["n"], ana[t.b0.isoformat()]["bin"]) == (4, 5)
+    assert (beto[t.b1.isoformat()]["n"], beto[t.b1.isoformat()]["bin"]) == (2, 3)
+    assert filas[t.ana.id]["total"] == 4 and filas[t.beto.id]["total"] == 2
+    vacia = next(c for c in filas[t.beto.id]["cells"] if c["n"] == 0)
+    assert vacia["bin"] == 0 and vacia["color"] == rsv.CALENDAR_ZERO_COLOR
+    assert ana[t.b0.isoformat()]["color"] == rsv.CALENDAR_RAMP[4]
+    assert "4 dictámenes y revisiones" in ana[t.b0.isoformat()]["tip"]
+    assert t.ana.full_name in ana[t.b0.isoformat()]["tip"]
+    assert h["legend"][0]["bin"] == 0 and h["legend"][-1]["bin"] == 5
+    # Mismo orden que la tabla (por nombre) y solo visibles; «Otros» va al final.
+    encargados = [r["user_id"] for r in h["rows"] if not r["is_others"]]
+    assert encargados == [r["user_id"] for r in _build(t, "encargados")["encargados"]["rows"]]
+    assert h["rows"][-1]["is_others"] is True
+
+
+def test_el_mapa_de_calor_de_toda_la_convocatoria_no_desborda(lleno):
+    t = lleno
+    t.c.opens_at = datetime.combine(t.hoy - timedelta(days=70), time(8))
+    t.db.flush()
+    h = _build(t, "encargados", range_days=None)["encargados"]["heatmap"]
+    assert h["n_days"] >= 45 and h["wide"] is True
+    con_etiqueta = [d for d in h["days"] if d["show_label"]]
+    assert 0 < len(con_etiqueta) < h["n_days"]
+    assert all(d["date"].weekday() == 0 for d in con_etiqueta[1:])
+    assert sum(1 for d in h["days"] if d["week_start"]) >= 9
+
+
+# ---------------------------------------------------------------------------
+# Carreras: proyección por carrera (R4b)
+# ---------------------------------------------------------------------------
+def test_carreras_proyeccion_por_carrera(lleno):
+    t = lleno
+    filas = {f["id"]: f for f in _build(t, "carreras")["carreras"]["rows"]}
+    a = filas[t.pa.id]["forecast"]                    # 6 pendientes, 1 liberado en b1
+    assert (filas[t.pa.id]["pending"], a["queue"], a["days"], a["status"]) == (6, 6, 60, "ok")
+    assert a["per_day"] == pytest.approx(0.1) and a["date"] == add_business_days(t.hoy, 60)
+    assert a["unit"] == "pendientes"
+    b = filas[t.pb.id]["forecast"]
+    assert (b["queue"], b["days"]) == (4, 40)
+    sin = filas[None]["forecast"]
+    assert (sin["queue"], sin["status"], sin["date"]) == (1, "no_pace", None)
+    otro_rango = {f["id"]: f for f in _build(t, "carreras", range_days=7)["carreras"]["rows"]}
+    assert otro_rango[t.pa.id]["forecast"] == a
+    ctx = _build(t, "carreras")["carreras"]
+    assert ctx["projection_note"] == "a este ritmo, sin feriados ni nuevas entradas"
+    assert ctx["projection_window"] == 10
+
+
+def test_carrera_sin_pendientes_esta_al_dia(lleno):
+    t = lleno
+    pc = t.make_program("Ingenieria Fachada Tablero Al Dia")
+    t.proceso("docs_pend", pc, status="on_hold")
+    fila = {f["id"]: f for f in _build(t, "carreras")["carreras"]["rows"]}[pc.id]
+    assert (fila["pending"], fila["forecast"]["status"], fila["forecast"]["text"]) == (
+        0, "clear", "Al día")
+
+
+# ---------------------------------------------------------------------------
+# Atorados: filtro `motive` y chips agrupados por área (R2)
+# ---------------------------------------------------------------------------
+def test_atorados_filtro_por_motivo_y_chips_por_area(lleno):
+    t = lleno
+    a = _build(t, "atorados", ball="escolares", motive="review_docs",
+               idle_level="all")["atorados"]
+    assert {r["id"] for r in a["page"].items} == {t.p_a_docs.id, t.p_sin_docs.id}
+    assert all(r["motives"][0]["code"] == "review_docs" for r in a["page"].items)
+    grupos = a["chips"]["motive"]
+    assert [g["actor"] for g in grupos] == ["escolares", "alumno", "gtv", "biblioteca",
+                                            "computo"]
+    esc = {c["code"]: c for c in grupos[0]["motives"]}
+    assert [c["code"] for c in grupos[0]["motives"]] == _ESCOLARES_EN_ORDEN
+    assert (esc["review_docs"]["active"], esc["review_docs"]["n"]) == (True, 2)
+    assert (esc["review_request"]["n"], esc["close_appt"]["n"],
+            esc["resend_link"]["n"]) == (2, 1, 0)
+    assert (grupos[0]["n"], grupos[1]["n"], grupos[0]["label"]) == (5, 4, "Escolares")
+    assert esc["review_request"]["url"] == (
+        f"/titulatec/admin/tablero?tab=atorados&cohort={t.c.id}&ball=escolares"
+        f"&motive=review_request&level=all")
+    assert esc["review_request"]["active"] is False
+    assert a["motive_clear"]["active"] is False and "motive=" not in a["motive_clear"]["url"]
+    assert a["active_motive"] == {"code": "review_docs", "label": "Dictaminar documentos",
+                                  "actor": "escolares", "actor_label": "Escolares"}
+    # Cambiar de pelota suelta un motivo de otra área (no queda contradictorio).
+    gtv = _por_codigo(a["chips"]["ball"])["gtv"]
+    assert "motive=" not in gtv["url"]
+    assert "Motivo: Dictaminar documentos" in _build(
+        t, "atorados", motive="review_docs")["print_summary"]
+
+
+def test_atorados_motivo_basura_o_de_otra_area_se_ignora(lleno):
+    t = lleno
+    base = _build(t, "atorados", idle_level="all")["atorados"]
+    otra = _build(t, "atorados", ball="gtv", motive="pay", idle_level="all")
+    assert otra["filters"].motive is None
+    solo_gtv = _build(t, "atorados", ball="gtv", idle_level="all")["atorados"]
+    assert otra["atorados"]["total"] == solo_gtv["total"] == 1
+    assert base["active_motive"] is None and base["motive_clear"]["active"] is True
