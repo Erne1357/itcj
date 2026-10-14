@@ -1291,6 +1291,44 @@ class TestLoteSinAdeudo:
         assert len(resultado["skipped"]) == 1
         assert _library_events(db_session, liberado.process.id) == []
 
+    def test_lee_los_procesos_una_vez_aunque_nadie_mas_los_retenga(
+            self, db_session, nuevo, actores):
+        """Traza de prod (2026-10-14): un lote de 38 hizo 38 `SELECT` de
+        `titulatec_processes` de más (447 ms, 251 sentencias). El mapa de
+        identidad de la sesión es DÉBIL: la consulta que cargaba los procesos en
+        lote descartaba la lista, se recolectaban y el `db.get` de cada fila
+        volvía a la BD. En las otras pruebas no se ve porque las fábricas
+        retienen los procesos: aquí la sesión se vacía antes de medir."""
+        import gc
+
+        actor_id = actores.biblioteca.id
+
+        def _lecturas(n: int) -> int:
+            primero = nuevo()
+            ids = [primero.clearance.id] + [
+                nuevo(cohort=primero.cohort).clearance.id for _ in range(n - 1)]
+            db_session.flush()
+            db_session.expunge_all()            # nada retiene los procesos
+            gc.collect()
+            sentencias = []
+
+            def _ver(_conn, _cursor, statement, *_a):
+                sentencias.append(statement)
+
+            conn = db_session.connection()
+            event.listen(conn, "before_cursor_execute", _ver)
+            try:
+                with patch(NOTIFY):
+                    resultado = LibraryClearanceService.register_no_debt_bulk(
+                        db_session, ids, actor_id)
+            finally:
+                event.remove(conn, "before_cursor_execute", _ver)
+            assert resultado["done"] == n
+            return sum(1 for s in sentencias
+                       if s.lstrip().startswith("SELECT") and "FROM titulatec_processes" in s)
+
+        assert _lecturas(2) == _lecturas(5) == 1
+
 
 # ---------------------------------------------------------------------------
 # Registrar pago (Caja)
