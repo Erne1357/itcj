@@ -11,10 +11,17 @@ from datetime import date, datetime, timedelta
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Date, cast, false, func
+from sqlalchemy import Date, cast, func
 from sqlalchemy.orm import Session
 
-from itcj2.apps.titulatec.utils.business_days import add_business_days, last_business_days
+from itcj2.apps.titulatec.services.report_scope import (
+    cohort_predicates,
+    scope_predicates,
+)
+from itcj2.apps.titulatec.utils.business_days import (
+    add_business_days,
+    last_business_days,
+)
 
 if TYPE_CHECKING:
     from itcj2.apps.titulatec.services.report_snapshot import Item
@@ -26,25 +33,11 @@ def _filtros(model, *, cohort_ids, programs, include_unmapped) -> list:
     `cohort_ids=None` = todas las convocatorias; lista vacia = ninguna.
     Las de `program_id NULL` entran SOLO con `include_unmapped=True` (tambien
     con "ALL"). `programs="ALL"` no filtra por carrera; un set filtra por
-    `program_id`.
+    `program_id`. La regla vive en `report_scope` (la misma de
+    `report_snapshot`).
     """
-    preds = []
-    if cohort_ids is not None:
-        preds.append(model.cohort_id.in_(list(cohort_ids)))
-    if programs == "ALL":
-        if not include_unmapped:
-            preds.append(model.program_id.is_not(None))
-    else:
-        ids = list(programs)
-        if ids and include_unmapped:
-            preds.append(model.program_id.in_(ids) | model.program_id.is_(None))
-        elif ids:
-            preds.append(model.program_id.in_(ids))
-        elif include_unmapped:
-            preds.append(model.program_id.is_(None))
-        else:
-            preds.append(false())   # sin alcance: no trae nada
-    return preds
+    return (cohort_predicates(model.cohort_id, cohort_ids)
+            + scope_predicates(model.program_id, programs, include_unmapped))
 
 
 def _por_dia(db: Session, columna, preds: list, start: date, end: date) -> dict[date, int]:

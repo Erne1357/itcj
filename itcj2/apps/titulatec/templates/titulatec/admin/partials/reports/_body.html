@@ -4,15 +4,15 @@
    llena una tarea posterior. #}
 <div id="tt-report-body" data-tt-view="reports-body" data-tt-tab="{{ tab }}">
   <nav class="d-flex flex-wrap gap-2 mb-3" id="tt-report-tabs" aria-label="Secciones del tablero">
-    {% for code, label in tabs %}
-    <a id="tt-report-tab-{{ code }}"
-       class="btn btn-sm {{ 'tt-btn-ink' if tab == code else 'tt-btn-ghost' }}"
-       href="/titulatec/admin/tablero?tab={{ code }}"
-       hx-get="/titulatec/admin/tablero/body?tab={{ code }}"
+    {% for t in tabs %}
+    <a id="tt-report-tab-{{ t.code }}"
+       class="btn btn-sm {{ 'tt-btn-ink' if t.active else 'tt-btn-ghost' }}"
+       href="/titulatec/admin/tablero?tab={{ t.code }}"
+       hx-get="/titulatec/admin/tablero/body?tab={{ t.code }}"
        hx-target="#tt-report-body" hx-select="#tt-report-body"
        hx-swap="morph:outerHTML"
-       hx-push-url="/titulatec/admin/tablero?tab={{ code }}"
-       {% if tab == code %}aria-current="page"{% endif %}>{{ label }}</a>
+       hx-push-url="/titulatec/admin/tablero?tab={{ t.code }}"
+       {% if t.active %}aria-current="page"{% endif %}>{{ t.label }}</a>
     {% endfor %}
   </nav>
   <section id="tt-report-panel-{{ tab }}">

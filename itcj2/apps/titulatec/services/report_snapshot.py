@@ -453,28 +453,16 @@ def _scope_filters(model, *, cohort_ids, programs, include_unmapped) -> list:
     filtra por `program_id`. `program_id NULL` (cubo «Sin carrera») entra SOLO
     con `include_unmapped`, también con "ALL" (como `scope_service`: `read.all`
     no abre ese cubo). Set vacío sin `include_unmapped` = `false()`: no trae
-    nada. Mismo criterio que `report_flow._filtros`. `load_snapshot` además
-    corta ese caso antes de consultar.
+    nada. La regla vive en `report_scope` (la misma que usa `report_flow`);
+    `load_snapshot` además corta ese caso antes de consultar.
     """
-    from sqlalchemy import false, or_
+    from itcj2.apps.titulatec.services.report_scope import (
+        cohort_predicates,
+        scope_predicates,
+    )
 
-    preds = []
-    if cohort_ids is not None:
-        preds.append(model.cohort_id.in_(sorted({int(c) for c in cohort_ids})))
-    if programs == "ALL":
-        if not include_unmapped:
-            preds.append(model.program_id.isnot(None))
-        return preds
-    ids = sorted({int(p) for p in programs})
-    if ids and include_unmapped:
-        preds.append(or_(model.program_id.in_(ids), model.program_id.is_(None)))
-    elif ids:
-        preds.append(model.program_id.in_(ids))
-    elif include_unmapped:
-        preds.append(model.program_id.is_(None))
-    else:
-        preds.append(false())       # sin alcance: no trae nada (ni «Sin carrera»)
-    return preds
+    return (cohort_predicates(model.cohort_id, cohort_ids)
+            + scope_predicates(model.program_id, programs, include_unmapped))
 
 
 def load_snapshot(db: Session, *, cohort_ids: list[int] | None, programs: set[int] | str,
