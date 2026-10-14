@@ -16,11 +16,14 @@
 {%- set rango = ("los últimos " ~ filters.range_days ~ " días") if filters.range_days else "toda la convocatoria" %}
 
 <div class="tt-rep-kpis" id="tt-rep-kpis">
-  {% call stat_tile("tt-rep-kpi-liberated", "Liberados", k.liberated.total, k.liberated.url, k.liberated.body_url) %}
+  {#- La sparkline va FUERA de la liga del tile (`after`): se enfoca sola y su
+      `aria-label` lleva los valores por día, la vía sin ratón de esta serie
+      (la tabla completa está en Ritmo). #}
+  {%- set spark_txt = "Liberados por día en " ~ rango ~ ": " ~ k.liberated.spark_values|join(", ") %}
+  {%- set spark %}{{ sparkline(k.liberated.spark, k.liberated.spark_width, k.liberated.spark_height,
+                               spark_txt, spark_txt, focusable=True) }}{% endset %}
+  {% call stat_tile("tt-rep-kpi-liberated", "Liberados", k.liberated.total, k.liberated.url, k.liberated.body_url, after=spark) %}
   <span class="tt-rep-kpi-line">{{ k.liberated.in_range }} en {{ rango }}</span>
-  {{ sparkline(k.liberated.spark, k.liberated.spark_width, k.liberated.spark_height,
-               "Tendencia diaria de liberados",
-               "Liberados por día en " ~ rango ~ ": " ~ k.liberated.spark_values|join(", ")) }}
   {% endcall %}
 
   {% call stat_tile("tt-rep-kpi-pace", "Ritmo de liberación", k.pace.text, ritmo_tab.url, ritmo_tab.body_url, unit="por día hábil") %}
@@ -32,8 +35,9 @@
   {% if k.requests.oldest_days is not none %}
   {%- set od = k.requests.oldest_days %}
   <span class="tt-rep-kpi-line">La más vieja:
-    {% if od >= idle.crit %}<span class="tt-rep-status tt-rep-status--crit"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>{{ od }} días</span>
-    {%- elif od >= idle.warn %}<span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ od }} días</span>
+    {#- Estado = icono + PALABRA («atorada»/«lenta»), nunca solo el color. #}
+    {% if od >= idle.crit %}<span class="tt-rep-status tt-rep-status--crit"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>{{ od }} días · atorada</span>
+    {%- elif od >= idle.warn %}<span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ od }} días · lenta</span>
     {%- else %}<strong>{{ od }} {{ "día" if od == 1 else "días" }}</strong>{% endif %}
   </span>
   {% else %}

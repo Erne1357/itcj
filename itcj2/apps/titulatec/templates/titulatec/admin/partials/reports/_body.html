@@ -12,7 +12,7 @@
 
    La cabecera `#tt-rep-print-head` solo se ve al imprimir (D4): fecha y hora
    de la consulta (`generated_at_text`, la pone la ruta) y `print_summary`.
-   Encargados, Carreras y Atorados los pinta la Task 7b. #}
+   Encargados, Carreras y Atorados: Task 7b. #}
 {% from "titulatec/admin/partials/reports/_charts.html" import nav %}
 {%- set TAB_ICONS = {"panorama": "bi-grid-1x2", "ritmo": "bi-graph-up-arrow",
                      "encargados": "bi-people", "carreras": "bi-mortarboard",
@@ -79,7 +79,8 @@
       </div>
     </details>
 
-    <button type="button" class="btn btn-sm tt-btn-ghost tt-rep-print" id="tt-rep-print" data-tt-print>
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-rep-print" id="tt-rep-print" data-tt-print
+            aria-label="Imprimir el tablero">
       <i class="bi bi-printer" aria-hidden="true"></i><span class="d-none d-sm-inline"> Imprimir</span>
     </button>
   </div>
@@ -116,11 +117,11 @@
     {% elif tab == "ritmo" %}
       {% include "titulatec/admin/partials/reports/_ritmo.html" %}
     {% elif tab == "encargados" %}
-      {% include "titulatec/admin/partials/reports/_empty.html" %}
+      {% include "titulatec/admin/partials/reports/_encargados.html" %}
     {% elif tab == "carreras" %}
-      {% include "titulatec/admin/partials/reports/_empty.html" %}
+      {% include "titulatec/admin/partials/reports/_carreras.html" %}
     {% else %}
-      {% include "titulatec/admin/partials/reports/_empty.html" %}
+      {% include "titulatec/admin/partials/reports/_atorados.html" %}
     {% endif %}
   </section>
 </div>

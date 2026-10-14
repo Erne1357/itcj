@@ -74,6 +74,7 @@ from itcj2.apps.titulatec.utils.paging import paginate_list, parse_page
 BASE_URL = "/titulatec/admin/tablero"
 BODY_URL = f"{BASE_URL}/body"
 APPOINTMENTS_URL = "/titulatec/admin/appointments"
+LIBERADOS_URL = "/titulatec/admin/liberados"          # bandeja Liberados (`handoff_admin.py`)
 
 TABS: tuple[tuple[str, str], ...] = (
     ("panorama", "Panorama"),
@@ -506,6 +507,19 @@ def _range_text(d: _Data) -> str:
     return f"Toda la convocatoria (desde el {_fmt_day(d.range_start)})"
 
 
+def _liberados_url(d: _Data, pid: int | None) -> str | None:
+    """Bandeja Liberados filtrada por carrera (y por la convocatoria, si hay
+    UNA elegida). Nombres de parámetro de `pages/handoff_admin.py`. `None`
+    para «Sin carrera»: esa bandeja no tiene un filtro de «sin carrera»."""
+    if pid is None:
+        return None
+    pairs = []
+    if d.cohort_ids is not None and len(d.cohort_ids) == 1:
+        pairs.append(("cohort_id", str(d.cohort_ids[0])))
+    pairs.append(("program_id", str(pid)))
+    return f"{LIBERADOS_URL}?{urlencode(pairs)}"
+
+
 # ---------------------------------------------------------------------------
 # Contexto común
 # ---------------------------------------------------------------------------
@@ -920,7 +934,13 @@ def _ctx_ritmo(db: Session, d: _Data) -> dict:
       weekdays: ["lun".."vie"], start, end, max, total}` (lun-vie × semanas;
       clic en un día = `?day=`).
     - `by_program`: liberados en el rango por carrera, mayor primero, solo los
-      que tienen alguno: `[{id (None = «Sin carrera»), name, value, pct, tip}]`.
+      que tienen alguno: `[{id (None = «Sin carrera»), name, value, pct, tip,
+      url}]`. `url` lleva a la bandeja **Liberados**
+      (`/titulatec/admin/liberados?cohort_id=…&program_id=…`, mismos nombres
+      de parámetro que `pages/handoff_admin.py`): `cohort_id` solo con UNA
+      convocatoria elegida (con «todas», sin él). Esa bandeja no filtra por
+      fecha, así que lista TODOS los liberados de la carrera, no solo los del
+      rango. `None` para «Sin carrera» (la bandeja no filtra «sin carrera»).
     - `pace`: el mismo dict que `panorama.kpis.pace`.
     - `selected_day` (date|None), `selected_day_text`, `day_list`: liberados de
       ese día `[{id, label, control, program, officer ("—" sin dato), href}]`
@@ -956,7 +976,8 @@ def _ctx_ritmo(db: Session, d: _Data) -> dict:
     by_program = []
     for (pid, n), fila in zip(orden, charts.bar_rows([(d.pname(p), n) for p, n in orden])):
         by_program.append({"id": pid, "name": fila["label"], "value": n, "pct": fila["pct"],
-                           "tip": f"{fila['label']}: {_plural(n, 'liberado', 'liberados')}"})
+                           "tip": f"{fila['label']}: {_plural(n, 'liberado', 'liberados')}",
+                           "url": _liberados_url(d, pid)})
 
     day_list = []
     if f.day is not None:

@@ -546,3 +546,346 @@ def test_js_de_reportes_morph_safe_y_sin_innerhtml():
     assert "data-tt-bound" in js
     assert not re.search(r"(?<![\w.])(confirm|alert|prompt)\(", js)
     assert "\r\n" not in js
+
+
+# ---------------------------------------------------------------------------
+# Ronda 1 de arreglos (7a)
+# ---------------------------------------------------------------------------
+def test_la_barra_apilada_no_comparte_clase_con_el_control_de_rango(panorama):
+    """`.tt-rep-seg` era a la vez el control de rango y cada segmento de la barra
+    apilada: los segmentos heredaban padding, borde y radio de píldora (los chicos
+    se inflaban y `overflow: hidden` recortaba el último) y el control perdía su
+    fondo. Ninguna clase `tt-rep-*` del control puede salir del macro."""
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/admin/partials/reports/_charts.html" import stacked_bar %}'
+        '{{ stacked_bar("tt-x", segs, "Carrera X por etapa") }}')
+    segs = [{"key": "docs", "label": "Documentos iniciales", "group": "documentos",
+             "value": 3, "x_pct": 0.0, "w_pct": 75.0, "tip": "Documentos iniciales: 3"},
+            {"key": "liberado", "label": "Liberado a Titulación", "group": "liberado",
+             "value": 1, "x_pct": 75.0, "w_pct": 25.0, "tip": "Liberado a Titulación: 1"}]
+    raiz = _by_id(_doc("<div>" + tpl.render(segs=segs) + "</div>"), "tt-x")
+    clases_barra = {c for el in raiz.iter() for c in (el.get("class") or "").split()}
+    rango = _by_id(panorama.doc, "tt-rep-range")
+    clases_rango = {c for el in rango.iter() for c in (el.get("class") or "").split()
+                    if c.startswith("tt-rep-")}
+    assert "tt-rep-seg" not in clases_barra
+    assert not (clases_barra & clases_rango), clases_barra & clases_rango
+    # La hoja tampoco reusa el selector: un solo `.tt-rep-seg {` (el control).
+    css = CSS.read_text(encoding="utf-8")
+    assert len(re.findall(r"(?m)^\.tt-rep-seg\s*\{", css)) == 1
+
+
+def test_ritmo_liberados_por_carrera_liga_a_la_bandeja_liberados(ritmo, esc):
+    """D7: cada barra lleva a la bandeja Liberados de esa carrera (y convocatoria),
+    navegando como el menú lateral (`#tt-admin-content`)."""
+    liga = _by_id(ritmo.doc, f"tt-rep-bp-{esc.pb.id}").xpath(".//a")[0]
+    url = f"/titulatec/admin/liberados?cohort_id={esc.c.id}&program_id={esc.pb.id}"
+    assert liga.get("href") == url and liga.get("hx-get") == url
+    assert liga.get("hx-target") == liga.get("hx-select") == "#tt-admin-content"
+    assert liga.get("hx-swap").split(" ")[0] == "morph:outerHTML"
+    assert liga.get("hx-push-url") == "true"
+    assert liga.get("data-tt-tip")
+
+
+def test_sparkline_de_liberados_enfocable_y_con_los_valores(panorama):
+    """El trazo de 1.5 px era un blanco imposible y sus valores solo vivían en el
+    tooltip: ahora el área de toque es la caja entera del SVG, se enfoca con el
+    teclado (fuera de la liga del tile) y su `aria-label` lleva los valores."""
+    tile = _by_id(panorama.doc, "tt-rep-kpi-liberated")
+    (svg,) = tile.xpath(".//svg")
+    assert svg.get("tabindex") == "0"
+    assert not svg.xpath("ancestor::a")
+    assert (svg.get("data-tt-tip") or "").startswith("Liberados por día")
+    assert re.search(r": (\d+, ){13}\d+$", svg.get("aria-label")), svg.get("aria-label")
+    # La tarjeta sigue llevando a la lista de liberados.
+    assert tile.xpath(".//a[@hx-get]")
+
+
+def test_la_mas_vieja_dice_su_estado_en_palabras(panorama):
+    """Estado = icono + TEXTO: 15 días >= CRIT es «atorada», no solo rojo."""
+    req = _by_id(panorama.doc, "tt-rep-kpi-requests")
+    (pildora,) = _cls(req, "tt-rep-status")
+    assert "atorada" in _txt(pildora).lower()
+
+
+def test_botones_de_icono_con_nombre_accesible(client_as, jefa, esc):
+    doc = _doc(_get(client_as(jefa), BODY, tab="ritmo", cohort=esc.c.id,
+                    day=esc.b0.isoformat()))
+    assert _by_id(doc, "tt-rep-print").get("aria-label")
+    assert _by_id(doc, "tt-rep-day-close").get("aria-label")
+
+
+def test_al_imprimir_se_oculta_el_encabezado_de_la_pagina(client_as, jefa, esc):
+    """La cabecera de impresión ya trae el título: el encabezado de la página
+    («Seguimiento · Servicios Escolares / Tablero») no se imprime."""
+    doc = _doc(_get(client_as(jefa), URL, tab="panorama", cohort=esc.c.id))
+    cab = doc.xpath('//*[contains(concat(" ", normalize-space(@class), " "), " tt-rep-page-head ")]')
+    assert len(cab) == 1 and "Tablero" in _txt(cab[0])
+    css = CSS.read_text(encoding="utf-8")
+    bloque = css[css.index("@media print {"):]
+    assert re.search(r"\.tt-rep-page-head[^{]*\{[^}]*display:\s*none", bloque)
+
+
+def test_las_vistas_admin_que_pisan_head_extra_conservan_el_de_la_base():
+    """`base_admin.html` carga `reports.css` en `head_extra`; una vista admin que
+    lo redefina sin `{{ super() }}` lo pierde, y como la navegación morph nunca
+    trae el <head>, el tablero se vería sin estilos al entrar desde ella."""
+    plantillas = APP / "templates" / "titulatec"
+    bloque = re.compile(r"\{%-?\s*block\s+head_extra\s*-?%\}(.*?)\{%-?\s*endblock", re.S)
+    hereda = re.compile(r"""\{%-?\s*extends\s+["']titulatec/admin/base_admin\.html["']""")
+    base = (plantillas / "admin" / "base_admin.html").read_text(encoding="utf-8")
+    (propio,) = bloque.findall(base)
+    assert "css/admin/reports.css" in propio
+    revisadas = 0
+    for tpl in plantillas.rglob("*.html"):
+        src = tpl.read_text(encoding="utf-8")
+        if not hereda.search(src):
+            continue
+        revisadas += 1
+        for cuerpo in bloque.findall(src):
+            assert "super()" in cuerpo, tpl.relative_to(plantillas)
+    assert revisadas >= 10, "el censo de vistas admin encogió a %d" % revisadas
+
+
+def test_js_sobrevive_al_historial_del_navegador():
+    """htmx guarda la instantánea del <body> (con `is-loading` y el tooltip) y al
+    restaurar solo dispara `htmx:historyRestore`: sin estos ganchos la vista
+    quedaba atenuada y cada «Atrás» sumaba otro `#tt-rep-tip`."""
+    js = JS.read_text(encoding="utf-8")
+    assert "htmx:historyRestore" in js and "htmx:beforeHistorySave" in js
+    assert "document.getElementById('tt-rep-tip')" in js
+
+
+# ===========================================================================
+# Task 7b: Encargados, Carreras, Atorados
+# ===========================================================================
+@pytest.fixture()
+def equipo(db_session, esc, make_department, make_user, make_position, link_programs,
+           assign_position):
+    """Dos encargadas de Servicios Escolares con carreras traslapadas.
+
+    ana atiende A y B; beto solo A (traslape en A: la cola de A es de los dos).
+    ana dictaminó un documento dentro del rango, para que tenga producción.
+    """
+    from itcj2.apps.titulatec.models import ProcessEvent
+    depto = make_department(code="school_services", name="Servicios Escolares")
+    ana = make_user(first_name="ANA", last_name="AAENCARGADOS")
+    beto = make_user(first_name="BETO", last_name="BBENCARGADOS")
+    for user, progs in ((ana, [esc.pa, esc.pb]), (beto, [esc.pa])):
+        pos = make_position(code=f"se_officer_t7b{next(_SEQ):05d}", department=depto)
+        link_programs(pos, progs)
+        assign_position(user, pos)
+    db_session.add(ProcessEvent(process_id=esc.lib.id, actor_id=ana.id,
+                                event_type="document_approved",
+                                created_at=datetime.combine(esc.b0, time(10))))
+    db_session.flush()
+    return SimpleNamespace(ana=ana, beto=beto)
+
+
+@pytest.fixture()
+def encargados(client_as, jefa, esc, equipo):
+    html = _get(client_as(jefa), BODY, tab="encargados", cohort=esc.c.id)
+    return SimpleNamespace(html=html, doc=_doc(html))
+
+
+@pytest.fixture()
+def carreras(client_as, jefa, esc):
+    html = _get(client_as(jefa), BODY, tab="carreras", cohort=esc.c.id)
+    return SimpleNamespace(html=html, doc=_doc(html))
+
+
+@pytest.fixture()
+def atorados(client_as, jefa, esc):
+    html = _get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id)
+    return SimpleNamespace(html=html, doc=_doc(html))
+
+
+def _celda(doc, id_):
+    return _txt(_by_id(doc, id_))
+
+
+def test_encargados_chips_alternan_ox_y_conservan_el_color(client_as, jefa, esc, equipo,
+                                                          encargados):
+    doc = encargados.doc
+    ana, beto = equipo.ana.id, equipo.beto.id
+    chip_a = _by_id(doc, f"tt-rep-off-chip-{ana}")
+    assert chip_a.get("aria-pressed") == "true"
+    assert chip_a.get("hx-get") == f"{BODY}?tab=encargados&cohort={esc.c.id}&ox={ana}"
+    assert chip_a.get("href") == f"{URL}?tab=encargados&cohort={esc.c.id}&ox={ana}"
+    assert chip_a.get("hx-push-url") == chip_a.get("href")
+    color_beto = _cls(_by_id(doc, f"tt-rep-off-chip-{beto}"), "tt-rep-key")[0].get("class")
+    # Ocultar a ana: su fila sale, el chip queda apagado y el color de beto no cambia.
+    d2 = _doc(_get(client_as(jefa), BODY, tab="encargados", cohort=esc.c.id, ox=str(ana)))
+    assert not d2.xpath(f'//*[@id="tt-rep-off-{ana}"]')
+    assert _by_id(d2, f"tt-rep-off-{beto}") is not None
+    chip_a2 = _by_id(d2, f"tt-rep-off-chip-{ana}")
+    assert chip_a2.get("aria-pressed") == "false" and "is-off" in chip_a2.get("class")
+    assert chip_a2.get("hx-get") == f"{BODY}?tab=encargados&cohort={esc.c.id}"
+    assert _cls(_by_id(d2, f"tt-rep-off-chip-{beto}"), "tt-rep-key")[0].get("class") == color_beto
+    assert _by_id(d2, "tt-rep-off-show-all").get("hx-get").endswith(f"cohort={esc.c.id}")
+
+
+def test_encargados_misma_cola_por_traslape_y_produccion(encargados, equipo):
+    doc, ana, beto = encargados.doc, equipo.ana.id, equipo.beto.id
+    # Documentos por dictaminar: solo hay uno (carrera A) y lo cargan los dos.
+    assert _celda(doc, f"tt-rep-off-{ana}-q-docs") == _celda(doc, f"tt-rep-off-{beto}-q-docs") == "1"
+    # Solicitudes por revisar: A tiene 1 (la vieja); B tiene 1 (la nueva).
+    assert _celda(doc, f"tt-rep-off-{beto}-q-requests") == "1"
+    assert _celda(doc, f"tt-rep-off-{ana}-q-requests") == "2"
+    assert _celda(doc, f"tt-rep-off-{ana}-p-docs") == "1"
+    assert _celda(doc, f"tt-rep-off-{beto}-p-docs") == "0"
+    assert _celda(doc, f"tt-rep-off-{beto}-p-reject") == "—"
+    programas = [_txt(p) for p in _cls(_by_id(doc, f"tt-rep-off-{beto}"), "tt-rep-oprog")]
+    assert programas == ["Ingenieria Visual Tablero A"]
+
+
+def test_encargados_graficas(encargados, equipo):
+    doc, ana = encargados.doc, equipo.ana.id
+    assert _by_id(doc, "tt-rep-off-threshold-key")
+    barra = _by_id(doc, f"tt-rep-off-clear-{ana}")
+    assert "hábil" in barra.get("data-tt-tip")
+    assert _cls(_by_id(doc, "tt-rep-off-clear-list"), "tt-rep-dthresh")
+    assert _by_id(doc, f"tt-rep-off-spark-{ana}").xpath(".//svg[@role='img']")
+    sparks = _txt(_by_id(doc, "tt-rep-off-sparks"))
+    assert "misma escala" in sparks and "Dictámenes y revisiones por día" in sparks
+
+
+def test_encargados_todos_ocultos(client_as, jefa, esc, encargados):
+    ids = [c.get("id").rsplit("-", 1)[1] for c in encargados.doc.xpath(
+        '//*[starts-with(@id, "tt-rep-off-chip-")]')]
+    doc = _doc(_get(client_as(jefa), BODY, tab="encargados", cohort=esc.c.id, ox=",".join(ids)))
+    assert "Ocultaste a todos" in _txt(_by_id(doc, "tt-rep-off-allhidden"))
+    assert _by_id(doc, "tt-rep-off-show-all")
+
+
+def test_carreras_filas_barra_y_numeros(carreras, esc):
+    doc = carreras.doc
+    a, b = esc.pa.id, esc.pb.id
+    filas = [tr.get("id") for tr in doc.xpath('//tbody/tr[starts-with(@id, "tt-rep-car-")]')
+             if tr.get("id") in (f"tt-rep-car-{a}", f"tt-rep-car-{b}")]
+    assert filas == [f"tt-rep-car-{a}", f"tt-rep-car-{b}"]       # A tiene más atorados
+    assert _celda(doc, f"tt-rep-car-{a}-enrolled") == "2"
+    assert _celda(doc, f"tt-rep-car-{b}-enrolled") == "2"
+    assert _celda(doc, f"tt-rep-car-{b}-liberated") == "1"
+    assert _celda(doc, f"tt-rep-car-{b}-pct") == "50%"
+    assert "atorado" in _celda(doc, f"tt-rep-car-{a}-stuck")
+    barra = _by_id(doc, f"tt-rep-car-{a}-bar")
+    assert barra.get("role") == "img"
+    segmentos = _cls(barra, "tt-rep-mark")
+    assert segmentos and all(s.get("data-tt-tip") for s in segmentos)
+    assert all("tt-rep-c--g-" in s.get("class") for s in segmentos)
+    assert len(_by_id(doc, "tt-rep-programs-legend").xpath(".//li")) == 5
+    assert _by_id(doc, "tt-rep-programs-twin")
+
+
+def test_carreras_sin_pendientes_pinta_barra_vacia():
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    ctx = {"carreras": {"stage_legend": [], "rows": [{
+        "id": 7, "name": "Carrera solo pausados", "segments": [], "total": 0, "enrolled": 4,
+        "liberated": 0, "pct_liberated": 0.0, "pct_text": "0%", "stuck": 0, "crit": 0,
+        "officers": []}]}}
+    html = titulatec_templates.env.get_template(
+        "titulatec/admin/partials/reports/_carreras.html").render(**ctx)
+    doc = _doc("<div>" + html + "</div>")
+    assert "tt-rep-stack-empty" in _by_id(doc, "tt-rep-car-7-bar").get("class")
+    assert _celda(doc, "tt-rep-car-7-enrolled") == "4"
+    assert "Sin encargado" in _celda(doc, "tt-rep-car-7-officers")
+
+
+def test_atorados_filas_enlaces_y_chips(atorados, esc):
+    doc = atorados.doc
+    filas = doc.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')
+    assert len(filas) == 2                                # nivel por omisión: lentos y atorados
+    primera, segunda = filas
+    assert "15 días" in _txt(primera) and "Atorado" in _txt(primera)
+    assert primera.xpath('.//a[contains(@href, "/titulatec/admin/solicitudes")]')
+    assert "Escolares:" in _txt(primera)
+    assert "Lento" in _txt(segunda)
+    assert segunda.xpath('.//a[contains(@href, "/titulatec/admin/processes/")]')
+    chip = _by_id(doc, "tt-rep-f-ball-computo")
+    assert chip.get("hx-get") == f"{BODY}?tab=atorados&cohort={esc.c.id}&ball=computo"
+    assert chip.get("hx-select") == chip.get("hx-target") == "#tt-report-body"
+    assert chip.get("hx-push-url") == chip.get("href")
+    assert _by_id(doc, "tt-rep-f-level-warn").get("aria-pressed") == "true"
+    assert _by_id(doc, "tt-rep-f-level-all").get("aria-pressed") == "false"
+    assert _by_id(doc, "tt-rep-f-stage-all").get("aria-pressed") == "true"
+
+
+def test_atorados_filtros_y_vacio(client_as, jefa, esc):
+    cli = client_as(jefa)
+    todos = _doc(_get(cli, BODY, tab="atorados", cohort=esc.c.id, level="all"))
+    assert len(todos.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')) == 7
+    vacio = _doc(_get(cli, BODY, tab="atorados", cohort=esc.c.id, level="crit", ball="gtv"))
+    assert "Nada coincide" in _txt(_by_id(vacio, "tt-rep-ator-empty"))
+    assert not vacio.xpath('//table[@id="tt-rep-ator-table"]')
+
+
+@pytest.fixture()
+def muchos(db_session, esc):
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+    for _ in range(52):
+        n = next(_SEQ)
+        db_session.add(EnrollmentRequest(
+            cohort_id=esc.c.id, control_number=f"96{n:06d}", first_name="MUCHOS",
+            last_name="PAGINA", program_id=esc.pb.id, phone="6560000000",
+            contact_email=f"tt7b.{n}@example.invalid", has_efirma=False, kind="unknown",
+            status="pending_review", verify_send_count=0))
+    db_session.flush()
+
+
+def test_atorados_pager_morph_outer(client_as, jefa, esc, muchos):
+    doc = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="all"))
+    assert len(doc.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')) == 50
+    sig = _by_id(doc, "tt-rep-ator-pager-next")
+    assert sig.get("hx-get") == f"{BODY}?tab=atorados&cohort={esc.c.id}&level=all"
+    assert sig.get("hx-target") == sig.get("hx-select") == "#tt-report-body"
+    assert sig.get("hx-swap").split(" ")[0] == "morph:outerHTML"
+    assert '"page": 2' in sig.get("hx-vals")
+    assert _by_id(doc, "tt-rep-ator-pager-prev").get("disabled") is not None
+    p2 = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="all",
+                   page="2"))
+    assert len(p2.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')) == 9
+    assert '"page": 1' in _by_id(p2, "tt-rep-ator-pager-prev").get("hx-vals")
+
+
+@pytest.mark.parametrize("vista", ["encargados", "carreras", "atorados"])
+def test_7b_contrato_visual_y_swaps(request, vista):
+    v = request.getfixturevalue(vista)
+    assert "<script" not in v.html and "onclick" not in v.html.lower()
+    for el in v.doc.xpath("//*[@style]"):
+        assert _STYLE_OK.match(el.get("style")), el.get("style")
+    for svg in v.doc.xpath("//svg"):
+        assert svg.get("role") == "img" and (svg.get("aria-label") or "").strip()
+    for m in _cls(v.doc, "tt-rep-mark"):
+        assert (m.get("data-tt-tip") or "").strip()
+    for el in v.doc.xpath("//*[@hx-get]"):
+        if el.get("hx-select") and el.get("hx-select") == el.get("hx-target"):
+            assert (el.get("hx-swap") or "").split(" ")[0].split(":")[-1] == _OUTER
+        if "/tablero/body" in el.get("hx-get") and el.get("hx-push-url"):
+            assert el.get("hx-push-url").startswith(URL + "?")
+            assert "/body" not in el.get("hx-push-url")
+    assert "En construcción" not in v.html
+    for tarjeta in _cls(v.doc, "tt-rep-chart"):
+        assert tarjeta.xpath('.//details[contains(@class, "tt-rep-table")]'), tarjeta.get("id")
+    for tabla in v.doc.xpath("//table"):
+        if tabla.xpath('ancestor::details[contains(@class, "tt-rep-table")]'):
+            continue
+        assert tabla.xpath('ancestor::*[contains(@class, "tt-table-wrap")]'), tabla.get("id")
+
+
+def test_7b_css_con_bloque_propio_al_final():
+    css = CSS.read_text(encoding="utf-8")
+    marca = "/* === Task 7b: Encargados, Carreras, Atorados === */"
+    assert css.count(marca) == 1
+    bloque = css[css.index(marca):]
+    assert "tt-rep-c--o-7" in bloque and "tt-rep-dthresh" in bloque
+    assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", bloque)
+    assert "\r\n" not in bloque
+
+
+def test_7b_el_cuerpo_ya_no_incluye_el_hueco():
+    cuerpo = (REPORTS_TPL / "_body.html").read_text(encoding="utf-8")
+    assert "_empty.html" not in cuerpo
+    for nombre in ("_encargados", "_carreras", "_atorados"):
+        assert f"reports/{nombre}.html" in cuerpo

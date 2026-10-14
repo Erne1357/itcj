@@ -4,7 +4,9 @@
 {% block admin_main %}
 {# Tablero de la jefa de SE (`pages/reports_admin.py`). SOLO LECTURA. El cuerpo
    (`#tt-report-body`) es lo único que se repinta al cambiar de pestaña. #}
-<div class="px-4 pt-4 pb-2">
+{#- `.tt-rep-page-head`: no se imprime (la cabecera de impresión de `_body.html`
+    ya trae el título, la fecha y los filtros). #}
+<div class="px-4 pt-4 pb-2 tt-rep-page-head">
   <span class="tt-kicker">Seguimiento · Servicios Escolares</span>
   <h1 class="tt-display h3 fw-medium">Tablero</h1>
 </div>

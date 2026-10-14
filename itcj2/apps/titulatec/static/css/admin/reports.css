@@ -210,6 +210,18 @@ a.tt-rep-status:focus-visible { outline: 2px solid var(--tt-focus); outline-offs
   fill: none; stroke: var(--c); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round;
 }
 a.tt-rep-kpi:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+/* Tarjeta partida (`stat_tile(after=…)`): la liga cubre etiqueta, valor y
+   líneas; la sparkline enfocable queda fuera de ella. */
+.tt-rep-kpi-link { display: flex; flex-direction: column; gap: 4px; color: inherit; text-decoration: none; border-radius: var(--tt-r-sm); }
+.tt-rep-kpi-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 4px; }
+.tt-rep-kpi--split { transition: box-shadow .16s var(--tt-ease-out); }
+@media (hover: hover) and (pointer: fine) {
+  .tt-rep-kpi--split:has(.tt-rep-kpi-link:hover) { box-shadow: 0 8px 24px -10px rgba(15, 23, 42, .15); }
+}
+/* El área de toque es la caja entera del SVG (más 6 px arriba), no el trazo. */
+.tt-rep-spark--focus { cursor: help; border-radius: 4px; }
+.tt-rep-spark--focus:focus { outline: none; }
+.tt-rep-spark--focus:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
 
 /* === ALERTAS =============================================================== */
 .tt-rep-alerts { list-style: none; margin: 0; padding: 0; }
@@ -265,10 +277,12 @@ a.tt-rep-hlink:hover .tt-rep-bar { filter: brightness(1.12) saturate(1.05); }
 
 /* === BARRA APILADA (Carreras) ==============================================
    El hueco de 2 px entre segmentos es SUPERFICIE (sombra interior del color
-   de la tarjeta), no un borde: no agrega tinta. */
+   de la tarjeta), no un borde: no agrega tinta. Clase propia `.tt-rep-stack-seg`:
+   antes era `.tt-rep-seg`, que es también el control segmentado del rango, y
+   cada uno heredaba las reglas del otro (ronda 1 de la Task 7a). */
 .tt-rep-stack { display: flex; height: 14px; min-width: 0; border-radius: 0 4px 4px 0; overflow: hidden; }
-.tt-rep-seg { flex: none; height: 100%; background: var(--c); box-shadow: inset -2px 0 0 var(--tt-paper); }
-.tt-rep-seg:last-child { box-shadow: none; }
+.tt-rep-stack-seg { flex: none; height: 100%; background: var(--c); box-shadow: inset -2px 0 0 var(--tt-paper); }
+.tt-rep-stack-seg:last-child { box-shadow: none; }
 .tt-rep-stack-empty { border-radius: 4px; background: var(--tt-line-soft); }
 
 /* === LEYENDA =============================================================== */
@@ -459,7 +473,7 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
   }
   .tt-rep-print-title { font-family: var(--tt-display); font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
   .tt-rep-print-meta { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
-  .tt-rep-filters, .tt-rep-tabs, [data-tt-print], .tt-rep-xhair, .tt-rep-xdot,
+  .tt-rep-page-head, .tt-rep-filters, .tt-rep-tabs, [data-tt-print], .tt-rep-xhair, .tt-rep-xdot,
   .tt-rep-alert-go, #tt-rep-day-close, .tt-rep-tip { display: none !important; }
   .tt-rep-table:not([open]) { display: none; }
   .tt-rep-table[open] > summary { display: none; }
@@ -474,4 +488,134 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
   .tt-rep a { text-decoration: none; }
   .tt-rep-daylink > .bi { display: none; }
   a.tt-rep-hlink:hover, .tt-rep-alert:hover { background: none; }
+}
+
+/* === Task 7b: Encargados, Carreras, Atorados === */
+/* Identidad de encargado: slots 1-8 de la paleta de referencia, por color_index
+   (posición en la lista COMPLETA: no cambia al ocultar). El nombre va siempre al
+   lado de la marca, así que el color nunca es la única vía. */
+.tt-rep-c--o-0 { --c: #2a78d6; }
+.tt-rep-c--o-1 { --c: #eb6834; }
+.tt-rep-c--o-2 { --c: #1baf7a; }
+.tt-rep-c--o-3 { --c: #eda100; }
+.tt-rep-c--o-4 { --c: #e87ba4; }
+.tt-rep-c--o-5 { --c: #008300; }
+.tt-rep-c--o-6 { --c: #6250d6; }
+.tt-rep-c--o-7 { --c: #e34948; }
+
+.tt-rep-chips--open { max-height: none; overflow: visible; }
+.tt-rep-chip.is-active { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
+.tt-rep-chip.is-active .tt-rep-chip-n { color: rgba(255, 255, 255, .8); }
+.tt-rep-key--none { background: transparent; border: 1px dashed var(--tt-text-3); }
+.tt-rep-key--vline { width: 2px; height: 14px; border-radius: 1px; background: var(--tt-text-1); }
+.tt-rep-showall { margin-top: var(--tt-sp-2); }
+
+.tt-rep-fgroup { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--tt-sp-3); }
+.tt-rep-fgroup + .tt-rep-fgroup { margin-top: var(--tt-sp-3); }
+.tt-rep-fgroup-k { flex: none; min-width: 9rem; font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3); }
+.tt-rep-fgroup .tt-rep-chips { flex: 1; min-width: 0; }
+
+/* --- Tablas del tablero ---------------------------------------------------- */
+.tt-rep-otable, .tt-rep-ctable, .tt-rep-atable { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+.tt-rep-otable th, .tt-rep-ctable th, .tt-rep-atable th {
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3); vertical-align: bottom; white-space: nowrap;
+}
+.tt-rep-otable td, .tt-rep-ctable td, .tt-rep-atable td { vertical-align: top; }
+.tt-rep-otable .num, .tt-rep-ctable .num, .tt-rep-atable .num { text-align: right; font-variant-numeric: tabular-nums; }
+.tt-rep-ogroup { text-align: center; border-bottom: 1px solid var(--tt-line); }
+.tt-rep-otable th.tt-rep-oname, .tt-rep-ctable th.tt-rep-cname, .tt-rep-atable th.tt-rep-aname {
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); white-space: normal; vertical-align: top;
+}
+.tt-rep-oname { min-width: 13rem; max-width: 20rem; }
+.tt-rep-otable thead th { white-space: normal; }
+.tt-rep-otable .tt-rep-odays { min-width: 8.5rem; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
+.tt-rep-otable .tt-rep-oplaces { min-width: 8rem; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
+.tt-rep-otable td.tt-rep-odays .tt-rep-status { margin: 2px 0 0; }
+.tt-rep-oprogs-d > summary { margin-top: 4px; cursor: pointer; font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
+.tt-rep-oprogs-d > summary:hover { color: var(--tt-text-1); }
+.tt-rep-oprogs-d > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 4px; }
+.tt-rep-oprogs-d[open] > .tt-rep-oprogs { max-height: 11rem; overflow-y: auto; }
+.tt-rep-oid { display: flex; align-items: center; gap: 6px; }
+.tt-rep-oid .tt-rep-key { margin-right: 0; }
+.tt-rep-oprogs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tt-rep-oprog {
+  padding: 1px 8px; border-radius: 999px; background: var(--tt-mist); border: 1px solid var(--tt-line-soft);
+  font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); white-space: normal;
+}
+.tt-rep-onote { display: block; margin-top: 2px; font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-3); }
+.tt-rep-oprogs .tt-rep-onote { margin-top: 0; align-self: center; }
+.tt-rep-osub { font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-3); }
+.tt-rep-oothers td, .tt-rep-oothers th { border-top: 1px solid var(--tt-line); background: var(--tt-mist); }
+.tt-rep-otable td .tt-rep-status { margin-left: 4px; }
+
+/* --- Días para vaciar (barras con umbral) ----------------------------------
+   Fila = etiqueta + plot. El umbral es una línea sólida de 2 px a la misma x en
+   todas las filas (todas comparten el ancho del plot). */
+.tt-rep-dkey { display: flex; align-items: center; gap: 6px; margin-bottom: var(--tt-sp-2); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rep-dkey .tt-rep-key { margin-right: 0; }
+.tt-rep-dbars { list-style: none; margin: 0; padding: 0; }
+.tt-rep-drow { display: grid; grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr); align-items: center; column-gap: var(--tt-sp-3); min-height: 34px; padding: 3px 0; }
+.tt-rep-dplot { position: relative; display: flex; align-items: center; gap: var(--tt-sp-2); min-width: 0; padding-right: 3.25rem; }
+.tt-rep-dthresh { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--tt-text-1); pointer-events: none; }
+.tt-rep-dplot > .tt-rep-hval { position: relative; z-index: 1; }
+
+/* --- Small multiples -------------------------------------------------------- */
+.tt-rep-sparks { list-style: none; margin: 0; padding: 0; }
+.tt-rep-spk { display: grid; grid-template-columns: minmax(6rem, 10rem) auto auto; align-items: center; column-gap: var(--tt-sp-3); padding: 4px 0; }
+.tt-rep-spk + .tt-rep-spk { border-top: 1px solid var(--tt-line-soft); }
+.tt-rep-spk .tt-rep-spark { margin-top: 0; padding-top: 0; }
+.tt-rep-spk .tt-rep-hval { justify-self: end; min-width: 2rem; text-align: right; }
+
+/* --- Carreras ---------------------------------------------------------------- */
+.tt-rep-otable td, .tt-rep-ctable td, .tt-rep-atable td { white-space: normal; }
+/* Colisión de nombres con 7a: `.tt-rep-seg` es también el control segmentado del
+   rango (padding, borde y radio de píldora). Dentro de la barra apilada se anulan. */
+.tt-rep-stack > .tt-rep-seg {
+  display: block; flex: none; max-width: none; padding: 0; border: 0; border-radius: 0;
+  background: var(--c); box-shadow: inset -2px 0 0 var(--tt-paper);
+}
+.tt-rep-stack > .tt-rep-seg:last-child { box-shadow: none; }
+.tt-rep-cname { min-width: 12rem; }
+.tt-rep-cbarcol { min-width: 12rem; width: 26%; }
+.tt-rep-cbarcol .tt-rep-stack { width: 100%; margin-top: 4px; }
+.tt-rep-cofficers { min-width: 15rem; max-width: 26rem; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rep-ctable td .tt-rep-status { margin-left: 0; }
+
+/* --- Atorados ---------------------------------------------------------------- */
+.tt-rep-aname { min-width: 13rem; }
+.tt-rep-atable td:last-child { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rep-alink { color: var(--tt-text-1); font-weight: 600; text-decoration: underline; text-decoration-color: var(--tt-line); text-underline-offset: 3px; }
+.tt-rep-alink:hover { text-decoration-color: currentColor; }
+.tt-rep-alink:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 2px; }
+.tt-rep-amotive { min-width: 12rem; }
+.tt-rep-motive { display: block; line-height: 1.35; }
+.tt-rep-motive + .tt-rep-motive { margin-top: 2px; }
+.tt-rep-adays { display: block; margin-top: 2px; color: var(--tt-text-2); font-size: var(--tt-fs-100); }
+.tt-rep-pager { margin-top: var(--tt-sp-3); }
+
+@media (max-width: 575.98px) {
+  .tt-rep-fgroup-k { min-width: 0; flex-basis: 100%; }
+  .tt-rep-drow, .tt-rep-spk { grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr) auto; }
+  .tt-rep-drow { grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr); }
+}
+
+@media print {
+  .tt-rep-chips--open, #tt-rep-ator-filters { display: none !important; }
+  .tt-rep-pager { display: none; }
+  /* A4 (794 px): la tabla ancha se compacta para que no se corte en la hoja. */
+  .tt-rep .tt-table-wrap { overflow: visible; }
+  .tt-rep-otable, .tt-rep-ctable, .tt-rep-atable { font-size: 10px; }
+  .tt-rep-otable th, .tt-rep-otable td, .tt-rep-ctable th, .tt-rep-ctable td,
+  .tt-rep-atable th, .tt-rep-atable td { padding: 3px 4px; min-width: 0 !important; max-width: none !important; }
+  .tt-rep-otable thead th { font-size: 9px; }
+  .tt-rep-otable { table-layout: fixed; width: 100%; }
+  .tt-rep-otable th:first-child { width: 17%; }
+  .tt-rep-otable td, .tt-rep-otable th { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; font-size: 10px; }
+  .tt-rep-otable .tt-rep-oname-t { font-size: 10px; }
+  .tt-rep-otable .tt-rep-status { white-space: normal; border-radius: 6px; font-size: 9px; padding: 1px 4px; }
+  .tt-rep-otable .tt-rep-osub, .tt-rep-otable .tt-rep-onote { font-size: 9px; }
+  .tt-rep-oprogs-d > .tt-rep-oprogs { max-height: none; }
+  .tt-rep-otable th, .tt-rep-ctable th, .tt-rep-atable th { white-space: normal; }
+  .tt-rep-c--o-0, .tt-rep-c--o-1, .tt-rep-c--o-2, .tt-rep-c--o-3,
+  .tt-rep-c--o-4, .tt-rep-c--o-5, .tt-rep-c--o-6, .tt-rep-c--o-7 { print-color-adjust: exact; }
 }

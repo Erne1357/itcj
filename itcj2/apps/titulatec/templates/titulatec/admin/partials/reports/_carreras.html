@@ -1,0 +1,64 @@
+{# Pestaña Carreras (spec §5.4): una fila por carrera visible, orden por
+   atorados desc. Barra apilada horizontal de etapas (cada segmento toma el
+   color de su GRUPO de etapa, el mismo mapeo de «Dónde están hoy») + inscritos
+   · liberados · % liberado · atorados · encargados.
+
+   Una carrera con solo pausados o terminados tiene `total` 0 y `segments`
+   vacío: la barra sale en gris con «sin pendientes ni liberados» y sus
+   inscritos se leen igual. Contrato de llaves: `report_service._ctx_carreras`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import chart_card, stacked_bar, legend, table_twin %}
+{%- set c = carreras %}
+
+{% call chart_card("tt-rep-programs-card", "Avance por carrera", "Dónde está cada proceso de la carrera hoy, de la solicitud a la liberación. La barra mide la composición de lo pendiente y lo liberado; el total va en la columna «Items». Primero las carreras con más atorados.") %}
+  {% if c.rows %}
+  {%- set leg = [] %}
+  {%- for g in c.stage_legend %}{% set _ = leg.append({"c": "g-" ~ g.code, "label": g.label}) %}{% endfor %}
+  {{ legend("tt-rep-programs-legend", leg) }}
+  <div class="tt-table-wrap">
+    <table class="table tt-rep-ctable" id="tt-rep-programs-table">
+      <caption class="visually-hidden">Avance por carrera</caption>
+      <thead>
+        <tr>
+          <th scope="col">Carrera</th>
+          <th scope="col" class="tt-rep-cbarcol">Etapas</th>
+          <th scope="col" class="num">Items</th>
+          <th scope="col" class="num">Inscritos</th>
+          <th scope="col" class="num">Liberados</th>
+          <th scope="col" class="num">% liberado</th>
+          <th scope="col" class="num">Atorados</th>
+          <th scope="col">Encargados</th>
+        </tr>
+      </thead>
+      <tbody>
+        {%- for r in c.rows %}
+        {%- set rid = r.id if r.id is not none else "none" %}
+        <tr id="tt-rep-car-{{ rid }}">
+          <th scope="row" class="tt-rep-cname">{{ r.name }}</th>
+          <td class="tt-rep-cbarcol">{{ stacked_bar("tt-rep-car-" ~ rid ~ "-bar", r.segments, "Etapas de " ~ r.name) }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-total">{{ r.total }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-enrolled">{{ r.enrolled }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-liberated">{{ r.liberated }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-pct">{{ r.pct_text }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-stuck">
+            {%- if r.crit %}<span class="tt-rep-status tt-rep-status--crit"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>{{ r.crit }} {{ "atorado" if r.crit == 1 else "atorados" }}</span>
+            {%- if r.stuck > r.crit %} <span class="tt-rep-osub">+{{ r.stuck - r.crit }} {{ "lento" if r.stuck - r.crit == 1 else "lentos" }}</span>{% endif %}
+            {%- elif r.stuck %}<span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ r.stuck }} {{ "lento" if r.stuck == 1 else "lentos" }}</span>
+            {%- else %}0{% endif %}
+          </td>
+          <td class="tt-rep-cofficers" id="tt-rep-car-{{ rid }}-officers">
+            {%- if r.officers %}{{ r.officers|join(", ") }}{% else %}<span class="tt-rep-osub">{{ "Sin carrera asignada" if r.id is none else "Sin encargado" }}</span>{% endif %}
+          </td>
+        </tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="tt-rep-empty" id="tt-rep-programs-empty"><i class="bi bi-inbox" aria-hidden="true"></i>No hay carreras con pendientes, liberados o inscritos con estos filtros.</p>
+  {% endif %}
+  {% call table_twin("tt-rep-programs-twin", "Etapas por carrera", ["Carrera", "Etapas (cantidad por etapa)"]) %}
+    {%- for r in c.rows %}
+    <tr><td>{{ r.name }}</td> <td class="num">{% if r.segments %}{% for s in r.segments %}{{ s.label }}: {{ s.value }}{{ "; " if not loop.last else "" }}{% endfor %}{% else %}Sin pendientes ni liberados{% endif %}</td></tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}

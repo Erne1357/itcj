@@ -49,6 +49,14 @@
   // === TOOLTIP ===============================================================
   function ensureTip() {
     if (tip && tip.isConnected) return tip;
+    // Tras «Atrás» htmx restaura el <body> de la instantánea, que ya trae un
+    // `#tt-rep-tip`: se reutiliza en vez de crear otro (ids duplicados).
+    var previo = document.getElementById('tt-rep-tip');
+    if (previo) {
+      tip = previo;
+      tip.hidden = true;
+      return tip;
+    }
     tip = document.createElement('div');
     tip.className = 'tt-rep-tip';
     tip.id = 'tt-rep-tip';
@@ -111,7 +119,10 @@
   function tipTarget(el) {
     if (!el || !el.closest) return null;
     if (el.closest('[data-tt-xhair]')) return null;
-    var t = el.closest('.tt-rep-hlink[data-tt-tip]') || el.closest('[data-tt-tip]');
+    // La fila de una barra y una sparkline enfocable son dueñas de su tooltip
+    // en toda su caja (no solo sobre el trazo o la barra pintada).
+    var t = el.closest('.tt-rep-hlink[data-tt-tip], svg[data-tt-tip]') ||
+            el.closest('[data-tt-tip]');
     return (t && inRoot(t)) ? t : null;
   }
 
@@ -143,6 +154,7 @@
     var line = plot.querySelector('.tt-rep-xhair');
     if (line) line.hidden = true;
     plot.querySelectorAll('.tt-rep-xdot').forEach(function (dot) { dot.hidden = true; });
+    plot.__ttShown = null;
     if (activePlot === plot) activePlot = null;
   }
 
@@ -150,9 +162,17 @@
     var list = days(plot);
     var li = list[index];
     if (!li) return;
+    // Mismo día ya pintado: solo se mueve el tooltip con el puntero. Repintar
+    // en cada `pointermove` reescribía el contenido (aria-live) sin cambio.
+    if (activePlot === plot && plot.__ttShown === index && tip && !tip.hidden &&
+        tipOwner === plot) {
+      if (clientX != null) place(clientX, clientY);
+      return;
+    }
     if (activePlot && activePlot !== plot) hideCrosshair(activePlot);
     activePlot = plot;
     plot.__ttDay = index;
+    plot.__ttShown = index;
 
     var x = parseFloat(li.getAttribute('data-tt-x')) || 0;
     var ys = (li.getAttribute('data-tt-ys') || '').split(',');
@@ -357,6 +377,27 @@
   }
 
   document.body.addEventListener('htmx:afterSettle', init);
+
+  // === HISTORIAL DEL NAVEGADOR ===============================================
+  // htmx 2 guarda en la instantánea el <body> tal cual (con `is-loading` si la
+  // petición sigue en vuelo y con el tooltip) y al volver «Atrás» solo dispara
+  // `htmx:historyRestore`, sin `afterSettle`: sin esto la vista quedaba
+  // atenuada. Se limpia antes de guardar y se re-inicia al restaurar (mismo
+  // patrón que `doc-viewer.js`).
+  document.body.addEventListener('htmx:beforeHistorySave', function () {
+    var r = root();
+    if (r) r.classList.remove('is-loading');
+    if (activePlot) hideCrosshair(activePlot);
+    hideTip();
+    keepOpen = [];
+  });
+  document.body.addEventListener('htmx:historyRestore', function () {
+    tip = null;            // el <body> es nuevo: `ensureTip` toma el del snapshot
+    tipOwner = null;
+    activePlot = null;
+    init();
+  });
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {

@@ -36,6 +36,13 @@
 href="{{ url }}" hx-get="{{ body_url }}" hx-target="#tt-report-body" hx-select="#tt-report-body" hx-swap="morph:outerHTML{{ ' show:window:top' if scroll else '' }}" hx-push-url="{{ url }}"
 {%- endmacro %}
 
+{# — Liga a OTRA vista admin (fuera del tablero): navega como el menú lateral,
+   morpheando `#tt-admin-content` (mismo invariante select == target ⇒
+   outerHTML) y empujando su propia URL. — #}
+{% macro nav_admin(url) -%}
+href="{{ url }}" hx-get="{{ url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content" hx-swap="morph:outerHTML" hx-push-url="true"
+{%- endmacro %}
+
 {# — Tarjeta de gráfica: título + subtítulo; el cuerpo lo pone `caller()`
    (la gráfica, su leyenda y SIEMPRE su `table_twin`). — #}
 {% macro chart_card(id, title, sub=None, cls="") -%}
@@ -52,15 +59,23 @@ href="{{ url }}" hx-get="{{ body_url }}" hx-target="#tt-report-body" hx-select="
    Sin barra única (dataviz: el número ES la gráfica). Con `url` la tarjeta
    entera liga a la lista de personas detrás (D7). `icon` va DENTRO del
    número (estado: icono + texto, nunca solo color). — #}
-{% macro stat_tile(id, label, value, url=None, body_url=None, unit=None, icon=None, tone=None) -%}
-{%- set tag = "a" if url else "div" -%}
-<{{ tag }} class="tt-kpi tt-rep-kpi{{ ' tt-rep-kpi--' ~ tone if tone else '' }}" id="{{ id }}"{% if url %} {{ nav(url, body_url or url, True) }}{% endif %}>
+{#   `after` (HTML ya armado, p. ej. una sparkline enfocable): va DENTRO de la
+   tarjeta pero FUERA de su liga (no se anida un elemento interactivo en un
+   <a>); entonces la tarjeta es un <div> y la liga cubre etiqueta, valor y
+   líneas de apoyo. — #}
+{% macro stat_tile(id, label, value, url=None, body_url=None, unit=None, icon=None, tone=None, after=None) -%}
+{%- set split = url and after -%}
+{%- set tag = "a" if (url and not after) else "div" -%}
+<{{ tag }} class="tt-kpi tt-rep-kpi{{ ' tt-rep-kpi--' ~ tone if tone else '' }}{{ ' tt-rep-kpi--split' if split else '' }}" id="{{ id }}"{% if tag == "a" %} {{ nav(url, body_url or url, True) }}{% endif %}>
+  {%- if split %}<a class="tt-rep-kpi-link" {{ nav(url, body_url or url, True) }}>{% endif %}
   <span class="tt-kicker">{{ label }}</span>
   <span class="tt-rep-kpi-main">
     <span class="num">{% if icon %}<i class="bi {{ icon }} tt-rep-kpi-ico" aria-hidden="true"></i>{% endif %}{{ value }}</span>
     {%- if unit %} <span class="tt-rep-kpi-unit">{{ unit }}</span>{% endif %}
   </span>
   {%- if caller is defined %}{{ caller() }}{% endif %}
+  {%- if split %}</a>{% endif %}
+  {%- if after %}{{ after }}{% endif %}
 </{{ tag }}>
 {%- endmacro %}
 
@@ -70,14 +85,15 @@ href="{{ url }}" hx-get="{{ body_url }}" hx-target="#tt-report-body" hx-select="
    toque es más grande que la marca). Color: `cfixed` (una sola serie) o
    `cprefix` + `row[ckey]` (identidad). Id de fila: `prefix-<row[idkey]>`
    (`None` -> `none`). `caller(row)` agrega un renglón bajo la barra (p. ej.
-   el sub-conteo de atorados de la pelota). Valor en la punta de la barra. — #}
-{% macro hbars(rows, prefix, label, cprefix=None, ckey="code", cfixed=None, idkey="code", lkey="label", scroll=False) -%}
+   el sub-conteo de atorados de la pelota). Valor en la punta de la barra.
+   `link="admin"`: `url` es OTRA vista admin (`nav_admin`), sin `body_url`. — #}
+{% macro hbars(rows, prefix, label, cprefix=None, ckey="code", cfixed=None, idkey="code", lkey="label", scroll=False, link="tablero") -%}
 <ul class="tt-rep-hbars" id="{{ prefix }}-list" aria-label="{{ label }}">
   {%- for r in rows %}
   {%- set cc = cfixed if cfixed else (cprefix ~ "-" ~ r[ckey]) %}
   {%- set rid = r[idkey] if r[idkey] is not none else "none" %}
   <li class="tt-rep-hrow" id="{{ prefix }}-{{ rid }}">
-    {% if r.url %}<a class="tt-rep-hlink" {{ nav(r.url, r.body_url, scroll) }} data-tt-tip="{{ r.tip }}">{% else %}<div class="tt-rep-hlink" data-tt-tip="{{ r.tip }}">{% endif %}
+    {% if r.url %}<a class="tt-rep-hlink" {{ nav_admin(r.url) if link == "admin" else nav(r.url, r.body_url, scroll) }} data-tt-tip="{{ r.tip }}">{% else %}<div class="tt-rep-hlink" data-tt-tip="{{ r.tip }}">{% endif %}
       <span class="tt-rep-hlabel">{{ r[lkey] }}</span>
       <span class="tt-rep-htrack">
         <span class="tt-rep-bar tt-rep-mark tt-rep-c--{{ cc }}{{ ' is-zero' if not r.value else '' }}" style="width: {{ '%.2f'|format(r.pct) }}%" data-tt-tip="{{ r.tip }}"></span>
@@ -98,7 +114,7 @@ href="{{ url }}" hx-get="{{ body_url }}" hx-target="#tt-report-body" hx-select="
 {% macro stacked_bar(id, segments, label) -%}
 <div class="tt-rep-stack{{ ' tt-rep-stack-empty' if not segments else '' }}" id="{{ id }}" role="img"
      aria-label="{{ label }}{% if segments %}: {% for s in segments %}{{ s.label }} {{ s.value }}{{ ', ' if not loop.last else '' }}{% endfor %}{% else %}: sin pendientes{% endif %}">
-  {%- for s in segments %}<span class="tt-rep-seg tt-rep-mark tt-rep-c--g-{{ s.group }}" style="width: {{ '%.2f'|format(s.w_pct) }}%" data-tt-tip="{{ s.tip }}"></span>{% endfor -%}
+  {%- for s in segments %}<span class="tt-rep-stack-seg tt-rep-mark tt-rep-c--g-{{ s.group }}" style="width: {{ '%.2f'|format(s.w_pct) }}%" data-tt-tip="{{ s.tip }}"></span>{% endfor -%}
 </div>
 {%- endmacro %}
 
@@ -141,13 +157,16 @@ href="{{ url }}" hx-get="{{ body_url }}" hx-target="#tt-report-body" hx-select="
 </div>
 {%- endmacro %}
 
-{# — Sparkline de un stat tile: tamaño fijo (sin deformar), una serie, sin
-   ejes. `points` es el atributo ya calculado (`charts.sparkline`). `label`
-   es el nombre accesible (corto: la sparkline vive dentro de la liga del
-   tile); `tip` («Etiqueta: valores») va al tooltip y al `<title>`. — #}
-{% macro sparkline(points, width, height, label, tip=None, key="s-liberated") -%}
-<svg class="tt-rep-spark" viewBox="0 0 {{ width }} {{ height }}" width="{{ width }}" height="{{ height }}"
-     role="img" aria-label="{{ label }}" focusable="false">
+{# — Sparkline: tamaño fijo (sin deformar), una serie, sin ejes. `points` es el
+   atributo ya calculado (`charts.sparkline`). `label` es el nombre accesible;
+   `tip` («Etiqueta: valores») va al tooltip y al `<title>`.
+   `focusable=True` (sparkline suelta, FUERA de una liga): el SVG entero es el
+   área de toque (`data-tt-tip` en la caja, no solo en el trazo de 1.5 px) y se
+   enfoca con el teclado (`tabindex`), así sus valores se leen sin ratón. Los
+   argumentos van en este orden: la Task 7b los pasa por posición. — #}
+{% macro sparkline(points, width, height, label, tip=None, key="s-liberated", focusable=False) -%}
+<svg class="tt-rep-spark{{ ' tt-rep-spark--focus' if focusable else '' }}" viewBox="0 0 {{ width }} {{ height }}" width="{{ width }}" height="{{ height }}"
+     role="img" aria-label="{{ label }}"{% if focusable %} tabindex="0" data-tt-tip="{{ tip or label }}"{% else %} focusable="false"{% endif %}>
   <polyline class="tt-rep-spark-line tt-rep-mark tt-rep-c--{{ key }}" points="{{ points }}" data-tt-tip="{{ tip or label }}"><title>{{ tip or label }}</title></polyline>
 </svg>
 {%- endmacro %}

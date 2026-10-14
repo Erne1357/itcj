@@ -74,7 +74,7 @@
     <div class="tt-rep-day" id="tt-rep-day">
       <div class="tt-rep-day-head">
         <h3 class="tt-rep-day-title">Liberados el {{ r.selected_day_text }}</h3>
-        <a class="btn btn-sm tt-btn-ghost" id="tt-rep-day-close" {{ nav(r.clear_day_url, r.clear_day_body_url) }}><i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Cerrar</span></a>
+        <a class="btn btn-sm tt-btn-ghost" id="tt-rep-day-close" aria-label="Cerrar la lista del día" {{ nav(r.clear_day_url, r.clear_day_body_url) }}><i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Cerrar</span></a>
       </div>
       {% if r.day_list %}
       {#- Lista de dos renglones y no tabla: en media tarjeta 4 columnas se
@@ -107,9 +107,9 @@
     {% endcall %}
   {% endcall %}
 
-  {% call chart_card("tt-rep-by-program", "Liberados por carrera", "En " ~ rango ~ ", la que más arriba.") %}
+  {% call chart_card("tt-rep-by-program", "Liberados por carrera", "En " ~ rango ~ ", la que más arriba. Toca una carrera para abrir su lista en Liberados (ahí salen todos, no solo los del periodo).") %}
     {% if r.by_program %}
-    {{ hbars(r.by_program, "tt-rep-bp", "Liberados por carrera", cfixed="s-liberated", idkey="id", lkey="name") }}
+    {{ hbars(r.by_program, "tt-rep-bp", "Liberados por carrera", cfixed="s-liberated", idkey="id", lkey="name", link="admin") }}
     {% else %}
     <p class="tt-rep-empty"><i class="bi bi-inbox" aria-hidden="true"></i>Ningún liberado en {{ rango }}.</p>
     {% endif %}

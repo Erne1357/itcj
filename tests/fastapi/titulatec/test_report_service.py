@@ -633,6 +633,25 @@ def test_ritmo_series_acumulado_calendario_y_carreras(lleno):
     assert r["selected_day"] is None and r["day_list"] == []
 
 
+def test_ritmo_liberados_por_carrera_ligan_a_la_bandeja_liberados(lleno):
+    """D7: cada barra lleva a la bandeja Liberados filtrada por su carrera, con
+    los nombres de parámetro de `pages/handoff_admin.py` (`cohort_id`,
+    `program_id`). La convocatoria viaja solo si hay UNA elegida; «Sin
+    carrera» no liga (esa bandeja no filtra por «sin carrera»)."""
+    t = lleno
+    sin = t.proceso("liberado", None)
+    t.liberar(sin, t.b0, t.ana)
+    filas = {x["id"]: x for x in _build(t, "ritmo")["ritmo"]["by_program"]}
+    assert filas[t.pa.id]["url"] == (f"/titulatec/admin/liberados?cohort_id={t.c.id}"
+                                     f"&program_id={t.pa.id}")
+    assert filas[t.pb.id]["url"] == (f"/titulatec/admin/liberados?cohort_id={t.c.id}"
+                                     f"&program_id={t.pb.id}")
+    assert filas[None]["url"] is None
+    # Con «todas las convocatorias», sin `cohort_id`.
+    todas = {x["id"]: x for x in _build(t, "ritmo", cohort="all")["ritmo"]["by_program"]}
+    assert todas[t.pa.id]["url"] == f"/titulatec/admin/liberados?program_id={t.pa.id}"
+
+
 def test_ritmo_lista_del_dia_seleccionado(lleno):
     t = lleno
     r = _build(t, "ritmo", day=t.b1)["ritmo"]

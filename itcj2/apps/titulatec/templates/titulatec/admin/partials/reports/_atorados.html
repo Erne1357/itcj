@@ -1,0 +1,81 @@
+{# Pestaña Atorados (spec §5.5): la lista de personas detrás de los números.
+
+   Tres grupos de chips-enlace (pelota, nivel, etapa; cada uno con cuántos
+   quedarían) y la tabla paginada de 50: alumno (liga al expediente o a la
+   bandeja de Solicitudes) · carrera · etapa · motivo · días con su nivel
+   (icono + texto) · encargados de la carrera. Orden: más días sin movimiento
+   primero. El paginador es la macro `pager` de `_macros.html`; `hx-select` ==
+   `hx-target` ⇒ `morph:outerHTML`. Contrato: `report_service._ctx_atorados`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import nav %}
+{% from "titulatec/_macros.html" import pager %}
+{%- set a = atorados %}
+{%- set groups = [("ball", "Quién tiene la pelota"), ("level", "Nivel"), ("stage", "Etapa")] %}
+
+<section class="tt-card tt-rep-card" id="tt-rep-ator-filters" aria-labelledby="tt-rep-ator-filters-title">
+  <h2 class="visually-hidden" id="tt-rep-ator-filters-title">Filtros de la lista</h2>
+  {%- for key, title in groups %}
+  <div class="tt-rep-fgroup" id="tt-rep-ator-group-{{ key }}">
+    <span class="tt-rep-fgroup-k">{{ title }}</span>
+    <div class="tt-rep-chips tt-rep-chips--open">
+      {%- for ch in a.chips[key] %}
+      <a class="tt-rep-chip{{ ' is-active' if ch.active else '' }}" id="tt-rep-f-{{ key }}-{{ ch.code if ch.code else 'all' }}" role="button"
+         aria-pressed="{{ 'true' if ch.active else 'false' }}" {{ nav(ch.url, ch.body_url) }}>
+        {%- if key == "ball" and ch.code %}<span class="tt-rep-key tt-rep-key--rect tt-rep-c--a-{{ ch.code }}" aria-hidden="true"></span>{% endif %}
+        <span>{{ ch.label }}</span><span class="tt-rep-chip-n">{{ ch.n }}</span>
+      </a>
+      {%- endfor %}
+    </div>
+  </div>
+  {%- endfor %}
+</section>
+
+<section class="tt-card tt-rep-card" id="tt-rep-ator-list" aria-labelledby="tt-rep-ator-list-title">
+  <header class="tt-rep-card-head">
+    <h2 class="tt-rep-card-title" id="tt-rep-ator-list-title">Lista de pendientes</h2>
+    <p class="tt-rep-card-sub" id="tt-rep-ator-total">{{ a.total }} {{ "pendiente" if a.total == 1 else "pendientes" }} con estos filtros, del que lleva más días sin movimiento al que menos.</p>
+  </header>
+  {% if a.total %}
+  <div class="tt-table-wrap">
+    <table class="table tt-rep-atable" id="tt-rep-ator-table">
+      <caption class="visually-hidden">Pendientes con días sin movimiento</caption>
+      <thead>
+        <tr>
+          <th scope="col">Alumno</th>
+          <th scope="col">Carrera</th>
+          <th scope="col">Etapa</th>
+          <th scope="col">Motivo</th>
+          <th scope="col" class="num">Sin movimiento</th>
+          <th scope="col">Encargados</th>
+        </tr>
+      </thead>
+      <tbody>
+        {%- for r in a.page.items %}
+        <tr id="tt-rep-ator-{{ r.kind }}-{{ r.id }}">
+          <th scope="row" class="tt-rep-aname">
+            <a href="{{ r.href }}" class="tt-rep-alink" id="tt-rep-ator-{{ r.kind }}-{{ r.id }}-link">{{ r.label }}</a>
+            <span class="tt-rep-onote">{{ "Solicitud" if r.kind == "request" else "Expediente" }}</span>
+          </th>
+          <td>{{ r.program }}</td>
+          <td>{{ r.stage_label }}</td>
+          <td class="tt-rep-amotive">
+            {%- if r.motives %}
+            {%- for m in r.motives %}<span class="tt-rep-motive"><span class="tt-rep-key tt-rep-key--rect tt-rep-c--a-{{ m.actor }}" aria-hidden="true"></span>{{ m.actor_label }}: {{ m.text }}</span>{% endfor %}
+            {%- else %}{{ r.motive_text }}{% endif %}
+          </td>
+          <td class="num">
+            {%- if r.level in ("crit", "warn") %}<span class="tt-rep-status tt-rep-status--{{ r.level }}"><i class="bi {{ r.level_icon }}" aria-hidden="true"></i>{{ r.level_label }}</span>{% endif %}
+            <span class="tt-rep-adays">{{ r.days_text }}</span>
+          </td>
+          <td>{% if r.officers %}{{ r.officers|join(", ") }}{% else %}<span class="tt-rep-osub">—</span>{% endif %}</td>
+        </tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="tt-rep-pager" id="tt-rep-ator-pager-host">
+    {{ pager(a.page, a.pager_url, "#tt-report-body", swap="morph:outerHTML show:window:top", select="#tt-report-body", prefix="tt-rep-ator") }}
+  </div>
+  {% else %}
+  <p class="tt-rep-empty" id="tt-rep-ator-empty"><i class="bi bi-check2-circle" aria-hidden="true"></i>Nada coincide con estos filtros. Prueba con el nivel «Todos» para ver todo lo pendiente.</p>
+  {% endif %}
+</section>
