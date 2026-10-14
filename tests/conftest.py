@@ -113,6 +113,17 @@ class FakeUser:
         return " ".join(parts)
 
 
+@pytest.fixture(autouse=True)
+def _sin_veredicto_compartido_de_contrasena(monkeypatch):
+    """`security.is_default_password_hash` comparte su veredicto entre procesos
+    en Redis (rendimiento 2026-10-14). Las pruebas parchean `verify_nip` con
+    hashes de mentira («hashed», «hash-perf-1»...): en el Redis de dev (o de
+    CI) el veredicto de una prueba decidiría el de la siguiente corrida, y uno
+    falso sobre el hash de un usuario real de dev le mostraría el cambio
+    obligatorio. Apagado aquí; sus pruebas lo encienden con un Redis falso."""
+    monkeypatch.setattr("itcj2.core.utils.security._shared_redis", lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # App fixture: FastAPI TestClient con mocks
 # ---------------------------------------------------------------------------

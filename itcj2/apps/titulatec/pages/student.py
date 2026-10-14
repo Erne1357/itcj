@@ -1238,7 +1238,8 @@ def _log_upload(type_code, raw, *, prepared=None, prepare_ms, save_ms=None, erro
     2026-10-06): en Loki, `logger="itcj2.apps.titulatec.pages.student"` y
     `msg="documento subido"`, con `request_id` para cruzarla con la de acceso.
     Nada del contenido ni del nombre del archivo: solo tipo, tamaños, pasadas
-    de compresión y tiempos."""
+    de compresión, ruta de decodificación de sus imágenes (2026-10-14) y
+    tiempos."""
     extra = {
         "doc_type": type_code,
         "bytes_in": len(raw),
@@ -1248,6 +1249,8 @@ def _log_upload(type_code, raw, *, prepared=None, prepare_ms, save_ms=None, erro
     if prepared is not None:
         extra["bytes_out"] = len(prepared.data)
         extra["compress_passes"] = prepared.compress_passes
+        extra["compress_images"] = dict(prepared.compress_images)
+        extra["pypdf_ms"] = round(prepared.pypdf_ms, 1)
     if save_ms is not None:
         extra["save_ms"] = round(save_ms, 1)
     if error:

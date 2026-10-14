@@ -774,12 +774,17 @@ class LibraryClearanceService:
         # Los procesos en UNA consulta: el `db.get` de `_admitted_process` los
         # toma luego del mapa de identidad en vez de pedir uno por fila. Y las
         # fases 2 aprobadas en OTRA (Ruling R20), no una por fila.
+        # `procesos` se queda vivo hasta el final A PROPÓSITO: el mapa de
+        # identidad es débil y, con la lista descartada, se recolectaban y cada
+        # `db.get` volvía a la BD (prod 2026-10-14: 38 SELECT de más en un lote
+        # de 38).
         aprobadas: set[int] = set()
+        procesos: list = []
         if filas:
             pids = {fila.process_id for fila in filas}
-            (db.query(TitulationProcess)
-             .filter(TitulationProcess.id.in_(pids))
-             .all())
+            procesos = (db.query(TitulationProcess)
+                        .filter(TitulationProcess.id.in_(pids))
+                        .all())
             aprobadas = LibraryClearanceService._phase2_approved_ids(db, pids)
 
         planes, omitidos = [], []
@@ -810,6 +815,7 @@ class LibraryClearanceService:
                 db, clearance, plan, actor_id,
                 requisitos.get(plan["process"].cohort_id))
         db.commit()
+        del procesos                    # hasta aquí los retuvo el mapa de identidad
         return {"done": len(planes), "skipped": omitidos}
 
     @staticmethod

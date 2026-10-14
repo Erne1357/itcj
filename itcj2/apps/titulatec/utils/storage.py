@@ -24,7 +24,7 @@ import io
 import os
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from itcj2.config import get_settings
@@ -271,6 +271,10 @@ class PreparedDocument:
     # Pasadas de compresión del PDF (0 = se guardó tal cual). Solo para el log
     # de la subida (rendimiento 2026-10-06).
     compress_passes: int = 0
+    # `{ruta: n}` de la última pasada y ms de lo que fue por pypdf, la ruta cara
+    # (ver `pdf_compress.compress_pdf`). Para el span y el log (2026-10-14).
+    compress_images: dict[str, int] = field(default_factory=dict)
+    pypdf_ms: float = 0.0
 
 
 def prepare_document(
@@ -288,8 +292,10 @@ def prepare_document(
     alumno si algo no pasa.
 
     Es el hueco más largo de una subida en Tempo (un PDF escaneado de 2 MB
-    tarda ~250 ms en comprimirse): por eso su propio span, con tamaños y
-    pasadas y nada del archivo.
+    tarda ~250 ms en comprimirse): por eso su propio span, con tamaños,
+    pasadas, cuántas imágenes se decodificaron por cada ruta
+    (``itcj.img_<ruta>``) y lo que costó pypdf (``itcj.pypdf_ms``), y nada del
+    archivo. La subida de 10.6 s de 2026-10-13 solo decía «comprimir».
     """
     with traced("titulatec.prepare_document",
                 {"itcj.file_kind": file_kind, "itcj.bytes_in": len(raw)}) as span:
@@ -297,6 +303,10 @@ def prepare_document(
                                      control_number=control_number, file_kind=file_kind)
         span.set_attribute("itcj.bytes_out", len(prepared.data))
         span.set_attribute("itcj.compress_passes", prepared.compress_passes)
+        for ruta, n in sorted(prepared.compress_images.items()):
+            span.set_attribute(f"itcj.img_{ruta}", n)
+        if prepared.pypdf_ms:
+            span.set_attribute("itcj.pypdf_ms", round(prepared.pypdf_ms, 1))
         return prepared
 
 
@@ -326,7 +336,9 @@ def _prepare_document(*, raw: bytes, original_name: str, control_number: str,
 
     return PreparedDocument(data=data, ext=final_ext, mime_type=mime,
                             original_name=original_name, file_kind=file_kind,
-                            compress_passes=stats["passes"])
+                            compress_passes=stats["passes"],
+                            compress_images=dict(stats.get("images", {})),
+                            pypdf_ms=stats.get("pypdf_ms", 0.0))
 
 
 def _write_atomic(target: Path, data: bytes) -> None:

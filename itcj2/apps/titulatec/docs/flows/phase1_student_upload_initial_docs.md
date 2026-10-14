@@ -148,18 +148,41 @@ En cada pasada, cada imagen:
 
 **Cómo se decodifica (rendimiento, 2026-10-06).** Un JPEG «simple» se decodifica ya reducido
 (`Image.draft`); un **Flate «simple»** (8 bits, gris o RGB —directo, Cal* o ICCBased de 1/3
-componentes—, sin `/SMask`/`/Mask`/`/Decode`, con o sin predictor PNG) se lee directo de
+componentes—, sin `/Mask`/`/Decode`, con o sin predictor PNG) se lee directo de
 `get_data()` con `Image.frombytes` (`_decode_flat`), con los mismos píxeles que pypdf. Solo lo
-demás (JPX, CMYK, máscaras…) va por `page.images[...]` de pypdf, que es CARO: re-codifica cada
+demás (CMYK, máscaras de bits…; JPEG2000 y máscaras suaves desde 2026-10-14, abajo) va por
+`page.images[...]` de pypdf, que es CARO: re-codifica cada
 imagen a PNG y la vuelve a abrir. Medido en prod (2026-10-05/06): las subidas de 1–2.3 s eran
 actas y certificados de escáner en Flate; esa vuelta por PNG costaba ~2.4 s por hoja A4 a 300 dpi
 (con `_decode_flat`, 25 ms; la compresión de una hoja baja de 2.6 s a 0.2 s).
 
+**JPEG2000 y máscaras suaves (rendimiento, 2026-10-14).** La traza de prod `0ed8aba9…`
+(2026-10-13) mostró una subida de 10.7 s: 10.6 s en `titulatec.prepare_document` para un PDF de
+7.4 MB con imágenes **JPEG2000**. pypdf decodifica el JPEG2000, lo vuelve a **codificar** a JPEG2000
+y lo decodifica otra vez al abrirlo (~3.4 s por hoja A4 a 300 dpi); con **máscara suave**
+(`/SMask`, un PNG con transparencia) lo re-codifica a PNG, o a JPEG2000 si la imagen era JPEG
+(~2 s por hoja). Ahora `_decode_direct` despacha todo lo «simple» sin pypdf:
+
+| Ruta (`itcj.img_<ruta>`) | Qué | Cómo |
+|---|---|---|
+| `jpeg` | JPEG gris/RGB | `Image.draft`: ya reducido |
+| `jpx` | JPEG2000 gris/RGB, sin `/SMaskInData`; `/ColorSpace` ausente o del mismo nº de canales | Pillow con `reduce` (descarta niveles de resolución: 1/2, 1/4, 1/8 por lado) hasta la menor medida que no baje del límite de la pasada |
+| `flat` | Flate simple | `_decode_flat` |
+| `smask` | cualquiera de las tres con `/SMask` 8 bits gris (Flate, JPEG o JPEG2000), sin `/Matte` | se aplana sobre blanco con el alfa (`_flatten_smask`): lo mismo que pypdf + `_for_jpeg`; si la imagen se decodificó reducida, la máscara se escala a su medida; lo gris se queda gris |
+| `pypdf` | lo demás (CMYK, `/Decode`, `/Mask`, máscaras de bits, `/Matte`…) | `page.images[...]`, la ruta cara |
+| `error` | no se pudo decodificar | se deja como está |
+
+Mismos píxeles que pypdf (pruebas «oráculo» en `test_pdf_compress.py`, salvo lo reducido, que se
+compara «a la vista»). Medido en dev, 4 hojas A4 a 300 dpi: JPEG2000 12.7 s → 0.77 s; Flate con
+máscara 9.2 s → 0.89 s.
+
 **Log por subida.** Cada subida (segundo salto) deja una línea INFO `documento subido`
 (`logger="itcj2.apps.titulatec.pages.student"`) con `doc_type`, `bytes_in`, `bytes_out`,
-`compress_passes` (0 = se guardó intacto), `prepare_ms` (validar + comprimir), `save_ms`
-(escribir + BD + sincronizar fase), `outcome` (`ok`|`error`) y `error_type`. Nada del archivo ni
-su nombre. Se cruza con la línea de acceso por `request_id`.
+`compress_passes` (0 = se guardó intacto), `compress_images` (`{ruta: n}` de la última pasada,
+tabla de arriba), `pypdf_ms` (lo que costó lo que fue por pypdf), `prepare_ms` (validar +
+comprimir), `save_ms` (escribir + BD + sincronizar fase), `outcome` (`ok`|`error`) y `error_type`.
+Nada del archivo ni su nombre. Se cruza con la línea de acceso por `request_id`. El span
+`titulatec.prepare_document` lleva lo mismo: `itcj.img_<ruta>` y, si hubo, `itcj.pypdf_ms`.
 
 Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
 BD.

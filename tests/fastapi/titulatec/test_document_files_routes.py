@@ -93,6 +93,8 @@ class TestLogDeSubida:
         assert (r.doc_type, r.bytes_in, r.outcome) == ("curp", len(raw), "ok")
         assert r.bytes_out <= 2 * MB and r.compress_passes >= 1
         assert r.prepare_ms >= 0 and r.save_ms >= 0
+        # 2026-10-14: por qué ruta se decodificó cada imagen y lo que costó pypdf
+        assert (r.compress_images, r.pypdf_ms) == ({"jpeg": 1}, 0)
         assert "curp escaneada" not in str(vars(r)), "nunca el nombre del archivo"
 
     def test_subida_rechazada_dice_el_tipo_de_error(self, esc, client_as, caplog):

@@ -36,6 +36,16 @@ biblioteca escala al decodificar por 1/2, 1/4 u 1/8), y una imagen que declara
 más de ``MAX_IMAGE_PIXELS`` píxeles (/Width × /Height) ni se decodifica: se deja
 como está. Ese tope es propio y no depende de ``PIL.Image.MAX_IMAGE_PIXELS``.
 
+Decodificar (rendimiento 2026-10-06 y 2026-10-14): ``page.images[...]`` de
+pypdf re-CODIFICA cada imagen (a PNG, a JPEG2000 si era JPEG2000 o JPEG con
+máscara) y la vuelve a abrir antes de devolverla: ~2 s por hoja A4 a 300 dpi
+con máscara suave, ~3.4 s con JPEG2000 (un PDF de prod de 7.4 MB tardó 10.6 s).
+Por eso lo «simple» se decodifica directo (``_decode_direct``): JPEG y JPEG2000
+ya reducidos, Flate sin pérdida, y cualquiera de los tres con máscara suave,
+aplanada sobre blanco. pypdf queda para lo raro (CMYK, ``/Decode``, máscaras de
+bits...). ``stats`` cuenta por qué ruta pasó cada imagen y cuánto costó lo que
+fue por pypdf: con eso la próxima subida lenta dice en Tempo qué la hizo lenta.
+
 La imagen nueva se escribe EN SITIO sobre el stream del XObject (mismo objeto
 indirecto, así que cada página o Form que la usa ve la nueva): datos JPEG,
 ``/DCTDecode``, medidas y espacio de color; se quitan ``/SMask``, ``/Decode``
@@ -49,6 +59,7 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 from typing import NamedTuple
 
 logger = logging.getLogger(__name__)
@@ -96,6 +107,15 @@ _STD_LUMA_QTABLE = (
 _STALE_IMAGE_KEYS = ("/DecodeParms", "/Decode", "/SMask", "/Mask", "/SMaskInData",
                      "/ImageMask", "/Filter")
 
+# Claves que cambian qué píxeles se ven y que la decodificación directa no
+# reproduce: con alguna de ellas, la imagen va por pypdf. La máscara SUAVE
+# (`/SMask`) sí se reproduce: la aplana `_flatten_smask`.
+_PYPDF_ONLY_KEYS = ("/Mask", "/Decode")
+
+# Reducción máxima al decodificar un JPEG2000: 1/8 por lado (2**3), de sobra
+# para un escaneo a 600 dpi.
+_JPX_MAX_REDUCE = 3
+
 
 class PdfUnreadable(Exception):
     """El PDF no se puede abrir: bytes que no son PDF, truncado o cifrado."""
@@ -113,12 +133,19 @@ def compress_pdf(raw: bytes, *, target_bytes: int, stats: dict | None = None) ->
       cabe no conserva las páginas del original, ``PdfUnreadable``.
 
     ``stats`` (opcional) recibe ``passes``: cuántas pasadas corrieron (0 si ya
-    cabía). Es para el log de la subida, no cambia el resultado.
+    cabía); ``images``: ``{ruta: n}`` de la última pasada, por dónde se
+    decodificó cada imagen (``jpeg``, ``jpx``, ``flat``, ``smask``,
+    ``pypdf``) o ``error`` si no se pudo y se dejó como estaba; y
+    ``pypdf_ms``: el tiempo de las imágenes que fueron por pypdf, sumado en
+    todas las pasadas. Son para el span y el log de la subida, no cambian el
+    resultado.
     """
     if target_bytes <= 0:
         raise ValueError("target_bytes debe ser positivo")
     if stats is not None:
         stats["passes"] = 0
+        stats["images"] = {}
+        stats["pypdf_ms"] = 0.0
     if len(raw) <= target_bytes:
         return raw
 
@@ -126,7 +153,7 @@ def compress_pdf(raw: bytes, *, target_bytes: int, stats: dict | None = None) ->
     for p in PASSES:
         if stats is not None:
             stats["passes"] += 1
-        out = _one_pass(raw, p)
+        out = _one_pass(raw, p, stats)
         logger.debug("compress_pdf: %s dpi q%s tope %s px -> %s bytes (objetivo %s)",
                      p.dpi, p.quality, p.max_px, len(out), target_bytes)
         if len(out) <= target_bytes:
@@ -159,11 +186,12 @@ def _page_count(raw: bytes) -> int:
         raise PdfUnreadable(str(exc)) from exc
 
 
-def _one_pass(raw: bytes, p: _Pass) -> bytes:
+def _one_pass(raw: bytes, p: _Pass, stats: dict | None = None) -> bytes:
     """Una pasada completa sobre una copia fresca del original.
 
     Cada pasada parte de ``raw`` y no de la anterior: recomprimir un JPEG ya
-    recomprimido acumula pérdida sin necesidad.
+    recomprimido acumula pérdida sin necesidad. Con ``stats``, deja ahí las
+    rutas de ESTA pasada y suma el tiempo de pypdf (ver ``compress_pdf``).
     """
     from pypdf import PdfWriter
 
@@ -174,6 +202,7 @@ def _one_pass(raw: bytes, p: _Pass) -> bytes:
     except Exception as exc:
         raise PdfUnreadable(str(exc)) from exc
 
+    rutas: dict[str, int] = {}
     done: set[int] = set()        # XObjects ya tratados (una imagen puede repetirse)
     for page in pages:
         limit = _pixel_limit(page, p)
@@ -182,10 +211,16 @@ def _one_pass(raw: bytes, p: _Pass) -> bytes:
             if key in done:
                 continue
             done.add(key)
+            inicio = time.perf_counter()
             try:
-                _recode_image(page, path, obj, limit=limit, quality=p.quality)
+                ruta = _recode_image(page, path, obj, limit=limit, quality=p.quality)
             except Exception as exc:
+                ruta = "error"
                 logger.debug("compress_pdf: imagen %s se deja como está: %s", path, exc)
+            if ruta == "pypdf" and stats is not None:
+                stats["pypdf_ms"] += (time.perf_counter() - inicio) * 1000
+            if ruta is not None:
+                rutas[ruta] = rutas.get(ruta, 0) + 1
         try:
             page.compress_content_streams()
         except Exception as exc:
@@ -196,6 +231,8 @@ def _one_pass(raw: bytes, p: _Pass) -> bytes:
     except Exception as exc:
         logger.debug("compress_pdf: no se compactaron objetos: %s", exc)
 
+    if stats is not None:
+        stats["images"] = rutas
     try:
         buf = io.BytesIO()
         writer.write(buf)
@@ -314,50 +351,52 @@ def _encoded_len(obj) -> int:
     return size
 
 
-def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> None:
+def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> str | None:
     """Reduce y/o recodifica en JPEG una imagen, en sitio, si con eso pesa menos.
+
+    Devuelve la ruta por la que se decodificó (ver ``_decode_direct``, o
+    ``"pypdf"``), o ``None`` si se dejó sin decodificar (bitonal, paleta,
+    enorme o un JPEG que ya está a esta calidad).
 
     Cualquier imagen que no se pueda decodificar (CCITT raros, JBIG2, datos
     corruptos) lanza y el llamador la deja COMO ESTÁ: una imagen difícil no debe
     tumbar la compresión del resto del documento.
     """
     if _is_bilevel(obj) or _is_indexed(obj):
-        return
+        return None
     width = int(_resolved(obj.get("/Width")) or 0)
     height = int(_resolved(obj.get("/Height")) or 0)
     if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
-        return
+        return None
     needs_resize = max(width, height) > limit
 
-    pil = None
+    jpeg = None
     if _filters(obj) == ["/DCTDecode"]:
         from PIL import Image
 
         jpeg = Image.open(io.BytesIO(obj.get_data()))       # solo lee cabeceras
         if jpeg.size[0] * jpeg.size[1] > MAX_IMAGE_PIXELS:
-            return
+            return None
         if not needs_resize:
             q = _jpeg_quality(jpeg)
             if q is not None and q <= quality:
-                return          # ya es un JPEG a esta calidad o menor y cabe
-        pil = _decode_jpeg_reduced(jpeg, obj, limit)
+                return None     # ya es un JPEG a esta calidad o menor y cabe
+    pil, ruta = _decode_direct(obj, limit, jpeg)
     if pil is None:
-        pil = _decode_flat(obj)
+        pil, ruta = _decode_with_pypdf(page, path), "pypdf"
     if pil is None:
-        pil = _decode_with_pypdf(page, path)
-    if pil is None:
-        return
+        return ruta
 
     prepared = _for_jpeg(pil)
     if prepared is None:
-        return
+        return ruta
     if _is_uniform(prepared) and _encoded_len(obj) > UNIFORM_SUSPECT_BYTES:
         # Un solo color salido de un stream que no es trivial: casi seguro una
         # mala decodificación (ronda 2). El JPEG pesaría casi nada y la guarda
         # de abajo lo aceptaría: el documento quedaría en negro sin avisar.
         logger.debug("compress_pdf: imagen %s decodificada de un solo color; "
                      "se deja como está", path)
-        return
+        return ruta
     if max(prepared.size) > limit:
         prepared.thumbnail((limit, limit))
     buf = io.BytesIO()
@@ -365,15 +404,48 @@ def _recode_image(page, path: list[str], obj, *, limit: int, quality: int) -> No
     prepared.save(buf, "JPEG", quality=quality, optimize=True)
     data = buf.getvalue()
     if len(data) >= _encoded_len(obj):
-        return                  # el JPEG no gana nada: se queda la original
+        return ruta             # el JPEG no gana nada: se queda la original
     _put_jpeg(obj, data, prepared)
+    return ruta
+
+
+def _decode_direct(obj, limit: int, jpeg=None):
+    """``(imagen, ruta)`` decodificada SIN pypdf, o ``(None, None)`` si no es «simple».
+
+    Rutas: ``"jpeg"`` (``jpeg`` = el JPEG del stream con solo sus cabeceras
+    leídas; se abre aquí si no viene), ``"jpx"`` (JPEG2000), ``"flat"`` (Flate
+    sin pérdida) y ``"smask"`` (cualquiera de los tres con máscara suave,
+    aplanada sobre blanco por ``_flatten_smask``). JPEG y JPEG2000 se
+    decodifican ya reducidos a la menor medida que no baje de ``limit``.
+    Lo demás va por ``_decode_with_pypdf``, la ruta cara.
+    """
+    filtros = _filters(obj)
+    if filtros == ["/DCTDecode"]:
+        if jpeg is None:
+            from PIL import Image
+
+            jpeg = Image.open(io.BytesIO(obj.get_data()))
+        base, ruta = _decode_jpeg_reduced(jpeg, obj, limit), "jpeg"
+    elif filtros == ["/JPXDecode"]:
+        base, ruta = _decode_jpx(obj, limit), "jpx"
+    elif filtros == ["/FlateDecode"]:
+        base, ruta = _decode_flat(obj), "flat"
+    else:
+        return None, None
+    if base is None:
+        return None, None
+    if "/SMask" not in obj:
+        return base, ruta
+    plana = _flatten_smask(obj, base)
+    return (plana, "smask") if plana is not None else (None, None)
 
 
 def _decode_with_pypdf(page, path: list[str]):
-    """Decodifica con pypdf lo que no es un JPEG ni un Flate «simples» (JPX,
-    CMYK, con SMask, con /Decode...): pypdf sabe aplicar espacios de color y
-    máscaras. CARO: `page.images` re-codifica la imagen a PNG y la vuelve a
-    abrir (≈2.4 s por hoja A4 a 300 dpi), por eso va al final."""
+    """Decodifica con pypdf lo que ``_decode_direct`` no sabe (CMYK, ``/Decode``,
+    máscaras de bits, máscaras suaves raras...): pypdf sabe aplicar espacios de
+    color y máscaras. CARO: `page.images` re-codifica la imagen (a PNG, TIFF o
+    JPEG2000) y la vuelve a abrir (≈2-3.4 s por hoja A4 a 300 dpi), por eso va
+    al final."""
     return page.images[path if len(path) > 1 else path[0]].image
 
 
@@ -387,10 +459,11 @@ def _decode_flat(obj):
 
     Simple = ``/FlateDecode`` solo (con o sin predictor PNG, que resuelve
     ``get_data``), 8 bits por componente, gris o RGB (directo, Cal* o ICCBased
-    de 1 o 3 componentes) y sin ``/SMask``/``/Mask``/``/Decode``. Es el escaneo
-    sin pérdida típico. Da los MISMOS píxeles que pypdf sin su vuelta por PNG
+    de 1 o 3 componentes) y sin ``/Mask``/``/Decode``. Es el escaneo sin
+    pérdida típico. Da los MISMOS píxeles que pypdf sin su vuelta por PNG
     (rendimiento 2026-10-06: 2.4 s → 25 ms por hoja). Lo demás va por
-    ``_decode_with_pypdf``.
+    ``_decode_with_pypdf``. Son los píxeles del stream: una ``/SMask`` la
+    aplana después ``_decode_direct``.
     """
     from PIL import Image
 
@@ -398,7 +471,7 @@ def _decode_flat(obj):
         return None
     if _resolved(obj.get("/BitsPerComponent")) != 8:
         return None
-    if any(k in obj for k in ("/SMask", "/Mask", "/Decode")):
+    if any(k in obj for k in _PYPDF_ONLY_KEYS):
         return None
     cs = _resolved(obj.get("/ColorSpace"))
     if isinstance(cs, (list, tuple)) and cs:
@@ -424,13 +497,14 @@ def _decode_flat(obj):
 def _decode_jpeg_reduced(jpeg, obj, limit: int):
     """Decodifica un JPEG «simple» ya reducido (``draft``), o ``None`` si no lo es.
 
-    Simple = gris o RGB, sin ``/SMask``/``/Mask``/``/Decode`` y en un espacio de
-    color directo: ahí los píxeles del JPEG son los que se ven. Lo demás (CMYK
-    de Adobe invertido, índices, máscaras) va por pypdf.
+    Simple = gris o RGB, sin ``/Mask``/``/Decode`` y en un espacio de color
+    directo: ahí los píxeles del JPEG son los que se ven. Lo demás (CMYK de
+    Adobe invertido, índices, máscaras de bits) va por pypdf. Una ``/SMask`` la
+    aplana después ``_decode_direct``.
     """
     if jpeg.mode not in ("L", "RGB"):
         return None
-    if any(k in obj for k in ("/SMask", "/Mask", "/Decode")):
+    if any(k in obj for k in _PYPDF_ONLY_KEYS):
         return None
     cs = _resolved(obj.get("/ColorSpace"))
     if isinstance(cs, (list, tuple)):
@@ -443,6 +517,133 @@ def _decode_jpeg_reduced(jpeg, obj, limit: int):
         jpeg.draft(jpeg.mode, (max(1, round(w * scale)), max(1, round(h * scale))))
     jpeg.load()
     return jpeg
+
+
+# `/ColorSpace` directo -> modo de Pillow de un JPEG2000 «simple».
+_JPX_MODES = {"/DeviceGray": "L", "/CalGray": "L", "/DeviceRGB": "RGB", "/CalRGB": "RGB"}
+
+
+def _decode_jpx(obj, limit: int):
+    """Decodifica directo un JPEG2000 «simple», ya reducido, o ``None`` si no lo es.
+
+    Simple = sin ``/SMaskInData`` (alfa dentro del códec) ni ``/Mask``/``/Decode``,
+    gris o RGB en el códec, y el ``/ColorSpace`` del PDF ausente (manda el
+    códec, como permite la norma) o del mismo número de canales (directo, Cal*
+    o ICCBased). Da los MISMOS píxeles que pypdf, que abre el mismo códec con
+    Pillow, sin su vuelta: pypdf lo re-CODIFICA a JPEG2000 y lo abre otra vez
+    (rendimiento 2026-10-14: ~3.4 s por hoja A4 a 300 dpi; un PDF de prod de
+    7.4 MB tardó 10.6 s). Además se decodifica ya reducido: ``reduce`` descarta
+    niveles de resolución del códec (1/2, 1/4, 1/8 por lado, como ``draft`` en
+    JPEG) hasta la menor medida que no baje de ``limit``.
+    """
+    from PIL import Image
+
+    if any(k in obj for k in _PYPDF_ONLY_KEYS) or _resolved(obj.get("/SMaskInData")):
+        return None
+    esperado = _jpx_mode(obj)
+    if esperado is False:
+        return None
+    data = obj.get_data()
+    img = Image.open(io.BytesIO(data), formats=("JPEG2000",))
+    if img.mode not in ("L", "RGB") or esperado not in (None, img.mode):
+        return None
+    if img.size[0] * img.size[1] > MAX_IMAGE_PIXELS:
+        return None
+    niveles = _jpx_reduce(img.size, limit)
+    if niveles:
+        try:
+            img.reduce = niveles
+            img.load()
+            return img
+        except Exception as exc:     # el códec trae menos niveles que los pedidos
+            logger.debug("compress_pdf: JPEG2000 sin %s niveles de reducción: %s",
+                         niveles, exc)
+            img = Image.open(io.BytesIO(data), formats=("JPEG2000",))
+    img.load()
+    return img
+
+
+def _jpx_mode(obj):
+    """El modo que pide el ``/ColorSpace`` de un JPEG2000: ``None`` si no lo
+    trae (manda el códec), ``"L"`` o ``"RGB"``, o ``False`` si no es simple
+    (CMYK, Lab, paleta, separaciones...)."""
+    cs = _resolved(obj.get("/ColorSpace"))
+    if cs is None:
+        return None
+    if isinstance(cs, (list, tuple)):
+        if not cs:
+            return False
+        family = str(_resolved(cs[0]))
+        if family == "/ICCBased" and len(cs) > 1:
+            return {1: "L", 3: "RGB"}.get(_resolved(_resolved(cs[1]).get("/N")), False)
+        return _JPX_MODES.get(family, False)
+    return _JPX_MODES.get(str(cs), False)
+
+
+def _jpx_reduce(size: tuple[int, int], limit: int) -> int:
+    """Niveles a descartar: la mayor reducción (hasta ``_JPX_MAX_REDUCE``) cuyo
+    lado mayor no baje de ``limit``; ``thumbnail`` deja después la medida exacta."""
+    lado = max(size)
+    niveles = 0
+    while niveles < _JPX_MAX_REDUCE and lado >> (niveles + 1) >= limit:
+        niveles += 1
+    return niveles
+
+
+def _flatten_smask(obj, base):
+    """``base`` aplanada sobre blanco con la máscara suave del XObject, o
+    ``None`` si la máscara no es «simple» (que la resuelva pypdf).
+
+    Es lo mismo que pypdf + ``_for_jpeg``: pypdf pone la máscara como canal
+    alfa y ``_for_jpeg`` pega la imagen sobre blanco con ese alfa. Como pypdf,
+    una máscara de otra medida que la imagen se ignora (queda opaca). Dos
+    diferencias a propósito: si ``base`` se decodificó ya reducida, la máscara
+    se escala a su medida (a la vista, igual), y lo gris se queda gris (pypdf +
+    ``_for_jpeg`` lo daban en RGB: el triple de JPEG con los mismos píxeles).
+    ``/Matte`` (alfa premultiplicado) no es simple.
+    """
+    from PIL import Image
+    from pypdf.generic import StreamObject
+
+    mascara = _resolved(obj.get("/SMask"))
+    if not isinstance(mascara, StreamObject) or "/Matte" in mascara:
+        return None
+    alfa = _decode_mask(mascara)
+    if alfa is None:
+        return None
+    width = int(_resolved(obj.get("/Width")) or 0)
+    height = int(_resolved(obj.get("/Height")) or 0)
+    if alfa.size != (width, height):
+        return base
+    if alfa.size != base.size:
+        alfa = alfa.resize(base.size, Image.Resampling.BILINEAR)
+    plana = Image.new(base.mode, base.size, "white")
+    plana.paste(base, mask=alfa)
+    return plana
+
+
+def _decode_mask(mascara):
+    """La máscara suave como imagen ``L`` (8 bits, gris), decodificada directo,
+    o ``None`` si no es simple (bits sueltos, otro espacio de color, enorme...)."""
+    from PIL import Image
+
+    if any(k in mascara for k in ("/SMask", *_PYPDF_ONLY_KEYS)):
+        return None
+    width = int(_resolved(mascara.get("/Width")) or 0)
+    height = int(_resolved(mascara.get("/Height")) or 0)
+    if width <= 0 or height <= 0 or width * height > MAX_IMAGE_PIXELS:
+        return None
+    filtros = _filters(mascara)
+    if filtros == ["/FlateDecode"]:
+        alfa = _decode_flat(mascara)
+    elif filtros == ["/DCTDecode"]:
+        alfa = Image.open(io.BytesIO(mascara.get_data()))
+        alfa.load()
+    elif filtros == ["/JPXDecode"]:
+        alfa = _decode_jpx(mascara, max(width, height) + 1)    # completa, sin reducir
+    else:
+        return None
+    return alfa if alfa is not None and alfa.mode == "L" else None
 
 
 def _jpeg_quality(img) -> int | None:
