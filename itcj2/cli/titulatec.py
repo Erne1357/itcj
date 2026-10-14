@@ -164,6 +164,11 @@ SEED_FILES = [
     # asi que va DESPUES del 11; no inserta permisos. Tambien corre SOLO con
     # `titulatec init-especialidades` (produccion: el 11 nunca se re-corre).
     "survey_2026_10/26_especialidades_por_carrera.sql",
+    # --- Delta 2026-10-14: Tablero de la jefa de Servicios Escolares. El permiso
+    # `titulatec.reports.page.view` para `titulatec_school_services_head`; `admin`
+    # lo recibe del 15 (dinamico). Inserta un permiso, asi que va ANTES del 15.
+    # Tambien corre con `titulatec init-reportes` (que ademas re-corre el 15).
+    "reportes_2026_10/26_insert_reports_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -3642,6 +3647,110 @@ def init_bitacora_command(dry_run):
 
     click.echo(click.style(
         f"OK: {_AUDIT_PERM} existe y el rol admin lo tiene.", fg="green"))
+
+
+# ---------------------------------------------------------------------------
+# Tablero de la jefa de SE (2026-10-14): permiso `titulatec.reports.page.view`.
+# El 26 lo inserta y lo concede a `titulatec_school_services_head`; `admin` lo
+# recibe del 15 (SELECT dinamico), asi que ESTE comando -a diferencia de
+# `init-bitacora`- re-corre el 15 despues del 26 (spec 2026-10-14). Eso reparte
+# a `admin` todo lo que titulatec tenga declarado: correrlo solo donde eso se
+# quiera. Invalida el cache de authz SOLO de titulatec (nunca `invalidate_all`).
+# ---------------------------------------------------------------------------
+_DML_REPORTES_2026_10_DIR = "reportes_2026_10"
+_DML_REPORTES_2026_10_FILES = ["26_insert_reports_perm.sql"]
+_REPORTS_PERM = "titulatec.reports.page.view"
+_REPORTS_ROLES = ("titulatec_school_services_head", "admin")
+_GRANT_ADMIN_ALL = "15_grant_admin_all_perms.sql"
+
+
+def _verify_reportes() -> list[str]:
+    """Comprueba que el 26 (y el 15) ATERRIZARON: el permiso existe y lo tienen
+    la jefa de SE y `admin`. Devuelve problemas (contrato de
+    `_verify_bitacora`). Sesion propia, solo lectura."""
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    problemas: list[str] = []
+    db = SessionLocal()
+    try:
+        existe = db.execute(
+            text("SELECT 1 FROM core_permissions p JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND p.code = :code"),
+            {"code": _REPORTS_PERM},
+        ).first()
+        if existe is None:
+            return [f"permiso ausente: {_REPORTS_PERM}"]
+        for rol in _REPORTS_ROLES:
+            concedido = db.execute(
+                text("SELECT 1 FROM core_role_permissions rp "
+                     "JOIN core_roles r ON r.id = rp.role_id "
+                     "JOIN core_permissions p ON p.id = rp.perm_id "
+                     "JOIN core_apps a ON a.id = p.app_id "
+                     "WHERE a.key = 'titulatec' AND r.name = :rol AND p.code = :code"),
+                {"rol": rol, "code": _REPORTS_PERM},
+            ).first()
+            if concedido is None:
+                problemas.append(f"el rol {rol} no tiene {_REPORTS_PERM}")
+    finally:
+        db.close()
+    return problemas
+
+
+@titulatec_cli.command("init-reportes")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
+def init_reportes_command(dry_run):
+    """Da de alta el permiso del Tablero de la jefa de Servicios Escolares.
+
+    Corre `reportes_2026_10/26_insert_reports_perm.sql` (inserta
+    `titulatec.reports.page.view` y lo concede a `titulatec_school_services_head`)
+    y DESPUES re-corre el `15_grant_admin_all_perms.sql` para que `admin` lo
+    reciba. NO re-ejecuta el resto de `SEED_FILES`. Idempotente (ON CONFLICT).
+    Invalida el cache de authz solo de titulatec y VERIFICA con
+    `_verify_reportes()`; aborta si algo no aterrizo. `--dry-run`: comprueba que
+    los archivos existen y los lista, sin escribir.
+    """
+    archivos = [f"{_DML_REPORTES_2026_10_DIR}/{n}" for n in _DML_REPORTES_2026_10_FILES]
+    archivos.append(_GRANT_ADMIN_ALL)
+    faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarian:")
+            for nombre in archivos:
+                click.echo(f"  {nombre}")
+        click.echo("Dry-run: no se ejecuto nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    if faltan:
+        _abortar_con([f"faltan archivos en disco: {faltan} "
+                      "(database/ esta gitignored: subelos al host)"])
+
+    from itcj2.cli.core import execute_sql_file
+
+    for nombre in archivos:
+        click.echo(f"   Ejecutando: {nombre}")
+        execute_sql_file(str(DML_TITULATEC / nombre), invalidate_authz=False)
+        click.echo(f"   Completado: {nombre}")
+
+    # Tras el commit y ANTES de verificar; best-effort (Redis caido = TTL de 5 min).
+    from itcj2.core.services.authz_cache import invalidate_app
+    invalidate_app("titulatec")
+    click.echo("Cache de authz de titulatec invalidado (solo esta app).")
+
+    problemas = _verify_reportes()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {_REPORTS_PERM} existe y lo tienen {' y '.join(_REPORTS_ROLES)}.",
+        fg="green"))
 
 
 # ---------------------------------------------------------------------------

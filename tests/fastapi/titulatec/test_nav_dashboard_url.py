@@ -42,9 +42,10 @@ def test_un_actor_de_escolares_y_de_gtv_aterriza_por_escolares():
     así que un actor con ambos sigue viendo primero la bandeja de Escolares
     (y, aparte, TODOS los items que sus permisos alcancen en el menú -- eso
     lo cubre `test_survey_reviews_admin_routes.py`, que sí necesita BD)."""
+    # La jefa aterriza en el Tablero desde 2026-10-14 (D9).
     assert (resolve_dashboard_url(
         {"titulatec_school_services_head", "titulatec_tech_management"})
-        == "/titulatec/admin/")
+        == "/titulatec/admin/tablero")
     assert (resolve_dashboard_url(
         {"titulatec_school_services", "titulatec_tech_management"})
         == "/titulatec/admin/")

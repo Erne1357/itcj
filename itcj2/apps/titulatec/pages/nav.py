@@ -73,7 +73,9 @@ def sv_core(path: str) -> str:
 _ROLE_DASHBOARD = [
     ("admin",                          "/titulatec/admin/"),
     ("titulatec_titulaciones",         "/titulatec/admin/"),
-    ("titulatec_school_services_head", "/titulatec/admin/"),
+    # La jefa aterriza en el Tablero (spec 2026-10-14 D9). `admin` va primero y
+    # sigue en la Bandeja (y `resolve_dashboard_url` corta con el JWT admin).
+    ("titulatec_school_services_head", "/titulatec/admin/tablero"),
     ("titulatec_school_services",      "/titulatec/admin/"),
     # Departamento de Titulacion (rol de 2026-09-21; sin esta fila aterrizaba en
     # `/itcj/dashboard`). Desde 2026-10-07 (spec 2026-10-07-titulatec-liberados-
@@ -126,6 +128,9 @@ def get_titulatec_roles(user_id: int) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _ADMIN_NAV = [
+    # Tablero de la jefa de Servicios Escolares (2026-10-14): solo lectura, un
+    # solo código por fila (`perms & need` es OR). Va PRIMERO.
+    ("Tablero",             "bi-speedometer2", "/titulatec/admin/tablero",    {"titulatec.reports.page.view"}),
     ("Bandeja",             "bi-inbox",       "/titulatec/admin/",             {"titulatec.dashboard.school_services", "titulatec.dashboard.titulaciones"}),
     ("Procesos",            "bi-people",      "/titulatec/admin/processes",    {"titulatec.process.page.list"}),
     ("Documentos",          "bi-file-earmark-check", "/titulatec/admin/documents",    {"titulatec.document.page.list"}),

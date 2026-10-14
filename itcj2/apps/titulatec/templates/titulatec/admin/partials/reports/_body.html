@@ -1,0 +1,31 @@
+{# Cuerpo del Tablero (`pages/reports_admin.py`). Raíz `#tt-report-body`: la barra
+   de pestañas y el contenido de la pestaña activa. `hx-select` == `hx-target`
+   obliga a `morph:outerHTML` (CLAUDE.md de la app, §4). Cada hueco de pestaña lo
+   llena una tarea posterior. #}
+<div id="tt-report-body" data-tt-view="reports-body" data-tt-tab="{{ tab }}">
+  <nav class="d-flex flex-wrap gap-2 mb-3" id="tt-report-tabs" aria-label="Secciones del tablero">
+    {% for code, label in tabs %}
+    <a id="tt-report-tab-{{ code }}"
+       class="btn btn-sm {{ 'tt-btn-ink' if tab == code else 'tt-btn-ghost' }}"
+       href="/titulatec/admin/tablero?tab={{ code }}"
+       hx-get="/titulatec/admin/tablero/body?tab={{ code }}"
+       hx-target="#tt-report-body" hx-select="#tt-report-body"
+       hx-swap="morph:outerHTML"
+       hx-push-url="/titulatec/admin/tablero?tab={{ code }}"
+       {% if tab == code %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <section id="tt-report-panel-{{ tab }}">
+    {% if tab == 'panorama' %}
+      {% include "titulatec/admin/partials/reports/_empty.html" %}
+    {% elif tab == 'ritmo' %}
+      {% include "titulatec/admin/partials/reports/_empty.html" %}
+    {% elif tab == 'encargados' %}
+      {% include "titulatec/admin/partials/reports/_empty.html" %}
+    {% elif tab == 'carreras' %}
+      {% include "titulatec/admin/partials/reports/_empty.html" %}
+    {% else %}
+      {% include "titulatec/admin/partials/reports/_empty.html" %}
+    {% endif %}
+  </section>
+</div>
