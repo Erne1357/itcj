@@ -93,6 +93,7 @@ ACTORS: list[tuple[str, str, str]] = [
 # Motivos (texto UI de la pelota, §4.3). Si un actor tiene dos motivos en el
 # mismo pendiente, `balls` los une con " · " en UNA entrada.
 MOTIVE_REVIEW_REQUEST = "Revisar solicitud"
+MOTIVE_REVIEW_LEGACY = "Revisar solicitud (legado)"     # `unverified`, spec §4.3 corregida
 MOTIVE_GIVE_NIP = "Dar NIP"
 MOTIVE_ACTIVATE_ACCOUNT = "Activar su cuenta"
 MOTIVE_RESEND_LINK = "Reenviar liga"
@@ -130,7 +131,7 @@ _REQUEST_STAGE = {
     "approved": "req_approved",
 }
 _REQUEST_BALL = {
-    "req_unverified": (_ESCOLARES, MOTIVE_REVIEW_REQUEST),   # desviación (docstring)
+    "req_unverified": (_ESCOLARES, MOTIVE_REVIEW_LEGACY),    # desviación (docstring)
     "req_review": (_ESCOLARES, MOTIVE_REVIEW_REQUEST),
     "req_access": (_COMPUTO, MOTIVE_GIVE_NIP),
     "req_approved": (_ALUMNO, MOTIVE_ACTIVATE_ACCOUNT),
@@ -451,10 +452,11 @@ def _scope_filters(model, *, cohort_ids, programs, include_unmapped) -> list:
     `cohort_ids=None` = todas. `programs="ALL"` no filtra por carrera; un set
     filtra por `program_id`. `program_id NULL` (cubo «Sin carrera») entra SOLO
     con `include_unmapped`, también con "ALL" (como `scope_service`: `read.all`
-    no abre ese cubo). Mismo criterio que `report_flow._filtros`. El caso «sin
-    nada que ver» lo corta `load_snapshot` antes de consultar.
+    no abre ese cubo). Set vacío sin `include_unmapped` = `false()`: no trae
+    nada. Mismo criterio que `report_flow._filtros`. `load_snapshot` además
+    corta ese caso antes de consultar.
     """
-    from sqlalchemy import or_
+    from sqlalchemy import false, or_
 
     preds = []
     if cohort_ids is not None:
@@ -468,8 +470,10 @@ def _scope_filters(model, *, cohort_ids, programs, include_unmapped) -> list:
         preds.append(or_(model.program_id.in_(ids), model.program_id.is_(None)))
     elif ids:
         preds.append(model.program_id.in_(ids))
-    else:
+    elif include_unmapped:
         preds.append(model.program_id.is_(None))
+    else:
+        preds.append(false())       # sin alcance: no trae nada (ni «Sin carrera»)
     return preds
 
 

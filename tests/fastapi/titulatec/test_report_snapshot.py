@@ -148,8 +148,9 @@ def test_cada_bloqueo_del_gate_tiene_su_pelota():
 @pytest.mark.parametrize("status, etapa, pelota", [
     # Desviación documentada: `unverified` es LEGADO (ya no se escribe) y la liga
     # de confirmación ya no existe -`verify()` la responde `invalid`-; la bandeja
-    # la lista en «Por revisar · anterior». Quien la mueve es Escolares.
-    ("unverified", "req_unverified", ("escolares", "Revisar solicitud")),
+    # la lista en «Por revisar · anterior». Quien la mueve es Escolares (spec §4.3
+    # corregida: motivo «Revisar solicitud (legado)»).
+    ("unverified", "req_unverified", ("escolares", "Revisar solicitud (legado)")),
     ("verified", "req_review", ("escolares", "Revisar solicitud")),
     ("pending_review", "req_review", ("escolares", "Revisar solicitud")),
     ("awaiting_access", "req_access", ("computo", "Dar NIP")),
@@ -173,7 +174,7 @@ def test_solicitud_por_revisar_cuenta_desde_que_se_creo():
     assert item.level == "crit"
 
 
-def test_solicitud_sin_confirmar_cuenta_desde_que_se_creo():
+def test_solicitud_anterior_legado_cuenta_desde_que_se_creo():
     item = rs.classify_request(_req("unverified", created_at=_hace(8)), HOY, CFG)
     assert item.idle_days == 8 and item.level == "warn"
 
@@ -727,6 +728,25 @@ def test_respeta_convocatoria_y_carreras(db_session, tablero):
     # "ALL" no filtra por carrera (dentro de la convocatoria nueva: solo las nuestras).
     assert _llaves(_snap(db_session, t, programs="ALL")) == {
         ("process", p1.id), ("request", r1.id), ("process", p2.id), ("request", r2.id)}
+
+
+def test_el_filtro_sin_carreras_ni_include_unmapped_no_abre_sin_carrera(db_session, tablero):
+    """`_scope_filters` por sí solo (sin el atajo temprano de `load_snapshot`):
+    un set vacío sin `include_unmapped` no trae NADA -ni el cubo «Sin carrera»-,
+    igual que `report_flow._filtros` (`false()`). Con `include_unmapped` sí."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest, TitulationProcess
+
+    t = tablero
+    p_sin = t.proceso("docs_pend", program=None)
+    r_sin = t.solicitud(program=None)
+    t.proceso("docs_pend", program=t.pa)
+    for model, fila in ((TitulationProcess, p_sin), (EnrollmentRequest, r_sin)):
+        cerrado = rs._scope_filters(model, cohort_ids=[t.c1.id], programs=set(),
+                                    include_unmapped=False)
+        assert db_session.query(model.id).filter(*cerrado).all() == [], model
+        abierto = rs._scope_filters(model, cohort_ids=[t.c1.id], programs=set(),
+                                    include_unmapped=True)
+        assert [i for (i,) in db_session.query(model.id).filter(*abierto)] == [fila.id], model
 
 
 def test_sin_alcance_o_sin_convocatorias_no_consulta(db_session, tablero):
