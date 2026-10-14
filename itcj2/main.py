@@ -121,10 +121,41 @@ async def _redis_task_subscriber() -> None:
             await asyncio.sleep(5)
 
 
+def _warm_routes(app: FastAPI) -> None:
+    """Arma YA el estado de todas las rutas, antes de servir.
+
+    fastapi 0.142 lo arma PEREZOSAMENTE (`get_dependant` y un `TypeAdapter` de
+    pydantic por parámetro) la primera vez que el enrutador recorre cada ruta:
+    con ~560 rutas, la primera petición de cada worker pagaba ~350 ms (Tempo,
+    deploy del 2026-10-13: `/itcj/dashboard` 366 ms en frío contra ~12 ms).
+    `url_path_for` con un nombre que no existe recorre todos los routers
+    incluidos y deja cacheado lo que arma, igual que lo haría esa petición.
+    Lo fija `tests/fastapi/infra/test_route_warmup.py` (con un control que
+    falla si fastapi deja de ser perezoso y esto sobra).
+    """
+    import time
+
+    from starlette.routing import NoMatchFound
+
+    inicio = time.perf_counter()
+    try:
+        app.url_path_for("__itcj_precalentar_rutas__")
+    except NoMatchFound:
+        pass
+    except Exception:       # nunca impedir el arranque por precalentar
+        logger.warning("No se pudieron precalentar las rutas", exc_info=True)
+        return
+    logger.info("Rutas precalentadas en %.0f ms", (time.perf_counter() - inicio) * 1000)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup y shutdown de la aplicación."""
     logger.info("FastAPI ITCJ v2 iniciando...")
+
+    # Antes de servir (rendimiento 2026-10-14): sin esto, la primera petición de
+    # cada worker paga ~350 ms armando el estado de las rutas.
+    _warm_routes(app)
 
     # Capturar el event loop principal para que async_broadcast y el push de
     # `NotificationService` funcionen desde endpoints síncronos (que corren en
