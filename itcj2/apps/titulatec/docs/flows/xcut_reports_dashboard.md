@@ -29,11 +29,11 @@ esta página y la spec difieren, vale lo de aquí (la spec se corrigió con las 
 
 | Pestaña (`tab`) | Qué responde |
 |---|---|
-| **Panorama** (default) | 4 KPI: **Liberados** (total + en el rango + sparkline), **Ritmo** (por día hábil + pronóstico), **Solicitudes por revisar** (n + la más vieja en días), **Atorados** (rojo n · ámbar n). «**Dónde están hoy**»: una barra por etapa (clic → Atorados filtrado). «**¿Quién tiene la pelota?**»: una barra por actor con su sub-conteo de atorados. **Alertas** (máx. 5, ver abajo) |
+| **Panorama** (default) | 4 KPI: **Liberados** (total + en el rango + sparkline), **Ritmo** (por día hábil + pronóstico), **Solicitudes por revisar** (n + la más vieja en días), **Atorados** (rojo n · ámbar n). **Alertas** (máx. 5, ver abajo). «**¿Quién tiene la pelota?**» (a lo ancho, Ronda 2): por área, una **barra partida por motivo** (tintes del color del área, todas las áreas sobre el mismo eje) con el total en la punta, el sub-conteo de lentos/atorados y, debajo, la **lista de motivos** con su conteo, «N documentos por dictaminar» en Dictaminar documentos, la **proyección** («Se vacía el …» / «Sin ritmo medible») en los 5 motivos con salida clara y la liga a Atorados `?motive=`. Nota de «primer motivo» (cada lista suma el total de su área) y de proyección. «**Dónde están hoy**»: una barra por etapa (clic → Atorados filtrado) |
 | **Ritmo** | Línea diaria Solicitudes nuevas vs Liberados en el rango; línea acumulada Inscritos vs Liberados; **calendario de liberaciones** (lun–vie × semanas, clic en un día = lista de liberados de ese día con carrera y quién dictaminó); barras «Liberados por carrera» |
-| **Encargados** | Chips para ocultar encargados. Una fila por encargado: carreras, cola por tipo, producción, % de rechazo, liberados, **días para vaciar** y lugares de cita. Gráficas: días para vaciar la cola (umbral visible) y «Dictámenes por día» (small multiples, misma escala) |
-| **Carreras** | Una fila por carrera visible: barra apilada por etapa + inscritos · liberados · % liberado · atorados · encargados. Orden: más atorados primero |
-| **Atorados** | Tabla paginada (50, `utils/paging` + macro `pager`) filtrable por pelota, nivel y etapa: alumno · carrera · etapa · motivo (pelota) · días (pill de nivel con icono + texto) · encargado(s) de la carrera · enlace al expediente o a la bandeja de Solicitudes. Orden: días desc |
+| **Encargados** | Chips para ocultar encargados. Una **tarjeta por encargado** (2 por fila, 1 en móvil; el más cargado primero): nombre + carreras (plegables con más de 2); **proyección** «A su ritmo vacía su cola el {fecha} ({n} días hábiles)» con píldora «Rebasa el umbral» (o «Sin ritmo medible» / «Al día»); **Cola hoy** y **Producción** del rango como barras partidas (solicitudes · documentos · citas por cerrar · listos sin cita / revisadas · aprobados · rechazados) a **escala común** entre tarjetas, con el conteo de cada parte y el % de rechazo; liberados, citas atendidas y faltas; **Lugares** de los próximos 5 días hábiles como medidor. La tabla completa (con «Otros» y «Días para vaciar», mismo ritmo de la proyección; «—» = sin producción) queda en «Ver tabla», compacta y con scroll propio. «**Dictámenes y revisiones por día**»: mapa de calor encargado × día hábil del rango (5 cubetas + vacío, número en tooltip y en la tabla gemela, total por fila, «Otros» al final; con más de 22 columnas hace scroll propio y solo rotula los lunes) |
+| **Carreras** | Una fila por carrera visible: nombre con sus encargados (plegables) · barra apilada por etapa con el total al final · inscritos · liberados · % liberado · atorados · **proyección** (pendientes ÷ liberados por día hábil de la carrera en los últimos 10: fecha + días hábiles, «Sin ritmo medible» o «Al día»). Orden: más atorados primero |
+| **Atorados** | Tabla paginada (50, `utils/paging` + macro `pager`) filtrable por pelota, nivel, etapa y **motivo** (chips agrupados por área, con conteo; los de 0 se ocultan salvo el activo). El motivo activo se nombra arriba de la lista con «Quitar motivo» (sobrevive al chip «Todas» de pelota). Columnas: alumno · carrera · etapa · motivo (pelota) · días (pill de nivel con icono + texto) · encargado(s) de la carrera · enlace al expediente o a la bandeja de Solicitudes. Orden: días desc |
 
 Cada gráfica tiene su «Ver tabla» (los mismos números) y el tablero se **imprime para juntas** (D4): sin CSV
 ni Excel (fuera de alcance v1).
@@ -221,11 +221,14 @@ Se compara contra los «listos para agendar»: si **listos > libres**, el cuello
   rechazo** (`rechazados ÷ dictámenes`) · citas atendidas (`appointment_attended`; incluye las marcadas
   automáticamente) · faltas (`appointment_no_show`) · **liberados** (`phase_approved` con `phase_number = 2`).
   Eventos sin actor (sistema) no cuentan.
-- **«Dictámenes por día»** (sparks) = dictámenes de documentos **+ revisiones de solicitud**, solo días hábiles.
+- **«Dictámenes y revisiones por día»** (mapa de calor, `heatmap`; sustituyó a las sparklines) = dictámenes de
+  documentos **+ revisiones de solicitud**, por persona y día hábil del rango (los totales de la tarjeta sí
+  cuentan el trabajo de fin de semana).
 - **Días para vaciar la cola** = `total_escolares ÷ ritmo`, donde ritmo = dictámenes + revisiones por día hábil
   de los **últimos 10 días hábiles** (independiente del rango; desde la Ronda 2 es el MISMO ritmo de la
   proyección de la tarjeta, `report_service._officer_pace`). La producción que se muestra sigue siendo la del
-  rango. `—` si no produjo nada en esos 10 días. Umbral visible = `round(CRIT × 5/7)` días hábiles (14 → 10).
+  rango. `—` si no produjo nada en esos 10 días. Umbral = `round(CRIT × 5/7)` días hábiles (14 → 10): la
+  píldora «Rebasa el umbral» de la tarjeta y de la tabla.
 - **Lugares**: capacidad abierta vs ocupada de sus ventanas en los próximos 5 días hábiles. Un encargado sin
   carreras sale con «Sin carreras asignadas» y cola 0.
 
@@ -284,6 +287,22 @@ cargadas en lote (cero N+1). Al tocar el servicio, vuelve a medir.
 - **Encargados**: tarjetas (el más cargado primero) con barras de cola y producción a escala COMÚN (ocultos
   incluidos: `ox` no reescala) y **mapa de calor** encargado × día hábil del rango (5 cubetas + vacío; fila
   «Otros» al final; con más de 22 columnas, `wide`).
+
+## Ronda 2 (presentación, 2026-10-14)
+
+Capa visual de lo de arriba (Task U2). Macros nuevas en `_charts.html`: `segbar` (barra partida a escala común +
+lista con conteos y ligas), `meter` (ocupados de capacidad) y `heatmap` (encargado × día hábil). Colores por
+clase, nunca `style=`: `tt-rep-c--m-<motivo>`, `tt-rep-c--q-<parte de cola>`, `tt-rep-c--p-<parte de producción>`
+(los tintes de `report_service`, copiados en `reports.css`; `test_reports_render.py` falla si se desincronizan) y
+`tt-rep-bin-<0-5>` en el mapa de calor. Tonos (`report_service._tinted` sobre `charts.ramp_steps`): cada área
+es una rampa de **4 pasos** con L (OKLab) separada >= 0.06 y el más claro >= 2:1 contra la superficie
+(`validate_palette.js --ordinal`: PASS; el alumno oscurece la base con sombras para que quepan). Con más
+motivos que pasos, el ciclo **intercala la claridad** (`interleave_steps`, orden 0-2-1-3): dos motivos a menos
+de 4 lugares del catálogo nunca comparten tono. Aun así **la identidad del motivo la da la etiqueta de su
+renglón**, nunca el tono solo. Las partes de la cola y de la producción de una tarjeta toman un paso cada una
+(de la base de Escolares al más claro). Se retiraron la gráfica «Días para vaciar su cola» y las sparklines de
+encargados: `clear_bars`, `sparks` y `report_officers.days_to_clear` ya no existen. Impresión: tarjetas enteras (`break-inside: avoid`), 2 por fila; el mapa de calor se compacta a
+la hoja; la tarjeta de chips y «Quitar motivo» no se imprimen.
 
 ## Estado resultante
 

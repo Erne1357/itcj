@@ -5,7 +5,15 @@
    bandeja de Solicitudes) · carrera · etapa · motivo · días con su nivel
    (icono + texto) · encargados de la carrera. Orden: más días sin movimiento
    primero. El paginador es la macro `pager` de `_macros.html`; `hx-select` ==
-   `hx-target` ⇒ `morph:outerHTML`. Contrato: `report_service._ctx_atorados`. #}
+   `hx-target` ⇒ `morph:outerHTML`. Contrato: `report_service._ctx_atorados`.
+
+   Ronda 2 (R2): cuarto grupo «Motivo», con los chips agrupados por ÁREA (llave
+   del color del área + conteo del área) y, dentro, un chip por motivo con su
+   conteo (el PRIMER motivo del área, la regla de Panorama: la cifra y la lista
+   cuadran). Se ocultan los motivos en 0 salvo el activo (siempre se puede
+   soltar). El motivo SOBREVIVE al chip «Todas» de pelota (intencional), así
+   que el activo se nombra arriba de la lista con su «Quitar» (`motive_clear`):
+   nunca es un filtro fantasma. #}
 {% from "titulatec/admin/partials/reports/_charts.html" import nav %}
 {% from "titulatec/_macros.html" import pager %}
 {%- set a = atorados %}
@@ -27,6 +35,32 @@
     </div>
   </div>
   {%- endfor %}
+  <div class="tt-rep-fgroup" id="tt-rep-ator-group-motive">
+    <span class="tt-rep-fgroup-k">Motivo</span>
+    <div class="tt-rep-mgroups">
+      <div class="tt-rep-chips tt-rep-chips--open">
+        <a class="tt-rep-chip{{ ' is-active' if a.motive_clear.active else '' }}" id="tt-rep-f-motive-all" role="button"
+           aria-pressed="{{ 'true' if a.motive_clear.active else 'false' }}" {{ nav(a.motive_clear.url, a.motive_clear.body_url) }}><span>Todos los motivos</span></a>
+      </div>
+      {%- for g in a.chips.motive %}
+      {%- set vis = [] %}
+      {%- for m in g.motives %}{% if m.n or m.active %}{% set _ = vis.append(m) %}{% endif %}{% endfor %}
+      {%- if vis %}
+      <div class="tt-rep-mgroup" id="tt-rep-ator-mgroup-{{ g.actor }}">
+        <span class="tt-rep-mgroup-k"><span class="tt-rep-key tt-rep-key--rect tt-rep-c--a-{{ g.actor }}" aria-hidden="true"></span>{{ g.label }} <span class="tt-rep-chip-n">{{ g.n }}</span></span>
+        <div class="tt-rep-chips tt-rep-chips--open">
+          {%- for m in vis %}
+          <a class="tt-rep-chip{{ ' is-active' if m.active else '' }}" id="tt-rep-f-motive-{{ m.code }}" role="button"
+             aria-pressed="{{ 'true' if m.active else 'false' }}" {{ nav(m.url, m.body_url) }}>
+            <span class="tt-rep-key tt-rep-key--rect tt-rep-c--m-{{ m.code }}" aria-hidden="true"></span><span>{{ m.label }}</span><span class="tt-rep-chip-n">{{ m.n }}</span>
+          </a>
+          {%- endfor %}
+        </div>
+      </div>
+      {%- endif %}
+      {%- endfor %}
+    </div>
+  </div>
 </section>
 
 <section class="tt-card tt-rep-card" id="tt-rep-ator-list" aria-labelledby="tt-rep-ator-list-title">
@@ -34,6 +68,14 @@
     <h2 class="tt-rep-card-title" id="tt-rep-ator-list-title">Lista de pendientes</h2>
     <p class="tt-rep-card-sub" id="tt-rep-ator-total">{{ a.total }} {{ "pendiente" if a.total == 1 else "pendientes" }} con estos filtros, del que lleva más días sin movimiento al que menos.</p>
   </header>
+  {%- if a.active_motive %}
+  {%- set am = a.active_motive %}
+  <p class="tt-rep-active" id="tt-rep-ator-active-motive" role="status">
+    <i class="bi bi-funnel" aria-hidden="true"></i>
+    <span>Solo el motivo <span class="tt-rep-key tt-rep-key--rect tt-rep-c--m-{{ am.code }}" aria-hidden="true"></span><strong>{{ am.actor_label }} · {{ am.label }}</strong> (su primer motivo en esa área).</span>
+    <a class="tt-rep-active-clear" id="tt-rep-ator-motive-clear" {{ nav(a.motive_clear.url, a.motive_clear.body_url) }}><i class="bi bi-x-lg" aria-hidden="true"></i>Quitar motivo</a>
+  </p>
+  {%- endif %}
   {% if a.total %}
   <div class="tt-table-wrap">
     <table class="table tt-rep-atable" id="tt-rep-ator-table">

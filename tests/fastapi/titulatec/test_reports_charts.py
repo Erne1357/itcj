@@ -1,5 +1,6 @@
 """Geometria de graficas y dias habiles del tablero de reportes (puro, sin BD)."""
 from datetime import date
+from itertools import pairwise
 
 import pytest
 
@@ -194,11 +195,42 @@ def test_scaled_segments_tope_y_vacio():
     assert all(0 <= x["w_pct"] <= 100 for x in s)
 
 
-def test_tints_del_color_base_hacia_el_claro():
-    t = ch.tints("#2a78d6", 4)
-    assert len(t) == 4 and t[0] == "#2a78d6"
-    canales = [sum(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in t]
-    assert canales == sorted(canales) and len(set(t)) == 4
-    assert ch.tints("#2a78d6", 1) == ["#2a78d6"]
-    assert ch.tints("#000000", 2, lightest=0.5) == ["#000000", "#808080"]
-    assert ch.tints("#2a78d6", 0) == []
+def _pasan_ordinal(pasos):
+    """Los criterios de `validate_palette.js --ordinal`: L monótona, vecinos a
+    >= 0.06 y el más claro >= 2:1 contra la superficie."""
+    ls = [ch.ok_lightness(c) for c in pasos]
+    assert ls == sorted(ls), pasos                          # oscuro -> claro
+    assert all(b - a >= ch.MIN_STEP_L for a, b in pairwise(ls)), pasos
+    assert ch.contrast_ratio(pasos[-1], ch.SURFACE_LIGHT) >= ch.LIGHT_FLOOR
+
+
+def test_formulas_de_contraste_y_claridad():
+    assert ch.contrast_ratio("#ffffff", "#000000") == pytest.approx(21.0)
+    assert ch.contrast_ratio("#2a78d6", "#fcfcfb") == pytest.approx(4.30, abs=0.01)
+    assert ch.ok_lightness("#ffffff") == pytest.approx(1.0, abs=1e-4)
+    assert ch.ok_lightness("#000000") == pytest.approx(0.0, abs=1e-4)
+
+
+def test_ramp_steps_con_tintes_conserva_la_base():
+    """Escolares: el tramo de tintes alcanza para 4 pasos; la base va primero."""
+    pasos = ch.ramp_steps("#2a78d6", 4)
+    assert len(pasos) == 4 and pasos[0] == "#2a78d6" and len(set(pasos)) == 4
+    _pasan_ordinal(pasos)
+    assert ch.ramp_steps("#2a78d6", 1) == ["#2a78d6"]
+    assert ch.ramp_steps("#2a78d6", 0) == ["#2a78d6"]
+
+
+def test_ramp_steps_baja_con_sombras_si_los_tintes_no_alcanzan():
+    """Alumno (#eb6834, 3.1:1): aclarando solo caben 2 pasos antes de 2:1; los
+    otros salen oscureciendo la base (misma rampa, mismo tono)."""
+    pasos = ch.ramp_steps("#eb6834", 4)
+    _pasan_ordinal(pasos)
+    assert ch.ok_lightness(pasos[0]) < ch.ok_lightness("#eb6834")
+
+
+def test_interleave_steps_separa_vecinos():
+    pasos = ["a", "b", "c", "d"]
+    ciclo = ch.interleave_steps(pasos, 9)
+    assert ciclo == ["a", "c", "b", "d", "a", "c", "b", "d", "a"]
+    assert all(ciclo[i] != ciclo[j] for i in range(9) for j in range(i + 1, min(i + 4, 9)))
+    assert ch.interleave_steps(pasos, 3) == ["a", "b", "c"]

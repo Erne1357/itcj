@@ -4,7 +4,9 @@ Spec `docs/superpowers/specs/2026-10-14-titulatec-tablero-design.md` §2 (D2),
 §4.6 y §4.7:
 
 * **Puras** (sin BD, `Item`s construidos a mano): `queues` (cola con traslape:
-  cada encargado carga la cola COMPLETA de sus carreras) y `days_to_clear`.
+  cada encargado carga la cola COMPLETA de sus carreras). `days_to_clear` se
+  retiró con la Task U2: el «Días para vaciar» lo calcula la fachada con el
+  ritmo de los últimos 10 días hábiles (`report_service._officer_pace`).
 * **Con BD** (fábricas de `conftest.py`; la CI corre sobre base vacía, así que
   nada sale de datos de dev): `officers` (encargados de Servicios Escolares, una
   fila por persona), `production` (por actor, en rango) y `capacity` (lugares
@@ -224,48 +226,6 @@ def test_sin_carrera_no_cae_en_ninguna_cola_y_sin_carreras_es_cero():
 def test_cola_vacia_y_sin_encargados():
     assert ro.queues([], [_item("req_review", 1, balls=[ESC_REVIEW])]) == {}
     assert ro.queues([_officer(10, 1)], [])[10]["total_escolares"] == 0
-
-
-# ---------------------------------------------------------------------------
-# 2. days_to_clear (pura)
-# ---------------------------------------------------------------------------
-def _semana(lunes=LUNES) -> list[date]:
-    return [lunes + timedelta(days=i) for i in range(5)]
-
-
-def test_days_to_clear_none_sin_produccion():
-    dias = _semana()
-    assert ro.days_to_clear(10, {}, dias) is None
-    assert ro.days_to_clear(10, {d: 0 for d in dias}, dias) is None
-    assert ro.days_to_clear(0, {}, dias) is None
-
-
-def test_days_to_clear_none_sin_dias_habiles():
-    assert ro.days_to_clear(10, {LUNES: 4}, []) is None
-
-
-def test_days_to_clear_cola_entre_ritmo_por_dia_habil():
-    dias = _semana()
-    # 10 en 5 días hábiles = 2 por día; 12 pendientes = 6 días.
-    prod = {dias[0]: 4, dias[2]: 6}
-    assert ro.days_to_clear(12, prod, dias) == pytest.approx(6.0)
-    assert ro.days_to_clear(0, prod, dias) == pytest.approx(0.0)
-
-
-def test_days_to_clear_solo_cuenta_lo_producido_dentro_del_tramo():
-    dias = _semana()                           # lunes a viernes
-    prod = {
-        LUNES: 5,
-        LUNES - timedelta(days=1): 100,        # domingo anterior: fuera
-        LUNES + timedelta(days=7): 100,        # lunes siguiente: fuera
-    }
-    # 5 en 5 días hábiles = 1 por día.
-    assert ro.days_to_clear(3, prod, dias) == pytest.approx(3.0)
-    # Un sábado DENTRO del tramo sí cuenta (se trabajó), y el divisor sigue
-    # siendo de días hábiles.
-    dos_semanas = _semana() + _semana(LUNES + timedelta(days=7))
-    prod2 = {LUNES + timedelta(days=5): 10}    # sábado entre las dos semanas
-    assert ro.days_to_clear(10, prod2, dos_semanas) == pytest.approx(10.0)
 
 
 # ---------------------------------------------------------------------------

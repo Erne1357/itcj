@@ -491,14 +491,9 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 }
 
 /* === Task 7b: Encargados, Carreras, Atorados === */
-/* Encargados: UN solo color de serie (ruling del controlador). Los colores
-   categóricos son los actores de Panorama; la identidad la da el nombre. */
-.tt-rep-c--s-officers { --c: var(--tt-rep-g-documentos); }
-
 .tt-rep-chips--open { max-height: none; overflow: visible; }
 .tt-rep-chip.is-active { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
 .tt-rep-chip.is-active .tt-rep-chip-n { color: rgba(255, 255, 255, .8); }
-.tt-rep-key--vline { width: 2px; height: 14px; border-radius: 1px; background: var(--tt-text-1); }
 .tt-rep-showall { margin-top: var(--tt-sp-2); }
 
 .tt-rep-fgroup { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--tt-sp-3); }
@@ -539,24 +534,6 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 .tt-rep-oothers td, .tt-rep-oothers th { border-top: 1px solid var(--tt-line); background: var(--tt-mist); }
 .tt-rep-otable td .tt-rep-status { margin-left: 4px; }
 
-/* --- Días para vaciar (barras con umbral) ----------------------------------
-   Fila = etiqueta + plot. El umbral es una línea sólida de 2 px a la misma x en
-   todas las filas (todas comparten el ancho del plot). */
-.tt-rep-dkey { display: flex; align-items: center; gap: 6px; margin-bottom: var(--tt-sp-2); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
-.tt-rep-dkey .tt-rep-key { margin-right: 0; }
-.tt-rep-dbars { list-style: none; margin: 0; padding: 0; }
-.tt-rep-drow { display: grid; grid-template-columns: minmax(6rem, 10rem) minmax(0, 1fr); align-items: center; column-gap: var(--tt-sp-3); min-height: 34px; padding: 3px 0; }
-.tt-rep-dplot { position: relative; display: flex; align-items: center; gap: var(--tt-sp-2); min-width: 0; padding-right: 3.25rem; }
-.tt-rep-dthresh { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--tt-text-1); pointer-events: none; }
-.tt-rep-dplot > .tt-rep-hval { position: relative; z-index: 1; }
-
-/* --- Small multiples -------------------------------------------------------- */
-.tt-rep-sparks { list-style: none; margin: 0; padding: 0; }
-.tt-rep-spk { display: grid; grid-template-columns: minmax(6rem, 10rem) auto auto; align-items: center; column-gap: var(--tt-sp-3); padding: 4px 0; }
-.tt-rep-spk + .tt-rep-spk { border-top: 1px solid var(--tt-line-soft); }
-.tt-rep-spk .tt-rep-spark { margin-top: 0; padding-top: 0; }
-.tt-rep-spk .tt-rep-hval { justify-self: end; min-width: 2rem; text-align: right; }
-
 /* --- Carreras ---------------------------------------------------------------- */
 .tt-rep-otable td, .tt-rep-ctable td, .tt-rep-atable td { white-space: normal; }
 .tt-rep-cname { min-width: 12rem; }
@@ -579,8 +556,6 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 
 @media (max-width: 575.98px) {
   .tt-rep-fgroup-k { min-width: 0; flex-basis: 100%; }
-  .tt-rep-drow, .tt-rep-spk { grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr) auto; }
-  .tt-rep-drow { grid-template-columns: minmax(5rem, 7rem) minmax(0, 1fr); }
 }
 
 @media print {
@@ -600,4 +575,317 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
   .tt-rep-otable .tt-rep-osub, .tt-rep-otable .tt-rep-onote { font-size: 9px; }
   .tt-rep-oprogs-d > .tt-rep-oprogs { max-height: none; }
   .tt-rep-otable th, .tt-rep-ctable th, .tt-rep-atable th { white-space: normal; }
+}
+
+/* === Ronda 2 (U2) === */
+/* Spec §12 (R1-R4): «¿Quién tiene la pelota?» partida por motivo (Panorama),
+   tarjetas de encargado con barras partidas a escala común, medidor de
+   lugares, mapa de calor encargado × día hábil, proyección por carrera y
+   chips de motivo (Atorados).
+
+   Color por CLASE (sigue a la entidad). Los tonos los decide la fachada
+   (`report_service._tinted` sobre `charts.ramp_steps`) y aquí se copian tal
+   cual: `test_reports_render.py` falla si se desincronizan.
+   Rampa por área (Ronda 0 de U2): 4 pasos con L (OKLab) separada >= 0.06 y el
+   más claro >= 2:1 contra la superficie (validate_palette.js --ordinal: PASS en
+   Escolares y Alumno; el alumno baja la base con sombras para que quepan).
+   Con más motivos que pasos, el ciclo intercala la claridad: dos motivos a
+   menos de 4 lugares del catálogo nunca comparten tono. Aun así la IDENTIDAD
+   de un motivo la da su renglón (llave + etiqueta + número, en el mismo orden
+   que la barra), nunca el tono solo; los segmentos se separan con 2 px de
+   superficie y cada uno trae su tooltip. */
+
+/* Motivos: pasos de la rampa de su área, en ciclo intercalado (orden del catálogo). */
+.tt-rep-c--m-review_request_legacy   { --c: #2a78d6; }
+.tt-rep-c--m-review_request          { --c: #6fa3e3; }
+.tt-rep-c--m-resend_link             { --c: #4d8edd; }
+.tt-rep-c--m-review_docs             { --c: #8fb8e9; }
+.tt-rep-c--m-close_appt              { --c: #2a78d6; }
+.tt-rep-c--m-in_attention            { --c: #6fa3e3; }
+.tt-rep-c--m-review_phase2           { --c: #4d8edd; }
+.tt-rep-c--m-unknown_blocker         { --c: #8fb8e9; }
+.tt-rep-c--m-activate_account        { --c: #c7582c; }
+.tt-rep-c--m-upload_docs             { --c: #ef8258; }
+.tt-rep-c--m-fill_survey             { --c: #e56533; }
+.tt-rep-c--m-fix_survey              { --c: #f3a181; }
+.tt-rep-c--m-pay                     { --c: #c7582c; }
+.tt-rep-c--m-library_observed        { --c: #ef8258; }
+.tt-rep-c--m-book                    { --c: #e56533; }
+.tt-rep-c--m-reschedule              { --c: #f3a181; }
+.tt-rep-c--m-fix_phase2              { --c: #c7582c; }
+.tt-rep-c--m-release_survey          { --c: #1baf7a; }
+.tt-rep-c--m-register_clearance      { --c: #eda100; }
+.tt-rep-c--m-give_nip                { --c: #e87ba4; }
+/* Partes de la cola y de la producción de un encargado (rampa de Escolares,
+   un paso por parte: todo es trabajo de Servicios Escolares). */
+.tt-rep-c--q-req_review              { --c: #2a78d6; }
+.tt-rep-c--q-docs_pending            { --c: #4d8edd; }
+.tt-rep-c--q-appts_to_close          { --c: #6fa3e3; }
+.tt-rep-c--q-ready_to_book           { --c: #8fb8e9; }
+.tt-rep-c--p-req_reviewed            { --c: #2a78d6; }
+.tt-rep-c--p-docs_approved           { --c: #5e99e0; }
+.tt-rep-c--p-docs_rejected           { --c: #8fb8e9; }
+
+/* --- Barra partida (`segbar`) ----------------------------------------------
+   Segmentos sobre una escala común (el `width` llega hecho): 2 px de
+   superficie entre ellos (gap, no borde), extremo de dato redondeado 4 px y
+   base recta, 14 px de grueso. El total va en la punta: la pista reserva
+   3.25rem a la derecha para que una barra al 100 % no lo saque. */
+.tt-rep-sbar { min-width: 0; }
+.tt-rep-sbar-track {
+  display: flex; align-items: center; gap: 2px; min-width: 0; min-height: 24px;
+  padding-right: 3.25rem;
+}
+.tt-rep-sbar-seg {
+  flex: none; height: 14px; min-width: 2px; background: var(--c, var(--tt-text-3));
+  transition: filter var(--tt-dur-1) ease;
+}
+.tt-rep-sbar-seg.is-end { border-radius: 0 4px 4px 0; }
+.tt-rep-sbar-seg:hover { filter: brightness(1.08) saturate(1.15); }
+.tt-rep-sbar-track > .tt-rep-hval { margin-left: 6px; }
+.tt-rep-sbar-track > .tt-rep-hval:first-child { margin-left: 0; }
+.tt-rep-sbar-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 2px var(--tt-sp-5);
+  list-style: none; margin: 4px 0 0; padding: 0;
+}
+.tt-rep-sbar-item { min-width: 0; }
+.tt-rep-sbar-link {
+  display: flex; align-items: center; min-width: 0; padding: 3px 6px; margin: 0 -6px;
+  border-radius: var(--tt-r-sm); font-size: var(--tt-fs-200); line-height: 1.3;
+  color: var(--tt-text-2); text-decoration: none; transition: background var(--tt-dur-1) ease;
+}
+a.tt-rep-sbar-link:hover { background: var(--tt-mist); color: var(--tt-text-1); }
+a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-sbar-label { flex: 1; min-width: 0; }
+.tt-rep-sbar-n {
+  flex: none; margin-left: var(--tt-sp-2); font-weight: 700; color: var(--tt-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.tt-rep-sbar-n.is-zero { font-weight: 500; color: var(--tt-text-3); }
+.tt-rep-sbar-sub {
+  display: flex; align-items: baseline; gap: 5px; padding-left: 16px;
+  font-size: var(--tt-fs-100); line-height: 1.35; color: var(--tt-text-3);
+}
+.tt-rep-sbar-proj { color: var(--tt-text-2); }
+.tt-rep-sbar-proj--no_pace { color: var(--tt-text-3); }
+.tt-rep-sbar-note { margin: 4px 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rep-sbar-note strong { color: var(--tt-text-1); }
+/* En una tarjeta: leyenda con conteos en dos columnas, letra chica. */
+.tt-rep-sbar--compact .tt-rep-sbar-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--tt-sp-4); }
+.tt-rep-sbar--compact .tt-rep-sbar-link { padding: 2px 6px; font-size: var(--tt-fs-100); }
+
+/* --- Panorama: «¿Quién tiene la pelota?» por área --------------------------
+   Columna de identidad (llave del color del área + nombre + atorados) y, a la
+   derecha, la barra partida con su lista de motivos. Todas las barras de
+   área arrancan en la misma línea base (subgrid). */
+.tt-rep-areas {
+  display: grid; grid-template-columns: minmax(8.5rem, max-content) minmax(0, 1fr);
+  column-gap: var(--tt-sp-5); list-style: none; margin: 0; padding: 0;
+}
+.tt-rep-area {
+  display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: start;
+  padding: 10px 0;
+}
+.tt-rep-area + .tt-rep-area { border-top: 1px solid var(--tt-line-soft); }
+.tt-rep-area-id { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.tt-rep-area > .tt-rep-sbar { grid-column: 2; }
+.tt-rep-area-name {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 0 6px; margin-left: -6px;
+  border-radius: var(--tt-r-sm); font-size: var(--tt-fs-200); font-weight: 600;
+  color: var(--tt-text-1); text-decoration: none; transition: background var(--tt-dur-1) ease;
+}
+.tt-rep-area-name:hover { background: var(--tt-mist); }
+.tt-rep-area-name:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-notes p { margin: 0 0 4px; }
+.tt-rep-notes p:last-child { margin-bottom: 0; }
+.tt-rep-notes .bi { color: var(--tt-text-3); }
+/* «Dónde están hoy» a lo ancho: las barras no se estiran de más. */
+.tt-rep-stages .tt-rep-hbars { max-width: 60rem; }
+.tt-rep-ttable .tt-rep-trow-area > * { border-top: 1px solid var(--tt-line); font-weight: 600; color: var(--tt-text-1); }
+
+/* --- Encargados: tarjetas ----------------------------------------------------
+   2 por fila (1 en móvil), mismas alturas por fila; cifras al pie. */
+.tt-rep-osec { margin-bottom: var(--tt-sp-4); }
+.tt-rep-osec-head { margin: 0 0 var(--tt-sp-3); }
+.tt-rep-ocards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-sp-3); }
+.tt-rep-ocard { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+.tt-rep-ocard-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tt-rep-ocard-name {
+  margin: 0; font-family: var(--tt-ui); font-size: var(--tt-fs-300); font-weight: 600;
+  line-height: 1.3; color: var(--tt-text-1);
+}
+.tt-rep-ocard .tt-rep-oprogs-d > summary { margin-top: 0; }
+.tt-rep-oproj {
+  padding: 8px 10px; border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+  background: var(--tt-mist);
+}
+.tt-rep-oproj-main {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0;
+  font-size: var(--tt-fs-200); line-height: 1.4; color: var(--tt-text-1);
+}
+.tt-rep-oproj-main > .bi { flex: none; margin-top: 1px; color: var(--tt-text-3); }
+.tt-rep-oproj-text { flex: 1; min-width: 0; }
+.tt-rep-oproj-text .tt-rep-status { margin-top: 2px; vertical-align: 1px; }
+.tt-rep-oproj--clear .tt-rep-oproj-main > .bi { color: #166534; }
+.tt-rep-oproj-sub { margin: 2px 0 0 22px; font-size: var(--tt-fs-100); line-height: 1.4; color: var(--tt-text-3); }
+.tt-rep-olabel { margin: 0 0 2px; font-family: var(--tt-ui); font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
+.tt-rep-ofigs {
+  display: grid; grid-template-columns: repeat(3, max-content) minmax(0, 1fr); gap: var(--tt-sp-2) var(--tt-sp-4);
+  margin: auto 0 0; padding-top: var(--tt-sp-3); border-top: 1px solid var(--tt-line-soft);
+}
+.tt-rep-ofig { min-width: 0; }
+.tt-rep-ofig dt { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-3); }
+.tt-rep-ofig dd { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rep-ofig--places dd { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; font-size: var(--tt-fs-200); font-weight: 500; }
+.tt-rep-oplaces-t { font-variant-numeric: tabular-nums; }
+.tt-rep-onone { text-decoration: none; cursor: help; border-bottom: 1px dotted var(--tt-text-3); }
+/* Las tablas del tablero solo se desplazan a lo ancho: con `overflow-x: auto`
+   el eje Y también queda en `auto` y un redondeo de 1 px (medido en Atorados:
+   5719 contra 5718) pintaba una barra vertical sin nada que mostrar. */
+.tt-rep .tt-table-wrap { overflow-y: hidden; }
+/* La tabla completa, en «Ver tabla»: compacta y con scroll propio. */
+.tt-rep-otwin { margin-top: var(--tt-sp-2); }
+.tt-rep .tt-rep-oscroll { position: relative; max-height: 28rem; overflow: auto; border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm); }
+.tt-rep-otwin .tt-rep-otable { font-size: var(--tt-fs-100); }
+.tt-rep-otwin .tt-rep-otable th, .tt-rep-otwin .tt-rep-otable td { padding: 4px 6px; }
+.tt-rep-otwin .tt-rep-otable th.tt-rep-oname { min-width: 9rem; font-size: var(--tt-fs-100); }
+.tt-rep-otwin .tt-rep-otable .tt-rep-odays { min-width: 6.5rem; }
+.tt-rep-otwin .tt-rep-otable .tt-rep-oplaces { min-width: 4.5rem; }
+.tt-rep-otwin .tt-rep-otable .tt-rep-status { white-space: normal; border-radius: 6px; }
+
+/* --- Medidor (lugares) -------------------------------------------------------
+   La pista es un paso claro de la MISMA rampa (Escolares al 85 % de blanco);
+   el relleno, el color de Escolares. */
+.tt-rep-meter {
+  position: relative; height: 10px; max-width: 14rem; overflow: hidden; border-radius: 4px;
+  background: #dfebf9; cursor: help;
+}
+.tt-rep-meter-fill { display: block; height: 100%; border-radius: 0 4px 4px 0; background: var(--tt-rep-a-escolares); }
+
+/* --- Mapa de calor ------------------------------------------------------------
+   Tabla semántica: fila = persona, columna = día hábil. Cubetas con las
+   clases del calendario (`tt-rep-bin-*`): 0 = --tt-line-soft, 1-5 la rampa.
+   Columnas flexibles que caben en la tarjeta; con `is-wide` la tabla toma su
+   ancho natural y la envoltura hace scroll (nombre a la izquierda y total a la
+   derecha quedan fijos). */
+/* `position: relative`: los `visually-hidden` de cada columna (absolutos) se
+   anclan a la envoltura; sin esto escapan del scroll y ensanchan la PÁGINA con
+   `is-wide` (medido: scrollWidth 2110 a 1280 con 66 columnas). */
+.tt-rep-heat-wrap { position: relative; margin-top: var(--tt-sp-1); }
+.tt-rep-heat-wrap.is-wide:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-rep-heat { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 2px; }
+.tt-table-wrap > table.tt-rep-heat { white-space: normal; }
+.tt-rep-heat th { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3); }
+.tt-rep-heat thead th { padding: 0 0 4px; text-align: center; vertical-align: bottom; line-height: 1.15; }
+.tt-rep-heat .tt-rep-heat-name {
+  width: 13rem; padding: 0 var(--tt-sp-2) 0 0; text-align: left; vertical-align: middle;
+  font-size: var(--tt-fs-100); font-weight: 600; line-height: 1.25; color: var(--tt-text-1);
+}
+.tt-rep-heat .tt-rep-heat-total {
+  width: 3.5rem; padding: 0 0 0 var(--tt-sp-2); text-align: right; vertical-align: middle;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); font-variant-numeric: tabular-nums;
+}
+.tt-rep-heat thead .tt-rep-heat-total { font-size: var(--tt-fs-100); color: var(--tt-text-3); vertical-align: bottom; }
+.tt-rep-heat td { padding: 0; }
+.tt-rep-heat .is-wk { padding-left: 6px; }
+.tt-rep-heat-dow, .tt-rep-heat-dom { display: block; font-weight: 500; }
+.tt-rep-heat-dom { color: var(--tt-text-2); font-variant-numeric: tabular-nums; }
+.tt-rep-heat-day.is-today .tt-rep-heat-dow,
+.tt-rep-heat-day.is-today .tt-rep-heat-dom { font-weight: 700; color: var(--tt-text-1); }
+.tt-rep-hcell { display: block; height: 26px; border-radius: 3px; cursor: help; transition: box-shadow var(--tt-dur-1) ease; }
+.tt-rep-hcell:hover { box-shadow: inset 0 0 0 2px var(--tt-ink); }
+.tt-rep-heat tr.is-others > * { padding-top: 6px; }
+.tt-rep-heat tr.is-others > th { border-top: 1px solid var(--tt-line); }
+.tt-rep-heat.is-wide { width: auto; table-layout: auto; }
+.tt-rep-heat.is-wide .tt-rep-hcell { width: 22px; }
+.tt-rep-heat.is-wide .tt-rep-heat-name {
+  position: sticky; left: 0; z-index: 1; min-width: 11rem; background: var(--tt-paper);
+}
+
+/* --- Carreras: proyección ---------------------------------------------------- */
+.tt-rep-ctable .tt-rep-cproj { min-width: 7.5rem; white-space: normal; }
+.tt-rep-cproj-date { font-weight: 600; white-space: nowrap; }
+.tt-rep-cproj-days { display: block; white-space: nowrap; }
+.tt-rep-ctable th.tt-rep-cname { min-width: 11rem; max-width: 16rem; }
+.tt-rep-cname-t { display: block; }
+.tt-rep-ctable .tt-rep-cofficers {
+  display: block; min-width: 0; max-width: none; margin-top: 2px;
+  font-size: var(--tt-fs-100); font-weight: 500; line-height: 1.35; color: var(--tt-text-2);
+}
+.tt-rep-cofficers-d > summary {
+  margin-top: 2px; cursor: pointer; font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2);
+}
+.tt-rep-cofficers-d > summary:hover { color: var(--tt-text-1); }
+.tt-rep-cofficers-d > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 4px; }
+.tt-rep-ctable .tt-rep-cbarcol { min-width: 10rem; width: 30%; }
+.tt-rep-cbar { display: flex; align-items: center; gap: var(--tt-sp-2); margin-top: 4px; }
+.tt-rep-cbar .tt-rep-stack { flex: 1; width: auto; margin-top: 0; }
+/* «+N lentos» bajo la píldora, no partido a media palabra. */
+.tt-rep-ctable td.num > .tt-rep-osub { display: block; margin-top: 2px; white-space: nowrap; }
+.tt-rep-cbar-n { flex: none; min-width: 2rem; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+#tt-rep-programs-note .bi { color: var(--tt-text-3); }
+
+/* --- Atorados: chips de motivo por área y motivo activo --------------------- */
+.tt-rep-mgroups { display: flex; flex: 1; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rep-mgroup { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px var(--tt-sp-2); }
+.tt-rep-mgroup-k {
+  display: inline-flex; align-items: center; min-width: 9.5rem;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2);
+}
+.tt-rep-mgroup-k .tt-rep-chip-n { margin-left: 4px; }
+.tt-rep-mgroup .tt-rep-chips { flex: 1; min-width: 0; }
+.tt-rep-chip .tt-rep-key { margin-right: 0; }
+.tt-rep-active {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0 0 var(--tt-sp-3);
+  padding: 8px 12px; border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+  background: var(--tt-mist); font-size: var(--tt-fs-200); color: var(--tt-text-1);
+}
+.tt-rep-active > .bi { color: var(--tt-text-3); }
+.tt-rep-active .tt-rep-key { margin: 0 4px; vertical-align: -1px; }
+.tt-rep-active-clear {
+  display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 3px 10px;
+  border: 1px solid var(--tt-line); border-radius: 999px; background: var(--tt-paper);
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-1); text-decoration: none;
+}
+.tt-rep-active-clear:hover { border-color: var(--tt-text-3); }
+.tt-rep-active-clear:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+
+/* --- Responsive --------------------------------------------------------------- */
+@media (max-width: 767.98px) {
+  .tt-rep-ocards { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-areas { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-area-id { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .tt-rep-area > .tt-rep-sbar { grid-column: 1; }
+  .tt-rep-heat .tt-rep-heat-name { width: 8rem; }
+}
+@media (max-width: 575.98px) {
+  .tt-rep-ofigs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tt-rep-ofig--places { grid-column: 1 / -1; }
+  .tt-rep-sbar--compact .tt-rep-sbar-list { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-mgroup-k { min-width: 0; flex-basis: 100%; }
+  .tt-rep-active-clear { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-rep-sbar-seg, .tt-rep-sbar-link, .tt-rep-hcell, .tt-rep-area-name { transition: none !important; }
+}
+
+/* --- Impresión ---------------------------------------------------------------
+   Tarjetas enteras, 2 por fila; el mapa de calor se compacta a la hoja (sin
+   scroll que imprimir); el «Quitar motivo» y las ligas no se imprimen como
+   botones. */
+@media print {
+  .tt-rep-ocards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-sp-2); }
+  .tt-rep-ocard { break-inside: avoid; box-shadow: none; padding: 10px; gap: var(--tt-sp-2); }
+  .tt-rep-area, .tt-rep-osec-head { break-inside: avoid; }
+  #tt-rep-officers, .tt-rep-active-clear { display: none !important; }
+  /* Ninguna tabla se recorta en la hoja (anula el `overflow-y: hidden` de
+     pantalla, que con `overflow-x: visible` volvería `auto` el eje X). */
+  .tt-rep .tt-table-wrap, .tt-rep .tt-rep-oscroll { max-height: none; overflow: visible; }
+  .tt-rep-heat-wrap, .tt-rep-heat-wrap.is-wide { overflow: visible !important; }
+  .tt-rep-heat, .tt-rep-heat.is-wide { width: 100%; table-layout: fixed; }
+  .tt-rep-heat.is-wide .tt-rep-hcell { width: auto; }
+  .tt-rep-heat .tt-rep-heat-name { position: static; width: 9rem; min-width: 0; }
+  .tt-rep-hcell { height: 16px; }
+  .tt-rep-oproj { background: none; }
+  a.tt-rep-sbar-link:hover, .tt-rep-area-name:hover { background: none; }
 }

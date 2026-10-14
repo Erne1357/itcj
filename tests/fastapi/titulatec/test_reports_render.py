@@ -200,10 +200,13 @@ def test_panorama_pelota_por_actor_con_sub_conteo_de_atorados(panorama, esc):
     assert "2" in _txt(sub)
     assert sub.get("hx-get") == f"{BODY}?tab=atorados&cohort={esc.c.id}&ball=escolares"
     assert not doc.xpath('//*[@id="tt-rep-ball-alumno-stuck"]')     # 0: sin liga
-    # Color de identidad por clase (sigue a la entidad), etiqueta directa visible.
-    barra = _cls(_by_id(doc, "tt-rep-ball-gtv"), "tt-rep-bar")[0]
-    assert "tt-rep-c--a-gtv" in barra.get("class")
-    assert "GTV" in _txt(_by_id(doc, "tt-rep-ball-gtv"))
+    # Color de identidad por clase (sigue a la entidad), etiqueta directa visible:
+    # la llave del área lleva su color; los segmentos, el tinte de cada motivo.
+    fila = _by_id(doc, "tt-rep-ball-gtv")
+    assert fila.xpath('.//*[contains(@class, "tt-rep-key") and contains(@class, "tt-rep-c--a-gtv")]')
+    segs = _cls(fila, "tt-rep-sbar-seg")
+    assert [s.get("class").count("tt-rep-c--m-release_survey") for s in segs] == [1]
+    assert "GTV" in _txt(fila)
     # «N pendientes esperan a dos áreas» (el doble cuenta una vez por actor).
     assert "1 pendiente espera a dos áreas" in _txt(_by_id(doc, "tt-rep-balls"))
 
@@ -742,20 +745,18 @@ def test_encargados_misma_cola_por_traslape_y_produccion(encargados, equipo):
     assert programas == ["Ingenieria Visual Tablero A"]
 
 
-def test_encargados_graficas(encargados, equipo):
-    doc, ana = encargados.doc, equipo.ana.id
-    assert _by_id(doc, "tt-rep-off-threshold-key")
-    barra = _by_id(doc, f"tt-rep-off-clear-{ana}")
-    assert "hábil" in barra.get("data-tt-tip")
-    assert _cls(_by_id(doc, "tt-rep-off-clear-list"), "tt-rep-dthresh")
-    assert _by_id(doc, f"tt-rep-off-spark-{ana}").xpath(".//svg[@role='img']")
-    # Un solo color de serie para todos los encargados (barras y sparklines).
-    marcas = _cls(_by_id(doc, "tt-rep-off-clear-list"), "tt-rep-mark")
-    assert marcas and all("tt-rep-c--s-officers" in m.get("class") for m in marcas)
-    assert all("tt-rep-c--s-officers" in l.get("class")
-               for l in _by_id(doc, "tt-rep-off-sparks-list").xpath(".//polyline"))
-    sparks = _txt(_by_id(doc, "tt-rep-off-sparks"))
-    assert "misma escala" in sparks and "Dictámenes y revisiones por día" in sparks
+def test_encargados_retira_dias_para_vaciar_y_sparklines(encargados):
+    """Ronda 2 (R1/R3): la gráfica «Días para vaciar su cola» se va (la
+    proyección vive en cada tarjeta) y las sparklines las sustituye el mapa de
+    calor. Ninguna llave obsoleta (`clear_bars`, `sparks`) se pinta."""
+    doc = encargados.doc
+    for viejo in ("tt-rep-off-clear", "tt-rep-off-clear-list", "tt-rep-off-threshold-key",
+                  "tt-rep-off-sparks", "tt-rep-off-sparks-list"):
+        assert not doc.xpath(f'//*[@id="{viejo}"]'), viejo
+    assert not _cls(doc, "tt-rep-dthresh") and not _cls(doc, "tt-rep-spk")
+    assert not doc.xpath("//svg")
+    fuente = (REPORTS_TPL / "_encargados.html").read_text(encoding="utf-8")
+    assert "clear_bars" not in fuente and "sparks" not in fuente
 
 
 def test_encargados_todos_ocultos(client_as, jefa, esc, encargados):
@@ -798,6 +799,8 @@ def test_carreras_sin_pendientes_pinta_barra_vacia():
     assert "tt-rep-stack-empty" in _by_id(doc, "tt-rep-car-7-bar").get("class")
     assert _celda(doc, "tt-rep-car-7-enrolled") == "4"
     assert "Sin encargado" in _celda(doc, "tt-rep-car-7-officers")
+    # Sin la llave `forecast` (contexto viejo) la celda de proyección no truena.
+    assert _celda(doc, "tt-rep-car-7-forecast") == "—"
 
 
 def test_atorados_filas_enlaces_y_chips(atorados, esc):
@@ -891,7 +894,11 @@ def test_7b_css_con_bloque_propio_al_final():
     marca = "/* === Task 7b: Encargados, Carreras, Atorados === */"
     assert css.count(marca) == 1
     bloque = css[css.index(marca):]
-    assert "tt-rep-c--s-officers" in bloque and "tt-rep-dthresh" in bloque
+    # Ronda 2: «Días para vaciar» y las sparklines de encargados se retiraron;
+    # sus reglas también (sin CSS muerto).
+    for muerto in ("tt-rep-dthresh", "tt-rep-dbars", "tt-rep-drow", "tt-rep-spk",
+                   "tt-rep-sparks", "tt-rep-c--s-officers"):
+        assert muerto not in css, muerto
     assert "tt-rep-c--o-" not in css and ".tt-rep-stack > .tt-rep-seg" not in css
     assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", bloque)
     assert "\r\n" not in bloque
@@ -902,3 +909,379 @@ def test_7b_el_cuerpo_ya_no_incluye_el_hueco():
     assert "_empty.html" not in cuerpo
     for nombre in ("_encargados", "_carreras", "_atorados"):
         assert f"reports/{nombre}.html" in cuerpo
+
+
+# ===========================================================================
+# Ronda 2 (Task U2, spec §12): barra partida por motivo, tarjetas de
+# encargado, mapa de calor, proyecciones y chips de motivo
+# ===========================================================================
+def _width(el):
+    """El porcentaje de `style="width: N%"` (geometría ya calculada)."""
+    m = re.match(r"^\s*width\s*:\s*([\d.]+)%\s*;?\s*$", el.get("style") or "")
+    assert m, el.get("style")
+    return m.group(1)
+
+
+def _ctx(db_session, jefa, **params):
+    """El contexto de la fachada con los mismos filtros que la URL: la plantilla
+    pinta SUS números (no los recalcula), así que se comparan contra él."""
+    from itcj2.apps.titulatec.services.report_service import (
+        ReportFilters,
+        ReportService,
+    )
+    from itcj2.core.utils.timezone import db_now
+    filtros = ReportFilters.parse({k: str(v) for k, v in params.items()})
+    return ReportService.build(db_session, user_id=jefa.id, filters=filtros,
+                               today=db_now().date())
+
+
+def _motivo(el):
+    """Código del motivo de un segmento (`tt-rep-c--m-<código>`)."""
+    (c,) = [c for c in el.get("class").split() if c.startswith("tt-rep-c--m-")]
+    return c[len("tt-rep-c--m-"):]
+
+
+# --- Panorama: «¿Quién tiene la pelota?» partida por motivo (R2, R4c) -------
+def test_panorama_pelota_partida_por_motivo_con_lista_y_ligas(panorama, esc):
+    doc = panorama.doc
+    fila = _by_id(doc, "tt-rep-ball-escolares")
+    segs = _cls(fila, "tt-rep-sbar-seg")
+    # Escolares = 2 solicitudes + 1 expediente con documentos; la escala es el
+    # área mayor (3): los segmentos se leen contra el MISMO eje que las demás áreas.
+    assert [_motivo(s) for s in segs] == ["review_request", "review_docs"]
+    assert [_width(s) for s in segs] == ["66.67", "33.33"]
+    assert [s.get("data-tt-tip") for s in segs] == [
+        "Revisar solicitud: 2", "Dictaminar documentos: 1 (1 documento)"]
+    assert all("tt-rep-mark" in s.get("class") for s in segs)
+    assert "is-end" in segs[-1].get("class") and "is-end" not in segs[0].get("class")
+    # La barra entera tiene nombre accesible con el desglose; el total en la punta.
+    (pista,) = _cls(fila, "tt-rep-sbar-track")
+    assert pista.get("role") == "img"
+    assert "Revisar solicitud 2" in pista.get("aria-label")
+    assert _hval(doc, "tt-rep-ball-escolares") == "3"
+    # Lista: un renglón por motivo, con su conteo y liga a Atorados (`?motive=`).
+    item = _by_id(doc, "tt-rep-ball-escolares-m-review_request")
+    assert _txt(_cls(item, "tt-rep-sbar-n")[0]) == "2"
+    assert item.xpath('.//*[contains(@class, "tt-rep-c--m-review_request")]')    # llave
+    (liga,) = item.xpath(".//a")
+    q = f"tab=atorados&cohort={esc.c.id}&ball=escolares&motive=review_request&level=all"
+    assert liga.get("hx-get") == f"{BODY}?{q}" and liga.get("href") == f"{URL}?{q}"
+    assert "1 documento" in _txt(_by_id(doc, "tt-rep-ball-escolares-m-review_docs"))
+    # Cada área suma exactamente su total (cada pendiente en su PRIMER motivo).
+    for area in ("escolares", "alumno", "gtv", "computo"):
+        f = _by_id(doc, f"tt-rep-ball-{area}")
+        suma = sum(int(_txt(n)) for n in _cls(f, "tt-rep-sbar-n"))
+        assert str(suma) == _hval(doc, f"tt-rep-ball-{area}"), area
+    # Alumno: pagar y agendar, en el orden del proceso.
+    ids = [li.get("id") for li in _cls(_by_id(doc, "tt-rep-ball-alumno"), "tt-rep-sbar-item")]
+    assert ids == ["tt-rep-ball-alumno-m-pay", "tt-rep-ball-alumno-m-book"]
+    # Biblioteca sin pendientes: ni segmentos ni lista, pero su fila sigue (0).
+    bib = _by_id(doc, "tt-rep-ball-biblioteca")
+    assert not _cls(bib, "tt-rep-sbar-seg") and not _cls(bib, "tt-rep-sbar-item")
+    assert _hval(doc, "tt-rep-ball-biblioteca") == "0"
+
+
+def test_panorama_proyeccion_por_motivo_y_notas(db_session, jefa, esc, panorama):
+    doc = panorama.doc
+    ctx = _ctx(db_session, jefa, tab="panorama", cohort=esc.c.id)
+    motivos = {m["code"]: m for b in ctx["panorama"]["balls"] for m in b["motives"]}
+    # Los motivos con salida clara llevan su proyección (la de la fachada).
+    for area, code in (("computo", "give_nip"), ("gtv", "release_survey"),
+                       ("escolares", "review_docs"), ("escolares", "review_request")):
+        (proj,) = _cls(_by_id(doc, f"tt-rep-ball-{area}-m-{code}"), "tt-rep-sbar-proj")
+        assert motivos[code]["forecast"]["text"] in _txt(proj), code
+    assert "Sin ritmo medible" in _txt(_by_id(doc, "tt-rep-ball-computo-m-give_nip"))
+    # El alumno nunca lleva proyección (no es una cola de trabajo).
+    for code in ("pay", "book"):
+        assert not _cls(_by_id(doc, f"tt-rep-ball-alumno-m-{code}"), "tt-rep-sbar-proj")
+    pie = _txt(_by_id(doc, "tt-rep-balls"))
+    assert "en su primer motivo" in pie                                 # motive_note
+    assert "a este ritmo, sin feriados ni nuevas entradas" in pie       # projection_note
+    # La tabla gemela trae el desglose por motivo con su proyección.
+    tabla = _txt(_by_id(doc, "tt-rep-balls-table"))
+    assert "Revisar solicitud" in tabla and "Pagar en Caja" in tabla
+    assert "Sin ritmo medible" in tabla
+
+
+def test_panorama_pelota_va_a_lo_ancho(panorama):
+    """La barra partida y su lista necesitan el ancho completo: la tarjeta no va
+    en la rejilla de dos columnas."""
+    tarjeta = _by_id(panorama.doc, "tt-rep-balls")
+    assert not tarjeta.xpath('ancestor::*[contains(@class, "tt-rep-grid2")]')
+
+
+# --- Encargados: tarjetas (R1, R4a) ----------------------------------------
+def test_encargados_tarjetas_el_mas_cargado_primero(encargados, equipo):
+    doc, ana, beto = encargados.doc, equipo.ana.id, equipo.beto.id
+    grid = _by_id(doc, "tt-rep-off-cards")
+    nuestros = (f"tt-rep-off-card-{beto}", f"tt-rep-off-card-{ana}")
+    ids = [a.get("id") for a in grid.xpath("./article")]
+    # beto tiene cola y no produjo (sin ritmo medible) => primero; ana rebasa el
+    # umbral. (La base de dev puede traer más encargados: sin cola, van al final.)
+    assert [i for i in ids if i in nuestros] == list(nuestros)
+    assert ids[:2] == list(nuestros)
+    tarjeta_a = _by_id(doc, f"tt-rep-off-card-{ana}")
+    assert "ANA" in _txt(tarjeta_a.xpath(".//h3")[0])
+    proj = _by_id(doc, f"tt-rep-off-card-{ana}-proj")
+    assert "A su ritmo vacía su cola el" in _txt(proj) and "días hábiles" in _txt(proj)
+    assert "a este ritmo, sin feriados ni nuevas entradas" in _txt(proj)
+    (pildora,) = _cls(proj, "tt-rep-status")
+    assert "Rebasa el umbral" in _txt(pildora) and pildora.xpath(".//i[contains(@class, 'bi-')]")
+    proj_b = _by_id(doc, f"tt-rep-off-card-{beto}-proj")
+    assert "Sin ritmo medible" in _txt(proj_b) and not _cls(proj_b, "tt-rep-status")
+
+
+def test_encargados_barras_partidas_a_escala_comun(client_as, jefa, db_session, esc, equipo,
+                                                  encargados):
+    doc, ana, beto = encargados.doc, equipo.ana.id, equipo.beto.id
+    ctx = _ctx(db_session, jefa, tab="encargados", cohort=esc.c.id)["encargados"]
+    cards = {c["user_id"]: c for c in ctx["cards"]}
+    for uid in (ana, beto):
+        for parte, llave in (("queue", "queue_segments"), ("prod", "prod_segments")):
+            barra = _by_id(doc, f"tt-rep-off-card-{uid}-{parte}")
+            segs = _cls(barra, "tt-rep-sbar-seg")
+            esperado = cards[uid][llave]
+            pref = "q" if parte == "queue" else "p"
+            assert [s.get("data-tt-tip") for s in segs] == [x["tip"] for x in esperado]
+            assert [_width(s) for s in segs] == [f"{x['w_pct']:.2f}" for x in esperado]
+            assert all(f"tt-rep-c--{pref}-{x['key']}" in s.get("class")
+                       for s, x in zip(segs, esperado))
+    # Misma escala: el documento de la carrera A pesa lo mismo en las dos tarjetas.
+    doc_a = _cls(_by_id(doc, f"tt-rep-off-card-{ana}-queue"), "tt-rep-c--q-docs_pending")[0]
+    doc_b = _cls(_by_id(doc, f"tt-rep-off-card-{beto}-queue"), "tt-rep-c--q-docs_pending")[0]
+    assert _width(doc_a) == _width(doc_b)
+    # Conteos con su etiqueta (las 4 partes de la cola, también las de 0).
+    lista = _by_id(doc, f"tt-rep-off-card-{beto}-queue-list")
+    assert [_txt(li) for li in _cls(lista, "tt-rep-sbar-item")] == [
+        f"{x['label']} {cards[beto]['queue'][x['key']]}" for x in ctx["queue_legend"]]
+    assert _txt(_by_id(doc, f"tt-rep-off-card-{ana}-prod-docs_approved")).endswith(" 1")
+    # Ocultar a ana no reescala la tarjeta de beto (la escala incluye ocultos).
+    d2 = _doc(_get(client_as(jefa), BODY, tab="encargados", cohort=esc.c.id, ox=str(ana)))
+    assert not d2.xpath(f'//*[@id="tt-rep-off-card-{ana}"]')
+    doc_b2 = _cls(_by_id(d2, f"tt-rep-off-card-{beto}-queue"), "tt-rep-c--q-docs_pending")[0]
+    assert _width(doc_b2) == _width(doc_b)
+
+
+def test_encargados_tarjeta_cifras_lugares_y_carreras(encargados, equipo):
+    doc, ana, beto = encargados.doc, equipo.ana.id, equipo.beto.id
+    figs = _txt(_by_id(doc, f"tt-rep-off-card-{ana}-figs"))
+    for etiqueta in ("Liberados", "Citas atendidas", "Faltas", "Lugares"):
+        assert etiqueta in figs, etiqueta
+    assert "Sin lugares abiertos" in figs                       # sin ventanas propias
+    # Carreras: con 2 o menos, a la vista.
+    assert [_txt(p) for p in _cls(_by_id(doc, f"tt-rep-off-card-{beto}"), "tt-rep-oprog")] == [
+        "Ingenieria Visual Tablero A"]
+    assert "Rechazo" in _txt(_by_id(doc, f"tt-rep-off-card-{ana}-prod"))
+
+
+def test_macro_meter():
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/admin/partials/reports/_charts.html" import meter %}'
+        '{{ meter("tt-m", 3, 10, pct, "Lugares", "3 de 10") }}')
+    raiz = _by_id(_doc("<div>" + tpl.render(pct=30.0) + "</div>"), "tt-m")
+    assert raiz.get("role") == "meter"
+    assert (raiz.get("aria-valuenow"), raiz.get("aria-valuemin"), raiz.get("aria-valuemax")) == (
+        "3", "0", "10")
+    assert raiz.get("aria-valuetext") == "3 de 10" and raiz.get("aria-label") == "Lugares"
+    (relleno,) = _cls(raiz, "tt-rep-meter-fill")
+    assert relleno.get("style") == "width: 30.00%"
+    assert relleno.get("data-tt-tip") == "Lugares: 3 de 10"
+    # Sin capacidad: no hay medidor que mentir.
+    vacio = _doc("<div>" + tpl.render(pct=None) + "</div>")
+    assert not vacio.xpath('//*[@role="meter"]')
+
+
+def test_encargados_tabla_completa_en_ver_tabla(encargados, equipo):
+    """La tabla de siempre pasa a «Ver tabla» (compacta, scroll propio); sus
+    celdas conservan los ids. «—» en días para vaciar se explica."""
+    doc, beto = encargados.doc, equipo.beto.id
+    gemela = _by_id(doc, "tt-rep-off-table-twin")
+    assert gemela.tag == "details" and "tt-rep-table" in gemela.get("class")
+    assert gemela.get("data-tt-keep") is not None
+    assert gemela.xpath('.//table[@id="tt-rep-off-table"]')
+    assert gemela.xpath('.//*[contains(@class, "tt-rep-oscroll")]')
+    dias = _by_id(doc, f"tt-rep-off-{beto}-days")
+    assert _txt(dias) == "—"
+    assert "sin producción" in (dias.xpath(".//*[@title]")[0].get("title")).lower()
+
+
+# --- Encargados: mapa de calor (R3) ----------------------------------------
+def test_encargados_mapa_de_calor(db_session, jefa, esc, equipo, encargados):
+    doc, ana = encargados.doc, equipo.ana.id
+    hm = _ctx(db_session, jefa, tab="encargados", cohort=esc.c.id)["encargados"]["heatmap"]
+    tarjeta = _by_id(doc, "tt-rep-off-heat")
+    assert "tt-rep-chart" in tarjeta.get("class")                  # trae tabla gemela
+    assert "Dictámenes y revisiones por día" in _txt(tarjeta)
+    tabla = _by_id(doc, "tt-rep-off-heat-table")
+    assert tabla.xpath('ancestor::*[contains(@class, "tt-table-wrap")]')
+    filas = tabla.xpath("./tbody/tr")
+    assert [tr.get("id") for tr in filas] == [f"tt-rep-off-heat-{r['user_id']}" for r in hm["rows"]]
+    assert len(tabla.xpath("./thead/tr/th")) == hm["n_days"] + 2   # nombre + días + total
+    fila = _by_id(doc, f"tt-rep-off-heat-{ana}")
+    celdas = _cls(fila, "tt-rep-hcell")
+    assert len(celdas) == hm["n_days"]
+    (datos,) = [r for r in hm["rows"] if r["user_id"] == ana]
+    for el, c in zip(celdas, datos["cells"]):
+        assert f"tt-rep-bin-{c['bin']}" in el.get("class") and "tt-rep-mark" in el.get("class")
+        assert el.get("data-tt-tip") == c["tip"] == el.get("aria-label")
+        assert el.get("role") == "img"
+    assert any("1 dictamen o revisión" in el.get("data-tt-tip") for el in celdas)
+    assert _txt(_by_id(doc, f"tt-rep-off-heat-{ana}-total")) == str(datos["total"])
+    # Leyenda de cubetas visible y tabla gemela con los números.
+    escala = _cls(tarjeta, "tt-rep-scale")
+    assert escala and len(_cls(escala[0], "tt-rep-scale-step")) == len(hm["legend"])
+    assert _by_id(doc, "tt-rep-off-heat-twin").xpath(".//tbody/tr")
+
+
+def test_macro_heatmap_ancho_y_fila_otros():
+    """Con más de 22 columnas (`wide`) la tabla hace scroll propio y solo se
+    rotulan la primera columna y los lunes; «Otros» va al final."""
+    from datetime import date
+
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    dias = []
+    d = date(2091, 1, 1)
+    while len(dias) < 30:
+        if d.weekday() < 5:
+            i = len(dias)
+            dias.append({"date": d, "iso": d.isoformat(), "label": f"lun {d.day}",
+                         "label_long": f"{d.day} ene", "week_start": i > 0 and d.weekday() == 0,
+                         "show_label": i == 0 or d.weekday() == 0, "is_today": False})
+        d += timedelta(days=1)
+    celdas = [{"iso": x["iso"], "n": 0, "bin": 0, "color": "", "tip": f"X · {x['label_long']}: 0"}
+              for x in dias]
+    hm = {"days": dias, "n_days": len(dias), "wide": True, "vmax": 0,
+          "legend": [{"bin": 0, "label": "0", "color": ""}],
+          "rows": [{"user_id": 7, "name": "ZOE", "is_others": False, "actors": None,
+                    "total": 0, "cells": celdas},
+                   {"user_id": None, "name": "Otros", "is_others": True, "actors": 2,
+                    "total": 0, "cells": celdas}]}
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/admin/partials/reports/_charts.html" import heatmap %}'
+        '{{ heatmap("tt-h", hm, "Mapa", "tt-h") }}')
+    doc = _doc("<div>" + tpl.render(hm=hm) + "</div>")
+    tabla = _by_id(doc, "tt-h-table")
+    assert "is-wide" in tabla.get("class")
+    envoltura = tabla.getparent()
+    assert "tt-table-wrap" in envoltura.get("class") and envoltura.get("tabindex") == "0"
+    assert envoltura.get("role") == "region" and envoltura.get("aria-label")
+    rotulos = [th for th in tabla.xpath("./thead/tr/th")[1:-1] if _cls(th, "tt-rep-heat-dom")]
+    assert len(rotulos) == sum(1 for x in dias if x["show_label"])
+    # Cada columna conserva su nombre para lector de pantalla aunque no se rotule.
+    assert all(th.xpath('.//*[contains(@class, "visually-hidden")]')
+               for th in tabla.xpath("./thead/tr/th")[1:-1])
+    otros = _by_id(doc, "tt-h-others")
+    assert "is-others" in otros.get("class") and "2 personas" in _txt(otros)
+    assert tabla.xpath("./tbody/tr")[-1] is otros
+
+
+# --- Carreras: proyección por carrera (R4b) ----------------------------------
+def test_carreras_proyeccion_por_carrera(db_session, jefa, esc, carreras):
+    doc = carreras.doc
+    a, b = esc.pa.id, esc.pb.id
+    ctx = _ctx(db_session, jefa, tab="carreras", cohort=esc.c.id)["carreras"]
+    filas = {r["id"]: r for r in ctx["rows"]}
+    # B: 2 pendientes y 1 liberado en los últimos 10 días hábiles => 20 días hábiles.
+    fb = filas[b]["forecast"]
+    assert fb["status"] == "ok" and fb["days"] == 20
+    celda_b = _celda(doc, f"tt-rep-car-{b}-forecast")
+    assert fb["date_text"] in celda_b and "20 días hábiles" in celda_b
+    # A: sin liberados recientes => sin ritmo medible.
+    assert "Sin ritmo medible" in _celda(doc, f"tt-rep-car-{a}-forecast")
+    tabla = _by_id(doc, "tt-rep-programs-table")
+    assert "Proyección" in _txt(tabla.xpath("./thead")[0])
+    assert "a este ritmo, sin feriados ni nuevas entradas" in _txt(
+        _by_id(doc, "tt-rep-programs-card"))
+    assert "Proyección" in _txt(_by_id(doc, "tt-rep-programs-twin"))
+
+
+# --- Atorados: chips de motivo por área (R2) ---------------------------------
+def test_atorados_chips_de_motivo_agrupados_por_area(client_as, jefa, esc):
+    doc = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="all"))
+    assert _by_id(doc, "tt-rep-ator-group-motive") is not None
+    esc_g = _by_id(doc, "tt-rep-ator-mgroup-escolares")
+    assert esc_g.xpath('.//*[contains(@class, "tt-rep-c--a-escolares")]')      # llave del área
+    chip = _by_id(doc, "tt-rep-f-motive-review_request")
+    assert chip.xpath('ancestor::*[@id="tt-rep-ator-mgroup-escolares"]')
+    assert _txt(_cls(chip, "tt-rep-chip-n")[0]) == "2"
+    assert chip.xpath('.//*[contains(@class, "tt-rep-c--m-review_request")]')
+    q = f"tab=atorados&cohort={esc.c.id}&ball=escolares&motive=review_request&level=all"
+    assert chip.get("hx-get") == f"{BODY}?{q}" and chip.get("href") == f"{URL}?{q}"
+    assert chip.get("aria-pressed") == "false"
+    # Los motivos en 0 no estorban; un área sin pendientes no pinta grupo.
+    assert not doc.xpath('//*[@id="tt-rep-f-motive-close_appt"]')
+    assert not doc.xpath('//*[@id="tt-rep-ator-mgroup-biblioteca"]')
+    assert _by_id(doc, "tt-rep-f-motive-all").get("aria-pressed") == "true"
+    assert not doc.xpath('//*[@id="tt-rep-ator-active-motive"]')
+
+
+def test_atorados_motivo_activo_se_ve_y_se_quita(client_as, jefa, esc):
+    """El motivo sobrevive al chip «Todas» de pelota (intencional): por eso se
+    nombra arriba de la lista con su «Quitar», nunca como filtro fantasma."""
+    doc = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="all",
+                    motive="review_request"))
+    assert len(doc.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')) == 2
+    aviso = _by_id(doc, "tt-rep-ator-active-motive")
+    assert "Escolares" in _txt(aviso) and "Revisar solicitud" in _txt(aviso)
+    quitar = _by_id(doc, "tt-rep-ator-motive-clear")
+    assert quitar.get("hx-get") == f"{BODY}?tab=atorados&cohort={esc.c.id}&level=all"
+    assert quitar.get("hx-target") == quitar.get("hx-select") == "#tt-report-body"
+    assert _by_id(doc, "tt-rep-f-motive-review_request").get("aria-pressed") == "true"
+    assert _by_id(doc, "tt-rep-f-motive-all").get("aria-pressed") == "false"
+    # Un motivo activo con 0 sigue a la vista (se puede soltar desde su chip).
+    d2 = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="crit",
+                   motive="review_docs"))
+    assert _by_id(d2, "tt-rep-f-motive-review_docs").get("aria-pressed") == "true"
+
+
+# --- Contrato visual común ----------------------------------------------------
+@pytest.mark.parametrize("vista", ["panorama", "encargados", "carreras", "atorados"])
+def test_ronda2_nombres_accesibles_estilos_e_ids_unicos(request, vista):
+    v = request.getfixturevalue(vista)
+    for el in v.doc.xpath('//*[@role="img"]'):
+        assert (el.get("aria-label") or "").strip(), lxml.html.tostring(el)[:200]
+    for el in v.doc.xpath("//*[@style]"):
+        assert _STYLE_OK.match(el.get("style")), el.get("style")
+    ids = [el.get("id") for el in v.doc.xpath("//*[@id]")]
+    assert len(ids) == len(set(ids)), sorted({i for i in ids if ids.count(i) > 1})
+
+
+def test_macros_nuevas_existen():
+    fuente = (REPORTS_TPL / "_charts.html").read_text(encoding="utf-8")
+    for nombre in ("segbar", "meter", "heatmap"):
+        assert re.search(r"\{%-?\s*macro\s+" + nombre + r"\(", fuente), nombre
+
+
+# --- CSS: color por clase sincronizado con la fachada; impresión ------------
+def test_css_tintes_por_clase_sincronizados_con_el_servicio():
+    """Los tintes los decide la fachada (`_MOTIVE_COLOR`, `_QUEUE_COLORS`,
+    `_PROD_COLORS`); la hoja los declara por clase (sin `style=` de color). Si
+    la fachada cambia un tinte, esta prueba obliga a actualizar la hoja."""
+    from itcj2.apps.titulatec.services import report_service as rsv
+    css = CSS.read_text(encoding="utf-8").lower()
+    for pref, colores in (("m", rsv._MOTIVE_COLOR), ("q", rsv._QUEUE_COLORS),
+                          ("p", rsv._PROD_COLORS)):
+        for llave, color in colores.items():
+            patron = (rf"\.tt-rep-c--{pref}-{re.escape(llave)}\s*\{{\s*--c:\s*"
+                      rf"{re.escape(color.lower())};\s*\}}")
+            assert re.search(patron, css), (pref, llave, color)
+
+
+def test_css_impresion_de_tarjetas_y_mapa():
+    css = CSS.read_text(encoding="utf-8")
+    marca = "/* === Ronda 2 (U2) === */"
+    assert css.count(marca) == 1
+    bloque = css[css.index(marca):]
+    impresion = bloque[bloque.index("@media print"):]
+    assert re.search(r"\.tt-rep-ocard[^{]*\{[^}]*break-inside:\s*avoid", impresion)
+    assert re.search(r"\.tt-rep-ocards\s*\{[^}]*grid-template-columns:\s*repeat\(2", impresion)
+    assert re.search(r"\.tt-rep-heat-wrap[^{]*\{[^}]*overflow:\s*visible", impresion)
+    # Los `visually-hidden` (absolutos) de cada columna se anclan a la envoltura:
+    # si no, con `is-wide` escapan del scroll y ensanchan la página entera.
+    assert re.search(r"\.tt-rep-heat-wrap\s*\{[^}]*position:\s*relative", bloque)
+    # Móvil: una tarjeta por fila.
+    assert re.search(r"@media \(max-width: 767\.98px\)\s*\{[^@]*\.tt-rep-ocards\s*\{\s*"
+                     r"grid-template-columns:\s*minmax\(0, 1fr\)", bloque)
+    assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", bloque)
+    assert "\r\n" not in bloque

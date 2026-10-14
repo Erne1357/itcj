@@ -20,7 +20,7 @@ del escenario y las aserciones sobre encargados filtran a los propios.
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from itertools import count
+from itertools import count, pairwise
 from types import SimpleNamespace
 from urllib.parse import parse_qsl
 
@@ -696,11 +696,12 @@ def test_encargados_cola_traslapada_produccion_y_lugares(lleno):
     assert beto["places"] == {"occupied": 0, "capacity": 0, "free": 0}
     assert e["others"]["docs_approved"] == 1                   # la jefa no es encargada
     assert e["range_bdays"] == n_bd
-    barras = {b["user_id"]: b for b in e["clear_bars"]["rows"]}
-    assert barras[t.ana.id]["value"] == pytest.approx(n_bd)
-    sparks = {s["user_id"]: s for s in e["sparks"]["series"]}
-    assert sparks[t.ana.id]["total"] == 4 and sparks[t.beto.id]["total"] == 2
-    assert e["sparks"]["vmax"] >= 4                           # misma escala para todos
+    # «Días para vaciar» (gráfica) y las sparklines se retiraron con la Task U2:
+    # la proyección vive en cada tarjeta y el mapa de calor las sustituye.
+    assert "clear_bars" not in e and "sparks" not in e
+    calor = {r["user_id"]: r for r in e["heatmap"]["rows"]}
+    assert calor[t.ana.id]["total"] == 4 and calor[t.beto.id]["total"] == 2
+    assert e["heatmap"]["vmax"] >= 4                          # misma escala para todos
 
 
 def test_ocultar_un_encargado_quita_su_fila_sin_mover_a_los_demas(lleno):
@@ -973,11 +974,49 @@ def test_panorama_cada_area_partida_por_su_primer_motivo(lleno):
                            f"&ball=escolares&motive=review_docs&level=all")
     assert docs["body_url"].startswith("/titulatec/admin/tablero/body?tab=atorados")
     colores = [m["color"] for m in areas["escolares"]["motives"]]
-    assert len(set(colores)) == 3 and all(c.startswith("#") and len(c) == 7 for c in colores)
+    assert colores == [rsv._MOTIVE_COLOR[c] for c in ("review_request", "review_docs",
+                                                      "close_appt")]
+    # Vecinos de la barra con tonos distintos (Ronda 0 de U2: claridad intercalada).
+    assert all(a != b for a, b in pairwise(colores))
+    alumno = [m["color"] for m in areas["alumno"]["motives"]]
+    assert all(a != b for a, b in pairwise(alumno))
     assert "Dictaminar documentos: 2" in docs["tip"]
     assert "primer motivo" in p["motive_note"]
     assert p["projection_note"] == "a este ritmo, sin feriados ni nuevas entradas"
     assert p["projection_window"] == 10
+
+
+def test_tonos_por_motivo_y_por_parte_se_distinguen():
+    """Ronda 0 de U2 (decisión del controlador): los tonos de un área son pasos
+    de UNA rampa que pasan `validate_palette.js --ordinal` (L de OKLab separada
+    >= 0.06, el más claro >= 2:1 contra la superficie) y, con más motivos que
+    pasos, la claridad se intercala: dos motivos a menos de 4 lugares del
+    catálogo nunca comparten tono. Pura, sin BD."""
+    from itcj2.apps.titulatec.utils import charts as ch
+
+    def pasos_validos(tonos):
+        ls = sorted(ch.ok_lightness(c) for c in set(tonos))
+        assert all(b - a >= ch.MIN_STEP_L for a, b in pairwise(ls)), tonos
+        claro = max(set(tonos), key=ch.ok_lightness)
+        assert ch.contrast_ratio(claro, ch.SURFACE_LIGHT) >= ch.LIGHT_FLOOR, claro
+
+    for actor, _, base in rsn.ACTORS:
+        codigos = [c for c in rsn.MOTIVE_CODES if rsn.MOTIVE_ACTOR[c] == actor]
+        tonos = [rsv._MOTIVE_COLOR[c] for c in codigos]
+        if len(codigos) == 1:
+            assert tonos == [base], actor                 # el área conserva su color
+            continue
+        assert len(set(tonos)) == min(len(codigos), rsv.TINT_STEPS), actor
+        pasos_validos(tonos)
+        for i in range(len(tonos)):
+            for j in range(i + 1, min(i + rsv.TINT_STEPS, len(tonos))):
+                assert tonos[i] != tonos[j], (actor, codigos[i], codigos[j])
+    # Cola y producción: un paso por parte, de la base de Escolares al más claro.
+    for colores in (rsv._QUEUE_COLORS, rsv._PROD_COLORS):
+        tonos = list(colores.values())
+        assert tonos[0] == "#2a78d6" and len(set(tonos)) == len(tonos)
+        assert [ch.ok_lightness(c) for c in tonos] == sorted(ch.ok_lightness(c) for c in tonos)
+        pasos_validos(tonos)
 
 
 def test_dos_motivos_del_mismo_actor_cuentan_una_vez_en_el_primero(lleno):

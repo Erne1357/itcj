@@ -178,14 +178,36 @@ _MOTIVE_EXITS = {
 }
 
 
+# Pasos de rampa por área (Ronda 0 de U2): con más llaves que pasos, el ciclo
+# intercala la claridad. 4 es lo que cabe con L (OKLab) separada >= 0.06 y el
+# paso más claro >= 2:1 contra la superficie (`charts.ramp_steps`).
+TINT_STEPS = 4
+
+
 def _tinted(keys, color: str) -> dict[str, str]:
-    """`{llave: tinte}`: tintes de `color` en el orden de `keys` (estables: el
-    color sigue a la llave aunque cambien los conteos, spec §7)."""
+    """`{llave: tono}` de la rampa de `color`, en el orden de `keys`. Estable:
+    el color sigue a la llave aunque cambien los conteos (spec §7).
+
+    - Hasta `TINT_STEPS` llaves: un paso por llave, del más oscuro al más claro
+      (>= 2:1 contra la superficie; con Escolares el más oscuro es la base):
+      las partes de la cola y de la producción de una tarjeta.
+    - Con más (los 8-9 motivos de Escolares y del alumno): 4 pasos en ciclo
+      intercalado (`charts.interleave_steps`), así dos motivos a menos de 4
+      lugares en el catálogo nunca comparten tono y los vecinos quedan a uno o
+      dos pasos (antes eran 9 tintes a 10 % de aclarado: indistinguibles).
+      Repetir tono a 4 lugares es aceptable: la identidad del motivo la da su
+      etiqueta en la lista, nunca el tono solo.
+    Un área con una sola llave conserva su color tal cual."""
     keys = list(keys)
-    return dict(zip(keys, charts.tints(color, len(keys))))
+    n = len(keys)
+    if n <= TINT_STEPS:
+        tonos = charts.ramp_steps(color, n)
+    else:
+        tonos = charts.interleave_steps(charts.ramp_steps(color, TINT_STEPS), n)
+    return dict(zip(keys, tonos))
 
 
-# Color de cada motivo: tintes del color de su área, en el orden del catálogo.
+# Color de cada motivo: tonos de la rampa de su área, en el orden del catálogo.
 _MOTIVE_COLOR: dict[str, str] = {}
 for _actor in _ACTOR_CODES:
     _MOTIVE_COLOR.update(_tinted((c for c in MOTIVE_CODES if MOTIVE_ACTOR[c] == _actor),
@@ -1249,19 +1271,13 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
     - `others`: producción de quienes NO son encargados (jefa, admin) en el
       rango, `{actors, req_reviewed, docs_approved, docs_rejected, dictamenes,
       attended, no_show, liberated, reject_rate, reject_text}`, o `None`.
-    - `clear_bars`: `{rows: [{user_id, name, color_index, value, text, pct}]
-      (mayor primero, solo con valor), threshold, threshold_text,
-      threshold_pct, vmax}`; umbral = CRIT días naturales en días hábiles
-      (14 -> 10).
-    - `sparks`: small multiples de «Dictámenes por día» con la MISMA escala:
-      `{width, height, vmax, days: [iso...], series: [{user_id, name,
-      color_index, values, points, total}]}` sobre los días hábiles del rango.
     - `range_bdays` (días hábiles del rango), `capacity_total`: `{occupied,
       capacity, free}` (todas las ventanas, llave 0 de `capacity`).
 
-    Ronda 2 (spec §12, R1/R3/R4a) — llaves NUEVAS. `clear_bars` y `sparks`
-    quedan OBSOLETAS (R1 retira «Días para vaciar su cola» y R3 sustituye las
-    sparklines): se siguen calculando solo hasta que U2 deje de leerlas.
+    Ronda 2 (spec §12, R1/R3/R4a). La gráfica «Días para vaciar su cola»
+    (`clear_bars`) y las sparklines (`sparks`) se RETIRARON con la Task U2: la
+    proyección vive en cada tarjeta y el mapa de calor sustituye a las
+    sparklines. Llaves de la ronda:
 
     - `cards`: una tarjeta por encargado VISIBLE, el más cargado primero
       (`_cards_sorted`: con cola y sin ritmo medible primero —cola mayor
@@ -1285,7 +1301,8 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
       escala, como no cambia el color). 0 = sin barras.
     - `queue_legend` (Solicitudes · Documentos · Citas por cerrar · Listos sin
       cita) y `prod_legend` (Solicitudes revisadas · Documentos aprobados ·
-      Documentos rechazados): `[{key, label, color}]` (tintes de Escolares).
+      Documentos rechazados): `[{key, label, color}]` (un paso de la rampa de
+      Escolares por parte, `_tinted`).
     - `cards[*].projection`: `_projection` de `total_escolares` al ritmo de
       dictámenes + revisiones por día hábil de los ÚLTIMOS 10 días hábiles
       (independiente del rango), con umbral: `status` ∈ clear · ok · over
@@ -1295,7 +1312,7 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
       ⌈days_to_clear⌉).
     - `projection_threshold`: `{days (CRIT en hábiles, 10), text}`;
       `projection_note`, `projection_window` (10).
-    - `heatmap` (R3, sustituye `sparks`): `{days: [{date, iso, label («lun
+    - `heatmap` (R3, sustituye a las sparklines): `{days: [{date, iso, label («lun
       13»), label_long («lun 13 oct»), week_start (lunes que no es la primera
       columna: separador), show_label (con `wide` solo la primera y los
       lunes), is_today}], rows: [{user_id (None en «Otros»), name, is_others,
@@ -1334,7 +1351,7 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
                                     .filter(Program.id.in_(faltan)).all()))
 
     umbral = round(d.cfg.crit_days * 5 / 7)
-    rows, barras, series = [], [], []
+    rows = []
     for o in visibles:
         p = prod.get(o.user_id, _empty_prod())
         dictamenes = p["docs_approved"] + p["docs_rejected"]
@@ -1363,22 +1380,6 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
             "over_threshold": dias is not None and dias > umbral,
             "places": {"occupied": ocupados, "capacity": cap, "free": max(0, cap - ocupados)},
         })
-        if dias is not None:
-            barras.append((o, dias))
-        series.append((o, [p["by_day"].get(dia, 0) for dia in habiles]))
-
-    tope_barras = max([umbral] + [v for _, v in barras])
-    barras.sort(key=lambda ov: (-ov[1], _name_key(ov[0].name)))
-    clear_rows = []
-    for (o, v), fila in zip(barras, charts.bar_rows([(o.name, v) for o, v in barras], tope_barras)):
-        clear_rows.append({"user_id": o.user_id, "name": o.name, "color_index": color[o.user_id],
-                           "value": v, "text": _fmt_dec(v), "pct": fila["pct"]})
-    tope_spark = max([1] + [max(vals, default=0) for _, vals in series])
-    sparks = [{"user_id": o.user_id, "name": o.name, "color_index": color[o.user_id],
-               "values": vals, "total": sum(vals),
-               "points": charts.points_attr(charts.line_points(
-                   vals, width=SPARK_W, height=SPARK_H, vmax=tope_spark, pad=2))}
-              for o, vals in series]
 
     # Con la serie alargada, alguien pudo producir SOLO antes del rango (todos
     # sus totales en 0): no es «Otros» de este rango.
@@ -1414,12 +1415,6 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
         "hidden_officers_count": sum(1 for c in chips if c["hidden"]),
         "rows": rows,
         "others": others,
-        "clear_bars": {"rows": clear_rows, "threshold": umbral,
-                       "threshold_text": _plural(umbral, "día hábil", "días hábiles"),
-                       "threshold_pct": umbral / tope_barras * 100 if tope_barras else 0,
-                       "vmax": tope_barras},
-        "sparks": {"width": SPARK_W, "height": SPARK_H, "vmax": tope_spark,
-                   "days": [dia.isoformat() for dia in habiles], "series": sparks},
         "range_bdays": len(habiles),
         "capacity_total": {"occupied": ocupados_t, "capacity": cap_t,
                            "free": max(0, cap_t - ocupados_t)},

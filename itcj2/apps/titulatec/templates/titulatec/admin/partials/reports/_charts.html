@@ -26,6 +26,11 @@
 
    Macros: `nav`, `chart_card`, `stat_tile`, `hbars`, `stacked_bar`,
    `line_chart`, `sparkline`, `calendar_heat`, `legend`, `table_twin`.
+   Ronda 2 (spec §12): `segbar` (barra partida a escala común + lista con
+   conteos y ligas), `meter` (ocupados de capacidad) y `heatmap` (encargado ×
+   día hábil). Sus colores también van por clase: `tt-rep-c--m-<motivo>`,
+   `tt-rep-c--q-<parte de cola>`, `tt-rep-c--p-<parte de producción>` y las
+   cubetas `tt-rep-bin-<0-5>` del calendario.
    =========================================================================== #}
 
 {# — Navegación interna del tablero (spec §3): `hx-select` == `hx-target`
@@ -223,15 +228,121 @@ href="{{ url }}" hx-get="{{ url }}" hx-target="#tt-admin-content" hx-select="#tt
    «Ver tabla». `data-tt-keep`: `reports.js` la deja abierta tras un swap si
    la jefa la abrió; en impresión solo sale si está abierta. Las filas las pone
    `caller()` (`<tr>…</tr>`). — #}
-{% macro table_twin(id, caption, headers) -%}
+{#   `text_cols`: cuántas columnas de la izquierda son texto (alineadas a la
+   izquierda); las demás son números (a la derecha). — #}
+{% macro table_twin(id, caption, headers, text_cols=1) -%}
 <details class="tt-rep-table" id="{{ id }}" data-tt-keep>
   <summary><i class="bi bi-table" aria-hidden="true"></i> Ver tabla</summary>
   <div class="tt-table-wrap">
     <table class="table table-sm tt-rep-ttable">
       <caption class="visually-hidden">{{ caption }}</caption>
-      <thead><tr>{% for h in headers %}<th scope="col"{% if not loop.first %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
+      <thead><tr>{% for h in headers %}<th scope="col"{% if loop.index0 >= text_cols %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
       <tbody>{{ caller() }}</tbody>
     </table>
   </div>
 </details>
+{%- endmacro %}
+
+{# — Barra partida (Ronda 2, R1/R2): segmentos sobre una escala COMÚN (el
+   `w_pct` de cada uno ya viene de `charts.scaled_segments`: dos barras con la
+   misma escala se comparan a lo largo) + el total en la punta + una lista con
+   el conteo de cada parte. La IDENTIDAD de cada parte la da la etiqueta de la
+   lista, nunca solo el tono (un área tiene 4 pasos de su rampa y con más
+   motivos se repiten, intercalados): llave del mismo tono + etiqueta + número,
+   en el mismo orden que los segmentos.
+   - `segments`: `[{<kkey>, label, value, w_pct, tip}]` (sin las partes en 0).
+   - `cprefix`: familia de color (`m` motivo, `q` cola, `p` producción); la
+     clase es `tt-rep-c--<cprefix>-<llave>`.
+   - `items`: renglones de la lista (`[{<kkey>, label, value?, url?,
+     body_url?}]`); `values` (dict) da el número cuando el renglón no lo trae
+     (las leyendas de las tarjetas). Con `url` el renglón liga (D7).
+   - `item_prefix`: prefijo de id de cada renglón (`<item_prefix>-<llave>`).
+   - `caller(item)` agrega renglones de apoyo bajo cada parte; `note`, una
+     línea al pie (HTML ya escapado por quien llama). — #}
+{% macro segbar(id, segments, label, cprefix, total, items=None, values=None, kkey="key", item_prefix=None, note=None, compact=False) -%}
+<div class="tt-rep-sbar{{ ' tt-rep-sbar--compact' if compact else '' }}" id="{{ id }}">
+  <div class="tt-rep-sbar-track" role="img"
+       aria-label="{{ label }}{% if segments %}: {% for s in segments %}{{ s.label }} {{ s.value }}{{ ', ' if not loop.last else '' }}{% endfor %}{% endif %}">
+    {%- for s in segments %}<span class="tt-rep-sbar-seg tt-rep-mark tt-rep-c--{{ cprefix }}-{{ s[kkey] }}{{ ' is-end' if loop.last else '' }}" style="width: {{ '%.2f'|format(s.w_pct) }}%" data-tt-tip="{{ s.tip }}"></span>{% endfor -%}
+    <span class="tt-rep-hval" aria-hidden="true">{{ total }}</span>
+  </div>
+  {%- if items %}
+  <ul class="tt-rep-sbar-list" id="{{ id }}-list" aria-label="{{ label }}, por parte">
+    {%- for it in items %}
+    {%- set n = values[it[kkey]] if values is not none else it.value %}
+    <li class="tt-rep-sbar-item" id="{{ item_prefix or id }}-{{ it[kkey] }}">
+      {%- if it.url %}<a class="tt-rep-sbar-link" {{ nav(it.url, it.body_url or it.url, True) }}>{% else %}<span class="tt-rep-sbar-link">{% endif -%}
+        <span class="tt-rep-key tt-rep-key--rect tt-rep-c--{{ cprefix }}-{{ it[kkey] }}" aria-hidden="true"></span>
+        <span class="tt-rep-sbar-label">{{ it.label }}</span>
+        <strong class="tt-rep-sbar-n{{ ' is-zero' if not n else '' }}">{{ n }}</strong>
+      {%- if it.url %}</a>{% else %}</span>{% endif -%}
+      {%- if caller is defined %}{{ caller(it) }}{% endif %}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- if note %}
+  <p class="tt-rep-sbar-note">{{ note }}</p>
+  {%- endif %}
+</div>
+{%- endmacro %}
+
+{# — Medidor (Ronda 2, R1: lugares de cotejo): `value` de `max` con el
+   relleno al `pct` ya calculado. La pista es un paso claro de la MISMA rampa
+   que el relleno (dataviz: el estado se lee en toda la barra). Sin capacidad
+   (`pct` None) no se pinta nada: quien llama escribe «Sin lugares abiertos». — #}
+{% macro meter(id, value, max, pct, label, text) -%}
+{%- if pct is not none %}
+<div class="tt-rep-meter" id="{{ id }}" role="meter" aria-valuemin="0" aria-valuemax="{{ max }}" aria-valuenow="{{ value }}"
+     aria-valuetext="{{ text }}" aria-label="{{ label }}" data-tt-tip="{{ label }}: {{ text }}">
+  <span class="tt-rep-meter-fill tt-rep-mark" style="width: {{ '%.2f'|format(pct) }}%" data-tt-tip="{{ label }}: {{ text }}"></span>
+</div>
+{%- endif %}
+{%- endmacro %}
+
+{# — Mapa de calor (Ronda 2, R3): filas = personas, columnas = días hábiles
+   del rango; cubeta 0 = `--tt-line-soft`, 1-5 la rampa secuencial del
+   calendario. El número va en el tooltip y en el nombre accesible de cada
+   celda (más el total de la fila, etiqueta directa selectiva); la tabla
+   gemela trae todos. Columnas flexibles: caben en la tarjeta; con `hm.wide`
+   (más de 22) la tabla hace scroll propio y solo se rotulan la primera y los
+   lunes (cada columna conserva su fecha para lector de pantalla). Ids:
+   `<id>-wrap`, `<id>-table`, `<id>-scale`; filas `<row_prefix>-<user_id>`
+   («Otros»: `<row_prefix>-others`). — #}
+{% macro heatmap(id, hm, label, row_prefix, scale_label=None) -%}
+<div class="tt-table-wrap tt-rep-heat-wrap{{ ' is-wide' if hm.wide else '' }}" id="{{ id }}-wrap"
+     {%- if hm.wide %} tabindex="0" role="region" aria-label="{{ label }} (se desplaza a los lados)"{% endif %}>
+<table class="tt-rep-heat{{ ' is-wide' if hm.wide else '' }}" id="{{ id }}-table" aria-label="{{ label }}">
+  <thead>
+    <tr>
+      <th scope="col" class="tt-rep-heat-name"><span class="visually-hidden">Nombre</span></th>
+      {%- for d in hm.days %}
+      <th scope="col" class="tt-rep-heat-day{{ ' is-wk' if d.week_start else '' }}{{ ' is-today' if d.is_today else '' }}">
+        {%- if d.show_label %}{% set partes = d.label.split(" ") %}<span class="tt-rep-heat-dow" aria-hidden="true">{{ partes[0] }}</span><span class="tt-rep-heat-dom" aria-hidden="true">{{ partes[-1] }}</span>{% endif -%}
+        <span class="visually-hidden">{{ d.label_long }}</span>
+      </th>
+      {%- endfor %}
+      <th scope="col" class="num tt-rep-heat-total">Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {%- for r in hm.rows %}
+    {%- set rid = r.user_id if r.user_id is not none else "others" %}
+    <tr id="{{ row_prefix }}-{{ rid }}"{% if r.is_others %} class="is-others"{% endif %}>
+      <th scope="row" class="tt-rep-heat-name">{{ r.name }}
+        {%- if r.is_others %}<span class="tt-rep-onote">{{ r.actors }} {{ "persona" if r.actors == 1 else "personas" }} (jefatura, administración)</span>{% endif -%}
+      </th>
+      {%- for c in r.cells %}
+      <td{% if hm.days[loop.index0].week_start %} class="is-wk"{% endif %}><span class="tt-rep-hcell tt-rep-mark tt-rep-bin-{{ c.bin }}" role="img" aria-label="{{ c.tip }}" data-tt-tip="{{ c.tip }}"></span></td>
+      {%- endfor %}
+      <td class="num tt-rep-heat-total" id="{{ row_prefix }}-{{ rid }}-total">{{ r.total }}</td>
+    </tr>
+    {%- endfor %}
+  </tbody>
+</table>
+</div>
+<div class="tt-rep-scale" id="{{ id }}-scale" aria-hidden="true">
+  <span class="tt-rep-scale-label">{{ scale_label or label }}</span>
+  {%- for b in hm.legend %}<span class="tt-rep-scale-step"><span class="tt-rep-scale-sw tt-rep-bin-{{ b.bin }}"></span>{{ b.label }}</span>{% endfor -%}
+</div>
 {%- endmacro %}

@@ -21,7 +21,6 @@ Spec `docs/superpowers/specs/2026-10-14-titulatec-tablero-design.md` §2 (D2),
   hábiles, por dueño. 2 consultas fijas; la ocupación es la de
   `SlotService.window_occupancy_map` (regla única «¿esta cita ocupa lugar?»,
   CLAUDE.md de la app §15), no una cuenta propia.
-* `days_to_clear(...)` — **pura**: cola ÷ producción por día hábil.
 
 Desviación verificada (reporte de la Task 5): la cola «solicitudes por
 revisar» cuenta también `req_unverified` (legado). Es la misma pelota
@@ -334,26 +333,3 @@ def capacity(db: Session, *, today: date, days: int = 5) -> dict[int, tuple[int,
         total_capacidad += cap
     salida[0] = (total_ocupados, total_capacidad)
     return salida
-
-
-# ---------------------------------------------------------------------------
-# Días para vaciar la cola (pura)
-# ---------------------------------------------------------------------------
-def days_to_clear(queue_total: int, prod_by_day: dict[date, int],
-                  bdays: list[date]) -> float | None:
-    """Días hábiles que tardaría en vaciar su cola a su ritmo: `queue_total` ÷
-    (producción en el tramo ÷ días hábiles del tramo).
-
-    `bdays`: los días hábiles del rango medido. La producción cuenta si cae
-    entre el primero y el último (un sábado trabajado dentro del tramo suma; el
-    divisor sigue siendo de días hábiles). `None` («—» en la UI) sin días o sin
-    producción; cola 0 con producción = 0.0.
-    """
-    dias = sorted(set(bdays or []))
-    if not dias:
-        return None
-    desde, hasta = dias[0], dias[-1]
-    hecho = sum(int(n) for d, n in (prod_by_day or {}).items() if desde <= d <= hasta)
-    if hecho <= 0:
-        return None
-    return max(0, int(queue_total)) / (hecho / len(dias))
