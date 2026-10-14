@@ -29,9 +29,18 @@ def test_seed_files_tiene_el_26_antes_del_15_y_el_15_al_final():
     assert SEED_FILES[-1] == QUINCE
 
 
-def test_el_comando_corre_solo_el_26_y_verifica():
+def _dml_en_tmp(tmp_path):
+    """Stub del 26 en un directorio temporal: el test no depende de database/ (gitignored)."""
+    carpeta = tmp_path / "reportes_2026_10"
+    carpeta.mkdir(parents=True)
+    (carpeta / "26_insert_reports_perm.sql").write_text("-- stub", encoding="utf-8")
+    return tmp_path
+
+
+def test_el_comando_corre_solo_el_26_y_verifica(tmp_path, monkeypatch):
     from itcj2.cli import titulatec as cli
 
+    monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
     ejecutados = []
     with patch("itcj2.cli.core.execute_sql_file",
                side_effect=lambda ruta, **kw: ejecutados.append(Path(ruta).name)), \
@@ -45,16 +54,20 @@ def test_el_comando_corre_solo_el_26_y_verifica():
     verificar.assert_called_once_with()
 
 
-def test_el_comando_aborta_si_no_aterrizo():
+def test_el_comando_aborta_si_no_aterrizo(tmp_path, monkeypatch):
     from itcj2.cli import titulatec as cli
 
+    monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
     with patch("itcj2.cli.core.execute_sql_file"), \
             patch("itcj2.core.services.authz_cache.invalidate_app"), \
             patch.object(cli, "_verify_reportes",
-                         return_value=["el rol admin no tiene " + PERM]):
+                         return_value=["el rol admin no tiene " + PERM]) as verificar:
         res = CliRunner().invoke(cli.init_reportes_command, [])
 
     assert res.exit_code != 0
+    # Debe abortar por la verificacion, no por el archivo faltante.
+    assert "faltan archivos" not in res.output
+    verificar.assert_called_once_with()
 
 
 @requires_dml
