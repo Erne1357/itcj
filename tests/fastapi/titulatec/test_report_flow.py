@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from itcj2.apps.titulatec.services import report_flow
+from itcj2.apps.titulatec.utils.business_days import add_business_days
 from itcj2.apps.titulatec.services.report_flow import (
     cumulative, daily_counts, fill_days, forecast, liberated_by_day, pace,
 )
@@ -100,6 +101,21 @@ def test_forecast_cuenta_dias_habiles_hacia_adelante():
     assert forecast(1, 1.0, VIERNES) == LUNES
 
 
+def test_forecast_no_suma_un_dia_por_coma_flotante():
+    # 21 / 0.7 = 30.000000000000004 en float: son exactamente 30 habiles.
+    esperado = add_business_days(LUNES, 30)
+    assert forecast(21, 0.7, LUNES) == esperado
+    assert forecast(42, 1.4, LUNES) == esperado
+    assert forecast(42, 0.7, LUNES) == add_business_days(LUNES, 60)
+    assert forecast(21, 1.4, LUNES) == add_business_days(LUNES, 15)
+
+
+def test_forecast_con_hoy_en_sabado_cuenta_desde_el_lunes():
+    sabado = date(2026, 10, 10)
+    assert forecast(1, 1.0, sabado) == add_business_days(sabado, 1)
+    assert forecast(1, 1.0, sabado) == date(2026, 10, 13)
+
+
 # --- daily_counts (BD) -------------------------------------------------------
 
 def _req(db, cohort, n, *, created_at, reviewed_at=None, program=None, ctl=None):
@@ -160,12 +176,24 @@ def test_daily_counts_forma_y_llaves(db_session, escenario):
 
 def test_daily_counts_todas_las_carreras_de_una_convocatoria(db_session, escenario):
     r = daily_counts(db_session, cohort_ids=[escenario.c1.id], programs="ALL",
-                     include_unmapped=False, **RANGO)
-    # "ALL" incluye tambien las solicitudes sin carrera.
+                     include_unmapped=True, **RANGO)
     assert r["requests_new"] == {D1: 2, D2: 1}
     assert r["requests_reviewed"] == {D2: 1}
     # El cancelado no cuenta como inscrito.
     assert r["enrolled"] == {D1: 1, D2: 1}
+
+
+def test_daily_counts_las_sin_carrera_solo_entran_con_include_unmapped(db_session, escenario):
+    c = [escenario.c1.id]
+    pa, pb = escenario.pa.id, escenario.pb.id
+    f = lambda programs, un: daily_counts(  # noqa: E731
+        db_session, cohort_ids=c, programs=programs, include_unmapped=un, **RANGO)
+    # ALL x {True, False}
+    assert f("ALL", False)["requests_new"] == {D1: 2}          # sin la solicitud NULL
+    assert f("ALL", True)["requests_new"] == {D1: 2, D2: 1}
+    # set x {True, False}
+    assert f({pa, pb}, False)["requests_new"] == {D1: 2}
+    assert f({pa, pb}, True)["requests_new"] == {D1: 2, D2: 1}
 
 
 def test_daily_counts_cohort_ids_none_son_todas_las_convocatorias(db_session, escenario):
@@ -196,11 +224,11 @@ def test_daily_counts_filtra_por_carrera_y_sin_carrera(db_session, escenario):
 
 def test_daily_counts_respeta_el_rango_inclusivo(db_session, escenario):
     r = daily_counts(db_session, cohort_ids=[escenario.c1.id], programs="ALL",
-                     include_unmapped=False, start=D2, end=D2)
+                     include_unmapped=True, start=D2, end=D2)
     assert r["requests_new"] == {D2: 1}
     assert r["enrolled"] == {D2: 1}
     vacio = daily_counts(db_session, cohort_ids=[escenario.c1.id], programs="ALL",
-                         include_unmapped=False, start=date(2026, 10, 7),
+                         include_unmapped=True, start=date(2026, 10, 7),
                          end=date(2026, 10, 9))
     assert vacio == {"requests_new": {}, "requests_reviewed": {}, "enrolled": {}}
 
