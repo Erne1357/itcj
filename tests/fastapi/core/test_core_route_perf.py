@@ -81,6 +81,90 @@ def test_el_resultado_no_guarda_la_contrasena():
 
 
 # ---------------------------------------------------------------------------
+# password-state: el veredicto se comparte entre procesos (2026-10-14)
+# ---------------------------------------------------------------------------
+class _RedisFalso:
+    def __init__(self, falla: bool = False):
+        self.datos: dict[str, str] = {}
+        self.ttl: dict[str, int] = {}
+        self.falla = falla
+
+    def get(self, key):
+        if self.falla:
+            raise ConnectionError("redis mudo")
+        return self.datos.get(key)
+
+    def set(self, key, value, ex=None):
+        if self.falla:
+            raise ConnectionError("redis mudo")
+        self.datos[key], self.ttl[key] = value, ex
+
+
+@pytest.fixture()
+def redis_falso(monkeypatch):
+    redis = _RedisFalso()
+    monkeypatch.setattr("itcj2.core.utils.security._shared_redis", lambda: redis)
+    return redis
+
+
+class TestVeredictoCompartido:
+    """El `lru_cache` es por proceso: con 4 workers por color y cada deploy
+    vaciándolo, Tempo mostraba ~35 `password-state` al día de ~130 ms (scrypt,
+    `auth.password_verify`). El veredicto vive además en Redis, por el sha256
+    del hash: un scrypt por contraseña para todos los procesos y deploys."""
+
+    def test_otro_proceso_no_vuelve_a_verificar(self, redis_falso):
+        from itcj2.core.utils import security
+
+        verify = _ContarVerify(True)
+        with patch("itcj2.core.utils.security.verify_nip", verify):
+            assert security.is_default_password_hash("hash-compartido-1") is True
+            security.is_default_password_hash.cache_clear()     # «otro proceso»
+            assert security.is_default_password_hash("hash-compartido-1") is True
+        assert verify.llamadas == 1
+
+    @pytest.mark.parametrize("resultado", [True, False])
+    def test_guarda_el_veredicto_por_sha256_con_vencimiento(self, redis_falso, resultado):
+        import hashlib
+
+        from itcj2.core.utils import security
+
+        with patch("itcj2.core.utils.security.verify_nip", _ContarVerify(resultado)):
+            security.is_default_password_hash("hash-compartido-2")
+
+        (llave,) = redis_falso.datos
+        assert "hash-compartido-2" not in llave, "nunca el hash en claro en la llave"
+        assert llave.endswith(hashlib.sha256(b"hash-compartido-2").hexdigest())
+        assert redis_falso.datos[llave] == ("1" if resultado else "0")
+        assert redis_falso.ttl[llave] > 0
+
+    def test_con_redis_caido_se_calcula_igual(self, monkeypatch):
+        from itcj2.core.utils import security
+
+        monkeypatch.setattr("itcj2.core.utils.security._shared_redis",
+                            lambda: _RedisFalso(falla=True))
+        verify = _ContarVerify(False)
+        with patch("itcj2.core.utils.security.verify_nip", verify):
+            assert security.is_default_password_hash("hash-compartido-3") is False
+        assert verify.llamadas == 1
+
+    def test_hashes_reales_por_redis(self, redis_falso):
+        """Con scrypt de verdad: el de la contraseña por omisión da True desde
+        Redis en otro proceso, y el de otra contraseña da False."""
+        from itcj2.core.utils import security
+        from itcj2.core.utils.security import DEFAULT_PASSWORD, hash_nip
+
+        por_omision, otra = hash_nip(DEFAULT_PASSWORD), hash_nip("otra-contrasena-2")
+        assert security.is_default_password_hash(por_omision) is True
+        assert security.is_default_password_hash(otra) is False
+        security.is_default_password_hash.cache_clear()
+        with patch("itcj2.core.utils.security.verify_nip",
+                   side_effect=AssertionError("ya está en Redis")):
+            assert security.is_default_password_hash(por_omision) is True
+            assert security.is_default_password_hash(otra) is False
+
+
+# ---------------------------------------------------------------------------
 # Apps por key: una consulta por sesión, no una por llamada
 # ---------------------------------------------------------------------------
 @pytest.fixture()
