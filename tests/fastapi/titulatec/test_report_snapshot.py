@@ -396,12 +396,26 @@ def test_cita_de_ayer_sin_cerrar_es_de_escolares(estado, dias_quieto, nivel):
     assert item.appt_date == HOY - timedelta(days=1)
 
 
-def test_cita_en_curso_hoy_la_cierra_escolares():
+@pytest.mark.parametrize("dias_quieto, nivel", [(0, "ok"), (8, "warn"), (15, "crit")])
+def test_cita_en_curso_hoy_esta_en_atencion(dias_quieto, nivel):
+    """«Atender ahora» o un cotejo que empezó hoy: Escolares lo está atendiendo
+    («En atención»), no es una cita sin cerrar. El nivel sigue a los días (Ruling
+    ronda 1 de la Task 6); «Cerrar cita» queda solo para fecha < hoy (§4.3)."""
     item = rs.classify_process(
-        _fase2(appt_status="in_progress", appt_scheduled_at=_hace(0), last_event_at=_hace(0)),
+        _fase2(appt_status="in_progress", appt_scheduled_at=_hace(0, hora=8),
+               last_event_at=_hace(dias_quieto), created_at=_hace(40)),
         HOY, CFG)
-    assert item.balls == (("escolares", "Cerrar cita"),)
-    assert item.level == "ok"
+    assert rs.MOTIVE_IN_ATTENTION == "En atención"
+    assert item.stage == "cita"
+    assert item.balls == (("escolares", "En atención"),)
+    assert item.level == nivel
+    assert item.ready_to_book is False
+
+
+def test_cita_en_curso_con_fecha_futura_tambien_esta_en_atencion():
+    item = rs.classify_process(
+        _fase2(appt_status="in_progress", appt_scheduled_at=_hace(-2)), HOY, CFG)
+    assert item.balls == (("escolares", "En atención"),)
 
 
 def test_atendida_sin_dictamen_es_de_escolares():
@@ -796,6 +810,26 @@ def test_en_pausa_cuenta_aparte_y_revocados_fuera(db_session, tablero):
                              ("process", terminado.id)}
     ids = {it.id for it in snap.items}
     assert revocado.id not in ids and revocado_liberado.id not in ids
+
+
+def test_inscritos_por_carrera_cuenta_todo_lo_no_revocado(db_session, tablero):
+    """`enrolled_by_program`: procesos creados no revocados (activos, en pausa,
+    terminados y liberados) por carrera, la misma definición que
+    `report_flow.daily_counts["enrolled"]`. La carrera de un pausado también
+    tiene nombre aunque no tenga items."""
+    t = tablero
+    t.proceso("docs_pend", program=t.pa)
+    t.proceso("liberado", program=t.pa, status="on_hold")
+    t.proceso("docs_pend", program=t.pa, status="completed")       # terminado sin liberar
+    t.proceso("docs_pend", program=t.pa, status="cancelled")
+    t.proceso("docs_pend", program=t.pb, status="on_hold")         # B: solo pausados
+    t.proceso("docs_pend", program=None)
+
+    snap = _snap(db_session, t, include_unmapped=True)
+    assert snap.enrolled_by_program == {t.pa.id: 3, t.pb.id: 1, None: 1}
+    assert snap.on_hold == 1
+    assert snap.program_names == {t.pa.id: t.pa.name, t.pb.id: t.pb.name}
+    assert {it.program_id for it in snap.items} == {t.pa.id, None}
 
 
 def test_liberado_trae_su_fecha_y_quien_dictamino(db_session, tablero):

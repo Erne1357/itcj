@@ -199,10 +199,11 @@ def test_la_pestana_se_normaliza(client_as, jefa, mundo, tab):
 @pytest.mark.parametrize("tab", TABS)
 def test_presupuesto_de_consultas_por_pestana(client_as, jefa, mundo, db_session, tab):
     """≤ 20 sentencias y las MISMAS con 4 que con 16 procesos. Se mide el peor
-    camino: una carrera oculta (`px`, carga el catálogo de carreras) y, en
-    Ritmo, un día seleccionado (nombres de quien liberó)."""
+    camino: una carrera oculta (`px`, carga el catálogo de carreras), un
+    encargado oculto (`ox`, valida contra la lista de encargados) y, en Ritmo,
+    un día seleccionado (nombres de quien liberó)."""
     c = client_as(jefa)
-    params = {"tab": tab, "cohort": mundo.c.id, "px": mundo.oculta.id}
+    params = {"tab": tab, "cohort": mundo.c.id, "px": mundo.oculta.id, "ox": mundo.enc.id}
     if tab == "ritmo":
         params["day"] = mundo.b0.isoformat()
 

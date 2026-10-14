@@ -25,13 +25,20 @@ reciente; si no hay, la más reciente (`Cohort.status`: draft|open|closed).
 
 Consultas por pestaña (`/body`, caché de authz tibia; techo 20, lo fija
 `test_reports_pages.py` con 4 y 16 procesos): convocatorias 1 + catálogo de
-carreras 0-1 (solo con `px`) + instantánea 2-6 + lo propio de la pestaña —
+carreras 0-1 (solo con `px`) + encargados 0-4 (solo con `ox`, para validarlo;
+se reusan en la pestaña) + instantánea 2-6 + lo propio de la pestaña —
 Panorama: series 3 + capacidad 0-2 (solo con listos para agendar); Ritmo:
 series 3 + nombres de quien liberó 0-1 (solo con `day`); Encargados: encargados
 4 + producción 2 + capacidad 2 + nombres de carrera 0-1; Carreras y Atorados:
-encargados 4. Medido el 2026-10-14 en el peor camino (con `px`): Panorama 13 ·
-Ritmo 12 · Encargados 16 · Carreras 12 · Atorados 12. Ninguna crece con el
-número de procesos. Un usuario acotado por carrera suma 1 (sus carreras).
+encargados 4. Medido el 2026-10-14 en el peor camino (con `px` y `ox`):
+Panorama 17 · Ritmo 16 · Encargados 16 · Carreras 12 · Atorados 12 (sin `ox`:
+Panorama 13, Ritmo 12). Ninguna crece con el número de procesos. Un usuario
+acotado por carrera suma 1 (sus carreras).
+
+`px` y `ox` se normalizan como `cohort`: una carrera inexistente o fuera del
+alcance, «Sin carrera» sin `can_see_unmapped` y un encargado inexistente se
+descartan y no viajan en ninguna liga; nunca se carga el nombre de una carrera
+fuera del alcance del usuario.
 """
 from __future__ import annotations
 
@@ -124,6 +131,8 @@ PACE_WINDOW = 10                         # días hábiles del ritmo (spec §4.5)
 CAPACITY_DAYS = 5                        # días hábiles de lugares (spec §4.6)
 _FLOW_FLOOR = date(2000, 1, 1)           # «desde siempre» para las series acumuladas
 _MAX_IDS = 200                           # tope de ids por csv (`px`/`ox`)
+_MAX_DIGITS = 18                         # un id/página con más dígitos es basura (y
+                                         # `int()` de > 4300 dígitos levanta)
 
 _MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 _DIAS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
@@ -152,9 +161,15 @@ def _raw(params, key: str) -> str:
 
 
 def _to_int(raw: str) -> int | None:
-    """Entero no negativo escrito con dígitos ASCII; si no, `None` (`"²"` pasa
-    `isdigit()` pero `int()` lo rechaza)."""
-    return int(raw) if raw.isascii() and raw.isdigit() else None
+    """Entero no negativo de 1 a 18 dígitos ASCII; si no, `None`. `"²"` pasa
+    `isdigit()` pero `int()` lo rechaza, y `int()` de más de 4300 dígitos levanta
+    `ValueError` (límite de CPython): ambos son basura, nunca un 500."""
+    if not (raw.isascii() and raw.isdigit()) or len(raw) > _MAX_DIGITS:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _parse_ids(raw: str, *, allow_zero: bool) -> frozenset[int]:
@@ -189,6 +204,11 @@ def _parse_day(raw: str) -> date | None:
         return date.fromisoformat(raw)
     except ValueError:
         return None
+
+
+def _parse_page(raw: str) -> int:
+    """`utils/paging.parse_page` con el mismo tope de dígitos que los ids."""
+    return parse_page(raw) if raw and len(raw) <= _MAX_DIGITS else 1
 
 
 def _csv(ids) -> str:
@@ -236,7 +256,7 @@ class ReportFilters:
             ball=ball if ball in _ACTOR_CODES else None,
             level=level if level in LEVEL_CODES else DEFAULT_LEVEL,
             stage=stage if stage in _STAGE_CODES else None,
-            page=parse_page(_raw(params, "page") or None),
+            page=_parse_page(_raw(params, "page")),
             day=_parse_day(_raw(params, "day")),
         )
 
@@ -367,6 +387,18 @@ class _Data:
     hidden_in_scope: frozenset[int]
     snapshot: Snapshot
     program_names: dict[int, str]
+    officers_cache: list | None = None   # `report_officers.officers`, una vez por petición
+
+    def officer_list(self, db: Session) -> list[roff.Officer]:
+        """Encargados de Servicios Escolares (4 consultas), cargados a lo más
+        una vez por petición: `_load` ya los trae si hay `ox` que validar."""
+        if self.officers_cache is None:
+            self.officers_cache = roff.officers(db)
+        return self.officers_cache
+
+    def in_scope(self, pid: int | None) -> bool:
+        """¿La carrera está en el alcance del usuario? (`None` nunca)."""
+        return pid is not None and (self.scope == "ALL" or pid in self.scope)
 
     @property
     def items(self) -> list[Item]:
@@ -408,22 +440,37 @@ def _load(db: Session, user_id: int, filters: ReportFilters, today: date) -> _Da
 
     scope = officer_programs(db, user_id)
     can_unmapped = bool(can_see_unmapped(db, user_id))
+
+    # `px`: solo carreras que existen y están en el alcance; nombres solo de esas.
     hidden_real = {p for p in filters.hidden_programs if p != UNMAPPED_ID}
     names: dict[int, str] = {}
     if scope == "ALL":
         if hidden_real:
             names = dict(db.query(Program.id, Program.name).all())
             hidden_in_scope = frozenset(hidden_real & set(names))
-            programs: object = set(names) - hidden_real
+            programs: object = set(names) - hidden_in_scope
         else:
             hidden_in_scope, programs = frozenset(), "ALL"
     else:
-        hidden_in_scope = frozenset(hidden_real & set(scope))
-        programs = set(scope) - hidden_real
-        if hidden_in_scope:
+        candidatas = sorted(hidden_real & set(scope))
+        if candidatas:
             names = dict(db.query(Program.id, Program.name)
-                         .filter(Program.id.in_(sorted(hidden_in_scope))).all())
-    include_unmapped = can_unmapped and UNMAPPED_ID not in filters.hidden_programs
+                         .filter(Program.id.in_(candidatas)).all())
+        hidden_in_scope = frozenset(set(candidatas) & set(names))
+        programs = set(scope) - hidden_in_scope
+    hide_unmapped = can_unmapped and UNMAPPED_ID in filters.hidden_programs
+    include_unmapped = can_unmapped and not hide_unmapped
+
+    # `ox`: solo encargados que existen (la lista se reusa en la pestaña).
+    officers_cache = None
+    hidden_officers = filters.hidden_officers
+    if hidden_officers:
+        officers_cache = roff.officers(db)
+        hidden_officers = hidden_officers & {o.user_id for o in officers_cache}
+    # Lo que no se pudo validar no viaja en ninguna liga (como `cohort`).
+    filters = replace(filters,
+                      hidden_programs=hidden_in_scope | ({UNMAPPED_ID} if hide_unmapped else set()),
+                      hidden_officers=hidden_officers)
 
     snapshot = load_snapshot(db, cohort_ids=cohort_ids, programs=programs,
                              include_unmapped=include_unmapped, today=today, cfg=cfg)
@@ -432,7 +479,8 @@ def _load(db: Session, user_id: int, filters: ReportFilters, today: date) -> _Da
                  range_start=range_start, scope=scope, can_unmapped=can_unmapped,
                  include_unmapped=include_unmapped, programs=programs,
                  hidden_in_scope=hidden_in_scope, snapshot=snapshot,
-                 program_names={**names, **snapshot.program_names})
+                 program_names={**names, **snapshot.program_names},
+                 officers_cache=officers_cache)
 
 
 def _flow_counts(db: Session, d: _Data, start: date) -> dict[str, dict[date, int]]:
@@ -593,11 +641,13 @@ def _pace_ctx(d: _Data, liberated: dict[date, int]) -> dict:
             "note": _FORECAST_NOTE}
 
 
-def _officer_names_by_program(officers: list[roff.Officer]) -> dict[int, list[str]]:
+def _officer_names_by_program(d: _Data, officers: list[roff.Officer]) -> dict[int, list[str]]:
+    """`{program_id: [nombres de encargados]}` solo de carreras del alcance."""
     out: dict[int, list[str]] = {}
     for o in officers:                                   # ya vienen por nombre
         for pid in o.program_ids:
-            out.setdefault(pid, []).append(o.name)
+            if d.in_scope(pid):
+                out.setdefault(pid, []).append(o.name)
     return out
 
 
@@ -666,16 +716,19 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
         out.append({"code": code, "level": level, "icon": icon[level], "text": text,
                     "url": url, "body_url": body_url})
 
-    # 1. Solicitudes que esperan revisión >= CRIT días (una por etapa: liga exacta).
-    for stage, sing, plur in (
-            ("req_review", "solicitud por revisar lleva", "solicitudes por revisar llevan"),
-            ("req_unverified", "solicitud anterior por revisar lleva",
-             "solicitudes anteriores por revisar llevan")):
-        n = sum(1 for it in d.items if it.stage == stage and it.idle_days >= cfg.crit_days)
-        if n:
-            url, body = _atorados_links(d, stage=stage, level="crit")
-            alerta("requests_crit", "crit",
-                   f"{_plural(n, sing, plur)} {cfg.crit_days} días o más esperando", url, body)
+    # 1. Solicitudes que esperan revisión >= CRIT días: UNA alerta, la anterior
+    # (legado) sumada. La liga va a la etapa que más tiene (`req_review` en un
+    # empate); con las dos, la lista de Atorados muestra solo esa etapa.
+    viejas = {stage: sum(1 for it in d.items
+                         if it.stage == stage and it.idle_days >= cfg.crit_days)
+              for stage in _REQUEST_REVIEW_STAGES}
+    n = sum(viejas.values())
+    if n:
+        etapa = max(_REQUEST_REVIEW_STAGES, key=lambda st: (viejas[st], st == "req_review"))
+        url, body = _atorados_links(d, stage=etapa, level="crit")
+        alerta("requests_crit", "crit",
+               f"{_plural(n, 'solicitud por revisar lleva', 'solicitudes por revisar llevan')} "
+               f"{cfg.crit_days} días o más esperando", url, body)
     # 2. Expedientes con documentos por dictaminar quietos >= WARN días.
     lentos = [it for it in d.items
               if it.stage == "docs" and it.pending_docs > 0 and it.idle_days >= cfg.warn_days]
@@ -707,9 +760,11 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
                f"la cola crece",
                d.filters.page_url(tab="ritmo", page=1, day=None),
                d.filters.body_url(tab="ritmo", page=1, day=None))
-    # 5. Citas pasadas sin cerrar: por MOTIVO («Cerrar cita»), no por nivel.
+    # 5. Citas pasadas sin cerrar: por MOTIVO («Cerrar cita»), no por nivel, y
+    # solo con fecha anterior a hoy (la `in_progress` de hoy es «En atención»).
     sin_cerrar = sum(1 for it in d.items
-                     if any(MOTIVE_CLOSE_APPT in motivo.split(" · ") for _, motivo in it.balls))
+                     if it.appt_date is not None and it.appt_date < d.today
+                     and any(MOTIVE_CLOSE_APPT in motivo.split(" · ") for _, motivo in it.balls))
     if sin_cerrar:
         url, body = _atorados_links(d, stage="cita", ball="escolares", level="all")
         alerta("appts_unclosed", "warn",
@@ -745,7 +800,8 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
       «N pendientes esperan a dos áreas»), `on_hold` («En pausa»).
     - `alerts`: ≤ 5 `{code, level ("crit"|"warn"), icon, text, url,
       body_url (None si la liga sale del tablero)}`; `[]` = «Sin alertas».
-      `code` ∈ requests_crit · docs_warn · capacity · inflow · appts_unclosed.
+      `code` ∈ requests_crit · docs_warn · capacity · inflow · appts_unclosed,
+      a lo más una de cada una (la de solicitudes suma la etapa anterior).
     """
     pend = d.pending
     liberated = flow.liberated_by_day(d.items)
@@ -856,7 +912,8 @@ def _ctx_ritmo(db: Session, d: _Data) -> dict:
       label, x, x_pct, values: [{key, label, value, y}], tip}], x_labels:
       [{label, x, x_pct, anchor}]}`.
     - `cumulative`: mismo formato, series `enrolled` («Inscritos»: procesos
-      creados, sin revocados, pausados incluidos) y `liberated` («Liberados»),
+      creados NO revocados, pausados y terminados incluidos; misma definición
+      que `carreras.rows[*].enrolled`) y `liberated` («Liberados»),
       desde el inicio de la convocatoria (o el primer dato, si es anterior).
     - `calendar`: `{weeks: [[{date, iso, label, n, bin (0-5), color, in_range,
       is_today, selected, url, body_url, tip}]], legend: [{bin, label, color}],
@@ -939,8 +996,11 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
       la lista completa (no cambia al ocultar: el color sigue a la entidad).
       `hidden_officers_count`.
     - `rows`: un dict por encargado VISIBLE (orden por nombre): `{user_id,
-      name, color_index, programs: [{id, name}], no_programs (bool, «Sin
-      carreras asignadas»), queue: {req_review, docs_pending, appts_to_close,
+      name, color_index, programs: [{id, name}] (SOLO las del alcance del
+      usuario: nunca se cargan ni muestran nombres de otras carreras),
+      programs_out_of_scope (int: cuántas suyas quedan fuera del alcance),
+      no_programs (bool, «Sin carreras asignadas»: el encargado no tiene
+      ninguna), queue: {req_review, docs_pending, appts_to_close,
       ready_to_book, total_escolares}, prod: {req_reviewed, docs_approved,
       docs_rejected, dictamenes, attended, no_show, liberated}, reject_rate
       (0-1|None), reject_text ("25%"|"—"), days_to_clear (float|None),
@@ -964,7 +1024,7 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
     from itcj2.core.models.program import Program
 
     f = d.filters
-    todos = roff.officers(db)
+    todos = d.officer_list(db)
     color = {o.user_id: i for i, o in enumerate(todos)}
     visibles = [o for o in todos if o.user_id not in f.hidden_officers]
     colas = roff.queues(visibles, d.items)
@@ -973,7 +1033,8 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
     lugares = roff.capacity(db, today=d.today, days=CAPACITY_DAYS)
     habiles = [dia for dia in _days(d.range_start, d.today) if is_business_day(dia)]
 
-    faltan = sorted({pid for o in visibles for pid in o.program_ids} - set(d.program_names))
+    faltan = sorted({pid for o in visibles for pid in o.program_ids
+                     if d.in_scope(pid)} - set(d.program_names))
     if faltan:
         d.program_names.update(dict(db.query(Program.id, Program.name)
                                     .filter(Program.id.in_(faltan)).all()))
@@ -988,8 +1049,10 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
         ocupados, cap = lugares.get(o.user_id, (0, 0))
         rows.append({
             "user_id": o.user_id, "name": o.name, "color_index": color[o.user_id],
-            "programs": sorted(({"id": pid, "name": d.pname(pid)} for pid in o.program_ids),
+            "programs": sorted(({"id": pid, "name": d.pname(pid)}
+                                for pid in o.program_ids if d.in_scope(pid)),
                                key=lambda x: (_name_key(x["name"]), x["id"])),
+            "programs_out_of_scope": sum(1 for pid in o.program_ids if not d.in_scope(pid)),
             "no_programs": not o.program_ids,
             "queue": cola,
             "prod": {"req_reviewed": p["req_reviewed"], "docs_approved": p["docs_approved"],
@@ -1059,18 +1122,21 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
 def _ctx_carreras(db: Session, d: _Data) -> dict:
     """Pestaña Carreras (spec §5.4).
 
-    - `rows`: una por carrera visible con algo (más «Sin carrera» si aplica),
-      orden atorados desc y luego nombre («Sin carrera» al final del empate):
-      `{id (None = «Sin carrera»), name, segments: [{key, label, group, color,
-      value, x_pct, w_pct, tip}] (barra apilada por etapa, color de su grupo,
-      sin las vacías), total (items), enrolled (procesos vivos o liberados; sin
-      pausados ni revocados), liberated, pct_liberated (float|None),
+    - `rows`: una por carrera visible con algún pendiente, liberado o inscrito
+      (más «Sin carrera» si aplica), orden atorados desc y luego nombre («Sin
+      carrera» al final del empate): `{id (None = «Sin carrera»), name,
+      segments: [{key, label, group, color, value, x_pct, w_pct, tip}] (barra
+      apilada por etapa, color de su grupo, sin las vacías), total (items:
+      pendientes + liberados), enrolled («Inscritos» = procesos creados NO
+      revocados, pausados y terminados incluidos: la MISMA definición que la
+      serie `enrolled` del acumulado de Ritmo, `Snapshot.enrolled_by_program`),
+      liberated, pct_liberated (liberated / enrolled × 100, float|None),
       pct_text, stuck (lentos + atorados), crit, officers: [nombres]}`.
     - `stage_legend`: los 5 grupos `[{code, label, color}]` (mismo mapeo que
       «Dónde están hoy»).
     """
-    por_carrera = _officer_names_by_program(roff.officers(db))
-    grupos: dict[int | None, list[Item]] = {}
+    por_carrera = _officer_names_by_program(d, d.officer_list(db))
+    grupos: dict[int | None, list[Item]] = {pid: [] for pid in d.snapshot.enrolled_by_program}
     for it in d.items:
         grupos.setdefault(it.program_id, []).append(it)
     rows = []
@@ -1083,7 +1149,7 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
             s.update({"label": _STAGE_LABEL[s["key"]], "group": _STAGE_GROUP[s["key"]],
                       "color": _GROUP_COLOR[_STAGE_GROUP[s["key"]]],
                       "tip": f"{_STAGE_LABEL[s['key']]}: {s['value']}"})
-        inscritos = sum(1 for it in items if it.kind == "process")
+        inscritos = d.snapshot.enrolled_by_program.get(pid, 0)
         liberados = conteo[_LIBERADO]
         pct = liberados / inscritos * 100 if inscritos else None
         rows.append({
@@ -1131,12 +1197,13 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
       `{code (None = «Todas»/«Todos»), label, active, n, url, body_url}` con `n`
       = cuántos quedarían con ese chip y los otros dos filtros vigentes
       (página 1). Pelota y etapa traen color (`color`).
-    - `officers_by_program`: `{program_id: [nombres]}`.
+    - `officers_by_program`: `{program_id: [nombres]}`, solo carreras del
+      alcance del usuario.
     - `total`: `page.total`; `pager_url`/`pager_page_url`: liga del parcial y
       de la página SIN `page` (el macro `pager` agrega `page` por `hx-vals`).
     """
     f = d.filters
-    por_carrera = _officer_names_by_program(roff.officers(db))
+    por_carrera = _officer_names_by_program(d, d.officer_list(db))
     filtrados = [it for it in d.items if _matches(it, ball=f.ball, level=f.level, stage=f.stage)]
     filtrados.sort(key=lambda it: (-it.idle_days, it.kind != "request", it.id))
     page = paginate_list(filtrados, f.page)

@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from sqlalchemy import false, or_
+
 
 def scope_predicates(column, programs, include_unmapped: bool) -> list:
     """Predicados de carrera sobre `column` (un `program_id`).
@@ -25,8 +27,6 @@ def scope_predicates(column, programs, include_unmapped: bool) -> list:
     - un set con `include_unmapped` -> `column IN (...) OR column IS NULL`
       (set vacío -> solo `column IS NULL`).
     """
-    from sqlalchemy import false, or_
-
     if programs == "ALL":
         return [] if include_unmapped else [column.isnot(None)]
     ids = sorted({int(p) for p in programs})

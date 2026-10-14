@@ -47,6 +47,11 @@ Decisiones del controlador (ronda 0):
   el egresado ya no puede activarla solo. Vencida = sin vigencia o con
   `verify_expires_at` de un día anterior a hoy (el servicio compara contra el
   instante, `verify()`; aquí solo se conoce «hoy»).
+
+Ruling de la ronda 1 de la Task 6: una cita vigente `in_progress` de hoy (o
+posterior; «Atender ahora» la crea así) es de Escolares con el motivo «En
+atención», no «Cerrar cita»: «Cerrar cita» es SOLO para una cita viva con fecha
+anterior a hoy (§4.3). Su nivel sigue a los días sin movimiento, como siempre.
 """
 from __future__ import annotations
 
@@ -106,7 +111,8 @@ MOTIVE_REGISTER_CLEARANCE = "Registrar no adeudo"
 MOTIVE_PAY = "Pagar en Caja"
 MOTIVE_LIBRARY_OBSERVED = "Atender observación de Biblioteca"
 MOTIVE_BOOK = "Agendar cita"
-MOTIVE_CLOSE_APPT = "Cerrar cita"
+MOTIVE_CLOSE_APPT = "Cerrar cita"            # cita viva de un día ANTERIOR a hoy
+MOTIVE_IN_ATTENTION = "En atención"          # cotejo `in_progress` de hoy («Atender ahora»)
 MOTIVE_REVIEW_PHASE2 = "Dictaminar fase 2"
 MOTIVE_RESCHEDULE = "Reagendar"
 MOTIVE_FIX_PHASE2 = "Corregir lo señalado"
@@ -277,9 +283,14 @@ class ProcessRow:
 class Snapshot:
     """`items`: pendientes y liberados ya clasificados (solicitudes primero,
     luego procesos, cada grupo por id). `on_hold`: procesos «En pausa» sin
-    liberar (no entran a etapas). `program_names`: carreras de `items`."""
+    liberar (no entran a etapas). `enrolled_by_program`: «Inscritos» por carrera
+    (`None` = sin carrera) = procesos creados NO revocados (activos, en pausa,
+    terminados y liberados), la misma definición que
+    `report_flow.daily_counts["enrolled"]`. `program_names`: carreras de `items`
+    y de `enrolled_by_program`."""
     items: list[Item] = field(default_factory=list)
     on_hold: int = 0
+    enrolled_by_program: dict[int | None, int] = field(default_factory=dict)
     program_names: dict[int, str] = field(default_factory=dict)
 
 
@@ -381,8 +392,9 @@ def classify_process(row: ProcessRow, today: date, cfg: ReportConfig) -> Item:
     menor que 2 (la 0 incluida) = `docs`. De la 2 en adelante sin la fase 2
     aprobada (no debería existir: solo aprobarla avanza) se lee como fase 2.
 
-    Fase 2 sin veredicto, en este orden: una cita VIVA manda (futura = en
-    agenda, sin pelota ni atorado; pasada o en curso = Escolares la cierra);
+    Fase 2 sin veredicto, en este orden: una cita VIVA manda (agendada de hoy
+    en adelante = en agenda, sin pelota ni atorado; `in_progress` de hoy =
+    Escolares «En atención»; de un día anterior = Escolares «Cerrar cita»);
     si no, la fase 2 rechazada es del alumno; sin cita, los requisitos
     abiertos (o «Agendar cita» si no queda ninguno); `attended` sin dictamen
     es de Escolares y `no_show` del alumno. Las liberaciones abiertas se SUMAN
@@ -419,10 +431,12 @@ def classify_process(row: ProcessRow, today: date, cfg: ReportConfig) -> Item:
                  for code in row.blockers]
     in_agenda = False
     if row.appt_status in _APPT_LIVE:
-        if (row.appt_status in _APPT_BOOKED and appt_date is not None
-                and appt_date >= today):
+        de_hoy_o_despues = appt_date is not None and appt_date >= today
+        if row.appt_status in _APPT_BOOKED and de_hoy_o_despues:
             in_agenda, pairs = True, []
-        else:
+        elif de_hoy_o_despues:                          # `in_progress` de hoy
+            pairs = [(_ESCOLARES, MOTIVE_IN_ATTENTION)]
+        else:                                           # viva y de un día anterior
             pairs = [(_ESCOLARES, MOTIVE_CLOSE_APPT)]
     elif row.phase2_status == "rejected":
         pairs = [(_ALUMNO, MOTIVE_FIX_PHASE2), *open_reqs]
@@ -482,6 +496,7 @@ def load_snapshot(db: Session, *, cohort_ids: list[int] | None, programs: set[in
     convocatorias, o ningún alcance sin `include_unmapped`, no consulta nada.
     `on_hold` sin liberar va a `Snapshot.on_hold`; liberado, a `items` aunque
     esté en pausa o terminado (la liberación ocurrió). `cancelled` queda fuera.
+    Todo proceso leído (no revocado) cuenta en `enrolled_by_program`.
     """
     from sqlalchemy import and_, func, select
 
@@ -577,6 +592,11 @@ def load_snapshot(db: Session, *, cohort_ids: list[int] | None, programs: set[in
             phase2_status=r.phase2_status, phase2_completed_at=r.phase2_completed_at,
             phase2_reviewed_by_id=r.phase2_reviewed_by_id, appt_status=r.appt_status,
             appt_scheduled_at=r.appt_scheduled_at, appt_owner_id=r.appt_owner_id)
+        # Todo lo que se lee aquí es no revocado (`_PROCESS_STATUSES`): inscrito.
+        snap.enrolled_by_program[row.program_id] = snap.enrolled_by_program.get(
+            row.program_id, 0) + 1
+        if row.program_id is not None and r.program_name:
+            snap.program_names[row.program_id] = r.program_name
         if not _is_liberated(row):
             if row.process_status == "on_hold":
                 snap.on_hold += 1

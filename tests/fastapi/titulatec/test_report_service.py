@@ -70,6 +70,22 @@ def test_parse_digitos_no_ascii_no_truenan():
     assert f.hidden_programs == frozenset({3}) and f.hidden_officers == frozenset()
 
 
+@pytest.mark.parametrize("campo", ["cohort", "range", "px", "ox", "page"])
+@pytest.mark.parametrize("largo", [19, 4301, 5000])
+def test_parse_con_basura_numeros_enormes_no_truenan(campo, largo):
+    """`int()` de más de 4300 dígitos levanta `ValueError` (límite de CPython):
+    sin tope, `cohort=999…9` era un 500. Con más de 18 dígitos es basura."""
+    f = ReportFilters.parse({campo: "9" * largo})
+    assert f == ReportFilters()
+
+
+def test_parse_acepta_hasta_18_digitos():
+    f = ReportFilters.parse({"cohort": "9" * 18, "px": f"{'9' * 18},3", "ox": "1" * 18})
+    assert f.cohort == int("9" * 18)
+    assert f.hidden_programs == frozenset({int("9" * 18), 3})
+    assert f.hidden_officers == frozenset({int("1" * 18)})
+
+
 @pytest.mark.parametrize("raw", [None, 5, ["x"], object()])
 def test_parse_tolera_mapeos_raros(raw):
     assert ReportFilters.parse(raw if raw is None else {"tab": raw}).tab == "panorama"
@@ -210,6 +226,13 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
                                slot=30, cap=1)
     w_pas = make_review_window(make_review_day(c, day=hoy - timedelta(days=1)), ana,
                                start="09:00", end="10:00", slot=30, cap=1)
+    ventanas_de_hoy = []                    # se crea al primer uso: no mueve la capacidad de Ana
+
+    def w_hoy():
+        if not ventanas_de_hoy:
+            ventanas_de_hoy.append(make_review_window(make_review_day(c, day=hoy), ana,
+                                                      start="09:00", end="10:00", slot=30, cap=1))
+        return ventanas_de_hoy[0]
 
     def a_las(d, h=10):
         return datetime.combine(d, time(h, 0))
@@ -244,15 +267,22 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
             biblioteca, encuesta = {"doble": ("awaiting_payment", "in_review"),
                                     "listo": ("cleared", "approved"),
                                     "futura": ("cleared", "approved"),
-                                    "pasada": ("cleared", "approved")}[clase]
+                                    "pasada": ("cleared", "approved"),
+                                    "en_curso_hoy": ("cleared", "approved"),
+                                    "en_curso_ayer": ("cleared", "approved")}[clase]
             p = make_process(alumno, cohort=c, program=program, status=status,
                              current_phase=2, library_clearance=biblioteca)
             make_survey_review(p, status=encuesta)
-            if clase in ("futura", "pasada"):
-                w, dia = (w_fut, sig) if clase == "futura" else (w_pas, hoy - timedelta(days=1))
+            cita = {"futura": (w_fut, sig, "confirmed"),
+                    "pasada": (w_pas, hoy - timedelta(days=1), "confirmed"),
+                    "en_curso_hoy": (None, hoy, "in_progress"),        # «Atender ahora»
+                    "en_curso_ayer": (w_pas, hoy - timedelta(days=1), "in_progress")}.get(clase)
+            if cita is not None:
+                w, dia, estado = cita
+                w = w or w_hoy()
                 db_session.add(ReviewAppointment(
                     process_id=p.id, window_id=w.id, scheduled_at=a_las(dia, 9),
-                    status="confirmed", created_by_id=alumno.id))
+                    status=estado, created_by_id=alumno.id))
         p.created_at = hace(creado_hace)
         db_session.flush()
         return p
@@ -276,7 +306,7 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
         db=db_session, hoy=hoy, b0=b0, b1=b1, sig=sig, pa=pa, pb=pb, c=c,
         ana=ana, beto=beto, jefa=jefa, w_fut=w_fut, w_pas=w_pas,
         solicitud=solicitud, proceso=proceso, liberar=liberar, evento=evento,
-        hace=hace, make_cohort=make_cohort)
+        hace=hace, make_cohort=make_cohort, make_program=make_program)
     return t
 
 
@@ -535,12 +565,42 @@ def test_alerta_citas_pasadas_por_motivo_no_por_nivel(esc, capacidad_amplia):
     assert _alertas(t) == ["appts_unclosed"]
 
 
-def test_maximo_cinco_alertas(lleno, monkeypatch):
+def test_cita_en_atencion_hoy_no_es_cita_sin_cerrar(esc, capacidad_amplia):
+    """«Atender ahora»: la cita `in_progress` de HOY es «En atención» (Escolares),
+    no «Cerrar cita», y no alerta. La `in_progress` de AYER sí quedó sin cerrar."""
+    t = esc
+    hoy = t.proceso("en_curso_hoy", t.pa)
+    p = _build(t)["panorama"]
+    assert p["alerts"] == []
+    fila = next(r for r in _build(t, "atorados", level="all")["atorados"]["page"].items
+                if r["id"] == hoy.id)
+    assert fila["motive_text"] == "Escolares: En atención"
+    ayer = t.proceso("en_curso_ayer", t.pa)
+    assert _alertas(t) == ["appts_unclosed"]
+    fila = next(r for r in _build(t, "atorados", level="all")["atorados"]["page"].items
+                if r["id"] == ayer.id)
+    assert fila["motive_text"] == "Escolares: Cerrar cita"
+    assert "1 cita pasada" in _build(t)["panorama"]["alerts"][0]["text"]
+
+
+def test_la_regla_de_solicitudes_es_una_sola_alerta_y_caben_las_cinco(lleno, monkeypatch):
+    """Con solicitudes viejas en las dos etapas (legado incluido) la regla 1 sale
+    UNA vez con el conteo sumado y la regla 5 no se cae del tope de 5."""
     t = lleno
     monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 0)})
-    t.solicitud("unverified", t.pa, creada=t.hace(20))                # 6.ª regla posible
+    t.solicitud("unverified", t.pa, creada=t.hace(20))
     alertas = _build(t)["panorama"]["alerts"]
-    assert len(alertas) == 5
+    assert [a["code"] for a in alertas] == ["requests_crit", "docs_warn", "capacity",
+                                            "inflow", "appts_unclosed"]
+    assert alertas[0]["text"].startswith("2 solicitudes por revisar")
+    assert alertas[0]["url"].endswith("&level=crit&stage=req_review")
+    # Solo legado: la liga apunta a su etapa.
+    t2 = lleno
+    t2.r_a_vieja.status = "rejected"
+    t2.db.flush()
+    solo = _build(t2)["panorama"]["alerts"][0]
+    assert solo["code"] == "requests_crit" and solo["text"].startswith("1 solicitud por revisar")
+    assert solo["url"].endswith("&level=crit&stage=req_unverified")
 
 
 # ---------------------------------------------------------------------------
@@ -644,8 +704,9 @@ def test_carreras_filas_ordenadas_por_atorados(lleno):
         "req_review": 1, "req_access": 1, "docs": 1, "requisitos": 1, "cita": 2, "liberado": 1}
     assert sum(s["w_pct"] for s in a["segments"]) == pytest.approx(100)
     assert sorted(a["officers"]) == sorted([t.ana.full_name, t.beto.full_name])
-    assert (b["enrolled"], b["liberated"], b["stuck"]) == (3, 1, 0)
-    assert b["pct_liberated"] == pytest.approx(100 / 3)
+    # «Inscritos» = procesos creados no revocados, pausados incluidos (B tiene uno).
+    assert (b["enrolled"], b["liberated"], b["stuck"]) == (4, 1, 0)
+    assert b["pct_liberated"] == pytest.approx(25.0)
     assert b["officers"] == [t.ana.full_name]
     assert (sin["name"], sin["enrolled"], sin["liberated"], sin["officers"]) == (
         "Sin carrera", 1, 0, [])
@@ -728,3 +789,69 @@ def test_ritmo_sin_ritmo_medible(esc, capacidad_amplia):
     t.proceso("docs_pend", t.pa)
     k = _build(t)["panorama"]["kpis"]["pace"]
     assert k["forecast"] is None and k["forecast_text"] == "sin ritmo medible"
+
+
+def test_inscritos_es_lo_mismo_en_carreras_y_en_ritmo(lleno):
+    """Una sola definición: procesos creados no revocados (con pausados)."""
+    t = lleno
+    carreras = _build(t, "carreras")["carreras"]["rows"]
+    ritmo = _build(t, "ritmo")["ritmo"]
+    acumulado = next(s for s in ritmo["cumulative"]["series"] if s["key"] == "enrolled")
+    assert sum(r["enrolled"] for r in carreras) == acumulado["last"] == 10
+    # Una carrera con solo un proceso en pausa también es fila (inscritos 1).
+    pc = t.make_program("Ingenieria Fachada Tablero Solo Pausa")
+    t.proceso("docs_pend", pc, status="on_hold")
+    filas = {r["id"]: r for r in _build(t, "carreras")["carreras"]["rows"]}
+    assert (filas[pc.id]["enrolled"], filas[pc.id]["total"], filas[pc.id]["name"]) == (
+        1, 0, pc.name)
+
+
+# ---------------------------------------------------------------------------
+# Normalización de `px`/`ox` y alcance acotado
+# ---------------------------------------------------------------------------
+def test_px_y_ox_inexistentes_no_viajan_en_las_ligas(lleno):
+    t = lleno
+    ctx = _build(t, hidden_programs=frozenset({987654321, t.pb.id}),
+                 hidden_officers=frozenset({987654322, t.ana.id}))
+    assert ctx["filters"].hidden_programs == frozenset({t.pb.id})
+    assert ctx["filters"].hidden_officers == frozenset({t.ana.id})
+    assert all("987654321" not in x["url"] and "987654322" not in x["url"]
+               for x in ctx["tabs"])
+    assert {c["id"] for c in ctx["program_chips"] if c["hidden"]} == {t.pb.id}
+
+
+@pytest.fixture()
+def acotado(lleno, make_officer):
+    """Usuario con el permiso del tablero pero SIN `read.all`: alcance = {A}."""
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS
+
+    user, _pos = make_officer([lleno.pa], perm_codes=OFFICER_PERMS + (PERM,))
+    return user
+
+
+def _build_como(t, user, tab="panorama", **kw):
+    f = ReportFilters(tab=tab, cohort=kw.pop("cohort", t.c.id), **kw)
+    return ReportService.build(t.db, user_id=user.id, filters=f, today=t.hoy)
+
+
+@pytest.mark.parametrize("tab", ["panorama", "ritmo", "encargados", "carreras", "atorados"])
+def test_usuario_acotado_no_ve_ni_nombra_carreras_fuera_de_su_alcance(lleno, acotado, tab,
+                                                                       capacidad_amplia):
+    t = lleno
+    ctx = _build_como(t, acotado, tab, hidden_programs=frozenset({t.pb.id, 0}))
+    # `px` fuera del alcance (B) y «Sin carrera» (no puede verla) se descartan.
+    assert ctx["filters"].hidden_programs == frozenset()
+    assert {c["id"] for c in ctx["program_chips"]} == {t.pa.id}
+    assert t.pb.name not in repr(ctx)
+    assert all("px=" not in x["url"] for x in ctx["tabs"])
+    if tab == "panorama":
+        etapas = {s["code"]: s["value"] for s in ctx["panorama"]["stages"]}
+        assert etapas["liberado"] == 1 and etapas["docs"] == 1       # solo los de A
+    if tab == "encargados":
+        filas = {r["user_id"]: r for r in ctx["encargados"]["rows"]}
+        ana = filas[t.ana.id]
+        assert [p["id"] for p in ana["programs"]] == [t.pa.id]
+        assert ana["programs_out_of_scope"] == 1
+        assert ana["no_programs"] is False
+        # La producción sigue siendo global, por actor (spec §4.7).
+        assert ana["prod"]["docs_approved"] == 3
