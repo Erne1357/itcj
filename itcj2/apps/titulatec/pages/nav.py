@@ -98,12 +98,30 @@ _ROLE_DASHBOARD = [
 ]
 
 
-def resolve_dashboard_url(roles: set[str], jwt_role: str | None = None) -> str:
-    """Devuelve la URL de dashboard según los roles del usuario en la app."""
+# El Tablero exige este permiso; el aterrizaje de la jefa depende de tenerlo.
+_REPORTS_URL = "/titulatec/admin/tablero"
+_REPORTS_PERM = "titulatec.reports.page.view"
+
+
+def resolve_dashboard_url(
+    roles: set[str],
+    jwt_role: str | None = None,
+    perms: set[str] | None = None,
+) -> str:
+    """Devuelve la URL de dashboard según los roles del usuario en la app.
+
+    `perms` (opcional) son los permisos efectivos del usuario en la app. Con él,
+    el aterrizaje al Tablero exige además `titulatec.reports.page.view`: entre el
+    deploy y `titulatec init-reportes` la jefa cae en la Bandeja en vez de un 403.
+    Con `perms=None` solo cuentan los roles (comportamiento anterior).
+    """
     if jwt_role == "admin":
         return "/titulatec/admin/"
     for role_name, url in _ROLE_DASHBOARD:
         if role_name in roles:
+            if url == _REPORTS_URL and perms is not None and _REPORTS_PERM not in perms:
+                # Sin el permiso: como el resto de Escolares, a la Bandeja.
+                return "/titulatec/admin/"
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"

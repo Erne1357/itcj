@@ -291,24 +291,22 @@ con etiqueta directa + tabla gemela porque 3 quedan bajo 3:1): Escolares `#2a78d
 
 ## Despliegue (orden obligatorio)
 
-**Sin migración.** Solo un permiso, por DML en subcarpeta propia (gitignored, viaja a mano). El 26 concede el
+**Sin migración.** Solo un permiso, por DML en subcarpeta propia (gitignored, viaja a mano) que se carga con su comando CLI. El 26 concede el
 permiso a `titulatec_school_services_head` **y a `admin`** de forma explícita: `init-reportes` corre SOLO el 26 y
 **nunca re-corre el 15** (reparte todo titulatec a `admin`, y por D2 la jefatura de Centro de Cómputo trae `admin`).
 
-1. Copiar `database/DML/titulatec/reportes_2026_10/` al servidor.
-2. **ANTES de fusionar el PR:**
-   `python -m itcj2.cli.main core execute-sql database/DML/titulatec/reportes_2026_10/26_insert_reports_perm.sql --no-invalidate-authz`
-   (sin la bandera, `execute-sql` llama a `invalidate_all`; con ella se invalida solo titulatec en el paso 4).
-   El código viejo ignora un permiso que no conoce.
-3. Fusionar el PR → deploy.
-4. Después del deploy: `python -m itcj2.cli.main titulatec init-reportes` (`--dry-run` lista solo el 26). Es
-   idempotente y sirve como verificación: invalida el caché de authz **solo de titulatec** y comprueba en BD
-   (`_verify_reportes`, los dos roles); sale con exit ≠ 0 si algo no aterrizó.
-5. Sin reinicio de celery: el tablero no toca tareas.
+1. Copiar `database/DML/titulatec/reportes_2026_10/` al servidor (gitignored, a mano).
+2. Fusionar el PR → deploy. **No hay paso previo con `core execute-sql`**: el aterrizaje es tolerante (ver abajo).
+3. Después del deploy: `python -m itcj2.cli.main titulatec init-reportes` (`--dry-run` lista solo el 26). Es
+   idempotente: carga el 26 (permiso a la jefa y a `admin`), invalida el caché de authz **solo de titulatec** y
+   comprueba en BD (`_verify_reportes`, los dos roles); sale con exit ≠ 0 si algo no aterrizó.
+4. Sin reinicio de celery: el tablero no toca tareas.
 
-**Por qué ese orden:** si el código sale sin el permiso, `/titulatec/` redirige a la jefa a `/tablero` → 403, y la
-página de error la saca al panel core (titulatec no está en `_APP_BY_PREFIX`, `itcj2/main.py:363`): pierde la
-entrada a TitulaTec.
+**Aterrizaje tolerante.** `/titulatec/` manda a la jefa al Tablero SOLO si sus permisos efectivos
+(`cached_perms`, la misma fuente que el gate) incluyen `titulatec.reports.page.view`
+(`nav.resolve_dashboard_url(roles, jwt_role, perms)`; `landing.py` se los pasa). Hasta que corra
+`init-reportes` la jefa aterriza en la Bandeja (`/titulatec/admin/`) en vez de recibir un 403; no hay ventana
+de riesgo entre deploy y comando. `admin` (JWT) y los demás roles no cambian.
 
 **Reversa:** `rollback.sh` basta (no hay esquema nuevo). El permiso queda declarado sin uso en el código viejo;
 la jefa vuelve a aterrizar en la Bandeja por el `_ROLE_DASHBOARD` viejo.

@@ -18,6 +18,20 @@ def landing(
     user: dict = Depends(require_page_app("titulatec")),
 ):
     """Redirige al dashboard correspondiente al rol del usuario en la app."""
-    roles = get_titulatec_roles(int(user["sub"]))
-    url = resolve_dashboard_url(roles, jwt_role=user.get("role"))
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+
+    uid = int(user["sub"])
+    roles = get_titulatec_roles(uid)
+    # Mismos permisos que el gate (`cached_perms`): el tablero solo si los tiene.
+    # Si falla la lectura, set vacío = Bandeja (nunca un 403 por aterrizar mal).
+    db = SessionLocal()
+    try:
+        perms = set(cached_perms(db, uid, "titulatec"))
+    except Exception as exc:
+        logger.warning("Error obteniendo permisos titulatec para el landing (user %s): %s", uid, exc)
+        perms = set()
+    finally:
+        db.close()
+    url = resolve_dashboard_url(roles, jwt_role=user.get("role"), perms=perms)
     return RedirectResponse(url, status_code=302)
