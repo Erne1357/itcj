@@ -229,14 +229,15 @@ href="{{ url }}" hx-get="{{ url }}" hx-target="#tt-admin-content" hx-select="#tt
    la jefa la abrió; en impresión solo sale si está abierta. Las filas las pone
    `caller()` (`<tr>…</tr>`). — #}
 {#   `text_cols`: cuántas columnas de la izquierda son texto (alineadas a la
-   izquierda); las demás son números (a la derecha). — #}
-{% macro table_twin(id, caption, headers, text_cols=1) -%}
+   izquierda); las demás son números (a la derecha). `num_cols` (índices)
+   manda sobre `text_cols` cuando hay texto a la derecha de los números. — #}
+{% macro table_twin(id, caption, headers, text_cols=1, num_cols=None) -%}
 <details class="tt-rep-table" id="{{ id }}" data-tt-keep>
   <summary><i class="bi bi-table" aria-hidden="true"></i> Ver tabla</summary>
   <div class="tt-table-wrap">
     <table class="table table-sm tt-rep-ttable">
       <caption class="visually-hidden">{{ caption }}</caption>
-      <thead><tr>{% for h in headers %}<th scope="col"{% if loop.index0 >= text_cols %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
+      <thead><tr>{% for h in headers %}{% set es_num = (loop.index0 in num_cols) if num_cols is not none else (loop.index0 >= text_cols) %}<th scope="col"{% if es_num %} class="num"{% endif %}>{{ h }}</th>{% endfor %}</tr></thead>
       <tbody>{{ caller() }}</tbody>
     </table>
   </div>
@@ -303,26 +304,38 @@ href="{{ url }}" hx-get="{{ url }}" hx-target="#tt-admin-content" hx-select="#tt
 {# — Mapa de calor (Ronda 2, R3): filas = personas, columnas = días hábiles
    del rango; cubeta 0 = `--tt-line-soft`, 1-5 la rampa secuencial del
    calendario. El número va en el tooltip y en el nombre accesible de cada
-   celda (más el total de la fila, etiqueta directa selectiva); la tabla
-   gemela trae todos. Columnas flexibles: caben en la tarjeta; con `hm.wide`
-   (más de 22) la tabla hace scroll propio y solo se rotulan la primera y los
-   lunes (cada columna conserva su fecha para lector de pantalla). Ids:
-   `<id>-wrap`, `<id>-table`, `<id>-scale`; filas `<row_prefix>-<user_id>`
-   («Otros»: `<row_prefix>-others`). — #}
+   celda (más el total de la fila, etiqueta directa selectiva, que es de días
+   HÁBILES); la tabla gemela trae todos.
+   Ancho (Ronda 1 de arreglos, I2): en pantalla cada columna tiene un mínimo
+   legible (la celda pide 20 px y el rótulo apilado el suyo, `table-layout:
+   auto`), así nunca se enciman; si no caben, la envoltura —SIEMPRE región
+   enfocable con nombre— hace scroll propio con el nombre fijo a la izquierda y
+   el total a la derecha. Con `hm.wide` (más de 22) solo se rotulan la primera
+   y los lunes. Rótulo = día de la semana / día / mes; el mes va en toda
+   columna rotulada con `wide`, y si no en la primera y donde cambia el mes.
+   `is-crowded`: la primera columna con `wide` cuando el lunes va justo al lado
+   (al imprimir, sin scroll, sus rótulos chocarían: se oculta el primero). Cada
+   columna conserva su fecha en `visually-hidden`. Ids: `<id>-wrap`,
+   `<id>-table`, `<id>-scale`; filas `<row_prefix>-<user_id>` («Otros»:
+   `<row_prefix>-others`). — #}
 {% macro heatmap(id, hm, label, row_prefix, scale_label=None) -%}
 <div class="tt-table-wrap tt-rep-heat-wrap{{ ' is-wide' if hm.wide else '' }}" id="{{ id }}-wrap"
-     {%- if hm.wide %} tabindex="0" role="region" aria-label="{{ label }} (se desplaza a los lados)"{% endif %}>
+     tabindex="0" role="region" aria-label="{{ label }} (se desplaza a los lados si no cabe)">
 <table class="tt-rep-heat{{ ' is-wide' if hm.wide else '' }}" id="{{ id }}-table" aria-label="{{ label }}">
   <thead>
     <tr>
       <th scope="col" class="tt-rep-heat-name"><span class="visually-hidden">Nombre</span></th>
       {%- for d in hm.days %}
-      <th scope="col" class="tt-rep-heat-day{{ ' is-wk' if d.week_start else '' }}{{ ' is-today' if d.is_today else '' }}">
-        {%- if d.show_label %}{% set partes = d.label.split(" ") %}<span class="tt-rep-heat-dow" aria-hidden="true">{{ partes[0] }}</span><span class="tt-rep-heat-dom" aria-hidden="true">{{ partes[-1] }}</span>{% endif -%}
+      {%- set previo = hm.days[loop.index0 - 1] if not loop.first else none %}
+      {%- set con_mes = hm.wide or loop.first or (previo is not none and previo.date.month != d.date.month) %}
+      {%- set apretada = loop.first and hm.wide and hm.days|length > 1 and hm.days[1].week_start %}
+      <th scope="col" class="tt-rep-heat-day{{ ' is-first' if loop.first else '' }}{{ ' is-wk' if d.week_start else '' }}{{ ' is-today' if d.is_today else '' }}{{ ' is-crowded' if apretada else '' }}">
+        {%- if d.show_label %}{% set partes = d.label.split(" ") %}{% set largo = d.label_long.split(" ") %}<span class="tt-rep-heat-dow" aria-hidden="true">{{ partes[0] }}</span><span class="tt-rep-heat-dom" aria-hidden="true">{{ partes[-1] }}</span>
+        {%- if con_mes and largo|length > 2 %}<span class="tt-rep-heat-mon" aria-hidden="true">{{ largo[2:]|join(" ") }}</span>{% endif %}{% endif -%}
         <span class="visually-hidden">{{ d.label_long }}</span>
       </th>
       {%- endfor %}
-      <th scope="col" class="num tt-rep-heat-total">Total</th>
+      <th scope="col" class="num tt-rep-heat-total">Total <span class="tt-rep-heat-total-k">días hábiles</span></th>
     </tr>
   </thead>
   <tbody>

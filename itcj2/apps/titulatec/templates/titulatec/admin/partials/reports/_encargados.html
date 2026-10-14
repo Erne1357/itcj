@@ -30,7 +30,8 @@
   <header class="tt-rep-card-head">
     <h2 class="tt-rep-card-title" id="tt-rep-officers-title">Encargados de carrera</h2>
     <p class="tt-rep-card-sub">
-      Cada encargado carga la cola completa de sus carreras: si dos comparten una, ven lo mismo. Toca un nombre para ocultarlo o volver a mostrarlo; los pendientes globales y la escala de las barras no cambian.
+      Cada encargado carga la cola completa de sus carreras: si dos comparten una, ven lo mismo.
+      <span class="tt-rep-noprint">Toca un nombre para ocultarlo o volver a mostrarlo; los pendientes globales y la escala de las barras no cambian.</span>
     </p>
   </header>
   {% if e.officer_chips %}
@@ -251,14 +252,14 @@
 {% if e.heatmap.rows %}
 {%- set hm = e.heatmap %}
 {% call chart_card("tt-rep-off-heat", "Dictámenes y revisiones por día",
-                   "Documentos dictaminados más solicitudes revisadas por día hábil de " ~ rango ~ ". Más oscuro = más trabajo; todos con la misma escala (máximo " ~ hm.vmax ~ " en un día). El número exacto sale al pasar el puntero y en «Ver tabla».",
+                   "Documentos dictaminados más solicitudes revisadas por día hábil de " ~ rango ~ ". Más oscuro = más trabajo; todos con la misma escala (máximo " ~ hm.vmax ~ " en un día). El número exacto sale al pasar el puntero y en «Ver tabla». El total suma solo días hábiles; la producción de las tarjetas cuenta también los fines de semana.",
                    cls="tt-rep-heat-card") %}
   {% if hm.n_days %}
   {{ heatmap("tt-rep-off-heat", hm, "Dictámenes y revisiones por día y persona", "tt-rep-off-heat", scale_label="Por día") }}
   {% else %}
   <p class="tt-rep-empty"><i class="bi bi-calendar-x" aria-hidden="true"></i>El rango no tiene días hábiles todavía.</p>
   {% endif %}
-  {% call table_twin("tt-rep-off-heat-twin", "Dictámenes y revisiones por día y persona", ["Nombre"] + (hm.days|map(attribute="label")|list) + ["Total"]) %}
+  {% call table_twin("tt-rep-off-heat-twin", "Dictámenes y revisiones por día y persona", ["Nombre"] + (hm.days|map(attribute="label_long")|list) + ["Total (días hábiles)"]) %}
     {%- for r in hm.rows %}
     <tr><td>{{ r.name }}</td>{% for c in r.cells %} <td class="num">{{ c.n }}</td>{% endfor %} <td class="num">{{ r.total }}</td></tr>
     {%- endfor %}

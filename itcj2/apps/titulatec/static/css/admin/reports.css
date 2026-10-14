@@ -241,7 +241,7 @@ a.tt-rep-kpi:focus-visible { outline: 2px solid var(--tt-focus); outline-offset:
   display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
   font-size: var(--tt-fs-200); color: var(--tt-text-2);
 }
-.tt-rep-ok .bi { color: #166534; }
+.tt-rep-ok .bi { color: var(--tt-success); }
 
 /* === BARRAS HORIZONTALES ===================================================
    Columna de etiquetas compartida por todas las filas (subgrid): las barras
@@ -702,6 +702,7 @@ a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-o
 /* «Dónde están hoy» a lo ancho: las barras no se estiran de más. */
 .tt-rep-stages .tt-rep-hbars { max-width: 60rem; }
 .tt-rep-ttable .tt-rep-trow-area > * { border-top: 1px solid var(--tt-line); font-weight: 600; color: var(--tt-text-1); }
+.tt-rep-ttable tbody tr:not(.tt-rep-trow-area) > th { font-weight: 400; color: var(--tt-text-1); }
 
 /* --- Encargados: tarjetas ----------------------------------------------------
    2 por fila (1 en móvil), mismas alturas por fila; cifras al pie. */
@@ -726,7 +727,7 @@ a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-o
 .tt-rep-oproj-main > .bi { flex: none; margin-top: 1px; color: var(--tt-text-3); }
 .tt-rep-oproj-text { flex: 1; min-width: 0; }
 .tt-rep-oproj-text .tt-rep-status { margin-top: 2px; vertical-align: 1px; }
-.tt-rep-oproj--clear .tt-rep-oproj-main > .bi { color: #166534; }
+.tt-rep-oproj--clear .tt-rep-oproj-main > .bi { color: var(--tt-success); }
 .tt-rep-oproj-sub { margin: 2px 0 0 22px; font-size: var(--tt-fs-100); line-height: 1.4; color: var(--tt-text-3); }
 .tt-rep-olabel { margin: 0 0 2px; font-family: var(--tt-ui); font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
 .tt-rep-ofigs {
@@ -765,42 +766,47 @@ a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-o
 /* --- Mapa de calor ------------------------------------------------------------
    Tabla semántica: fila = persona, columna = día hábil. Cubetas con las
    clases del calendario (`tt-rep-bin-*`): 0 = --tt-line-soft, 1-5 la rampa.
-   Columnas flexibles que caben en la tarjeta; con `is-wide` la tabla toma su
-   ancho natural y la envoltura hace scroll (nombre a la izquierda y total a la
-   derecha quedan fijos). */
+   Columnas flexibles con MÍNIMO legible (Ronda 1 de arreglos, I2): la celda
+   pide 20 px y el rótulo apilado su propio ancho (`table-layout: auto`), así
+   que nunca se enciman ni bajan de ahí; si no caben (celular, 30 días en una
+   tablet, «toda la convocatoria»), la envoltura hace scroll propio con el
+   nombre fijo a la izquierda y el total a la derecha. */
 /* `position: relative`: los `visually-hidden` de cada columna (absolutos) se
    anclan a la envoltura; sin esto escapan del scroll y ensanchan la PÁGINA con
    `is-wide` (medido: scrollWidth 2110 a 1280 con 66 columnas). */
 .tt-rep-heat-wrap { position: relative; margin-top: var(--tt-sp-1); }
-.tt-rep-heat-wrap.is-wide:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
-.tt-rep-heat { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 2px; }
+.tt-rep-heat-wrap:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-rep-heat { width: 100%; table-layout: auto; border-collapse: separate; border-spacing: 2px; }
 .tt-table-wrap > table.tt-rep-heat { white-space: normal; }
 .tt-rep-heat th { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3); }
 .tt-rep-heat thead th { padding: 0 0 4px; text-align: center; vertical-align: bottom; line-height: 1.15; }
 .tt-rep-heat .tt-rep-heat-name {
-  width: 13rem; padding: 0 var(--tt-sp-2) 0 0; text-align: left; vertical-align: middle;
+  position: sticky; left: 0; z-index: 1; width: 13rem; min-width: 9rem;
+  padding: 0 var(--tt-sp-2) 0 0; background: var(--tt-paper); text-align: left; vertical-align: middle;
   font-size: var(--tt-fs-100); font-weight: 600; line-height: 1.25; color: var(--tt-text-1);
 }
 .tt-rep-heat .tt-rep-heat-total {
   width: 3.5rem; padding: 0 0 0 var(--tt-sp-2); text-align: right; vertical-align: middle;
   font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); font-variant-numeric: tabular-nums;
 }
-.tt-rep-heat thead .tt-rep-heat-total { font-size: var(--tt-fs-100); color: var(--tt-text-3); vertical-align: bottom; }
+.tt-rep-heat thead .tt-rep-heat-total {
+  font-size: var(--tt-fs-100); line-height: 1.15; color: var(--tt-text-3); vertical-align: bottom; white-space: normal;
+}
+.tt-rep-heat-total-k { display: block; font-weight: 500; }
 .tt-rep-heat td { padding: 0; }
 .tt-rep-heat .is-wk { padding-left: 6px; }
-.tt-rep-heat-dow, .tt-rep-heat-dom { display: block; font-weight: 500; }
+.tt-rep-heat-dow, .tt-rep-heat-dom, .tt-rep-heat-mon { display: block; font-weight: 500; white-space: nowrap; }
+.tt-rep-heat-mon { color: var(--tt-text-3); }
 .tt-rep-heat-dom { color: var(--tt-text-2); font-variant-numeric: tabular-nums; }
 .tt-rep-heat-day.is-today .tt-rep-heat-dow,
 .tt-rep-heat-day.is-today .tt-rep-heat-dom { font-weight: 700; color: var(--tt-text-1); }
-.tt-rep-hcell { display: block; height: 26px; border-radius: 3px; cursor: help; transition: box-shadow var(--tt-dur-1) ease; }
+.tt-rep-hcell {
+  display: block; min-width: 20px; height: 26px; border-radius: 3px; cursor: help;
+  transition: box-shadow var(--tt-dur-1) ease;
+}
 .tt-rep-hcell:hover { box-shadow: inset 0 0 0 2px var(--tt-ink); }
 .tt-rep-heat tr.is-others > * { padding-top: 6px; }
 .tt-rep-heat tr.is-others > th { border-top: 1px solid var(--tt-line); }
-.tt-rep-heat.is-wide { width: auto; table-layout: auto; }
-.tt-rep-heat.is-wide .tt-rep-hcell { width: 22px; }
-.tt-rep-heat.is-wide .tt-rep-heat-name {
-  position: sticky; left: 0; z-index: 1; min-width: 11rem; background: var(--tt-paper);
-}
 
 /* --- Carreras: proyección ---------------------------------------------------- */
 .tt-rep-ctable .tt-rep-cproj { min-width: 7.5rem; white-space: normal; }
@@ -856,7 +862,7 @@ a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-o
   .tt-rep-areas { grid-template-columns: minmax(0, 1fr); }
   .tt-rep-area-id { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .tt-rep-area > .tt-rep-sbar { grid-column: 1; }
-  .tt-rep-heat .tt-rep-heat-name { width: 8rem; }
+  .tt-rep-heat .tt-rep-heat-name { width: 7rem; min-width: 7rem; }
 }
 @media (max-width: 575.98px) {
   .tt-rep-ofigs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -877,15 +883,27 @@ a.tt-rep-sbar-link:focus-visible { outline: 2px solid var(--tt-focus); outline-o
   .tt-rep-ocards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-sp-2); }
   .tt-rep-ocard { break-inside: avoid; box-shadow: none; padding: 10px; gap: var(--tt-sp-2); }
   .tt-rep-area, .tt-rep-osec-head { break-inside: avoid; }
-  #tt-rep-officers, .tt-rep-active-clear { display: none !important; }
+  /* De la tarjeta de chips se va solo lo que es para tocar: la nota del
+     traslape (D2) sí es parte del informe. */
+  .tt-rep-noprint, #tt-rep-off-show-all, .tt-rep-active-clear { display: none !important; }
   /* Ninguna tabla se recorta en la hoja (anula el `overflow-y: hidden` de
      pantalla, que con `overflow-x: visible` volvería `auto` el eje X). */
   .tt-rep .tt-table-wrap, .tt-rep .tt-rep-oscroll { max-height: none; overflow: visible; }
   .tt-rep-heat-wrap, .tt-rep-heat-wrap.is-wide { overflow: visible !important; }
+  /* Sin scroll en la hoja: columnas repartidas (`fixed`), la celda sin mínimo
+     y el separador de semana SIN consumir ancho (Ronda 1 de arreglos, I1:
+     `padding-left` dejaba en 0 px las celdas de los lunes con 68 columnas;
+     ahora es una línea de 1 px pintada dentro de la celda). Rótulos en letra
+     chica; con `wide` solo van los lunes y la primera columna, salvo que el
+     lunes vaya pegado a ella (`is-crowded`). */
   .tt-rep-heat, .tt-rep-heat.is-wide { width: 100%; table-layout: fixed; }
-  .tt-rep-heat.is-wide .tt-rep-hcell { width: auto; }
+  .tt-rep-heat .is-wk { padding-left: 0; }
+  .tt-rep-heat td.is-wk .tt-rep-hcell { box-shadow: inset 1px 0 0 var(--tt-paper); }
+  .tt-rep-hcell { min-width: 0; height: 16px; }
   .tt-rep-heat .tt-rep-heat-name { position: static; width: 9rem; min-width: 0; }
-  .tt-rep-hcell { height: 16px; }
+  .tt-rep-heat thead th { font-size: 9px; padding-bottom: 2px; }
+  .tt-rep-heat .tt-rep-heat-total { width: 3rem; }
+  .tt-rep-heat-day.is-crowded > [aria-hidden] { display: none; }
   .tt-rep-oproj { background: none; }
   a.tt-rep-sbar-link:hover, .tt-rep-area-name:hover { background: none; }
 }

@@ -1285,3 +1285,156 @@ def test_css_impresion_de_tarjetas_y_mapa():
                      r"grid-template-columns:\s*minmax\(0, 1fr\)", bloque)
     assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", bloque)
     assert "\r\n" not in bloque
+
+
+# ===========================================================================
+# Ronda 1 de arreglos de U2 (revisión): mapa de calor que no se encima ni se
+# queda en 0 px, impresión, gemelas y tokens
+# ===========================================================================
+def _bloque_r2():
+    """(pantalla, impresión) del bloque «Ronda 2 (U2)» de la hoja."""
+    css = CSS.read_text(encoding="utf-8")
+    bloque = css[css.index("/* === Ronda 2 (U2) === */"):]
+    corte = bloque.index("@media print")
+    return bloque[:corte], bloque[corte:]
+
+
+def _regla(css, selector):
+    """Cuerpo de la PRIMERA regla cuyo selector es exactamente `selector`."""
+    m = re.search(r"(?m)^\s*" + re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    assert m, selector
+    return m.group(1)
+
+
+def test_mapa_de_calor_columnas_con_minimo_y_scroll_propio(encargados):
+    """I2: en pantalla las columnas nunca bajan de un ancho legible (la celda
+    pide 20 px y el rótulo apilado su propio ancho, `table-layout: auto`); si no
+    caben, la envoltura hace scroll propio, enfocable y con nombre, SIEMPRE (no
+    solo con `wide`), con el nombre fijo a la izquierda."""
+    pantalla, _ = _bloque_r2()
+    tabla = _regla(pantalla, ".tt-rep-heat")
+    assert "table-layout: auto" in tabla and "fixed" not in tabla
+    assert re.search(r"min-width:\s*20px", _regla(pantalla, ".tt-rep-hcell"))
+    nombre = _regla(pantalla, ".tt-rep-heat .tt-rep-heat-name")
+    assert "position: sticky" in nombre and "left: 0" in nombre
+    envoltura = _by_id(encargados.doc, "tt-rep-off-heat-wrap")
+    assert envoltura.get("tabindex") == "0" and envoltura.get("role") == "region"
+    assert "se desplaza" in envoltura.get("aria-label")
+    assert "is-wide" not in envoltura.get("class")                # 14 días: no es `wide`
+
+
+def test_mapa_de_calor_impresion_sin_celdas_en_cero_ni_rotulos_encimados():
+    """I1: en la hoja (`table-layout: fixed`, sin scroll) el separador de semana
+    no consume ancho (antes `padding-left: 6px` dejaba en 0 px las celdas de los
+    lunes con 68 columnas) y la celda no pide mínimo; rótulos en letra chica y,
+    con `wide`, sin el de la primera columna cuando el lunes va pegado."""
+    _, impresion = _bloque_r2()
+    assert re.search(r"\.tt-rep-heat \.is-wk\s*\{[^}]*padding-left:\s*0", impresion)
+    assert re.search(r"\.tt-rep-hcell\s*\{[^}]*min-width:\s*0", impresion)
+    assert re.search(r"\.tt-rep-heat thead th\s*\{[^}]*font-size:\s*9px", impresion)
+    assert re.search(r"\.tt-rep-heat-day\.is-crowded[^{]*\{[^}]*display:\s*none", impresion)
+
+
+def _dias_sinteticos(desde, n, wide):
+    dias, d = [], desde
+    meses = ("ene", "feb", "mar")
+    nombres = ("lun", "mar", "mié", "jue", "vie")
+    while len(dias) < n:
+        if d.weekday() < 5:
+            i = len(dias)
+            dias.append({"date": d, "iso": d.isoformat(),
+                         "label": f"{nombres[d.weekday()]} {d.day}",
+                         "label_long": f"{nombres[d.weekday()]} {d.day} {meses[d.month - 1]}",
+                         "week_start": i > 0 and d.weekday() == 0,
+                         "show_label": (not wide) or i == 0 or d.weekday() == 0,
+                         "is_today": False})
+        d += timedelta(days=1)
+    return dias
+
+
+def _render_heatmap(dias, wide):
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    celdas = [{"iso": x["iso"], "n": 0, "bin": 0, "color": "", "tip": f"X · {x['label_long']}: 0"}
+              for x in dias]
+    hm = {"days": dias, "n_days": len(dias), "wide": wide, "vmax": 0,
+          "legend": [{"bin": 0, "label": "0", "color": ""}],
+          "rows": [{"user_id": 7, "name": "ZOE", "is_others": False, "actors": None,
+                    "total": 0, "cells": celdas}]}
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/admin/partials/reports/_charts.html" import heatmap %}'
+        '{{ heatmap("tt-h", hm, "Mapa", "tt-h") }}')
+    return _doc("<div>" + tpl.render(hm=hm) + "</div>")
+
+
+def test_mapa_de_calor_rotulos_con_mes():
+    """M1: con `wide` cada rótulo lleva el mes; sin `wide`, la primera columna y
+    cada cambio de mes. El rótulo de la primera columna se marca `is-crowded`
+    (se oculta al imprimir) si el lunes va justo al lado."""
+    from datetime import date
+    # 2091-01-01 es lunes: el 26 de enero es viernes y el lunes 29 es la 2.ª columna.
+    ancho = _render_heatmap(_dias_sinteticos(date(2091, 1, 2), 30, wide=True), True)
+    rotulados = [th for th in ancho.xpath('//table[@id="tt-h-table"]/thead/tr/th')[1:-1]
+                 if _cls(th, "tt-rep-heat-dom")]
+    assert rotulados and all(_cls(th, "tt-rep-heat-mon") for th in rotulados)
+    viernes = _render_heatmap(_dias_sinteticos(date(2091, 1, 26), 30, wide=True), True)
+    primera = viernes.xpath('//table[@id="tt-h-table"]/thead/tr/th')[1]
+    assert "is-crowded" in primera.get("class") and "is-first" in primera.get("class")
+    martes = _render_heatmap(_dias_sinteticos(date(2091, 1, 2), 30, wide=True), True)
+    assert "is-crowded" not in martes.xpath('//table[@id="tt-h-table"]/thead/tr/th')[1].get("class")
+    # Sin `wide`: mes solo en la primera y donde cambia (29 ene -> 1 feb).
+    corto = _render_heatmap(_dias_sinteticos(date(2091, 1, 29), 6, wide=False), False)
+    meses = [(_txt(th.xpath('.//*[contains(@class, "tt-rep-heat-dom")]')[0]),
+              _txt(_cls(th, "tt-rep-heat-mon")[0]) if _cls(th, "tt-rep-heat-mon") else None)
+             for th in corto.xpath('//table[@id="tt-h-table"]/thead/tr/th')[1:-1]]
+    assert meses[0] == ("29", "ene") and meses[1] == ("30", None)
+    assert ("1", "feb") in meses
+    # La envoltura siempre es región desplazable con nombre (no solo con `wide`).
+    env = _by_id(corto, "tt-h-wrap")
+    assert env.get("tabindex") == "0" and env.get("role") == "region"
+
+
+def test_mapa_de_calor_total_y_gemela_aclaran_dias_habiles_y_mes(db_session, jefa, esc,
+                                                               encargados):
+    """M5: el total es de días hábiles (la tarjeta cuenta también fines de
+    semana). M1: la gemela rotula cada día con su mes («lun 13 oct»)."""
+    doc = encargados.doc
+    total = doc.xpath('//table[@id="tt-rep-off-heat-table"]/thead/tr/th')[-1]
+    assert "días hábiles" in _txt(total)
+    assert "solo días hábiles" in _txt(_by_id(doc, "tt-rep-off-heat"))
+    hm = _ctx(db_session, jefa, tab="encargados", cohort=esc.c.id)["encargados"]["heatmap"]
+    cabeza = [_txt(th) for th in _by_id(doc, "tt-rep-off-heat-twin").xpath(".//thead//th")]
+    assert cabeza[1:-1] == [d["label_long"] for d in hm["days"]]
+
+
+def test_impresion_conserva_la_nota_del_traslape(encargados):
+    """M2: al imprimir se ocultan los chips y la instrucción de tocarlos, no la
+    tarjeta: «si dos comparten una, ven lo mismo» (D2) es parte del informe."""
+    _, impresion = _bloque_r2()
+    assert "#tt-rep-officers" not in impresion
+    assert re.search(r"\.tt-rep-noprint[^{]*\{[^}]*display:\s*none", impresion)
+    sub = _cls(_by_id(encargados.doc, "tt-rep-officers"), "tt-rep-card-sub")[0]
+    assert "ven lo mismo" in _txt(sub)
+    (instr,) = _cls(sub, "tt-rep-noprint")
+    assert "Toca un nombre" in _txt(instr)
+
+
+def test_gemela_de_panorama_texto_y_encabezados_de_fila(panorama):
+    """M4: «Ritmo de salida» y «Proyección» son texto (no columnas numéricas) y
+    cada renglón de motivo tiene su encabezado de fila."""
+    tabla = _by_id(panorama.doc, "tt-rep-balls-table")
+    cabeza = {_txt(th): th.get("class") or "" for th in tabla.xpath(".//thead//th")}
+    assert "num" not in cabeza["Ritmo de salida"] and "num" not in cabeza["Proyección"]
+    assert "num" in cabeza["Pendientes"]
+    filas = tabla.xpath(".//tbody/tr[not(contains(@class, 'tt-rep-trow-area'))]")
+    assert filas
+    for tr in filas:
+        (th,) = tr.xpath("./th[@scope='row']")
+        assert _txt(th)
+        assert all("num" not in (td.get("class") or "") for td in tr.xpath("./td")[-2:])
+
+
+def test_iconos_de_estado_con_token_del_tema():
+    """M7: el verde de «Al día» / «Sin alertas» sale del tema, no de un hex."""
+    css = CSS.read_text(encoding="utf-8")
+    assert "#166534" not in css
+    assert re.search(r"\.tt-rep-oproj--clear[^{]*\{[^}]*var\(--tt-success\)", css)

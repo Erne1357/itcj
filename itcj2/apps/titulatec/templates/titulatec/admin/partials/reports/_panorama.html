@@ -124,12 +124,12 @@
   {% else %}
   <p class="tt-rep-empty"><i class="bi bi-check2-circle" aria-hidden="true"></i>Nadie tiene pendientes por mover con estos filtros.</p>
   {% endif %}
-  {% call table_twin("tt-rep-balls-table", "Pendientes por área responsable y motivo", ["Área", "Motivo", "Pendientes", "Lentos o atorados", "Ritmo de salida", "Proyección"], text_cols=2) %}
+  {% call table_twin("tt-rep-balls-table", "Pendientes por área responsable y motivo", ["Área", "Motivo", "Pendientes", "Lentos o atorados", "Ritmo de salida", "Proyección"], num_cols=(2, 3)) %}
     {%- for b in p.balls %}
-    <tr class="tt-rep-trow-area"><th scope="row">{{ b.label }}</th> <td>Total del área</td> <td class="num">{{ b.value }}</td> <td class="num">{{ b.stuck }} ({{ b.crit }} {{ "atorado" if b.crit == 1 else "atorados" }})</td> <td class="num">—</td> <td class="num">—</td></tr>
+    <tr class="tt-rep-trow-area"><th scope="row">{{ b.label }}</th> <td>Total del área</td> <td class="num">{{ b.value }}</td> <td class="num">{{ b.stuck }} ({{ b.crit }} {{ "atorado" if b.crit == 1 else "atorados" }})</td> <td>—</td> <td>—</td></tr>
     {%- for m in b.motives %}
-    <tr><td></td> <td>{{ m.label }}{% if m.docs is not none %} ({{ m.docs }} {{ "documento" if m.docs == 1 else "documentos" }}){% endif %}</td> <td class="num">{{ m.value }}</td> <td class="num">—</td>
-      <td class="num">{{ m.forecast.rate_text if m.forecast else "—" }}</td> <td class="num">{{ m.forecast.text if m.forecast else "—" }}</td></tr>
+    <tr><td><span class="visually-hidden">{{ b.label }}</span></td> <th scope="row">{{ m.label }}{% if m.docs is not none %} ({{ m.docs }} {{ "documento" if m.docs == 1 else "documentos" }}){% endif %}</th> <td class="num">{{ m.value }}</td> <td class="num">—</td>
+      <td>{{ m.forecast.rate_text if m.forecast else "—" }}</td> <td>{{ m.forecast.text if m.forecast else "—" }}</td></tr>
     {%- endfor %}
     {%- endfor %}
   {% endcall %}
