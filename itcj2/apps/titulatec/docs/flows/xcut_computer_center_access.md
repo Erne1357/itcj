@@ -370,7 +370,7 @@ parte del trabajo de Centro de Cómputo llega hecho:
 
 ## Operación: NIP precargado y promedios oficiales
 
-Runbook del dueño (comandos de `itcj2/cli/titulatec.py`). Los promedios se describen en
+Runbook del dueño (comandos de `itcj2/cli/titulatec/`). Los promedios se describen en
 [el traspaso a Titulación](xcut_titulacion_handoff.md#de-dónde-sale-final_average-promedio-oficial).
 
 1. **Generar la llave** (una vez):

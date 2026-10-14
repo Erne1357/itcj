@@ -202,7 +202,7 @@ promoción D17 de `activar-biblioteca-caja`.
   UN commit al final; `dry_run=True` solo cuenta, sin bloquear. Idempotente: una segunda corrida
   da 0. El estado que libera sale de las constantes del gate (`_SURVEY_RELEASED`/
   `_LIBRARY_RELEASED`), no de literales.
-- **CLI** `titulatec emitir-folios-previos [--dry-run]` (`itcj2/cli/titulatec.py`) imprime los
+- **CLI** `titulatec emitir-folios-previos [--dry-run]` (`itcj2/cli/titulatec/liberaciones.py::emitir_folios_previos_command`) imprime los
   conteos por tipo y semestre, y **paso 5 de `titulatec activar-biblioteca-caja`** (después de la
   promoción D17, porque el legado nace ahí; su `--dry-run` no cuenta el legado que el re-backfill
   y la promoción crearían en la corrida real).

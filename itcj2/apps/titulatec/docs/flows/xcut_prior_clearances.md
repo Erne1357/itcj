@@ -216,7 +216,7 @@ va al repo ni a un test (los tests fabrican libros con openpyxl,
 `tests/fastapi/titulatec/_survey_xlsx.py`).
 
 ```
-titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2/cli/titulatec.py:2792)
+titulatec import-survey-xlsx ARCHIVO.xlsx [--hoja Sheet1] [--dry-run]     (itcj2/cli/titulatec/encuesta.py::import_survey_xlsx_command)
 ```
 
 ### El archivo (`SurveyImportService.read_xlsx`, `services/survey_import_service.py:266`)
@@ -281,7 +281,7 @@ archivo de ENERO-JUNIO 2026 (dry-run del 2026-10-05): 21 071 celdas, 47 raw y 1 
 valor real (conteo informativo, no son raw) — casi todas de los ~73 egresados que no trabajan y a
 quienes Forms obligó a contestar las escalas y el tamaño de empresa.
 
-### Botes que imprime la CLI (`IMPORT_BUCKETS`, `:56`; etiquetas en `itcj2/cli/titulatec.py`, `_IMPORT_SURVEY_ETIQUETAS`)
+### Botes que imprime la CLI (`IMPORT_BUCKETS`, `:56`; etiquetas en `itcj2/cli/titulatec/encuesta.py::_IMPORT_SURVEY_ETIQUETAS`)
 
 | Bote | Qué pasó |
 |---|---|
