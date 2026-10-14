@@ -19,6 +19,9 @@ Contrato (brief 2026-09-28, documentos a 2 MB):
 * ronda 2: una imagen `/Indexed` (paleta) nunca se recodifica (pypdf la leia
   negra y se aceptaba), y una imagen que se decodifica de un solo color con un
   stream original de mas de unos KB tampoco reemplaza a la original.
+* rendimiento 2026-10-14: JPEG2000 y mascaras suaves (`/SMask`) se decodifican
+  sin pypdf (que las re-codificaba a JPEG2000/PNG: 10.6 s en un PDF de prod), y
+  `stats` cuenta por que ruta paso cada imagen.
 
 Los PDFs salen de `_pdf_samples` (Pillow, en memoria).
 """
@@ -33,7 +36,8 @@ from pypdf import PdfReader, PdfWriter
 from itcj2.apps.titulatec.utils import pdf_compress
 from itcj2.apps.titulatec.utils.pdf_compress import PdfUnreadable, compress_pdf
 from tests.fastapi.titulatec._pdf_samples import (
-    MB, bilevel_noise_pdf, flate_pdf, indexed_pdf, merge_pdfs, photo_pdf, small_pdf,
+    MB, bilevel_noise_pdf, flate_pdf, indexed_pdf, jpx_pdf, masked_pdf, merge_pdfs, photo_pdf,
+    small_pdf,
 )
 
 TARGET = 2 * MB
@@ -334,7 +338,7 @@ class TestDecodificacionUniforme:
 class TestPaginas:
     def test_una_salida_con_otro_numero_de_paginas_nunca_se_devuelve(self, monkeypatch):
         raw = photo_pdf(width=1700, height=2200, resolution=200, pages=3)
-        monkeypatch.setattr(pdf_compress, "_one_pass", lambda raw, p: small_pdf())
+        monkeypatch.setattr(pdf_compress, "_one_pass", lambda raw, p, stats=None: small_pdf())
 
         with pytest.raises(PdfUnreadable):
             compress_pdf(raw, target_bytes=TARGET)
@@ -400,8 +404,9 @@ class TestImagenQueNoSeDecodifica:
 # ---------------------------------------------------------------------------
 def _variante_flate(kind: str, *, width: int = 300, height: int = 400) -> bytes:
     """Una página con UNA imagen Flate sin pérdida en la variante pedida:
-    `rgb`, `gray`, `icc` (ICCBased /N 3), `up` (predictor PNG «Up») o
-    `smask` (con máscara suave: no es «simple», va por pypdf)."""
+    `rgb`, `gray`, `icc` (ICCBased /N 3), `up` (predictor PNG «Up»),
+    `smask` (con máscara suave), `decode` (con `/Decode`) o `mask` (con
+    `/Mask` de color clave): las dos últimas no son «simples», van por pypdf."""
     import zlib
 
     from pypdf.generic import (
@@ -447,6 +452,10 @@ def _variante_flate(kind: str, *, width: int = 300, height: int = 400) -> bytes:
                         NameObject("/BitsPerComponent"): NumberObject(8),
                         NameObject("/Filter"): NameObject("/FlateDecode")})
         stream[NameObject("/SMask")] = writer._add_object(mascara)
+    if kind == "decode":
+        stream[NameObject("/Decode")] = ArrayObject([NumberObject(v) for v in (0, 1) * 3])
+    if kind == "mask":
+        stream[NameObject("/Mask")] = ArrayObject([NumberObject(v) for v in (0, 10) * 3])
     buf = io.BytesIO()
     writer.write(buf)
     return buf.getvalue()
@@ -477,10 +486,10 @@ class TestDecodificacionDirecta:
         assert (directa.mode, directa.size) == (de_pypdf.mode, de_pypdf.size)
         assert directa.tobytes() == de_pypdf.tobytes()
 
-    @pytest.mark.parametrize("kind", ["smask"])
+    @pytest.mark.parametrize("kind", ["decode", "mask"])
     def test_lo_que_no_es_simple_no_se_decodifica_directo(self, kind):
         _page, _nombre, obj = _pagina_e_imagen(_variante_flate(kind))
-        assert pdf_compress._decode_flat(obj) is None
+        assert pdf_compress._decode_direct(obj, 10**6) == (None, None)
 
     def test_un_jpeg_no_es_flate_simple(self):
         _page, _nombre, obj = _pagina_e_imagen(photo_pdf(width=600, height=800, resolution=72))
@@ -508,3 +517,213 @@ class TestDecodificacionDirecta:
         stats = {}
         compress_pdf(small_pdf(), target_bytes=TARGET, stats=stats)
         assert stats["passes"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Rendimiento (2026-10-14): JPEG2000 y máscaras suaves sin pasar por pypdf
+# ---------------------------------------------------------------------------
+def _sin_pypdf(monkeypatch):
+    def _prohibido(page, path):
+        raise AssertionError("esta imagen no debe re-codificarse en pypdf")
+
+    monkeypatch.setattr(pdf_compress, "_decode_with_pypdf", _prohibido)
+
+
+def _jpeg_de(obj):
+    """El JPEG del stream con solo sus cabeceras leídas (como `_recode_image`)."""
+    from PIL import Image
+
+    return Image.open(io.BytesIO(obj.get_data()))
+
+
+def _parecidas(a, b, *, size=(60, 80)) -> float:
+    """Diferencia media (0-255) entre dos imágenes vistas en chico: «a la vista»."""
+    from PIL import Image, ImageChops, ImageStat
+
+    chica = [im.convert("RGB").resize(size, Image.Resampling.BOX) for im in (a, b)]
+    return max(ImageStat.Stat(ImageChops.difference(*chica)).mean)
+
+
+class TestJpx:
+    """Traza de prod `0ed8aba9…` (2026-10-13): un PDF de 7.4 MB pasó 10.6 s en
+    `titulatec.prepare_document`. Con JPEG2000, `page.images[...]` de pypdf
+    decodifica la imagen, la vuelve a CODIFICAR a JPEG2000 y la decodifica otra
+    vez al abrirla (~3.4 s por hoja A4 a 300 dpi: 0.9 + 1.5 + 0.9). Un JPEG2000
+    «simple» se decodifica directo con Pillow y ya reducido (`reduce`, el
+    equivalente de `draft` en JPEG)."""
+
+    @pytest.mark.parametrize("variante", [
+        {"mode": "RGB", "colorspace": "directo"},
+        {"mode": "L", "colorspace": "directo"},
+        {"mode": "RGB", "colorspace": "sin"},
+        {"mode": "RGB", "colorspace": "icc"},
+    ], ids=["rgb", "gris", "sin_colorspace", "icc"])
+    def test_da_los_mismos_pixeles_que_pypdf(self, variante):
+        page, nombre, obj = _pagina_e_imagen(jpx_pdf(width=300, height=400, **variante))
+
+        directa = pdf_compress._decode_jpx(obj, 10**6)
+        de_pypdf = page.images[nombre].image
+
+        assert directa is not None
+        assert (directa.mode, directa.size) == (de_pypdf.mode, de_pypdf.size)
+        assert directa.tobytes() == de_pypdf.tobytes()
+
+    def test_se_decodifica_ya_reducido(self):
+        _page, _nombre, obj = _pagina_e_imagen(jpx_pdf(width=1200, height=1600))
+
+        img = pdf_compress._decode_jpx(obj, 400)
+
+        assert img.size == (300, 400), "1/4 por lado: la mayor reducción que no baja del límite"
+
+    def test_sin_reducir_si_ya_cabe(self):
+        _page, _nombre, obj = _pagina_e_imagen(jpx_pdf(width=300, height=400))
+        assert pdf_compress._decode_jpx(obj, A4_LONG_150).size == (300, 400)
+
+    @pytest.mark.parametrize("cambio", ["smask_in_data", "cmyk"])
+    def test_lo_que_no_es_simple_no_se_decodifica_directo(self, cambio):
+        from pypdf.generic import NameObject, NumberObject
+
+        _page, _nombre, obj = _pagina_e_imagen(jpx_pdf(width=300, height=400))
+        if cambio == "smask_in_data":           # alfa dentro del propio JPEG2000
+            obj[NameObject("/SMaskInData")] = NumberObject(1)
+        else:                                   # el PDF dice CMYK y el códec RGB
+            obj[NameObject("/ColorSpace")] = NameObject("/DeviceCMYK")
+
+        assert pdf_compress._decode_jpx(obj, 10**6) is None
+
+    def test_comprimir_un_jpx_no_pasa_por_pypdf_ni_lo_decodifica_completo(self, monkeypatch):
+        from PIL import Jpeg2KImagePlugin
+
+        _sin_pypdf(monkeypatch)
+        tamanos = []
+        real_load = Jpeg2KImagePlugin.Jpeg2KImageFile.load
+
+        def _load(self):
+            salida = real_load(self)
+            tamanos.append(self.size)       # Pillow aplica `reduce` DENTRO de load
+            return salida
+
+        monkeypatch.setattr(Jpeg2KImagePlugin.Jpeg2KImageFile, "load", _load)
+        raw = jpx_pdf(width=2480, height=3508, resolution=300)
+
+        out = compress_pdf(raw, target_bytes=len(raw) - 1)
+
+        assert out is not None and len(out) < len(raw)
+        (xo,) = _xobjects(out)
+        assert xo["/Filter"] == "/DCTDecode"
+        assert max(xo["/Width"], xo["/Height"]) == A4_LONG_150
+        assert tamanos and max(max(s) for s in tamanos) <= A4_LONG_150, tamanos
+
+
+class TestMascaraSuave:
+    """Una imagen con `/SMask` (un PNG con transparencia pasado a PDF) iba por
+    pypdf, que le pega el alfa y la re-codifica a PNG -o a JPEG2000 si era
+    JPEG- antes de devolverla (~2 s por hoja A4 a 300 dpi). Ahora imagen y
+    máscara se decodifican directo y se aplana sobre blanco: lo MISMO que salía
+    de pypdf + `_for_jpeg`."""
+
+    @pytest.mark.parametrize("base,mode", [
+        ("flate", "RGB"), ("flate", "L"), ("jpeg", "RGB"), ("jpx", "RGB"),
+    ])
+    def test_da_lo_mismo_que_pypdf_aplanado(self, base, mode):
+        page, nombre, obj = _pagina_e_imagen(masked_pdf(base=base, mode=mode))
+        jpeg = _jpeg_de(obj) if base == "jpeg" else None
+
+        directa, ruta = pdf_compress._decode_direct(obj, 10**6, jpeg)
+        esperada = pdf_compress._for_jpeg(page.images[nombre].image)
+
+        assert ruta == "smask"
+        assert directa.size == esperada.size
+        assert directa.convert("RGB").tobytes() == esperada.convert("RGB").tobytes()
+
+    def test_la_escala_de_grises_se_queda_en_grises(self):
+        _page, _nombre, obj = _pagina_e_imagen(masked_pdf(mode="L"))
+        directa, _ruta = pdf_compress._decode_direct(obj, 10**6)
+        assert directa.mode == "L", "un tercio del JPEG que saldría en RGB"
+
+    def test_una_mascara_de_otra_medida_se_ignora_como_en_pypdf(self):
+        page, nombre, obj = _pagina_e_imagen(masked_pdf(mask_size=(300, 400)))
+
+        directa, _ruta = pdf_compress._decode_direct(obj, 10**6)
+        esperada = pdf_compress._for_jpeg(page.images[nombre].image)
+
+        assert directa.convert("RGB").tobytes() == esperada.convert("RGB").tobytes()
+
+    @pytest.mark.parametrize("base", ["jpeg", "jpx"])
+    def test_ya_reducida_la_mascara_se_escala_y_se_ve_igual(self, base):
+        """Con la imagen decodificada en chico (`draft`/`reduce`) la máscara se
+        escala a su medida: no es idéntica píxel a píxel, pero sí a la vista."""
+        page, nombre, obj = _pagina_e_imagen(
+            masked_pdf(base=base, width=1200, height=1600))
+        jpeg = _jpeg_de(obj) if base == "jpeg" else None
+
+        directa, _ruta = pdf_compress._decode_direct(obj, 400, jpeg)
+        esperada = pdf_compress._for_jpeg(page.images[nombre].image)
+
+        assert max(directa.size) < 1600, "se decodificó reducida"
+        assert _parecidas(directa, esperada) < 3
+
+    def test_una_mascara_con_matte_va_por_pypdf(self):
+        _page, _nombre, obj = _pagina_e_imagen(masked_pdf(matte=True))
+        assert pdf_compress._decode_direct(obj, 10**6) == (None, None)
+
+    def test_comprimir_con_mascara_no_pasa_por_pypdf(self, monkeypatch):
+        _sin_pypdf(monkeypatch)
+        raw = masked_pdf(width=1200, height=1600, resolution=150)
+
+        out = compress_pdf(raw, target_bytes=len(raw) - 1)
+
+        assert out is not None and len(out) < len(raw)
+        (xo,) = _xobjects(out)
+        assert xo["/Filter"] == "/DCTDecode"
+        assert "/SMask" not in xo, "el alfa ya va aplanado sobre blanco"
+
+
+class TestRutasEnStats:
+    """`stats["images"]` cuenta por qué ruta se decodificó cada imagen en la
+    última pasada y `stats["pypdf_ms"]` cuánto costó lo que aún va por pypdf:
+    van al span `titulatec.prepare_document`, así la próxima subida lenta dice
+    en Tempo QUÉ la hizo lenta (la de 10.6 s solo decía «comprimir»)."""
+
+    def test_cuenta_cada_imagen_por_su_ruta(self):
+        raw = merge_pdfs(
+            photo_pdf(width=1200, height=1600, resolution=150, quality=95),   # JPEG q95
+            flate_pdf(width=600, height=800),
+            jpx_pdf(width=600, height=800, resolution=72),
+            masked_pdf(),
+        )
+        stats = {}
+
+        out = compress_pdf(raw, target_bytes=len(raw) - 1, stats=stats)
+
+        assert out is not None
+        assert stats["images"] == {"jpeg": 1, "flat": 1, "jpx": 1, "smask": 1}
+        assert stats["pypdf_ms"] == 0
+
+    def test_lo_que_va_por_pypdf_se_cuenta_y_se_cronometra(self):
+        raw = merge_pdfs(_variante_flate("decode"),
+                         photo_pdf(width=1200, height=1600, resolution=150, quality=95))
+        stats = {}
+
+        compress_pdf(raw, target_bytes=len(raw) - 1, stats=stats)
+
+        assert stats["images"] == {"pypdf": 1, "jpeg": 1}
+        assert stats["pypdf_ms"] > 0
+
+    def test_una_imagen_que_no_se_decodifica_cuenta_como_error(self):
+        writer = PdfWriter(clone_from=PdfReader(io.BytesIO(
+            photo_pdf(width=1700, height=2200, resolution=200, pages=2))))
+        xobjs = writer.pages[0]["/Resources"]["/XObject"]
+        xobjs[list(xobjs)[0]].get_object()._data = os.urandom(200_000)
+        buf = io.BytesIO()
+        writer.write(buf)
+        stats = {}
+
+        compress_pdf(buf.getvalue(), target_bytes=len(buf.getvalue()) - 1, stats=stats)
+
+        assert stats["images"] == {"error": 1, "jpeg": 1}
+
+    def test_si_ya_cabe_no_hay_rutas(self):
+        stats = {}
+        compress_pdf(small_pdf(), target_bytes=TARGET, stats=stats)
+        assert (stats["images"], stats["pypdf_ms"]) == ({}, 0)

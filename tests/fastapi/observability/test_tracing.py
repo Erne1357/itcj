@@ -463,7 +463,26 @@ def test_preparar_un_documento_es_un_span_con_tamanos_y_pasadas(spans):
         "itcj.bytes_in": len(raw),
         "itcj.bytes_out": len(prepared.data),
         "itcj.compress_passes": prepared.compress_passes,
+        "itcj.img_jpeg": 1,             # por qué ruta se decodificó cada imagen
     }
+
+
+def test_preparar_un_documento_dice_cuanto_costo_lo_que_fue_por_pypdf(spans, monkeypatch):
+    """La subida de 10.6 s de prod (2026-10-13) solo decía «comprimir»: el span
+    cuenta las imágenes por ruta y, si alguna fue por pypdf (la ruta cara), su
+    tiempo en `itcj.pypdf_ms`."""
+    from itcj2.apps.titulatec.utils import pdf_compress, storage
+    from tests.fastapi.titulatec._pdf_samples import photo_pdf
+
+    monkeypatch.setattr(pdf_compress, "_decode_direct", lambda obj, limit, jpeg=None: (None, None))
+    raw = photo_pdf()
+    storage.prepare_document(raw=raw, original_name="escaneo.pdf",
+                             control_number="99000401", file_kind="pdf")
+
+    (span,) = [s for s in spans.get_finished_spans() if s.name == "titulatec.prepare_document"]
+    assert span.attributes["itcj.img_pypdf"] == 1
+    assert span.attributes["itcj.pypdf_ms"] > 0
+    assert "itcj.img_jpeg" not in span.attributes
 
 
 def test_escribir_un_documento_es_un_span_con_su_tamano(spans, tmp_path, monkeypatch):

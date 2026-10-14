@@ -28,6 +28,10 @@ Tamanos medidos en el contenedor (Pillow 12.3, pypdf 6.19):
                   `/Indexed` con `/ASCIIHexDecode`, y pypdf 6.19 la decodifica
                   NEGRA (indices y paleta en cero): es la muestra de la
                   corrupcion silenciosa de la ronda 2.
+* `jpx_pdf()`     la misma foto en JPEG2000 (`/JPXDecode`, tasa 20:1). Es la
+                  muestra del PDF de prod que tardo 10.6 s (2026-10-13).
+* `masked_pdf()`  foto de 600x800 con mascara suave (`/SMask`) en Flate,
+                  JPEG o JPEG2000: lo que deja un PNG con transparencia.
 """
 from __future__ import annotations
 
@@ -129,6 +133,105 @@ def indexed_pdf(*, width: int = 1200, height: int = 1600, resolution: float = 15
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()
+
+
+def _swap_image_stream(pdf: bytes, edit) -> bytes:
+    """Clona ``pdf`` y llama ``edit(writer, stream, page_index)`` sobre el
+    stream de la imagen de cada pagina (una por pagina en estas muestras)."""
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(pdf)))
+    for i, page in enumerate(writer.pages):
+        xobjs = page["/Resources"]["/XObject"]
+        edit(writer, xobjs.raw_get(next(iter(xobjs))).get_object(), i)
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _jpx_bytes(img: Image.Image) -> bytes:
+    """JPEG2000 con perdida (tasa 20:1), como lo escriben los escaneres que lo usan."""
+    buf = io.BytesIO()
+    img.save(buf, "JPEG2000", irreversible=True, quality_mode="rates", quality_layers=[20])
+    return buf.getvalue()
+
+
+@lru_cache(maxsize=None)
+def jpx_pdf(*, width: int = 1200, height: int = 1600, resolution: float = 150,
+            mode: str = "RGB", colorspace: str = "directo", pages: int = 1) -> bytes:
+    """Foto sintetica en JPEG2000 (`/JPXDecode`), la del PDF de 7.4 MB que tardo
+    10.6 s en comprimirse en prod (2026-10-13). Pillow solo escribe JPEG dentro
+    de un PDF, asi que se arma ese PDF y se cambia cada stream por JPEG2000.
+
+    `colorspace`: ``"directo"`` (`/DeviceRGB` o `/DeviceGray` segun `mode`),
+    ``"sin"`` (sin `/ColorSpace`: lo dice el codestream, como permite la norma)
+    o ``"icc"`` (`[/ICCBased <</N 3>>]`).
+    """
+    from pypdf.generic import ArrayObject, NameObject, NumberObject, StreamObject
+
+    imgs = [_photo_image(width, height, mode=mode) for _ in range(pages)]
+
+    def edit(writer, stream, i):
+        stream._data = _jpx_bytes(imgs[i])
+        stream[NameObject("/Filter")] = NameObject("/JPXDecode")
+        stream.pop("/DecodeParms", None)
+        if colorspace == "sin":
+            stream.pop("/ColorSpace", None)
+        elif colorspace == "icc":
+            perfil = StreamObject()
+            perfil[NameObject("/N")] = NumberObject(3)
+            stream[NameObject("/ColorSpace")] = ArrayObject(
+                [NameObject("/ICCBased"), writer._add_object(perfil)])
+        else:
+            stream[NameObject("/ColorSpace")] = NameObject(
+                "/DeviceGray" if mode == "L" else "/DeviceRGB")
+
+    return _swap_image_stream(_to_pdf(imgs, resolution=resolution, quality=75), edit)
+
+
+@lru_cache(maxsize=None)
+def masked_pdf(*, base: str = "flate", mode: str = "RGB", width: int = 600, height: int = 800,
+               resolution: float = 72, mask_size: tuple[int, int] | None = None,
+               matte: bool = False) -> bytes:
+    """Una pagina con UNA imagen con mascara suave (`/SMask`, degradado de
+    alfa), como la dejan los PNG con transparencia al pasar a PDF. pypdf las
+    re-codifica a PNG (Flate) o a JPEG2000 (JPEG/JPEG2000) antes de devolverlas.
+
+    `base`: ``"flate"``, ``"jpeg"`` o ``"jpx"`` (filtro de la imagen).
+    `mask_size`: otra medida para la mascara (pypdf la ignora si no coincide).
+    `matte`: agrega `/Matte` (alfa premultiplicado) a la mascara.
+    """
+    from pypdf.generic import ArrayObject, FloatObject, NameObject, NumberObject, StreamObject
+
+    img = _photo_image(width, height, mode=mode)
+    mw, mh = mask_size or (width, height)
+    alfa = Image.linear_gradient("L").rotate(90).resize((mw, mh))
+
+    def edit(writer, stream, _i):
+        if base == "flate":
+            stream._data = zlib.compress(img.tobytes(), 6)
+            stream[NameObject("/Filter")] = NameObject("/FlateDecode")
+        elif base == "jpx":
+            stream._data = _jpx_bytes(img)
+            stream[NameObject("/Filter")] = NameObject("/JPXDecode")
+        # "jpeg": el stream que escribio Pillow ya es el JPEG de `img`
+        stream[NameObject("/ColorSpace")] = NameObject(
+            "/DeviceGray" if mode == "L" else "/DeviceRGB")
+        mascara = StreamObject()
+        mascara._data = zlib.compress(alfa.tobytes(), 6)
+        mascara.update({NameObject("/Type"): NameObject("/XObject"),
+                        NameObject("/Subtype"): NameObject("/Image"),
+                        NameObject("/Width"): NumberObject(mw),
+                        NameObject("/Height"): NumberObject(mh),
+                        NameObject("/ColorSpace"): NameObject("/DeviceGray"),
+                        NameObject("/BitsPerComponent"): NumberObject(8),
+                        NameObject("/Filter"): NameObject("/FlateDecode")})
+        if matte:
+            mascara[NameObject("/Matte")] = ArrayObject(
+                [FloatObject(1)] * (1 if mode == "L" else 3))
+        stream[NameObject("/SMask")] = writer._add_object(mascara)
+
+    return _swap_image_stream(_to_pdf([img], resolution=resolution, quality=90), edit)
 
 
 def merge_pdfs(*pdfs: bytes) -> bytes:
