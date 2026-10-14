@@ -73,7 +73,7 @@
     </table>
   </div>
   <div class="tt-rep-pager" id="tt-rep-ator-pager-host">
-    {{ pager(a.page, a.pager_url, "#tt-report-body", swap="morph:outerHTML show:window:top", select="#tt-report-body", prefix="tt-rep-ator") }}
+    {{ pager(a.page, a.pager_url, "#tt-report-body", swap="morph:outerHTML show:window:top", select="#tt-report-body", prefix="tt-rep-ator", push_url_base=a.pager_page_url) }}
   </div>
   {% else %}
   <p class="tt-rep-empty" id="tt-rep-ator-empty"><i class="bi bi-check2-circle" aria-hidden="true"></i>Nada coincide con estos filtros. Prueba con el nivel «Todos» para ver todo lo pendiente.</p>

@@ -491,22 +491,13 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 }
 
 /* === Task 7b: Encargados, Carreras, Atorados === */
-/* Identidad de encargado: slots 1-8 de la paleta de referencia, por color_index
-   (posición en la lista COMPLETA: no cambia al ocultar). El nombre va siempre al
-   lado de la marca, así que el color nunca es la única vía. */
-.tt-rep-c--o-0 { --c: #2a78d6; }
-.tt-rep-c--o-1 { --c: #eb6834; }
-.tt-rep-c--o-2 { --c: #1baf7a; }
-.tt-rep-c--o-3 { --c: #eda100; }
-.tt-rep-c--o-4 { --c: #e87ba4; }
-.tt-rep-c--o-5 { --c: #008300; }
-.tt-rep-c--o-6 { --c: #6250d6; }
-.tt-rep-c--o-7 { --c: #e34948; }
+/* Encargados: UN solo color de serie (ruling del controlador). Los colores
+   categóricos son los actores de Panorama; la identidad la da el nombre. */
+.tt-rep-c--s-officers { --c: var(--tt-rep-g-documentos); }
 
 .tt-rep-chips--open { max-height: none; overflow: visible; }
 .tt-rep-chip.is-active { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
 .tt-rep-chip.is-active .tt-rep-chip-n { color: rgba(255, 255, 255, .8); }
-.tt-rep-key--none { background: transparent; border: 1px dashed var(--tt-text-3); }
 .tt-rep-key--vline { width: 2px; height: 14px; border-radius: 1px; background: var(--tt-text-1); }
 .tt-rep-showall { margin-top: var(--tt-sp-2); }
 
@@ -528,7 +519,7 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 }
 .tt-rep-oname { min-width: 13rem; max-width: 20rem; }
 .tt-rep-otable thead th { white-space: normal; }
-.tt-rep-otable .tt-rep-odays { min-width: 8.5rem; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
+.tt-rep-otable .tt-rep-odays { min-width: 9.5rem; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
 .tt-rep-otable .tt-rep-oplaces { min-width: 8rem; max-width: none; white-space: normal; overflow: visible; text-overflow: clip; }
 .tt-rep-otable td.tt-rep-odays .tt-rep-status { margin: 2px 0 0; }
 .tt-rep-oprogs-d > summary { margin-top: 4px; cursor: pointer; font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
@@ -568,13 +559,6 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
 
 /* --- Carreras ---------------------------------------------------------------- */
 .tt-rep-otable td, .tt-rep-ctable td, .tt-rep-atable td { white-space: normal; }
-/* Colisión de nombres con 7a: `.tt-rep-seg` es también el control segmentado del
-   rango (padding, borde y radio de píldora). Dentro de la barra apilada se anulan. */
-.tt-rep-stack > .tt-rep-seg {
-  display: block; flex: none; max-width: none; padding: 0; border: 0; border-radius: 0;
-  background: var(--c); box-shadow: inset -2px 0 0 var(--tt-paper);
-}
-.tt-rep-stack > .tt-rep-seg:last-child { box-shadow: none; }
 .tt-rep-cname { min-width: 12rem; }
 .tt-rep-cbarcol { min-width: 12rem; width: 26%; }
 .tt-rep-cbarcol .tt-rep-stack { width: 100%; margin-top: 4px; }
@@ -616,6 +600,4 @@ a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset
   .tt-rep-otable .tt-rep-osub, .tt-rep-otable .tt-rep-onote { font-size: 9px; }
   .tt-rep-oprogs-d > .tt-rep-oprogs { max-height: none; }
   .tt-rep-otable th, .tt-rep-ctable th, .tt-rep-atable th { white-space: normal; }
-  .tt-rep-c--o-0, .tt-rep-c--o-1, .tt-rep-c--o-2, .tt-rep-c--o-3,
-  .tt-rep-c--o-4, .tt-rep-c--o-5, .tt-rep-c--o-6, .tt-rep-c--o-7 { print-color-adjust: exact; }
 }

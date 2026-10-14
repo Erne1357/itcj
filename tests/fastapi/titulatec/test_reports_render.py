@@ -705,7 +705,7 @@ def _celda(doc, id_):
     return _txt(_by_id(doc, id_))
 
 
-def test_encargados_chips_alternan_ox_y_conservan_el_color(client_as, jefa, esc, equipo,
+def test_encargados_chips_alternan_ox_sin_color_por_encargado(client_as, jefa, esc, equipo,
                                                           encargados):
     doc = encargados.doc
     ana, beto = equipo.ana.id, equipo.beto.id
@@ -714,7 +714,7 @@ def test_encargados_chips_alternan_ox_y_conservan_el_color(client_as, jefa, esc,
     assert chip_a.get("hx-get") == f"{BODY}?tab=encargados&cohort={esc.c.id}&ox={ana}"
     assert chip_a.get("href") == f"{URL}?tab=encargados&cohort={esc.c.id}&ox={ana}"
     assert chip_a.get("hx-push-url") == chip_a.get("href")
-    color_beto = _cls(_by_id(doc, f"tt-rep-off-chip-{beto}"), "tt-rep-key")[0].get("class")
+    assert 'tt-rep-c--o-' not in encargados.html and 'color_index' not in encargados.html
     # Ocultar a ana: su fila sale, el chip queda apagado y el color de beto no cambia.
     d2 = _doc(_get(client_as(jefa), BODY, tab="encargados", cohort=esc.c.id, ox=str(ana)))
     assert not d2.xpath(f'//*[@id="tt-rep-off-{ana}"]')
@@ -722,7 +722,9 @@ def test_encargados_chips_alternan_ox_y_conservan_el_color(client_as, jefa, esc,
     chip_a2 = _by_id(d2, f"tt-rep-off-chip-{ana}")
     assert chip_a2.get("aria-pressed") == "false" and "is-off" in chip_a2.get("class")
     assert chip_a2.get("hx-get") == f"{BODY}?tab=encargados&cohort={esc.c.id}"
-    assert _cls(_by_id(d2, f"tt-rep-off-chip-{beto}"), "tt-rep-key")[0].get("class") == color_beto
+    # Ocultar a ana no cambia nada visual de beto: su chip sigue encendido y su fila igual.
+    assert _by_id(d2, f"tt-rep-off-chip-{beto}").get("aria-pressed") == "true"
+    assert _celda(d2, f"tt-rep-off-{beto}-q-docs") == _celda(doc, f"tt-rep-off-{beto}-q-docs")
     assert _by_id(d2, "tt-rep-off-show-all").get("hx-get").endswith(f"cohort={esc.c.id}")
 
 
@@ -747,6 +749,11 @@ def test_encargados_graficas(encargados, equipo):
     assert "hábil" in barra.get("data-tt-tip")
     assert _cls(_by_id(doc, "tt-rep-off-clear-list"), "tt-rep-dthresh")
     assert _by_id(doc, f"tt-rep-off-spark-{ana}").xpath(".//svg[@role='img']")
+    # Un solo color de serie para todos los encargados (barras y sparklines).
+    marcas = _cls(_by_id(doc, "tt-rep-off-clear-list"), "tt-rep-mark")
+    assert marcas and all("tt-rep-c--s-officers" in m.get("class") for m in marcas)
+    assert all("tt-rep-c--s-officers" in l.get("class")
+               for l in _by_id(doc, "tt-rep-off-sparks-list").xpath(".//polyline"))
     sparks = _txt(_by_id(doc, "tt-rep-off-sparks"))
     assert "misma escala" in sparks and "Dictámenes y revisiones por día" in sparks
 
@@ -807,6 +814,8 @@ def test_atorados_filas_enlaces_y_chips(atorados, esc):
     assert chip.get("hx-get") == f"{BODY}?tab=atorados&cohort={esc.c.id}&ball=computo"
     assert chip.get("hx-select") == chip.get("hx-target") == "#tt-report-body"
     assert chip.get("hx-push-url") == chip.get("href")
+    for ch in doc.xpath('//*[starts-with(@id, "tt-rep-f-")]'):
+        assert ch.tag == "a" and ch.get("role") == "button" and ch.get("href"), ch.get("id")
     assert _by_id(doc, "tt-rep-f-level-warn").get("aria-pressed") == "true"
     assert _by_id(doc, "tt-rep-f-level-all").get("aria-pressed") == "false"
     assert _by_id(doc, "tt-rep-f-stage-all").get("aria-pressed") == "true"
@@ -842,11 +851,14 @@ def test_atorados_pager_morph_outer(client_as, jefa, esc, muchos):
     assert sig.get("hx-target") == sig.get("hx-select") == "#tt-report-body"
     assert sig.get("hx-swap").split(" ")[0] == "morph:outerHTML"
     assert '"page": 2' in sig.get("hx-vals")
+    assert sig.get("hx-push-url") == f"{URL}?tab=atorados&cohort={esc.c.id}&level=all&page=2"
     assert _by_id(doc, "tt-rep-ator-pager-prev").get("disabled") is not None
     p2 = _doc(_get(client_as(jefa), BODY, tab="atorados", cohort=esc.c.id, level="all",
                    page="2"))
     assert len(p2.xpath('//table[@id="tt-rep-ator-table"]/tbody/tr')) == 9
     assert '"page": 1' in _by_id(p2, "tt-rep-ator-pager-prev").get("hx-vals")
+    assert _by_id(p2, "tt-rep-ator-pager-prev").get("hx-push-url") == (
+        f"{URL}?tab=atorados&cohort={esc.c.id}&level=all&page=1")
 
 
 @pytest.mark.parametrize("vista", ["encargados", "carreras", "atorados"])
@@ -879,7 +891,8 @@ def test_7b_css_con_bloque_propio_al_final():
     marca = "/* === Task 7b: Encargados, Carreras, Atorados === */"
     assert css.count(marca) == 1
     bloque = css[css.index(marca):]
-    assert "tt-rep-c--o-7" in bloque and "tt-rep-dthresh" in bloque
+    assert "tt-rep-c--s-officers" in bloque and "tt-rep-dthresh" in bloque
+    assert "tt-rep-c--o-" not in css and ".tt-rep-stack > .tt-rep-seg" not in css
     assert not re.search(r"(?<![-\w])color\s*:\s*var\(--tt-mute\)", bloque)
     assert "\r\n" not in bloque
 

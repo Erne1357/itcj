@@ -10,8 +10,9 @@
       con la jefa y el admin cuando produjeron algo.
    3. «Días para vaciar su cola» (barras con el umbral visible) y «Dictámenes y
       revisiones por día» (small multiples, MISMA escala Y).
-   Colores de encargado: `tt-rep-c--o-<color_index mod 8>` (slots 1-8 de la
-   paleta de referencia); el nombre va siempre al lado, nunca solo el color.
+   Color: UNO solo para todos los encargados (`tt-rep-c--s-officers`): los
+   colores categóricos son los actores de Panorama y con más de 5 encargados
+   se repetirían. La identidad la da el NOMBRE, escrito junto a cada marca.
    Contrato de llaves: `report_service._ctx_encargados`. #}
 {% from "titulatec/admin/partials/reports/_charts.html" import nav, chart_card, sparkline, legend, table_twin %}
 {%- set e = encargados %}
@@ -29,7 +30,6 @@
     {%- for c in e.officer_chips %}
     <a class="tt-rep-chip{{ ' is-off' if c.hidden else '' }}" id="tt-rep-off-chip-{{ c.user_id }}" role="button"
        aria-pressed="{{ 'false' if c.hidden else 'true' }}" {{ nav(c.toggle_url, c.body_toggle_url) }}>
-      <span class="tt-rep-key tt-rep-key--rect tt-rep-c--o-{{ c.color_index % 8 }}" aria-hidden="true"></span>
       <span>{{ c.name }}</span>
       <i class="bi {{ 'bi-eye-slash' if c.hidden else 'bi-check2' }}" aria-hidden="true"></i>
     </a>
@@ -77,7 +77,7 @@
         {%- for r in e.rows %}
         <tr id="tt-rep-off-{{ r.user_id }}">
           <th scope="row" class="tt-rep-oname">
-            <span class="tt-rep-oid"><span class="tt-rep-key tt-rep-key--rect tt-rep-c--o-{{ r.color_index % 8 }}" aria-hidden="true"></span><span class="tt-rep-oname-t">{{ r.name }}</span></span>
+            <span class="tt-rep-oid"><span class="tt-rep-oname-t">{{ r.name }}</span></span>
             {%- if r.no_programs %}
             <span class="tt-rep-onote" id="tt-rep-off-{{ r.user_id }}-noprog">Sin carreras asignadas</span>
             {%- else %}
@@ -117,7 +117,7 @@
         {%- set o = e.others %}
         <tr id="tt-rep-off-others" class="tt-rep-oothers">
           <th scope="row" class="tt-rep-oname">
-            <span class="tt-rep-oid"><span class="tt-rep-key tt-rep-key--rect tt-rep-key--none" aria-hidden="true"></span><span class="tt-rep-oname-t">Otros</span></span>
+            <span class="tt-rep-oid"><span class="tt-rep-oname-t">Otros</span></span>
             <span class="tt-rep-onote">{{ o.actors }} {{ "persona que no es encargada (jefatura, administración)" if o.actors == 1 else "personas que no son encargadas (jefatura, administración)" }}</span>
           </th>
           <td class="num" colspan="4"><span class="tt-rep-osub">Sin cola propia</span></td>
@@ -152,7 +152,7 @@
       <li class="tt-rep-drow" id="tt-rep-off-clear-{{ b.user_id }}" data-tt-tip="{{ tip }}">
         <span class="tt-rep-hlabel">{{ b.name }}</span>
         <span class="tt-rep-dplot">
-          <span class="tt-rep-bar tt-rep-mark tt-rep-c--o-{{ b.color_index % 8 }}" style="width: {{ '%.2f'|format(b.pct) }}%" data-tt-tip="{{ tip }}"></span>
+          <span class="tt-rep-bar tt-rep-mark tt-rep-c--s-officers" style="width: {{ '%.2f'|format(b.pct) }}%" data-tt-tip="{{ tip }}"></span>
           <span class="tt-rep-hval">{{ b.text }}</span>
           <span class="tt-rep-dthresh" style="left: {{ '%.2f'|format(e.clear_bars.threshold_pct) }}%" aria-hidden="true"></span>
         </span>
@@ -175,7 +175,7 @@
       {%- set tip = s.name ~ ": " ~ s.total ~ (" dictamen o revisión" if s.total == 1 else " dictámenes y revisiones") ~ " en el rango" %}
       <li class="tt-rep-spk" id="tt-rep-off-spark-{{ s.user_id }}">
         <span class="tt-rep-hlabel">{{ s.name }}</span>
-        {{ sparkline(s.points, e.sparks.width, e.sparks.height, s.name ~ ": dictámenes y revisiones por día", tip, "o-" ~ (s.color_index % 8)) }}
+        {{ sparkline(s.points, e.sparks.width, e.sparks.height, s.name ~ ": dictámenes y revisiones por día", tip, "s-officers") }}
         <span class="tt-rep-hval">{{ s.total }}</span>
       </li>
       {%- endfor %}

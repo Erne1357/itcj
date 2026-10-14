@@ -84,3 +84,26 @@ def test_pager_ids_estables_con_prefix():
 def test_pager_sin_style_inline():
     assert "style=" not in _render(_page(150, page=2))
     assert "style=" not in _render(_page(5))
+
+
+def _render_base(page, base):
+    tpl = titulatec_templates.env.from_string(
+        '{% from "titulatec/_macros.html" import pager %}'
+        '{{ pager(page, "/x/body", "#b", push_url_base=base) }}')
+    return tpl.render(page=page, base=base)
+
+
+def test_pager_push_url_base_empuja_la_url_de_pagina_de_cada_numero():
+    html = _render_base(_page(120, page=2), "/titulatec/admin/tablero?tab=atorados")
+    prev = html.split('id="tt-pager-prev"')[1].split(">")[0]
+    nxt = html.split('id="tt-pager-next"')[1].split(">")[0]
+    assert 'hx-push-url="/titulatec/admin/tablero?tab=atorados&amp;page=1"' in prev
+    assert 'hx-push-url="/titulatec/admin/tablero?tab=atorados&amp;page=3"' in nxt
+    sin_query = _render_base(_page(120, page=1), "/p")
+    assert 'hx-push-url="/p?page=2"' in sin_query
+
+
+def test_pager_sin_push_url_base_no_cambia():
+    html = _render(_page(120, page=2))
+    assert "hx-push-url" not in html
+    assert 'hx-push-url="true"' in _render(_page(120, page=2), push_url=True)
