@@ -1,0 +1,477 @@
+/* ===========================================================================
+   reports.css — Tablero de la jefa de Servicios Escolares (2026-10-14)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-14-titulatec-tablero-design.md §7.
+   Se carga UNA vez en `admin/base_admin.html` (la navegación admin solo
+   morphea #tt-admin-content, nunca el <head>). Todo cuelga de `.tt-rep`
+   (raíz #tt-report-body) salvo la paleta y el tooltip, que vive en <body>.
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto SOLO con
+   --tt-text-1/2/3 (nunca --tt-mute ni el color de una serie); foco con
+   --tt-focus. Reglas de la skill dataviz: barras finas (<= 24 px) con el
+   extremo de dato redondeado 4 px y la base recta; líneas de 2 px; rejilla de
+   línea fina SÓLIDA; 2 px de superficie entre rellenos que se tocan; estado
+   siempre con icono + texto. Solo modo claro (titulatec no tiene oscuro).
+   =========================================================================== */
+
+/* === PALETA ================================================================
+   Identidad de actor (categórica, orden fijo = slots 1-5 de la paleta de
+   referencia). validate_palette.js 2026-10-14: PASS; WARN de contraste en
+   aqua 2.74, amarillo 2.11 y magenta 2.62 -> etiqueta directa visible +
+   tabla gemela (las dos están en cada gráfica).
+   Grupos de etapa: rampa ORDINAL de 5 pasos (--ordinal PASS). Las 8 etapas
+   toman el color de su grupo (una rampa de 8 pasos falla la separación).
+   Series de tendencia: entradas = slot 7 (violeta), liberados = slot 6
+   (verde): no chocan con la identidad de los actores. "#6250d6,#008300"
+   --mode light: PASS (CVD 28.8, normal 35.5, contraste >= 3:1).
+   En :root y no en .tt-rep porque el tooltip (hijo de <body>) también las usa. */
+:root {
+  --tt-rep-a-escolares: #2a78d6;
+  --tt-rep-a-alumno: #eb6834;
+  --tt-rep-a-gtv: #1baf7a;
+  --tt-rep-a-biblioteca: #eda100;
+  --tt-rep-a-computo: #e87ba4;
+
+  --tt-rep-g-solicitud: #86b6ef;
+  --tt-rep-g-documentos: #3987e5;
+  --tt-rep-g-requisitos: #256abf;
+  --tt-rep-g-cita: #184f95;
+  --tt-rep-g-liberado: #0d366b;
+
+  --tt-rep-s-entradas: #6250d6;
+  --tt-rep-s-liberados: #008300;
+
+  --tt-rep-plot-h: 180px;
+}
+
+/* Color por CLASE (sigue a la entidad, nunca a la posición). */
+.tt-rep-c--a-escolares  { --c: var(--tt-rep-a-escolares); }
+.tt-rep-c--a-alumno     { --c: var(--tt-rep-a-alumno); }
+.tt-rep-c--a-gtv        { --c: var(--tt-rep-a-gtv); }
+.tt-rep-c--a-biblioteca { --c: var(--tt-rep-a-biblioteca); }
+.tt-rep-c--a-computo    { --c: var(--tt-rep-a-computo); }
+.tt-rep-c--g-solicitud  { --c: var(--tt-rep-g-solicitud); }
+.tt-rep-c--g-documentos { --c: var(--tt-rep-g-documentos); }
+.tt-rep-c--g-requisitos { --c: var(--tt-rep-g-requisitos); }
+.tt-rep-c--g-cita       { --c: var(--tt-rep-g-cita); }
+.tt-rep-c--g-liberado   { --c: var(--tt-rep-g-liberado); }
+.tt-rep-c--s-requests_new,
+.tt-rep-c--s-enrolled   { --c: var(--tt-rep-s-entradas); }
+.tt-rep-c--s-liberated  { --c: var(--tt-rep-s-liberados); }
+
+/* === RAÍZ Y RECARGA ========================================================
+   Durante un swap la vista conserva el render anterior a opacidad reducida
+   (sin esqueleto, sin salto). La clase la pone reports.js en
+   htmx:beforeRequest y la quita el propio morph (el servidor no la manda). */
+.tt-rep { transition: opacity .15s ease; }
+.tt-rep.is-loading { opacity: .55; transition-delay: .08s; }
+.tt-rep .tt-empty p { color: var(--tt-text-3); }
+.tt-rep-print-head { display: none; }
+
+/* === FILA DE FILTROS =======================================================
+   Una sola fila arriba de todo: rango primero (segmentado), convocatoria y
+   carreras (popovers), Imprimir a la derecha. Sin <select>: titulatec.css le
+   pone padding y fondo a .form-select y le mata la flecha. */
+.tt-rep-filters {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2);
+  margin-bottom: var(--tt-sp-3);
+}
+.tt-rep-seg {
+  display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; max-width: 100%;
+  background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r);
+}
+.tt-rep-seg-item {
+  padding: 5px 11px; border-radius: 9px; white-space: nowrap; text-decoration: none;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2);
+  transition: background var(--tt-dur-1) ease, color var(--tt-dur-1) ease;
+}
+.tt-rep-seg-item:hover { background: var(--tt-mist); color: var(--tt-text-1); }
+.tt-rep-seg-item.is-active { background: var(--tt-ink); color: #fff; }
+.tt-rep-seg-item:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+
+.tt-rep-pop { position: relative; }
+.tt-rep-pop > summary { list-style: none; }
+.tt-rep-pop > summary::-webkit-details-marker { display: none; }
+.tt-rep-pop-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 38px; max-width: 19rem;
+  padding: 0 12px; cursor: pointer; user-select: none;
+  background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r);
+  font-size: var(--tt-fs-200); color: var(--tt-text-1);
+}
+.tt-rep-pop-btn > .bi:first-child { color: var(--tt-text-3); }
+.tt-rep-pop-btn:hover { border-color: var(--tt-text-3); }
+.tt-rep-pop-btn:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-pop-k { color: var(--tt-text-3); font-weight: 500; }
+.tt-rep-pop-v { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tt-rep-pop-chev { font-size: .75rem; color: var(--tt-text-3); transition: transform var(--tt-dur-2) var(--tt-ease-out); }
+.tt-rep-pop[open] > .tt-rep-pop-btn { border-color: var(--tt-text-3); background: var(--tt-mist); }
+.tt-rep-pop[open] .tt-rep-pop-chev { transform: rotate(180deg); }
+/* `position: absolute` (no fixed): dentro de #tt-admin-content (.tt-anim-in)
+   un fixed se ancla al contenedor animado, no a la ventana. */
+.tt-rep-pop-panel {
+  position: absolute; z-index: 40; top: calc(100% + 6px); left: 0;
+  min-width: 18rem; max-width: calc(100vw - 2rem); padding: var(--tt-sp-2);
+  background: var(--tt-paper); border: 1px solid var(--tt-line); border-radius: var(--tt-r);
+  box-shadow: 0 16px 36px -14px rgba(15, 23, 42, .28);
+}
+/* El panel de Carreras es ancho y su botón cae a media fila: anclado al botón
+   se salía por la derecha (medido a 1280: scrollWidth 1573). Se ancla a la FILA
+   de filtros (`.tt-rep-pop--row` deja de ser el bloque contenedor), así nace
+   bajo la fila, desde su borde izquierdo, en cualquier ancho. */
+.tt-rep-pop--row { position: static; }
+.tt-rep-pop-panel--wide { left: 0; width: min(44rem, 100%); padding: var(--tt-sp-3); }
+.tt-rep-pop-help { margin: 0 0 var(--tt-sp-2); font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rep-menu { list-style: none; margin: 0; }
+.tt-rep-menu a {
+  display: flex; align-items: center; gap: var(--tt-sp-2); padding: 8px 10px; border-radius: 8px;
+  font-size: var(--tt-fs-200); color: var(--tt-text-1); text-decoration: none;
+}
+.tt-rep-menu a:hover { background: var(--tt-mist); }
+.tt-rep-menu a.is-active { font-weight: 600; }
+.tt-rep-menu-check { margin-left: auto; color: var(--tt-text-1); }
+.tt-rep-chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 22rem; overflow-y: auto; }
+.tt-rep-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--tt-line); background: var(--tt-mist); color: var(--tt-text-1);
+  font-size: var(--tt-fs-100); font-weight: 600; text-decoration: none;
+  transition: background var(--tt-dur-1) ease, border-color var(--tt-dur-1) ease;
+}
+.tt-rep-chip:hover { border-color: var(--tt-text-3); }
+.tt-rep-chip:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-rep-chip .bi { font-size: .8rem; }
+.tt-rep-chip-n { font-weight: 500; color: var(--tt-text-3); font-variant-numeric: tabular-nums; }
+.tt-rep-chip.is-off { background: var(--tt-paper); color: var(--tt-text-3); }
+.tt-rep-showall {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: var(--tt-sp-3);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-rep-print { margin-left: auto; }
+
+.tt-rep-tabs { margin-bottom: var(--tt-sp-4); }
+.tt-rep-tabs .tt-tab { font-size: var(--tt-fs-200); }
+.tt-rep-tabs .tt-tab:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+
+.tt-rep-notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2) var(--tt-sp-3);
+  margin-bottom: var(--tt-sp-4); font-size: var(--tt-fs-200); color: var(--tt-text-1);
+}
+.tt-rep-notice .tt-rep-showall { margin-top: 0; }
+
+/* === TARJETAS ============================================================== */
+.tt-rep-card { margin-bottom: var(--tt-sp-4); }
+.tt-rep-card-head { margin-bottom: var(--tt-sp-3); }
+.tt-rep-card-title {
+  margin: 0; font-family: var(--tt-display); font-size: var(--tt-fs-400); font-weight: 600;
+  letter-spacing: -.3px; color: var(--tt-text-1);
+}
+.tt-rep-card-sub { margin: 2px 0 0; font-size: var(--tt-fs-100); line-height: 1.4; color: var(--tt-text-3); }
+.tt-rep-grid2 {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-sp-4);
+  align-items: start; margin-bottom: var(--tt-sp-4);
+}
+.tt-rep-grid2 > .tt-rep-card { margin-bottom: 0; }
+.tt-rep-foot { margin: var(--tt-sp-3) 0 0; font-size: var(--tt-fs-100); line-height: 1.45; color: var(--tt-text-2); }
+.tt-rep-foot strong { color: var(--tt-text-1); }
+.tt-rep-empty {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0; padding: var(--tt-sp-4) 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-3);
+}
+
+/* Estado (lento / atorado): SIEMPRE icono + texto; tonos de titulatec.css. */
+.tt-rep-status {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid transparent; white-space: nowrap;
+  font-size: var(--tt-fs-100); font-weight: 600; line-height: 1.4; text-decoration: none;
+}
+.tt-rep-status--crit { background: var(--tt-danger-soft); color: #991B1B; border-color: rgba(220, 38, 38, .25); }
+.tt-rep-status--warn { background: var(--tt-amber-soft); color: var(--tt-amber-ink); border-color: rgba(245, 158, 11, .3); }
+a.tt-rep-status:hover { border-color: currentColor; }
+a.tt-rep-status:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-rep-ico-warn { margin-right: 4px; color: var(--tt-amber-ink); }
+
+/* === STAT TILES ============================================================
+   Reusan .tt-kpi (bandejas) para que se vea TitulaTec; el valor va en
+   cifras proporcionales (no tabular: es un número suelto, no una columna). */
+.tt-rep-kpis {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tt-sp-3);
+  margin-bottom: var(--tt-sp-4);
+}
+.tt-rep-kpi { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px; }
+.tt-rep-kpi-main { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px; }
+.tt-rep-kpi .num { color: var(--tt-text-1); font-size: 1.75rem; }
+.tt-rep-kpi-unit { font-size: var(--tt-fs-200); font-weight: 500; color: var(--tt-text-2); }
+.tt-rep-kpi-ico { margin-right: 6px; font-size: 1.15rem; vertical-align: 3px; color: var(--tt-text-3); }
+.tt-rep-kpi--crit .tt-rep-kpi-ico { color: var(--tt-danger); }
+.tt-rep-kpi-line { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+.tt-rep-kpi-line strong { color: var(--tt-text-1); }
+.tt-rep-kpi-note { font-size: var(--tt-fs-100); line-height: 1.35; color: var(--tt-text-3); }
+.tt-rep-spark { display: block; margin-top: auto; padding-top: 6px; overflow: visible; }
+.tt-rep-spark-line {
+  fill: none; stroke: var(--c); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round;
+}
+a.tt-rep-kpi:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+
+/* === ALERTAS =============================================================== */
+.tt-rep-alerts { list-style: none; margin: 0; padding: 0; }
+.tt-rep-alerts > li + li { border-top: 1px solid var(--tt-line-soft); }
+.tt-rep-alert {
+  display: flex; align-items: center; gap: var(--tt-sp-3); padding: 10px 8px; margin: 0 -8px;
+  border-radius: var(--tt-r-sm); color: var(--tt-text-1); text-decoration: none;
+  transition: background var(--tt-dur-1) ease;
+}
+.tt-rep-alert:hover { background: var(--tt-mist); }
+.tt-rep-alert:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-alert .tt-rep-status { min-width: 6.25rem; justify-content: center; }
+.tt-rep-alert-text { flex: 1; min-width: 0; font-size: var(--tt-fs-200); line-height: 1.4; }
+.tt-rep-alert-go { color: var(--tt-text-3); transition: transform var(--tt-dur-2) var(--tt-ease-out); }
+.tt-rep-alert:hover .tt-rep-alert-go { transform: translateX(2px); color: var(--tt-text-1); }
+.tt-rep-ok {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-2);
+}
+.tt-rep-ok .bi { color: #166534; }
+
+/* === BARRAS HORIZONTALES ===================================================
+   Columna de etiquetas compartida por todas las filas (subgrid): las barras
+   arrancan en la misma línea base. La fila entera es la liga (área de toque
+   mayor que la marca). Valor en la punta: el track reserva 3.25rem a la
+   derecha para que una barra al 100 % no empuje su número fuera. */
+.tt-rep-hbars {
+  display: grid; grid-template-columns: fit-content(13rem) minmax(0, 1fr); column-gap: var(--tt-sp-3);
+  list-style: none; margin: 0; padding: 0;
+}
+.tt-rep-hrow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+.tt-rep-hlink {
+  display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
+  min-height: 34px; padding: 3px 0; border-radius: var(--tt-r-sm); color: inherit; text-decoration: none;
+}
+a.tt-rep-hlink { cursor: pointer; transition: background var(--tt-dur-1) ease; }
+a.tt-rep-hlink:hover { background: var(--tt-mist); }
+a.tt-rep-hlink:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-hlabel { padding-left: 6px; font-size: var(--tt-fs-200); line-height: 1.25; color: var(--tt-text-2); }
+a.tt-rep-hlink:hover .tt-rep-hlabel { color: var(--tt-text-1); }
+.tt-rep-htrack { display: flex; align-items: center; gap: var(--tt-sp-2); min-width: 0; padding-right: 3.25rem; }
+.tt-rep-bar {
+  flex: none; height: 14px; min-width: 3px; border-radius: 0 4px 4px 0;
+  background: var(--c, var(--tt-text-3)); transition: filter var(--tt-dur-1) ease;
+}
+.tt-rep-bar.is-zero { min-width: 0; }
+a.tt-rep-hlink:hover .tt-rep-bar { filter: brightness(1.12) saturate(1.05); }
+.tt-rep-hval {
+  flex: none; font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.tt-rep-hextra { grid-column: 2; padding: 0 0 6px; }
+
+/* === BARRA APILADA (Carreras) ==============================================
+   El hueco de 2 px entre segmentos es SUPERFICIE (sombra interior del color
+   de la tarjeta), no un borde: no agrega tinta. */
+.tt-rep-stack { display: flex; height: 14px; min-width: 0; border-radius: 0 4px 4px 0; overflow: hidden; }
+.tt-rep-seg { flex: none; height: 100%; background: var(--c); box-shadow: inset -2px 0 0 var(--tt-paper); }
+.tt-rep-seg:last-child { box-shadow: none; }
+.tt-rep-stack-empty { border-radius: 4px; background: var(--tt-line-soft); }
+
+/* === LEYENDA =============================================================== */
+.tt-rep-legend {
+  display: flex; flex-wrap: wrap; gap: 4px var(--tt-sp-4); list-style: none;
+  margin: var(--tt-sp-3) 0 0; padding: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rep-card-head + .tt-rep-legend { margin: -4px 0 var(--tt-sp-3); }
+.tt-rep-legend li { display: inline-flex; align-items: center; }
+.tt-rep-legend-val { margin-left: 4px; color: var(--tt-text-1); font-variant-numeric: tabular-nums; }
+.tt-rep-key { flex: none; display: inline-block; margin-right: 6px; background: var(--c, var(--tt-text-3)); }
+.tt-rep-key--rect { width: 10px; height: 10px; border-radius: 2px; }
+.tt-rep-key--line { width: 16px; height: 2px; border-radius: 1px; }
+
+/* === LÍNEAS (un eje) =======================================================
+   El SVG se estira a lo ancho (preserveAspectRatio="none") con trazo que no
+   escala; marcas de eje y puntos del crosshair son HTML posicionado con los
+   porcentajes del servidor, así el texto nunca se deforma. */
+.tt-rep-linechart {
+  display: grid; grid-template-columns: 2.5rem minmax(0, 1fr);
+  grid-template-rows: var(--tt-rep-plot-h) auto;
+}
+.tt-rep-yaxis { position: relative; grid-column: 1; grid-row: 1; }
+.tt-rep-ytick {
+  position: absolute; right: 8px; transform: translateY(-50%); line-height: 1;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3); font-variant-numeric: tabular-nums;
+}
+.tt-rep-plot { position: relative; grid-column: 2; grid-row: 1; cursor: crosshair; border-radius: 4px; }
+.tt-rep-plot:focus { outline: none; }
+.tt-rep-plot:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 4px; }
+.tt-rep-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.tt-rep-grid line { stroke: var(--tt-line); stroke-width: 1; }
+.tt-rep-line { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.tt-rep-xaxis { position: relative; grid-column: 2; grid-row: 2; height: 1.6rem; }
+.tt-rep-xtick {
+  position: absolute; top: 6px; white-space: nowrap; line-height: 1;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-rep-xtick.is-middle { transform: translateX(-50%); }
+.tt-rep-xtick.is-end { transform: translateX(-100%); }
+.tt-rep-xhair {
+  position: absolute; top: 0; bottom: 0; width: 0; pointer-events: none;
+  border-left: 1px solid var(--tt-mute);
+}
+/* Punto de 10 px con anillo de 2 px del color de la superficie. */
+.tt-rep-xdot {
+  position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
+  pointer-events: none; background: var(--c); box-shadow: 0 0 0 2px var(--tt-paper);
+}
+
+/* === CALENDARIO ============================================================
+   Secuencial: 0 = --tt-line-soft; 1-5 la rampa de 5 pasos. Texto oscuro en
+   las cubetas claras (1-2) y blanco en las oscuras (3-5): >= 4.5:1 en ambas. */
+.tt-rep-cal { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 2px; }
+.tt-rep-cal th {
+  padding: 0 0 4px; text-align: center; font-size: var(--tt-fs-100); font-weight: 600;
+  color: var(--tt-text-3);
+}
+.tt-rep-cal th.tt-rep-cal-week { width: 3.75rem; padding: 0 8px 0 0; text-align: right; font-weight: 500; white-space: nowrap; }
+.tt-rep-cal td { padding: 0; }
+.tt-rep-cell {
+  display: flex; flex-direction: column; justify-content: space-between; height: 46px;
+  padding: 5px 7px; border-radius: 4px; text-decoration: none; color: var(--tt-text-1);
+  transition: box-shadow var(--tt-dur-1) ease;
+}
+.tt-rep-cell-day { font-size: var(--tt-fs-100); line-height: 1; }
+.tt-rep-cell-n { align-self: flex-end; font-size: var(--tt-fs-300); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.tt-rep-bin-0 { background: var(--tt-line-soft); color: var(--tt-text-3); }
+.tt-rep-bin-1 { background: var(--tt-rep-g-solicitud); color: var(--tt-text-1); }
+.tt-rep-bin-2 { background: var(--tt-rep-g-documentos); color: var(--tt-text-1); }
+.tt-rep-bin-3 { background: var(--tt-rep-g-requisitos); color: #fff; }
+.tt-rep-bin-4 { background: var(--tt-rep-g-cita); color: #fff; }
+.tt-rep-bin-5 { background: var(--tt-rep-g-liberado); color: #fff; }
+.tt-rep-cell.is-out { background: transparent; }
+.tt-rep-cell.is-today { box-shadow: inset 0 0 0 2px var(--tt-text-2); }
+a.tt-rep-cell:hover { box-shadow: inset 0 0 0 2px var(--tt-ink); }
+a.tt-rep-cell:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-rep-cell.is-selected { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-rep-scale {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--tt-sp-3);
+  margin-top: var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rep-scale-label { color: var(--tt-text-3); }
+.tt-rep-scale-step { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.tt-rep-scale-sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; }
+.tt-rep-scale-sw.tt-rep-bin-0 { box-shadow: inset 0 0 0 1px var(--tt-line); }
+
+.tt-rep-day { margin-top: var(--tt-sp-4); padding-top: var(--tt-sp-3); border-top: 1px solid var(--tt-line-soft); }
+.tt-rep-day-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
+.tt-rep-day-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rep-daylist { list-style: none; margin: 0; padding: 0; }
+.tt-rep-daylist > li + li { border-top: 1px solid var(--tt-line-soft); }
+.tt-rep-daylink {
+  display: flex; align-items: center; gap: var(--tt-sp-3); padding: 8px 6px; border-radius: var(--tt-r-sm);
+  color: var(--tt-text-1); text-decoration: none; transition: background var(--tt-dur-1) ease;
+}
+.tt-rep-daylink:hover { background: var(--tt-mist); }
+.tt-rep-daylink:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rep-daylink > .bi { margin-left: auto; color: var(--tt-text-3); }
+.tt-rep-daytext { display: flex; flex-direction: column; min-width: 0; }
+.tt-rep-dayname { font-size: var(--tt-fs-200); font-weight: 600; }
+.tt-rep-daymeta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* === RITMO: resumen ======================================================== */
+.tt-rep-pace { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--tt-sp-4); }
+.tt-rep-pace-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tt-rep-pace-item + .tt-rep-pace-item { padding-left: var(--tt-sp-4); border-left: 1px solid var(--tt-line-soft); }
+.tt-rep-pace-big {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 6px;
+  font-family: var(--tt-display); font-size: 1.6rem; font-weight: 600; line-height: 1.15;
+  letter-spacing: -.5px; color: var(--tt-text-1);
+}
+.tt-rep-pace-big .tt-rep-kpi-unit { font-family: var(--tt-ui); letter-spacing: 0; }
+
+/* === TABLA GEMELA ========================================================== */
+.tt-rep-table { margin-top: var(--tt-sp-3); }
+.tt-rep-table > summary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 0; cursor: pointer; list-style: none;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2);
+}
+.tt-rep-table > summary::-webkit-details-marker { display: none; }
+.tt-rep-table > summary:hover { color: var(--tt-text-1); }
+.tt-rep-table > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 4px; }
+.tt-rep-table[open] > summary { margin-bottom: 6px; }
+.tt-rep-ttable { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-1); }
+.tt-rep-ttable th { font-weight: 600; color: var(--tt-text-3); }
+.tt-rep-ttable .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* === TOOLTIP ===============================================================
+   Hijo de <body> (lo crea reports.js una vez): `position: fixed` dentro de
+   #tt-admin-content no funciona (su animación .tt-anim-in lo vuelve el bloque
+   contenedor). Valor primero, etiqueta después; llaves de línea, no cajas. */
+.tt-rep-tip {
+  position: fixed; z-index: 1090; left: 0; top: 0; max-width: 18rem; padding: 8px 10px;
+  pointer-events: none; background: var(--tt-paper); border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r-sm); box-shadow: 0 12px 28px -12px rgba(15, 23, 42, .32);
+  font-family: var(--tt-ui); font-size: var(--tt-fs-100); line-height: 1.35; color: var(--tt-text-2);
+}
+.tt-rep-tip-val { display: block; font-size: var(--tt-fs-300); font-weight: 700; color: var(--tt-text-1); }
+.tt-rep-tip-label, .tt-rep-tip-text { display: block; }
+.tt-rep-tip-head { display: block; margin-bottom: 4px; font-weight: 600; color: var(--tt-text-2); }
+.tt-rep-tip-row { display: flex; align-items: center; gap: 8px; }
+.tt-rep-tip-row strong {
+  min-width: 2.5ch; text-align: right; font-size: var(--tt-fs-200); color: var(--tt-text-1);
+  font-variant-numeric: tabular-nums;
+}
+.tt-rep-tip-key { flex: none; width: 14px; height: 2px; border-radius: 1px; background: var(--c, var(--tt-text-3)); }
+
+/* === RESPONSIVE ============================================================ */
+@media (max-width: 1199.98px) {
+  .tt-rep-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 991.98px) {
+  .tt-rep-grid2 { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-pace { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-pace-item + .tt-rep-pace-item { padding: var(--tt-sp-3) 0 0; border-left: 0; border-top: 1px solid var(--tt-line-soft); }
+}
+@media (max-width: 575.98px) {
+  .tt-rep-kpis { grid-template-columns: minmax(0, 1fr); }
+  .tt-rep-hbars { grid-template-columns: fit-content(8.5rem) minmax(0, 1fr); }
+  .tt-rep-print { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tt-rep, .tt-rep-bar, .tt-rep-alert-go, .tt-rep-pop-chev { transition: none !important; }
+}
+
+/* === IMPRESIÓN (D4) ========================================================
+   Acotado con `body:has(#tt-report-body)`: esta hoja se carga en TODA vista
+   admin y no debe cambiar cómo se imprime ninguna otra. Fuera menú, barra
+   superior, filtros, pestañas y botones; dentro la cabecera de impresión.
+   Tarjetas enteras (break-inside: avoid) y colores tal cual. Las tablas
+   gemelas salen solo si la jefa las abrió. */
+@media print {
+  body:has(#tt-report-body) { background: #fff; }
+  body:has(#tt-report-body) .tt-admin { display: block; min-height: 0; }
+  body:has(#tt-report-body) .tt-admin .side,
+  body:has(#tt-report-body) .tt-admin-topbar,
+  body:has(#tt-report-body) .tt-admin-overlay { display: none !important; }
+  body:has(#tt-report-body) .tt-admin .main { background: #fff; }
+  body:has(#tt-report-body) #tt-admin-content { max-width: none; animation: none !important; transform: none !important; }
+  body:has(#tt-report-body) #tt-admin-content > .px-4 { padding-left: 0 !important; padding-right: 0 !important; }
+
+  .tt-rep { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .tt-rep.is-loading { opacity: 1; }
+  .tt-rep-print-head {
+    display: block; margin-bottom: var(--tt-sp-3); padding-bottom: var(--tt-sp-2);
+    border-bottom: 1px solid var(--tt-line);
+  }
+  .tt-rep-print-title { font-family: var(--tt-display); font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+  .tt-rep-print-meta { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+  .tt-rep-filters, .tt-rep-tabs, [data-tt-print], .tt-rep-xhair, .tt-rep-xdot,
+  .tt-rep-alert-go, #tt-rep-day-close, .tt-rep-tip { display: none !important; }
+  .tt-rep-table:not([open]) { display: none; }
+  .tt-rep-table[open] > summary { display: none; }
+  .tt-rep-card, .tt-rep-kpi, .tt-rep-notice, .tt-rep-pace { break-inside: avoid; box-shadow: none; }
+  .tt-rep-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tt-sp-2); }
+  .tt-rep-kpi { padding: 10px 12px; }
+  .tt-rep-grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--tt-sp-3); }
+  .tt-rep-pace { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tt-rep-pace-item + .tt-rep-pace-item { padding: 0 0 0 var(--tt-sp-3); border-top: 0; border-left: 1px solid var(--tt-line-soft); }
+  /* Solo el subrayado: `color: inherit` aquí le ganaba al blanco de las
+     celdas oscuras del calendario (medido en la vista de impresión). */
+  .tt-rep a { text-decoration: none; }
+  .tt-rep-daylink > .bi { display: none; }
+  a.tt-rep-hlink:hover, .tt-rep-alert:hover { background: none; }
+}

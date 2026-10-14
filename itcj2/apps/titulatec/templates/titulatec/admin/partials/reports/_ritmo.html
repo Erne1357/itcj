@@ -1,0 +1,124 @@
+{# Pestaña Ritmo (spec §5.2): tendencia.
+
+   - Resumen del ritmo y el pronóstico (con la frase obligatoria, spec §4.5).
+   - «Entradas y salidas por día»: solicitudes nuevas contra liberados en el
+     rango, UN eje, crosshair que se ajusta al día más cercano.
+   - «Acumulado»: inscritos (procesos creados) contra liberados desde el
+     inicio de la convocatoria.
+   - Calendario de liberaciones (heatmap lun–vie × semanas); un día abre la
+     lista de quiénes se liberaron ese día (carrera, quién dictaminó).
+   - «Liberados por carrera» en el rango (una serie, un color).
+   Colores de serie: entradas = violeta, liberados = verde (slots 7 y 6 de la
+   paleta de referencia: los 1-5 son la identidad de los actores de Panorama y
+   el color sigue a la entidad en todo el tablero). Validado con
+   `validate_palette.js "#6250d6,#008300" --mode light`: PASS.
+   Contrato de llaves: `report_service._ctx_ritmo`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import nav, chart_card, hbars, line_chart, calendar_heat, legend, table_twin %}
+{%- set r = ritmo %}
+{%- set rango = ("los últimos " ~ filters.range_days ~ " días") if filters.range_days else "toda la convocatoria" %}
+
+<section class="tt-card tt-rep-card tt-rep-pace" id="tt-rep-pace" aria-labelledby="tt-rep-pace-title">
+  <h2 class="visually-hidden" id="tt-rep-pace-title">Ritmo y pronóstico</h2>
+  <div class="tt-rep-pace-item">
+    <span class="tt-kicker">Ritmo de liberación</span>
+    <span class="tt-rep-pace-big">{{ r.pace.text }} <span class="tt-rep-kpi-unit">por día hábil</span></span>
+    <span class="tt-rep-kpi-note">Promedio de los últimos {{ r.pace.window }} días hábiles.</span>
+  </div>
+  <div class="tt-rep-pace-item">
+    <span class="tt-kicker">Pendientes en tubería</span>
+    <span class="tt-rep-pace-big">{{ r.pace.pending }}</span>
+    <span class="tt-rep-kpi-note">Todo lo que aún no se libera.</span>
+  </div>
+  <div class="tt-rep-pace-item">
+    <span class="tt-kicker">Pronóstico para vaciarla</span>
+    <span class="tt-rep-pace-big">{{ r.pace.forecast_text }}</span>
+    <span class="tt-rep-kpi-note">{{ r.pace.note|capitalize }}.</span>
+  </div>
+</section>
+
+{%- set d_new = r.daily.series|selectattr("key", "equalto", "requests_new")|first %}
+{%- set d_lib = r.daily.series|selectattr("key", "equalto", "liberated")|first %}
+{%- set daily_items = [] %}
+{%- for s in r.daily.series %}{% set _ = daily_items.append({"c": "s-" ~ s.key, "label": s.label, "value": s.sum}) %}{% endfor %}
+{% call chart_card("tt-rep-daily", "Entradas y salidas por día", "Solicitudes nuevas contra liberados en " ~ rango ~ ". Pasa el cursor o usa las flechas para leer cada día.") %}
+  {{ legend("tt-rep-daily-legend", daily_items, "line") }}
+  {{ line_chart("tt-rep-daily-chart", r.daily, "Solicitudes nuevas y liberados por día en " ~ rango, "sum") }}
+  <p class="tt-rep-foot">
+    En {{ rango }} entraron {{ d_new.sum }} {{ "solicitud" if d_new.sum == 1 else "solicitudes" }} y salieron {{ d_lib.sum }} {{ "liberado" if d_lib.sum == 1 else "liberados" }}.
+    {%- if d_new.sum > d_lib.sum %} <span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>La cola crece</span>{% endif %}
+  </p>
+  {% call table_twin("tt-rep-daily-table", "Solicitudes nuevas y liberados por día", ["Día"] + (r.daily.series|map(attribute="label")|list)) %}
+    {%- for d in r.daily.days %}
+    <tr><td>{{ d.label }}</td>{% for v in d["values"] %} <td class="num">{{ v.value }}</td>{% endfor %}</tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}
+
+{%- set cum_items = [] %}
+{%- for s in r.cumulative.series %}{% set _ = cum_items.append({"c": "s-" ~ s.key, "label": s.label, "value": s.last}) %}{% endfor %}
+{%- set desde = r.cumulative.days[0].label if r.cumulative.days else "" %}
+{% call chart_card("tt-rep-cumulative", "Acumulado de la convocatoria", "Inscritos (procesos creados) contra liberados, desde el " ~ desde ~ ". La distancia entre las dos líneas es lo que falta por liberar.") %}
+  {{ legend("tt-rep-cumulative-legend", cum_items, "line") }}
+  {{ line_chart("tt-rep-cumulative-chart", r.cumulative, "Inscritos y liberados acumulados desde el " ~ desde, "last") }}
+  {% call table_twin("tt-rep-cumulative-table", "Inscritos y liberados acumulados por día", ["Día"] + (r.cumulative.series|map(attribute="label")|list)) %}
+    {%- for d in r.cumulative.days %}
+    <tr><td>{{ d.label }}</td>{% for v in d["values"] %} <td class="num">{{ v.value }}</td>{% endfor %}</tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}
+
+<div class="tt-rep-grid2">
+  {% call chart_card("tt-rep-calendar", "Calendario de liberaciones", "Liberados por día hábil desde el " ~ desde ~ ". Toca un día para ver quiénes.") %}
+    {{ calendar_heat("tt-rep-cal", r.calendar, "Liberados por día hábil") }}
+    {% if r.selected_day %}
+    <div class="tt-rep-day" id="tt-rep-day">
+      <div class="tt-rep-day-head">
+        <h3 class="tt-rep-day-title">Liberados el {{ r.selected_day_text }}</h3>
+        <a class="btn btn-sm tt-btn-ghost" id="tt-rep-day-close" {{ nav(r.clear_day_url, r.clear_day_body_url) }}><i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Cerrar</span></a>
+      </div>
+      {% if r.day_list %}
+      {#- Lista de dos renglones y no tabla: en media tarjeta 4 columnas se
+          desbordaban (medido a 1280). Cada fila abre el expediente como el menú
+          lateral (#tt-admin-content). #}
+      <ol class="tt-rep-daylist">
+        {%- for it in r.day_list %}
+        <li id="tt-rep-day-{{ it.id }}">
+          <a class="tt-rep-daylink" href="{{ it.href }}" hx-get="{{ it.href }}" hx-target="#tt-admin-content"
+             hx-select="#tt-admin-content" hx-swap="morph:outerHTML" hx-push-url="true">
+            <span class="tt-rep-daytext">
+              <span class="tt-rep-dayname">{{ it.label }}</span>
+              <span class="tt-rep-daymeta">{{ it.program }}{% if it.officer and it.officer != "—" %} · Dictaminó {{ it.officer }}{% endif %}</span>
+            </span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i><span class="visually-hidden">Abrir expediente</span>
+          </a>
+        </li>
+        {%- endfor %}
+      </ol>
+      {% else %}
+      <p class="tt-rep-empty mb-0"><i class="bi bi-calendar" aria-hidden="true"></i>Nadie se liberó ese día.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% call table_twin("tt-rep-calendar-table", "Liberados por día hábil", ["Día", "Liberados"]) %}
+      {%- for week in r.calendar.weeks %}{% for c in week %}{% if c.in_range and c.n %}
+      <tr><td>{{ c.label }}</td> <td class="num">{{ c.n }}</td></tr>
+      {%- endif %}{% endfor %}{% endfor %}
+      {%- if not r.calendar.total %}<tr><td colspan="2">Sin liberaciones en el calendario.</td></tr>{% endif %}
+    {% endcall %}
+  {% endcall %}
+
+  {% call chart_card("tt-rep-by-program", "Liberados por carrera", "En " ~ rango ~ ", la que más arriba.") %}
+    {% if r.by_program %}
+    {{ hbars(r.by_program, "tt-rep-bp", "Liberados por carrera", cfixed="s-liberated", idkey="id", lkey="name") }}
+    {% else %}
+    <p class="tt-rep-empty"><i class="bi bi-inbox" aria-hidden="true"></i>Ningún liberado en {{ rango }}.</p>
+    {% endif %}
+    {% call table_twin("tt-rep-by-program-table", "Liberados por carrera", ["Carrera", "Liberados"]) %}
+      {%- for b in r.by_program %}
+      <tr><td>{{ b.name }}</td> <td class="num">{{ b.value }}</td></tr>
+      {%- else %}
+      <tr><td colspan="2">Ningún liberado en {{ rango }}.</td></tr>
+      {%- endfor %}
+    {% endcall %}
+  {% endcall %}
+</div>
