@@ -37,65 +37,81 @@ def _tech_team(user_roles: set):
     return tech_team(user_roles)
 
 
-def _query_tech_tickets(user_id: int, user_roles: set, tab: str, hist: str = "all",
-                        search: str = None, db=None) -> list:
-    """Devuelve la lista de tickets para una pestaña del dashboard de técnico.
+_TABS = ("assigned", "inProgress", "team", "resolved")
 
-    Reemplaza los 4 ``loadX`` del JS por consultas server-side (mismo
-    ``ticket_service.list_tickets`` que llamaba el endpoint API). ``resolved``
-    aplica el filtro de fecha (hist) sobre ``resolved_at`` (prefijo de fecha).
 
-    ``db``: sesión a reusar (la página completa arma las 4 pestañas en UNA
-    sesión, perf 2026-10-07: así lo que `list_tickets` recuerda por sesión,
-    como la secretaría del Centro de Cómputo, se consulta una vez). Sin ella,
-    abre y cierra la suya.
+def _query_tech_tabs(user_id: int, user_roles: set, tabs, hist: str = "all",
+                     search: str = None, db=None) -> dict:
+    """Listas de las pestañas ``tabs`` del dashboard de técnico: ``{tab: [ticket]}``.
+
+    Todas salen de UNA sola consulta (``ticket_service.list_ticket_sections``,
+    mismos filtros que las ``list_tickets`` que reemplaza): antes la página
+    completa hacía 4 listados, cada uno con su ``count`` y su juego de cargas de
+    relaciones (36 y 46 sentencias en total medidas en dev con 7680/7681; ahora
+    5, y las listas son 1). Cada ticket es el diccionario de
+    ``Ticket.to_card_dict()``: lo que pinta la tarjeta, no el ``to_dict`` entero.
+
+    ``resolved`` aplica el filtro de fecha (hist) sobre ``resolved_at`` (prefijo
+    de fecha) DESPUÉS del límite de 50, como siempre: así el historial de una
+    semana se arma de los 50 más recientes, no de todos los de esa semana.
+
+    ``db``: sesión a reusar (la página completa arma las pestañas en UNA sesión:
+    así lo que se recuerda por sesión, como la secretaría del Centro de Cómputo,
+    se consulta una vez). Sin ella, abre y cierra la suya.
     """
     from datetime import date, timedelta
 
     from itcj2.apps.helpdesk.services import ticket_service
     from itcj2.database import SessionLocal
 
-    own = db is None
-    _db = SessionLocal() if own else db
-    try:
-        if tab == "assigned":
-            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
-                                              assigned_to_me=True, status=["ASSIGNED"], per_page=100)
-            return res["tickets"]
-        if tab == "inProgress":
-            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
-                                              assigned_to_me=True, status=["IN_PROGRESS"], per_page=100)
-            return res["tickets"]
-        if tab == "team":
-            team = _tech_team(user_roles)
-            if not team:
-                return []
-            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
-                                              assigned_to_team=team, status=["ASSIGNED"],
-                                              search=search or None, per_page=100)
-            return res["tickets"]
-        if tab == "resolved":
-            res = ticket_service.list_tickets(_db, user_id=user_id, user_roles=user_roles,
-                                              assigned_to_me=True,
-                                              status=["RESOLVED_SUCCESS", "RESOLVED_FAILED", "CLOSED"],
-                                              search=search or None, per_page=50)
-            tickets = res["tickets"]
-            today = date.today()
-            cutoff = None
-            if hist == "today":
-                cutoff = today
-            elif hist == "week":
-                cutoff = today - timedelta(days=7)
-            elif hist == "month":
-                cutoff = today - timedelta(days=30)
-            if cutoff is not None:
-                cs = cutoff.isoformat()
-                tickets = [t for t in tickets if (t.get("resolved_at") or "")[:10] >= cs]
-            return tickets[:20]
-        return []
-    finally:
-        if own:
-            _db.close()
+    secciones = {}
+    if "assigned" in tabs:
+        secciones["assigned"] = {"assigned_to_me": True, "status": ["ASSIGNED"], "limit": 100}
+    if "inProgress" in tabs:
+        secciones["inProgress"] = {"assigned_to_me": True, "status": ["IN_PROGRESS"], "limit": 100}
+    if "team" in tabs:
+        team = _tech_team(user_roles)
+        if team:
+            secciones["team"] = {"assigned_to_team": team, "status": ["ASSIGNED"],
+                                 "search": search or None, "limit": 100}
+    if "resolved" in tabs:
+        secciones["resolved"] = {"assigned_to_me": True,
+                                 "status": ["RESOLVED_SUCCESS", "RESOLVED_FAILED", "CLOSED"],
+                                 "search": search or None, "limit": 50}
+
+    listas = {}
+    if secciones:
+        own = db is None
+        _db = SessionLocal() if own else db
+        try:
+            listas = ticket_service.list_ticket_sections(_db, user_id, user_roles, secciones)
+        finally:
+            if own:
+                _db.close()
+
+    out = {tab: listas.get(tab, []) for tab in tabs}
+    if "resolved" in out:
+        tickets = out["resolved"]
+        today = date.today()
+        cutoff = None
+        if hist == "today":
+            cutoff = today
+        elif hist == "week":
+            cutoff = today - timedelta(days=7)
+        elif hist == "month":
+            cutoff = today - timedelta(days=30)
+        if cutoff is not None:
+            cs = cutoff.isoformat()
+            tickets = [t for t in tickets if (t.get("resolved_at") or "")[:10] >= cs]
+        out["resolved"] = tickets[:20]
+    return out
+
+
+def _query_tech_tickets(user_id: int, user_roles: set, tab: str, hist: str = "all",
+                        search: str = None, db=None) -> list:
+    """Lista de tickets de UNA pestaña (el fragmento HTMX que cada una recarga).
+    Pestaña desconocida → ``[]``. Ver ``_query_tech_tabs``."""
+    return _query_tech_tabs(user_id, user_roles, (tab,), hist, search, db)[tab]
 
 
 _BADGE_MAP = {
@@ -158,11 +174,12 @@ def dashboard(
             w_perms = get_warehouse_perms_via_helpdesk(_db, user_id)
             can_consume_warehouse = "warehouse.api.consume" in w_perms
 
+        tabs = _query_tech_tabs(user_id, user_roles, _TABS, hist="week", db=_db)
         listas = {
-            "t_assigned": _query_tech_tickets(user_id, user_roles, "assigned", db=_db),
-            "t_inprogress": _query_tech_tickets(user_id, user_roles, "inProgress", db=_db),
-            "t_team": _query_tech_tickets(user_id, user_roles, "team", db=_db),
-            "t_resolved": _query_tech_tickets(user_id, user_roles, "resolved", "week", db=_db),
+            "t_assigned": tabs["assigned"],
+            "t_inprogress": tabs["inProgress"],
+            "t_team": tabs["team"],
+            "t_resolved": tabs["resolved"],
         }
     finally:
         _db.close()

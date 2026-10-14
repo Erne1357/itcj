@@ -365,6 +365,59 @@ class Ticket(Base):
 
         return data
 
+    def to_card_dict(self):
+        """Lo que pinta `helpdesk/_components/ticket_card.html` y nada más.
+
+        Subconjunto de `to_dict(include_relations=True)`: mismas claves y mismos
+        valores, con los objetos anidados reducidos a lo que la tarjeta lee
+        (`.id` / `.name`, o `.ticket_number` en `split_from`). Se queda sin
+        colaboradores, equipos, departamento, quién actualizó y quién resolvió:
+        la tarjeta no los lee y cada uno cuesta una consulta en lote por lista.
+        Quien llama carga las relaciones con `ticket_service._CARD_LOAD_OPTIONS`
+        (un solo join); sin ellas cada acceso sería una consulta por ticket.
+
+        `test_technician_dashboard_queries` fija las dos cosas: que sea
+        subconjunto de `to_dict` y que la tarjeta no lea claves fuera de aquí.
+        """
+        return {
+            'id': self.id,
+            'ticket_number': self.ticket_number,
+            'title': self.title,
+            'description': self.description,
+            'location': self.location,
+            'area': self.area,
+            'priority': self.priority,
+            'status': self.status,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
+            'resolution_notes': self.resolution_notes,
+            'rating_attention': self.rating_attention,
+            'rating_speed': self.rating_speed,
+            'rating_efficiency': self.rating_efficiency,
+            'rating_comment': self.rating_comment,
+            'assigned_to_team': self.assigned_to_team,
+            'requester': {
+                'id': self.requester.id,
+                'name': self.requester.full_name,
+            } if self.requester else None,
+            'created_by': {
+                'id': self.created_by_user.id,
+                'name': self.created_by_user.full_name,
+            } if self.created_by_user else None,
+            'assigned_to': {
+                'id': self.assigned_to.id,
+                'name': self.assigned_to.full_name,
+            } if self.assigned_to else None,
+            'category': {
+                'id': self.category.id,
+                'name': self.category.name,
+            } if self.category else None,
+            'split_from': {
+                'id': self.split_from.id,
+                'ticket_number': self.split_from.ticket_number,
+            } if self.split_from else None,
+        }
+
     def _get_rating_category(self, rating):
         if rating is None:
             return None

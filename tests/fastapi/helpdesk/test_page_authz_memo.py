@@ -58,10 +58,26 @@ def test_un_rollback_olvida_la_secretaria(db_session):
 def test_tres_listas_en_la_misma_sesion_piden_la_secretaria_una_vez(db_session):
     from itcj2.apps.helpdesk.services.ticket_service import list_tickets
 
+    # Un usuario SIN rol de acceso total: es quien tiene que averiguar si es la
+    # secretaría (admin y técnicos ven todo y ya no lo preguntan, ver abajo).
     with _contar_posiciones() as espia:
         for status in ("PENDING", "ASSIGNED", "IN_PROGRESS"):
-            list_tickets(db_session, user_id=999_999_001, user_roles=["admin"], status=status)
+            list_tickets(db_session, user_id=999_999_001, user_roles=["staff"], status=status)
     assert espia.call_count == 1
+
+
+def test_admin_y_tecnicos_no_piden_la_secretaria(db_session):
+    """Las tres ramas de acceso total (admin, secretaría del Centro de Cómputo,
+    técnicos) daban lo mismo: los roles se revisan primero y quien los tiene se
+    ahorra la consulta de puestos (rendimiento 2026-10-14)."""
+    from itcj2.apps.helpdesk.services.ticket_service import list_ticket_sections, list_tickets
+
+    seccion = {"a": {"status": ["ASSIGNED"], "limit": 10}}
+    with _contar_posiciones() as espia:
+        for roles in (["admin"], ["tech_soporte"], ["tech_desarrollo"]):
+            list_tickets(db_session, user_id=999_999_001, user_roles=roles, status="ASSIGNED")
+            list_ticket_sections(db_session, 999_999_001, roles, seccion)
+    assert espia.call_count == 0
 
 
 def test_una_sesion_falsa_no_memoriza_y_consulta_como_siempre():
@@ -143,16 +159,36 @@ def test_el_dashboard_del_tecnico_no_corre_en_el_event_loop():
 
 
 def test_las_pestanas_reusan_la_sesion_que_reciben():
-    """La página completa arma las 4 pestañas en UNA sesión: con `db` no se
-    abre otra (así la secretaría, memorizada por sesión, se pide una vez)."""
+    """La página completa arma las 4 pestañas en UNA sesión y UNA consulta
+    (`list_ticket_sections`): con `db` no se abre otra. El fragmento de una
+    pestaña (HTMX) también reusa la que recibe."""
     from itcj2.apps.helpdesk.pages import technician
 
     db = MagicMock()
+    secciones = {"assigned": [{"id": 1}], "inProgress": [], "team": [], "resolved": []}
     with patch("itcj2.database.SessionLocal",
                side_effect=AssertionError("no debe abrir otra sesión")), \
-         patch("itcj2.apps.helpdesk.services.ticket_service.list_tickets",
-               return_value={"tickets": [{"id": 1}]}) as listar:
-        for tab in ("assigned", "inProgress", "resolved"):
-            technician._query_tech_tickets(10, {"tech_soporte"}, tab, db=db)
+         patch("itcj2.apps.helpdesk.services.ticket_service.list_ticket_sections",
+               return_value=secciones) as listar:
+        todas = technician._query_tech_tabs(10, {"tech_soporte"}, technician._TABS,
+                                            hist="week", db=db)
+        una = technician._query_tech_tickets(10, {"tech_soporte"}, "assigned", db=db)
+    assert listar.call_count == 2                 # 4 pestañas = 1 llamada; el fragmento, otra
     assert all(c.args[0] is db for c in listar.call_args_list)
+    assert set(listar.call_args_list[0].args[3]) == {"assigned", "inProgress", "team", "resolved"}
+    assert set(listar.call_args_list[1].args[3]) == {"assigned"}
+    assert todas["assigned"] == una == [{"id": 1}]
     db.close.assert_not_called()
+
+
+def test_sin_equipo_no_se_pide_la_pestana_del_equipo():
+    """Quien no es de `tech_desarrollo`/`tech_soporte` no tiene cola de equipo:
+    la sección no se pide y la lista sale vacía."""
+    from itcj2.apps.helpdesk.pages import technician
+
+    db = MagicMock()
+    with patch("itcj2.apps.helpdesk.services.ticket_service.list_ticket_sections",
+               return_value={"assigned": []}) as listar:
+        out = technician._query_tech_tabs(10, {"staff"}, ("assigned", "team"), db=db)
+    assert set(listar.call_args.args[3]) == {"assigned"}
+    assert out == {"assigned": [], "team": []}
