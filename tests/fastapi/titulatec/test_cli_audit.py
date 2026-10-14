@@ -24,6 +24,7 @@ from click.testing import CliRunner
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
 from itcj2.apps.titulatec.services.audit_context import current_audit_context
 from itcj2.cli import titulatec as cli
+from itcj2.cli.titulatec import _common, bitacora, deltas
 from tests.fastapi.titulatec.conftest import audit_query
 
 pytestmark = pytest.mark.usefixtures("audit_mark")
@@ -31,7 +32,7 @@ pytestmark = pytest.mark.usefixtures("audit_mark")
 
 def _grupo():
     """Un grupo de juguete con la MISMA clase de grupo que `titulatec_cli`."""
-    grp = click.group("t", cls=cli._AuditedGroup)(lambda: None)
+    grp = click.group("t", cls=_common._AuditedGroup)(lambda: None)
 
     @grp.command("tt-ok-cmd")
     @click.option("--nip", default="1234")
@@ -65,9 +66,9 @@ def _filas(db, comando: str):
 # --- grupo auditado ---------------------------------------------------------
 
 def test_titulatec_cli_es_un_grupo_auditado():
-    assert isinstance(cli.titulatec_cli, cli._AuditedGroup)
+    assert isinstance(cli.titulatec_cli, _common._AuditedGroup)
     assert cli.titulatec_cli.get_command(None, "audit-purge") is not None
-    assert isinstance(cli.titulatec_cli.get_command(None, "init-bitacora"), cli._AuditedCommand)
+    assert isinstance(cli.titulatec_cli.get_command(None, "init-bitacora"), _common._AuditedCommand)
 
 
 def test_comando_ok_deja_una_fila_con_params_enmascarados(patched_session_local):
@@ -99,7 +100,7 @@ def test_comando_que_truena_deja_fila_error_y_relanza(patched_session_local):
 
 
 def _grupo_que_lanza(nombre, exc):
-    grp = click.group("t", cls=cli._AuditedGroup)(lambda: None)
+    grp = click.group("t", cls=_common._AuditedGroup)(lambda: None)
 
     @grp.command(nombre)
     def _cmd():
@@ -167,10 +168,10 @@ def test_help_no_registra(patched_session_local):
 
 
 def test_invocar_el_comando_suelto_no_deja_fila(patched_session_local):
-    """Los tests que llaman `cli.init_bitacora_command` directo no ensucian la base."""
-    with patch.object(cli, "_run_sql_files"), \
-            patch.object(cli, "_verify_bitacora", return_value=[]):
-        res = CliRunner().invoke(cli.init_bitacora_command, [])
+    """Los tests que llaman `deltas.init_bitacora_command` directo no ensucian la base."""
+    with patch.object(deltas, "_run_sql_files"), \
+            patch.object(deltas, "_verify_bitacora", return_value=[]):
+        res = CliRunner().invoke(deltas.init_bitacora_command, [])
     assert res.exit_code == 0, res.output
     assert audit_query(patched_session_local).filter_by(
         action="system.cli_command").count() == 0
@@ -178,7 +179,7 @@ def test_invocar_el_comando_suelto_no_deja_fila(patched_session_local):
 
 def test_el_contexto_cli_vive_dentro_del_comando_y_se_restaura(patched_session_local):
     vistos = []
-    grp = click.group("t", cls=cli._AuditedGroup)(lambda: None)
+    grp = click.group("t", cls=_common._AuditedGroup)(lambda: None)
 
     @grp.command("tt-ctx-cmd")
     def _ctx():
@@ -373,8 +374,8 @@ def test_purga_verifica_que_el_archivo_cuadre_con_lo_borrado(
     # no se podría ver que lo viejo sigue ahí (en producción ya estaba commiteado).
     db.commit()
     archivo = tmp_path / "descuadre.jsonl"
-    real = cli._write_audit_archive
-    monkeypatch.setattr(cli, "_write_audit_archive",
+    real = bitacora._write_audit_archive
+    monkeypatch.setattr(bitacora, "_write_audit_archive",
                         lambda *a, **k: real(*a, **k) - 1)
 
     res = CliRunner().invoke(cli.titulatec_cli, [

@@ -66,9 +66,8 @@ from sqlalchemy.exc import DBAPIError
 from unittest.mock import patch
 
 from itcj2.apps.titulatec.services.document_service import DocumentService
-from itcj2.cli.titulatec import (
-    DML_TITULATEC,
-    SEED_FILES,
+from itcj2.cli.titulatec import DML_TITULATEC, SEED_FILES
+from itcj2.cli.titulatec.posgrado import (
     _DML_POSGRADO_2026_10_DIR,
     _DML_POSGRADO_2026_10_FILES,
     _posgrado_resync_preview,
@@ -158,7 +157,8 @@ def _como_execute_sql_file(sql: str) -> str:
 
 
 def _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos: bool):
-    """Apunta `itcj2.cli.titulatec.DML_TITULATEC` a `tmp_path` (con
+    """Apunta `itcj2.cli.titulatec.posgrado.DML_TITULATEC` (donde lo BUSCA
+    `init_posgrado_command`) a `tmp_path` (con
     `posgrado_2026_10/` creado adentro, y los 2 `.sql` -- vacios, contenido
     irrelevante -- solo si `incluir_archivos`).
 
@@ -180,7 +180,7 @@ def _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos: bool):
     if incluir_archivos:
         for nombre in _DML_POSGRADO_2026_10_FILES:
             (d / nombre).write_text("-- contenido irrelevante en estas pruebas\n")
-    monkeypatch.setattr("itcj2.cli.titulatec.DML_TITULATEC", tmp_path)
+    monkeypatch.setattr("itcj2.cli.titulatec.posgrado.DML_TITULATEC", tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -216,11 +216,11 @@ def test_dry_run_rama_update_lista_matches_y_candidatos(tmp_path, monkeypatch):
         ],
         "reasons": [],
     }
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._posgrado_resync_preview",
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_resync_preview",
                return_value=[(55, "TT-2029A-0001", "in_progress")]) as preview, \
-         patch("itcj2.cli.titulatec._posgrado_rg_population",
+         patch("itcj2.cli.titulatec.posgrado._posgrado_rg_population",
                return_value=[(77, "TT-2029A-0002", 2, "Prog A")]) as rg:
         res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
 
@@ -249,9 +249,9 @@ def test_dry_run_rama_update_lista_matches_y_candidatos(tmp_path, monkeypatch):
 def test_dry_run_rama_insert_no_pide_preview_y_lo_avisa(tmp_path, monkeypatch):
     _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=True)
     precheck = {"branch": "insert", "matches": [], "reasons": []}
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._posgrado_resync_preview") as preview:
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_resync_preview") as preview:
         res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
@@ -269,9 +269,9 @@ def test_dry_run_rama_abort_sale_no_cero_y_no_pide_preview(tmp_path, monkeypatch
         "matches": [],
         "reasons": ["DOCTORADO%: 2 carreras casan (se esperaba 1): X (id 1) | Y (id 2)"],
     }
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._posgrado_resync_preview") as preview:
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_resync_preview") as preview:
         res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
 
     assert res.exit_code != 0, "una rama abort en dry-run debe salir distinto de 0"
@@ -298,9 +298,9 @@ def test_dry_run_sale_no_cero_si_falta_un_archivo_en_disco(tmp_path, monkeypatch
     otras pruebas de `--dry-run` de este archivo."""
     precheck = {"branch": "update", "matches": [], "reasons": []}
     _patch_dml_titulatec(monkeypatch, tmp_path, incluir_archivos=False)
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._posgrado_resync_preview", return_value=[]):
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_resync_preview", return_value=[]):
         res = CliRunner().invoke(init_posgrado_command, ["--dry-run"])
 
     assert res.exit_code != 0, "faltar un archivo en disco debe salir distinto de 0"
@@ -316,12 +316,12 @@ def test_real_run_ejecuta_solo_los_dos_archivos_del_delta():
     rutas_esperadas = [f"{_DML_POSGRADO_2026_10_DIR}/{n}" for n in _DML_POSGRADO_2026_10_FILES]
     precheck = {"branch": "update", "matches": [], "reasons": []}
 
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_clasificadas", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_warn_unclassified", return_value=[]), \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1", return_value=[]) as resync:
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_clasificadas", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_warn_unclassified", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1", return_value=[]) as resync:
         res = CliRunner().invoke(init_posgrado_command, [])
 
     assert res.exit_code == 0, res.output
@@ -336,11 +336,11 @@ def test_real_run_aborta_si_la_verificacion_reporta_problemas():
     precheck es `update` (deliberado): esta prueba aisla el abort de
     `_verify_posgrado`, no el del precheck (ese tiene sus propias pruebas)."""
     precheck = {"branch": "update", "matches": [], "reasons": []}
-    with patch("itcj2.cli.titulatec._run_sql_files"), \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado",
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files"), \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado",
                return_value=["carrera de posgrado (DOCTORADO%): se esperaba 1, hay 0"]), \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1") as resync:
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1") as resync:
         res = CliRunner().invoke(init_posgrado_command, [])
 
     assert res.exit_code != 0, "un delta a medias NO puede salir 0"
@@ -356,10 +356,10 @@ def test_real_run_rama_abort_no_ejecuta_nada():
         "matches": [],
         "reasons": ["el mismo id casa mas de un patron (no son 4 carreras distintas): [7]"],
     }
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado") as verificar, \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1") as resync:
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado") as verificar, \
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1") as resync:
         res = CliRunner().invoke(init_posgrado_command, [])
 
     assert res.exit_code != 0
@@ -374,8 +374,8 @@ def test_real_run_rama_insert_sin_allow_insert_aborta():
     nombre real usa una abreviatura que el 18 no reconoce, insertar a ciegas
     duplicaria carreras."""
     precheck = {"branch": "insert", "matches": [], "reasons": []}
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck):
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck):
         res = CliRunner().invoke(init_posgrado_command, [])
 
     assert res.exit_code != 0
@@ -388,12 +388,12 @@ def test_real_run_rama_insert_con_allow_insert_procede():
     precheck = {"branch": "insert", "matches": [], "reasons": []}
     rutas_esperadas = [f"{_DML_POSGRADO_2026_10_DIR}/{n}" for n in _DML_POSGRADO_2026_10_FILES]
 
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_clasificadas", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_warn_unclassified", return_value=[]), \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1", return_value=[]):
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files") as ejecutar, \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_clasificadas", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_warn_unclassified", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1", return_value=[]):
         res = CliRunner().invoke(init_posgrado_command, ["--allow-insert"])
 
     assert res.exit_code == 0, res.output
@@ -406,13 +406,13 @@ def test_real_run_advierte_carreras_sin_clasificar():
     sigue en 'licenciatura' tras correr el 18 debe avisarse, no quedar en
     silencio."""
     precheck = {"branch": "update", "matches": [], "reasons": []}
-    with patch("itcj2.cli.titulatec._run_sql_files"), \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_clasificadas", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_warn_unclassified",
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files"), \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_clasificadas", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_warn_unclassified",
                return_value=[(99, "Especialidad con Doctor en el nombre")]), \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1", return_value=[]):
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1", return_value=[]):
         res = CliRunner().invoke(init_posgrado_command, [])
 
     assert res.exit_code == 0, res.output
@@ -426,13 +426,13 @@ def test_real_run_imprime_la_poblacion_r_g(tmp_path, monkeypatch):
     de confirmar (NUNCA una segunda lectura de `Program.level`)."""
     precheck = {"branch": "update", "matches": [], "reasons": []}
     clasificadas = [(201, "Maestria X", "maestria"), (202, "Doctorado Y", "doctorado")]
-    with patch("itcj2.cli.titulatec._run_sql_files"), \
-         patch("itcj2.cli.titulatec._precheck_posgrado", return_value=precheck), \
-         patch("itcj2.cli.titulatec._verify_posgrado", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_clasificadas", return_value=clasificadas), \
-         patch("itcj2.cli.titulatec._posgrado_warn_unclassified", return_value=[]), \
-         patch("itcj2.cli.titulatec._resync_posgrado_phase1", return_value=[]), \
-         patch("itcj2.cli.titulatec._posgrado_rg_population",
+    with patch("itcj2.cli.titulatec.posgrado._run_sql_files"), \
+         patch("itcj2.cli.titulatec.posgrado._precheck_posgrado", return_value=precheck), \
+         patch("itcj2.cli.titulatec.posgrado._verify_posgrado", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_clasificadas", return_value=clasificadas), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_warn_unclassified", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._resync_posgrado_phase1", return_value=[]), \
+         patch("itcj2.cli.titulatec.posgrado._posgrado_rg_population",
                return_value=[(88, "TT-2029A-0003", 3, "Maestria X")]) as rg:
         res = CliRunner().invoke(init_posgrado_command, [])
 
@@ -484,13 +484,13 @@ def test_las_constantes_de_python_atan_verbatim_al_texto_del_18():
     18 de verdad). Compara literal contra el archivo en disco, no contra una
     copia escrita a mano en este test -- una copia a mano tendria el MISMO
     punto ciego."""
-    from itcj2.cli.titulatec import _POSGRADO_NORM, _POSGRADO_PATRONES
+    from itcj2.cli.titulatec.posgrado import _POSGRADO_NORM, _POSGRADO_PATRONES
 
     sql = (DML_TITULATEC / _DML_POSGRADO_2026_10_DIR
            / "18_classify_posgrado_programs.sql").read_text(encoding="utf-8")
 
     assert _POSGRADO_NORM in sql, (
-        "la normalizacion de itcj2/cli/titulatec.py (_POSGRADO_NORM) ya no "
+        "la normalizacion de itcj2/cli/titulatec/posgrado.py (_POSGRADO_NORM) ya no "
         "aparece literal en el 18 -- se desincronizaron")
 
     for _nivel, patron1, patron2 in _POSGRADO_PATRONES:

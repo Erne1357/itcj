@@ -4,7 +4,7 @@ Complemento de `test_audit_actions_contract.py` (que cubre (a), (c) y (d)): un
 vocabulario cerrado no puede acumular códigos muertos. Cada clave de
 `AUDIT_ACTIONS` debe aparecer como LITERAL en el código de acción de alguna
 llamada `AuditService.record(` de `itcj2/apps/titulatec/**`,
-`itcj2/cli/titulatec.py` o `itcj2/tasks/titulatec_tasks.py`.
+`itcj2/cli/titulatec/*.py` o `itcj2/tasks/titulatec_tasks.py`.
 
 Reusa el barrido AST del test de contrato (mismas formas de literal y mismos
 archivos), así que si cambia allá, cambia aquí. Sin BD.

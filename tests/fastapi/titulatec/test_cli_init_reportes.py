@@ -38,7 +38,7 @@ def _dml_en_tmp(tmp_path):
 
 
 def test_el_comando_corre_solo_el_26_y_verifica(tmp_path, monkeypatch):
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
     ejecutados = []
@@ -55,7 +55,7 @@ def test_el_comando_corre_solo_el_26_y_verifica(tmp_path, monkeypatch):
 
 
 def test_el_comando_aborta_si_no_aterrizo(tmp_path, monkeypatch):
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
     with patch("itcj2.cli.core.execute_sql_file"), \
@@ -72,7 +72,7 @@ def test_el_comando_aborta_si_no_aterrizo(tmp_path, monkeypatch):
 
 @requires_dml
 def test_dry_run_no_ejecuta_nada_y_no_lista_el_15():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch("itcj2.cli.core.execute_sql_file") as correr:
         res = CliRunner().invoke(cli.init_reportes_command, ["--dry-run"])

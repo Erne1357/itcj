@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import import_prior_clearances_command
+from itcj2.cli.titulatec.liberaciones import import_prior_clearances_command
 
 NOTIFY = "itcj2.apps.titulatec.services.notify.notify_student"
 

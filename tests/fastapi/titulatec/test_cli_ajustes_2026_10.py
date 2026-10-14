@@ -37,13 +37,19 @@ import pytest
 from click.testing import CliRunner
 from sqlalchemy import text
 
-from itcj2.cli.titulatec import (
-    DML_TITULATEC,
-    SEED_FILES,
+from itcj2.cli.titulatec import DML_TITULATEC, SEED_FILES
+from itcj2.cli.titulatec.deltas import (
     _DML_AJUSTES_2026_10_DIR,
     _DML_AJUSTES_2026_10_FILES,
     _ETIQUETA_BIBLIOTECA,
     _ETIQUETA_BIBLIOTECA_VIEJA,
+    _ROLES_AJUSTES_2026_10,
+    _esperado_ajustes_2026_10,
+    _snapshot_ajustes_2026_10,
+    _verify_ajustes_2026_10,
+    init_ajustes_2026_10_command,
+)
+from itcj2.cli.titulatec.verificaciones import (
     _PERM_PROCESS_SUMMARY,
     _PERMISOS_HANDOFF,
     _PERMISOS_RETIRADOS_TITULACION,
@@ -53,14 +59,11 @@ from itcj2.cli.titulatec import (
     _ROL_OPERATIVO_ESCOLARES,
     _ROL_TITULACION,
     _ROL_TITULACIONES_DIV,
-    _ROLES_AJUSTES_2026_10,
-    _esperado_ajustes_2026_10,
-    _snapshot_ajustes_2026_10,
-    _verify_ajustes_2026_10,
-    init_ajustes_2026_10_command,
 )
 
-_MOD = "itcj2.cli.titulatec"
+# Donde `init_ajustes_2026_10_command` BUSCA lo que se parchea (DML_TITULATEC,
+# _snapshot_ajustes_2026_10, _verify_ajustes_2026_10): su propio módulo.
+_MOD = "itcj2.cli.titulatec.deltas"
 _DIR = DML_TITULATEC / _DML_AJUSTES_2026_10_DIR
 
 requires_dml = pytest.mark.skipif(

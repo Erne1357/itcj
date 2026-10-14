@@ -11,24 +11,28 @@ error. Es el mismo motivo por el que `itcj2/cli/directory.py:78-95` tiene
 
 `execute_sql_file` se importa DENTRO de la funcion del comando (import local,
 convencion del proyecto contra los circulares), asi que el patch va sobre el
-modulo FUENTE `itcj2.cli.core`, no sobre `itcj2.cli.titulatec`.
+modulo FUENTE `itcj2.cli.core`, no sobre `itcj2.cli.titulatec.encuesta`. En
+cambio `_verify_survey_2026_09` se parchea en `itcj2.cli.titulatec.encuesta`
+(`_ENCUESTA`): el comando la importa por nombre de `verificaciones` y la BUSCA
+en su propio modulo.
 """
 from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import (
-    DML_TITULATEC,
-    SEED_FILES,
+from itcj2.cli.titulatec import DML_TITULATEC, SEED_FILES
+from itcj2.cli.titulatec.encuesta import (
     _DML_SURVEY_2026_09_DIR,
     _DML_SURVEY_2026_09_FILES,
-    _SURVEY_2026_09_PERMS,
     load_survey_2026_09_command,
 )
+from itcj2.cli.titulatec.verificaciones import _SURVEY_2026_09_PERMS
+
+_ENCUESTA = "itcj2.cli.titulatec.encuesta"
 
 # `load_survey_2026_09_command` exige el directorio EN DISCO (comprueba
-# `dml_dir.is_dir()` antes de llegar a cualquier mock: itcj2/cli/titulatec.py,
+# `dml_dir.is_dir()` antes de llegar a cualquier mock: itcj2/cli/titulatec/encuesta.py,
 # guarda al inicio de `load_survey_2026_09_command`). `database/` esta
 # gitignored y el workflow de deploy nunca lo hace checkout (trae PII real),
 # asi que en CI ese directorio no existe: sin este guard,
@@ -119,7 +123,7 @@ def test_los_once_codigos_del_delta_son_los_del_contrato():
 @requires_dml
 def test_dry_run_no_ejecuta_sql_ni_verifica():
     with patch("itcj2.cli.core.execute_sql_file") as ejecutar, \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09") as verificar:
+         patch(f"{_ENCUESTA}._verify_survey_2026_09") as verificar:
         res = CliRunner().invoke(load_survey_2026_09_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
@@ -197,7 +201,7 @@ def test_el_backfill_de_graduate_no_toca_permisos_de_rol():
 @requires_dml
 def test_corre_todos_los_archivos_del_delta_y_ninguno_mas():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True) as ejecutar, \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09", return_value=[]):
+         patch(f"{_ENCUESTA}._verify_survey_2026_09", return_value=[]):
         res = CliRunner().invoke(load_survey_2026_09_command, [])
 
     assert res.exit_code == 0, res.output
@@ -212,7 +216,7 @@ def test_corre_todos_los_archivos_del_delta_y_ninguno_mas():
 @requires_dml
 def test_aborta_si_la_verificacion_reporta_un_permiso_sin_aterrizar():
     with patch("itcj2.cli.core.execute_sql_file", return_value=True), \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09",
+         patch(f"{_ENCUESTA}._verify_survey_2026_09",
                return_value=["sin grant a la jefatura: titulatec.survey.api.export"]):
         res = CliRunner().invoke(load_survey_2026_09_command, [])
 

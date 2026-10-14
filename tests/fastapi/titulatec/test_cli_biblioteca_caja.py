@@ -48,9 +48,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import (
-    DML_TITULATEC,
-    SEED_FILES,
+from itcj2.cli.titulatec import DML_TITULATEC, SEED_FILES
+from itcj2.cli.titulatec.biblioteca import (
     _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES,
     _DML_BIBLIOTECA_2026_10_DIR,
     _DML_BIBLIOTECA_2026_10_FILES,
@@ -62,18 +61,20 @@ from itcj2.cli.titulatec import (
     _PUESTO_CASHIER,
     _PUESTO_LIBRARY,
     _PUESTOS_BIBLIOTECA_CAJA,
-    _ROL_ADMIN,
     _ROL_CASHIER,
-    _ROL_GTV,
-    _ROL_JEFATURA_ESCOLARES,
     _ROL_LIBRARY,
-    _ROL_OPERATIVO_ESCOLARES,
     _library_clearance_promote,
     _library_clearance_rebackfill,
     _precheck_activar_biblioteca,
     _verify_biblioteca_caja,
     activar_biblioteca_caja_command,
     init_biblioteca_caja_command,
+)
+from itcj2.cli.titulatec.verificaciones import (
+    _ROL_ADMIN,
+    _ROL_GTV,
+    _ROL_JEFATURA_ESCOLARES,
+    _ROL_OPERATIVO_ESCOLARES,
 )
 from itcj2.core.utils.timezone import db_now
 from tests.fastapi.titulatec._dml_texts import (
@@ -84,7 +85,9 @@ from tests.fastapi.titulatec._dml_texts import (
 
 _TODOS_LOS_DEL_DELTA = _DML_BIBLIOTECA_2026_10_FILES + _DML_BIBLIOTECA_2026_10_ACTIVAR_FILES
 
-_MOD = "itcj2.cli.titulatec"
+# Donde los BUSCAN `init-biblioteca-caja` y `activar-biblioteca-caja` (incluido
+# `_emitir_folios_previos`, que vive en `_common` pero se importa por nombre).
+_MOD = "itcj2.cli.titulatec.biblioteca"
 _PRE_OK = {"ocupantes": {_PUESTO_LIBRARY: 1, _PUESTO_CASHIER: 2},
            "sin_donacion": [], "problemas": []}
 # Lo que devuelve `_emitir_folios_previos` (conteo por tipo y semestre): 6 folios.

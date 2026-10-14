@@ -1,24 +1,31 @@
 """Contrato del comando `titulatec init-titulatec` (MINOR de la revision final,
-tests-deploy: `itcj2/cli/titulatec.py:736-837` y `:261`).
+tests-deploy: `itcj2/cli/titulatec/verificaciones.py::_verify_computer_center` y
+`itcj2/cli/titulatec/seed.py::init_titulatec_command`).
 
 `_verify_computer_center()` no tenia ninguna prueba, y tampoco la
 ACUMULACION de problemas de las TRES verificaciones que corre
 `init_titulatec_command` al terminar (`_verify_survey_2026_09` +
-`_verify_titulacion` + `_verify_computer_center`, `:261`): un problema SOLO
+`_verify_titulacion` + `_verify_computer_center`): un problema SOLO
 del ultimo debe abortar igual que uno del primero.
 
 Se parchea `_run_sql_files` entera (no `itcj2.cli.core.execute_sql_file`,
 como hace `test_cli_survey_delta.py`): esa funcion es quien comprueba que
-los `.sql` existan en disco (`itcj2/cli/titulatec.py:179-188`) antes de
-llegar a `execute_sql_file`. Al reemplazarla por completo, esta prueba corre
-en CI SIN `database/` en el checkout — no necesita ningun `requires_dml`.
+los `.sql` existan en disco (`itcj2/cli/titulatec/_common.py::_run_sql_files`)
+antes de llegar a `execute_sql_file`. Al reemplazarla por completo, esta prueba
+corre en CI SIN `database/` en el checkout — no necesita ningun `requires_dml`.
+
+Los parches apuntan a `itcj2.cli.titulatec.seed` (`_SEED`): ahí BUSCA
+`init_titulatec_command` a `_run_sql_files` y a las tres verificaciones (las
+importa por nombre de `_common` y `verificaciones`). Un parche sobre el paquete
+o sobre el módulo de origen no interceptaría nada.
 """
 from unittest.mock import patch
 
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import (
-    SEED_FILES,
+from itcj2.cli.titulatec import SEED_FILES
+from itcj2.cli.titulatec.seed import init_titulatec_command
+from itcj2.cli.titulatec.verificaciones import (
     _PERM_PROCESS_SUMMARY,
     _PERMISOS_HANDOFF,
     _PERMISOS_RETIRADOS_TITULACION,
@@ -29,8 +36,9 @@ from itcj2.cli.titulatec import (
     _ROL_TITULACION,
     _ROL_TITULACIONES_DIV,
     _problemas_grants_titulacion,
-    init_titulatec_command,
 )
+
+_SEED = "itcj2.cli.titulatec.seed"
 
 # Spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk, D1 + D7/D8: el set
 # EXACTO del Departamento de Titulacion (16) y los 7 que pierde de los 22 de
@@ -140,10 +148,10 @@ def test_servicios_escolares_sin_liberados_es_un_problema():
 
 
 def test_corre_los_seeders_en_orden_y_verifica_las_tres_cosas():
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar, \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09", return_value=[]) as v1, \
-         patch("itcj2.cli.titulatec._verify_titulacion", return_value=[]) as v2, \
-         patch("itcj2.cli.titulatec._verify_computer_center", return_value=[]) as v3:
+    with patch(f"{_SEED}._run_sql_files") as ejecutar, \
+         patch(f"{_SEED}._verify_survey_2026_09", return_value=[]) as v1, \
+         patch(f"{_SEED}._verify_titulacion", return_value=[]) as v2, \
+         patch(f"{_SEED}._verify_computer_center", return_value=[]) as v3:
         res = CliRunner().invoke(init_titulatec_command, [])
 
     assert res.exit_code == 0, res.output
@@ -161,10 +169,10 @@ def test_un_problema_solo_de_computer_center_aborta_igual_y_lo_dice():
     de esta prueba, nada ejercía `_verify_computer_center` en absoluto."""
     problema = ("titulatec_computer_center sin el permiso "
                 "titulatec.enrollment_access.api.grant")
-    with patch("itcj2.cli.titulatec._run_sql_files"), \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09", return_value=[]), \
-         patch("itcj2.cli.titulatec._verify_titulacion", return_value=[]), \
-         patch("itcj2.cli.titulatec._verify_computer_center", return_value=[problema]):
+    with patch(f"{_SEED}._run_sql_files"), \
+         patch(f"{_SEED}._verify_survey_2026_09", return_value=[]), \
+         patch(f"{_SEED}._verify_titulacion", return_value=[]), \
+         patch(f"{_SEED}._verify_computer_center", return_value=[problema]):
         res = CliRunner().invoke(init_titulatec_command, [])
 
     assert res.exit_code != 0, "un problema en CUALQUIERA de los tres debe abortar"
@@ -174,11 +182,11 @@ def test_un_problema_solo_de_computer_center_aborta_igual_y_lo_dice():
 def test_una_excepcion_al_sembrar_no_llega_a_verificar_nada():
     """Si `_run_sql_files` truena (falta un archivo, error de SQL), el comando
     no debe seguir a la verificación con una BD a medio sembrar."""
-    with patch("itcj2.cli.titulatec._run_sql_files",
+    with patch(f"{_SEED}._run_sql_files",
                side_effect=RuntimeError("boom")), \
-         patch("itcj2.cli.titulatec._verify_survey_2026_09") as v1, \
-         patch("itcj2.cli.titulatec._verify_titulacion") as v2, \
-         patch("itcj2.cli.titulatec._verify_computer_center") as v3:
+         patch(f"{_SEED}._verify_survey_2026_09") as v1, \
+         patch(f"{_SEED}._verify_titulacion") as v2, \
+         patch(f"{_SEED}._verify_computer_center") as v3:
         res = CliRunner().invoke(init_titulatec_command, [])
 
     assert res.exit_code != 0
