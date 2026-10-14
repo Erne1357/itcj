@@ -27,7 +27,9 @@ def test_add_business_days_cruza_fin_de_semana():
     assert bd.add_business_days(LUN, 1) == MAR
     assert bd.add_business_days(VIE, 1) == LUN2
     assert bd.add_business_days(VIE, 5) == date(2026, 10, 23)
-    assert bd.add_business_days(SAB, 1) == date(2026, 10, 20)
+    assert bd.add_business_days(SAB, 1) == LUN2
+    assert bd.add_business_days(DOM, 1) == LUN2
+    assert bd.add_business_days(SAB, 2) == date(2026, 10, 20)
 
 
 def test_last_business_days_termina_en_hoy_si_es_habil():

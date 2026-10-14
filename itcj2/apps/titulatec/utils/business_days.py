@@ -14,14 +14,17 @@ def is_business_day(d: date) -> bool:
 
 
 def add_business_days(d: date, n: int) -> date:
-    """`d` mas `n` dias habiles (n >= 0).
+    """El `n`-esimo dia habil ESTRICTAMENTE posterior a `d` (n >= 1).
 
+    Sabado + 1 = lunes, viernes + 1 = lunes, lunes + 1 = martes.
     `n == 0` devuelve `d` si es habil y, si no, el siguiente habil.
     """
     if n < 0:
         raise ValueError("n debe ser >= 0")
-    while not is_business_day(d):
-        d += timedelta(days=1)
+    if n == 0:
+        while not is_business_day(d):
+            d += timedelta(days=1)
+        return d
     restantes = n
     while restantes > 0:
         d += timedelta(days=1)

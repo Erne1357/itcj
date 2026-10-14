@@ -110,10 +110,9 @@ def test_forecast_no_suma_un_dia_por_coma_flotante():
     assert forecast(21, 1.4, LUNES) == add_business_days(LUNES, 15)
 
 
-def test_forecast_con_hoy_en_sabado_cuenta_desde_el_lunes():
+def test_forecast_con_hoy_en_sabado_un_pendiente_cae_el_lunes():
     sabado = date(2026, 10, 10)
-    assert forecast(1, 1.0, sabado) == add_business_days(sabado, 1)
-    assert forecast(1, 1.0, sabado) == date(2026, 10, 13)
+    assert forecast(1, 1.0, sabado) == LUNES
 
 
 # --- daily_counts (BD) -------------------------------------------------------
