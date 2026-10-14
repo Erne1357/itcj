@@ -291,20 +291,24 @@ con etiqueta directa + tabla gemela porque 3 quedan bajo 3:1): Escolares `#2a78d
 
 ## Despliegue (orden obligatorio)
 
-**Sin migración.** Solo un permiso, por DML en subcarpeta propia (gitignored, viaja a mano):
+**Sin migración.** Solo un permiso, por DML en subcarpeta propia (gitignored, viaja a mano). El 26 concede el
+permiso a `titulatec_school_services_head` **y a `admin`** de forma explícita: `init-reportes` corre SOLO el 26 y
+**nunca re-corre el 15** (reparte todo titulatec a `admin`, y por D2 la jefatura de Centro de Cómputo trae `admin`).
 
 1. Copiar `database/DML/titulatec/reportes_2026_10/` al servidor.
-2. `python -m itcj2.cli.main titulatec init-reportes --dry-run` → sin `--dry-run`: corre
-   `reportes_2026_10/26_insert_reports_perm.sql` (permiso + concesión a `titulatec_school_services_head`),
-   **re-corre el `15_grant_admin_all_perms.sql`** para que `admin` lo reciba, invalida el caché de authz **solo
-   de titulatec** y verifica en BD (`_verify_reportes`); aborta con exit ≠ 0 si algo no aterrizó. Idempotente.
-3. **Orden:** `init-reportes` va **A LA PAR o ANTES del código**. Si el código sale primero, la jefa aterriza
-   en `/titulatec/admin/tablero` (D9) sin el permiso y recibe **403** hasta que corra el comando.
-4. ⚠️ Re-correr el 15 reparte a `admin` **todo lo que titulatec tenga declarado**, y por D2 la jefatura de
-   Centro de Cómputo trae el rol `admin` (puesto `head_comp_center`): recibe lo mismo. Revisar antes que sea lo
-   deseado; en producción el 15 normalmente no se re-corre.
-5. Dev: `core execute-sql ... --no-invalidate-authz` + `invalidate_user_app` (el comando ya evita `invalidate_all`).
-6. Sin reinicio de celery: el tablero no toca tareas.
+2. **ANTES de fusionar el PR:**
+   `python -m itcj2.cli.main core execute-sql database/DML/titulatec/reportes_2026_10/26_insert_reports_perm.sql --no-invalidate-authz`
+   (sin la bandera, `execute-sql` llama a `invalidate_all`; con ella se invalida solo titulatec en el paso 4).
+   El código viejo ignora un permiso que no conoce.
+3. Fusionar el PR → deploy.
+4. Después del deploy: `python -m itcj2.cli.main titulatec init-reportes` (`--dry-run` lista solo el 26). Es
+   idempotente y sirve como verificación: invalida el caché de authz **solo de titulatec** y comprueba en BD
+   (`_verify_reportes`, los dos roles); sale con exit ≠ 0 si algo no aterrizó.
+5. Sin reinicio de celery: el tablero no toca tareas.
+
+**Por qué ese orden:** si el código sale sin el permiso, `/titulatec/` redirige a la jefa a `/tablero` → 403, y la
+página de error la saca al panel core (titulatec no está en `_APP_BY_PREFIX`, `itcj2/main.py:363`): pierde la
+entrada a TitulaTec.
 
 **Reversa:** `rollback.sh` basta (no hay esquema nuevo). El permiso queda declarado sin uso en el código viejo;
 la jefa vuelve a aterrizar en la Bandeja por el `_ROLE_DASHBOARD` viejo.
@@ -313,8 +317,8 @@ la jefa vuelve a aterrizar en la Bandeja por el `_ROLE_DASHBOARD` viejo.
 
 `tests/fastapi/titulatec/`: `test_report_snapshot.py` (cada fila de pelota y días, doble pelota, cita futura no
 atorada), `test_report_flow.py`, `test_report_officers.py` (cola con traslape, producción por actor,
-capacidad), `test_report_scope.py`, `test_report_service.py` (filtros, alertas, pestañas), `test_reports_charts.py`
-(geometría de `utils/charts`; `business_days` se prueba en `test_report_flow.py`), `test_reports_authz.py` (jefa y admin 200; encargado y `titulatec_titulaciones` 403;
+capacidad), `test_cli_init_reportes.py` (el comando corre solo el 26, nunca el 15), `test_report_scope.py`, `test_report_service.py` (filtros, alertas, pestañas), `test_reports_charts.py`
+(geometría de `utils/charts`; `business_days` se prueba en `test_report_flow.py`), `test_reports_authz.py` (jefa y rol `admin` con el permiso 200; encargado y el rol REAL `titulatec_titulaciones` (sus permisos de la BD, sin `reports.page.view`) 403;
 menú y aterrizaje), `test_reports_pages.py` (cada `tab` renderiza, basura no truena, `/body`, **presupuesto de
 consultas**), `test_reports_render.py` (el HTML de cada pestaña). Estructurales que deben seguir verdes: `test_route_threadpool_convention`,
 `test_admin_nav_swap`, `test_authz_cache_menu`, `test_scope_guard`. Fechas con `db_now()`, nunca `date.today()`.
@@ -324,3 +328,9 @@ consultas**), `test_reports_render.py` (el HTML de cada pestaña). Estructurales
 - ← [Bandeja administrativa de procesos](xcut_admin_process_inbox.md) (`idle_days` y atorados de la tabla de Procesos; el tablero usa los mismos umbrales `TITULATEC_IDLE_*`)
 - ← [Alcance por carrera](engine_officer_scope.md) · [Cita de cotejo](phase2_appointment_loop.md) (ocupación de lugares) · [Corte y Liberados](xcut_titulacion_handoff.md) (definición de «liberado»)
 - ← [No adeudo / Biblioteca → Caja](phase2_library_clearance.md) y [Liberación GTV](phase2_tech_management_survey_release.md) (las liberaciones que `ClearanceGate` reporta como pelotas)
+
+## Nota: filtro `stage=req_review` en Atorados
+
+La KPI «Solicitudes por revisar» y la alerta de solicitudes suman `req_review` + `req_unverified` (legado). Ambas
+ligan a Atorados con `stage=req_review`, y ese filtro incluye también `req_unverified` (`_matches`), de modo que la
+cifra y la lista cuadran. El chip de etapa `req_unverified` sigue filtrando solo el legado.

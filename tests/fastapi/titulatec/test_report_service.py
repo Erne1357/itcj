@@ -600,7 +600,7 @@ def test_la_regla_de_solicitudes_es_una_sola_alerta_y_caben_las_cinco(lleno, mon
     t2.db.flush()
     solo = _build(t2)["panorama"]["alerts"][0]
     assert solo["code"] == "requests_crit" and solo["text"].startswith("1 solicitud por revisar")
-    assert solo["url"].endswith("&level=crit&stage=req_unverified")
+    assert solo["url"].endswith("&level=crit&stage=req_review")
 
 
 # ---------------------------------------------------------------------------
@@ -874,3 +874,16 @@ def test_usuario_acotado_no_ve_ni_nombra_carreras_fuera_de_su_alcance(lleno, aco
         assert ana["no_programs"] is False
         # La producción sigue siendo global, por actor (spec §4.7).
         assert ana["prod"]["docs_approved"] == 3
+
+
+def test_atorados_stage_req_review_incluye_el_legado_y_cuadra_con_la_kpi(lleno):
+    """M5: la KPI «Solicitudes por revisar» suma req_review + req_unverified y su
+    liga filtra `stage=req_review`: la lista debe traer las mismas."""
+    t = lleno
+    t.solicitud("unverified", t.pa, creada=t.hace(20))
+    req = _build(t)["panorama"]["kpis"]["requests"]
+    assert req["url"].endswith("stage=req_review")
+    lista = _build(t, "atorados", stage="req_review", idle_level="all")["atorados"]["page"]
+    assert lista.total == req["pending"]
+    solo_legado = _build(t, "atorados", stage="req_unverified", idle_level="all")["atorados"]["page"]
+    assert 0 < solo_legado.total < lista.total

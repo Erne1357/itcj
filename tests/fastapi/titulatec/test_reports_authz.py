@@ -48,6 +48,45 @@ def test_la_barra_tiene_las_cinco_pestanas_con_swap_outer_html(client_as, jefa):
     assert 'hx-swap="morph:outerHTML"' in html
 
 
+def _rol_con_acceso_a_la_app(db_session, make_user, make_role, grant_user_role, nombre, perms):
+    user = make_user(first_name="ROL", last_name="FICTICIO")
+    grant_user_role(user, make_role(nombre, perms))
+    return user
+
+
+def test_el_rol_admin_con_el_permiso_ve_pagina_y_parcial(
+        client_as, db_session, make_user, make_role, grant_user_role):
+    """En produccion `admin` recibe el permiso EXPLICITO del 26 (no del 15)."""
+    from tests.fastapi.titulatec.conftest import HEAD_PERMS
+    admin = _rol_con_acceso_a_la_app(db_session, make_user, make_role, grant_user_role,
+                                     "admin", HEAD_PERMS + (PERM,))
+    c = client_as(admin)
+    assert c.get(URL).status_code == 200
+    assert c.get(BODY).status_code == 200
+
+
+def test_titulatec_titulaciones_real_sin_el_permiso_403(
+        client_as, db_session, make_user, make_role, grant_user_role):
+    """El rol REAL `titulatec_titulaciones` (sus permisos de la BD, que no traen
+    `reports.page.view`) no entra al tablero."""
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.role_permission import RolePermission
+
+    rol = db_session.query(Role).filter_by(name="titulatec_titulaciones").first()
+    if rol is None:
+        pytest.skip("la base no tiene el rol titulatec_titulaciones sembrado")
+    codes = [c for (c,) in db_session.query(Permission.code)
+             .join(RolePermission, RolePermission.perm_id == Permission.id)
+             .filter(RolePermission.role_id == rol.id, Permission.code.like("titulatec.%")).all()]
+    assert PERM not in codes
+    user = _rol_con_acceso_a_la_app(db_session, make_user, make_role, grant_user_role,
+                                    "titulatec_titulaciones", tuple(codes))
+    c = client_as(user)
+    assert c.get(URL).status_code == 403
+    assert c.get(BODY).status_code == 403
+
+
 def test_el_encargado_recibe_403(client_as, make_officer, make_program):
     officer, _pos = make_officer([make_program("CARRERA TABLERO FICTICIA")])
     assert client_as(officer).get(URL).status_code == 403

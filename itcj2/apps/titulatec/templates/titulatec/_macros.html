@@ -348,7 +348,10 @@
    include: selector CSS con los filtros a conservar al cambiar de pagina.
    select: `hx-select` opcional, para vistas que repintan una pagina COMPLETA
    recortando su contenedor (Procesos: `#tt-admin-content`). Si select == target,
-   el swap tiene que ser de la familia outerHTML (CLAUDE.md de la app, §4). #}
+   el swap tiene que ser de la familia outerHTML (CLAUDE.md de la app, §4).
+   push_url_base: URL base (con o sin `?`) para la barra de direcciones; cada boton
+   empuja `{base}{?|&}page=N`. Tiene prioridad sobre `push_url` (que empuja la URL del
+   hx-get tal cual); sirve cuando la URL visible lleva filtros distintos de la del hx-get. #}
 {% macro pager(page, url, target, include=None, swap="outerHTML", push_url=False, prefix="tt", select=None, push_url_base=None) %}
 {% if page.total > 0 %}
   {% set _range %}<span class="tt-pager-range">{{ page.start }}–{{ page.end }} de {{ page.total }}</span>{% endset %}

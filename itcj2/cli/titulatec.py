@@ -3651,17 +3651,16 @@ def init_bitacora_command(dry_run):
 
 # ---------------------------------------------------------------------------
 # Tablero de la jefa de SE (2026-10-14): permiso `titulatec.reports.page.view`.
-# El 26 lo inserta y lo concede a `titulatec_school_services_head`; `admin` lo
-# recibe del 15 (SELECT dinamico), asi que ESTE comando -a diferencia de
-# `init-bitacora`- re-corre el 15 despues del 26 (spec 2026-10-14). Eso reparte
-# a `admin` todo lo que titulatec tenga declarado: correrlo solo donde eso se
-# quiera. Invalida el cache de authz SOLO de titulatec (nunca `invalidate_all`).
+# El 26 lo inserta y lo concede EXPLICITO a `titulatec_school_services_head` Y a
+# `admin` (revision final I1/I3, mismo patron que el 25). En produccion el 15
+# NUNCA se re-corre (reparte todo titulatec a `admin`, y por el puesto D2 llega
+# a la jefatura de Centro de Computo), asi que este comando corre SOLO el 26.
+# Invalida el cache de authz SOLO de titulatec (nunca `invalidate_all`).
 # ---------------------------------------------------------------------------
 _DML_REPORTES_2026_10_DIR = "reportes_2026_10"
 _DML_REPORTES_2026_10_FILES = ["26_insert_reports_perm.sql"]
 _REPORTS_PERM = "titulatec.reports.page.view"
 _REPORTS_ROLES = ("titulatec_school_services_head", "admin")
-_GRANT_ADMIN_ALL = "15_grant_admin_all_perms.sql"
 
 
 def _verify_reportes() -> list[str]:
@@ -3706,14 +3705,13 @@ def init_reportes_command(dry_run):
 
     Corre `reportes_2026_10/26_insert_reports_perm.sql` (inserta
     `titulatec.reports.page.view` y lo concede a `titulatec_school_services_head`)
-    y DESPUES re-corre el `15_grant_admin_all_perms.sql` para que `admin` lo
-    reciba. NO re-ejecuta el resto de `SEED_FILES`. Idempotente (ON CONFLICT).
+    y a `admin`). Corre SOLO ese archivo: NO re-ejecuta el 15 ni el resto de
+    `SEED_FILES`. Idempotente (ON CONFLICT).
     Invalida el cache de authz solo de titulatec y VERIFICA con
     `_verify_reportes()`; aborta si algo no aterrizo. `--dry-run`: comprueba que
     los archivos existen y los lista, sin escribir.
     """
     archivos = [f"{_DML_REPORTES_2026_10_DIR}/{n}" for n in _DML_REPORTES_2026_10_FILES]
-    archivos.append(_GRANT_ADMIN_ALL)
     faltan = [n for n in archivos if not (DML_TITULATEC / n).exists()]
 
     if dry_run:

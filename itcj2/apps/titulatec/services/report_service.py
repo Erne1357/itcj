@@ -731,15 +731,14 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
                     "url": url, "body_url": body_url})
 
     # 1. Solicitudes que esperan revisión >= CRIT días: UNA alerta, la anterior
-    # (legado) sumada. La liga va a la etapa que más tiene (`req_review` en un
-    # empate); con las dos, la lista de Atorados muestra solo esa etapa.
+    # (legado) sumada. La liga lleva `stage=req_review`, que en Atorados incluye
+    # también `req_unverified` (`_matches`), así que cifra y lista cuadran.
     viejas = {stage: sum(1 for it in d.items
                          if it.stage == stage and it.idle_days >= cfg.crit_days)
               for stage in _REQUEST_REVIEW_STAGES}
     n = sum(viejas.values())
     if n:
-        etapa = max(_REQUEST_REVIEW_STAGES, key=lambda st: (viejas[st], st == "req_review"))
-        url, body = _atorados_links(d, stage=etapa, idle_level="crit")
+        url, body = _atorados_links(d, stage="req_review", idle_level="crit")
         alerta("requests_crit", "crit",
                f"{_plural(n, 'solicitud por revisar lleva', 'solicitudes por revisar llevan')} "
                f"{cfg.crit_days} días o más esperando", url, body)
@@ -1193,7 +1192,12 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
 def _matches(it: Item, *, ball, idle_level, stage) -> bool:
     if ball and ball not in {a for a, _ in it.balls}:
         return False
-    if stage and it.stage != stage:
+    if stage == "req_review":
+        # «Por revisar» de Escolares = req_review + req_unverified (legado): la
+        # misma suma que la KPI y la alerta de solicitudes (cifra y lista cuadran).
+        if it.stage not in _REQUEST_REVIEW_STAGES:
+            return False
+    elif stage and it.stage != stage:
         return False
     if idle_level == "warn":
         return it.idle_level in ("warn", "crit")
@@ -1220,6 +1224,10 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
       (página 1). Pelota y etapa traen color (`color`).
     - `officers_by_program`: `{program_id: [nombres]}`, solo carreras del
       alcance del usuario.
+    - Filtro de etapa: `stage=req_review` incluye también `req_unverified`
+      (ambas son «por revisar» de Escolares; así la KPI y la alerta de
+      solicitudes, que suman las dos, cuadran con la lista). El chip
+      `req_unverified` sigue filtrando solo el legado.
     - `total`: `page.total`; `pager_url`/`pager_page_url`: liga del parcial y
       de la página SIN `page` (el macro `pager` agrega `page` por `hx-vals`).
     """
