@@ -216,7 +216,7 @@ class Item:
     stage: str
     balls: tuple[tuple[str, str], ...]
     idle_days: int
-    level: str
+    idle_level: str
     label: str                                  # "Nombre Apellido · control"
     control: str
     href: str
@@ -378,7 +378,7 @@ def classify_request(row: RequestRow, today: date, cfg: ReportConfig) -> Item:
     return Item(
         kind="request", id=row.id, cohort_id=row.cohort_id, program_id=row.program_id,
         stage=stage, balls=(ball,), idle_days=idle,
-        level=idle_level(idle, cfg),
+        idle_level=idle_level(idle, cfg),
         label=_label(row.first_name, row.last_name, row.middle_name, control),
         control=control,
         href=f"{_REQUESTS_URL}?{urlencode({'status': _REQUEST_TAB[stage], 'q': control})}",
@@ -415,7 +415,7 @@ def classify_process(row: ProcessRow, today: date, cfg: ReportConfig) -> Item:
 
     if _is_liberated(row):
         done = row.phase2_completed_at
-        return Item(**common, stage="liberado", balls=(), idle_days=0, level="ok",
+        return Item(**common, stage="liberado", balls=(), idle_days=0, idle_level="ok",
                     liberated_on=done.date() if done is not None else None,
                     liberated_by_id=row.phase2_reviewed_by_id)
 
@@ -425,7 +425,7 @@ def classify_process(row: ProcessRow, today: date, cfg: ReportConfig) -> Item:
         ball = ((_ESCOLARES, MOTIVE_REVIEW_DOCS) if pending_docs > 0
                 else (_ALUMNO, MOTIVE_UPLOAD_DOCS))
         return Item(**common, stage="docs", balls=(ball,), idle_days=idle,
-                    level=idle_level(idle, cfg))
+                    idle_level=idle_level(idle, cfg))
 
     open_reqs = [_BLOCKER_BALLS.get(code, (_ESCOLARES, MOTIVE_UNKNOWN_BLOCKER))
                  for code in row.blockers]
@@ -453,7 +453,7 @@ def classify_process(row: ProcessRow, today: date, cfg: ReportConfig) -> Item:
                 or (row.appt_status == "attended" and row.phase2_status != "rejected"))
     return Item(**common, stage="cita" if with_appt else "requisitos",
                 balls=_merge_balls(pairs), idle_days=idle,
-                level="ok" if in_agenda else idle_level(idle, cfg),
+                idle_level="ok" if in_agenda else idle_level(idle, cfg),
                 ready_to_book=not row.blockers and not occupies)
 
 

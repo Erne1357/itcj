@@ -46,7 +46,7 @@ def _item(stage, program_id, *, kind=None, balls=(), pending_docs=0,
     return Item(
         kind=kind or ("request" if stage.startswith("req_") else "process"),
         id=n, cohort_id=1, program_id=program_id, stage=stage, balls=tuple(balls),
-        idle_days=0, level="ok", label=f"Egresado {n} · 99{n:06d}",
+        idle_days=0, idle_level="ok", label=f"Egresado {n} · 99{n:06d}",
         control=f"99{n:06d}", href="#", pending_docs=pending_docs,
         ready_to_book=ready_to_book, appt_owner_id=appt_owner_id,
     )

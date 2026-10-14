@@ -151,7 +151,7 @@ def test_las_rutas_llaman_a_la_fachada_con_los_filtros_parseados(client_as, jefa
     assert len(llamadas) == 2
     for uid, filtros, hoy in llamadas:
         assert uid == jefa.id
-        assert filtros == rsv.ReportFilters(tab="atorados", cohort=mundo.c.id, level="crit",
+        assert filtros == rsv.ReportFilters(tab="atorados", cohort=mundo.c.id, idle_level="crit",
                                             hidden_programs=frozenset({3}))
         assert hoy == db_now().date()
 

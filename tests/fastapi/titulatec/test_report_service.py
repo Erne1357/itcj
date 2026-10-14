@@ -44,7 +44,7 @@ _SEQ = count(1)
 def test_parse_vacio_da_los_defaults():
     f = ReportFilters.parse({})
     assert f == ReportFilters()
-    assert (f.tab, f.cohort, f.range_days, f.level, f.page) == ("panorama", None, 14, "warn", 1)
+    assert (f.tab, f.cohort, f.range_days, f.idle_level, f.page) == ("panorama", None, 14, "warn", 1)
     assert f.hidden_programs == frozenset() and f.hidden_officers == frozenset()
     assert (f.ball, f.stage, f.day) == (None, None, None)
 
@@ -59,7 +59,7 @@ def test_parse_con_basura_nunca_levanta_y_cae_al_default():
     assert f.range_days == 14
     assert f.hidden_programs == frozenset({1})
     assert f.hidden_officers == frozenset({7})
-    assert (f.ball, f.level, f.stage, f.page, f.day) == (None, "warn", None, 1, None)
+    assert (f.ball, f.idle_level, f.stage, f.page, f.day) == (None, "warn", None, 1, None)
 
 
 def test_parse_digitos_no_ascii_no_truenan():
@@ -101,7 +101,7 @@ def test_parse_valores_validos():
     assert f.range_days is None
     assert f.hidden_programs == frozenset({0, 1, 3})      # 0 = «Sin carrera»
     assert f.hidden_officers == frozenset({9})
-    assert (f.ball, f.level, f.stage, f.page) == ("gtv", "crit", "docs", 3)
+    assert (f.ball, f.idle_level, f.stage, f.page) == ("gtv", "crit", "docs", 3)
     assert f.day == date(2026, 10, 9)
     assert ReportFilters.parse({"cohort": "ALL"}).cohort == "all"
     assert ReportFilters.parse({"range": "30"}).range_days == 30
@@ -112,12 +112,12 @@ def test_query_estable_ordenada_y_sin_defaults():
     assert ReportFilters().query() == "tab=panorama"
     f = ReportFilters(tab="atorados", cohort=7, range_days=None,
                       hidden_programs=frozenset({5, 2}), hidden_officers=frozenset({30, 4}),
-                      ball="escolares", level="all", stage="docs", page=2,
+                      ball="escolares", idle_level="all", stage="docs", page=2,
                       day=date(2026, 10, 9))
     assert f.query() == ("tab=atorados&cohort=7&range=all&px=2,5&ox=4,30&ball=escolares"
                          "&level=all&stage=docs&page=2&day=2026-10-09")
     # Los defaults se quitan aunque vengan explícitos.
-    assert ReportFilters(range_days=14, level="warn", page=1).query() == "tab=panorama"
+    assert ReportFilters(range_days=14, idle_level="warn", page=1).query() == "tab=panorama"
     # `changes` no muta el original.
     assert f.query(page=1, day=None, tab="ritmo").startswith("tab=ritmo&cohort=7")
     assert f.page == 2
@@ -126,7 +126,7 @@ def test_query_estable_ordenada_y_sin_defaults():
 def test_query_ida_y_vuelta():
     f = ReportFilters(tab="encargados", cohort="all", range_days=30,
                       hidden_programs=frozenset({0, 8}), hidden_officers=frozenset({4}),
-                      ball="computo", level="crit", stage="req_access", page=4,
+                      ball="computo", idle_level="crit", stage="req_access", page=4,
                       day=date(2026, 9, 30))
     assert ReportFilters.parse(dict(parse_qsl(f.query()))) == f
 
@@ -572,12 +572,12 @@ def test_cita_en_atencion_hoy_no_es_cita_sin_cerrar(esc, capacidad_amplia):
     hoy = t.proceso("en_curso_hoy", t.pa)
     p = _build(t)["panorama"]
     assert p["alerts"] == []
-    fila = next(r for r in _build(t, "atorados", level="all")["atorados"]["page"].items
+    fila = next(r for r in _build(t, "atorados", idle_level="all")["atorados"]["page"].items
                 if r["id"] == hoy.id)
     assert fila["motive_text"] == "Escolares: En atención"
     ayer = t.proceso("en_curso_ayer", t.pa)
     assert _alertas(t) == ["appts_unclosed"]
-    fila = next(r for r in _build(t, "atorados", level="all")["atorados"]["page"].items
+    fila = next(r for r in _build(t, "atorados", idle_level="all")["atorados"]["page"].items
                 if r["id"] == ayer.id)
     assert fila["motive_text"] == "Escolares: Cerrar cita"
     assert "1 cita pasada" in _build(t)["panorama"]["alerts"][0]["text"]
@@ -753,13 +753,13 @@ def test_atorados_por_omision_lentos_o_mas_por_dias(lleno):
 
 def test_atorados_filtros_de_pelota_nivel_y_etapa(lleno):
     t = lleno
-    alumno = _build(t, "atorados", ball="alumno", level="all")["atorados"]
+    alumno = _build(t, "atorados", ball="alumno", idle_level="all")["atorados"]
     assert alumno["page"].total == 4
-    cita = _build(t, "atorados", stage="cita", level="all")["atorados"]
+    cita = _build(t, "atorados", stage="cita", idle_level="all")["atorados"]
     assert {r["id"] for r in cita["page"].items} == {t.p_a_futura.id, t.p_a_pasada.id}
     futura = next(r for r in cita["page"].items if r["id"] == t.p_a_futura.id)
     assert futura["motive_text"].startswith("Cita el ")
-    crit = _build(t, "atorados", level="crit")["atorados"]
+    crit = _build(t, "atorados", idle_level="crit")["atorados"]
     assert [r["id"] for r in crit["page"].items] == [t.r_a_vieja.id]
     chips = _por_codigo(crit["chips"]["ball"])
     assert chips["escolares"]["url"] == (

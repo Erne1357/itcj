@@ -229,7 +229,7 @@ class ReportFilters:
     hidden_programs: frozenset[int] = frozenset()
     hidden_officers: frozenset[int] = frozenset()
     ball: str | None = None
-    level: str = DEFAULT_LEVEL
+    idle_level: str = DEFAULT_LEVEL
     stage: str | None = None
     page: int = 1
     day: date | None = None
@@ -255,7 +255,7 @@ class ReportFilters:
             hidden_programs=_parse_ids(_raw(params, "px"), allow_zero=True),
             hidden_officers=_parse_ids(_raw(params, "ox"), allow_zero=False),
             ball=ball if ball in _ACTOR_CODES else None,
-            level=level if level in LEVEL_CODES else DEFAULT_LEVEL,
+            idle_level=level if level in LEVEL_CODES else DEFAULT_LEVEL,
             stage=stage if stage in _STAGE_CODES else None,
             page=_parse_page(_raw(params, "page")),
             day=_parse_day(_raw(params, "day")),
@@ -277,8 +277,8 @@ class ReportFilters:
             pairs.append(("ox", _csv(f.hidden_officers)))
         if f.ball:
             pairs.append(("ball", f.ball))
-        if f.level != DEFAULT_LEVEL:
-            pairs.append(("level", f.level))
+        if f.idle_level != DEFAULT_LEVEL:
+            pairs.append(("level", f.idle_level))
         if f.stage:
             pairs.append(("stage", f.stage))
         if f.page != 1:
@@ -495,7 +495,7 @@ def _flow_counts(db: Session, d: _Data, start: date) -> dict[str, dict[date, int
 
 def _atorados_links(d: _Data, **changes) -> tuple[str, str]:
     """(url de página, url de parcial) de la pestaña Atorados con `changes`."""
-    base = {"tab": "atorados", "ball": None, "stage": None, "level": DEFAULT_LEVEL,
+    base = {"tab": "atorados", "ball": None, "stage": None, "idle_level": DEFAULT_LEVEL,
             "page": 1, "day": None}
     base.update(changes)
     return d.filters.page_url(**base), d.filters.body_url(**base)
@@ -558,7 +558,7 @@ def _print_summary(d: _Data, chips: list[dict]) -> str:
     if f.tab == "encargados" and f.hidden_officers:
         partes.append(_plural(len(f.hidden_officers), "encargado oculto", "encargados ocultos"))
     if f.tab == "atorados":
-        partes.append(f"Nivel: {dict(LEVELS)[f.level]}")
+        partes.append(f"Nivel: {dict(LEVELS)[f.idle_level]}")
         if f.ball:
             partes.append(f"Pelota: {_ACTOR_LABEL[f.ball]}")
         if f.stage:
@@ -739,7 +739,7 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
     n = sum(viejas.values())
     if n:
         etapa = max(_REQUEST_REVIEW_STAGES, key=lambda st: (viejas[st], st == "req_review"))
-        url, body = _atorados_links(d, stage=etapa, level="crit")
+        url, body = _atorados_links(d, stage=etapa, idle_level="crit")
         alerta("requests_crit", "crit",
                f"{_plural(n, 'solicitud por revisar lleva', 'solicitudes por revisar llevan')} "
                f"{cfg.crit_days} días o más esperando", url, body)
@@ -748,7 +748,7 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
               if it.stage == "docs" and it.pending_docs > 0 and it.idle_days >= cfg.warn_days]
     if lentos:
         docs = sum(it.pending_docs for it in lentos)
-        url, body = _atorados_links(d, stage="docs", ball="escolares", level="warn")
+        url, body = _atorados_links(d, stage="docs", ball="escolares", idle_level="warn")
         alerta("docs_warn", "warn",
                f"{_plural(len(lentos), 'expediente', 'expedientes')} con documentos por "
                f"dictaminar ({_plural(docs, 'documento', 'documentos')}) sin movimiento en "
@@ -780,7 +780,7 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
                      if it.appt_date is not None and it.appt_date < d.today
                      and any(MOTIVE_CLOSE_APPT in motivo.split(" · ") for _, motivo in it.balls))
     if sin_cerrar:
-        url, body = _atorados_links(d, stage="cita", ball="escolares", level="all")
+        url, body = _atorados_links(d, stage="cita", ball="escolares", idle_level="all")
         alerta("appts_unclosed", "warn",
                f"{_plural(sin_cerrar, 'cita pasada', 'citas pasadas')} sin cerrar", url, body)
     return out[:5]
@@ -829,7 +829,7 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
     stages = []
     for fila in filas:
         code = fila["label"]
-        url, body = _atorados_links(d, stage=code, level="all")
+        url, body = _atorados_links(d, stage=code, idle_level="all")
         stages.append({"code": code, "label": _STAGE_LABEL[code], "group": _STAGE_GROUP[code],
                        "group_label": _GROUP_LABEL[_STAGE_GROUP[code]],
                        "color": _GROUP_COLOR[_STAGE_GROUP[code]], "value": fila["value"],
@@ -841,12 +841,12 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
         for actor in {a for a, _ in it.balls}:
             acc = cuenta.setdefault(actor, [0, 0, 0])
             acc[0] += 1
-            acc[1] += it.level in ("warn", "crit")
-            acc[2] += it.level == "crit"
+            acc[1] += it.idle_level in ("warn", "crit")
+            acc[2] += it.idle_level == "crit"
     balls = []
     for fila in charts.bar_rows([(a, cuenta[a][0]) for a in _ACTOR_CODES]):
         a = fila["label"]
-        url, body = _atorados_links(d, ball=a, level="all")
+        url, body = _atorados_links(d, ball=a, idle_level="all")
         s_url, s_body = _atorados_links(d, ball=a)
         balls.append({"code": a, "label": _ACTOR_LABEL[a], "color": _ACTOR_COLOR[a],
                       "value": fila["value"], "pct": fila["pct"], "stuck": cuenta[a][1],
@@ -856,12 +856,12 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
                              f"({_plural(cuenta[a][1], 'atorado o lento', 'atorados o lentos')})"})
 
     revisar = [it for it in d.items if it.stage in _REQUEST_REVIEW_STAGES]
-    crit = sum(1 for it in pend if it.level == "crit")
-    warn = sum(1 for it in pend if it.level == "warn")
-    lib_url, lib_body = _atorados_links(d, stage=_LIBERADO, level="all")
-    req_url, req_body = _atorados_links(d, stage="req_review", level="all")
+    crit = sum(1 for it in pend if it.idle_level == "crit")
+    warn = sum(1 for it in pend if it.idle_level == "warn")
+    lib_url, lib_body = _atorados_links(d, stage=_LIBERADO, idle_level="all")
+    req_url, req_body = _atorados_links(d, stage="req_review", idle_level="all")
     st_url, st_body = _atorados_links(d)
-    cr_url, cr_body = _atorados_links(d, level="crit")
+    cr_url, cr_body = _atorados_links(d, idle_level="crit")
     return {
         "kpis": {
             "liberated": {
@@ -1177,8 +1177,8 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
             "id": pid, "name": d.pname(pid), "segments": segmentos, "total": len(items),
             "enrolled": inscritos, "liberated": liberados, "pct_liberated": pct,
             "pct_text": _fmt_pct(pct),
-            "stuck": sum(1 for it in items if it.level in ("warn", "crit")),
-            "crit": sum(1 for it in items if it.level == "crit"),
+            "stuck": sum(1 for it in items if it.idle_level in ("warn", "crit")),
+            "crit": sum(1 for it in items if it.idle_level == "crit"),
             "officers": list(por_carrera.get(pid, [])) if pid is not None else [],
         })
     rows.sort(key=lambda r: (-r["stuck"], r["id"] is None, _name_key(r["name"]),
@@ -1190,15 +1190,15 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
     }
 
 
-def _matches(it: Item, *, ball, level, stage) -> bool:
+def _matches(it: Item, *, ball, idle_level, stage) -> bool:
     if ball and ball not in {a for a, _ in it.balls}:
         return False
     if stage and it.stage != stage:
         return False
-    if level == "warn":
-        return it.level in ("warn", "crit")
-    if level == "crit":
-        return it.level == "crit"
+    if idle_level == "warn":
+        return it.idle_level in ("warn", "crit")
+    if idle_level == "crit":
+        return it.idle_level == "crit"
     return True
 
 
@@ -1225,13 +1225,13 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
     """
     f = d.filters
     por_carrera = _officer_names_by_program(d, d.officer_list(db))
-    filtrados = [it for it in d.items if _matches(it, ball=f.ball, level=f.level, stage=f.stage)]
+    filtrados = [it for it in d.items if _matches(it, ball=f.ball, idle_level=f.idle_level, stage=f.stage)]
     filtrados.sort(key=lambda it: (-it.idle_days, it.kind != "request", it.id))
     page = paginate_list(filtrados, f.page)
 
     filas = []
     for it in page.items:
-        lvl_label, lvl_icon = LEVEL_UI.get(it.level, LEVEL_UI["ok"])
+        lvl_label, lvl_icon = LEVEL_UI.get(it.idle_level, LEVEL_UI["ok"])
         motivos = [{"actor": a, "actor_label": _ACTOR_LABEL.get(a, a),
                     "color": _ACTOR_COLOR.get(a), "text": m} for a, m in it.balls]
         if motivos:
@@ -1248,7 +1248,7 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
             "stage_label": _STAGE_LABEL.get(it.stage, it.stage),
             "group_color": _GROUP_COLOR.get(_STAGE_GROUP.get(it.stage, ""), None),
             "motives": motivos, "motive_text": motivo, "days": it.idle_days,
-            "days_text": _plural(it.idle_days, "día", "días"), "level": it.level,
+            "days_text": _plural(it.idle_days, "día", "días"), "level": it.idle_level,
             "level_label": lvl_label, "level_icon": lvl_icon,
             "officers": list(por_carrera.get(it.program_id, [])) if it.program_id else [],
             "href": it.href,
@@ -1256,7 +1256,7 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
     page = replace(page, items=filas)
 
     def n_con(**kw) -> int:
-        args = {"ball": f.ball, "level": f.level, "stage": f.stage, **kw}
+        args = {"ball": f.ball, "idle_level": f.idle_level, "stage": f.stage, **kw}
         return sum(1 for it in d.items if _matches(it, **args))
 
     def chip(code, label, campo, color=None) -> dict:
@@ -1268,7 +1268,7 @@ def _ctx_atorados(db: Session, d: _Data) -> dict:
     chips = {
         "ball": [chip(None, "Todas", "ball")]
                 + [chip(a, _ACTOR_LABEL[a], "ball", _ACTOR_COLOR[a]) for a in _ACTOR_CODES],
-        "level": [chip(code, label, "level") for code, label in LEVELS],
+        "level": [chip(code, label, "idle_level") for code, label in LEVELS],
         "stage": [chip(None, "Todas", "stage")]
                  + [chip(code, _STAGE_LABEL[code], "stage", _GROUP_COLOR[_STAGE_GROUP[code]])
                     for code in _STAGE_CODES],

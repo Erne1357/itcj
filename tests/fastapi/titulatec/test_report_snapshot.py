@@ -171,12 +171,12 @@ def test_solicitud_por_revisar_cuenta_desde_que_se_creo():
         _req("pending_review", created_at=_hace(15), reviewed_at=_hace(1),
              updated_at=_hace(1)), HOY, CFG)
     assert item.idle_days == 15
-    assert item.level == "crit"
+    assert item.idle_level == "crit"
 
 
 def test_solicitud_anterior_legado_cuenta_desde_que_se_creo():
     item = rs.classify_request(_req("unverified", created_at=_hace(8)), HOY, CFG)
-    assert item.idle_days == 8 and item.level == "warn"
+    assert item.idle_days == 8 and item.idle_level == "warn"
 
 
 @pytest.mark.parametrize("status", ["awaiting_access", "approved"])
@@ -184,7 +184,7 @@ def test_en_computo_o_aprobada_cuenta_desde_la_revision(status):
     item = rs.classify_request(
         _req(status, created_at=_hace(30), reviewed_at=_hace(5), updated_at=_hace(1)),
         HOY, CFG)
-    assert item.idle_days == 5 and item.level == "ok"
+    assert item.idle_days == 5 and item.idle_level == "ok"
 
 
 @pytest.mark.parametrize("revisada, acceso, dias", [
@@ -238,7 +238,7 @@ def test_sin_revision_cae_a_updated_at(status):
     item = rs.classify_request(
         _req(status, created_at=_hace(30), reviewed_at=None, updated_at=_hace(9)),
         HOY, CFG)
-    assert item.idle_days == 9 and item.level == "warn"
+    assert item.idle_days == 9 and item.idle_level == "warn"
 
 
 def test_solicitud_etiqueta_y_liga_a_la_pestana_correcta():
@@ -376,7 +376,7 @@ def test_cita_futura_agendada_hace_20_dias_esta_al_dia(estado, dias_a_la_cita):
     assert item.stage == "cita"
     assert item.balls == ()
     assert item.idle_days == 20
-    assert item.level == "ok"
+    assert item.idle_level == "ok"
     assert item.appt_date == HOY + timedelta(days=dias_a_la_cita)
     assert item.appt_owner_id == 900
     assert item.ready_to_book is False
@@ -392,7 +392,7 @@ def test_cita_de_ayer_sin_cerrar_es_de_escolares(estado, dias_quieto, nivel):
     assert item.stage == "cita"
     assert item.balls == (("escolares", "Cerrar cita"),)
     assert item.idle_days == dias_quieto
-    assert item.level == nivel
+    assert item.idle_level == nivel
     assert item.appt_date == HOY - timedelta(days=1)
 
 
@@ -408,7 +408,7 @@ def test_cita_en_curso_hoy_esta_en_atencion(dias_quieto, nivel):
     assert rs.MOTIVE_IN_ATTENTION == "En atención"
     assert item.stage == "cita"
     assert item.balls == (("escolares", "En atención"),)
-    assert item.level == nivel
+    assert item.idle_level == nivel
     assert item.ready_to_book is False
 
 
@@ -507,7 +507,7 @@ def test_fase_2_aprobada_es_liberado(estado_proceso):
         HOY, CFG)
     assert item.stage == "liberado"
     assert item.balls == ()
-    assert item.level == "ok"
+    assert item.idle_level == "ok"
     assert item.liberated_on == date(2026, 10, 9)
     assert item.liberated_by_id == 321
     assert item.ready_to_book is False
@@ -529,14 +529,14 @@ def test_umbrales_exactos(dias, nivel):
     item = rs.classify_process(
         _proc(created_at=_hace(60), last_event_at=_hace(dias)), HOY, CFG)
     assert item.idle_days == dias
-    assert item.level == nivel
+    assert item.idle_level == nivel
 
 
 def test_los_umbrales_salen_de_la_config():
     cfg = rs.ReportConfig(warn_days=2, crit_days=3)
-    assert rs.classify_process(_proc(last_event_at=_hace(1)), HOY, cfg).level == "ok"
-    assert rs.classify_process(_proc(last_event_at=_hace(2)), HOY, cfg).level == "warn"
-    assert rs.classify_process(_proc(last_event_at=_hace(3)), HOY, cfg).level == "crit"
+    assert rs.classify_process(_proc(last_event_at=_hace(1)), HOY, cfg).idle_level == "ok"
+    assert rs.classify_process(_proc(last_event_at=_hace(2)), HOY, cfg).idle_level == "warn"
+    assert rs.classify_process(_proc(last_event_at=_hace(3)), HOY, cfg).idle_level == "crit"
 
 
 def test_sin_eventos_cuenta_desde_el_alta_del_proceso():
@@ -874,7 +874,7 @@ def test_la_cita_vigente_trae_el_dueno_de_su_ventana(db_session, tablero, make_a
     (item,) = _snap(db_session, t).items
     assert item.stage == "cita"
     assert item.balls == ()
-    assert item.level == "ok"
+    assert item.idle_level == "ok"
     assert item.appt_owner_id == t.officer.id
     assert item.appt_date == t.hoy + timedelta(days=3)
 
@@ -895,11 +895,11 @@ def test_dias_desde_el_ultimo_evento_y_documentos_por_dictaminar(db_session, tab
     item = por_id[proc.id]
     assert item.pending_docs == 2
     assert item.balls == (("escolares", "Dictaminar documentos"),)
-    assert (item.idle_days, item.level) == (9, "warn")
+    assert (item.idle_days, item.idle_level) == (9, "warn")
     otro = por_id[quieto.id]
     assert otro.pending_docs == 0
     assert otro.balls == (("alumno", "Subir o corregir documentos"),)
-    assert (otro.idle_days, otro.level) == (16, "crit")
+    assert (otro.idle_days, otro.idle_level) == (16, "crit")
 
 
 def test_solicitudes_vivas_con_su_etapa(db_session, tablero):
@@ -920,7 +920,7 @@ def test_solicitudes_vivas_con_su_etapa(db_session, tablero):
     snap = _snap(db_session, t)
     por_id = {it.id: it for it in snap.items}
     assert set(por_id) == {revisar.id, computo.id, liga.id, vencida.id}
-    assert (por_id[revisar.id].stage, por_id[revisar.id].level) == ("req_review", "crit")
+    assert (por_id[revisar.id].stage, por_id[revisar.id].idle_level) == ("req_review", "crit")
     assert (por_id[computo.id].stage, por_id[computo.id].idle_days) == ("req_access", 8)
     assert (por_id[liga.id].stage, por_id[liga.id].idle_days) == ("req_approved", 2)
     assert por_id[liga.id].balls == (("alumno", "Activar su cuenta"),)
