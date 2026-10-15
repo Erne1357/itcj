@@ -41,6 +41,9 @@
   const SNAP_EDGE = 8;            // px del borde del área útil que activan la vista previa de acople
   const SNAP_GAP = 8;             // margen de la vista previa respecto al área útil
   const STATES = ['normal', 'maximized', 'snap-left', 'snap-right'];
+  // Fin de arrastre/redimensión. Además de en la barra o la manija se escucha en
+  // `document` (fase de captura): si el nodo con la captura desaparece, el fin no se pierde.
+  const GESTURE_END = ['pointerup', 'pointercancel', 'lostpointercapture'];
   const RESIZE_CURSORS = {
     n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
     ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize'
@@ -85,6 +88,7 @@
       this.stack = [];            // keys de abajo hacia arriba (z-order)
       this.active = null;         // key de la ventana visible de más arriba
       this.previewEl = null;      // #snapPreview (se crea al primer arrastre)
+      this.gesture = null;        // arrastre/redimensión en curso: {win, id, end}
       this.area = this.workArea();   // última área útil conocida (para reacomodar al cambiar de tamaño)
       this._bindGlobal();
     }
@@ -181,6 +185,10 @@
       const animate = !(opts && opts.animate === false) && !win.minimized && !reducedMotion();
       this.windows.delete(key);
       this.stack = this.stack.filter((k) => k !== key);
+      // Arrastre/redimensión a medias sobre esta ventana: se cancela ya (quita el escudo
+      // de iframes y el cursor; como ya no está registrada, ni acopla ni guarda geometría).
+      const g = this.gesture;
+      if (g && g.win === win) g.end({ pointerId: g.id, type: 'cancel' });
       clearTimeout(win.loadingTimer);
       clearTimeout(win.transitionTimer);
       this._cancelAnim(win);
@@ -538,8 +546,10 @@
     _moved(win) {
       if (this.windows.get(win.key) !== win) return;
       if (win.state === 'normal' && win.rect) {
+        // Acotada al área: una redimensión con la ventana medio fuera puede dejar
+        // w > 100 % del área, y session.js descartaría esa geometría entera.
         try {
-          if (D.session && typeof D.session.saveGeometry === 'function') D.session.saveGeometry(win.key, this.toPct(win.rect));
+          if (D.session && typeof D.session.saveGeometry === 'function') D.session.saveGeometry(win.key, this.toPct(this._fitRect(win.rect)));
         } catch (err) { /* sin storage: no se recuerda */ }
       }
       this._emit('window-moved', win);
@@ -704,13 +714,16 @@
           this._showSnapPreview(side, drag.areaBox);
         }
       };
+      // `ev.type === 'cancel'` cuando lo llama close(): sin acople.
       const end = (ev) => {
         if (ev.pointerId !== drag.id || drag.ended) return;
         drag.ended = true;
+        if (this.gesture && this.gesture.end === end) this.gesture = null;
         tb.removeEventListener('pointermove', move);
-        tb.removeEventListener('pointerup', end);
-        tb.removeEventListener('pointercancel', end);
-        tb.removeEventListener('lostpointercapture', end);
+        GESTURE_END.forEach((t) => {
+          tb.removeEventListener(t, end);
+          document.removeEventListener(t, end, true);
+        });
         try { tb.releasePointerCapture(drag.id); } catch (err) { /* ya liberada */ }
         document.body.classList.remove('desktop-dragging');
         if (drag.side) this._showSnapPreview(null);
@@ -724,10 +737,12 @@
           this._moved(win);
         }
       };
+      this.gesture = { win, id: drag.id, end };
       tb.addEventListener('pointermove', move);
-      tb.addEventListener('pointerup', end);
-      tb.addEventListener('pointercancel', end);
-      tb.addEventListener('lostpointercapture', end);
+      GESTURE_END.forEach((t) => {
+        tb.addEventListener(t, end);
+        document.addEventListener(t, end, true);
+      });
     }
 
     /**
@@ -855,22 +870,27 @@
         const st = win.el.style;
         st.left = r.x + 'px'; st.top = r.y + 'px'; st.width = r.w + 'px'; st.height = r.h + 'px';
       };
+      // `ev.type === 'cancel'` cuando lo llama close() (la ventana ya no está: no se guarda).
       const end = (ev) => {
         if (ev.pointerId !== rs.id || rs.ended) return;
         rs.ended = true;
+        if (this.gesture && this.gesture.end === end) this.gesture = null;
         handle.removeEventListener('pointermove', move);
-        handle.removeEventListener('pointerup', end);
-        handle.removeEventListener('pointercancel', end);
-        handle.removeEventListener('lostpointercapture', end);
+        GESTURE_END.forEach((t) => {
+          handle.removeEventListener(t, end);
+          document.removeEventListener(t, end, true);
+        });
         try { handle.releasePointerCapture(rs.id); } catch (err) { /* ya liberada */ }
         body.classList.remove('desktop-dragging', 'desktop-resizing');
         body.style.removeProperty('--resize-cursor');
         if (rs.changed) this._moved(win);
       };
+      this.gesture = { win, id: rs.id, end };
       handle.addEventListener('pointermove', move);
-      handle.addEventListener('pointerup', end);
-      handle.addEventListener('pointercancel', end);
-      handle.addEventListener('lostpointercapture', end);
+      GESTURE_END.forEach((t) => {
+        handle.addEventListener(t, end);
+        document.addEventListener(t, end, true);
+      });
     }
 
     // =======================================================================

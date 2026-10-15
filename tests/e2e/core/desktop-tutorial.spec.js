@@ -138,6 +138,13 @@ test.describe('tutorial del escritorio', () => {
       await waitStepChange(page, id);
     }
     await expect(page.locator('#tutorialNotificationPanel')).toBeVisible();
+    // Iconos de las notificaciones demo: del sprite del escritorio (ya no hay lucide).
+    await expect(page.locator('#tutorialNotificationPanel [data-lucide]')).toHaveCount(0);
+    const demoIcons = page.locator('#tutorialNotificationPanel svg.ico use');
+    expect(await demoIcons.count()).toBeGreaterThan(0);
+    for (const href of await demoIcons.evaluateAll((els) => els.map((u) => u.getAttribute('href')))) {
+      expect(['#i-calendar', '#i-ticket', '#i-bell']).toContain(href);
+    }
 
     // La X del popover debe ser clicable; "Continuar Tutorial" vuelve al tour.
     await page.locator(STEP).last().locator('.shepherd-cancel-icon').click();

@@ -94,6 +94,8 @@ def test_escritorio_vistetec_sigue_oculto():
 def _app_card(key: str, name: str):
     env = Environment(loader=FileSystemLoader(str(CORE_TPL)), autoescape=True)
     env.globals["url_for"] = lambda endpoint, **kw: f"/static/{kw['filename']}"
+    # En la app `sv` llega por `import ... with context`; aqui deja ver con que se llamo.
+    env.globals["sv"] = lambda app_name, filename: f"{app_name}:{filename}"
     macro = env.get_template("core/mobile/components/app_card.html").module.render_app_card
     html = str(macro({"key": key, "name": name, "mobile_url": f"/{key}/",
                       "color": None, "icon_class": "bi-app"}))
@@ -109,7 +111,8 @@ def test_tarjeta_movil_de_titulatec_usa_el_png_con_su_propio_tile():
     icono, clases = _icono(_app_card("titulatec", "TitulaTec"))
     assert "has-img" in clases and "has-own-tile" in clases
     (img,) = icono.xpath('.//img')
-    assert img.get("src") == "/static/core/images/app-icons/titulatec.webp"
+    # Versionada con el manifest del core (la ruta va sin el prefijo `core/`).
+    assert img.get("src") == "/static/core/images/app-icons/titulatec.webp?v=core:images/app-icons/titulatec.webp"
     assert not icono.xpath('.//i'), "sigue pintando el glifo de Bootstrap Icons"
 
 

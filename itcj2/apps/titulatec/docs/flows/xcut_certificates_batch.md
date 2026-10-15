@@ -270,7 +270,7 @@ un lote los incluye a todos.
   **Dentro del escritorio del core (2026-10-05)**: el `<iframe>` del escritorio llevaba `sandbox` y
   Chromium bloqueaba el visor de PDF en ese contexto («bloqueó esta página» al abrir el lote con
   clic izquierdo). Se retiró el `sandbox` del iframe
-  (`itcj2/core/static/js/dashboard/dashboard.js:250-256`, commit `a5ae4057`); los `<a
+  (`itcj2/core/static/js/dashboard/desktop/window-manager.js` `_buildElement`, commit `a5ae4057`); los `<a
   target="_blank">` no cambian.
 - **`certificates_of(db, batch_id)`**: todas las de un lote, anuladas incluidas — una anulada
   sale marcada «ANULADA» en el PDF **en los dos acomodos**, nunca desaparece del lote que ya se

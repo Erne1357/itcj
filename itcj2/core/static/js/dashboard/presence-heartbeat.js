@@ -98,8 +98,9 @@
     }
 
     /**
-     * Llamado por el shell (WindowsDesktop) cada vez que cambia la app que el
-     * usuario tiene al frente. Sin `appKey` (o con un valor vacío) reporta
+     * Llamado por el escritorio (window-manager.js, al recibir
+     * `desktop:active-changed`) cada vez que cambia la app que el usuario
+     * tiene al frente. Sin `appKey` (o con un valor vacío) reporta
      * "core" — el shell sin ninguna app abierta.
      */
     function reportApp(appKey) {

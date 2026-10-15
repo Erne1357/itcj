@@ -7,6 +7,7 @@
 
 :root {
   --win-radius: 8px;
+  --win-radius-inner: calc(var(--win-radius) - 1px);   /* esquinas de barra y contenido (dentro del borde de 1 px) */
   --win-shadow: 0 16px 48px rgba(0, 0, 0, .26), 0 2px 8px rgba(0, 0, 0, .14);
   --win-shadow-inactive: 0 8px 28px rgba(0, 0, 0, .18), 0 1px 4px rgba(0, 0, 0, .1);
   --titlebar-h: 36px;
@@ -35,9 +36,11 @@
   border: 1px solid rgba(0, 0, 0, .14);
   border-radius: var(--win-radius);
   box-shadow: var(--win-shadow-inactive);
-  /* B1: `clip` no es desplazable ni por scrollIntoView; `hidden` es el respaldo. */
-  overflow: hidden;
-  overflow: clip;
+  /* Sin recorte propio (overflow visible): las manijas de redimensión van por
+     fuera del borde y la ventana no es contenedor de scroll. B1 lo resuelven
+     `.window-content` (overflow: clip, no desplazable ni por scrollIntoView) y
+     el escritorio y el body recortados. Las esquinas las redondean la barra de
+     título y el contenido. */
   pointer-events: auto;
   transform-origin: center center;
 }
@@ -56,6 +59,13 @@
 
 .app-window.is-snap-left { border-right: 1px solid rgba(0, 0, 0, .18); }
 .app-window.is-snap-right { border-left: 1px solid rgba(0, 0, 0, .18); }
+
+.app-window.is-maximized .window-titlebar,
+.app-window.is-maximized .window-content,
+.app-window.is-snap-left .window-titlebar,
+.app-window.is-snap-left .window-content,
+.app-window.is-snap-right .window-titlebar,
+.app-window.is-snap-right .window-content { border-radius: 0; }
 
 /* Minimizada: conserva su tamaño (las gráficas de las apps no se rompen). */
 .app-window.is-minimized {
@@ -80,6 +90,11 @@
   height: var(--titlebar-h);
   flex: none;
   padding-left: 10px;
+  border-radius: var(--win-radius-inner) var(--win-radius-inner) 0 0;
+  /* Recorta a la esquina redondeada el hover de "Cerrar" (no contiene al iframe:
+     no afecta a B1). */
+  overflow: hidden;
+  overflow: clip;
   background: var(--titlebar-inactive);
   color: rgba(255, 255, 255, .86);
   font-family: var(--font-ui, "Segoe UI", system-ui, sans-serif);
@@ -226,8 +241,11 @@
   position: relative;
   flex: 1;
   min-height: 0;
+  /* B1: `clip` no es desplazable ni por scrollIntoView; `hidden` es el respaldo.
+     Con el radio recorta también las esquinas inferiores del iframe. */
   overflow: hidden;
   overflow: clip;
+  border-radius: 0 0 var(--win-radius-inner) var(--win-radius-inner);
   background: #fff;
 }
 
@@ -240,9 +258,10 @@
 }
 
 /* --------------------------------------------------------------------------
-   Manijas de redimensión: bordes de 6 px y esquinas de 12 px por dentro de la
-   ventana (el overflow:clip de B1 recortaría las de fuera). Encima del
-   contenido; ocultas en maximizada y minimizada.
+   Manijas de redimensión: bordes de 6 px por FUERA de la ventana (no tapan la
+   barra de scroll del iframe ni el borde de la barra de título) y esquinas de
+   12 px centradas en cada vértice. La mitad interior de "ne" queda bajo los
+   controles (z-index 4): ahí manda "Cerrar". Ocultas en maximizada y minimizada.
    -------------------------------------------------------------------------- */
 .window-resize {
   position: absolute;
@@ -251,22 +270,22 @@
 }
 
 .window-resize[data-dir="n"],
-.window-resize[data-dir="s"] { left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+.window-resize[data-dir="s"] { left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
 .window-resize[data-dir="e"],
-.window-resize[data-dir="w"] { top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.window-resize[data-dir="w"] { top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
 .window-resize[data-dir="ne"],
 .window-resize[data-dir="nw"],
 .window-resize[data-dir="se"],
 .window-resize[data-dir="sw"] { width: 12px; height: 12px; }
 
-.window-resize[data-dir="n"] { top: 0; }
-.window-resize[data-dir="s"] { bottom: 0; }
-.window-resize[data-dir="e"] { right: 0; }
-.window-resize[data-dir="w"] { left: 0; }
-.window-resize[data-dir="ne"] { top: 0; right: 0; cursor: nesw-resize; }
-.window-resize[data-dir="sw"] { bottom: 0; left: 0; cursor: nesw-resize; }
-.window-resize[data-dir="nw"] { top: 0; left: 0; cursor: nwse-resize; }
-.window-resize[data-dir="se"] { bottom: 0; right: 0; cursor: nwse-resize; }
+.window-resize[data-dir="n"] { top: -6px; }
+.window-resize[data-dir="s"] { bottom: -6px; }
+.window-resize[data-dir="e"] { right: -6px; }
+.window-resize[data-dir="w"] { left: -6px; }
+.window-resize[data-dir="ne"] { top: -6px; right: -6px; cursor: nesw-resize; }
+.window-resize[data-dir="sw"] { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.window-resize[data-dir="nw"] { top: -6px; left: -6px; cursor: nwse-resize; }
+.window-resize[data-dir="se"] { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
 .app-window.is-maximized .window-resize,
 .app-window.is-minimized .window-resize { display: none; }

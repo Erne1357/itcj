@@ -650,11 +650,15 @@ class DashboardTutorial {
             notifItem.onmouseleave = () => notifItem.style.background = 'transparent';
 
             const iconColor = notif.type === 'warning' ? '#f59e0b' : notif.type === 'success' ? '#10b981' : '#667eea';
+            // Icono del sprite del escritorio (icons.js); lo que no esté en el sprite, campana.
+            const D = window.ItcjDesktop;
+            const iconName = ['calendar', 'ticket'].includes(notif.icon) ? notif.icon : 'bell';
+            const iconHtml = D && typeof D.icon === 'function' ? D.icon(iconName) : '';
 
             notifItem.innerHTML = `
                 <div style="display: flex; gap: 12px; align-items: start;">
                     <div style="color: ${iconColor}; font-size: 1.2rem;">
-                        <i data-lucide="${notif.icon}"></i>
+                        ${iconHtml}
                     </div>
                     <div style="flex: 1;">
                         <div style="font-weight: 600; margin-bottom: 4px; color: #111827;">${notif.title}</div>
@@ -670,11 +674,6 @@ class DashboardTutorial {
         panel.appendChild(header);
         panel.appendChild(body);
         document.body.appendChild(panel);
-
-        // Inicializar íconos de Lucide
-        if (window.lucide) {
-            lucide.createIcons();
-        }
     }
 
     /**
@@ -1283,11 +1282,11 @@ class DashboardTutorial {
         // Cerrar el menú inicio si está abierto
         this.closeStartMenu();
 
-        // Cerrar el panel de notificaciones si está abierto
-        const notificationPanel = document.getElementById('notification-panel');
-        if (notificationPanel && !notificationPanel.hidden) {
-            console.log('[DashboardTutorial] Closing notification panel...');
-            notificationPanel.hidden = true;
+        // Cerrar el panel de notificaciones a través del widget (así su estado y el
+        // aria-expanded de la campana quedan coherentes)
+        const notificationWidget = window.dashboardNotificationWidget;
+        if (notificationWidget && typeof notificationWidget.closePanel === 'function') {
+            notificationWidget.closePanel();
         }
 
         // Eliminar cualquier panel de notificaciones del tutorial anterior

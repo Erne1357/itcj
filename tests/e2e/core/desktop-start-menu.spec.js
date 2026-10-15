@@ -72,7 +72,7 @@ test('buscador: "titu" da un resultado y Enter abre TitulaTec; sin acentos', asy
   await expect(windowOf(page, 'titulatec')).toBeVisible();
   await expect(page.locator('#startMenu')).toBeHidden();
 
-  // "extensiones" se encuentra aunque se escriba con mayúsculas y sin importar acentos.
+  // "Configuración" se encuentra aunque se escriba con mayúsculas y sin acento.
   await search.click();
   await search.fill('CONFIGURACION');
   await expect(page.locator('#startMenuResults [role="option"]')).toHaveCount(1);
@@ -113,15 +113,28 @@ test('cerrar sesión: POST al logout, limpia sesión y va a /itcj/login', async 
     called += 1;
     route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
   });
+  // La cookie sigue viva (logout simulado) y el /itcj/login real redirigiría de vuelta al
+  // escritorio: se sirve una página vacía del mismo origen para poder leer su sessionStorage.
+  await page.route(/\/itcj\/login(\?|$)/, (route) => {
+    if (!route.request().isNavigationRequest()) return route.continue();
+    return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>login</title>' });
+  });
   await gotoDesktop(page);
+
+  // Con una ventana abierta la sesión del escritorio queda guardada.
+  const sessionKey = 'itcj.desktop.session.v1:' + await page.evaluate(() => window.ItcjDesktop.user.id);
+  await page.evaluate(() => window.ItcjDesktop.wm.open('directory'));
+  await expect(windowOf(page, 'directory')).toBeVisible();
+  await page.waitForFunction((k) => !!sessionStorage.getItem(k), sessionKey);
+
   await page.locator('.start-button').click();
   await Promise.all([
-    // La cookie sigue viva (logout simulado): /itcj/login redirige de vuelta, así que se
-    // comprueba la petición de navegación y no la URL final.
     page.waitForRequest((r) => r.isNavigationRequest() && new URL(r.url()).pathname === '/itcj/login'),
     page.locator('#startMenuLogout').click(),
   ]);
   expect(called).toBe(1);
+  await page.waitForURL(/\/itcj\/login$/);
+  expect(await page.evaluate((k) => sessionStorage.getItem(k), sessionKey)).toBeNull();
 });
 
 test('captura del menú abierto', async ({ page }) => {

@@ -21,7 +21,8 @@
 
 /* La barra móvil es del SHELL MÓVIL (/itcj/m/), no de "estar en un iframe":
    el escritorio (/itcj/dashboard) también abre /itcj/config dentro de un
-   <iframe class="window-iframe"> (dashboard.js: settings.iframeSrc), y ahí la
+   <iframe class="window-iframe"> (app `settings` del registro del escritorio,
+   abierta por desktop/window-manager.js), y ahí la
    ventana ya trae su propia barra de título con cerrar y el sidebar cabe
    completo. Sin este gate salía la hamburguesa en desktop.
    Breakpoint 992px = el mismo en que el sidebar pasa a rail/off-canvas en

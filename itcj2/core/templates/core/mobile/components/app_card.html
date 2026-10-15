@@ -17,7 +17,8 @@
     data-app-key="{{ app.key }}">
     <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}{% if own_tile %} has-own-tile{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
         {% if icon_img %}
-        <img src="{{ url_for('static', filename=icon_img) }}" alt="{{ app.name }}" class="mobile-app-card-img">
+        {# `sv` llega por `import ... with context` (staff/student_dashboard, render() lo inyecta). #}
+        <img src="{{ url_for('static', filename=icon_img) }}?v={{ sv('core', icon_img | replace('core/', '', 1)) }}" alt="{{ app.name }}" class="mobile-app-card-img">
         {% else %}
         <i class="bi {{ app.icon_class or 'bi-app' }}"></i>
         {% endif %}

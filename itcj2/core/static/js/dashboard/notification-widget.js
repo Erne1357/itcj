@@ -22,17 +22,20 @@ function ico(name, cls) {
 }
 
 /**
- * URL de acción segura: ruta relativa que empieza con `/` (no `//` ni `/\`) o
- * mismo origen http/https. Cualquier otra cosa (`javascript:`, `data:`, otro
- * origen) devuelve '' (sin acción).
+ * URL de acción segura (misma regla que el perfil, profile.js `safeUrl`): ruta
+ * relativa que empieza con `/` o absoluta http/https, siempre del mismo origen.
+ * Rechaza tab/CR/LF y `\` en cualquier parte (el parser de URL los quita o los
+ * lee como `/`: `"/\t/evil.example"` acabaría en `//evil.example`) y `//`.
+ * Devuelve la ruta normalizada (pathname + search + hash) o '' (sin acción).
  */
 function safeUrl(u) {
-    if (typeof u !== 'string') return '';
-    const raw = u.trim();
-    if (!raw) return '';
-    if (raw.startsWith('/') && !raw.startsWith('//') && !raw.startsWith('/\\')) return raw;
+    if (typeof u !== 'string' || !u) return '';
+    if (/[\t\r\n\\]/.test(u)) return '';
+    const value = u.trim();
+    if (!value || value.startsWith('//')) return '';
+    if (!value.startsWith('/') && !/^https?:/i.test(value)) return '';
     try {
-        const parsed = new URL(raw, window.location.origin);
+        const parsed = new URL(value, window.location.origin);
         if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
             parsed.origin === window.location.origin) {
             return parsed.pathname + parsed.search + parsed.hash;
@@ -44,6 +47,11 @@ function safeUrl(u) {
 /** Color de la app: solo #rrggbb; si no, gris. */
 function safeColor(c) {
     return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : '#6c757d';
+}
+
+/** Icono de la app (clase de Bootstrap Icons); si no es válida, campana. */
+function safeIcon(cls) {
+    return typeof cls === 'string' && /^bi-[a-z0-9-]+$/i.test(cls) ? cls : 'bi-bell';
 }
 
 class DashboardNotificationWidget {
@@ -143,6 +151,15 @@ class DashboardNotificationWidget {
             if (panel && !panel.contains(e.target) && !(bell && bell.contains(e.target))) {
                 this.closePanel();
             }
+        });
+
+        // Un clic dentro de una ventana (iframe) no llega a este documento: la página
+        // pierde el foco y el iframe queda como elemento activo (como en start-menu.js).
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                const ae = document.activeElement;
+                if (this.panelOpen && ae && ae.tagName === 'IFRAME') this.closePanel();
+            }, 0);
         });
 
         // Esc cierra el panel y devuelve el foco a la campana
@@ -399,7 +416,7 @@ class DashboardNotificationWidget {
                  data-id="${this.escapeHtml(notification.id)}"
                  data-url="${this.escapeHtml(url)}">
                 <div class="notification-icon" style="background-color: ${color}">
-                    ${ico('bell')}
+                    <i class="bi ${safeIcon(notification.app_icon)}" aria-hidden="true"></i>
                 </div>
                 <div class="notification-content">
                     <div class="notification-title">${this.escapeHtml(notification.title)}</div>
@@ -522,7 +539,7 @@ class DashboardNotificationWidget {
         toast.setAttribute('role', 'status');
         toast.innerHTML = `
             <div class="d-flex align-items-center">
-                <span class="notification-toast-icon me-2">${ico('bell')}</span>
+                <span class="notification-toast-icon me-2"><i class="bi ${safeIcon(notification.app_icon)}" aria-hidden="true"></i></span>
                 <div>
                     <div class="fw-bold">${this.escapeHtml(notification.title)}</div>
                     ${notification.body ? `<div class="small">${this.escapeHtml(notification.body)}</div>` : ''}

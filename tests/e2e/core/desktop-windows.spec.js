@@ -5,11 +5,13 @@
  * Redimensión por manijas (mínimo 420×300), Aero Snap al arrastrar (vista
  * previa + acople), doble clic en la barra de título, geometría recordada por
  * app, restauración de sesión tras recargar (sin animación y antes de quitar el
- * splash), sesión basura o con URLs malas, storage bloqueado, viewport < 900 px
- * y achicar el navegador con ventanas normales/acopladas.
+ * splash), sesión basura o con URLs malas, storage bloqueado, viewport < 900 px,
+ * achicar el navegador con ventanas normales/acopladas, manijas por fuera de
+ * la ventana y cerrar una ventana a media operación (escudo limpio).
  *
- * Captura: `E2E_CAPTURE=1 npx playwright test core/desktop-windows.spec.js -g "\(b\)"`
- * escribe desktop-snap.png en .playwright-mcp/images/core/.
+ * Capturas: `E2E_CAPTURE=1 npx playwright test core/desktop-windows.spec.js -g "\(b\)|\(k\)"`
+ * escribe desktop-snap.png y final-window-{normal,maximized,snapped}.png en
+ * .playwright-mcp/images/core/.
  */
 const { test, expect } = require('@playwright/test');
 const path = require('path');
@@ -150,6 +152,44 @@ test('(a) restaurar y redimensionar por la esquina se; mínimo 420×300', async 
   expect(near(min.height, 300, 1), `alto mínimo ${min.height}`).toBe(true);
   expect(near(min.x + min.width, after.x + after.width)).toBe(true);
   expect(near(min.y + min.height, after.y + after.height)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('(a2) manijas por fuera: no tapan la barra de scroll del iframe ni el borde de la barra; "ne" sirve', async ({ page }) => {
+  const errors = trackErrors(page);
+  await gotoDesktop(page);
+  const win = await openNormal(page, 'directory');
+  // La ventana no recorta (las manijas viven fuera); el contenido sí (B1).
+  expect(await win.evaluate((el) => getComputedStyle(el).overflow)).toBe('visible');
+  expect(await win.locator('.window-content').evaluate((el) => getComputedStyle(el).overflowY)).toMatch(/clip|hidden/);
+
+  const box = await win.boundingBox();
+  const hit = (x, y) => page.evaluate(([px, py]) => {
+    const el = document.elementFromPoint(px, py);
+    if (!el) return null;
+    const handle = el.closest('.window-resize');
+    if (handle) return 'resize-' + handle.dataset.dir;
+    if (el.tagName === 'IFRAME') return 'iframe';
+    if (el.closest('.window-titlebar')) return 'titlebar';
+    return el.tagName.toLowerCase();
+  }, [x, y]);
+  // Borde derecho por dentro (donde va la barra de scroll de la app): el iframe, no una manija.
+  expect(await hit(box.x + box.width - 3, box.y + box.height / 2)).toBe('iframe');
+  // Borde inferior por dentro: el iframe.
+  expect(await hit(box.x + box.width / 2, box.y + box.height - 3)).toBe('iframe');
+  // Borde superior de la barra de título: la barra.
+  expect(await hit(box.x + box.width / 2, box.y + 1)).toBe('titlebar');
+  // Por fuera: las manijas.
+  expect(await hit(box.x + box.width + 3, box.y + box.height / 2)).toBe('resize-e');
+  expect(await hit(box.x + box.width / 2, box.y - 3)).toBe('resize-n');
+  expect(await hit(box.x + box.width + 3, box.y - 3)).toBe('resize-ne');
+
+  // "ne" redimensiona: más ancha a la derecha y más alta hacia arriba, esquina so fija.
+  await drag(page, box.x + box.width + 3, box.y - 3, 40, -30, 8);
+  const after = await win.boundingBox();
+  expect(near(after.width, box.width + 40), `ancho ${box.width} → ${after.width}`).toBe(true);
+  expect(near(after.height, box.height + 30), `alto ${box.height} → ${after.height}`).toBe(true);
+  expect(near(after.x, box.x) && near(after.y + after.height, box.y + box.height)).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -518,4 +558,82 @@ test('(h) achicar el navegador: la ventana pegada a la derecha conserva la barra
     return t.y >= a.y && t.y + t.height <= a.y + a.h + 0.5 && t.x + t.width <= 1000 + 0.5;
   }).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('(j) cerrar la ventana a media operación no deja el escudo de arrastre ni de redimensión', async ({ page }) => {
+  const errors = trackErrors(page);
+  await gotoDesktop(page);
+  const body = page.locator('body');
+
+  // Arrastre por la barra de título; a media operación la ventana se cierra (p. ej. CLOSE_APP).
+  const dir = await openNormal(page, 'directory');
+  const box = await dir.boundingBox();
+  await page.mouse.move(box.x + 200, box.y + 18);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 260, box.y + 90, { steps: 6 });
+  await expect(body).toHaveClass(/desktop-dragging/);
+  // close() cancela el gesto en el acto (sin esperar al respaldo de `lostpointercapture`).
+  const dragShield = await page.evaluate(() => {
+    window.ItcjDesktop.wm.close('directory');
+    return document.body.classList.contains('desktop-dragging');
+  });
+  expect(dragShield, 'escudo de arrastre justo después de close()').toBe(false);
+  await page.mouse.up();
+  await expect(body).not.toHaveClass(/desktop-dragging/);
+  await expect(page.locator('#snapPreview.is-visible')).toHaveCount(0);
+  expect(await page.evaluate(() => window.ItcjDesktop.wm.isOpen('directory'))).toBe(false);
+  // Cancelado: ese arrastre no se guarda como geometría de la app.
+  const geom = await page.evaluate((k) => JSON.parse(localStorage.getItem(k) || '{}'), GEOM_KEY);
+  expect(geom.directory).toBeUndefined();
+
+  // Redimensión por una manija; a media operación la ventana se cierra.
+  const hd = await openNormal(page, 'helpdesk');
+  const se = await hd.locator('.window-resize[data-dir="se"]').boundingBox();
+  await page.mouse.move(se.x + se.width / 2, se.y + se.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(se.x + 80, se.y + 50, { steps: 6 });
+  await expect(body).toHaveClass(/desktop-resizing/);
+  const resizeShield = await page.evaluate(() => {
+    window.ItcjDesktop.wm.close('helpdesk');
+    const b = document.body;
+    return { cls: b.className, cursor: b.style.getPropertyValue('--resize-cursor') };
+  });
+  expect(resizeShield.cls, 'clases de body justo después de close()').not.toMatch(/desktop-(dragging|resizing)/);
+  expect(resizeShield.cursor).toBe('');
+  await page.mouse.up();
+  await expect(body).not.toHaveClass(/desktop-(dragging|resizing)/);
+
+  // El escritorio sigue usable: un arrastre nuevo mueve la ventana y termina limpio.
+  const again = await openNormal(page, 'directory');
+  const b1 = await again.boundingBox();
+  await drag(page, b1.x + 200, b1.y + 18, 40, 30);
+  await expect(body).not.toHaveClass(/desktop-dragging/);
+  const b2 = await again.boundingBox();
+  expect(near(b2.x, b1.x + 40) && near(b2.y, b1.y + 30), `(${b1.x},${b1.y}) → (${b2.x},${b2.y})`).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('(k) captura: esquinas y sombra en normal, maximizada y acoplada', async ({ page }) => {
+  test.skip(!CAPTURE, 'solo con E2E_CAPTURE=1');
+  await gotoDesktop(page);
+  const win = await openNormal(page, 'directory');
+  await expect(win).not.toHaveClass(/is-loading/, { timeout: 15_000 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(SHOTS, 'final-window-normal.png') });
+
+  await win.locator('.window-title-text').dblclick();
+  await expect(win).toHaveClass(/is-maximized/);
+  await settle(win);
+  await page.screenshot({ path: path.join(SHOTS, 'final-window-maximized.png') });
+
+  await taskbarBtn(page, 'helpdesk').click();
+  await expect(windowOf(page, 'helpdesk')).toBeVisible();
+  await page.evaluate(() => {
+    window.ItcjDesktop.wm.snap('directory', 'left');
+    window.ItcjDesktop.wm.snap('helpdesk', 'right');
+  });
+  await expect(windowOf(page, 'helpdesk')).not.toHaveClass(/is-loading/, { timeout: 15_000 });
+  await settle(windowOf(page, 'helpdesk'));
+  await settle(win);
+  await page.screenshot({ path: path.join(SHOTS, 'final-window-snapped.png') });
 });

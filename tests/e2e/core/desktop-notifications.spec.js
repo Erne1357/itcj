@@ -63,6 +63,11 @@ test.describe('escritorio: notificaciones', () => {
     const uid = await uidFromCookie(page);
     const good = seed(uid, 'E2E T5 buena', '/help-desk/');
     const bad = seed(uid, 'E2E T5 mala', 'javascript:alert(1)');
+    // El parser de URL quita el tabulador: "/\t/evil.example" acabaría en "//evil.example".
+    const tab = seed(uid, 'E2E final tab', '/\t/evil.example');
+    const popups = [];
+    page.context().on('page', (p) => popups.push(p));
+    await page.context().route(/evil\.example/, (route) => route.abort());
 
     try {
       await page.reload({ waitUntil: 'domcontentloaded' });
@@ -81,6 +86,21 @@ test.describe('escritorio: notificaciones', () => {
       await expect(panel).toBeHidden();
       await expect(bell).toHaveAttribute('aria-expanded', 'false');
 
+      // Icono por app (app_icon de la API, clase de Bootstrap Icons), no la campana genérica.
+      await bell.click();
+      const goodItem = page.locator(`.notification-item[data-id="${good}"]`);
+      await expect(goodItem).toBeVisible();
+      const apiIcon = await page.evaluate(async (id) => {
+        const r = await fetch('/api/core/v2/notifications?limit=10', { credentials: 'include' });
+        const j = await r.json();
+        const n = j.data.items.find((x) => x.id === id);
+        return n ? n.app_icon : null;
+      }, good);
+      expect(apiIcon).toMatch(/^bi-[a-z0-9-]+$/i);
+      await expect(goodItem.locator(`.notification-icon i.bi.${apiIcon}`)).toHaveCount(1);
+      await page.keyboard.press('Escape');
+      await expect(panel).toBeHidden();
+
       // Clic en la notificación buena → ventana helpdesk.
       await bell.click();
       await page.locator(`.notification-item[data-id="${good}"]`).click();
@@ -97,6 +117,16 @@ test.describe('escritorio: notificaciones', () => {
       expect(await page.locator('[data-app-id]').count()).toBe(before);
       expect(dialogSeen).toBe(false);
 
+      // URL con tabulador → sin acción: ni ventana ni pestaña nueva.
+      if (!(await panel.isVisible())) await bell.click();
+      const tabItem = page.locator(`.notification-item[data-id="${tab}"]`);
+      await expect(tabItem).toHaveAttribute('data-url', '');
+      await tabItem.click();
+      await page.waitForTimeout(500);
+      expect(popups.length, 'pestañas abiertas').toBe(0);
+      expect(page.url()).toBe(urlBefore);
+      expect(await page.locator('[data-app-id]').count()).toBe(before);
+
       // "Ver todas" → ventana profile con ?tab=notifications.
       // (la notificación mala no cierra el panel: abrirlo solo si hace falta)
       if (!(await panel.isVisible())) await bell.click();
@@ -104,8 +134,16 @@ test.describe('escritorio: notificaciones', () => {
       const frame = page.locator('[data-app-id="profile"] .window-iframe');
       await expect(frame).toBeAttached();
       await expect.poll(async () => (await frame.getAttribute('src')) || '').toContain('tab=notifications');
+
+      // Clic dentro de una ventana (el iframe se lleva el foco) cierra el panel.
+      await expect(page.locator('[data-app-id="profile"]')).not.toHaveClass(/is-loading/, { timeout: 15_000 });
+      await bell.click();
+      await expect(panel).toBeVisible();
+      await page.mouse.click(300, 300);
+      await expect(panel).toBeHidden();
+      await expect(bell).toHaveAttribute('aria-expanded', 'false');
     } finally {
-      cleanup([good, bad]);
+      cleanup([good, bad, tab]);
     }
   });
 });

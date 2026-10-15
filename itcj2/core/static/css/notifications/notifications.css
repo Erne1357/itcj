@@ -540,11 +540,31 @@ body.itcj-desktop .notification-icon .ico {
 body.itcj-desktop .notification-toast .ico {
     width: 20px;
     height: 20px;
-    color: #0d6efd;
 }
 
 body.itcj-desktop .notification-panel .ico {
     width: 1em;
     height: 1em;
     vertical-align: -0.125em;
+}
+
+/* Acento verde del escritorio (el mismo de la barra de título activa) en vez del
+   azul de Bootstrap: "Ver todas", hover de "Marcar todas" e icono del toast. */
+body.itcj-desktop #view-all-notifications-btn {
+    --bs-btn-bg: #059669;
+    --bs-btn-border-color: #059669;
+    --bs-btn-hover-bg: #047857;
+    --bs-btn-hover-border-color: #047857;
+    --bs-btn-active-bg: #065f46;
+    --bs-btn-active-border-color: #065f46;
+    --bs-btn-focus-shadow-rgb: 5, 150, 105;
+}
+
+body.itcj-desktop #mark-all-read-btn:hover {
+    color: #059669;
+}
+
+body.itcj-desktop .notification-toast i,
+body.itcj-desktop .notification-toast .ico {
+    color: #059669;
 }
