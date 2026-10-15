@@ -117,4 +117,40 @@ test.describe('tutorial del escritorio', () => {
     await expect(page.locator('.shepherd-element')).toHaveCount(0);
     await expect(page.locator('.start-button')).toHaveCSS('pointer-events', 'auto');
   });
+
+  test('cancelar con la X no deja panel demo ni ventanas; Continuar reanuda el tour', async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      try { localStorage.removeItem('dashboard_tutorial_completed'); } catch (e) { /* sin storage */ }
+    });
+    await gotoDesktop(page);
+    await expect(page.locator(STEP).first()).toBeVisible({ timeout: 8000 });
+
+    // Avanza hasta el panel de notificaciones demo.
+    for (let guard = 0; guard < 30; guard++) {
+      const id = await currentStepId(page);
+      if (id === 'notifications-panel') break;
+      const step = page.locator(`.shepherd-element[data-shepherd-step-id="${id}"]`);
+      if (id === 'double-click-demo') await page.locator('.shepherd-target').dblclick();
+      else if (id === 'notifications-demo') await step.getByRole('button', { name: 'Ver Notificaciones' }).click();
+      else if (id === 'welcome') await step.getByRole('button', { name: 'Comenzar' }).click();
+      else await step.getByRole('button', { name: 'Siguiente' }).click();
+      await waitStepChange(page, id);
+    }
+    await expect(page.locator('#tutorialNotificationPanel')).toBeVisible();
+
+    // La X del popover debe ser clicable; "Continuar Tutorial" vuelve al tour.
+    await page.locator(STEP).last().locator('.shepherd-cancel-icon').click();
+    await page.locator('#dashboardTutorialCancelModal .btn-secondary').click();
+    await expect(page.locator('#tutorialNotificationPanel')).toHaveCount(0);
+    await expect(page.locator('.shepherd-element[data-shepherd-step-id="notifications-demo"]')).toBeVisible({ timeout: 8000 });
+
+    // Cancelar y confirmar la salida deja todo limpio.
+    await page.locator(STEP).last().locator('.shepherd-cancel-icon').click();
+    await page.locator('#dashboardTutorialCancelConfirm').click();
+    await expect(page.locator('.shepherd-element')).toHaveCount(0);
+    await expect(page.locator('#tutorialNotificationPanel')).toHaveCount(0);
+    await expect(page.locator('.app-window[data-app-id]')).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('dashboard_tutorial_mode_active'))).not.toBe('true');
+  });
 });

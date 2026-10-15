@@ -158,6 +158,34 @@ class DashboardTutorial {
     }
 
     /**
+     * Paso al que se vuelve al reanudar: los pasos que dependen de una ventana
+     * o del panel demo (ya cerrados al cancelar) retroceden al paso que los abre.
+     */
+    getResumeStepId() {
+        const back = {
+            'window-opened': 'double-click-demo',
+            'close-window-demo': 'double-click-demo',
+            'notifications-panel': 'notifications-demo',
+            'profile-window': 'open-profile-demo'
+        };
+        return back[this.lastStepId] || this.lastStepId;
+    }
+
+    /** Reanuda el tour (tras "Continuar Tutorial" o cerrar el modal de cancelación). */
+    resumeTour() {
+        if (this.isRunning) return;
+        const stepId = this.getResumeStepId();
+        this.isNavigating = false;
+        this.isRunning = true;
+        this.enableTutorialMode();
+        this.initializeTour();
+        this.getDashboardSteps().forEach(step => this.tour.addStep(step));
+        this.installMenuGuard();
+        this.tour.start();
+        if (stepId) this.tour.show(stepId);
+    }
+
+    /**
      * Muestra confirmación de cancelación del tutorial
      */
     showCancelConfirmation() {
@@ -203,7 +231,13 @@ class DashboardTutorial {
         }
 
         const bsModal = new bootstrap.Modal(modal);
+        this.cancelConfirmed = false;
         bsModal.show();
+
+        // Cerrar el modal sin confirmar (X, Esc o "Continuar Tutorial") reanuda el tour
+        modal.addEventListener('hidden.bs.modal', () => {
+            if (!this.cancelConfirmed) this.resumeTour();
+        }, { once: true });
 
         // Configurar botón de confirmación
         const confirmBtn = document.getElementById('dashboardTutorialCancelConfirm');
@@ -213,6 +247,7 @@ class DashboardTutorial {
             confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
 
             newConfirmBtn.onclick = () => {
+                this.cancelConfirmed = true;
                 bsModal.hide();
 
                 // IMPORTANTE: Restaurar interfaz antes de marcar como completado
@@ -347,8 +382,14 @@ class DashboardTutorial {
             }
         });
 
+        // Recordar el paso visible para poder reanudar tras una cancelación
+        this.tour.on('show', (evt) => {
+            if (evt && evt.step) this.lastStepId = evt.step.id;
+        });
+
         // Evento cuando se completa el tour
         this.tour.on('complete', () => {
+            this.removeTutorialNotificationPanel();
             this.removeMenuGuard();
             this.markTutorialComplete();
             this.enableAllInteractiveElements();
@@ -374,7 +415,10 @@ class DashboardTutorial {
 
             // Restaurar todos los elementos interactivos
             this.removeMenuGuard();
+            this.removeTutorialNotificationPanel();
+            this.closeDesktopWindows();
             this.closeStartMenu();
+            this.disableTutorialMode();
             this.enableAllInteractiveElements();
             this.isRunning = false; // Marcar como no activo
 
@@ -392,7 +436,7 @@ class DashboardTutorial {
             '.start-button',
             '.taskbar-app',
             '.system-icon',
-            'button:not(.shepherd-button):not(#dashboardTutorialButton)',
+            'button:not(.shepherd-button):not(.shepherd-cancel-icon):not(#dashboardTutorialButton)',
             'a',
             'input',
             'select',
@@ -401,6 +445,8 @@ class DashboardTutorial {
 
         selectors.forEach(selector => {
             document.querySelectorAll(selector).forEach(element => {
+                // Nunca desactivar los controles internos del popover de Shepherd
+                if (element.closest('.shepherd-element')) return;
                 if (!this.originalInteractiveState.has(element)) {
                     this.originalInteractiveState.set(element, {
                         pointerEvents: element.style.pointerEvents,
