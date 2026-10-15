@@ -789,15 +789,23 @@ class TestBloqueoDelProceso:
         assert bloqueo is not None, sql
         assert compuerta is not None and bloqueo < compuerta, sql
 
-    def test_liberar_otra_fase_no_toma_ese_bloqueo(self, db_session, esc):
-        """SOLO la fase de cotejo: `approve_phase` no cambia para las demás."""
+    def test_aprobar_otra_fase_tambien_toma_ese_bloqueo(self, db_session, esc):
+        """Hasta R14 esto afirmaba lo contrario (R9 bloqueaba SOLO la fase de
+        cotejo). Desde R14 (2026-10-15) `approve_phase` bloquea en TODAS las
+        fases, una sola vez y antes de leer las fases del proceso; la matriz
+        completa (aprobar/rechazar × fase 1/2) vive en
+        `test_phase_verdict_lock.py`."""
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         proc, _docs, _ = esc["build"](current_phase=1)
 
         _, sql = _contar(db_session, lambda: PhaseService.approve_phase(
             db_session, proc, 1, reviewer_id=esc["jefa"].id))
 
-        assert _primera(sql, _lock_del_proceso) is None, sql
+        bloqueo = _primera(sql, _lock_del_proceso)
+        fase = _primera(sql, lambda s: "FROM titulatec_process_phases" in s)
+        assert bloqueo is not None, sql
+        assert fase is not None and bloqueo < fase, sql
+        assert sum(1 for s in sql if _lock_del_proceso(s)) == 1, sql
 
 
 # ---------------------------------------------------------------------------

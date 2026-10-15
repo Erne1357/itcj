@@ -498,7 +498,19 @@ def _cuerpo_review(process_id, request, user, form):
         # camino no miraba (dictaminar un doc empujaba de fase a un proceso cancelado).
         if (proc and DocumentService.initial_docs_all_approved(db, process_id)
                 and PhaseService.can_transition(db, proc, 1)):
-            PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
+            try:
+                PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
+            except ValueError as exc:
+                # R14: `can_transition` no bloquea; dos revisores que aprueban a la
+                # vez los últimos documentos lo pasan los dos. `approve_phase` sí
+                # bloquea la fila del proceso y despide al segundo con ValueError
+                # sin escribir nada. El dictamen del documento ya se guardó (su
+                # propio commit): perder el avance = otro ya avanzó, no es error.
+                # `commit()` (no `rollback()`, que bajo el harness tira lo
+                # sembrado) suelta el bloqueo antes de re-pintar.
+                logger.info("auto-avance 1->2 del proceso %s no aplicado: %s",
+                            process_id, exc)
+                db.commit()
         ctx = _body_ctx(db, user_id=int(user["sub"]), status_filter=status_filter,
                         selected_id=process_id, q=tab_q, page=tab_page)
     finally:

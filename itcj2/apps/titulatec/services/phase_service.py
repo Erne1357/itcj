@@ -109,8 +109,11 @@ class PhaseService:
     def can_transition(db: Session, process, phase_number: int) -> bool:
         """¿Se puede aprobar/rechazar esa fase? Para quien prefiere preguntar a atrapar.
 
-        Lo usa el auto-avance del dictamen de documentos (`pages/documents.py`),
-        que decide si llamar a `approve_phase` en vez de manejar la excepción.
+        Lo usa el auto-avance del dictamen de documentos (`pages/documents.py`)
+        para decidir si llamar a `approve_phase`. Es un filtro SIN bloqueo, no
+        la garantía: dos peticiones pueden pasarlo a la vez, y por eso esa ruta
+        además atrapa el `ValueError` con que `approve_phase` (que sí bloquea,
+        R14) despide al perdedor.
         """
         try:
             first, last = PhaseService.phase_range(db)
@@ -251,6 +254,39 @@ class PhaseService:
             db.add(ph)
             db.flush()
         return ph
+
+    # Defensa de `approve_phase` (Ruling R14): la `ProcessPhase` de la fase a
+    # aprobar ya está `approved`. ASCII por lo mismo que `_transition_error`.
+    PHASE_ALREADY_APPROVED_MSG = "Esa fase ya fue aprobada."
+
+    @staticmethod
+    def _lock_process_row(db: Session, process) -> None:
+        """Bloquea la fila del proceso y la relee sobre `process` (Ruling R14).
+
+        Primera sentencia de `approve_phase` y `reject_phase`, ANTES de
+        `assert_can_transition`: así la guarda valida el estado YA bloqueado y
+        no el que se leyó al cargar el proceso. Sin esto dos dictámenes de la
+        misma fase pasaban la guarda a la vez -- dos revisores aprobando los
+        últimos documentos de la fase 1 (el auto-avance de la bandeja llamaba
+        `approve_phase(1)` dos veces: eventos, avisos y correos duplicados), o
+        un rechazo que regresaba el proceso a una fase que otro acababa de
+        liberar. Ahora el segundo espera el commit del primero y su guarda ve
+        la fase ya movida (`ValueError`).
+
+        `FOR NO KEY UPDATE` (`key_share=True`): el mismo modo que
+        `ProcessService.cancel` y `DocumentService.request_replacement` (R9, que
+        hasta R14 era el único caso aquí: la liberación de la fase 2). Serializa
+        dictámenes, revocaciones y pedidos de reemplazo, pero no choca con el
+        `FOR KEY SHARE` de los INSERT con FK al proceso (eventos, avisos).
+
+        `populate_existing` sobrescribe `process` -- tiene que ser un objeto de
+        ESTA sesión, como lo es en todos los llamadores -- con la fila
+        bloqueada. La sesión de las rutas no hace autoflush: un cambio sin
+        flush sobre `process` se perdería; ningún llamador deja uno.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        (db.query(TitulationProcess).filter_by(id=process.id)
+         .with_for_update(key_share=True).populate_existing().first())
 
     @staticmethod
     def _log(db: Session, process_id: int, actor_id: int, event_type: str, phase_number: int, payload: dict | None = None):
@@ -410,19 +446,21 @@ class PhaseService:
         Solo la fase ACTUAL de un proceso ACTIVO. Lanza `ValueError` si no
         (la ruta lo traduce a 400 + `X-Tt-Error`).
 
-        **Fase de cotejo: bloquea la fila del proceso** (Ruling R9 de la
-        revisión final del reemplazo en cotejo, 2026-10-15). Antes de validar
-        y de la compuerta, `FOR NO KEY UPDATE` (`key_share=True`, como
-        `ProcessService.cancel`) y relectura: `DocumentService.
-        request_replacement` toma el mismo bloqueo, así que un reemplazo
-        pedido a la vez que se libera la fase 2 o lo ve la compuerta o ve la
-        fase ya liberada -- nunca las dos cosas a medias. Las demás fases no
-        cambian.
+        **Bloquea la fila del proceso, en TODAS las fases** (Ruling R14,
+        2026-10-15; hasta entonces R9 lo hacía solo con la fase de cotejo):
+        `_lock_process_row` antes de validar, así que de dos dictámenes de la
+        misma fase el segundo espera al primero y su guarda ve la fase ya
+        movida. En la fase 2 sigue cubriendo la carrera de R9:
+        `DocumentService.request_replacement` toma el mismo bloqueo, así que un
+        reemplazo pedido a la vez que se libera la fase o lo ve la compuerta o
+        ve la fase ya liberada -- nunca las dos cosas a medias.
+
+        Además se niega (`PHASE_ALREADY_APPROVED_MSG`) si la `ProcessPhase` de
+        esa fase ya está `approved`: defensa ante un dato incoherente, sin
+        consulta extra (la fila la lee `_ensure_phase` de todas formas) y antes
+        de escribir nada.
         """
-        if phase_number == PhaseService.PHASE_COTEJO:
-            from itcj2.apps.titulatec.models import TitulationProcess
-            (db.query(TitulationProcess).filter_by(id=process.id)
-             .with_for_update(key_share=True).populate_existing().first())
+        PhaseService._lock_process_row(db, process)
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
 
         # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
@@ -436,6 +474,14 @@ class PhaseService:
             falta = PhaseService._cotejo_gate_error(db, process)
             if falta:
                 raise ValueError(falta)
+
+        # R14: la última negativa, ANTES de la primera escritura (el auto-cierre
+        # de la cita de abajo ya escribe).
+        ph = PhaseService._ensure_phase(db, process.id, phase_number)
+        if ph.status == "approved":
+            raise ValueError(PhaseService.PHASE_ALREADY_APPROVED_MSG)
+
+        if phase_number == PhaseService.PHASE_COTEJO:
             # Las guardas de arriba ya pasaron: si la cita vigente quedo
             # `in_progress`, aprobar la fase 2 es la senal de que el cotejo
             # terminó. Dentro de la MISMA transaccion que el resto de este metodo
@@ -443,7 +489,6 @@ class PhaseService:
             PhaseService._auto_close_cotejo_appointment(db, process, reviewer_id,
                                                         "phase_approved")
 
-        ph = PhaseService._ensure_phase(db, process.id, phase_number)
         ph.status = "approved"
         ph.completed_at = db_now()
         ph.reviewed_by_id = reviewer_id
@@ -503,7 +548,12 @@ class PhaseService:
         El alumno corrige y reenvía; ese reenvío la pasa a 'in_review', no a 'in_progress'.
         Misma guarda que `approve_phase`: sin ella un `n` arbitrario se escribía tal cual
         en `process.current_phase`.
+
+        Y el mismo bloqueo previo (`_lock_process_row`, Ruling R14): sin él, un
+        rechazo concurrente con la aprobación de la misma fase validaba sobre
+        el `current_phase` viejo y regresaba el proceso a una fase ya liberada.
         """
+        PhaseService._lock_process_row(db, process)
         PhaseService.assert_can_transition(db, process, phase_number)
 
         # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
