@@ -71,6 +71,31 @@ def hd_date(value, fmt: str = "%d/%m/%Y") -> str:
     return d.strftime(fmt) if d else ""
 
 
+_MESES_ES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+             "septiembre", "octubre", "noviembre", "diciembre")
+
+
+def fecha_es(value, fmt: str = "largo") -> str:
+    """Fecha en español (independiente del locale del proceso).
+
+    ``largo`` -> "15 de octubre de 2026"; ``corto`` -> "15/10/2026";
+    ``hora`` -> "15 de octubre de 2026 a las 08:21". ``None``/vacío -> "No disponible".
+    """
+    d = _hd_parse_dt(value)
+    if d is None:
+        # ``date`` puro (sin hora) no pasa por _hd_parse_dt: se acepta tal cual.
+        if hasattr(value, "year") and hasattr(value, "month") and hasattr(value, "day"):
+            d = value
+        else:
+            return "No disponible"
+    if fmt == "corto":
+        return f"{d.day:02d}/{d.month:02d}/{d.year}"
+    largo = f"{d.day} de {_MESES_ES[d.month - 1]} de {d.year}"
+    if fmt == "hora" and hasattr(d, "hour"):
+        return f"{largo} a las {d.hour:02d}:{d.minute:02d}"
+    return largo
+
+
 import markupsafe  # noqa: E402
 
 _HD_BOOST_ATTR = markupsafe.Markup('hx-boost="true"')
@@ -125,6 +150,7 @@ def hd_origin(request, default_slug: str) -> dict:
 
 templates.env.filters["hd_datetime"] = hd_datetime
 templates.env.filters["hd_date"] = hd_date
+templates.env.filters["fecha_es"] = fecha_es
 # Registrado como global (uso `{{ hd_boost(url) }}`) y como filtro (`{{ url | hd_boost }}`).
 templates.env.globals["hd_boost"] = hd_boost
 templates.env.filters["hd_boost"] = hd_boost
