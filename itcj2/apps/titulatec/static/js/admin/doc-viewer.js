@@ -174,6 +174,11 @@
     if (modalRej) modalRej.hidden = S.phaseClosed || !inlineRej;
     var actions = $('tt-modal-actions');
     if (actions) actions.hidden = !inline && !inlineRej;
+    // «Pedir reemplazo» (cita de cotejo, 2026-10-15): solo con la fase cerrada y
+    // un documento con archivo que reemplazar. El botón existe solo con el
+    // permiso nuevo y el proceso en cotejo (servidor). Sin botón en el modal.
+    var inlineRepl = $('tt-inline-replace');
+    if (inlineRepl) inlineRepl.hidden = !(S.phaseClosed && pick.dataset.url);
     if (!inline) return;
     if (pick.dataset.closes === '1') {
       inline.setAttribute('hx-confirm', CLOSE_CONFIRM);
@@ -284,6 +289,20 @@
   }
 
   // ————————————————————————————————— delegación (una sola vez)
+  // El motivo es obligatorio para pedir el reemplazo. Va en CAPTURA: el listener
+  // de htmx está en el propio botón y, en burbuja, ya habría abierto el
+  // `hx-confirm` y mandado un POST que el servidor rechazaría con 400.
+  document.body.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!t || !t.closest || !t.closest('#tt-inline-replace')) return;
+    var noteBox = $('tt-review-note');
+    if (noteBox && noteBox.value.trim()) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.TitulaTecUtils) window.TitulaTecUtils.showToast('Indica el motivo del reemplazo.', 'danger');
+    if (noteBox) noteBox.focus();
+  }, true);
+
   document.body.addEventListener('click', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
