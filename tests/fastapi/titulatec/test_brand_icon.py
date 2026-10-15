@@ -3,8 +3,10 @@
 El PNG `itcj2/apps/titulatec/static/images/titulatec-claro-1024.png` es la marca de
 la app en los lugares donde se presenta:
 
-* escritorio del core (`core/dashboard/dashboard.html`) — el tile estaba comentado
-  desde `bd6dc8e5` porque la app aun no se desplegaba;
+* escritorio del core (`core/dashboard/dashboard.html`) — desde el rediseño del
+  escritorio (2026-10-15) el tile sale del registro del servidor
+  (`desktop_service.DESKTOP_APPS`) con la version optimizada de la marca
+  (`core/images/app-icons/titulatec.webp`, 96x96);
 * tarjeta del dashboard movil (`core/mobile/components/app_card.html`) — por ahi
   entra el egresado;
 * shell del alumno (`titulatec/student/base_student.html`): titulo del drawer
@@ -13,6 +15,8 @@ la app en los lugares donde se presenta:
 
 Contratos de markup sin BD: las plantillas se leen tal cual (como
 `test_admin_nav_swap`) y la macro movil se renderiza con un `url_for` de mentira.
+El escritorio ya no trae los tiles literales (los pinta un bucle sobre el
+registro), asi que esa plantilla se renderiza con el entorno Jinja real.
 """
 import re
 from pathlib import Path
@@ -50,25 +54,38 @@ def test_el_png_de_la_marca_existe():
 # ---------------------------------------------------------------------------
 # 1 - Escritorio del core
 # ---------------------------------------------------------------------------
-def test_escritorio_muestra_titulatec_con_el_png():
-    """Descomentado y con el PNG, del mismo tamano que los tiles hermanos."""
-    tiles = _doc(CORE_TPL / "core/dashboard/dashboard.html").xpath(
-        '//div[@id="desktop-grid"]/div[contains(@class,"desktop-icon")][@data-app="titulatec"]')
-    assert len(tiles) == 1, "el tile de TitulaTec sigue comentado (o esta duplicado)"
+def _escritorio():
+    """Escritorio renderizado con el entorno Jinja real y el contexto de la ruta
+    (`core/pages/dashboard.py`), sin request ni BD."""
+    from itcj2.core.services import desktop_service as ds
+    from itcj2.templates import _make_url_for, sv, templates
+
+    html = templates.env.get_template("core/dashboard/dashboard.html").render(
+        url_for=_make_url_for(), sv=sv, active_theme=None,
+        desktop_apps=ds.build_apps_payload(),
+        user_card={"full_name": "PRUEBA USUARIO", "initials": "PU", "position": "", "department": ""},
+        desktop_bg=ds.DESKTOP_BACKGROUND, user_id=1,
+    )
+    return lxml.html.document_fromstring(html)
+
+
+def test_escritorio_muestra_titulatec_con_la_marca_optimizada():
+    """Un solo tile, con la webp optimizada del registro (48 px en pantalla)."""
+    tiles = _escritorio().xpath(
+        '//div[@id="desktop-grid"]/*[contains(@class,"desktop-icon")][@data-app="titulatec"]')
+    assert len(tiles) == 1, "el tile de TitulaTec falta (o esta duplicado)"
     (img,) = tiles[0].xpath('.//img')
     src = img.get("src")
-    assert PNG_REL in src
-    assert "?v={{ sv('titulatec', 'images/titulatec-claro-1024.png') }}" in src
-    assert "width:45px" in img.get("style", "").replace(" ", "")
+    assert src.startswith("/static/core/images/app-icons/titulatec.webp?v="), src
+    assert img.get("width") == "48" and img.get("height") == "48"
     assert img.get("alt") == "TitulaTec"
     assert not tiles[0].xpath('.//i'), "sigue pintando el glifo de Bootstrap Icons"
 
 
 def test_escritorio_vistetec_sigue_oculto():
-    """El `<!--` de TitulaTec se comia tambien el tile de VisteTec (llegaba hasta su
-    `</div-->`). Al quitarlo, VisteTec debe quedar en su propio comentario."""
-    doc = _doc(CORE_TPL / "core/dashboard/dashboard.html")
-    assert not doc.xpath('//div[@data-app="vistetec"]')
+    """VisteTec no esta en el registro del escritorio: ni tile ni boton anclado."""
+    doc = _escritorio()
+    assert not doc.xpath('//*[@data-app="vistetec"]')
 
 
 # ---------------------------------------------------------------------------

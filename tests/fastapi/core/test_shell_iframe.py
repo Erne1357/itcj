@@ -3,7 +3,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3] / "itcj2" / "core"
-DASHBOARD_JS = ROOT / "static" / "js" / "dashboard" / "dashboard.js"
+# El markup de las ventanas vive en el gestor de ventanas del escritorio.
+WINDOW_MANAGER_JS = ROOT / "static" / "js" / "dashboard" / "desktop" / "window-manager.js"
 BASE_MOBILE = ROOT / "templates" / "core" / "mobile" / "base_mobile.html"
 
 
@@ -14,7 +15,7 @@ def _tag(text: str, marker: str) -> str:
 
 
 def test_desktop_window_iframe_sandbox_solo_cross_origin():
-    js = DASHBOARD_JS.read_text(encoding="utf-8")
+    js = WINDOW_MANAGER_JS.read_text(encoding="utf-8")
     tag = _tag(js, 'class="window-iframe"')
     # El tag no lleva sandbox fijo (same-origin): lo inyecta ${iframeSandbox}.
     assert not re.search(r"sandbox\s*=", tag)
