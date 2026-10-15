@@ -419,8 +419,8 @@ body.itcj-desktop {
 .tray-btn:active { background: var(--taskbar-press); }
 .tray-btn[aria-expanded="true"] { background: var(--taskbar-open); }
 
-/* El botón de tutorial trae estilos propios (dashboard_tutorial.css, fondo
-   oscuro); en la barra clara se alinea con el resto de la bandeja. */
+/* Botón de tutorial: se alinea con el resto de la bandeja (su estado
+   deshabilitado mientras corre el tour vive en dashboard_tutorial.css). */
 .taskbar #dashboardTutorialButton {
   display: inline-flex;
   align-items: center;

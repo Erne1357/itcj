@@ -324,6 +324,13 @@ test.describe('Mundial en el shell móvil', () => {
         return { greetingTop: g.top, garlandBottom: Math.max(...flags) };
       });
       expect(m.garlandBottom).toBeLessThanOrEqual(m.greetingTop);
+
+      // Pantalla chica: las decoraciones solo adornan el inicio; con una app
+      // abierta (vista "app") la capa se oculta para no tapar el iframe.
+      const decor = page.locator('#theme-decor');
+      await expect(decor).toBeVisible();
+      await page.evaluate(() => window.mobileApp.setActiveView('app'));
+      await expect(decor).toBeHidden();
       expect(errors).toEqual([]);
     } finally {
       await ctx.close();

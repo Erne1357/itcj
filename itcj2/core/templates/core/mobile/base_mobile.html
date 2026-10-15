@@ -36,6 +36,9 @@
 </head>
 
 <body class="mobile-body">
+    {%- if active_theme %}
+    <div id="theme-decor" class="theme-decor-mobile" aria-hidden="true"></div>
+    {%- endif %}
     <!-- Main Content (Dashboard) -->
     <main class="mobile-main" id="mobileMainContent">
         {% block content %}{% endblock %}
