@@ -92,7 +92,7 @@ def test_tarjeta_movil_de_titulatec_usa_el_png_con_su_propio_tile():
     icono, clases = _icono(_app_card("titulatec", "TitulaTec"))
     assert "has-img" in clases and "has-own-tile" in clases
     (img,) = icono.xpath('.//img')
-    assert img.get("src") == f"/static/{PNG_REL}"
+    assert img.get("src") == "/static/core/images/app-icons/titulatec.webp"
     assert not icono.xpath('.//i'), "sigue pintando el glifo de Bootstrap Icons"
 
 

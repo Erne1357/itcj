@@ -47,4 +47,11 @@ async def dashboard(
     if not user_roles & _DESKTOP_ROLES:
         return RedirectResponse("/itcj/m/", status_code=302)
 
-    return render(request, "core/dashboard/dashboard.html")
+    from itcj2.core.services import desktop_service
+
+    return render(request, "core/dashboard/dashboard.html", {
+        "desktop_apps": desktop_service.build_apps_payload(),
+        "user_card": desktop_service.get_user_card(db, user),
+        "desktop_bg": desktop_service.DESKTOP_BACKGROUND,
+        "user_id": uid,
+    })
