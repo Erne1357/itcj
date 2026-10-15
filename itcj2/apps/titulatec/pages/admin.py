@@ -1677,7 +1677,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "doc": ({"original_name": doc.original_name, "review_status": doc.review_status,
                      "size_bytes": doc.size_bytes or 0, "review_note": doc.review_note,
                      "version": doc.version or 1,
-                     "reviewed_by": actores.get(doc.reviewed_by_id)} if doc else None),
+                     "reviewed_by": actores.get(doc.reviewed_by_id),
+                     # Reemplazo abierto en la cita de cotejo (spec 2026-10-15):
+                     # lo abre `request_replacement` y lo cierra la aprobación.
+                     "replacement": doc.replacement_requested_at is not None} if doc else None),
             "missing": bool(doc) and falta,
             "excused": doc is None and code in excused,
             "view_url": f"/titulatec/admin/documents/{process_id}/document/{code}",
@@ -1774,6 +1777,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
         })
 
+    # ¿El proceso está en la cita de cotejo y sin liberarla? Misma regla que
+    # `request_replacement` (R4: la fase sale del catálogo por su código).
+    fase_cotejo = next((pd.number for pd in pdefs if pd.code == "review_appointment"), None)
+    ph_cotejo = fases_db.get(fase_cotejo) if fase_cotejo is not None else None
+    in_cotejo = (proc.status == "active" and fase_cotejo is not None
+                 and current == fase_cotejo
+                 and not (ph_cotejo is not None and ph_cotejo.status == "approved"))
+
     # Los controles se pintan solo para quien puede usarlos: un boton que
     # contesta 403 es peor que no estar. Mismo patron que `cohort_detail`.
     can_mark_reqs = False
@@ -1791,6 +1802,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_dictaminar_fb = False
     can_revoke = False
     can_register_prior = False
+    can_request_replacement = False
     # Pestañas que el actor puede abrir (spec 2026-10-07 §1.2): decide qué
     # enlaces a otras pestañas se pintan y a dónde regresa «Regresar» sin
     # `from`. Sin actor, ninguno (fail-closed, como los `can_*`).
@@ -1820,6 +1832,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
         can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
                               and proc.status != "cancelled")
+        # «Pedir reemplazo» (spec 2026-10-15 §7.1): permiso propio Y proceso en
+        # la cita de cotejo (activo, fase de cotejo sin liberar) -las mismas
+        # condiciones que `DocumentService.request_replacement` niega con 400-:
+        # un botón que contesta 400 es peor que no estar. `pdefs`/`fases_db` ya
+        # están cargados arriba, sin consulta extra.
+        can_request_replacement = (
+            "titulatec.document.api.request_replacement" in _user_perms
+            and in_cotejo)
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -1924,6 +1944,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "survey": survey,
         "library": library,
         "can_register_prior": can_register_prior,
+        "can_request_replacement": can_request_replacement,
+        "in_cotejo": in_cotejo,
         "format_amount": format_amount,
         "correos": correos,
     }
@@ -2569,6 +2591,60 @@ def _cuerpo_process_requirement(process_id, rid, request, user, form):
                 status=("waived" if accion == "waive" else "fulfilled"),
             )
         return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Pedir el reemplazo de un documento de la fase 1 en la cita de cotejo
+# ===========================================================================
+# Spec 2026-10-15 §7.1. Desde la lista de documentos del expediente, la jefatura
+# pide que el egresado vuelva a subir un documento (permiso propio
+# `titulatec.document.api.request_replacement`). La regla es de
+# `DocumentService.request_replacement`; aquí solo se guarda, se traduce el
+# `ValueError` a 400 y se re-pinta el expediente.
+
+@router.post("/processes/{process_id}/documents/{type_code}/reemplazo",
+             name="titulatec.pages.admin.document_replacement")
+async def document_replacement(
+    process_id: int,
+    type_code: str,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.document.api.request_replacement"])),
+):
+    """Pide el reemplazo de `type_code` (motivo obligatorio) y devuelve el
+    expediente re-renderizado con un aviso."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_document_replacement, process_id=process_id, type_code=type_code,
+        request=request, user=user, form=form)
+
+
+def _cuerpo_document_replacement(process_id, type_code, request, user, form):
+    """Cuerpo síncrono de `document_replacement`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    note = (form.get("note") or "").strip()
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
+        if not note:
+            return Response(status_code=400, headers={
+                "X-Tt-Error": _hdr(DocumentService.REPLACEMENT_NOTE_REQUIRED_MSG)})
+        try:
+            DocumentService.request_replacement(
+                db, process_id, type_code, note=note, actor_id=int(user["sub"]))
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        resp = _render_detail_body(request, db, process_id, int(user["sub"]))
+        resp.headers["X-Tt-Notice"] = _hdr(
+            "Se pidió el reemplazo del documento. El egresado ya tiene el aviso.")
+        resp.headers["X-Tt-Notice-Kind"] = "success"
+        return resp
     finally:
         db.close()
 

@@ -5,10 +5,14 @@
    panel propio DICEN que todavía no están: un panel vacío se lee como «no ha
    pasado nada», que es una afirmación distinta y falsa.
 
-   Aquí no se dictamina nada de la fase 1: los documentos son de SOLO LECTURA.
-   El dictamen vive en la bandeja de Documentos, que exige motivo al rechazar y
-   auto-avanza la fase al aprobar el tercero; tener dos caminos con dos reglas
-   era la razón de quitarlo de aquí.
+   Aquí no se dictamina nada de la fase 1: el dictamen vive en la bandeja de
+   Documentos, que exige motivo al rechazar y auto-avanza la fase al aprobar el
+   tercero; tener dos caminos con dos reglas era la razón de quitarlo de aquí.
+   La ÚNICA acción sobre los documentos es «Pedir reemplazo» (spec 2026-10-15):
+   con el proceso en la cita de cotejo y el permiso
+   `titulatec.document.api.request_replacement` (`can_request_replacement`), un
+   `<details>` por documento con motivo obligatorio. El reemplazo abierto se
+   pinta con su píldora; aprobarlo se hace en la bandeja o en el panel de Citas.
    =========================================================================== #}
 {% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill, library_clearance_pill, certificate_cell %}
 {% set VOLVER = '&from=' ~ (back.url | urlencode) %}
@@ -49,7 +53,7 @@
 {% elif f.number == 1 %}
   <div class="tt-exp-docs">
     {% for d in docs %}
-    <div class="tt-exp-doc{{ ' is-open' if d.type_code == doc_abierto }}">
+    <div class="tt-exp-doc flex-wrap{{ ' is-open' if d.type_code == doc_abierto }}" id="exp-doc-{{ d.type_code }}">
       <div class="min-w-0">
         <span class="nombre">{{ d.name }}</span>
         {% if d.doc %}
@@ -57,6 +61,14 @@
           {{ d.doc.original_name }} · {{ (d.doc.size_bytes / 1024) | round | int }} KB
           {%- if d.doc.version and d.doc.version > 1 %} · v{{ d.doc.version }}{% endif %}</span>
         {% if d.doc.review_note %}<span class="meta">{{ d.doc.review_note }}</span>{% endif %}
+        {# Reemplazo abierto (R2): el motivo solo vive mientras `rejected` (ya
+           salió arriba como `review_note`); al resubir el alumno queda
+           `pending` sin motivo. #}
+        {% if d.doc.replacement %}
+        <span class="meta">
+          <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reemplazo pedido en cotejo</span>
+          {%- if d.doc.review_status == 'pending' %} · Reemplazo subido · por aprobar{% endif %}</span>
+        {% endif %}
         {% elif d.excused %}
         {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
            DISPENSADO por R-G (D9) -- no está "sin subir", se entrega en el
@@ -82,6 +94,28 @@
          hx-push-url="true"
          {% if d.type_code == doc_abierto %}aria-current="true"{% endif %}>
         <i class="bi bi-eye me-1" aria-hidden="true"></i>Ver</a>
+      {% endif %}
+      {# Con «Archivo perdido» también: en la fase 2 pedir el reemplazo es la
+         única vía de que el egresado lo vuelva a subir. #}
+      {% if can_request_replacement and d.doc %}
+      {# «Pedir reemplazo»: id estable por documento (morph). Un `<details>`
+         plegado no ocupa renglón; el form lleva su confirmación
+         (`hx-confirm` + `data-tt-confirm-ok`, nunca `confirm()`). #}
+      <details class="w-100" id="exp-repl-det-{{ d.type_code }}">
+        <summary class="btn btn-sm tt-btn-ghost">
+          <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Pedir reemplazo</summary>
+        <form class="d-flex flex-column gap-2 mt-2" id="exp-repl-{{ d.type_code }}"
+              hx-post="/titulatec/admin/processes/{{ process.id }}/documents/{{ d.type_code }}/reemplazo{{ ('?' ~ zona) if zona }}"
+              hx-target="#exp-shell" hx-swap="morph:outerHTML"
+              hx-confirm="Pedir reemplazo|¿Pedirle a {{ student.name }} que vuelva a subir «{{ d.name }}»? Recibirá el aviso con tu motivo."
+              data-tt-confirm-ok="Pedir reemplazo">
+          <textarea name="note" id="exp-repl-note-{{ d.type_code }}" required rows="2" maxlength="1000"
+                    class="form-control form-control-sm"
+                    placeholder="Motivo (lo verá el egresado)"
+                    aria-label="Motivo del reemplazo de {{ d.name }}"></textarea>
+          <div><button type="submit" class="btn btn-sm tt-btn-ink">Pedir reemplazo</button></div>
+        </form>
+      </details>
       {% endif %}
     </div>
     {% endfor %}
