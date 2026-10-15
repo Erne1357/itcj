@@ -89,6 +89,26 @@ acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerr
 La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
 ella; es corrección, no reapertura.
 
+**El dictamen de fase se serializa por fila (Ruling R14, 2026-10-15).** La guarda de la
+fila 1 compara contra `process.current_phase`, y ese valor solo vale si nadie lo está
+cambiando a la vez. Por eso `approve_phase` y `reject_phase` empiezan, en **todas** las
+fases, con `PhaseService._lock_process_row` (`services/phase_service.py:263`):
+`SELECT … FOR NO KEY UPDATE` sobre `titulatec_processes` + `populate_existing`, y solo
+después `assert_can_transition` sobre la fila ya releída. De dos dictámenes de la misma
+fase, el segundo espera el commit del primero y valida sobre lo que este dejó: si el
+primero APROBÓ (la fase ya se movió), el segundo recibe `ValueError` sin escribir nada
+(las rutas lo traducen a `400` + `X-Tt-Error`; el auto-avance de la bandeja de Documentos
+lo atrapa y responde 200, porque su dictamen de documento ya se guardó). Si el primero
+RECHAZÓ, `current_phase` no cambia y el segundo procede en orden (aprobar una fase
+rechazada es legal; un segundo rechazo pisa el motivo). Cierra dos carreras: dos revisores aprobando los últimos documentos de la fase 1
+(avance, eventos, avisos y correos duplicados) y un rechazo concurrente con la aprobación
+de la misma fase (el proceso regresaba a una fase ya liberada). Además `approve_phase` se
+niega con «Esa fase ya fue aprobada.» si la `ProcessPhase` ya está `approved` (defensa,
+sin consulta extra). Hasta R14 solo la liberación de la fase 2 tomaba ese bloqueo (R9).
+`FOR NO KEY UPDATE` es el modo de `ProcessService.cancel` y `DocumentService.
+request_replacement`: los tres se serializan entre sí, y ninguno choca con el `FOR KEY
+SHARE` de los INSERT con FK al proceso.
+
 ### El corte a T-soft: la misma regla, en los cuatro puntos (desde 2026-09-21)
 
 Los cuatro puntos de arriba comparten una regla más: **ninguna fase con `number >=
@@ -197,14 +217,15 @@ con la columna no NULL. Cuatro consecuencias que no se deducen del diagrama:
 - **Las transiciones se serializan por fila** (R8–R10): `save()` y `review()` leen el documento con
   `FOR UPDATE` (`DocumentService._locked_document`, `:572`) y `save()` re-exige el reemplazo abierto
   ahí mismo si el tipo es de una fase ya pasada, antes de tocar el disco (una subida en vuelo no pisa un
-  `approved` recién dado); pedir el reemplazo y liberar la fase 2 bloquean la fila del proceso; y
+  `approved` recién dado); pedir el reemplazo y liberar la fase 2 bloquean la fila del proceso (R9; desde
+  R14 todo dictamen de fase la bloquea, ver «El dictamen de fase se serializa por fila» arriba); y
   «Aprobar reemplazo» del panel de Citas aprueba solo la versión que se vio. Detalle:
   [flujo, «Concurrencia»](xcut_cotejo_document_replacement.md#concurrencia-revisión-final-rulings-r8r10).
 
 Quién lo ve y qué bloquea: [flujo completo](xcut_cotejo_document_replacement.md). En una línea —
 **liberar la fase 2 se niega** mientras haya un reemplazo abierto
 (`DocumentService.replacement_gate_error`, que consulta `PhaseService._cotejo_gate_error`,
-`services/phase_service.py:356-358`); **agendar no se bloquea** (la cola cuenta el documento como
+`services/phase_service.py:392-394`); **agendar no se bloquea** (la cola cuenta el documento como
 «ok»: `initial_docs_approved_map(..., replacement_ok=True)`).
 
 Evento nuevo: `document_replacement_requested` (`models/process_event.py:39`), con

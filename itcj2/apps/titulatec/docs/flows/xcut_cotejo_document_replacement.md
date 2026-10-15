@@ -98,7 +98,7 @@ sequenceDiagram
 | 2 | 👤 | `/student/documents` (modo reemplazo) | sube el reemplazo | `POST /student/documents/{type_code}` — `pages/student.py:1270` | `DocumentService.student_can_replace` → `save()` (`:635`, re-verifica con la fila bloqueada, R8) | `pending`, nota y revisor limpios; `version` suma 1; **la bandera sigue abierta** | `document_uploaded` |
 | 3a | 🏛️ | Bandeja Documentos | aprobar (Aprobar de siempre) | `POST /titulatec/admin/documents/{pid}/document/review` | `DocumentService.review(approved)` (`:761`) | `approved`, `replacement_requested_at = NULL` | `document_approved` con `replacement: true` · correo `docs_review` |
 | 3b | 🏛️ | Panel de Citas | «Aprobar reemplazo» | `POST /titulatec/admin/appointments/{pid}/documents/{type_code}/aprobar` (form `version`, por `hx-vals`) — `pages/appointments.py:2265` → `_cuerpo_document_replacement_approve` (`:2293`) | `open_replacements` (exige abierto, si no 400) → `review(approved, expected_version=version)`; otra versión o sin versión → 200 + aviso, sin aprobar (R10) | ídem | ídem |
-| 4 | 🏛️ | Cita / expediente | liberar la fase 02 | `POST /{pid}/fase2/aprobar` · `POST .../phase/{n}/approve` | `PhaseService.approve_phase` → `_cotejo_gate_error` (`services/phase_service.py:327`) | — | se **niega** con un reemplazo abierto (ver abajo) |
+| 4 | 🏛️ | Cita / expediente | liberar la fase 02 | `POST /{pid}/fase2/aprobar` · `POST .../phase/{n}/approve` | `PhaseService.approve_phase` → `_cotejo_gate_error` (`services/phase_service.py:363`) | — | se **niega** con un reemplazo abierto (ver abajo) |
 
 Reglas de `request_replacement` (en este orden, todas `ValueError` ASCII sin escribir nada): motivo no vacío
 tras `strip()` y ≤ `REPLACEMENT_NOTE_MAX` = 1000; el proceso existe y está `active`; `current_phase` == fase de
@@ -126,9 +126,14 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
   sin escribir nada (`services/document_service.py:683-690`). La fase actual y las futuras no cambian.
 - **Pedir vs. liberar la fase 2 (R9).** `request_replacement` bloquea la fila del proceso (`FOR NO KEY UPDATE`,
   `key_share=True`, mismo modo que `ProcessService.cancel`) antes de validar la fase, y
-  `PhaseService.approve_phase` toma el mismo bloqueo **solo** cuando libera `PHASE_COTEJO`, antes de su
-  compuerta (`services/phase_service.py:422-425`). O el pedido ve la fase ya liberada, o la liberación espera y
-  ve el reemplazo abierto. `NO KEY` no choca con el `FOR KEY SHARE` de los INSERT con FK al proceso.
+  `PhaseService.approve_phase` toma el mismo bloqueo antes de validar y de su compuerta
+  (`PhaseService._lock_process_row`, `services/phase_service.py:263`, llamado en `:463`). O el pedido ve la
+  fase ya liberada, o la liberación espera y ve el reemplazo abierto. `NO KEY` no choca con el `FOR KEY SHARE`
+  de los INSERT con FK al proceso. **Desde R14 (2026-10-15) ese bloqueo ya no es exclusivo de la fase de
+  cotejo:** `approve_phase` y `reject_phase` lo toman en TODAS las fases, antes de `assert_can_transition`
+  (dictamen de fase serializado: [máquina de estados](00_state_machine.md), párrafo
+  «El dictamen de fase se serializa por fila»). Para esta carrera no cambia nada; además cubre que un
+  rechazo de la fase 2 concurrente con su liberación ya no la regresa.
 - **Aprobar el archivo que se vio (R10, solo el panel de Citas).** «Aprobar reemplazo» manda la `version` que
   pintó (`hx-vals`) y `review(..., expected_version=)` la compara con la fila bloqueada; si cambió levanta
   `DocumentVersionChanged` (`:7`, subclase de `ValueError`), y sin versión (o ilegible) la ruta ni lo intenta:
@@ -140,7 +145,7 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
 ## Lo que bloquea y lo que no
 
 - **Bloquea liberar la fase 2 (D4).** `DocumentService.replacement_gate_error` (`:1097`) lo consulta
-  `PhaseService._cotejo_gate_error` (`services/phase_service.py:356-358`) **antes** que los requisitos de
+  `PhaseService._cotejo_gate_error` (`services/phase_service.py:392-394`) **antes** que los requisitos de
   cotejo: «No se puede liberar la fase 02: falta aprobar el reemplazo de: {nombres}.». Aplica a las dos vías
   de aprobar la fase 2 (la cita y el expediente, que es también «Mover de fase»); el mensaje lleva acentos, así
   que las rutas lo pasan por `_hdr()`.
@@ -211,7 +216,10 @@ visor de la bandeja; reemplazar documentos de fases ≥ 3; que Servicios Escolar
 
 `tests/fastapi/titulatec/`: `test_document_replacement.py` (service; revisión final: `TestPredicadoUnico` R7,
 `TestCarreraSubirVsAprobar` R8 —la carrera determinista guarda → `review(approved)` → `save` levanta con el
-archivo intacto—, `TestBloqueoDelProceso` R9 —orden de las sentencias— y `TestAprobarLaVersionVista` R10),
+archivo intacto—, `TestBloqueoDelProceso` R9 —orden de las sentencias; desde R14 afirma que aprobar la fase 1
+TAMBIÉN bloquea— y `TestAprobarLaVersionVista` R10), `test_phase_verdict_lock.py` (R14: el perdedor de la
+carrera aprobar/aprobar y aprobar/rechazar en las fases 1 y 2, la defensa «Esa fase ya fue aprobada.», el
+orden del SQL y el auto-avance de la bandeja que atrapa al perdedor),
 `test_document_version.py` (versión + SQL de la migración), `test_documents_replacement.py` (bandeja; R7 y R12),
 `test_appt_doc_replacement.py` (panel de la cita; R7, R10 y liberar la fase 2 con un reemplazo abierto),
 `test_expediente_replacement.py` (R7 y `phase/2/approve` con un reemplazo abierto),

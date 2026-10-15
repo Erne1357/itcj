@@ -342,11 +342,19 @@ Aquí solo lo que pasa en este panel:
   + `X-Tt-Notice` de tipo warning «El alumno cambió el archivo: revísalo antes de aprobar.» **sin aprobar**
   (htmx no hace swap en 4xx).
 - **Compuerta de la fase 02 (D4).** Mientras haya un reemplazo abierto, **aprobar la fase 02 se niega**:
-  `PhaseService._cotejo_gate_error` (`services/phase_service.py:327`) consulta primero
-  `DocumentService.replacement_gate_error` (`:356-358`) → «No se puede liberar la fase 02: falta aprobar el
+  `PhaseService._cotejo_gate_error` (`services/phase_service.py:363`) consulta primero
+  `DocumentService.replacement_gate_error` (`:392-394`) → «No se puede liberar la fase 02: falta aprobar el
   reemplazo de: Acta de nacimiento.». Aplica a las dos vías (`fase2/aprobar` de aquí y
   `admin phase/{n}/approve` del expediente, que es también «Mover de fase»); ambas pasan el mensaje por `_hdr()`
   (lleva acentos). Va **antes** que los requisitos de cotejo.
+- **Dictamen serializado (R9 → R14).** Aprobar y rechazar la fase 02 (5 y 5b, aquí o en el expediente) bloquean
+  primero la fila del proceso (`PhaseService._lock_process_row`, `FOR NO KEY UPDATE` + relectura,
+  `services/phase_service.py:263`) y validan después, sobre la fila ya releída. Hasta R14 (2026-10-15) solo
+  la liberación lo hacía (R9, contra un reemplazo pedido a la vez); ahora también el rechazo, y en todas las
+  fases: un «Rechazar» de este panel que llega justo después de que otra persona liberó la fase 02 ya no
+  regresa al alumno a la fase 2 — recibe `400` + `X-Tt-Error` «Solo puedes actuar sobre la fase en curso…»
+  (una segunda liberación ya recibía lo mismo desde R9). Detalle en la
+  [máquina de estados](00_state_machine.md), «El dictamen de fase se serializa por fila».
 - **La cola no lo cuenta como faltante (D2).** `queue_candidates` pide
   `initial_docs_approved_map(..., replacement_ok=True)` (`services/appointment_service.py:412`): un documento
   con reemplazo abierto (`DocumentService.replacement_open`: bandera no NULL y no `approved`) cuenta como aprobado, así que pedir un reemplazo **no saca al alumno de

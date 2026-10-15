@@ -10,7 +10,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services` / `_head`) · 🎓 Titulaciones |
 | **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) · pedir reemplazo en el cotejo (2026-10-15): `titulatec.document.api.request_replacement` (`pages/documents.py:23`, solo la jefatura y `admin`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
-| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:262`), o sea proceso `active` **y** `current_phase == 1`. |
+| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:500`), o sea proceso `active` **y** `current_phase == 1` — filtro sin bloqueo; la garantía contra dos avances a la vez la da el bloqueo de fila de `approve_phase` (R14, ver «Dos revisores a la vez»). |
 | **Sub-flujos** | ⤵ al aprobar el último pendiente del set invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
 | **Estado final** | todos los docs del set `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
 
@@ -72,6 +72,8 @@ sequenceDiagram
     API->>DS: initial_docs_all_approved(pid)?
     alt las 3 approved y can_transition(proc, 1)
         API->>PS: approve_phase(proc, 1, reviewer)
+        PS->>DB: proceso FOR NO KEY UPDATE + relectura (R14) · assert_can_transition
+        Note over PS,API: perdedor de una carrera → ValueError sin escribir; la ruta lo atrapa (200)
         PS->>DB: fase1=approved, current_phase=2, ProcessEvent
         PS->>DB: INSERT email_outbox (phase_approved, MISMO grupo docs:{pid})
         PS->>DB: COMMIT (2.º)
@@ -284,8 +286,8 @@ igual que antes lo hacía el endpoint borrado:
   exige el dictamen por documento (`document.api.approve`/`.reject`, `pages/documents.py:16`); los
   tres roles operativos (`titulatec_school_services`, `..._head`, `titulatec_titulaciones`) tienen
   ambos permisos a la vez.
-- Guarda: `PhaseService.assert_can_transition` (`phase_service.py:122-133`, vía `can_transition`,
-  `:109-119`) exige que `n` sea la fase EN CURSO de un proceso `active`. **No mira el estado de los
+- Guarda: `PhaseService.assert_can_transition` (`phase_service.py:125-136`, vía `can_transition`,
+  `:109-122`) exige que `n` sea la fase EN CURSO de un proceso `active`. **No mira el estado de los
   documentos** — ver [motor de avance](engine_approve_advance_phase.md).
 
 **Consecuencia (verificada en el código):** se puede aprobar la fase 1 desde «Mover de fase» con
@@ -296,15 +298,27 @@ permiso y estado del PROCESO, nunca el de sus documentos — es el mismo defecto
 solo que hoy vive en el modal genérico y no en un botón dedicado de documentos.
 
 **El auto-avance de la bandeja no es atómico.** Son dos transacciones separadas con una lectura en
-medio: `DocumentService.review` hace su propio `db.commit()` (`services/document_service.py:416`);
-después `pages/documents.py:261-263` relee `initial_docs_all_approved` + `can_transition` y, si
-aplica, llama a `PhaseService.approve_phase`, que hace el suyo
-(`services/phase_service.py:450`). Si el segundo commit falla —o dos revisores aprueban el último
-documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla con
-«Mover de fase». No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada
-ya no encuentra el proceso en la fase 1). Los correos siguen a su propia transacción: el
-`docs_review` queda con el 1.er commit y el `phase_approved` solo existe si el 2.º se confirmó —
-nunca se avisa un avance que no ocurrió.
+medio: `DocumentService.review` hace su propio `db.commit()`; después `pages/documents.py:498-513`
+relee `initial_docs_all_approved` + `can_transition` y, si aplica, llama a
+`PhaseService.approve_phase`, que hace el suyo (`services/phase_service.py:541`). Si el segundo
+commit falla el documento queda `approved` y la fase no avanza: hay que empujarla con «Mover de
+fase». Los correos siguen a su propia transacción: el `docs_review` queda con el 1.er commit y el
+`phase_approved` solo existe si el 2.º se confirmó — nunca se avisa un avance que no ocurrió.
+
+**Dos revisores a la vez: serializado por fila (Ruling R14, 2026-10-15).** `can_transition` es un
+filtro **sin** bloqueo: si dos revisores aprueban a la vez los dos últimos documentos, las dos
+peticiones lo pasan. Hasta el 2026-10-15 las dos llamaban `approve_phase(1)` y el avance quedaba
+duplicado (dos `phase_approved`, dos avisos `PHASE_APPROVED`, dos correos) — la frase vieja de este
+documento, «la idempotencia la da `can_transition`», era falsa con concurrencia. Ahora
+`approve_phase` toma primero el bloqueo de la fila del proceso (`PhaseService._lock_process_row`,
+`FOR NO KEY UPDATE` + `populate_existing`, `services/phase_service.py:263`) y **después** corre
+`assert_can_transition` sobre la fila ya releída: la segunda petición espera el commit de la primera,
+ve `current_phase = 2` y recibe `ValueError` sin escribir nada. La ruta lo **atrapa**
+(`pages/documents.py:503-513`): el dictamen del documento ya se guardó, perder el avance significa que
+otro ya avanzó, no es un error — responde 200 con la bandeja re-pintada (antes habría sido un 500) y
+hace `commit()` para soltar el bloqueo antes de re-pintar (nunca `rollback()`: bajo el harness tira lo
+sembrado). Lo fija `tests/fastapi/titulatec/test_phase_verdict_lock.py` (`TestAutoAvanceDeLaBandeja`,
+la carrera reproducida de forma determinista).
 
 ## Último aprobado = re-confirmación, y después el dictamen se congela (desde 2026-10-04)
 
