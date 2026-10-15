@@ -409,7 +409,20 @@ class PhaseService:
 
         Solo la fase ACTUAL de un proceso ACTIVO. Lanza `ValueError` si no
         (la ruta lo traduce a 400 + `X-Tt-Error`).
+
+        **Fase de cotejo: bloquea la fila del proceso** (Ruling R9 de la
+        revisión final del reemplazo en cotejo, 2026-10-15). Antes de validar
+        y de la compuerta, `FOR NO KEY UPDATE` (`key_share=True`, como
+        `ProcessService.cancel`) y relectura: `DocumentService.
+        request_replacement` toma el mismo bloqueo, así que un reemplazo
+        pedido a la vez que se libera la fase 2 o lo ve la compuerta o ve la
+        fase ya liberada -- nunca las dos cosas a medias. Las demás fases no
+        cambian.
         """
+        if phase_number == PhaseService.PHASE_COTEJO:
+            from itcj2.apps.titulatec.models import TitulationProcess
+            (db.query(TitulationProcess).filter_by(id=process.id)
+             .with_for_update(key_share=True).populate_existing().first())
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
 
         # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA

@@ -588,6 +588,254 @@ class TestLiberarFase2:
 
 
 # ---------------------------------------------------------------------------
+# R7 (revisión final): UN solo predicado de «reemplazo abierto»
+# ---------------------------------------------------------------------------
+# Abierto = bandera **y** `review_status != "approved"`. Un `approved` con la
+# bandera vieja (reversa de la spec §9: el código viejo aprobó sin limpiarla)
+# es CERRADO en todas partes; antes la compuerta lo contaba abierto y la fase 2
+# quedaba trabada para siempre (aprobar de nuevo un aprobado de una fase pasada
+# da `PHASE_CLOSED_MSG`).
+_COMBOS = [(st, flag) for st in ("rejected", "pending", "approved") for flag in (True, False)]
+
+
+class TestPredicadoUnico:
+    @pytest.mark.parametrize("status,bandera,esperado", [
+        ("rejected", _HACE_TIEMPO, True),
+        ("pending", _HACE_TIEMPO, True),
+        ("approved", _HACE_TIEMPO, False),
+        ("rejected", None, False),
+        ("pending", None, False),
+        ("approved", None, False),
+    ])
+    def test_el_predicado_puro(self, status, bandera, esperado):
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+
+        assert DocumentService.replacement_open(status, bandera) is esperado
+
+    @pytest.mark.parametrize("status,con_bandera", _COMBOS)
+    def test_todos_los_lectores_del_servicio_dicen_lo_mismo(self, db_session, esc,
+                                                            status, con_bandera):
+        """`open_replacements` (SQL), `student_can_replace`, la compuerta y el
+        mapa de la cola contestan con el MISMO predicado, combinación por
+        combinación."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, _docs, _ = esc["build"](estados=("approved", "approved", status),
+                                      abiertos=("curp",) if con_bandera else ())
+        db_session.expire_all()
+        abierto = DocumentService.replacement_open(
+            status, _HACE_TIEMPO if con_bandera else None)
+
+        listados = {r["type_code"] for r in DocumentService.open_replacements(db_session, proc.id)}
+        assert ("curp" in listados) is abierto
+        assert DocumentService.student_can_replace(db_session, proc, "curp") is abierto
+        assert (DocumentService.replacement_gate_error(db_session, proc) is not None) is abierto
+        flexible = DocumentService.initial_docs_approved_map(
+            db_session, [proc], replacement_ok=True)[proc.id]
+        assert flexible is (abierto or status == "approved")
+
+    def test_un_aprobado_con_bandera_vieja_no_traba_la_fase_2(self, db_session, esc):
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        proc, _docs, _ = esc["build"](abiertos=("curp",))     # los 3 `approved`
+
+        assert PhaseService._cotejo_gate_error(db_session, proc) is None
+        resultado = PhaseService.approve_phase(db_session, proc, 2,
+                                               reviewer_id=esc["jefa"].id)
+
+        assert resultado == {"next_phase": 3, "completed": False}
+
+    def test_la_bandera_vieja_no_entra_en_open_replacements_con_una_consulta(
+            self, db_session, esc):
+        """El filtro va en SQL: sin abiertos de verdad, una consulta y lista vacía."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, _docs, _ = esc["build"](abiertos=("curp", "birth_certificate"))
+
+        filas, sentencias = _contar(
+            db_session, lambda: DocumentService.open_replacements(db_session, proc.id))
+
+        assert filas == []
+        assert len(sentencias) == 1, sentencias
+
+
+# ---------------------------------------------------------------------------
+# R8: la fila del documento se serializa (subida en vuelo vs. aprobación)
+# ---------------------------------------------------------------------------
+def _subir(db, proc, student, raw=None, nombre="curp-nueva.pdf"):
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    return DocumentService.save(db, proc, "curp", raw=raw or small_pdf(),
+                                original_name=nombre, content_type="application/pdf",
+                                uploaded_by_id=student.id)
+
+
+def _es_lock_de(tabla, sentencia, modo="FOR UPDATE"):
+    return f"FROM {tabla}" in sentencia and modo in sentencia
+
+
+class TestCarreraSubirVsAprobar:
+    def test_la_guarda_pasa_aprueban_y_la_subida_en_vuelo_no_pisa(
+            self, db_session, esc, tmp_path, monkeypatch):
+        """La carrera de R8, determinista: la ruta del alumno ya validó
+        (`student_can_replace` = True) y, antes de que llegue su `save()`, la
+        jefa aprueba el reemplazo en otra pestaña. La subida tiene que
+        levantar en la MISMA transacción del `save()` -- sin pisar el
+        dictamen, sin reabrir nada y sin tocar el archivo aprobado."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        from itcj2.apps.titulatec.utils import storage
+        from tests.fastapi.titulatec._pdf_samples import merge_pdfs
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+        proc, _docs, student = esc["build"]()
+        _pedir(db_session, proc, "curp", esc=esc)
+        _subir(db_session, proc, student, nombre="curp-vista.pdf")
+        doc = _doc(db_session, proc.id)
+        archivo = storage.abs_path(doc.file_path)
+        bytes_aprobados, version = archivo.read_bytes(), doc.version
+        # La subida del reemplazo cuelga de la fase del TIPO (1), no de la del
+        # proceso (2) -- antes lo fijaba `test_expediente_proceso.py` con un
+        # `save()` en la fase 2 sin reemplazo, que R8 ya no admite.
+        assert [e.phase_number for e in _eventos(db_session, proc.id,
+                                                 "document_uploaded")] == [1]
+
+        # 1) la guarda de la ruta pasa
+        assert DocumentService.student_can_replace(db_session, proc, "curp") is True
+        # 2) la jefa aprueba
+        DocumentService.review(db_session, proc.id, "curp", status="approved", note=None,
+                               reviewer_id=esc["jefa"].id)
+        # 3) llega la subida en vuelo (otro archivo)
+        with pytest.raises(ValueError) as exc:
+            _subir(db_session, proc, student, raw=merge_pdfs(small_pdf(), small_pdf()),
+                   nombre="curp-tarde.pdf")
+
+        assert str(exc.value) == DocumentService.REPLACEMENT_CLOSED_MSG
+        doc = _doc(db_session, proc.id)
+        assert (doc.review_status, doc.replacement_requested_at, doc.version,
+                doc.original_name) == ("approved", None, version, "curp-vista.pdf")
+        assert archivo.read_bytes() == bytes_aprobados, "pisó el archivo aprobado"
+        assert len(_eventos(db_session, proc.id, "document_uploaded")) == 1
+
+    def test_tipo_de_una_fase_pasada_sin_reemplazo_no_se_sube(
+            self, db_session, esc, tmp_path, monkeypatch):
+        """Sin reemplazo abierto, un documento de la fase 1 con el proceso en la
+        fase 2 no se escribe ni en BD ni en disco (antes solo lo paraba la
+        guarda de la ruta)."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+        proc, _docs, student = esc["build"]()
+
+        with pytest.raises(ValueError) as exc:
+            _subir(db_session, proc, student)
+
+        assert str(exc.value) == DocumentService.REPLACEMENT_CLOSED_MSG
+        assert _doc(db_session, proc.id).review_status == "approved"
+        assert not any(p.is_file() for p in tmp_path.rglob("*")), "escribió en disco"
+
+    def test_en_la_fase_1_la_subida_no_cambia(self, db_session, esc, tmp_path,
+                                              monkeypatch):
+        """Positivo del mismo `save()`: en su fase el documento se sube como siempre."""
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+        proc, _docs, student = esc["build"](current_phase=1,
+                                            estados=("approved", "approved", "rejected"))
+
+        _subir(db_session, proc, student)
+
+        assert _doc(db_session, proc.id).review_status == "pending"
+
+    def test_save_y_review_leen_la_fila_con_for_update(self, db_session, esc, tmp_path,
+                                                      monkeypatch):
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+        proc, _docs, student = esc["build"](estados=("approved", "approved", "rejected"),
+                                            abiertos=("curp",))
+
+        _, al_subir = _contar(db_session, lambda: _subir(db_session, proc, student))
+        _, al_aprobar = _contar(db_session, lambda: DocumentService.review(
+            db_session, proc.id, "curp", status="approved", note=None,
+            reviewer_id=esc["jefa"].id))
+
+        assert any(_es_lock_de("titulatec_documents", s) for s in al_subir), al_subir
+        assert any(_es_lock_de("titulatec_documents", s) for s in al_aprobar), al_aprobar
+
+
+# ---------------------------------------------------------------------------
+# R9: pedir reemplazo y liberar la fase 2 bloquean la fila del proceso
+# ---------------------------------------------------------------------------
+def _primera(sentencias, pred):
+    return next((i for i, s in enumerate(sentencias) if pred(s)), None)
+
+
+def _lock_del_proceso(s):
+    return _es_lock_de("titulatec_processes", s, "FOR NO KEY UPDATE")
+
+
+class TestBloqueoDelProceso:
+    def test_pedir_bloquea_el_proceso_antes_de_validar_la_fase(self, db_session, esc):
+        proc, _docs, _ = esc["build"]()
+
+        _, sql = _contar(db_session, lambda: _pedir(db_session, proc, "curp", esc=esc))
+
+        bloqueo = _primera(sql, _lock_del_proceso)
+        fase = _primera(sql, lambda s: "FROM titulatec_process_phases" in s)
+        assert bloqueo is not None, sql
+        assert fase is not None and bloqueo < fase, sql
+
+    def test_liberar_la_fase_2_bloquea_el_proceso_antes_de_la_compuerta(
+            self, db_session, esc):
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        proc, _docs, _ = esc["build"]()
+
+        _, sql = _contar(db_session, lambda: PhaseService.approve_phase(
+            db_session, proc, 2, reviewer_id=esc["jefa"].id))
+
+        bloqueo = _primera(sql, _lock_del_proceso)
+        compuerta = _primera(sql, lambda s: "FROM titulatec_documents" in s)
+        assert bloqueo is not None, sql
+        assert compuerta is not None and bloqueo < compuerta, sql
+
+    def test_liberar_otra_fase_no_toma_ese_bloqueo(self, db_session, esc):
+        """SOLO la fase de cotejo: `approve_phase` no cambia para las demás."""
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        proc, _docs, _ = esc["build"](current_phase=1)
+
+        _, sql = _contar(db_session, lambda: PhaseService.approve_phase(
+            db_session, proc, 1, reviewer_id=esc["jefa"].id))
+
+        assert _primera(sql, _lock_del_proceso) is None, sql
+
+
+# ---------------------------------------------------------------------------
+# R10 (parte de service): aprobar la versión que se vio
+# ---------------------------------------------------------------------------
+class TestAprobarLaVersionVista:
+    def test_con_otra_version_levanta_sin_escribir(self, db_session, esc):
+        from itcj2.apps.titulatec.services.document_service import (
+            DocumentService, DocumentVersionChanged,
+        )
+        proc, docs, _ = esc["build"](estados=("approved", "approved", "pending"),
+                                     abiertos=("curp",))
+        version = _doc(db_session, proc.id).version
+
+        with pytest.raises(DocumentVersionChanged):
+            DocumentService.review(db_session, proc.id, "curp", status="approved",
+                                   note=None, reviewer_id=esc["jefa"].id,
+                                   expected_version=version + 1)
+
+        doc = _doc(db_session, proc.id)
+        assert (doc.review_status, doc.replacement_requested_at) == ("pending", _HACE_TIEMPO)
+        assert _eventos(db_session, proc.id, "document_approved") == []
+        assert issubclass(DocumentVersionChanged, ValueError)
+
+    def test_con_la_version_vista_aprueba(self, db_session, esc):
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        proc, _docs, _ = esc["build"](estados=("approved", "approved", "pending"),
+                                      abiertos=("curp",))
+        version = _doc(db_session, proc.id).version
+
+        assert DocumentService.review(db_session, proc.id, "curp", status="approved",
+                                      note=None, reviewer_id=esc["jefa"].id,
+                                      expected_version=version) is True
+
+        assert _doc(db_session, proc.id).review_status == "approved"
+
+
+# ---------------------------------------------------------------------------
 # Vocabulario del evento
 # ---------------------------------------------------------------------------
 def test_el_evento_tiene_sus_dos_voces():

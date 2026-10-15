@@ -103,9 +103,13 @@
         <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Pedir reemplazo</a>
       {% endif %}
       {% if puede_aprobar %}
+      {# R10 (revisión final 2026-10-15): manda la `version` que se está viendo;
+         si el alumno subió otro archivo entre tanto, la ruta NO aprueba y
+         re-pinta con el nuevo en el visor (su `src` lleva `?v=`). #}
       <button id="appt-docreplace-approve" type="button" class="btn btn-sm tt-btn-ink"
               hx-confirm="Aprobar reemplazo|Se da por bueno el documento que el alumno subió de nuevo."
               data-tt-confirm-ok="Aprobar"
+              hx-vals='{"version":"{{ ab.doc.version }}"}'
               {{ appt_action(BASE ~ '/documents/' ~ detail.doc_abierto ~ '/aprobar' ~ QZ) }}>
         <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Aprobar reemplazo</button>
       {% endif %}

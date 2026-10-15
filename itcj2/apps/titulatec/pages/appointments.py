@@ -256,18 +256,27 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         docs.append({
             "type_code": code,
             "name": dt.name if dt else code,
+            # `version` (R10, revisión final 2026-10-15): la que se está VIENDO.
+            # «Aprobar reemplazo» la manda de vuelta y la ruta la compara.
             "doc": ({"original_name": doc.original_name, "review_status": doc.review_status,
-                     "size_bytes": doc.size_bytes or 0} if doc else None),
+                     "size_bytes": doc.size_bytes or 0, "version": doc.version or 1}
+                    if doc else None),
             "missing": bool(doc) and falta,
             "excused": doc is None and code in excused,
-            "view_url": f"/titulatec/admin/appointments/{process_id}/document/{code}",
+            # `?v=` (R10): si el alumno sube otro archivo, el `src` del visor
+            # CAMBIA y el morph lo recarga -- con el mismo `src` Idiomorph no
+            # toca el iframe y el aviso «revísalo» mandaría a ver el PDF viejo.
+            # La ruta del archivo ignora el parámetro.
+            "view_url": (f"/titulatec/admin/appointments/{process_id}/document/{code}"
+                         + (f"?v={doc.version or 1}" if doc else "")),
             # Reemplazo en el cotejo (spec 2026-10-15 §7.1, Ruling R2):
             # `review_note` es el motivo SOLO mientras el documento sigue
             # `rejected`; en cuanto el alumno resube queda `pending` y la nota
-            # se limpia. `replacement` = reemplazo abierto (bandera de la fila).
+            # se limpia. `replacement` = reemplazo abierto con EL predicado
+            # `DocumentService.replacement_open` (R7: bandera y no `approved`).
             "review_note": (doc.review_note if doc else None),
-            "replacement": bool(doc is not None
-                                and getattr(doc, "replacement_requested_at", None) is not None),
+            "replacement": bool(doc is not None and DocumentService.replacement_open(
+                doc.review_status, doc.replacement_requested_at)),
         })
 
     # El documento abierto es ESTADO DE SERVIDOR, no del DOM. Idiomorph conserva
@@ -2255,7 +2264,7 @@ def _cuerpo_document_replacement(process_id, type_code, request, user, form):
 
 @router.post("/{process_id}/documents/{type_code}/aprobar",
              name="titulatec.pages.appointments.document_replacement_approve")
-def document_replacement_approve(
+async def document_replacement_approve(
     process_id: int,
     type_code: str,
     request: Request,
@@ -2267,9 +2276,34 @@ def document_replacement_approve(
     Solo aplica a un documento con reemplazo ABIERTO: este boton no es un
     dictamen general de documentos (esa bandeja es otra), asi que sin
     reemplazo abierto responde 400. `review(approved)` cierra el reemplazo.
+
+    R10 (revision final 2026-10-15): el boton manda la `version` que pinto
+    (`hx-vals`) y se aprueba ESA o nada. `async` solo para leer el form.
+    """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_document_replacement_approve, process_id=process_id,
+        type_code=type_code, request=request, user=user, form=form)
+
+
+# R10: lo que lee el personal cuando el archivo cambio entre verlo y aprobarlo.
+_AVISO_VERSION_CAMBIO = "El alumno cambió el archivo: revísalo antes de aprobar."
+
+
+def _cuerpo_document_replacement_approve(process_id, type_code, request, user, form):
+    """Cuerpo síncrono de `document_replacement_approve`: corre en el threadpool.
+
+    Versión vista distinta de la de la fila -- o ausente o ilegible: sin ella
+    no se sabe QUÉ se vio -- = el alumno cambió el archivo: 200 + re-render
+    (ya con el archivo nuevo en el visor y su versión en el botón) +
+    `X-Tt-Notice` de advertencia, SIN aprobar (htmx no hace swap en 4xx). La
+    comparación final la hace `review(expected_version=)` sobre la fila
+    bloqueada: no queda ventana entre comparar y aprobar.
     """
     from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.document_service import (
+        DocumentService, DocumentVersionChanged,
+    )
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     uid = int(user["sub"])
@@ -2281,15 +2315,30 @@ def document_replacement_approve(
         if type_code not in abiertos:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(
                 "Ese documento no tiene un reemplazo pendiente.")})
-        try:
-            DocumentService.review(db, process_id, type_code, status="approved",
-                                   note=None, reviewer_id=uid)
-        except ValueError as exc:
-            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        vista = _to_int(form.get("version"))
+        cambio = vista is None
+        if not cambio:
+            try:
+                DocumentService.review(db, process_id, type_code, status="approved",
+                                       note=None, reviewer_id=uid, expected_version=vista)
+            except DocumentVersionChanged:
+                # `review` levantó ANTES de escribir nada: este commit solo
+                # cierra la transacción de lectura y suelta el bloqueo de la
+                # fila (R8) antes de re-pintar el shell, que tarda. NO
+                # `rollback()`: bajo el harness descarta lo que sembraron las
+                # fábricas (ver `_accion`, `SlotLockTimeout`).
+                db.commit()
+                cambio = True
+            except ValueError as exc:
+                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         resp = _render_body(request, db, selected_id=process_id, user_id=uid,
                             **_action_ctx(request))
-        resp.headers["X-Tt-Notice"] = _hdr("Reemplazo aprobado.")
-        resp.headers["X-Tt-Notice-Kind"] = "success"
+        if cambio:
+            resp.headers["X-Tt-Notice"] = _hdr(_AVISO_VERSION_CAMBIO)
+            resp.headers["X-Tt-Notice-Kind"] = "warning"
+        else:
+            resp.headers["X-Tt-Notice"] = _hdr("Reemplazo aprobado.")
+            resp.headers["X-Tt-Notice-Kind"] = "success"
         return resp
     finally:
         db.close()

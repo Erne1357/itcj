@@ -9,6 +9,14 @@ import itcj2.models  # noqa: F401
 from itcj2.apps.titulatec.services.document_service import DocumentService
 
 
+def _fila_bloqueada(q):
+    """La lectura de la fila del documento que hace `review()` desde la revision
+    final del reemplazo en cotejo (Ruling R8, 2026-10-15): `filter_by(...)
+    .with_for_update().populate_existing().first()`. Los tipos de documento
+    siguen con `filter_by(...).first()`."""
+    return q.filter_by.return_value.with_for_update.return_value.populate_existing.return_value.first
+
+
 class TestReview:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_rechazo_notifica_al_alumno(self, mock_notify):
@@ -21,6 +29,7 @@ class TestReview:
         # real, asi que esto no cambia lo que el test prueba (notificacion).
         db.query.return_value.filter_by.return_value.first.return_value = \
             SimpleNamespace(phase_number=1)
+        _fila_bloqueada(db.query.return_value).return_value = SimpleNamespace(phase_number=1)
 
         ok = DocumentService.review(db, process_id=1, type_code="curp",
                                     status="rejected", note="Ilegible", reviewer_id=200)
@@ -39,6 +48,7 @@ class TestReview:
         # del corte a T-soft consulta `DocumentType.phase_number`.
         db.query.return_value.filter_by.return_value.first.return_value = \
             SimpleNamespace(phase_number=1)
+        _fila_bloqueada(db.query.return_value).return_value = SimpleNamespace(phase_number=1)
 
         ok = DocumentService.review(db, process_id=1, type_code="curp",
                                     status="approved", note=None, reviewer_id=200)
@@ -49,6 +59,7 @@ class TestReview:
     def test_documento_inexistente_devuelve_false(self, mock_notify):
         db = MagicMock()
         db.query.return_value.filter_by.return_value.first.return_value = None
+        _fila_bloqueada(db.query.return_value).return_value = None
         ok = DocumentService.review(db, process_id=1, type_code="curp",
                                     status="rejected", note="x", reviewer_id=200)
         assert ok is False
@@ -74,6 +85,7 @@ class TestReview:
             q = MagicMock()
             q.filter_by.return_value.first.return_value = (
                 doc if model is Document else None)
+            _fila_bloqueada(q).return_value = doc if model is Document else None
             return q
 
         db = MagicMock()
@@ -104,6 +116,7 @@ class TestReview:
             q = MagicMock()
             q.filter_by.return_value.first.return_value = (
                 doc if model is Document else None)
+            _fila_bloqueada(q).return_value = doc if model is Document else None
             return q
 
         db = MagicMock()

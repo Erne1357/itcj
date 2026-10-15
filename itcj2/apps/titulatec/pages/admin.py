@@ -1680,7 +1680,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                      "reviewed_by": actores.get(doc.reviewed_by_id),
                      # Reemplazo abierto en la cita de cotejo (spec 2026-10-15):
                      # lo abre `request_replacement` y lo cierra la aprobación.
-                     "replacement": doc.replacement_requested_at is not None} if doc else None),
+                     # EL predicado `replacement_open` (R7: bandera y no
+                     # `approved`): una bandera vieja sobre un aprobado no es
+                     # un reemplazo pedido.
+                     "replacement": DocumentService.replacement_open(
+                         doc.review_status, doc.replacement_requested_at)} if doc else None),
             "missing": bool(doc) and falta,
             "excused": doc is None and code in excused,
             "view_url": f"/titulatec/admin/documents/{process_id}/document/{code}",

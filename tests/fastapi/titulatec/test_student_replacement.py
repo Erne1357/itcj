@@ -47,18 +47,24 @@ def escenario(db_session, seed_phase_defs, seed_document_types, make_program,
               tmp_path, monkeypatch):
     """Alumno con su proceso en la fase pedida y los 3 documentos iniciales.
 
-    `abiertos` = {codigo: estado}: documentos con reemplazo abierto
-    (`replacement_requested_at` no NULL) en ese estado. El resto queda
-    `approved`. Los archivos tambien van a disco (bajo `tmp_path`).
+    `abiertos` = {codigo: estado}: documentos con la bandera de reemplazo
+    (`replacement_requested_at` no NULL) en ese estado -- con `approved` es la
+    bandera VIEJA (R7: reemplazo cerrado). El resto queda `approved`. Los
+    archivos tambien van a disco (bajo `tmp_path`).
+
+    `posgrado=True`: carrera de maestria con los 4 extras sembrados como tipos
+    pero SIN subir (en la fase 2 se dispensan, R-G: «se entrega en el cotejo»).
     """
-    def _build(current_phase=2, abiertos=None):
+    def _build(current_phase=2, abiertos=None, posgrado=False):
+        from tests.fastapi.titulatec.conftest import POSGRADO_DOC_TYPES
         monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
         seed_phase_defs()
-        seed_document_types(DOC_TYPES)
+        seed_document_types(DOC_TYPES + (POSGRADO_DOC_TYPES if posgrado else ()))
         student = make_student(
             perm_codes=STUDENT_PERMS + ("titulatec.document.api.delete.own",))
-        proc = make_process(student, cohort=make_cohort(),
-                            program=make_program("Ingenieria Ficticia Reemplazo"),
+        programa = (make_program("Maestria Ficticia Reemplazo", level="maestria")
+                    if posgrado else make_program("Ingenieria Ficticia Reemplazo"))
+        proc = make_process(student, cohort=make_cohort(), program=programa,
                             current_phase=current_phase)
         abiertos = abiertos or {}
         for code, _name, _n in DOC_TYPES[:3]:
@@ -130,6 +136,39 @@ class TestPaginaDocumentos:
         resp = client_as(esc.student).get(DOCS, follow_redirects=False)
 
         assert resp.status_code == 302, resp.text[:300]
+
+    def test_posgrado_los_extras_dispensados_dicen_que_se_entregan_en_el_cotejo(
+            self, escenario, client_as):
+        """R11: en modo reemplazo, un extra de posgrado dispensado (R-G: sin fila
+        y con la fase 1 ya pasada) NO es «Sin enviar» -- lleva el texto de
+        cotejo de siempre, como en el visor, el expediente y el tablero."""
+        from tests.fastapi.titulatec.conftest import POSGRADO_DOC_TYPES
+        esc = escenario(current_phase=2, abiertos={"curp": "rejected"}, posgrado=True)
+
+        resp = client_as(esc.student).get(DOCS, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        html = resp.text
+        assert _zonas_de_subida(html) == {"curp"}
+        for code, _name, _n in POSGRADO_DOC_TYPES:
+            slot = html.split(f'id="slot-{code}"')[1].split('id="slot-')[0]
+            assert "Se entrega en el cotejo" in slot, code
+            assert "Sin enviar" not in slot, code
+
+    def test_un_base_sin_subir_en_modo_reemplazo_sigue_sin_enviar(
+            self, escenario, client_as, db_session):
+        """Control del anterior: solo se dispensan los extras de posgrado; un
+        documento base sin fila no se «entrega en el cotejo»."""
+        from itcj2.apps.titulatec.models import Document
+        esc = escenario(current_phase=2, abiertos={"curp": "rejected"}, posgrado=True)
+        db_session.query(Document).filter_by(process_id=esc.process.id,
+                                             type_code="high_school_cert").delete()
+        db_session.commit()
+
+        html = client_as(esc.student).get(DOCS, follow_redirects=False).text
+
+        slot = html.split('id="slot-high_school_cert"')[1].split('id="slot-')[0]
+        assert "Sin enviar" in slot and "Se entrega en el cotejo" not in slot
 
     def test_fase_1_sigue_en_modo_normal(self, escenario, client_as):
         esc = escenario(current_phase=1)
@@ -275,3 +314,15 @@ class TestAviso:
         html = client_as(esc.student).get(CITA, follow_redirects=False).text
 
         assert "tt-replacement-notice" not in html
+
+    @pytest.mark.parametrize("ruta", [DASH, CITA])
+    def test_un_aprobado_con_bandera_vieja_no_pinta_el_aviso(self, escenario, client_as,
+                                                            ruta):
+        """R7: la bandera vieja sobre un `approved` es un reemplazo CERRADO; antes
+        el aviso decía «Tu reemplazo está en revisión» de un documento aprobado."""
+        esc = escenario(current_phase=2, abiertos={"curp": "approved"})
+
+        html = client_as(esc.student).get(ruta, follow_redirects=False).text
+
+        assert "tt-replacement-notice" not in html
+        assert "Tu reemplazo está en revisión" not in html

@@ -77,7 +77,8 @@
     </form>
     {% endif %}
   {% elif readonly %}
-    <div class="tt-dropzone-hint">Sin enviar</div>
+    {# `excused` (R11, revisión final 2026-10-15): extra de posgrado dispensado por R-G -- se entrega en la cita, no «falta». #}
+    <div class="tt-dropzone-hint">{{ 'Se entrega en el cotejo' if excused else 'Sin enviar' }}</div>
   {% else %}
     <form class="tt-dropzone" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
           hx-trigger="change from:#file-{{ dtype.code }}"

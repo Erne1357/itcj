@@ -58,6 +58,10 @@ def caso(db_session, seed_phase_defs, seed_document_types, make_program, make_co
     `con_permiso=False` arma al encargado SIN el permiso del reemplazo (el rol de
     prueba es compartido por nombre dentro de la transacción: un solo encargado
     por prueba).
+
+    `abiertos`: documentos con un reemplazo ABIERTO de verdad -- `rejected` con
+    la bandera (R7: un `approved` con la bandera puesta está CERRADO). El resto
+    queda `approved` sin bandera.
     """
     def _build(current_phase=2, con_permiso=True, status="active", abiertos=()):
         seed_phase_defs()
@@ -71,7 +75,8 @@ def caso(db_session, seed_phase_defs, seed_document_types, make_program, make_co
                             current_phase=current_phase, status=status)
         for code in _BASE:
             make_document(
-                proc, type_code=code, review_status="approved",
+                proc, type_code=code,
+                review_status=("rejected" if code in abiertos else "approved"),
                 replacement_requested_at=(datetime(2026, 10, 1) if code in abiertos else None))
         return {"officer": officer, "student": student, "proc": proc, "program": prog}
     return _build
@@ -172,6 +177,43 @@ class TestRuta:
 
 
 # ===========================================================================
+# R13: liberar la fase 2 («Aprobar» / «Mover de fase») con un reemplazo abierto
+# ===========================================================================
+class TestLiberarFase2:
+    def _aprobar(self, client_as, esc):
+        return client_as(esc["officer"]).post(f"{URL}/{esc['proc'].id}/phase/2/approve")
+
+    def test_con_un_reemplazo_abierto_es_400_y_nombra_el_documento(
+            self, caso, client_as, db_session):
+        from itcj2.apps.titulatec.models import DocumentType, TitulationProcess
+        esc = caso(abiertos=("curp",))
+        nombre = db_session.query(DocumentType.name).filter_by(code="curp").scalar()
+
+        resp = self._aprobar(client_as, esc)
+
+        assert resp.status_code == 400
+        assert _msg(resp) == ("No se puede liberar la fase 02: falta aprobar el "
+                              f"reemplazo de: {nombre}.")
+        db_session.expire_all()
+        assert db_session.get(TitulationProcess, esc["proc"].id).current_phase == 2
+
+    def test_sin_reemplazo_abierto_la_misma_ruta_libera(self, caso, client_as,
+                                                        db_session):
+        """Positivo del mismo actor y la misma ruta (incluye la bandera vieja
+        sobre un `approved`, R7)."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+        esc = caso()
+        _doc(db_session, esc["proc"].id).replacement_requested_at = datetime(2026, 10, 1)
+        db_session.flush()
+
+        resp = self._aprobar(client_as, esc)
+
+        assert resp.status_code == 200, _msg(resp)
+        db_session.expire_all()
+        assert db_session.get(TitulationProcess, esc["proc"].id).current_phase == 3
+
+
+# ===========================================================================
 # El pintado de la lista de documentos de la fase 1
 # ===========================================================================
 class TestPintado:
@@ -252,6 +294,18 @@ class TestPintado:
             f"{URL}/{esc['proc'].id}?fase=1").text)
         assert "Reemplazo pedido en cotejo" in panel
         assert "Pedir reemplazo" not in panel
+
+    def test_un_aprobado_con_bandera_vieja_no_lleva_la_pildora(
+            self, caso, client_as, db_session):
+        """R7: la bandera que dejó el código viejo sobre un `approved` es un
+        reemplazo CERRADO; el expediente no lo anuncia como pedido."""
+        esc = caso()
+        _doc(db_session, esc["proc"].id).replacement_requested_at = datetime(2026, 10, 1)
+        db_session.flush()
+        panel = _panel1(client_as(esc["officer"]).get(
+            f"{URL}/{esc['proc'].id}?fase=1").text)
+        assert "Reemplazo pedido en cotejo" not in panel
+        assert 'id="exp-repl-curp"' in panel, "el form de pedir sí sigue ahí"
 
     def test_el_comentario_de_cabecera_ya_no_dice_solo_lectura(self):
         import pathlib

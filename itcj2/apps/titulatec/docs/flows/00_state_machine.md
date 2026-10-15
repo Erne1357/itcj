@@ -150,18 +150,24 @@ stateDiagram-v2
 > una fila existente suma 1; crear una fila NUEVA —la primera subida, o la que sigue a un
 > `delete()`— toma `1 + max(nº de eventos document_uploaded de ese (proceso, tipo), mayor
 > payload.version de esos eventos)` (`DocumentService._next_version`,
-> `services/document_service.py:564`; `save()` lo llama en `:671`). Antes volvía a 1 aunque fuera la
+> `services/document_service.py:604`; `save()` lo llama en `:738`). Antes volvía a 1 aunque fuera la
 > 5.ª subida. La migración `tt20261015a` corrigió los datos existentes (ver abajo).
 
 ### Reemplazo abierto en el cotejo (2026-10-15)
 
-Eje **aparte** de `review_status`: `Document.replacement_requested_at` (`DateTime`, NULL;
-`models/document.py:41`). **No NULL = reemplazo abierto**: en la cita de cotejo (fase 2) la jefatura
-de Servicios Escolares pidió que el egresado vuelva a subir un documento de la fase 1. No cambia el
-dominio de `review_status` (sigue `pending|approved|rejected`); la columna la escribe SOLO
-`DocumentService.request_replacement` (`services/document_service.py:824`; la primera vez — pedirlo de
-nuevo conserva la fecha original) y la limpia SOLO `DocumentService.review(status="approved")`
-(`:699`). `save()` (la resubida) **no la toca**.
+Eje **aparte** de `review_status`: la bandera `Document.replacement_requested_at` (`DateTime`, NULL;
+`models/document.py:41`): en la cita de cotejo (fase 2) la jefatura de Servicios Escolares pidió que el
+egresado vuelva a subir un documento de la fase 1. No cambia el dominio de `review_status` (sigue
+`pending|approved|rejected`); la columna la escribe SOLO `DocumentService.request_replacement`
+(`services/document_service.py:899`; la primera vez — pedirlo de nuevo conserva la fecha original) y la
+limpia SOLO `DocumentService.review(status="approved")` (`:761`). `save()` (la resubida) **no la toca**.
+
+**Reemplazo ABIERTO = bandera no NULL *y* `review_status != "approved"`** (Ruling R7, revisión final
+2026-10-15): un solo predicado, `DocumentService.replacement_open` (`:997`, con su gemelo SQL
+`_replacement_open_sql`, `:1020`), que usan todos los lectores (lista de abiertos, compuerta de la fase 2,
+avisos del alumno, subida, cola, y las banderas de la bandeja, el panel de Citas y el expediente). Un
+`approved` con la bandera puesta —solo tras una reversa: el código viejo aprueba sin limpiarla— está
+**cerrado**: no es un estado del diagrama de abajo, es `approved`.
 
 ```mermaid
 stateDiagram-v2
@@ -176,7 +182,7 @@ stateDiagram-v2
 ```
 
 `rejected_abierto` = `rejected` con `replacement_requested_at` no NULL; `pending_abierto` = `pending`
-con la columna no NULL. Tres consecuencias que no se deducen del diagrama:
+con la columna no NULL. Cuatro consecuencias que no se deducen del diagrama:
 
 - **El motivo vive solo mientras `rejected`.** `review_note` es el motivo hasta que el alumno
   resube; `save()` limpia el dictamen, así que `pending_abierto` ya no lo tiene
@@ -188,6 +194,12 @@ con la columna no NULL. Tres consecuencias que no se deducen del diagrama:
 - **`review` NO cambia su regla de congelado** (decisión 2026-10-04): rechazar un documento con la
   fase ya pasada por la vía normal sigue dando `PHASE_CLOSED_MSG`. El rechazo de la jefa en la fase 2
   es otra vía, con permiso propio — [detalle en la bandeja](phase1_school_services_review_docs.md#excepción-al-dictamen-congelado-el-reemplazo-en-el-cotejo-2026-10-15).
+- **Las transiciones se serializan por fila** (R8–R10): `save()` y `review()` leen el documento con
+  `FOR UPDATE` (`DocumentService._locked_document`, `:572`) y `save()` re-exige el reemplazo abierto
+  ahí mismo si el tipo es de una fase ya pasada, antes de tocar el disco (una subida en vuelo no pisa un
+  `approved` recién dado); pedir el reemplazo y liberar la fase 2 bloquean la fila del proceso; y
+  «Aprobar reemplazo» del panel de Citas aprueba solo la versión que se vio. Detalle:
+  [flujo, «Concurrencia»](xcut_cotejo_document_replacement.md#concurrencia-revisión-final-rulings-r8r10).
 
 Quién lo ve y qué bloquea: [flujo completo](xcut_cotejo_document_replacement.md). En una línea —
 **liberar la fase 2 se niega** mientras haya un reemplazo abierto

@@ -494,7 +494,8 @@ def _initial_docs_set_guard(db, process, dtype) -> Response | None:
 
 
 def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None,
-              readonly: bool = False, replace_mode: bool = False) -> dict:
+              readonly: bool = False, replace_mode: bool = False,
+              excused: bool = False) -> dict:
     """Contexto autónomo de un slot de documento para el parcial.
 
     `hint` es la ayuda de la casilla; la de PDF sale de la config
@@ -511,6 +512,11 @@ def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None,
     reemplazo de Documentos el slot no ofrece borrar (`replace_mode`), y los
     documentos SIN reemplazo abierto salen de solo lectura (`readonly`: ni
     borrar ni zona de subida). Con los dos en False el slot es el de siempre.
+
+    `excused` (R11, revisión final 2026-10-15): extra de posgrado DISPENSADO
+    por R-G (`DocumentService.excused_initial_docs`: sin fila y con la fase 1
+    ya pasada). En el slot de solo lectura dice «Se entrega en el cotejo» --
+    el texto del visor, el expediente y el tablero --, no «Sin enviar».
     """
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
     from itcj2.apps.titulatec.utils.storage import pdf_upload_hint
@@ -533,6 +539,7 @@ def _slot_ctx(dtype, doc, *, error: str | None = None, sent_at=None,
         "error": error,
         "readonly": readonly,
         "replace_mode": replace_mode,
+        "excused": excused,
     }
 
 
@@ -1188,7 +1195,10 @@ def documents(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
-        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "initial_docs"))
+        # Una sola lectura del catálogo: la guarda y, en modo reemplazo, la
+        # dispensa R-G de los extras de posgrado (R11) usan el mismo número.
+        fase_inicial = _phase_of(db, "initial_docs")
+        fuera_de_fase = _phase_guard_page(db, process, fase_inicial)
         # Modo reemplazo (2026-10-15): fuera de la fase 1 la página solo se
         # reabre si Servicios Escolares pidió reemplazar algún documento en la
         # cita de cotejo y el alumno puede subirlo (`student_can_replace`). Sin
@@ -1221,6 +1231,12 @@ def documents(
                 DocumentType.code.in_(codes), DocumentType.is_active == True).all()}  # noqa: E712
             docs_by_code = {d.type_code: d for d in db.query(Document).filter(
                 Document.process_id == process.id, Document.type_code.in_(codes)).all()}
+            # R11: en modo reemplazo (fase 2) un extra de posgrado sin fila está
+            # DISPENSADO (R-G) y se entrega en el cotejo. Predicado puro, sin
+            # consultas; en el modo normal (fase 1) nunca dispensa nada.
+            dispensados = (DocumentService.excused_initial_docs(
+                process, frozenset(docs_by_code), initial_docs_phase=fase_inicial)
+                if replace_mode else frozenset())
             for code in codes:
                 dtype = dtypes.get(code)
                 if not dtype:
@@ -1229,7 +1245,8 @@ def documents(
                 sent_at = sent_map.get((process.id, code)) or (doc.created_at if doc else None)
                 slot = _slot_ctx(dtype, doc, sent_at=sent_at,
                                  readonly=(replace_mode and code not in abiertos),
-                                 replace_mode=replace_mode)
+                                 replace_mode=replace_mode,
+                                 excused=(doc is None and code in dispensados))
                 slot["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(code)
                 slots.append(slot)
             status_ctx = (_docs_status_ctx(db, process, mode="replacement")

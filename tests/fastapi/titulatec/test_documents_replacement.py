@@ -9,6 +9,8 @@ reemplazo subido usa el Aprobar de siempre.
 """
 from __future__ import annotations
 
+from urllib.parse import unquote
+
 import pytest
 
 from itcj2.core.utils.timezone import db_now
@@ -128,7 +130,12 @@ def test_exito_rechaza_abre_el_reemplazo_y_repinta(escenario, jefa, client_as, d
         data={"type_code": "curp", "note": "Presento otra CURP", "status": ""})
 
     assert resp.status_code == 200
-    assert resp.headers["X-Tt-Notice"]
+    # R12: acentuado y percent-encoded con el `_hdr` del módulo, como sus hermanos,
+    # y con su tono de éxito (sin `Kind` el toast sale como advertencia).
+    assert unquote(resp.headers["X-Tt-Notice"]) == (
+        "Se pidió el reemplazo del documento al egresado.")
+    assert resp.headers["X-Tt-Notice"].isascii()
+    assert resp.headers.get("X-Tt-Notice-Kind") == "success"
     db_session.expire_all()
     doc = db_session.query(Document).filter_by(process_id=proc.id, type_code="curp").one()
     assert doc.review_status == "rejected"
@@ -207,3 +214,31 @@ def test_la_pildora_marca_solo_el_documento_con_reemplazo_abierto(
     assert html.count("Reemplazo en cotejo") == 1
     assert html.count('data-replacement="1"') == 1
     assert html.count('data-replacement="0"') == 2
+
+
+def test_un_aprobado_con_bandera_vieja_no_es_reemplazo_abierto(escenario, jefa, client_as):
+    """R7: la bandera que el código viejo dejó sobre un `approved` (reversa de la
+    spec §9) es un reemplazo CERRADO; la bandeja no lo anuncia."""
+    proc, _ = escenario(current_phase=2, abiertos=("high_school_cert",))   # los 3 approved
+
+    html = _body(client_as(jefa), proc)
+
+    assert "Reemplazo en cotejo" not in html
+    assert html.count('data-replacement="0"') == 3
+    assert 'id="tt-inline-replace"' in html, "pedir uno nuevo sí sigue disponible"
+
+
+def test_las_filas_marcan_la_bandera_con_el_predicado_unico(escenario, db_session):
+    from itcj2.apps.titulatec.pages.documents import _doc_states
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    proc, docs = escenario(current_phase=2, statuses=("approved", "pending", "rejected"),
+                           abiertos=("birth_certificate", "high_school_cert", "curp"))
+
+    [estado] = _doc_states(db_session, [proc])
+
+    assert {d["type_code"]: d["replacement"] for d in estado["docs"]} == {
+        code: DocumentService.replacement_open(doc.review_status,
+                                               doc.replacement_requested_at)
+        for code, doc in docs.items()}
+    assert [d["replacement"] for d in estado["docs"]] == [False, True, True]

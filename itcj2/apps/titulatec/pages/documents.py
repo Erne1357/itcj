@@ -23,6 +23,18 @@ _REVIEW_PERMS = ["titulatec.document.api.approve", "titulatec.document.api.rejec
 _REPLACE_PERM = "titulatec.document.api.request_replacement"
 
 
+def _hdr(msg: str) -> str:
+    """Percent-encode para que un mensaje acentuado quepa en un header latin-1.
+
+    Gemelo de `pages/appointments.py::_hdr` y `pages/admin.py::_hdr`;
+    `titulatec-utils.js::decodeHeaderMsg` lo deshace al mostrarlo. Hasta la
+    revisión final del reemplazo en cotejo (2026-10-15, R12) este módulo
+    mandaba sus avisos sin acentos a mano («Se pidio...»).
+    """
+    from urllib.parse import quote
+    return quote(msg or "", safe="")
+
+
 def _exigir_bandeja(db, user_id: int) -> None:
     """Las ACCIONES de esta bandeja exigen poder ABRIRLA (`_VIEW_PERMS`), no solo
     el permiso de la acción: Titulación conserva el dictamen dormido (D1) pero no
@@ -167,9 +179,10 @@ def _doc_states(db, procs):
                 "mime": (doc.mime_type if doc else None) or "application/pdf",
                 "note": doc.review_note if doc else None,
                 # Reemplazo abierto en la cita de cotejo (spec 2026-10-15 §3):
-                # `replacement_requested_at` no NULL. Sale de la MISMA consulta.
-                "replacement": bool(doc is not None
-                                    and doc.replacement_requested_at is not None),
+                # EL predicado `replacement_open` (R7: bandera y no `approved`).
+                # Sale de la MISMA consulta.
+                "replacement": bool(doc is not None and DocumentService.replacement_open(
+                    doc.review_status, doc.replacement_requested_at)),
                 "view_url": f"/titulatec/admin/documents/{p.id}/document/{code}" if doc else None,
                 # Respaldo del orden FIFO de "Por evaluar" (`_order_pending_by_wait`)
                 # cuando no hay evento en la bitacora. Ningun template lo pinta.
@@ -535,7 +548,10 @@ def _cuerpo_replacement(process_id, request, user, form):
     finally:
         db.close()
     resp = render_titulatec(request, "titulatec/partials/documents_body.html", ctx)
-    resp.headers["X-Tt-Notice"] = "Se pidio el reemplazo del documento al egresado."
+    # R12: acentuado vía `_hdr` y con su tono (sin `Kind` el toast sale como
+    # advertencia, `titulatec-utils.js`), igual que el panel y el expediente.
+    resp.headers["X-Tt-Notice"] = _hdr("Se pidió el reemplazo del documento al egresado.")
+    resp.headers["X-Tt-Notice-Kind"] = "success"
     return resp
 
 
