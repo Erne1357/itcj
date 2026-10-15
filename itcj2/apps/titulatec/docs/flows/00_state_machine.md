@@ -145,6 +145,59 @@ stateDiagram-v2
 ```
 
 > Re-subir **sobreescribe** (solo última versión) y vuelve `review_status=pending`.
+>
+> **`Document.version` es un contador informativo y ya no se reinicia (2026-10-15, D7).** Actualizar
+> una fila existente suma 1; crear una fila NUEVA —la primera subida, o la que sigue a un
+> `delete()`— toma `1 + max(nº de eventos document_uploaded de ese (proceso, tipo), mayor
+> payload.version de esos eventos)` (`DocumentService._next_version`,
+> `services/document_service.py:564`; `save()` lo llama en `:671`). Antes volvía a 1 aunque fuera la
+> 5.ª subida. La migración `tt20261015a` corrigió los datos existentes (ver abajo).
+
+### Reemplazo abierto en el cotejo (2026-10-15)
+
+Eje **aparte** de `review_status`: `Document.replacement_requested_at` (`DateTime`, NULL;
+`models/document.py:41`). **No NULL = reemplazo abierto**: en la cita de cotejo (fase 2) la jefatura
+de Servicios Escolares pidió que el egresado vuelva a subir un documento de la fase 1. No cambia el
+dominio de `review_status` (sigue `pending|approved|rejected`); la columna la escribe SOLO
+`DocumentService.request_replacement` (`services/document_service.py:824`; la primera vez — pedirlo de
+nuevo conserva la fecha original) y la limpia SOLO `DocumentService.review(status="approved")`
+(`:699`). `save()` (la resubida) **no la toca**.
+
+```mermaid
+stateDiagram-v2
+    [*] --> approved: dictamen normal (fase 1)
+    approved --> rejected_abierto: 🏛️ jefa pide reemplazo (fase 2, review_note = motivo)
+    pending --> rejected_abierto: 🏛️ jefa pide reemplazo (p. ej. archivo equivocado)
+    rejected_abierto --> pending_abierto: 👤 alumno sube el reemplazo (save)
+    pending_abierto --> rejected_abierto: 🏛️ jefa lo vuelve a pedir
+    pending_abierto --> approved: 🏛️ encargado/jefa aprueba (cierra el reemplazo)
+    rejected_abierto --> approved: 🏛️ aprueba sin resubida («el original sí sirve»)
+    approved --> [*]
+```
+
+`rejected_abierto` = `rejected` con `replacement_requested_at` no NULL; `pending_abierto` = `pending`
+con la columna no NULL. Tres consecuencias que no se deducen del diagrama:
+
+- **El motivo vive solo mientras `rejected`.** `review_note` es el motivo hasta que el alumno
+  resube; `save()` limpia el dictamen, así que `pending_abierto` ya no lo tiene
+  (`DocumentService.open_replacements().note` es `None`). El original queda en el
+  `ProcessEvent(document_replacement_requested)`.
+- **El proceso no regresa de fase** (D2): sigue en `current_phase = 2` con su cita. La puerta de
+  `request_replacement` exige proceso `active`, `current_phase` == fase `review_appointment` del
+  catálogo (falla CERRADO si el catálogo no la tiene) y que esa `ProcessPhase` no esté `approved`.
+- **`review` NO cambia su regla de congelado** (decisión 2026-10-04): rechazar un documento con la
+  fase ya pasada por la vía normal sigue dando `PHASE_CLOSED_MSG`. El rechazo de la jefa en la fase 2
+  es otra vía, con permiso propio — [detalle en la bandeja](phase1_school_services_review_docs.md#excepción-al-dictamen-congelado-el-reemplazo-en-el-cotejo-2026-10-15).
+
+Quién lo ve y qué bloquea: [flujo completo](xcut_cotejo_document_replacement.md). En una línea —
+**liberar la fase 2 se niega** mientras haya un reemplazo abierto
+(`DocumentService.replacement_gate_error`, que consulta `PhaseService._cotejo_gate_error`,
+`services/phase_service.py:356-358`); **agendar no se bloquea** (la cola cuenta el documento como
+«ok»: `initial_docs_approved_map(..., replacement_ok=True)`).
+
+Evento nuevo: `document_replacement_requested` (`models/process_event.py:39`), con
+`phase_number` = la fase de cotejo y payload `{type_code, note}`. Aprobar un reemplazo escribe el
+`document_approved` de siempre con `"replacement": true` en el payload.
 
 ## Estado de una cita (`ReviewAppointment.status`) — Fase 2
 

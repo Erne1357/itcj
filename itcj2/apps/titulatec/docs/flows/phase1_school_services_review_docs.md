@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services` / `_head`) · 🎓 Titulaciones |
-| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) |
+| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) · pedir reemplazo en el cotejo (2026-10-15): `titulatec.document.api.request_replacement` (`pages/documents.py:23`, solo la jefatura y `admin`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
 | **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:262`), o sea proceso `active` **y** `current_phase == 1`. |
 | **Sub-flujos** | ⤵ al aprobar el último pendiente del set invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
@@ -337,6 +337,52 @@ fase, se impide**.
 - **Fuera de alcance:** «Mover de fase» del expediente sigue pudiendo aprobar la fase 1 sin los
   documentos aprobados (sección de arriba); no hay re-confirmación ahí.
 
+## Excepción al dictamen congelado: el reemplazo en el cotejo (2026-10-15)
+
+Spec `docs/superpowers/specs/2026-10-15-titulatec-reemplazo-cotejo-design.md`. Flujo transversal
+completo (alumno, panel de Citas, expediente, compuerta de la fase 2):
+[`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md). Aquí solo lo que cambia
+en esta bandeja.
+
+**El problema.** En la cita de cotejo el egresado a veces presenta en físico un documento DISTINTO del
+que subió en la fase 1 (igual de válido), y el congelado de arriba impedía rechazar el original para que
+subiera el otro. **La regla de congelado no se tocó**: `DocumentService.review` sigue negando el rechazo
+con `PHASE_CLOSED_MSG` (`test_documents_phase_lock.py` sigue verde). La excepción es una vía APARTE con
+permiso propio:
+
+- **Permiso:** `titulatec.document.api.request_replacement` (`_REPLACE_PERM`,
+  `pages/documents.py:23`), solo `titulatec_school_services_head` y `admin` (D1). Los encargados que
+  dictaminan NO lo tienen: no ven el botón y la ruta responde 403.
+- **Botón «Pedir reemplazo»** (`#tt-inline-replace`, `partials/documents_body.html`): aparece junto a
+  Aprobar/Rechazar cuando coinciden `phase_closed` (la fase 1 ya pasó), `detail.in_cotejo` (el proceso
+  está `active` y parado en la fase `review_appointment` del catálogo; lo calcula `_annotate_phase_lock`,
+  `pages/documents.py:288`) y el permiso (`can_request_replacement`, `:351`, de la MISMA lectura de
+  permisos de la bandeja — sin consulta nueva). Usa el motivo del formulario («Comentario», que ahora
+  dice «obligatorio si rechazas o pides reemplazo») y se confirma con `hx-confirm="Pedir reemplazo|…"` +
+  `data-tt-confirm-ok`. El JS del panel (`static/js/admin/doc-viewer.js:180`) lo muestra solo con la fase
+  cerrada y un documento con archivo; un listener en captura (`:297`) frena el clic sin motivo con el toast
+  «Indica el motivo del reemplazo.» antes de que htmx abra el `hx-confirm`.
+- **Ruta:** `POST /titulatec/admin/documents/{process_id}/document/reemplazo`
+  (`replacement`, `pages/documents.py:496`; `async def` solo para leer el form y `_cuerpo_replacement`,
+  `:509`, en el threadpool). Orden: `type_code` y motivo (400 + `X-Tt-Error` si faltan) → `SessionLocal()` →
+  `assert_process_in_scope` (404 fuera de alcance) → `_exigir_bandeja` →
+  `DocumentService.request_replacement`. Un `ValueError` del service sale como 400 + `X-Tt-Error` (los
+  `REPLACEMENT_*_MSG` son ASCII, no hace falta `_hdr`). Éxito: re-pinta `documents_body.html` con los
+  filtros de la pestaña y `X-Tt-Notice` «Se pidio el reemplazo del documento al egresado.».
+- **Qué hace el service** (`services/document_service.py:824`): valida motivo (no vacío, ≤1000), proceso
+  `active`, fase de cotejo vigente y no liberada, tipo de la fase 1 dentro del set del perfil y documento
+  existente; deja el documento `rejected` + `review_note` = motivo + `reviewed_by_id` = la jefa y abre
+  el reemplazo (`replacement_requested_at`); escribe `ProcessEvent(document_replacement_requested)`,
+  el aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED` y el correo de dictamen de siempre
+  (`StudentMail.doc_reviewed`, grupo `docs:`). Commit propio.
+- **El reemplazo subido entra a «Por evaluar»** (el alumno resube → `pending`, como siempre) y se
+  **aprueba con el Aprobar de siempre**: `DocumentService.review` permite aprobar uno no aprobado aunque
+  la fase esté cerrada, y al aprobar limpia `replacement_requested_at`. La fila del selector lleva la
+  píldora «Reemplazo en cotejo» (`d.replacement`, `data-replacement`; la bandera sale de la MISMA consulta
+  de `_doc_row`, `pages/documents.py:171`) y aprobar no auto-avanza nada (la fase 1 ya cerró).
+- **Lo que NO hay:** botón «Pedir reemplazo» dentro del modal grande del visor; recordatorios por
+  reemplazo abierto (el barrido de documentos solo mira la fase 1).
+
 ## Estado resultante
 
 - Todos los `Document.review_status = approved` del set del PERFIL (3 en licenciatura, 7 en
@@ -364,7 +410,7 @@ fase, se impide**.
   "Por evaluar" solo si le queda OTRO archivo sin dictaminar). Cuando el alumno re-sube,
   `DocumentService.save` lo devuelve a `pending` —vuelve a «Por evaluar»— y limpia nota y revisor
   (`review_note`, `reviewed_by_id`; este último se quedaba con el revisor anterior hasta el 2026-10-09). **Solo mientras la fase 1 sea la actual**: con la fase
-  ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba).
+  ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba). La única salida es «Pedir reemplazo» de la jefatura (sección «Excepción al dictamen congelado»).
 - Aprobar solo una parte del set (p. ej. 2 de 3 en licenciatura, o 6 de 7 en posgrado) → no avanza
   (el avance solo dispara con el set COMPLETO del perfil aprobado y `current_phase == 1`).
 - Aprobar el set completo cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de
@@ -387,6 +433,7 @@ fase, se impide**.
 ## Flujos relacionados
 
 - ← Previo: [el alumno sube documentos](phase1_student_upload_initial_docs.md).
+- ⤵ Excepción al congelado en la fase 2: [reemplazo de documento en el cotejo](xcut_cotejo_document_replacement.md).
 - ↔ Antes existía un dictamen gemelo desde el "detalle del proceso" (sin auto-avance); se borró
   con el rediseño del expediente (2026-09-03, ver "El dictamen de documentos…" arriba).
   [`phase1_admin_review_initial_docs.md`](phase1_admin_review_initial_docs.md) todavía describe esa
