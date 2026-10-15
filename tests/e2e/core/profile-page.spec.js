@@ -34,7 +34,8 @@ function seed(uid, prefix, n, urls = {}) {
       'from itcj2.database import SessionLocal',
       'from itcj2.core.models.notification import Notification',
       'db = SessionLocal()',
-      `urls = json.loads('${JSON.stringify(urls)}')`,
+      `import base64`,
+      `urls = json.loads(base64.b64decode('${Buffer.from(JSON.stringify(urls)).toString('base64')}').decode())`,
       'ids = []',
       `for i in range(${n}):`,
       '    u = urls.get(str(i))',
@@ -88,7 +89,7 @@ test.describe('perfil', () => {
     });
     await page.goto('/itcj/dashboard', { waitUntil: 'domcontentloaded' });
     const uid = await uidFromCookie(page);
-    seed(uid, 'E2E T7 clic', 2, { 0: '/titulatec/', 1: 'javascript:alert(1)' });
+    seed(uid, 'E2E T7 clic', 4, { 0: '/titulatec/', 1: 'javascript:alert(1)', 2: 'https://evil.com/x', 3: '/\\evil.com' });
 
     try {
       await page.waitForFunction(() => !!window.desktop);
@@ -107,6 +108,19 @@ test.describe('perfil', () => {
       const bad = frame.locator('#notificationsContainer .notification-item', { hasText: 'E2E T7 clic 1' });
       await expect(bad).toBeVisible();
       await bad.click();
+      await expect(page.locator('.app-window[data-app-id="titulatec"]')).toHaveCount(0);
+
+      // Otro origen / barra invertida: sin acción (ni ventana, ni pestaña, ni navegación).
+      let popups = 0;
+      page.on('popup', () => { popups++; });
+      for (const n of [2, 3]) {
+        const it = frame.locator('#notificationsContainer .notification-item', { hasText: `E2E T7 clic ${n}` });
+        await expect(it).toBeVisible();
+        await it.click();
+      }
+      await page.waitForTimeout(500);
+      expect(popups).toBe(0);
+      expect(page.url()).toContain('/itcj/dashboard');
       await expect(page.locator('.app-window[data-app-id="titulatec"]')).toHaveCount(0);
 
       // action_url válida: abre/enfoca la ventana titulatec sin navegar el iframe del perfil.

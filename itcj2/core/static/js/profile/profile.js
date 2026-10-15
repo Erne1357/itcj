@@ -355,15 +355,19 @@
             if (url) this.openNotificationUrl(url);
         }
 
-        /** Solo rutas del mismo origen (o http/https absolutas); nada de javascript:/data:. */
+        /** Solo mismo origen: relativa con "/" (no "//" ni "/\\") o absoluta del mismo origen. */
         safeUrl(raw) {
             if (!raw || typeof raw !== 'string') return null;
+            if (/[\t\r\n\\]/.test(raw)) return null;
             const value = raw.trim();
             if (!value || value.startsWith('//')) return null;
             try {
                 const u = new URL(value, location.origin);
-                if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-                return u.origin === location.origin ? u.pathname + u.search + u.hash : u.href;
+                if (u.origin !== location.origin) return null;
+                if (value.startsWith('/') || /^https?:/i.test(value)) {
+                    return u.pathname + u.search + u.hash;
+                }
+                return null;
             } catch (_) {
                 return null;
             }
