@@ -7,7 +7,12 @@
  *
  * Geometría: el JS la pone en línea según el estado (normal en px relativos al
  * área útil; maximizada y acopladas en %, así siguen al navegador solas). El
- * CSS (desktop-windows.css) solo pinta.
+ * CSS (desktop-windows.css) solo pinta. Redimensión por 8 manijas
+ * (`.window-resize[data-dir]`, mínimo 420×300); acople estilo Aero Snap al
+ * arrastrar (vista previa `#snapPreview` a ≤ 8 px del borde izq/der/arriba);
+ * la geometría normal de cada app se recuerda (session.js, en % del área útil)
+ * y al achicar el navegador las ventanas normales se reacomodan para que su
+ * barra de título siga a la vista.
  *
  * Eventos en `document` (CustomEvent, detail {key, url, state}):
  * desktop:window-opened, -focused, -minimized, -restored, -state, -moved,
@@ -15,9 +20,6 @@
  *
  * Todo acceso a `contentWindow`/`contentDocument` va en try/catch: un iframe de
  * otro origen (o una página de error) no debe romper enfocar, arrastrar ni cerrar.
- *
- * Task 3 agrega aquí: manijas de redimensión, vista previa de acople durante el
- * arrastre, geometría recordada y ajuste al redimensionar el navegador.
  */
 (function () {
   'use strict';
@@ -36,7 +38,13 @@
   const KEEP_VISIBLE = 96;        // px de barra de título que siempre quedan a la vista
   const URL_POLL_MS = 1000;
   const LOADING_CAP_MS = 30000;   // tope de la barra de progreso (una navegación cancelada no la deja colgada)
+  const SNAP_EDGE = 8;            // px del borde del área útil que activan la vista previa de acople
+  const SNAP_GAP = 8;             // margen de la vista previa respecto al área útil
   const STATES = ['normal', 'maximized', 'snap-left', 'snap-right'];
+  const RESIZE_CURSORS = {
+    n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
+    ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize'
+  };
 
   const esc = (v) => D.escapeHtml(v);
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
@@ -56,9 +64,11 @@
     }
   }
 
+  const stripHash = (path) => String(path || '').split('#')[0];
+
   /** Lo que se muestra en la barra de título: ruta legible, sin el hash. */
   function displayUrl(path) {
-    const clean = String(path || '').split('#')[0];
+    const clean = stripHash(path);
     try { return decodeURI(clean); } catch (err) { return clean; }
   }
 
@@ -74,6 +84,8 @@
       this.windows = new Map();   // key → estado interno de la ventana
       this.stack = [];            // keys de abajo hacia arriba (z-order)
       this.active = null;         // key de la ventana visible de más arriba
+      this.previewEl = null;      // #snapPreview (se crea al primer arrastre)
+      this.area = this.workArea();   // última área útil conocida (para reacomodar al cambiar de tamaño)
       this._bindGlobal();
     }
 
@@ -81,7 +93,10 @@
     // === API PÚBLICA (contrato compartido) ===
     // =======================================================================
 
-    /** Abre (o trae al frente) la ventana de `key`. opts: {url, state, rect, focus=true, animate=true}. */
+    /**
+     * Abre (o trae al frente) la ventana de `key`. opts: {url, state, rect, focus=true, animate=true}.
+     * Sin `state`: normal con la geometría recordada de la app si la hay; si no, maximizada.
+     */
     open(key, opts) {
       const o = opts || {};
       const app = this.registry ? this.registry.get(key) : null;
@@ -149,7 +164,7 @@
       return true;
     }
 
-    /** Acople básico por API (la vista previa al arrastrar es de la Task 3). */
+    /** Acopla a la mitad izquierda/derecha o maximiza ('max'). Bajo 900 px siempre maximiza. */
     snap(key, side) {
       const win = this.windows.get(key);
       if (!win) return false;
@@ -201,7 +216,11 @@
         console.warn('[ItcjDesktop] URL fuera de la app', key, url);
         return false;
       }
-      this._setLoading(win, true);
+      // Mismo documento con otro #hash: no hay `load`, así que no hay barra de progreso
+      // (si no, se quedaba colgada hasta el tope de 30 s).
+      const current = this._readFrameUrl(win) || win.url || '';
+      const hashOnly = hit.url.includes('#') && stripHash(hit.url) === stripHash(current);
+      if (!hashOnly) this._setLoading(win, true);
       try {
         win.iframe.contentWindow.location.assign(hit.url);
       } catch (err) {
@@ -239,11 +258,30 @@
 
     activeKey() { return this.active; }
 
+    /** `base` (extra): estado debajo del minimizado, para restaurar la sesión tal cual. */
     list() {
       return this.stack.map((key, i) => {
         const win = this.windows.get(key);
-        return { key, url: win.url, state: stateOf(win), z: Z_BASE + i, rect: win.rect ? { ...win.rect } : null };
+        return { key, url: win.url, state: stateOf(win), base: win.state, z: Z_BASE + i, rect: win.rect ? { ...win.rect } : null };
       });
+    }
+
+    /** Rect en px del área útil → % del área útil (sobrevive a cambios de resolución). */
+    toPct(rect) {
+      if (!rect) return null;
+      const a = this.workArea();
+      if (!(a.w > 0 && a.h > 0)) return null;
+      const r2 = (v) => Math.round(v * 100) / 100;
+      return { x: r2(rect.x / a.w * 100), y: r2(rect.y / a.h * 100), w: r2(rect.w / a.w * 100), h: r2(rect.h / a.h * 100) };
+    }
+
+    /** % del área útil → px (sin acotar: `open` la acomoda dentro del área). Inválido → null. */
+    fromPct(pct) {
+      if (!pct || typeof pct !== 'object') return null;
+      const n = ['x', 'y', 'w', 'h'].map((k) => Number(pct[k]));
+      if (!n.every(Number.isFinite)) return null;
+      const a = this.workArea();
+      return { x: n[0] * a.w / 100, y: n[1] * a.h / 100, w: n[2] * a.w / 100, h: n[3] * a.h / 100 };
     }
 
     /** Área útil (escritorio menos barra) en px. */
@@ -271,8 +309,10 @@
 
     _create(app, o) {
       const url = this._initialUrl(app, o.url);
-      let state = STATES.includes(o.state) ? o.state : 'maximized';
+      const saved = this._savedRect(app.key);
+      let state = STATES.includes(o.state) ? o.state : (saved ? 'normal' : 'maximized');
       if (isNarrow()) state = 'maximized';
+      this.area = this.workArea();
 
       const win = {
         key: app.key,
@@ -280,7 +320,7 @@
         url,
         state,
         minimized: false,
-        rect: this._sanitizeRect(o.rect),
+        rect: this._sanitizeRect(o.rect) || saved,   // maximizada también recuerda a qué rect vuelve
         el: null,
         iframe: null,
         anim: null,
@@ -363,7 +403,8 @@
         </header>
         <div class="window-content">
           <iframe class="window-iframe" src="${esc(url)}" ${iframeSandbox} title="${esc(app.name)}" allow="fullscreen" referrerpolicy="same-origin"></iframe>
-        </div>`;
+        </div>
+        ${Object.keys(RESIZE_CURSORS).map((d) => `<div class="window-resize" data-dir="${d}" aria-hidden="true"></div>`).join('')}`;
       return el;
     }
 
@@ -386,6 +427,9 @@
         this.toggleMaximize(key);
       });
       win.titlebar.addEventListener('pointerdown', (e) => this._startDrag(win, e));
+      win.el.querySelectorAll('.window-resize').forEach((h) => {
+        h.addEventListener('pointerdown', (e) => this._startResize(win, h, e));
+      });
       win.iframe.addEventListener('load', () => this._onFrameLoad(win));
     }
 
@@ -438,7 +482,8 @@
       cl.toggle('is-snap-left', win.state === 'snap-left');
       cl.toggle('is-snap-right', win.state === 'snap-right');
       if (win.maxBtn) {
-        const label = win.state === 'normal' ? 'Maximizar' : 'Restaurar';
+        // Solo la maximizada ofrece "Restaurar"; una acoplada se maximiza con este botón.
+        const label = win.state === 'maximized' ? 'Restaurar' : 'Maximizar';
         win.maxBtn.title = label;
         win.maxBtn.setAttribute('aria-label', label);
       }
@@ -476,6 +521,58 @@
       const x = Math.round(clamp(rect.x, KEEP_VISIBLE - w, area.w - KEEP_VISIBLE));
       const y = Math.round(clamp(rect.y, 0, area.h - TITLEBAR_H));
       return { x, y, w, h };
+    }
+
+    /** Geometría recordada de la app (session.js, en %) → rect en px dentro del área, o null. */
+    _savedRect(key) {
+      try {
+        const s = D.session;
+        const pct = s && typeof s.loadGeometry === 'function' ? s.loadGeometry(key) : null;
+        return pct ? this._sanitizeRect(this.fromPct(pct)) : null;
+      } catch (err) {
+        return null;   // storage bloqueado o datos raros: se abre como si no hubiera
+      }
+    }
+
+    /** Fin de arrastre/redimensión: avisa y, si quedó en normal, recuerda su geometría. */
+    _moved(win) {
+      if (this.windows.get(win.key) !== win) return;
+      if (win.state === 'normal' && win.rect) {
+        try {
+          if (D.session && typeof D.session.saveGeometry === 'function') D.session.saveGeometry(win.key, this.toPct(win.rect));
+        } catch (err) { /* sin storage: no se recuerda */ }
+      }
+      this._emit('window-moved', win);
+    }
+
+    /**
+     * Rect tras cambiar el área útil de `prev` a `area`: se encoge si ya no cabe y se
+     * recorre hacia dentro sin dejar fuera más de lo que el usuario ya había dejado
+     * fuera (una ventana pegada a la derecha sigue entera a la vista).
+     */
+    _reflowRect(r, prev, area) {
+      const w = Math.min(r.w, area.w);
+      const h = Math.min(r.h, area.h);
+      const offRight = Math.max(0, r.x + r.w - prev.w);
+      const offBottom = Math.max(0, r.y + r.h - prev.h);
+      return this._fitRect({ x: Math.min(r.x, area.w - w + offRight), y: Math.min(r.y, area.h - h + offBottom), w, h });
+    }
+
+    _onViewportResize() {
+      const prev = this.area || this.workArea();
+      const area = this.workArea();
+      this.area = area;
+      if (isNarrow()) {
+        this.windows.forEach((win) => { if (win.state !== 'maximized') this._setState(win, 'maximized', false); });
+        return;
+      }
+      // Acopladas y maximizadas van en %: se recalculan solas. Las normales (y el
+      // rect al que vuelven las demás) se reacomodan; esto no se guarda como geometría.
+      this.windows.forEach((win) => {
+        if (!win.rect) return;
+        win.rect = this._reflowRect(win.rect, prev, area);
+        if (win.state === 'normal') this._applyGeometry(win, false);
+      });
     }
 
     _raise(key) {
@@ -559,7 +656,7 @@
     }
 
     // =======================================================================
-    // === ARRASTRE POR LA BARRA DE TÍTULO ===
+    // === ARRASTRE POR LA BARRA DE TÍTULO (con acople estilo Aero Snap) ===
     // =======================================================================
 
     _startDrag(win, e) {
@@ -572,9 +669,11 @@
         startY: e.clientY,
         box: win.el.getBoundingClientRect(),
         areaBox: this.container.getBoundingClientRect(),
+        rectBefore: win.rect ? { ...win.rect } : null,   // a dónde vuelve si el arrastre acaba acoplado
         moved: false,
         ended: false,
-        origin: null
+        origin: null,
+        side: null                                         // borde bajo el puntero ('left'|'right'|'max')
       };
       try { tb.setPointerCapture(e.pointerId); } catch (err) { /* sin captura: sigue funcionando dentro de la barra */ }
 
@@ -584,8 +683,14 @@
           if (Math.abs(ev.clientX - drag.startX) < DRAG_THRESHOLD && Math.abs(ev.clientY - drag.startY) < DRAG_THRESHOLD) return;
           drag.moved = true;
           document.body.classList.add('desktop-dragging');   // escudo: los iframes no se tragan el puntero
-          if (win.state !== 'normal') this._detachForDrag(win, drag, ev);
-          drag.origin = { x: win.rect.x, y: win.rect.y, px: ev.clientX, py: ev.clientY };
+          this._stopTransition(win);
+          if (win.state !== 'normal') {
+            this._detachForDrag(win, drag, ev);
+            drag.origin = { x: win.rect.x, y: win.rect.y, px: ev.clientX, py: ev.clientY };
+          } else {
+            // Desde el punto de agarre, no desde donde se pasó el umbral: el puntero no se despega.
+            drag.origin = { x: win.rect.x, y: win.rect.y, px: drag.startX, py: drag.startY };
+          }
         }
         const area = this.workArea();
         const r = win.rect;
@@ -593,6 +698,11 @@
         r.y = Math.round(clamp(drag.origin.y + ev.clientY - drag.origin.py, 0, area.h - TITLEBAR_H));
         win.el.style.left = r.x + 'px';
         win.el.style.top = r.y + 'px';
+        const side = this._snapSideAt(ev.clientX, ev.clientY, drag.areaBox);
+        if (side !== drag.side) {
+          drag.side = side;
+          this._showSnapPreview(side, drag.areaBox);
+        }
       };
       const end = (ev) => {
         if (ev.pointerId !== drag.id || drag.ended) return;
@@ -603,7 +713,16 @@
         tb.removeEventListener('lostpointercapture', end);
         try { tb.releasePointerCapture(drag.id); } catch (err) { /* ya liberada */ }
         document.body.classList.remove('desktop-dragging');
-        if (drag.moved && this.windows.get(win.key) === win) this._emit('window-moved', win);
+        if (drag.side) this._showSnapPreview(null);
+        if (!drag.moved || this.windows.get(win.key) !== win) return;
+        // Soltar sobre un borde acopla (solo con `pointerup`: una cancelación no acopla).
+        // La ventana recuerda el rect que tenía antes del arrastre para cuando se desacople.
+        if (drag.side && ev.type === 'pointerup') {
+          if (drag.rectBefore) win.rect = drag.rectBefore;
+          this.snap(win.key, drag.side);
+        } else {
+          this._moved(win);
+        }
       };
       tb.addEventListener('pointermove', move);
       tb.addEventListener('pointerup', end);
@@ -611,9 +730,12 @@
       tb.addEventListener('lostpointercapture', end);
     }
 
-    /** Arrastrar una maximizada/acoplada la restaura a su tamaño normal bajo el cursor. */
+    /**
+     * Arrastrar una maximizada/acoplada la regresa a su rect normal bajo el cursor,
+     * con el cursor en la misma proporción horizontal de la barra de título (como Windows).
+     */
     _detachForDrag(win, drag, ev) {
-      const normal = win.rect || this._defaultRect();
+      const normal = win.rect ? this._fitRect(win.rect) : this._defaultRect();
       const box = drag.box;
       const ratio = box.width > 0 ? (drag.startX - box.left) / box.width : 0.5;
       const offsetY = clamp(drag.startY - box.top, 0, TITLEBAR_H);
@@ -624,6 +746,131 @@
         h: normal.h
       };
       this._setState(win, 'normal', false);
+    }
+
+    /** Borde del área útil bajo el puntero que acoplaría la ventana: 'left' | 'right' | 'max' | null. */
+    _snapSideAt(x, y, box) {
+      if (isNarrow()) return null;
+      if (x <= box.left + SNAP_EDGE) return 'left';
+      if (x >= box.right - 1 - SNAP_EDGE) return 'right';
+      if (y <= box.top + SNAP_EDGE) return 'max';
+      return null;
+    }
+
+    /** Vista previa translúcida del acople (`#snapPreview`: una sola, creada al primer uso). */
+    _showSnapPreview(side, box) {
+      let el = this.previewEl;
+      if (!side) {
+        if (el) el.classList.remove('is-visible');
+        return;
+      }
+      if (!el || !el.isConnected) {
+        el = this.previewEl = document.createElement('div');
+        el.id = 'snapPreview';
+        el.className = 'snap-preview';
+        el.setAttribute('aria-hidden', 'true');
+        this.container.appendChild(el);
+      }
+      const g = SNAP_GAP;
+      const half = box.width / 2;
+      const wasVisible = el.classList.contains('is-visible');
+      // Si estaba oculta aparece en su sitio (crece ahí) en vez de viajar desde el borde anterior.
+      if (!wasVisible) el.style.transition = 'none';
+      el.style.left = (side === 'right' ? box.left + half + g / 2 : box.left + g) + 'px';
+      el.style.top = (box.top + g) + 'px';
+      el.style.width = Math.max(0, side === 'max' ? box.width - 2 * g : half - g * 1.5) + 'px';
+      el.style.height = Math.max(0, box.height - 2 * g) + 'px';
+      el.dataset.side = side;
+      if (!wasVisible) {
+        void el.offsetWidth;   // fija la geometría antes de devolverle la transición
+        el.style.transition = '';
+      }
+      el.classList.add('is-visible');
+    }
+
+    /** Corta la transición de maximizar/restaurar: arrastre y redimensión siguen al puntero ya. */
+    _stopTransition(win) {
+      clearTimeout(win.transitionTimer);
+      win.el.classList.remove('is-transitioning');
+    }
+
+    // =======================================================================
+    // === REDIMENSIÓN POR MANIJAS ===
+    // =======================================================================
+
+    _startResize(win, handle, e) {
+      const dir = handle.dataset.dir || '';
+      if (e.button !== 0 || !RESIZE_CURSORS[dir]) return;
+      if (isNarrow() || win.minimized || win.state === 'maximized') return;
+      e.preventDefault();
+      const body = document.body;
+      const rs = { id: e.pointerId, x: e.clientX, y: e.clientY, started: false, changed: false, ended: false };
+      let area = null;
+      let start = null;
+      let minW = MIN_W;
+      let minH = MIN_H;
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* sin captura: sigue mientras el puntero esté encima */ }
+      body.classList.add('desktop-dragging', 'desktop-resizing');   // mismo escudo de iframes que el arrastre
+      body.style.setProperty('--resize-cursor', RESIZE_CURSORS[dir]);
+
+      // Al primer movimiento (un clic suelto en el borde no cambia nada): una acoplada
+      // pasa a normal en el lugar que ocupa ahora y desde ahí se redimensiona.
+      const begin = () => {
+        this._stopTransition(win);
+        if (win.state !== 'normal') {
+          const box = win.el.getBoundingClientRect();
+          const areaBox = this.container.getBoundingClientRect();
+          win.rect = { x: box.left - areaBox.left, y: box.top - areaBox.top, w: box.width, h: box.height };
+          this._setState(win, 'normal', false);
+        }
+        area = this.workArea();
+        minW = Math.min(MIN_W, area.w);
+        minH = Math.min(MIN_H, area.h);
+        start = { ...win.rect };
+      };
+
+      const move = (ev) => {
+        if (ev.pointerId !== rs.id || rs.ended) return;
+        const dx = ev.clientX - rs.x;
+        const dy = ev.clientY - rs.y;
+        if (!rs.started) {
+          if (!dx && !dy) return;
+          rs.started = true;
+          begin();
+        }
+        const right = start.x + start.w;
+        const bottom = start.y + start.h;
+        let { x, y, w, h } = start;
+        // El borde que se jala sigue al puntero sin salirse del área útil (ni encoger
+        // del mínimo); el opuesto queda fijo. Arriba nunca pasa de 0: la barra de título no se pierde.
+        if (dir.includes('e')) w = clamp(right + dx, x + minW, Math.max(area.w, right)) - x;
+        if (dir.includes('s')) h = clamp(bottom + dy, y + minH, Math.max(area.h, bottom)) - y;
+        if (dir.includes('w')) { x = clamp(start.x + dx, Math.min(0, start.x), right - minW); w = right - x; }
+        if (dir.includes('n')) { y = clamp(start.y + dy, 0, bottom - minH); h = bottom - y; }
+        const r = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+        const cur = win.rect;
+        if (cur && r.x === cur.x && r.y === cur.y && r.w === cur.w && r.h === cur.h) return;
+        win.rect = r;
+        rs.changed = true;
+        const st = win.el.style;
+        st.left = r.x + 'px'; st.top = r.y + 'px'; st.width = r.w + 'px'; st.height = r.h + 'px';
+      };
+      const end = (ev) => {
+        if (ev.pointerId !== rs.id || rs.ended) return;
+        rs.ended = true;
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', end);
+        handle.removeEventListener('pointercancel', end);
+        handle.removeEventListener('lostpointercapture', end);
+        try { handle.releasePointerCapture(rs.id); } catch (err) { /* ya liberada */ }
+        body.classList.remove('desktop-dragging', 'desktop-resizing');
+        body.style.removeProperty('--resize-cursor');
+        if (rs.changed) this._moved(win);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', end);
+      handle.addEventListener('pointercancel', end);
+      handle.addEventListener('lostpointercapture', end);
     }
 
     // =======================================================================
@@ -649,7 +896,11 @@
         if (doc) doc.addEventListener('pointerdown', () => this.focus(win.key), true);
       } catch (err) { /* cross-origin */ }
       try {
-        win.iframe.contentWindow.addEventListener('pagehide', () => this._setLoading(win, true));
+        win.iframe.contentWindow.addEventListener('pagehide', () => {
+          // Cerrar la ventana también descarga su documento: no re-armar el tope sobre un nodo suelto.
+          if (this.windows.get(win.key) !== win) return;
+          this._setLoading(win, true);
+        });
       } catch (err) { /* cross-origin */ }
     }
 
@@ -743,14 +994,14 @@
         this.windows.forEach((win) => { if (!win.minimized) this._syncUrl(win); });
       }, URL_POLL_MS);
 
-      // Ventana del navegador angosta: todas maximizadas.
+      // Cambio de tamaño del navegador: angosta → todas maximizadas; si no, las
+      // normales se reacomodan (barra de título alcanzable). Una vez por cuadro.
       let raf = 0;
       window.addEventListener('resize', () => {
         if (raf) return;
         raf = requestAnimationFrame(() => {
           raf = 0;
-          if (!isNarrow()) return;
-          this.windows.forEach((win) => { if (win.state !== 'maximized') this._setState(win, 'maximized', false); });
+          this._onViewportResize();
         });
       });
 

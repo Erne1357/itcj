@@ -1,8 +1,8 @@
 /* ==========================================================================
    Ventanas del escritorio (window-manager.js). La geometría la pone el JS en
    línea según el estado (normal en px; maximizada y acopladas en %), así que
-   aquí solo va lo visual. Manijas de redimensión y vista previa de acople:
-   Task 3.
+   aquí solo va lo visual: ventana, barra de título, manijas de redimensión y
+   vista previa de acople (#snapPreview).
    ========================================================================== */
 
 :root {
@@ -166,6 +166,8 @@
 /* Controles: recargar y abrir aparte como botones chicos; minimizar,
    maximizar y cerrar a lo alto de la barra, como en Windows. */
 .window-controls {
+  position: relative;
+  z-index: 4;          /* sobre las manijas: un clic en el borde de "Cerrar" cierra, no redimensiona */
   display: flex;
   align-items: stretch;
   height: 100%;
@@ -211,13 +213,11 @@
   outline-offset: -3px;
 }
 
+/* Solo la maximizada ofrece "Restaurar"; una acoplada muestra el cuadrado
+   (su botón la maximiza). */
 .window-control.maximize .ico-restore { display: none; }
-.app-window.is-maximized .window-control.maximize .ico-square,
-.app-window.is-snap-left .window-control.maximize .ico-square,
-.app-window.is-snap-right .window-control.maximize .ico-square { display: none; }
-.app-window.is-maximized .window-control.maximize .ico-restore,
-.app-window.is-snap-left .window-control.maximize .ico-restore,
-.app-window.is-snap-right .window-control.maximize .ico-restore { display: block; }
+.app-window.is-maximized .window-control.maximize .ico-square { display: none; }
+.app-window.is-maximized .window-control.maximize .ico-restore { display: block; }
 
 /* --------------------------------------------------------------------------
    Contenido
@@ -239,14 +239,75 @@
   border: 0;
 }
 
+/* --------------------------------------------------------------------------
+   Manijas de redimensión: bordes de 6 px y esquinas de 12 px por dentro de la
+   ventana (el overflow:clip de B1 recortaría las de fuera). Encima del
+   contenido; ocultas en maximizada y minimizada.
+   -------------------------------------------------------------------------- */
+.window-resize {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.window-resize[data-dir="n"],
+.window-resize[data-dir="s"] { left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+.window-resize[data-dir="e"],
+.window-resize[data-dir="w"] { top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+.window-resize[data-dir="ne"],
+.window-resize[data-dir="nw"],
+.window-resize[data-dir="se"],
+.window-resize[data-dir="sw"] { width: 12px; height: 12px; }
+
+.window-resize[data-dir="n"] { top: 0; }
+.window-resize[data-dir="s"] { bottom: 0; }
+.window-resize[data-dir="e"] { right: 0; }
+.window-resize[data-dir="w"] { left: 0; }
+.window-resize[data-dir="ne"] { top: 0; right: 0; cursor: nesw-resize; }
+.window-resize[data-dir="sw"] { bottom: 0; left: 0; cursor: nesw-resize; }
+.window-resize[data-dir="nw"] { top: 0; left: 0; cursor: nwse-resize; }
+.window-resize[data-dir="se"] { bottom: 0; right: 0; cursor: nwse-resize; }
+
+.app-window.is-maximized .window-resize,
+.app-window.is-minimized .window-resize { display: none; }
+
+/* --------------------------------------------------------------------------
+   Vista previa de acople (Aero Snap): la crea el JS al arrastrar cerca de un
+   borde. Sobre las ventanas (10 + n) y bajo la barra (1000); translúcida para
+   que la ventana arrastrada se siga viendo debajo.
+   -------------------------------------------------------------------------- */
+.snap-preview {
+  position: fixed;
+  z-index: 999;
+  border-radius: var(--win-radius);
+  background: rgba(255, 255, 255, .24);
+  border: 1px solid rgba(255, 255, 255, .7);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, .35), 0 12px 40px rgba(0, 0, 0, .22);
+  opacity: 0;
+  transform: scale(.96);
+  pointer-events: none;
+  transition: opacity .14s ease, transform .18s cubic-bezier(.2, .8, .2, 1),
+    left .18s cubic-bezier(.2, .8, .2, 1), width .18s cubic-bezier(.2, .8, .2, 1),
+    top .18s cubic-bezier(.2, .8, .2, 1), height .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+.snap-preview.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
 /* Escudo durante arrastre/redimensión: el iframe no se traga el puntero. */
 body.desktop-dragging .window-iframe { pointer-events: none; }
 body.desktop-dragging,
 body.desktop-dragging * { user-select: none !important; -webkit-user-select: none !important; }
+/* Redimensionando: el cursor de la manija se mantiene aunque el puntero salga de ella. */
+body.desktop-resizing,
+body.desktop-resizing * { cursor: var(--resize-cursor, default) !important; }
 
 @media (prefers-reduced-motion: reduce) {
   .app-window.is-transitioning,
   .window-titlebar,
-  .window-control { transition: none; }
+  .window-control,
+  .snap-preview { transition: none; }
   .window-progress::before { animation: none; left: 0; width: 40%; }
 }
