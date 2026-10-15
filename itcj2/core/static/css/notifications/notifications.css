@@ -511,3 +511,40 @@
         color: #adb5bd;
     }
 }
+
+/* ==========================================================================
+   6. ESCRITORIO (body.itcj-desktop): panel de la campana y toasts
+   El panel vive en <body>: z-index sobre ventanas (10+n) y barra (1000),
+   debajo de modales Bootstrap (1050).
+   ========================================================================== */
+
+body.itcj-desktop .notification-panel {
+    bottom: 56px;
+    z-index: 1040;
+}
+
+body.itcj-desktop .notification-toast {
+    bottom: 64px;
+    z-index: 1045;
+}
+
+body.itcj-desktop .notification-toast.is-actionable {
+    cursor: pointer;
+}
+
+body.itcj-desktop .notification-icon .ico {
+    width: 18px;
+    height: 18px;
+}
+
+body.itcj-desktop .notification-toast .ico {
+    width: 20px;
+    height: 20px;
+    color: #0d6efd;
+}
+
+body.itcj-desktop .notification-panel .ico {
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+}
