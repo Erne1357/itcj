@@ -356,20 +356,20 @@ permiso propio:
 - **Botón «Pedir reemplazo»** (`#tt-inline-replace`, `partials/documents_body.html`): aparece junto a
   Aprobar/Rechazar cuando coinciden `phase_closed` (la fase 1 ya pasó), `detail.in_cotejo` (el proceso
   está `active` y parado en la fase `review_appointment` del catálogo; lo calcula `_annotate_phase_lock`,
-  `pages/documents.py:288`) y el permiso (`can_request_replacement`, `:351`, de la MISMA lectura de
+  `pages/documents.py:301`) y el permiso (`can_request_replacement`, `:364`, de la MISMA lectura de
   permisos de la bandeja — sin consulta nueva). Usa el motivo del formulario («Comentario», que ahora
   dice «obligatorio si rechazas o pides reemplazo») y se confirma con `hx-confirm="Pedir reemplazo|…"` +
   `data-tt-confirm-ok`. El JS del panel (`static/js/admin/doc-viewer.js:180`) lo muestra solo con la fase
   cerrada y un documento con archivo; un listener en captura (`:297`) frena el clic sin motivo con el toast
   «Indica el motivo del reemplazo.» antes de que htmx abra el `hx-confirm`.
 - **Ruta:** `POST /titulatec/admin/documents/{process_id}/document/reemplazo`
-  (`replacement`, `pages/documents.py:496`; `async def` solo para leer el form y `_cuerpo_replacement`,
-  `:509`, en el threadpool). Orden: `type_code` y motivo (400 + `X-Tt-Error` si faltan) → `SessionLocal()` →
+  (`replacement`, `pages/documents.py:510`; `async def` solo para leer el form y `_cuerpo_replacement`,
+  `:522`, en el threadpool). Orden: `type_code` y motivo (400 + `X-Tt-Error` si faltan) → `SessionLocal()` →
   `assert_process_in_scope` (404 fuera de alcance) → `_exigir_bandeja` →
   `DocumentService.request_replacement`. Un `ValueError` del service sale como 400 + `X-Tt-Error` (los
   `REPLACEMENT_*_MSG` son ASCII, no hace falta `_hdr`). Éxito: re-pinta `documents_body.html` con los
   filtros de la pestaña y `X-Tt-Notice` «Se pidio el reemplazo del documento al egresado.».
-- **Qué hace el service** (`services/document_service.py:824`): valida motivo (no vacío, ≤1000), proceso
+- **Qué hace el service** (`services/document_service.py:899`): valida motivo (no vacío, ≤1000), proceso
   `active`, fase de cotejo vigente y no liberada, tipo de la fase 1 dentro del set del perfil y documento
   existente; deja el documento `rejected` + `review_note` = motivo + `reviewed_by_id` = la jefa y abre
   el reemplazo (`replacement_requested_at`); escribe `ProcessEvent(document_replacement_requested)`,
@@ -379,7 +379,7 @@ permiso propio:
   **aprueba con el Aprobar de siempre**: `DocumentService.review` permite aprobar uno no aprobado aunque
   la fase esté cerrada, y al aprobar limpia `replacement_requested_at`. La fila del selector lleva la
   píldora «Reemplazo en cotejo» (`d.replacement`, `data-replacement`; la bandera sale de la MISMA consulta
-  de `_doc_row`, `pages/documents.py:171`) y aprobar no auto-avanza nada (la fase 1 ya cerró).
+  de `_doc_states`, `pages/documents.py:184`, con el predicado único `DocumentService.replacement_open`) y aprobar no auto-avanza nada (la fase 1 ya cerró).
 - **Lo que NO hay:** botón «Pedir reemplazo» dentro del modal grande del visor; recordatorios por
   reemplazo abierto (el barrido de documentos solo mira la fase 1).
 

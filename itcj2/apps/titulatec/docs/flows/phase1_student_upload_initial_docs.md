@@ -235,10 +235,10 @@ Spec `2026-10-15-titulatec-reemplazo-cotejo-design.md` §4.3 y §7.2. Flujo comp
 Servicios Escolares pide reemplazar un documento de la fase 1, el alumno lo re-sube aquí mismo aunque
 la fase 1 ya esté cerrada — **solo ese documento**.
 
-- **`GET /student/documents`** (`documents`, `pages/student.py:1168`). Antes: fuera de la fase 1 la guarda
+- **`GET /student/documents`** (`documents`, `pages/student.py:1175`). Antes: fuera de la fase 1 la guarda
   de página (`_phase_guard_page`) redirige al acordeón. Ahora, si redirigiría pero el proceso tiene
   reemplazos abiertos y `DocumentService.student_can_replace(db, process, type_code)` aplica a alguno
-  (`:1191-1205`), la página se pinta en **modo reemplazo** (`replace_mode`); si no, el redirect de
+  (`:1201-1215`), la página se pinta en **modo reemplazo** (`replace_mode`); si no, el redirect de
   siempre. En la fase 1 esa rama no consulta nada (mismo presupuesto de consultas, plantilla igual).
 - **Qué ve el alumno.** Encabezado «Reemplazo de documentos» / «Cita de cotejo», tarjeta
   `#tt-replacement-intro` («Servicios Escolares te pidió volver a subir los documentos marcados…»), los
@@ -247,16 +247,16 @@ la fase 1 ya esté cerrada — **solo ese documento**.
   `partials/document_slot.html`). `rejected` muestra «Servicios Escolares pidió reemplazarlo», el motivo y
   «Subir documento de reemplazo»; `pending` muestra «Reemplazo enviado · en revisión» y «Cambiar archivo»
   (se puede cambiar mientras nadie lo apruebe). **Nunca hay botón de borrar** en este modo.
-- **Aviso de estado propio** (`_docs_status_ctx(mode="replacement")`, `pages/student.py:539/561`; estados
+- **Aviso de estado propio** (`_docs_status_ctx(mode="replacement")`, `pages/student.py:546/568`; estados
   `replacement_rejected`: «Falta que subas el reemplazo de: …» / `replacement_sent`: «Tu reemplazo llegó a
   Servicios Escolares y está en revisión…»), pegado por OOB como el de la fase 1.
-- **`POST /student/documents/{type_code}`** (`document_upload`, `pages/student.py:1254`). `_phase_guard`
+- **`POST /student/documents/{type_code}`** (`document_upload`, `pages/student.py:1271`). `_phase_guard`
   sigue siendo lo primero; si niega, la subida se permite **solo** si el tipo es de la fase 1 y
   `student_can_replace` aplica: proceso `active`, `current_phase` == fase `review_appointment`, fila con
-  reemplazo abierto (`replacement_requested_at`) y `review_status != "approved"` (`pages/student.py:1335-1345`).
+  reemplazo abierto (`replacement_requested_at` y `review_status != "approved"`, el predicado único `DocumentService.replacement_open`). La guarda de la ruta es `DocumentService.student_can_replace`, que a su vez usa `replacement_open` (`pages/student.py:1353-1362`).
   Cualquier otra cosa devuelve la respuesta de la guarda (400). La guarda del set del perfil
   (`_initial_docs_set_guard`) sigue aplicando, y la respuesta del slot conserva el modo reemplazo.
-- **`DELETE /student/documents/{type_code}`** (`document_delete`, `:1419`): **sin excepción**. Borrar sigue negado
+- **`DELETE /student/documents/{type_code}`** (`document_delete`, `:1436`): **sin excepción**. Borrar sigue negado
   fuera de la fase 1 (`_phase_guard`), con o sin reemplazo abierto — borraría la fila y el fichero de una
   fase ya dictaminada.
 - **Efecto del `save()`.** Resubir deja el documento `pending`, limpia nota y revisor (como siempre) y
@@ -270,7 +270,7 @@ la fase 1 ya esté cerrada — **solo ese documento**.
 
 `Document.version` no vuelve a 1 al borrar y re-subir. `DocumentService.save` actualiza una fila existente
 con `version + 1`; al crear una fila NUEVA usa `DocumentService._next_version`
-(`services/document_service.py:564`, llamado en `:671`): `1 + max(subidas previas de ese (proceso, tipo),
+(`services/document_service.py:604`, llamado en `:738`): `1 + max(subidas previas de ese (proceso, tipo),
 mayor payload.version)` según los `ProcessEvent(document_uploaded)` (una consulta extra, solo al crear;
 sin bitácora da 1). **Datos existentes:** la migración `tt20261015a`
 (`migrations/versions/tt20261015a_titulatec_doc_replacement.py`, `VERSION_FIX_SQL`) corrige

@@ -175,7 +175,7 @@ cita **nueva** a los que solo necesitan *seguimiento*:
 > pero **sin** `SurveyReview` (nunca se sembró/migró correctamente). Arrastrarlo a un lugar libre
 > reventaba con `SurveyNotSubmitted` — un error que no dice nada en el contexto de «nada más le
 > rechazaron la fase». La fila del cubo 2 resuelve `liberaciones_pendientes`
-> (`bool(ClearanceGate.blockers(estado))`, `pages/appointments.py:1195`, consultas FIJAS vía
+> (`bool(ClearanceGate.blockers(estado))`, `pages/appointments.py:1338`, consultas FIJAS vía
 > `ClearanceGate.status_map` — D1: cubre el nunca-enviada Y el enviada-pero-sin-liberar, y desde
 > 2026-10-01 también el no adeudo donde aplica) **por fila**: con alguna liberación pendiente
 > pierde `draggable`/`data-tt-drag*` y muestra las píldoras de su estado real
@@ -327,17 +327,20 @@ Aquí solo lo que pasa en este panel:
   recarga. Muestra la píldora de estado, «Reemplazo pedido» y, con `rejected`, el motivo; con `pending` +
   abierto, «Reemplazo subido · por aprobar».
 - **«Pedir reemplazo»** (solo con `titulatec.document.api.request_replacement` y el proceso en cotejo:
-  `can_request_replacement`, `pages/appointments.py:340-348`) es una **navegación** con `&reemplazo=<type_code>`
+  `can_request_replacement`, `pages/appointments.py:346-358`) es una **navegación** con `&reemplazo=<type_code>`
   — el mismo idiom que `&rechazar=` de la fase 02 (`hx-confirm` no recoge texto, `prompt()` está prohibido) —
   que abre el textarea `#appt-docreplace-note`. La ruta es `document_replacement`
-  (`pages/appointments.py:2204`, `async def` solo para leer el form + `_cuerpo_document_replacement`, `:2226`):
+  (`pages/appointments.py:2215`, `async def` solo para leer el form + `_cuerpo_document_replacement`, `:2235`):
   motivo vacío → 400 antes de abrir sesión; luego `assert_process_in_scope` → `_exigir_bandeja` →
   `request_replacement`; éxito re-renderiza el panel con `X-Tt-Notice` «Reemplazo pedido. Se le avisó al alumno.».
 - **«Aprobar reemplazo»** (`#appt-docreplace-approve`, con `document.api.approve`, solo si el documento está
-  `pending` con reemplazo abierto) es `document_replacement_approve` (`pages/appointments.py:2257`, `def`):
+  `pending` con reemplazo abierto) es `document_replacement_approve` (`pages/appointments.py:2267`, `async def` solo para leer el form + `_cuerpo_document_replacement_approve`, `:2293`):
   si el documento no tiene reemplazo abierto responde 400 «Ese documento no tiene un reemplazo pendiente.»
   (este botón **no** es un dictamen general de documentos) y si lo tiene llama
-  `DocumentService.review(..., status="approved", note=None, reviewer_id=uid)`.
+  `DocumentService.review(..., status="approved", note=None, reviewer_id=uid)`. R10: el botón manda la `version`
+  que pintó (`hx-vals`); si la fila ya tiene otra (el alumno cambió el archivo), la ruta responde **200** + re-render
+  + `X-Tt-Notice` de tipo warning «El alumno cambió el archivo: revísalo antes de aprobar.» **sin aprobar**
+  (htmx no hace swap en 4xx).
 - **Compuerta de la fase 02 (D4).** Mientras haya un reemplazo abierto, **aprobar la fase 02 se niega**:
   `PhaseService._cotejo_gate_error` (`services/phase_service.py:327`) consulta primero
   `DocumentService.replacement_gate_error` (`:356-358`) → «No se puede liberar la fase 02: falta aprobar el
@@ -345,8 +348,8 @@ Aquí solo lo que pasa en este panel:
   `admin phase/{n}/approve` del expediente, que es también «Mover de fase»); ambas pasan el mensaje por `_hdr()`
   (lleva acentos). Va **antes** que los requisitos de cotejo.
 - **La cola no lo cuenta como faltante (D2).** `queue_candidates` pide
-  `initial_docs_approved_map(..., replacement_ok=True)` (`services/appointment_service.py:411`): un documento
-  con `replacement_requested_at` no NULL cuenta como aprobado, así que pedir un reemplazo **no saca al alumno de
+  `initial_docs_approved_map(..., replacement_ok=True)` (`services/appointment_service.py:412`): un documento
+  con reemplazo abierto (`DocumentService.replacement_open`: bandera no NULL y no `approved`) cuenta como aprobado, así que pedir un reemplazo **no saca al alumno de
   «Por agendar» ni le impide agendar** (el proceso no regresa de fase). El auto-avance 1→2 de la bandeja de
   Documentos sigue usando la regla estricta (sin `replacement_ok`).
 - El alumno ve el aviso con botón «Subir reemplazo» en «Mi cita» (fuera de `#tt-cita-card`) y en el tablero.
