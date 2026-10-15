@@ -349,6 +349,7 @@ class DashboardTutorial {
 
         // Evento cuando se completa el tour
         this.tour.on('complete', () => {
+            this.removeMenuGuard();
             this.markTutorialComplete();
             this.enableAllInteractiveElements();
             this.isRunning = false; // Marcar como no activo
@@ -372,6 +373,8 @@ class DashboardTutorial {
             }
 
             // Restaurar todos los elementos interactivos
+            this.removeMenuGuard();
+            this.closeStartMenu();
             this.enableAllInteractiveElements();
             this.isRunning = false; // Marcar como no activo
 
@@ -387,7 +390,7 @@ class DashboardTutorial {
         const selectors = [
             '.desktop-icon',
             '.start-button',
-            '.pinned-app',
+            '.taskbar-app',
             '.system-icon',
             'button:not(.shepherd-button):not(#dashboardTutorialButton)',
             'a',
@@ -433,44 +436,24 @@ class DashboardTutorial {
      * Restaura TODOS los elementos que pudieron ser modificados
      */
     cleanupTutorialState() {
-        // IMPORTANTE: Restaurar específicamente el menú de perfil y sus elementos
-        const profileMenu = document.getElementById('profileMenu');
-        if (profileMenu) {
-            profileMenu.style.pointerEvents = '';
-            profileMenu.style.opacity = '';
-            profileMenu.style.cursor = '';
+        // Restaurar el menú inicio y sus elementos clave
+        const startMenu = document.getElementById('startMenu');
+        if (startMenu) {
+            startMenu.style.pointerEvents = '';
+            startMenu.style.opacity = '';
+            startMenu.style.cursor = '';
         }
 
-        const profileOverlay = document.getElementById('profileMenuOverlay');
-        if (profileOverlay) {
-            profileOverlay.style.pointerEvents = '';
-            profileOverlay.style.opacity = '';
-        }
-
-        const userSection = document.getElementById('profileMenuUser');
-        if (userSection) {
-            userSection.style.pointerEvents = '';
-            userSection.style.opacity = '';
-            userSection.style.cursor = '';
-            userSection.style.position = '';
-            userSection.style.zIndex = '';
-            userSection.classList.remove('tutorial-highlight');
-        }
-
-        // Restaurar botones del menú (configuración y cerrar sesión)
-        const configButton = profileMenu?.querySelector('[onclick*="openConfigWindow"]');
-        if (configButton) {
-            configButton.style.pointerEvents = '';
-            configButton.style.opacity = '';
-            configButton.style.cursor = '';
-        }
-
-        const logoutButton = profileMenu?.querySelector('[onclick*="logout"]');
-        if (logoutButton) {
-            logoutButton.style.pointerEvents = '';
-            logoutButton.style.opacity = '';
-            logoutButton.style.cursor = '';
-        }
+        ['startMenuUser', 'startMenuSettings', 'startMenuLogout'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.style.pointerEvents = '';
+            el.style.opacity = '';
+            el.style.cursor = '';
+            el.style.position = '';
+            el.style.zIndex = '';
+            el.classList.remove('tutorial-highlight');
+        });
 
         // Restaurar íconos de aplicaciones
         document.querySelectorAll('.desktop-icon').forEach(icon => {
@@ -482,16 +465,16 @@ class DashboardTutorial {
         });
 
         // Restaurar botones de la barra de tareas
-        document.querySelectorAll('.start-button, .pinned-app, .system-icon').forEach(btn => {
+        document.querySelectorAll('.start-button, .taskbar-app, .system-icon').forEach(btn => {
             btn.style.pointerEvents = '';
             btn.style.opacity = '';
             btn.style.cursor = '';
         });
 
         // Restaurar cualquier ventana que haya quedado deshabilitada
-        document.querySelectorAll('.window-container').forEach(window => {
-            window.style.pointerEvents = '';
-            window.style.opacity = '';
+        document.querySelectorAll('.app-window').forEach(win => {
+            win.style.pointerEvents = '';
+            win.style.opacity = '';
         });
 
         // Restaurar todos los controles de ventana
@@ -659,6 +642,56 @@ class DashboardTutorial {
     }
 
     /**
+     * Ícono del escritorio usado en la demostración: Help Desk si existe;
+     * si no, la primera app real (para no atascar el tour a quien no la tiene).
+     */
+    getDemoIconSelector() {
+        const preferred = '.desktop-icon[data-app="helpdesk"]';
+        if (document.querySelector(preferred)) return preferred;
+        const first = document.querySelector('.desktop-icon:not(.is-decorative)');
+        return first ? `.desktop-icon[data-app="${first.dataset.app}"]` : preferred;
+    }
+
+    /** Abre el menú inicio (si no lo está) para los pasos que lo señalan. */
+    ensureStartMenuOpen() {
+        const menu = window.ItcjDesktop && window.ItcjDesktop.startMenu;
+        if (menu && typeof menu.open === 'function') menu.open();
+    }
+
+    /** Cierra el menú inicio. */
+    closeStartMenu() {
+        const menu = window.ItcjDesktop && window.ItcjDesktop.startMenu;
+        if (menu && typeof menu.close === 'function') menu.close();
+    }
+
+    /** Cierra todas las ventanas del escritorio. */
+    closeDesktopWindows() {
+        if (window.desktop && typeof window.desktop.closeAllWindows === 'function') {
+            window.desktop.closeAllWindows();
+        }
+    }
+
+    /**
+     * El menú inicio se cierra con un pointerdown fuera de él; mientras dura el
+     * tour, los toques dentro del popover de Shepherd no deben cerrarlo.
+     */
+    installMenuGuard() {
+        if (this.menuGuard) return;
+        this.menuGuard = (e) => {
+            if (e.target && e.target.closest && e.target.closest('.shepherd-element')) {
+                e.stopPropagation();
+            }
+        };
+        window.addEventListener('pointerdown', this.menuGuard, true);
+    }
+
+    removeMenuGuard() {
+        if (!this.menuGuard) return;
+        window.removeEventListener('pointerdown', this.menuGuard, true);
+        this.menuGuard = null;
+    }
+
+    /**
      * Pasos del tutorial del dashboard
      */
     getDashboardSteps() {
@@ -707,7 +740,7 @@ class DashboardTutorial {
                     <p>Las aplicaciones se abrirán en ventanas flotantes, similar al sistema operativo Windows.</p>
                 `,
                 attachTo: {
-                    element: '.desktop-icon[data-app="agendatec"]',
+                    element: () => document.querySelector('.desktop-icon:not(.is-decorative)'),
                     on: 'bottom'
                 },
                 when: {
@@ -732,20 +765,20 @@ class DashboardTutorial {
                 id: 'double-click-demo',
                 title: 'Demostración: Abrir Aplicación',
                 text: `
-                    <p>Vamos a abrir Help Desk como ejemplo.</p>
-                    <p>Recuerda: necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono de Help Desk para continuar con el tutorial.</p>
+                    <p>Vamos a abrir una aplicación como ejemplo.</p>
+                    <p>Recuerda: necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono resaltado para continuar con el tutorial.</p>
                 `,
                 attachTo: {
-                    element: '[data-app="helpdesk"]',
+                    element: () => document.querySelector(this.getDemoIconSelector()),
                     on: 'right'
                 },
                 when: {
                     show: () => {
                         this.disableAllInteractiveElements();
-                        this.enableSpecificElement('[data-app="helpdesk"]');
+                        this.enableSpecificElement(this.getDemoIconSelector());
 
                         // Asegurar que el elemento tenga un z-index adecuado
-                        const helpdeskIcon = document.querySelector('[data-app="helpdesk"]');
+                        const helpdeskIcon = document.querySelector(this.getDemoIconSelector());
                         if (helpdeskIcon) {
                             helpdeskIcon.style.position = 'relative';
                             helpdeskIcon.style.zIndex = '10001';
@@ -753,7 +786,7 @@ class DashboardTutorial {
                     },
                     hide: () => {
                         // Limpiar el z-index al salir
-                        const helpdeskIcon = document.querySelector('[data-app="helpdesk"]');
+                        const helpdeskIcon = document.querySelector(this.getDemoIconSelector());
                         if (helpdeskIcon) {
                             helpdeskIcon.style.position = '';
                             helpdeskIcon.style.zIndex = '';
@@ -761,7 +794,7 @@ class DashboardTutorial {
                     }
                 },
                 advanceOn: {
-                    selector: '[data-app="helpdesk"]',
+                    selector: this.getDemoIconSelector(),
                     event: 'dblclick'
                 },
                 buttons: [
@@ -790,9 +823,9 @@ class DashboardTutorial {
                         this.disableAllInteractiveElements();
                         // Esperar a que la ventana se abra
                         setTimeout(() => {
-                            const window = document.querySelector('.window-container');
-                            if (window) {
-                                window.style.pointerEvents = 'none';
+                            const appWindow = document.querySelector('.app-window');
+                            if (appWindow) {
+                                appWindow.style.pointerEvents = 'none';
                             }
                         }, 500);
                     }
@@ -813,7 +846,7 @@ class DashboardTutorial {
                     <p>Usa el botón <strong>"Siguiente"</strong> para cerrar la ventana y continuar con el tutorial.</p>
                 `,
                 attachTo: {
-                    element: '.window-control.close',
+                    element: '.app-window .window-control.close',
                     on: 'left'
                 },
                 when: {
@@ -834,10 +867,7 @@ class DashboardTutorial {
                         text: 'Siguiente',
                         action: function() {
                             // Cerrar la ventana programáticamente
-                            const closeBtn = document.querySelector('.window-control.close');
-                            if (closeBtn) {
-                                closeBtn.click();
-                            }
+                            window.dashboardTutorial.closeDesktopWindows();
                             return this.next();
                         },
                         classes: 'btn btn-primary'
@@ -953,8 +983,9 @@ class DashboardTutorial {
                 id: 'profile-menu-intro',
                 title: 'Menú de Usuario',
                 text: `
-                    <p>El botón de menú (☰) en la parte inferior izquierda da acceso a:</p>
+                    <p>El botón de inicio de la barra inferior abre el menú de inicio, que da acceso a:</p>
                     <ul>
+                        <li><strong>Tus aplicaciones y el buscador:</strong> Todas las apps disponibles para ti</li>
                         <li><strong>Información de tu puesto:</strong> Detalles de tu cargo y departamento</li>
                         <li><strong>Perfil:</strong> Tu información personal y configuración</li>
                         <li><strong>Cerrar Sesión:</strong> Salir de la plataforma</li>
@@ -986,7 +1017,7 @@ class DashboardTutorial {
                 id: 'open-profile-menu',
                 title: 'Abrir Menú de Usuario',
                 text: `
-                    <p>Haz click en el botón de menú (☰) para ver las opciones disponibles.</p>
+                    <p>Haz click en el botón de inicio para ver las opciones disponibles.</p>
                 `,
                 attachTo: {
                     element: '.start-button',
@@ -997,8 +1028,8 @@ class DashboardTutorial {
                         this.disableAllInteractiveElements();
                         this.enableSpecificElement('.start-button');
 
-                        // Guardar el estado original del menú
-                        this.profileMenuTutorialMode = true;
+                        // El menú debe estar cerrado para que el click lo abra
+                        this.closeStartMenu();
                     }
                 },
                 advanceOn: {
@@ -1023,53 +1054,29 @@ class DashboardTutorial {
                         <li><strong>Botón de Configuración:</strong> Para ajustes del sistema (Solo usuarios con permisos)</li>
                         <li><strong>Botón de Cerrar Sesión:</strong> Para salir de forma segura</li>
                     </ul>
-                    <p><strong>Muy importante:</strong> Para abrir tu perfil necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> en la sección donde aparece tu nombre y rol.</p>
+                    <p><strong>Muy importante:</strong> Para abrir tu perfil basta con hacer <strong style="color: #dc2626;">un click</strong> en la sección donde aparece tu nombre y rol.</p>
                 `,
                 attachTo: {
-                    element: '#profileMenuUser',
+                    element: '#startMenuUser',
                     on: 'right'
                 },
                 when: {
                     show: () => {
                         this.disableAllInteractiveElements();
+                        this.ensureStartMenuOpen();
 
-                        // Deshabilitar el cierre automático del overlay del menú
-                        const overlay = document.getElementById('profileMenuOverlay');
-                        if (overlay) {
-                            overlay.style.pointerEvents = 'none';
+                        // Resaltar el elemento del usuario (sin habilitarlo: solo se señala)
+                        const userSection = document.getElementById('startMenuUser');
+                        if (userSection) {
+                            userSection.style.opacity = '1';
+                            userSection.classList.add('tutorial-highlight');
                         }
-
-                        // Esperar a que el menú se abra
-                        setTimeout(() => {
-                            const menu = document.getElementById('profileMenu');
-                            if (menu) {
-                                menu.style.pointerEvents = 'none';
-                            }
-
-                            // Resaltar el elemento del usuario
-                            const userSection = document.getElementById('profileMenuUser');
-                            if (userSection) {
-                                userSection.style.pointerEvents = '';
-                                userSection.classList.add('tutorial-highlight');
-                            }
-                        }, 300);
                     },
                     hide: () => {
-                        const userSection = document.getElementById('profileMenuUser');
+                        const userSection = document.getElementById('startMenuUser');
                         if (userSection) {
                             userSection.classList.remove('tutorial-highlight');
-                            userSection.style.pointerEvents = '';
-                        }
-
-                        // Restaurar el menú y overlay
-                        const menu = document.getElementById('profileMenu');
-                        if (menu) {
-                            menu.style.pointerEvents = '';
-                        }
-
-                        const overlay = document.getElementById('profileMenuOverlay');
-                        if (overlay) {
-                            overlay.style.pointerEvents = '';
+                            userSection.style.opacity = '';
                         }
                     }
                 },
@@ -1091,68 +1098,38 @@ class DashboardTutorial {
                 title: 'Abrir Perfil',
                 text: `
                     <p>Ahora vamos a abrir tu perfil como ejemplo.</p>
-                    <p>Haz <strong style="color: #dc2626;">DOBLE CLICK</strong> en la sección de tu nombre y rol para abrir tu perfil.</p>
-                    <p><em>Recuerda: siempre es doble click para abrir ventanas.</em></p>
+                    <p>Haz <strong style="color: #dc2626;">click</strong> en la sección de tu nombre y rol para abrir tu perfil.</p>
+                    <p><em>Recuerda: los íconos del escritorio se abren con doble click; las opciones del menú de inicio, con un click.</em></p>
                 `,
                 attachTo: {
-                    element: '#profileMenuUser',
+                    element: '#startMenuUser',
                     on: 'right'
                 },
                 when: {
                     show: () => {
                         this.disableAllInteractiveElements();
+                        this.ensureStartMenuOpen();
 
-                        // Deshabilitar el cierre automático del overlay del menú
-                        const overlay = document.getElementById('profileMenuOverlay');
-                        if (overlay) {
-                            overlay.style.pointerEvents = 'none';
-                        }
-
-                        // Deshabilitar el menú pero habilitar solo el userSection
-                        const menu = document.getElementById('profileMenu');
-                        if (menu) {
-                            menu.style.pointerEvents = 'none';
-                        }
-
-                        // Habilitar el elemento del usuario con z-index alto
-                        const userSection = document.getElementById('profileMenuUser');
+                        // Habilitar solo la tarjeta del usuario
+                        const userSection = document.getElementById('startMenuUser');
                         if (userSection) {
                             userSection.style.pointerEvents = 'auto';
-                            userSection.style.position = 'relative';
-                            userSection.style.zIndex = '10001';
                             userSection.style.opacity = '1';
                             userSection.style.cursor = 'pointer';
                         }
                     },
                     hide: () => {
-                        const userSection = document.getElementById('profileMenuUser');
+                        const userSection = document.getElementById('startMenuUser');
                         if (userSection) {
-                            userSection.style.position = '';
-                            userSection.style.zIndex = '';
                             userSection.style.pointerEvents = '';
                             userSection.style.opacity = '';
                             userSection.style.cursor = '';
                         }
-
-                        // Restaurar el overlay
-                        const overlay = document.getElementById('profileMenuOverlay');
-                        if (overlay) {
-                            overlay.style.pointerEvents = '';
-                        }
-
-                        // Restaurar el menú de perfil
-                        const menu = document.getElementById('profileMenu');
-                        if (menu) {
-                            menu.style.pointerEvents = '';
-                        }
-
-                        // Desactivar modo tutorial del menú
-                        this.profileMenuTutorialMode = false;
                     }
                 },
                 advanceOn: {
-                    selector: '#profileMenuUser',
-                    event: 'dblclick'
+                    selector: '#startMenuUser',
+                    event: 'click'
                 },
                 buttons: [
                     {
@@ -1163,19 +1140,7 @@ class DashboardTutorial {
                     {
                         text: 'Saltar',
                         action: function() {
-                            // Cerrar el menú de perfil si está abierto
-                            const menu = document.getElementById('profileMenu');
-                            if (menu && menu.classList.contains('show')) {
-                                menu.classList.remove('show');
-                            }
-
-                            // Restaurar el overlay
-                            const overlay = document.getElementById('profileMenuOverlay');
-                            if (overlay) {
-                                overlay.style.pointerEvents = '';
-                                overlay.classList.remove('show');
-                            }
-
+                            window.dashboardTutorial.closeStartMenu();
                             return this.next();
                         },
                         classes: 'btn btn-primary'
@@ -1201,7 +1166,7 @@ class DashboardTutorial {
                         this.disableAllInteractiveElements();
                         // Esperar a que la ventana se abra
                         setTimeout(() => {
-                            const profileWindow = document.querySelector('.window-container[data-app="profile"]');
+                            const profileWindow = document.querySelector('.app-window[data-app-id="profile"]');
                             if (profileWindow) {
                                 profileWindow.style.pointerEvents = 'none';
                             }
@@ -1223,13 +1188,13 @@ class DashboardTutorial {
                     <p><strong>¡Felicidades!</strong> Has completado el tutorial del dashboard ITCJ.</p>
                     <p>Ahora sabes cómo:</p>
                     <ul>
-                        <li>✓ Abrir aplicaciones con doble click</li>
+                        <li>✓ Abrir aplicaciones con doble click en el escritorio</li>
                         <li>✓ Gestionar ventanas (mover, redimensionar, cerrar)</li>
                         <li>✓ Ver tus notificaciones</li>
                         <li>✓ Acceder a tu perfil y configuración</li>
                         <li>✓ Navegar por el sistema</li>
                     </ul>
-                    <p><strong>Punto importante:</strong> Recuerda que para abrir cualquier aplicación o tu perfil siempre debes hacer <strong style="color: #dc2626;">DOBLE CLICK</strong>.</p>
+                    <p><strong>Punto importante:</strong> Recuerda que para abrir una aplicación desde el escritorio debes hacer <strong style="color: #dc2626;">DOBLE CLICK</strong>; en el menú de inicio basta un click.</p>
                     <p class="mb-0"><em>Si necesitas ver el tutorial de nuevo, haz click en el botón "Tutorial" en la barra inferior.</em></p>
                 `,
                 when: {
@@ -1242,17 +1207,10 @@ class DashboardTutorial {
                         text: 'Finalizar',
                         action: function() {
                             // Cerrar cualquier ventana abierta durante el tutorial
-                            const windows = document.querySelectorAll('.window-container');
-                            windows.forEach(w => {
-                                const closeBtn = w.querySelector('.close-button');
-                                if (closeBtn) closeBtn.click();
-                            });
+                            window.dashboardTutorial.closeDesktopWindows();
 
-                            // Cerrar menú de perfil si está abierto
-                            const menu = document.getElementById('profileMenu');
-                            if (menu && menu.classList.contains('show')) {
-                                menu.classList.remove('show');
-                            }
+                            // Cerrar el menú inicio si está abierto
+                            window.dashboardTutorial.closeStartMenu();
 
                             return this.complete();
                         },
@@ -1276,16 +1234,8 @@ class DashboardTutorial {
             window.desktop.closeAllWindows();
         }
 
-        // Cerrar el menú de perfil si está abierto
-        const profileMenu = document.getElementById('profileMenu');
-        const profileOverlay = document.getElementById('profileMenuOverlay');
-        if (profileMenu && profileMenu.classList.contains('show')) {
-            console.log('[DashboardTutorial] Closing profile menu...');
-            profileMenu.classList.remove('show');
-        }
-        if (profileOverlay && profileOverlay.classList.contains('show')) {
-            profileOverlay.classList.remove('show');
-        }
+        // Cerrar el menú inicio si está abierto
+        this.closeStartMenu();
 
         // Cerrar el panel de notificaciones si está abierto
         const notificationPanel = document.getElementById('notification-panel');
@@ -1429,66 +1379,71 @@ class DashboardTutorial {
         const steps = this.getDashboardSteps();
         steps.forEach(step => this.tour.addStep(step));
 
+        this.installMenuGuard();
         this.tour.start();
     }
 
     /**
-     * Verifica si debe iniciar automáticamente el tutorial
+     * Espera a que el escritorio esté listo y a que el modal de cambio de
+     * contraseña (must_change.js) no esté a la vista.
      */
-    autoStartTutorial() {
-        if (!this.hasCompletedTutorial() && DASHBOARD_TUTORIAL_CONFIG.autoStart) {
-            // Verificar si el modal de cambio de contraseña está presente
-            const passwordModal = document.getElementById('forcePwModal');
+    waitUntilClear() {
+        return new Promise((resolve) => {
+            const started = Date.now();
+            const check = () => {
+                const ready = document.documentElement.classList.contains('desktop-ready');
+                const pwModal = document.getElementById('forcePwModal');
+                const pwVisible = !!(pwModal && pwModal.classList.contains('show'));
+                // must_change.js decide de forma asíncrona: hasta que no expone
+                // passwordModalWasShown no sabemos si el modal va a aparecer (tope 6 s).
+                const gateKnown = typeof window.passwordModalWasShown === 'function' || Date.now() - started > 6000;
+                if (ready && gateKnown && !pwVisible) {
+                    resolve();
+                } else {
+                    setTimeout(check, 250);
+                }
+            };
+            check();
+        });
+    }
 
-            if (passwordModal) {
-                // Esperar a que el modal de contraseña se cierre antes de iniciar
-                console.log('[DashboardTutorial] Waiting for password modal to close...');
-
-                window.addEventListener('passwordModalClosed', () => {
-                    console.log('[DashboardTutorial] Password modal closed, starting tutorial');
-                    setTimeout(() => {
-                        this.startTutorial();
-                    }, 1000);
-                }, { once: true });
-
-                // Si el modal nunca se mostró, iniciar el tutorial normalmente
-                setTimeout(() => {
-                    if (typeof window.passwordModalWasShown === 'function' && !window.passwordModalWasShown()) {
-                        console.log('[DashboardTutorial] No password modal shown, starting tutorial');
-                        this.startTutorial();
-                    }
-                }, 2000);
-            } else {
-                // Si no hay modal de contraseña, iniciar normalmente
-                setTimeout(() => {
-                    this.startTutorial();
-                }, 1000);
-            }
+    /**
+     * Inicia automáticamente el tutorial la primera vez (sin modal de confirmación).
+     */
+    async autoStartTutorial() {
+        if (this.hasCompletedTutorial() || !DASHBOARD_TUTORIAL_CONFIG.autoStart) return;
+        await this.waitUntilClear();
+        // Mientras esperábamos pudo completarse o iniciarse a mano
+        if (this.hasCompletedTutorial() || this.isRunning) return;
+        // Un modal de contraseña recién cerrado necesita un instante para desbloquear la interfaz
+        if (typeof window.passwordModalWasShown === 'function' && window.passwordModalWasShown()) {
+            await new Promise((r) => setTimeout(r, 1000));
         }
+        this.prepareEnvironmentForTutorial();
+        this.startTutorial();
     }
 }
 
-// ==================== INICIALIZACIÓN GLOBAL ====================
-let dashboardTutorial;
-
-// Inicializar cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', () => {
-    // Crear instancia global
-    window.dashboardTutorial = new DashboardTutorial();
-    dashboardTutorial = window.dashboardTutorial;
-
-    // Auto-iniciar si corresponde
-    dashboardTutorial.autoStartTutorial();
-
-    // Agregar evento al botón de tutorial si existe
-    const tutorialButton = document.getElementById('dashboardTutorialButton');
-    if (tutorialButton) {
-        tutorialButton.addEventListener('click', () => {
-            // Mostrar modal de confirmación en lugar de iniciar directamente
-            dashboardTutorial.showStartConfirmationModal();
-        });
+// ==================== PUNTO DE ENTRADA ====================
+// El cargador (desktop/tutorial-loader.js) inyecta este archivo bajo demanda,
+// así que no se auto-ejecuta: expone un punto de entrada con instancia perezosa.
+function getDashboardTutorial() {
+    if (!window.dashboardTutorial) {
+        window.dashboardTutorial = new DashboardTutorial();
     }
-});
+    return window.dashboardTutorial;
+}
+
+window.DashboardTutorialEntry = {
+    /** Auto-inicio de la primera visita (respeta #forcePwModal y desktop-ready). */
+    autoStart() {
+        return getDashboardTutorial().autoStartTutorial();
+    },
+    /** Botón "Tutorial": pide confirmación y arranca el tour. */
+    start() {
+        getDashboardTutorial().showStartConfirmationModal();
+    }
+};
 
 // Exportar para uso global
 window.DashboardTutorial = DashboardTutorial;

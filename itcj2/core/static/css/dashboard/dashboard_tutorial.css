@@ -202,57 +202,8 @@
     }
 }
 
-/* ==================== BOTÓN DE TUTORIAL EN TASKBAR ==================== */
-#dashboardTutorialButton {
-    position: relative;
-    background: rgba(0, 0, 0, 0.3);
-    color: white;
-    border: 1px solid rgba(0, 0, 0, 0.5);
-    padding: 4px 12px;
-    border-radius: 4px;
-    font-weight: 500;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-right: 8px;
-    height: 32px;
-}
-
-#dashboardTutorialButton:hover {
-    background: rgba(0, 0, 0, 0.5);
-    border-color: rgba(0, 0, 0, 0.7);
-    transform: translateY(-1px);
-}
-
-#dashboardTutorialButton:active {
-    transform: translateY(0);
-}
-
-#dashboardTutorialButton i {
-    font-size: 1rem;
-}
-
-#dashboardTutorialButton svg {
-    width: 16px;
-    height: 16px;
-}
-
-/* Animación de pulso sutil para llamar la atención */
-@keyframes pulse-tutorial-button {
-    0%, 100% {
-        border-color: rgba(255, 255, 255, 0.3);
-    }
-    50% {
-        border-color: rgba(255, 255, 255, 0.6);
-    }
-}
-
-#dashboardTutorialButton.pulse {
-    animation: pulse-tutorial-button 2s ease-in-out infinite;
-}
+/* El botón "Tutorial" de la barra se estiliza en dashboard.css (`.taskbar #dashboardTutorialButton`):
+   aquí ya no se redefine para no pelear con la barra del escritorio. */
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {
@@ -283,10 +234,6 @@
         justify-content: center;
     }
 
-    #dashboardTutorialButton {
-        font-size: 0.75rem;
-        padding: 4px 10px;
-    }
 }
 
 /* ==================== MEJORAS DE ACCESIBILIDAD ==================== */
