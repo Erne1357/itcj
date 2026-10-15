@@ -112,6 +112,12 @@
           </div>
           {% endif %}
 
+          {% if current.replacements %}
+          {# Reemplazo de documento pedido en la cita de cotejo (2026-10-15): destino
+             real del aviso in-app (`/student/fase/2` redirige aquí). #}
+          {% with replacements = current.replacements %}{% include "titulatec/partials/student/_replacement_notice.html" %}{% endwith %}
+          {% endif %}
+
           {% if current.progress %}
           <div class="mt-3">
             {% with p = current.progress, detail = True %}

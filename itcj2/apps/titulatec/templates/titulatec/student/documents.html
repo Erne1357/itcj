@@ -2,8 +2,8 @@
 {% block student_title %}Documentos · TitulaTec{% endblock %}
 {% block student_active %}docs{% endblock %}
 {% block student_page %}student_documents{% endblock %}
-{% block student_appbar_title %}Documentos iniciales{% endblock %}
-{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{% if track == "posgrado" %}Fase 01 · {{ docs_total }} documentos{% else %}Fase 01 · Acta · Certificado · CURP{% endif %}</div>{% endblock %}
+{% block student_appbar_title %}{{ 'Reemplazo de documentos' if replace_mode else 'Documentos iniciales' }}{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{% if replace_mode %}Cita de cotejo{% elif track == "posgrado" %}Fase 01 · {{ docs_total }} documentos{% else %}Fase 01 · Acta · Certificado · CURP{% endif %}</div>{% endblock %}
 {% block student_appbar_left %}
   <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
 {% endblock %}
@@ -17,16 +17,23 @@
         <p>Aún no tienes un proceso de titulación. Aparecerá aquí cuando Servicios Escolares te dé de alta en una convocatoria.</p>
       </div>
     {% else %}
-      <div class="tt-card mb-3 tt-anim-in">
+      {% if replace_mode %}<div class="tt-card mb-3 tt-anim-in" id="tt-replacement-intro">
+        <span class="tt-kicker">Reemplazo de documentos · Cita de cotejo</span>
+        <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
+          Servicios Escolares te pidió volver a subir los documentos marcados. Sube el que vas a
+          presentar en tu cita de cotejo; los demás no se pueden cambiar. Cuando lo apruebe, ya no
+          tendrás que hacer nada más aquí.
+        </p>
+      </div>{% else %}<div class="tt-card mb-3 tt-anim-in">
         <span class="tt-kicker">Sube tus {{ docs_total }} documentos</span>
         <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
           Deben ser los mismos que llevarás físicos a la cita de cotejo. Solo se conserva la última
           versión de cada uno.
         </p>
-      </div>
+      </div>{% endif %}
 
       {% for slot in slots %}
-        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error, hint=slot.hint, doc_hint=slot.doc_hint, sent_label=slot.sent_label %}
+        {% with dtype=slot.dtype, doc=slot.doc, upload_url=slot.upload_url, delete_url=slot.delete_url, error=slot.error, hint=slot.hint, doc_hint=slot.doc_hint, sent_label=slot.sent_label, readonly=slot.readonly, replace_mode=slot.replace_mode %}
           {% include "titulatec/partials/document_slot.html" %}
         {% endwith %}
       {% endfor %}

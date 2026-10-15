@@ -18,7 +18,7 @@
                carga completa de la página (`student/documents.html`) NO lo
                pasa: ya pinta ese aviso una sola vez, aparte, con `status`.)
    =========================================================================== #}
-{% from "titulatec/_macros.html" import doc_pill_alumno %}
+{% from "titulatec/_macros.html" import doc_pill_alumno %}{# `readonly` / `replace_mode` (2026-10-15, reemplazo en cotejo): `replace_mode` = sin borrar y con textos de reemplazo; `readonly` = además sin zona de subida (documento sin reemplazo abierto). Ausentes/False = el slot de la fase 1 de siempre. #}
 <div class="tt-doc-slot mb-3" id="slot-{{ dtype.code }}">
   <div class="d-flex align-items-center justify-content-between mb-1">
     <label class="tt-label mb-0">{{ dtype.name }}</label>
@@ -36,31 +36,48 @@
         </div>
         {% if sent_label %}<div class="tt-doc-sent">{{ sent_label }}</div>{% endif %}
       </div>
-      <button type="button" class="tt-iconbtn"
+{% if not (replace_mode or readonly) %}      <button type="button" class="tt-iconbtn"
               hx-delete="{{ delete_url }}" hx-target="#slot-{{ dtype.code }}" hx-swap="outerHTML"
               title="Eliminar">
         <i class="bi bi-trash" style="color:var(--tt-danger)"></i>
       </button>
-    </div>
+{% endif %}    </div>
 
-    {% if doc.review_status == 'rejected' %}
+    {% if doc.review_status == 'rejected' and not readonly %}
     {# Rechazado: muestra el motivo y permite re-subir el corregido directamente (sin borrar). #}
     <div class="mt-2 p-2" style="background:var(--tt-danger-soft);border-radius:8px">
-      <div class="tt-kicker" style="color:var(--tt-danger)"><i class="bi bi-exclamation-triangle me-1"></i>Necesita corrección</div>
+      <div class="tt-kicker" style="color:var(--tt-danger)"><i class="bi bi-exclamation-triangle me-1"></i>{{ 'Servicios Escolares pidió reemplazarlo' if replace_mode else 'Necesita corrección' }}</div>
       {% if doc.review_note %}<div style="font-size:.8rem;color:#991B1B;margin-top:2px">{{ doc.review_note }}</div>{% endif %}
     </div>
     <form class="tt-dropzone mt-2" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
           hx-trigger="change from:#file-{{ dtype.code }}"
           hx-target="#slot-{{ dtype.code }}" hx-swap="outerHTML" hx-disabled-elt="find input">
       <i class="bi bi-arrow-repeat" style="font-size:1.1rem;color:var(--tt-accent)"></i>
-      <div class="fw-semibold mt-1" style="font-size:.8125rem">Subir documento corregido</div>
+      <div class="fw-semibold mt-1" style="font-size:.8125rem">{{ 'Subir documento de reemplazo' if replace_mode else 'Subir documento corregido' }}</div>
       {% if hint %}<div class="tt-dropzone-hint">{{ hint }}</div>{% endif %}
       <input id="file-{{ dtype.code }}" type="file" name="archivo" hidden
              accept="{{ '.pdf' if dtype.file_kind == 'pdf' else 'image/*' }}"
              onclick="event.stopPropagation()">
       <label for="file-{{ dtype.code }}" class="stretched-link" style="cursor:pointer"></label>
     </form>
+    {% elif replace_mode and not readonly and doc.review_status == 'pending' %}
+    {# Reemplazo ya subido y por aprobar: se puede cambiar el archivo mientras no lo aprueben. #}
+    <div class="mt-2 p-2" style="background:var(--tt-accent-soft, var(--tt-line-soft));border-radius:8px">
+      <div class="tt-kicker"><i class="bi bi-clock me-1"></i>Reemplazo enviado · en revisión</div>
+    </div>
+    <form class="tt-dropzone mt-2" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
+          hx-trigger="change from:#file-{{ dtype.code }}"
+          hx-target="#slot-{{ dtype.code }}" hx-swap="outerHTML" hx-disabled-elt="find input">
+      <i class="bi bi-arrow-repeat" style="font-size:1.1rem;color:var(--tt-accent)"></i>
+      <div class="fw-semibold mt-1" style="font-size:.8125rem">Cambiar archivo</div>
+      {% if hint %}<div class="tt-dropzone-hint">{{ hint }}</div>{% endif %}
+      <input id="file-{{ dtype.code }}" type="file" name="archivo" hidden
+             accept="{{ '.pdf' if dtype.file_kind == 'pdf' else 'image/*' }}">
+      <label for="file-{{ dtype.code }}" class="stretched-link" style="cursor:pointer"></label>
+    </form>
     {% endif %}
+  {% elif readonly %}
+    <div class="tt-dropzone-hint">Sin enviar</div>
   {% else %}
     <form class="tt-dropzone" hx-post="{{ upload_url }}" hx-encoding="multipart/form-data"
           hx-trigger="change from:#file-{{ dtype.code }}"

@@ -1,0 +1,47 @@
+{# ===========================================================================
+   _replacement_notice.html — aviso de «reemplazo de documento» (alumno,
+   2026-10-15, spec reemplazo-cotejo §7.2).
+
+   Lo pinta el tablero (tarjeta de la fase de cotejo) y «Mi cita» (FUERA de
+   `#tt-cita-card`, que se swappea solo). Es el destino real del aviso in-app
+   `DOCUMENT_REPLACEMENT_REQUESTED`, cuya liga `/student/fase/2` redirige al
+   tablero.
+
+   Contexto: `replacements` -> `DocumentService.open_replacements`:
+   [{type_code, name, status, note, requested_at}]. Lista vacía = no pinta nada.
+
+   `status == "rejected"`: Servicios Escolares pidió el reemplazo y el alumno no
+   lo ha subido; `note` es el motivo. `status == "pending"`: ya lo subió (el
+   motivo se limpia al resubir: no se muestra) y espera aprobación.
+
+   Reusa `.tt-card`/`.tt-cita-why`/`.tt-btn-ink`: ningún CSS nuevo.
+   =========================================================================== #}
+{% if replacements %}
+{% set _por_subir = replacements|selectattr('status', 'equalto', 'rejected')|list %}
+<div id="tt-replacement-notice"
+     class="tt-card tt-card--{{ 'danger' if _por_subir else 'accent' }} mt-3 tt-anim-in" role="status">
+  <div class="tt-cita-why">
+    <i class="bi bi-{{ 'arrow-repeat' if _por_subir else 'clock' }}" aria-hidden="true"></i>
+    <div class="min-w-0">
+      <p class="mb-1"><strong>{{ 'Servicios Escolares te pidió reemplazar un documento' if replacements|length == 1 else 'Servicios Escolares te pidió reemplazar documentos' }}.</strong></p>
+      {% for r in replacements %}
+      <div class="mb-2" id="tt-replacement-{{ r.type_code }}">
+        <div class="fw-semibold small">{{ r.name }}</div>
+        {% if r.status == 'rejected' %}
+          {% if r.note %}<p class="mb-0 small">{{ r.note }}</p>{% endif %}
+        {% else %}
+          <p class="mb-0 small">Tu reemplazo está en revisión.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% if _por_subir %}
+      <a class="btn btn-sm tt-btn-ink mt-1" href="/titulatec/student/documents">
+        <i class="bi bi-upload me-1" aria-hidden="true"></i>Subir reemplazo
+      </a>
+      {% else %}
+      <p class="mb-0 small">Te avisaremos aquí en la app cuando lo revisen.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
