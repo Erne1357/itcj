@@ -1,1495 +1,955 @@
 /**
- * ========================================
- * TUTORIAL DEL DASHBOARD - Shepherd.js
- * ========================================
+ * dashboard_tutorial.js — tutorial guiado del escritorio (/itcj/dashboard).
  *
- * Tutorial interactivo que guía al usuario a través de las funcionalidades
- * principales del dashboard: aplicaciones, notificaciones, perfil y navegación.
+ * Lo carga bajo demanda desktop/tutorial-loader.js después de Shepherd 11.2.0
+ * y solo expone `window.DashboardTutorialEntry = { autoStart(), start() }`.
+ *
+ * 14 pasos con ids estables (spec «Temas y tutorial» §C). Los pasivos solo
+ * señalan (`canClickTarget: false`); los interactivos avanzan con la acción
+ * real (`advanceOn`): doble clic en una app, minimizar, restaurar desde la
+ * barra, cerrar, botón de inicio y campana. Cada paso prepara lo que necesita
+ * (abre/cierra la ventana demo, el menú o el panel) y espera a que su elemento
+ * exista, con tope, antes de mostrarse: así funcionan igual «Atrás» y reanudar.
+ *
+ * Salir (X, Esc u «Omitir») pide confirmación; «Continuar» reanuda en el paso
+ * que vuelve a abrir lo que se cerró. Al completar u omitir se guarda
+ * `localStorage['dashboard_tutorial_completed'] = 'true'`;
+ * `dashboard_tutorial_mode_active` vale 'true' solo mientras corre.
  */
+(function () {
+  'use strict';
 
-// ==================== CONFIGURACIÓN GLOBAL ====================
-const DASHBOARD_TUTORIAL_CONFIG = {
-    storageKey: 'dashboard_tutorial_completed',
-    tutorialModeKey: 'dashboard_tutorial_mode_active',
-    autoStart: true,
-    theme: 'light',
-    notificationsDataUrl: '/static/core/data/tutorial_notifications.json'
-};
+  // === CONFIGURACIÓN ===
+  const STORAGE_KEY = 'dashboard_tutorial_completed';
+  const MODE_KEY = 'dashboard_tutorial_mode_active';
+  const WAIT_MS = 8000;          // tope de espera por el elemento de un paso
+  const SETTLE_MS = 600;         // tope de espera por animaciones de entrada
+  const OFFSET = 12;             // separación popover-objetivo (px)
+  const EDGE = 8;                // margen mínimo con el borde de la pantalla (px)
+  const HIT_PAD = 4;             // = modalOverlayOpeningPadding
 
-// ==================== UTILIDADES DEL TUTORIAL ====================
-const DashboardTutorialUtils = {
-    /**
-     * Guarda datos en localStorage
-     */
-    setItem(key, value) {
-        localStorage.setItem(key, value);
+  /** Al reanudar, los pasos que dependen de algo que la salida cerró vuelven al paso que lo abre. */
+  const RESUME_TO = {
+    'window-move': 'open-app',
+    'window-controls': 'open-app',
+    'minimize': 'open-app',
+    'taskbar-restore': 'open-app',
+    'close-window': 'open-app',
+    'start-menu': 'start-open',
+    'notifications-panel': 'notifications'
+  };
+
+  const D = () => window.ItcjDesktop || {};
+
+  // === UTILIDADES ===
+  const storage = {
+    get(key) {
+      try { return localStorage.getItem(key); } catch (err) { return null; }
     },
-
-    /**
-     * Obtiene datos del localStorage
-     */
-    getItem(key) {
-        return localStorage.getItem(key);
+    set(key, value) {
+      try { localStorage.setItem(key, value); } catch (err) { /* sin storage */ }
     },
+    remove(key) {
+      try { localStorage.removeItem(key); } catch (err) { /* sin storage */ }
+    }
+  };
 
-    /**
-     * Elimina datos del localStorage
-     */
-    removeItem(key) {
-        localStorage.removeItem(key);
-    },
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
-    /**
-     * Muestra un mensaje con Bootstrap toast o modal
-     */
-    showMessage(title, message, type = 'info') {
-        // Crear un toast de Bootstrap
-        const toastContainer = document.getElementById('toastContainer') || this.createToastContainer();
+  /** Icono del sprite del escritorio, en línea con el texto. */
+  function ico(name) {
+    const icon = D().icon;
+    return typeof icon === 'function' ? icon(name, 'tutorial-ico') : '';
+  }
 
-        const toastId = 'toast-' + Date.now();
-        const bgClass = type === 'success' ? 'bg-success' : type === 'error' ? 'bg-danger' : 'bg-info';
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const q = (selector) => document.querySelector(selector);
+  const has = (selector) => !!q(selector);
 
-        const toastHTML = `
-            <div id="${toastId}" class="toast align-items-center text-white ${bgClass} border-0" role="alert" aria-live="assertive" aria-atomic="true">
-                <div class="d-flex">
-                    <div class="toast-body">
-                        <strong>${title}</strong><br>${message}
-                    </div>
-                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-                </div>
-            </div>
-        `;
+  function attr(value) {
+    return window.CSS && typeof CSS.escape === 'function' ? CSS.escape(value) : String(value).replace(/"/g, '\\"');
+  }
 
-        toastContainer.insertAdjacentHTML('beforeend', toastHTML);
+  function isShown(el) {
+    if (!el || !el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+  }
 
-        const toastElement = document.getElementById(toastId);
-        const toast = new bootstrap.Toast(toastElement, { delay: 5000 });
-        toast.show();
+  /** Espera a que `probe()` devuelva un elemento (tope `ms`); null si no aparece. */
+  function waitFor(probe, ms) {
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const check = () => {
+        let el = null;
+        try { el = probe(); } catch (err) { el = null; }
+        if (el) return resolve(el);
+        if (Date.now() - started >= ms) return resolve(null);
+        setTimeout(check, 50);
+      };
+      check();
+    });
+  }
 
-        // Remover del DOM después de ocultarse
-        toastElement.addEventListener('hidden.bs.toast', () => {
-            toastElement.remove();
-        });
-    },
-
-    /**
-     * Crea el contenedor de toasts si no existe
-     */
-    createToastContainer() {
-        const container = document.createElement('div');
-        container.id = 'toastContainer';
-        container.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        container.style.zIndex = '10000';
-        document.body.appendChild(container);
-        return container;
-    },
-
-    /**
-     * Carga las notificaciones de prueba desde JSON
-     */
-    async loadTutorialNotifications() {
+  /** Espera a que terminen las animaciones finitas (entrada, minimizar…) del elemento y su contenedor. */
+  async function settle(el) {
+    if (!el) return;
+    const hosts = new Set([el, el.closest('.app-window, #startMenu, #notification-panel')]);
+    const pending = [];
+    hosts.forEach((host) => {
+      if (!host || typeof host.getAnimations !== 'function') return;
+      host.getAnimations().forEach((a) => {
         try {
-            const response = await fetch(DASHBOARD_TUTORIAL_CONFIG.notificationsDataUrl);
-            if (!response.ok) {
-                throw new Error('No se pudieron cargar las notificaciones de prueba');
-            }
-            const data = await response.json();
-            return data.notifications || [];
-        } catch (error) {
-            console.error('Error cargando notificaciones de prueba:', error);
-            return [];
-        }
-    }
-};
+          const end = a.effect && a.effect.getComputedTiming().endTime;
+          if (Number.isFinite(end)) pending.push(a.finished.catch(() => undefined));
+        } catch (err) { /* animación ya cancelada */ }
+      });
+    });
+    if (pending.length) await Promise.race([Promise.all(pending), sleep(SETTLE_MS)]);
+  }
 
-// ==================== CLASE PRINCIPAL DEL TUTORIAL ====================
-class DashboardTutorial {
+  // === POSICIONAMIENTO (middleware de Floating UI dentro de Shepherd) ===
+  /**
+   * Elige el primer lado de `prefs` donde el popover cabe completo sin tapar
+   * el objetivo; si ninguno, el que deja más espacio. Corre una vez por cálculo
+   * (los `reset` de flip/shift no lo repiten) y deja a shift ajustar el resto.
+   */
+  function preferPlacement(prefs) {
+    return {
+      name: 'itcjPlacement',
+      fn(state) {
+        const prev = state.middlewareData.itcjPlacement;
+        if (prev && prev.done) return {};
+        const ref = state.rects.reference;
+        const fl = state.rects.floating;
+        const vw = document.documentElement.clientWidth;
+        const vh = document.documentElement.clientHeight;
+        const gap = OFFSET + EDGE;
+        const room = {
+          top: ref.y - gap,
+          bottom: vh - (ref.y + ref.height) - gap,
+          left: ref.x - gap,
+          right: vw - (ref.x + ref.width) - gap
+        };
+        const need = (side) => (side === 'top' || side === 'bottom' ? fl.height : fl.width);
+        const sideOf = (p) => p.split('-')[0];
+        let best = prefs.find((p) => room[sideOf(p)] >= need(sideOf(p)));
+        if (!best) {
+          best = prefs.slice().sort((a, b) => (room[sideOf(b)] - need(sideOf(b))) - (room[sideOf(a)] - need(sideOf(a))))[0];
+        }
+        const data = { done: true };
+        return best && best !== state.placement ? { data, reset: { placement: best } } : { data };
+      }
+    };
+  }
+
+  /** Separa el popover del objetivo (la flecha apunta al hueco). */
+  const offsetMiddleware = {
+    name: 'itcjOffset',
+    fn({ x, y, placement }) {
+      const side = placement.split('-')[0];
+      if (side === 'top') return { y: y - OFFSET };
+      if (side === 'bottom') return { y: y + OFFSET };
+      if (side === 'left') return { x: x - OFFSET };
+      return { x: x + OFFSET };
+    }
+  };
+
+  // === CLASE PRINCIPAL ===
+  class DashboardTutorial {
     constructor() {
-        this.tour = null;
-        this.isNavigating = false;
-        this.originalInteractiveState = new Map();
-        this.tutorialNotifications = [];
-        this.isRunning = false; // Nueva variable para prevenir múltiples instancias
+      this.tour = null;
+      this.isRunning = false;
+      this.lastStepId = null;
+      this.resumeTarget = null;
+      this.demoKey = null;
+      this.available = [];
+      this.listeners = null;
+      this.mundialWasOpen = false;
+      this.panelLoading = null;
+      this.iconsArea = null;
     }
 
-    /**
-     * Verifica si el usuario ya completó el tutorial
-     */
-    hasCompletedTutorial() {
-        return DashboardTutorialUtils.getItem(DASHBOARD_TUTORIAL_CONFIG.storageKey) === 'true';
+    // === ESTADO PERSISTENTE ===
+    hasCompleted() {
+      return storage.get(STORAGE_KEY) === 'true';
     }
 
-    /**
-     * Marca el tutorial como completado
-     */
-    markTutorialComplete() {
-        DashboardTutorialUtils.setItem(DASHBOARD_TUTORIAL_CONFIG.storageKey, 'true');
-        DashboardTutorialUtils.removeItem(DASHBOARD_TUTORIAL_CONFIG.tutorialModeKey);
+    markComplete() {
+      storage.set(STORAGE_KEY, 'true');
+      storage.remove(MODE_KEY);
     }
 
-    /**
-     * Reinicia el tutorial (borra el estado)
-     */
-    resetTutorial() {
-        DashboardTutorialUtils.removeItem(DASHBOARD_TUTORIAL_CONFIG.storageKey);
-        DashboardTutorialUtils.removeItem(DASHBOARD_TUTORIAL_CONFIG.tutorialModeKey);
-        location.reload();
+    setMode(on) {
+      if (on) storage.set(MODE_KEY, 'true');
+      else storage.remove(MODE_KEY);
     }
 
-    /**
-     * Activa el modo tutorial
-     */
-    enableTutorialMode() {
-        DashboardTutorialUtils.setItem(DASHBOARD_TUTORIAL_CONFIG.tutorialModeKey, 'true');
+    setButtonBusy(busy) {
+      const btn = document.getElementById('dashboardTutorialButton');
+      if (btn) btn.disabled = !!busy;
     }
 
-    /**
-     * Desactiva el modo tutorial
-     */
-    disableTutorialMode() {
-        DashboardTutorialUtils.removeItem(DASHBOARD_TUTORIAL_CONFIG.tutorialModeKey);
+    // === ENTORNO DEL ESCRITORIO ===
+    wm() {
+      return D().wm || null;
     }
 
-    /**
-     * Verifica si está en modo tutorial
-     */
-    isTutorialModeActive() {
-        return DashboardTutorialUtils.getItem(DASHBOARD_TUTORIAL_CONFIG.tutorialModeKey) === 'true';
+    demoWindow() {
+      return this.demoKey ? q('.app-window[data-app-id="' + attr(this.demoKey) + '"]') : null;
     }
 
-    /**
-     * Paso al que se vuelve al reanudar: los pasos que dependen de una ventana
-     * o del panel demo (ya cerrados al cancelar) retroceden al paso que los abre.
-     */
-    getResumeStepId() {
-        const back = {
-            'window-opened': 'double-click-demo',
-            'close-window-demo': 'double-click-demo',
-            'notifications-panel': 'notifications-demo',
-            'profile-window': 'open-profile-demo'
-        };
-        return back[this.lastStepId] || this.lastStepId;
+    demoState() {
+      const wm = this.wm();
+      return wm && this.demoKey ? wm.getState(this.demoKey) : null;
     }
 
-    /** Reanuda el tour (tras "Continuar Tutorial" o cerrar el modal de cancelación). */
-    resumeTour() {
-        if (this.isRunning) return;
-        const stepId = this.getResumeStepId();
-        this.isNavigating = false;
-        this.isRunning = true;
-        this.enableTutorialMode();
-        this.initializeTour();
-        this.getDashboardSteps().forEach(step => this.tour.addStep(step));
-        this.installMenuGuard();
-        this.tour.start();
-        if (stepId) this.tour.show(stepId);
+    demoName() {
+      const reg = D().registry;
+      const app = reg && this.demoKey ? reg.get(this.demoKey) : null;
+      return app && app.name ? app.name : 'la aplicación';
     }
 
-    /**
-     * Muestra confirmación de cancelación del tutorial
-     */
-    showCancelConfirmation() {
-        // Crear modal de confirmación si no existe
-        let modal = document.getElementById('dashboardTutorialCancelModal');
-
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'dashboardTutorialCancelModal';
-            modal.className = 'modal fade';
-            modal.setAttribute('tabindex', '-1');
-            modal.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-bottom: none;">
-                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
-                                <i class="bi bi-box-arrow-right me-2"></i>
-                                Salir del Tutorial
-                            </h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p class="mb-3">¿Estás seguro de que quieres salir del tutorial?</p>
-                            <div class="alert alert-warning mb-0" style="border-left: 4px solid #ffc107;">
-                                <i class="bi bi-info-circle me-2"></i>
-                                Podrás iniciarlo de nuevo más tarde haciendo click en el botón <strong>"Tutorial"</strong> en la barra inferior.
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                <i class="bi bi-arrow-left me-1"></i>
-                                Continuar Tutorial
-                            </button>
-                            <button type="button" class="btn btn-danger" id="dashboardTutorialCancelConfirm">
-                                <i class="bi bi-x-circle me-1"></i>
-                                Salir del Tutorial
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        const bsModal = new bootstrap.Modal(modal);
-        this.cancelConfirmed = false;
-        bsModal.show();
-
-        // Cerrar el modal sin confirmar (X, Esc o "Continuar Tutorial") reanuda el tour
-        modal.addEventListener('hidden.bs.modal', () => {
-            if (!this.cancelConfirmed) this.resumeTour();
-        }, { once: true });
-
-        // Configurar botón de confirmación
-        const confirmBtn = document.getElementById('dashboardTutorialCancelConfirm');
-        if (confirmBtn) {
-            // Remover listeners anteriores
-            const newConfirmBtn = confirmBtn.cloneNode(true);
-            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-
-            newConfirmBtn.onclick = () => {
-                this.cancelConfirmed = true;
-                bsModal.hide();
-
-                // IMPORTANTE: Restaurar interfaz antes de marcar como completado
-                this.enableAllInteractiveElements();
-                this.isRunning = false; // Marcar como no activo
-
-                // Re-habilitar el botón de tutorial
-                const tutorialButton = document.getElementById('dashboardTutorialButton');
-                if (tutorialButton) {
-                    tutorialButton.disabled = false;
-                    tutorialButton.style.opacity = '';
-                    tutorialButton.style.cursor = '';
-                }
-
-                this.markTutorialComplete();
-
-                // Mostrar mensaje de éxito con mejor estilo
-                this.showStyledMessage(
-                    'Tutorial Omitido',
-                    'Puedes reiniciar el tutorial en cualquier momento desde el botón "Tutorial" en la barra inferior.',
-                    'info',
-                    'info-circle'
-                );
-            };
-        }
+    /** Help Desk si está en el escritorio; si no, la primera app (para no atascar a quien no la tiene). */
+    pickDemoKey() {
+      const reg = D().registry;
+      const usable = (key) => !!(key && reg && reg.get(key));
+      if (has('.desktop-icon[data-app="helpdesk"]') && usable('helpdesk')) return 'helpdesk';
+      const tiles = Array.from(document.querySelectorAll('.desktop-icon[data-app]:not(.is-decorative)'));
+      const tile = tiles.find((t) => usable(t.getAttribute('data-app')));
+      return tile ? tile.getAttribute('data-app') : null;
     }
 
-    /**
-     * Muestra un mensaje estilizado con iconos
-     */
-    showStyledMessage(title, message, type = 'info', icon = 'info-circle') {
-        // Crear un toast estilizado similar a los modales
-        const toast = document.createElement('div');
-        toast.className = 'position-fixed top-0 start-50 translate-middle-x p-3';
-        toast.style.zIndex = '10000';
-        toast.style.marginTop = '20px';
-
-        const bgColors = {
-            'success': '#28a745',
-            'info': '#667eea',
-            'warning': '#ffc107',
-            'error': '#dc3545'
-        };
-
-        toast.innerHTML = `
-            <div class="toast show" role="alert" style="min-width: 350px; border: none; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-                <div class="toast-header" style="background: ${bgColors[type]}; color: white; border: none;">
-                    <i class="bi bi-${icon} me-2"></i>
-                    <strong class="me-auto">${title}</strong>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-                </div>
-                <div class="toast-body">
-                    ${message}
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(toast);
-
-        // Auto-remover después de 5 segundos
-        setTimeout(() => {
-            toast.remove();
-        }, 5000);
+    closeWindows() {
+      if (window.desktop && typeof window.desktop.closeAllWindows === 'function') window.desktop.closeAllWindows();
     }
 
-    /**
-     * Muestra modal de felicitación al completar el tutorial
-     */
-    showCompletionModal() {
-        // Crear modal de felicitación si no existe
-        let modal = document.getElementById('dashboardTutorialCompletionModal');
-
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'dashboardTutorialCompletionModal';
-            modal.className = 'modal fade';
-            modal.setAttribute('tabindex', '-1');
-            modal.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important; color: white !important; border-bottom: none;">
-                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
-                                <i class="bi bi-trophy-fill me-2"></i>
-                                ¡Tutorial Completado!
-                            </h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body text-center py-4">
-                            <div class="mb-4">
-                                <i class="bi bi-check-circle-fill" style="font-size: 4rem; color: #28a745;"></i>
-                            </div>
-                            <h5 class="mb-3">¡Felicitaciones!</h5>
-                            <p class="mb-3">Ya conoces las funcionalidades principales del dashboard ITCJ.</p>
-                            <div class="alert alert-success mb-0" style="border-left: 4px solid #28a745;">
-                                <i class="bi bi-lightbulb-fill me-2"></i>
-                                ¡Comienza a explorar y aprovechar todas las herramientas disponibles!
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-success" data-bs-dismiss="modal" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%) !important; border: none;">
-                                <i class="bi bi-rocket-takeoff me-1"></i>
-                                ¡Empezar a Usar el Dashboard!
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        const bsModal = new bootstrap.Modal(modal);
-        bsModal.show();
+    /** La ventana demo abierta, al frente y sin minimizar. */
+    showDemo() {
+      const wm = this.wm();
+      if (!wm || !this.demoKey) return;
+      if (!wm.isOpen(this.demoKey)) {
+        if (window.desktop && typeof window.desktop.openApplication === 'function') window.desktop.openApplication(this.demoKey);
+      } else if (wm.getState(this.demoKey) === 'minimized') {
+        wm.restore(this.demoKey);
+      } else {
+        wm.focus(this.demoKey);
+      }
     }
 
-    /**
-     * Inicializa Shepherd.js con la configuración
-     */
-    initializeTour() {
-        this.tour = new Shepherd.Tour({
-            useModalOverlay: true,
-            defaultStepOptions: {
-                classes: 'dashboard-tutorial-step',
-                scrollTo: { behavior: 'smooth', block: 'center' },
-                cancelIcon: {
-                    enabled: true
-                },
-                modalOverlayOpeningPadding: 4,
-                modalOverlayOpeningRadius: 8,
-                popperOptions: {
-                    modifiers: [{ name: 'offset', options: { offset: [0, 12] } }]
-                }
-            }
-        });
-
-        // Recordar el paso visible para poder reanudar tras una cancelación
-        this.tour.on('show', (evt) => {
-            if (evt && evt.step) this.lastStepId = evt.step.id;
-        });
-
-        // Evento cuando se completa el tour
-        this.tour.on('complete', () => {
-            this.removeTutorialNotificationPanel();
-            this.removeMenuGuard();
-            this.markTutorialComplete();
-            this.enableAllInteractiveElements();
-            this.isRunning = false; // Marcar como no activo
-
-            // Re-habilitar el botón de tutorial
-            const tutorialButton = document.getElementById('dashboardTutorialButton');
-            if (tutorialButton) {
-                tutorialButton.disabled = false;
-                tutorialButton.style.opacity = '';
-                tutorialButton.style.cursor = '';
-            }
-
-            // Mostrar modal de felicitación estilizado
-            this.showCompletionModal();
-        });
-
-        // Evento cuando se cancela el tour
-        this.tour.on('cancel', () => {
-            if (this.isNavigating) {
-                return;
-            }
-
-            // Restaurar todos los elementos interactivos
-            this.removeMenuGuard();
-            this.removeTutorialNotificationPanel();
-            this.closeDesktopWindows();
-            this.closeStartMenu();
-            this.disableTutorialMode();
-            this.enableAllInteractiveElements();
-            this.isRunning = false; // Marcar como no activo
-
-            // Mostrar confirmación
-            this.showCancelConfirmation();
-        });
+    /** La ventana demo abierta pero minimizada. */
+    minimizeDemo() {
+      const wm = this.wm();
+      if (!wm || !this.demoKey) return;
+      if (!wm.isOpen(this.demoKey)) this.showDemo();
+      if (wm.isOpen(this.demoKey) && wm.getState(this.demoKey) !== 'minimized') wm.minimize(this.demoKey);
     }
 
-    /**
-     * Deshabilita todos los elementos interactivos de la página
-     */
-    disableAllInteractiveElements() {
-        const selectors = [
-            '.desktop-icon',
-            '.start-button',
-            '.taskbar-app',
-            '.system-icon',
-            'button:not(.shepherd-button):not(.shepherd-cancel-icon):not(#dashboardTutorialButton)',
-            'a',
-            'input',
-            'select',
-            'textarea'
-        ];
-
-        selectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(element => {
-                // Nunca desactivar los controles internos del popover de Shepherd
-                if (element.closest('.shepherd-element')) return;
-                if (!this.originalInteractiveState.has(element)) {
-                    this.originalInteractiveState.set(element, {
-                        pointerEvents: element.style.pointerEvents,
-                        opacity: element.style.opacity,
-                        cursor: element.style.cursor
-                    });
-                }
-
-                element.style.pointerEvents = 'none';
-                element.style.opacity = '0.6';
-                element.style.cursor = 'not-allowed';
-            });
-        });
+    openStartMenu() {
+      const menu = D().startMenu;
+      if (menu && typeof menu.open === 'function') menu.open('menu');
     }
 
-    /**
-     * Re-habilita todos los elementos interactivos
-     */
-    enableAllInteractiveElements() {
-        this.originalInteractiveState.forEach((originalState, element) => {
-            element.style.pointerEvents = originalState.pointerEvents;
-            element.style.opacity = originalState.opacity;
-            element.style.cursor = originalState.cursor;
-        });
-        this.originalInteractiveState.clear();
-
-        // Llamar a limpieza completa para asegurar que todo quede bien
-        this.cleanupTutorialState();
-    }
-
-    /**
-     * Limpia completamente el estado del tutorial
-     * Restaura TODOS los elementos que pudieron ser modificados
-     */
-    cleanupTutorialState() {
-        // Restaurar el menú inicio y sus elementos clave
-        const startMenu = document.getElementById('startMenu');
-        if (startMenu) {
-            startMenu.style.pointerEvents = '';
-            startMenu.style.opacity = '';
-            startMenu.style.cursor = '';
-        }
-
-        ['startMenuUser', 'startMenuSettings', 'startMenuLogout'].forEach(id => {
-            const el = document.getElementById(id);
-            if (!el) return;
-            el.style.pointerEvents = '';
-            el.style.opacity = '';
-            el.style.cursor = '';
-            el.style.position = '';
-            el.style.zIndex = '';
-            el.classList.remove('tutorial-highlight');
-        });
-
-        // Restaurar íconos de aplicaciones
-        document.querySelectorAll('.desktop-icon').forEach(icon => {
-            icon.style.pointerEvents = '';
-            icon.style.opacity = '';
-            icon.style.cursor = '';
-            icon.style.position = '';
-            icon.style.zIndex = '';
-        });
-
-        // Restaurar botones de la barra de tareas
-        document.querySelectorAll('.start-button, .taskbar-app, .system-icon').forEach(btn => {
-            btn.style.pointerEvents = '';
-            btn.style.opacity = '';
-            btn.style.cursor = '';
-        });
-
-        // Restaurar cualquier ventana que haya quedado deshabilitada
-        document.querySelectorAll('.app-window').forEach(win => {
-            win.style.pointerEvents = '';
-            win.style.opacity = '';
-        });
-
-        // Restaurar todos los controles de ventana
-        document.querySelectorAll('.window-control').forEach(control => {
-            control.style.pointerEvents = '';
-            control.style.opacity = '';
-            control.style.cursor = '';
-        });
-
-        // Restaurar todos los botones, enlaces e inputs generales
-        document.querySelectorAll('button:not(.shepherd-button), a, input, select, textarea').forEach(element => {
-            if (!element.id || element.id !== 'dashboardTutorialButton') {
-                element.style.pointerEvents = '';
-                element.style.opacity = '';
-                element.style.cursor = '';
-            }
-        });
-    }
-
-    /**
-     * Habilita un elemento específico durante el tutorial
-     */
-    enableSpecificElement(selector) {
-        const elements = document.querySelectorAll(selector);
-        elements.forEach(element => {
-            element.style.pointerEvents = '';
-            element.style.opacity = '';
-            element.style.cursor = '';
-        });
-    }
-
-    /**
-     * Simula la apertura de notificaciones con datos de prueba
-     */
-    async showTutorialNotifications() {
-        // Cargar notificaciones de prueba si aún no están cargadas
-        if (this.tutorialNotifications.length === 0) {
-            this.tutorialNotifications = await DashboardTutorialUtils.loadTutorialNotifications();
-        }
-
-        // Verificar que se hayan cargado notificaciones
-        if (this.tutorialNotifications.length === 0) {
-            console.warn('[DashboardTutorial] No tutorial notifications loaded, using default data');
-            // Usar notificaciones de ejemplo por defecto
-            this.tutorialNotifications = [
-                {
-                    icon: 'calendar',
-                    title: 'Nueva cita agendada',
-                    message: 'Tu cita con el coordinador ha sido confirmada',
-                    type: 'info'
-                },
-                {
-                    icon: 'ticket',
-                    title: 'Ticket actualizado',
-                    message: 'El técnico ha respondido a tu ticket #123',
-                    type: 'success'
-                },
-                {
-                    icon: 'alert-triangle',
-                    title: 'Mantenimiento programado',
-                    message: 'El sistema estará en mantenimiento mañana',
-                    type: 'warning'
-                }
-            ];
-        }
-
-        // Crear un panel temporal con las notificaciones de prueba
-        this.createTutorialNotificationPanel();
-    }
-
-    /**
-     * Crea un panel temporal de notificaciones para el tutorial
-     */
-    createTutorialNotificationPanel() {
-        // Remover panel existente si lo hay
-        const existingPanel = document.getElementById('tutorialNotificationPanel');
-        if (existingPanel) {
-            existingPanel.remove();
-        }
-
-        // Crear el panel
-        const panel = document.createElement('div');
-        panel.id = 'tutorialNotificationPanel';
-        panel.style.cssText = `
-            position: fixed;
-            bottom: 48px;
-            right: 20px;
-            width: 350px;
-            max-height: 400px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            z-index: 9999;
-            overflow-y: auto;
-        `;
-
-        // Header
-        const header = document.createElement('div');
-        header.style.cssText = `
-            padding: 16px;
-            border-bottom: 1px solid #e5e7eb;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 8px 8px 0 0;
-        `;
-        header.innerHTML = `
-            <h6 style="margin: 0; font-weight: 600;">Notificaciones (Tutorial)</h6>
-            <span style="background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 12px; font-size: 0.85rem;">${this.tutorialNotifications.length}</span>
-        `;
-
-        // Body con notificaciones
-        const body = document.createElement('div');
-        body.style.cssText = 'padding: 8px;';
-
-        this.tutorialNotifications.forEach(notif => {
-            const notifItem = document.createElement('div');
-            notifItem.style.cssText = `
-                padding: 12px;
-                border-bottom: 1px solid #e5e7eb;
-                cursor: pointer;
-                transition: background 0.2s;
-            `;
-            notifItem.onmouseenter = () => notifItem.style.background = '#f3f4f6';
-            notifItem.onmouseleave = () => notifItem.style.background = 'transparent';
-
-            const iconColor = notif.type === 'warning' ? '#f59e0b' : notif.type === 'success' ? '#10b981' : '#667eea';
-            // Icono del sprite del escritorio (icons.js); lo que no esté en el sprite, campana.
-            const D = window.ItcjDesktop;
-            const iconName = ['calendar', 'ticket'].includes(notif.icon) ? notif.icon : 'bell';
-            const iconHtml = D && typeof D.icon === 'function' ? D.icon(iconName) : '';
-
-            notifItem.innerHTML = `
-                <div style="display: flex; gap: 12px; align-items: start;">
-                    <div style="color: ${iconColor}; font-size: 1.2rem;">
-                        ${iconHtml}
-                    </div>
-                    <div style="flex: 1;">
-                        <div style="font-weight: 600; margin-bottom: 4px; color: #111827;">${notif.title}</div>
-                        <div style="font-size: 0.875rem; color: #6b7280; margin-bottom: 4px;">${notif.message}</div>
-                        <div style="font-size: 0.75rem; color: #9ca3af;">Hace 5 minutos</div>
-                    </div>
-                </div>
-            `;
-
-            body.appendChild(notifItem);
-        });
-
-        panel.appendChild(header);
-        panel.appendChild(body);
-        document.body.appendChild(panel);
-    }
-
-    /**
-     * Remueve el panel de notificaciones del tutorial
-     */
-    removeTutorialNotificationPanel() {
-        const panel = document.getElementById('tutorialNotificationPanel');
-        if (panel) {
-            panel.remove();
-        }
-    }
-
-    /**
-     * Ícono del escritorio usado en la demostración: Help Desk si existe;
-     * si no, la primera app real (para no atascar el tour a quien no la tiene).
-     */
-    getDemoIconSelector() {
-        const preferred = '.desktop-icon[data-app="helpdesk"]';
-        if (document.querySelector(preferred)) return preferred;
-        const first = document.querySelector('.desktop-icon:not(.is-decorative)');
-        return first ? `.desktop-icon[data-app="${first.dataset.app}"]` : preferred;
-    }
-
-    /** Abre el menú inicio (si no lo está) para los pasos que lo señalan. */
-    ensureStartMenuOpen() {
-        const menu = window.ItcjDesktop && window.ItcjDesktop.startMenu;
-        if (menu && typeof menu.open === 'function') menu.open();
-    }
-
-    /** Cierra el menú inicio. */
     closeStartMenu() {
-        const menu = window.ItcjDesktop && window.ItcjDesktop.startMenu;
-        if (menu && typeof menu.close === 'function') menu.close();
+      const menu = D().startMenu;
+      if (menu && typeof menu.close === 'function') menu.close();
     }
 
-    /** Cierra todas las ventanas del escritorio. */
-    closeDesktopWindows() {
-        if (window.desktop && typeof window.desktop.closeAllWindows === 'function') {
-            window.desktop.closeAllWindows();
-        }
+    widget() {
+      return window.dashboardNotificationWidget || null;
     }
 
-    /**
-     * El menú inicio se cierra con un pointerdown fuera de él; mientras dura el
-     * tour, los toques dentro del popover de Shepherd no deben cerrarlo.
-     */
-    installMenuGuard() {
-        if (this.menuGuard) return;
-        this.menuGuard = (e) => {
-            if (e.target && e.target.closest && e.target.closest('.shepherd-element')) {
-                e.stopPropagation();
-            }
+    /** Abre el panel REAL de notificaciones (el widget carga las recientes). */
+    openPanel() {
+      const w = this.widget();
+      if (!w || typeof w.togglePanel !== 'function') return;
+      if (!w.panelOpen) this.panelLoading = Promise.resolve(w.togglePanel()).catch(() => undefined);
+    }
+
+    closePanel() {
+      const w = this.widget();
+      if (w && typeof w.closePanel === 'function') w.closePanel();
+    }
+
+    mundialWidgetOpen() {
+      const m = window.mundialTheme;
+      return !!(m && m.widget && !m.widget.classList.contains('hidden'));
+    }
+
+    /** Estado inicial: sin ventanas, menú, panel ni widget del Mundial. */
+    prepareEnvironment() {
+      this.closeWindows();
+      this.closeStartMenu();
+      this.closePanel();
+      if (this.mundialWidgetOpen()) {
+        this.mundialWasOpen = true;
+        try { window.mundialTheme.toggleWidget(false); } catch (err) { /* el tema no debe frenar el tutorial */ }
+      }
+    }
+
+    /** Recuadro (invisible) que abarca todos los iconos: objetivo del paso «desktop-apps». */
+    buildIconsArea() {
+      const icons = Array.from(document.querySelectorAll('#desktop-grid .desktop-icon')).filter(isShown);
+      if (!icons.length) return null;
+      const box = icons.reduce((acc, el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          l: Math.min(acc.l, r.left), t: Math.min(acc.t, r.top),
+          r: Math.max(acc.r, r.right), b: Math.max(acc.b, r.bottom)
         };
-        window.addEventListener('pointerdown', this.menuGuard, true);
+      }, { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity });
+      let el = this.iconsArea;
+      if (!el || !el.isConnected) {
+        el = this.iconsArea = document.createElement('div');
+        el.id = 'tutorialIconsArea';
+        el.className = 'dashboard-tutorial-area';
+        el.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(el);
+      }
+      Object.assign(el.style, {
+        left: box.l + 'px', top: box.t + 'px',
+        width: (box.r - box.l) + 'px', height: (box.b - box.t) + 'px'
+      });
+      return el;
     }
 
-    removeMenuGuard() {
-        if (!this.menuGuard) return;
-        window.removeEventListener('pointerdown', this.menuGuard, true);
-        this.menuGuard = null;
+    removeIconsArea() {
+      if (this.iconsArea) this.iconsArea.remove();
+      this.iconsArea = null;
     }
 
+    // === GUARDAS DE INTERACCIÓN ===
     /**
-     * Pasos del tutorial del dashboard
+     * Mientras corre el tour:
+     *  - un toque en el popover no cierra el menú inicio (cierra con pointerdown
+     *    fuera) ni el panel (cierra con click fuera; ese click se corta en el popover);
+     *  - la zona atenuada no hace nada;
+     *  - en los pasos pasivos el objetivo señalado no se puede usar;
+     *  - Esc pide confirmar la salida; Ctrl+K no abre el buscador bajo el atenuado;
+     *  - abrir la app demo con Enter también avanza «open-app».
      */
-    getDashboardSteps() {
+    installGuards() {
+      if (this.listeners) return;
+      const onPointer = (e) => {
+        if (!this.isRunning) return;
+        const t = e.target;
+        const inside = (sel) => !!(t && t.closest && t.closest(sel));
+        if (inside('.shepherd-element')) {
+          if (e.type === 'pointerdown' || e.type === 'mousedown') e.stopPropagation();
+          return;
+        }
+        if (inside('.shepherd-modal-overlay-container') || this.hitsPassiveTarget(e)) {
+          e.stopPropagation();
+          if (e.cancelable && e.type !== 'pointerdown') e.preventDefault();
+        }
+      };
+      const onKey = (e) => {
+        if (!this.isRunning || !this.tour || q('.modal.show')) return;
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.tour.cancel();
+        } else if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k') {
+          // Ctrl+K abriría el buscador debajo del atenuado: durante el tour solo se explica.
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      };
+      const onResize = () => {
+        if (this.iconsArea && this.lastStepId === 'desktop-apps') this.buildIconsArea();
+      };
+      const onWindowOpened = (e) => {
+        const step = this.tour && this.tour.getCurrentStep();
+        if (step && step.id === 'open-app' && step.isOpen() && e.detail && e.detail.key === this.demoKey) this.tour.next();
+      };
+      const pointerTypes = ['pointerdown', 'mousedown', 'click', 'dblclick', 'contextmenu'];
+      pointerTypes.forEach((type) => window.addEventListener(type, onPointer, true));
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('resize', onResize);
+      document.addEventListener('desktop:window-opened', onWindowOpened);
+      this.listeners = () => {
+        pointerTypes.forEach((type) => window.removeEventListener(type, onPointer, true));
+        window.removeEventListener('keydown', onKey, true);
+        window.removeEventListener('resize', onResize);
+        document.removeEventListener('desktop:window-opened', onWindowOpened);
+      };
+    }
+
+    removeGuards() {
+      if (this.listeners) this.listeners();
+      this.listeners = null;
+    }
+
+    /** ¿El evento cae sobre el objetivo de un paso pasivo? (un clic de teclado no cuenta) */
+    hitsPassiveTarget(e) {
+      if (e.type === 'click' && e.detail === 0) return false;
+      const step = this.tour && this.tour.getCurrentStep();
+      if (!step || !step.isOpen() || step.options.canClickTarget !== false) return false;
+      const target = step.target;
+      if (!target || target === document.body || !target.getBoundingClientRect) return false;
+      const r = target.getBoundingClientRect();
+      return e.clientX >= r.left - HIT_PAD && e.clientX <= r.right + HIT_PAD &&
+        e.clientY >= r.top - HIT_PAD && e.clientY <= r.bottom + HIT_PAD;
+    }
+
+    // === PASOS ===
+    buttons(kind, label) {
+      const tour = () => this.tour;
+      const back = { text: 'Atrás', secondary: true, action: () => tour().back() };
+      if (kind === 'back') return [back];
+      if (kind === 'welcome') {
         return [
-            {
-                id: 'welcome',
-                title: '¡Bienvenido a la plataforma Digital ITCJ!',
-                text: `
-                    <p>Este tutorial te guiará a través de las funcionalidades principales del dashboard.</p>
-                    <p><strong>En esta plataforma tendrás acceso a varias aplicaciones:</strong></p>
-                    <ul>
-                        <li>📅 <strong>AgendaTec:</strong> Sistema para crear solicitudes de altas y bajas de materias agendando citas con el coordinador de carrera</li>
-                        <li>🎫 <strong>Help Desk:</strong> Sistema de tickets de soporte del Centro de Cómputo</li>
-                        <li>Y más aplicaciones según tus permisos...</li>
-                    </ul>
-                    <p><em>Nota: El acceso a cada aplicación depende de tus permisos asignados.</em></p>
-                `,
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Omitir Tutorial',
-                        action: function() {
-                            return this.cancel();
-                        },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Comenzar',
-                        action: function() {
-                            return this.next();
-                        },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'desktop-apps',
-                title: 'Aplicaciones Disponibles',
-                text: `
-                    <p>Aquí puedes ver todas las aplicaciones disponibles para ti.</p>
-                    <p><strong>⚠️ MUY IMPORTANTE:</strong> Para abrir cualquier aplicación debes hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono.</p>
-                    <p>Las aplicaciones se abrirán en ventanas flotantes, similar al sistema operativo Windows.</p>
-                `,
-                attachTo: {
-                    element: () => document.querySelector('.desktop-icon:not(.is-decorative)'),
-                    on: 'bottom'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'double-click-demo',
-                title: 'Demostración: Abrir Aplicación',
-                text: `
-                    <p>Vamos a abrir una aplicación como ejemplo.</p>
-                    <p>Recuerda: necesitas hacer <strong style="color: #dc2626;">DOBLE CLICK</strong> sobre el ícono resaltado para continuar con el tutorial.</p>
-                `,
-                attachTo: {
-                    element: () => document.querySelector(this.getDemoIconSelector()),
-                    on: 'right'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        this.enableSpecificElement(this.getDemoIconSelector());
-
-                        // Asegurar que el elemento tenga un z-index adecuado
-                        const helpdeskIcon = document.querySelector(this.getDemoIconSelector());
-                        if (helpdeskIcon) {
-                            helpdeskIcon.style.position = 'relative';
-                            helpdeskIcon.style.zIndex = '10001';
-                        }
-                    },
-                    hide: () => {
-                        // Limpiar el z-index al salir
-                        const helpdeskIcon = document.querySelector(this.getDemoIconSelector());
-                        if (helpdeskIcon) {
-                            helpdeskIcon.style.position = '';
-                            helpdeskIcon.style.zIndex = '';
-                        }
-                    }
-                },
-                advanceOn: {
-                    selector: this.getDemoIconSelector(),
-                    event: 'dblclick'
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    }
-                ]
-            },
-            {
-                id: 'window-opened',
-                title: 'Ventana de Aplicación',
-                text: `
-                    <p>¡Excelente! La aplicación se ha abierto en una ventana flotante.</p>
-                    <p><strong>Características de las ventanas:</strong></p>
-                    <ul>
-                        <li>Puedes moverlas arrastrando desde la barra de título</li>
-                        <li>Puedes redimensionarlas desde las esquinas</li>
-                        <li>Puedes minimizar, maximizar o cerrar con los botones superiores</li>
-                        <li>Puedes tener múltiples ventanas abiertas al mismo tiempo</li>
-                    </ul>
-                `,
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        // Esperar a que la ventana se abra
-                        setTimeout(() => {
-                            const appWindow = document.querySelector('.app-window');
-                            if (appWindow) {
-                                appWindow.style.pointerEvents = 'none';
-                            }
-                        }, 500);
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'close-window-demo',
-                title: 'Cerrar Ventana',
-                text: `
-                    <p>Para cerrar una ventana, normalmente haces click en el botón <strong>✕</strong> en la esquina superior derecha.</p>
-                    <p>Usa el botón <strong>"Siguiente"</strong> para cerrar la ventana y continuar con el tutorial.</p>
-                `,
-                attachTo: {
-                    element: '.app-window .window-control.close',
-                    on: 'left'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-
-                        // NO habilitar el botón X, dejarlo deshabilitado
-                        // Solo se podrá cerrar con el botón "Siguiente"
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() {
-                            // Cerrar la ventana programáticamente
-                            window.dashboardTutorial.closeDesktopWindows();
-                            return this.next();
-                        },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'notifications-intro',
-                title: 'Sistema de Notificaciones',
-                text: `
-                    <p>El ícono de campana 🔔 te muestra las notificaciones del sistema.</p>
-                    <p><strong>Características:</strong></p>
-                    <ul>
-                        <li>Un número en rojo indica cuántas notificaciones sin leer tienes</li>
-                        <li>Al hacer click, se despliega un panel con tus notificaciones</li>
-                        <li>Las notificaciones pueden ser de diferentes aplicaciones</li>
-                    </ul>
-                `,
-                attachTo: {
-                    element: '#notificationBell',
-                    on: 'left'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'notifications-demo',
-                title: 'Ver Notificaciones',
-                text: `
-                    <p>Vamos a ver un ejemplo de cómo se ven las notificaciones.</p>
-                    <p>Para este tutorial, hemos preparado algunas notificaciones de ejemplo.</p>
-                    <p>Presiona "Ver Notificaciones" para continuar.</p>
-                `,
-                attachTo: {
-                    element: '#notificationBell',
-                    on: 'left'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Ver Notificaciones',
-                        action: async function() {
-                            await window.dashboardTutorial.showTutorialNotifications();
-                            return this.next();
-                        },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'notifications-panel',
-                title: 'Panel de Notificaciones',
-                text: `
-                    <p>Aquí puedes ver todas tus notificaciones recientes.</p>
-                    <p>Cada notificación muestra:</p>
-                    <ul>
-                        <li>Un ícono que indica el tipo de notificación</li>
-                        <li>El título y mensaje de la notificación</li>
-                        <li>Cuándo fue recibida</li>
-                    </ul>
-                    <p><em>Nota: Estas son notificaciones de ejemplo para el tutorial.</em></p>
-                `,
-                attachTo: {
-                    element: '#tutorialNotificationPanel',
-                    on: 'left'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() {
-                            window.dashboardTutorial.removeTutorialNotificationPanel();
-                            return this.next();
-                        },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'profile-menu-intro',
-                title: 'Menú de Usuario',
-                text: `
-                    <p>El botón de inicio de la barra inferior abre el menú de inicio, que da acceso a:</p>
-                    <ul>
-                        <li><strong>Tus aplicaciones y el buscador:</strong> Todas las apps disponibles para ti</li>
-                        <li><strong>Información de tu puesto:</strong> Detalles de tu cargo y departamento</li>
-                        <li><strong>Perfil:</strong> Tu información personal y configuración</li>
-                        <li><strong>Cerrar Sesión:</strong> Salir de la plataforma</li>
-                    </ul>
-                `,
-                attachTo: {
-                    element: '.start-button',
-                    on: 'right'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'open-profile-menu',
-                title: 'Abrir Menú de Usuario',
-                text: `
-                    <p>Haz click en el botón de inicio para ver las opciones disponibles.</p>
-                `,
-                attachTo: {
-                    element: '.start-button',
-                    on: 'right'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        this.enableSpecificElement('.start-button');
-
-                        // El menú debe estar cerrado para que el click lo abra
-                        this.closeStartMenu();
-                    }
-                },
-                advanceOn: {
-                    selector: '.start-button',
-                    event: 'click'
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    }
-                ]
-            },
-            {
-                id: 'profile-menu-options',
-                title: 'Opciones del Menú',
-                text: `
-                    <p>Aquí puedes ver:</p>
-                    <ul>
-                        <li><strong>Tu información:</strong> Nombre, puesto y departamento</li>
-                        <li><strong>Botón de Configuración:</strong> Para ajustes del sistema (Solo usuarios con permisos)</li>
-                        <li><strong>Botón de Cerrar Sesión:</strong> Para salir de forma segura</li>
-                    </ul>
-                    <p><strong>Muy importante:</strong> Para abrir tu perfil basta con hacer <strong style="color: #dc2626;">un click</strong> en la sección donde aparece tu nombre y rol.</p>
-                `,
-                attachTo: {
-                    element: '#startMenuUser',
-                    on: 'right'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        this.ensureStartMenuOpen();
-
-                        // Resaltar el elemento del usuario (sin habilitarlo: solo se señala)
-                        const userSection = document.getElementById('startMenuUser');
-                        if (userSection) {
-                            userSection.style.opacity = '1';
-                            userSection.classList.add('tutorial-highlight');
-                        }
-                    },
-                    hide: () => {
-                        const userSection = document.getElementById('startMenuUser');
-                        if (userSection) {
-                            userSection.classList.remove('tutorial-highlight');
-                            userSection.style.opacity = '';
-                        }
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'open-profile-demo',
-                title: 'Abrir Perfil',
-                text: `
-                    <p>Ahora vamos a abrir tu perfil como ejemplo.</p>
-                    <p>Haz <strong style="color: #dc2626;">click</strong> en la sección de tu nombre y rol para abrir tu perfil.</p>
-                    <p><em>Recuerda: los íconos del escritorio se abren con doble click; las opciones del menú de inicio, con un click.</em></p>
-                `,
-                attachTo: {
-                    element: '#startMenuUser',
-                    on: 'right'
-                },
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        this.ensureStartMenuOpen();
-
-                        // Habilitar solo la tarjeta del usuario
-                        const userSection = document.getElementById('startMenuUser');
-                        if (userSection) {
-                            userSection.style.pointerEvents = 'auto';
-                            userSection.style.opacity = '1';
-                            userSection.style.cursor = 'pointer';
-                        }
-                    },
-                    hide: () => {
-                        const userSection = document.getElementById('startMenuUser');
-                        if (userSection) {
-                            userSection.style.pointerEvents = '';
-                            userSection.style.opacity = '';
-                            userSection.style.cursor = '';
-                        }
-                    }
-                },
-                advanceOn: {
-                    selector: '#startMenuUser',
-                    event: 'click'
-                },
-                buttons: [
-                    {
-                        text: 'Atrás',
-                        action: function() { return this.back(); },
-                        classes: 'btn btn-secondary'
-                    },
-                    {
-                        text: 'Saltar',
-                        action: function() {
-                            window.dashboardTutorial.closeStartMenu();
-                            return this.next();
-                        },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'profile-window',
-                title: 'Ventana de Perfil',
-                text: `
-                    <p>¡Perfecto! Tu perfil se ha abierto en una ventana.</p>
-                    <p>Aquí puedes ver y editar tu información personal:</p>
-                    <ul>
-                        <li>Datos personales (nombre, correo, teléfono)</li>
-                        <li>Información laboral (puesto, departamento)</li>
-                        <li>Permisos de las aplicaciones</li>
-                        <li>Historial de actividades y Notificaciones</li>
-                    </ul>
-                    <p><em>La primera pestaña contiene la información más importante de tu perfil.</em></p>
-                `,
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                        // Esperar a que la ventana se abra
-                        setTimeout(() => {
-                            const profileWindow = document.querySelector('.app-window[data-app-id="profile"]');
-                            if (profileWindow) {
-                                profileWindow.style.pointerEvents = 'none';
-                            }
-                        }, 500);
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Siguiente',
-                        action: function() { return this.next(); },
-                        classes: 'btn btn-primary'
-                    }
-                ]
-            },
-            {
-                id: 'tutorial-complete',
-                title: '¡Tutorial Completado!',
-                text: `
-                    <p><strong>¡Felicidades!</strong> Has completado el tutorial del dashboard ITCJ.</p>
-                    <p>Ahora sabes cómo:</p>
-                    <ul>
-                        <li>✓ Abrir aplicaciones con doble click en el escritorio</li>
-                        <li>✓ Gestionar ventanas (mover, redimensionar, cerrar)</li>
-                        <li>✓ Ver tus notificaciones</li>
-                        <li>✓ Acceder a tu perfil y configuración</li>
-                        <li>✓ Navegar por el sistema</li>
-                    </ul>
-                    <p><strong>Punto importante:</strong> Recuerda que para abrir una aplicación desde el escritorio debes hacer <strong style="color: #dc2626;">DOBLE CLICK</strong>; en el menú de inicio basta un click.</p>
-                    <p class="mb-0"><em>Si necesitas ver el tutorial de nuevo, haz click en el botón "Tutorial" en la barra inferior.</em></p>
-                `,
-                when: {
-                    show: () => {
-                        this.disableAllInteractiveElements();
-                    }
-                },
-                buttons: [
-                    {
-                        text: 'Finalizar',
-                        action: function() {
-                            // Cerrar cualquier ventana abierta durante el tutorial
-                            window.dashboardTutorial.closeDesktopWindows();
-
-                            // Cerrar el menú inicio si está abierto
-                            window.dashboardTutorial.closeStartMenu();
-
-                            return this.complete();
-                        },
-                        classes: 'btn btn-success'
-                    }
-                ]
-            }
+          { text: 'Omitir', secondary: true, action: () => tour().cancel() },
+          { text: 'Comenzar', action: () => tour().next() }
         ];
+      }
+      if (kind === 'done') return [back, { text: 'Finalizar', action: () => tour().complete() }];
+      return [back, { text: label || 'Siguiente', action: () => tour().next() }];
+    }
+
+    stepDefs() {
+      const self = this;
+      const narrow = () => window.innerWidth < 900;
+      const demo = () => escapeHtml(self.demoName());
+      const win = (sel) => () => {
+        const el = self.demoWindow();
+        const part = el && self.demoState() !== 'minimized' ? el.querySelector(sel) : null;
+        return isShown(part) ? part : null;
+      };
+      const taskbarBtn = () => (self.demoKey ? q('.taskbar-app[data-app="' + attr(self.demoKey) + '"]') : null);
+
+      return [
+        {
+          id: 'welcome',
+          title: 'Bienvenido a la Plataforma Digital ITCJ',
+          text: () => '<p>Este es tu escritorio: aquí abres las aplicaciones del Tecnológico en ventanas, como en Windows.</p>' +
+            '<p>En un par de minutos te mostramos cómo abrir y acomodar ventanas, la barra de tareas, el buscador, el menú de inicio y las notificaciones.</p>' +
+            '<p class="tutorial-note">Puedes salir cuando quieras con la X o la tecla <kbd>Esc</kbd>.</p>',
+          buttons: 'welcome'
+        },
+        {
+          id: 'desktop-apps',
+          title: 'Tus aplicaciones',
+          text: () => '<p>Cada icono del escritorio es una aplicación a la que tienes acceso; las que ves dependen de tus permisos.</p>' +
+            '<p>Para abrir una haz <strong>doble clic</strong> en su icono, o selecciónala y presiona <kbd>Enter</kbd>.</p>',
+          passive: true,
+          place: ['bottom', 'right', 'top'],
+          prepare: () => self.closeWindows(),
+          target: () => self.buildIconsArea(),
+          onHide: () => self.removeIconsArea(),
+          available: () => has('#desktop-grid .desktop-icon')
+        },
+        {
+          id: 'open-app',
+          title: 'Abre una aplicación',
+          text: () => '<p>Haz <strong>doble clic</strong> en <strong>' + demo() + '</strong> para abrirla.</p>',
+          place: ['right', 'bottom', 'left', 'top'],
+          prepare: () => { self.closeWindows(); self.closeStartMenu(); },
+          target: () => {
+            const el = self.demoKey ? q('.desktop-icon[data-app="' + attr(self.demoKey) + '"]') : null;
+            return isShown(el) ? el : null;
+          },
+          advanceOn: () => ({ selector: '.desktop-icon[data-app="' + attr(self.demoKey) + '"]', event: 'dblclick' }),
+          buttons: 'back',
+          demo: true
+        },
+        {
+          id: 'window-move',
+          title: 'Mueve y acomoda la ventana',
+          text: () => (narrow()
+            ? '<p>La aplicación se abrió en una ventana. En una pantalla angosta como esta, las ventanas ocupan todo el escritorio.</p>' +
+              '<p>En una pantalla más ancha puedes arrastrarlas por la <strong>barra de título</strong> y acoplarlas a una mitad de la pantalla.</p>'
+            : '<p>La aplicación se abrió en una ventana. Arrastra su <strong>barra de título</strong> para moverla.</p>' +
+              '<ul><li>Llévala al borde izquierdo o derecho para acoplarla a esa mitad, o arriba para maximizarla.</li>' +
+              '<li>Doble clic en la barra la maximiza o la restaura.</li>' +
+              '<li>Arrastra sus bordes para cambiar el tamaño.</li></ul>') +
+            '<p>Si recargas la página, tus ventanas vuelven donde las dejaste.</p>',
+          passive: true,
+          place: ['bottom', 'top'],
+          prepare: () => self.showDemo(),
+          target: win('.window-titlebar'),
+          demo: true
+        },
+        {
+          id: 'window-controls',
+          title: 'Botones de la ventana',
+          text: () => '<ul class="tutorial-list">' +
+            '<li>' + ico('refresh') + '<span><strong>Recargar</strong> la aplicación.</span></li>' +
+            '<li>' + ico('external') + '<span><strong>Abrir en una pestaña</strong> nueva del navegador.</span></li>' +
+            '<li>' + ico('minus') + '<span><strong>Minimizar</strong>: la esconde en la barra de tareas.</span></li>' +
+            '<li>' + ico('square') + '<span><strong>Maximizar</strong> o restaurar.</span></li>' +
+            '<li>' + ico('x') + '<span><strong>Cerrar</strong> la aplicación.</span></li></ul>',
+          passive: true,
+          place: ['bottom', 'left'],
+          prepare: () => self.showDemo(),
+          target: win('.window-controls'),
+          demo: true
+        },
+        {
+          id: 'minimize',
+          title: 'Minimiza la ventana',
+          text: () => '<p>Haz clic en <strong>Minimizar</strong> ' + ico('minus') + '. La ventana se esconde, pero la aplicación sigue abierta.</p>',
+          place: ['bottom', 'left'],
+          prepare: () => self.showDemo(),
+          target: win('.window-control.minimize'),
+          advanceOn: () => ({ selector: '.app-window[data-app-id="' + attr(self.demoKey) + '"] .window-control.minimize', event: 'click' }),
+          buttons: 'back',
+          demo: true
+        },
+        {
+          id: 'taskbar-restore',
+          title: 'Tráela de vuelta',
+          text: () => '<p>La rayita bajo el icono de <strong>' + demo() + '</strong> en la barra de tareas indica que sigue abierta.</p>' +
+            '<p>Haz clic en el icono para volver a mostrar la ventana. Si ya está al frente, ese mismo clic la minimiza.</p>',
+          place: ['top'],
+          prepare: () => self.minimizeDemo(),
+          target: () => {
+            const btn = taskbarBtn();
+            return self.demoState() === 'minimized' && isShown(btn) ? btn : null;
+          },
+          advanceOn: () => ({ selector: '.taskbar-app[data-app="' + attr(self.demoKey) + '"]', event: 'click' }),
+          buttons: 'back',
+          demo: true
+        },
+        {
+          id: 'close-window',
+          title: 'Cierra la ventana',
+          text: () => '<p>Haz clic en <strong>Cerrar</strong> ' + ico('x') + '. Cuando la necesites, vuelves a abrirla desde su icono.</p>',
+          place: ['bottom', 'left'],
+          prepare: () => self.showDemo(),
+          target: win('.window-control.close'),
+          advanceOn: () => ({ selector: '.app-window[data-app-id="' + attr(self.demoKey) + '"] .window-control.close', event: 'click' }),
+          buttons: 'back',
+          demo: true
+        },
+        {
+          id: 'search',
+          title: 'Busca una aplicación',
+          text: () => '<p>Con el buscador de la barra de tareas encuentras cualquier aplicación por su nombre; <kbd>Enter</kbd> abre la primera de la lista.</p>' +
+            '<p>Desde cualquier parte del escritorio, <kbd>Ctrl</kbd> + <kbd>K</kbd> te lleva directo al buscador.</p>',
+          passive: true,
+          place: ['top'],
+          prepare: () => { self.closeStartMenu(); self.closePanel(); },
+          target: () => { const el = q('.taskbar-search'); return isShown(el) ? el : null; },
+          available: () => has('.taskbar-search')
+        },
+        {
+          id: 'start-open',
+          title: 'Menú de inicio',
+          text: () => '<p>Haz clic en el botón de <strong>Inicio</strong> ' + ico('menu') + ' para abrir el menú.</p>',
+          place: ['top', 'right'],
+          prepare: () => { self.closeStartMenu(); self.closePanel(); },
+          target: () => { const el = q('.start-button'); return isShown(el) ? el : null; },
+          advanceOn: () => ({ selector: '.start-button', event: 'click' }),
+          buttons: 'back',
+          available: () => has('.start-button') && has('#startMenu') && !!D().startMenu
+        },
+        {
+          id: 'start-menu',
+          title: 'Dentro del menú de inicio',
+          text: () => '<ul class="tutorial-list">' +
+            '<li>' + ico('grid') + '<span><strong>Aplicaciones:</strong> aquí basta un clic para abrirlas.</span></li>' +
+            '<li>' + ico('user') + '<span><strong>Tu tarjeta</strong>, con tu nombre y puesto, abre tu perfil.</span></li>' +
+            '<li>' + ico('settings') + '<span>El engrane abre la <strong>Configuración</strong>, si tienes permiso.</span></li>' +
+            '<li>' + ico('log-out') + '<span><strong>Cerrar sesión</strong>.</span></li></ul>',
+          passive: true,
+          place: ['right', 'left', 'top'],
+          prepare: () => { self.closePanel(); self.openStartMenu(); },
+          target: () => { const el = q('#startMenu'); return el && !el.hidden && isShown(el) ? el : null; },
+          available: () => has('.start-button') && has('#startMenu') && !!D().startMenu
+        },
+        {
+          id: 'notifications',
+          title: 'Notificaciones',
+          text: () => '<p>La campana reúne los avisos de todas tus aplicaciones. El número rojo indica cuántos no has leído; los iconos de cada aplicación muestran también los suyos.</p>' +
+            '<p>Haz clic en la campana o en <strong>Ver notificaciones</strong>.</p>',
+          place: ['top', 'left'],
+          prepare: () => { self.closeStartMenu(); self.closePanel(); },
+          target: () => { const el = q('#notificationBell'); return isShown(el) ? el : null; },
+          advanceOn: () => ({ selector: '#notificationBell', event: 'click' }),
+          buttons: 'notifications',
+          available: () => has('#notificationBell') && !!self.widget()
+        },
+        {
+          id: 'notifications-panel',
+          title: 'Tus avisos recientes',
+          text: () => '<p>Un clic en un aviso te lleva a donde corresponde; <strong>Marcar todas</strong> los da por leídos.</p>' +
+            '<p><strong>Ver todas las notificaciones</strong> abre la pestaña Notificaciones de tu perfil, con el historial completo.</p>',
+          passive: true,
+          place: ['left', 'top'],
+          prepare: () => { self.closeStartMenu(); self.openPanel(); },
+          target: () => { const el = q('#notification-panel'); return el && !el.hidden && isShown(el) ? el : null; },
+          afterWait: () => Promise.race([self.panelLoading || Promise.resolve(), sleep(3000)]),
+          available: () => has('#notificationBell') && !!self.widget()
+        },
+        {
+          id: 'done',
+          title: '¡Listo!',
+          text: () => '<p>Ya conoces lo esencial del escritorio.</p>' +
+            '<p>Para repasarlo cuando quieras, usa el botón <strong>Tutorial</strong> ' + ico('help') + ' de la barra de tareas.</p>',
+          prepare: () => { self.closePanel(); self.closeStartMenu(); self.closeWindows(); },
+          buttons: 'done'
+        }
+      ];
+    }
+
+    isAvailable(def) {
+      if (def.demo && !(this.demoKey && this.wm() && window.desktop)) return false;
+      return typeof def.available === 'function' ? !!def.available() : true;
+    }
+
+    /** Opciones de Shepherd para un paso. */
+    buildStep(def) {
+      const self = this;
+      const interactive = typeof def.advanceOn === 'function';
+      const kind = def.buttons || 'next';
+      // «Ver notificaciones» abre el panel real y avanza (igual que un clic en la campana).
+      const regular = kind === 'notifications'
+        ? this.buttons('back').concat([{ text: 'Ver notificaciones', action: () => { self.openPanel(); self.tour.next(); } }])
+        : this.buttons(kind);
+      const fallback = this.buttons('next');
+      const opts = {
+        id: def.id,
+        title: def.title,
+        text: def.text,
+        buttons: regular,
+        canClickTarget: !def.passive,
+        showOn: () => {
+          if (!self.available.includes(def.id)) return false;
+          if (self.resumeTarget) {
+            if (self.resumeTarget !== def.id) return false;
+            self.resumeTarget = null;
+          }
+          return true;
+        },
+        when: {
+          show() { self.onStepShown(this, def); },
+          hide() { self.onStepHidden(def); }
+        }
+      };
+      if (def.target) {
+        opts.attachTo = { element: () => def.target(), on: (def.place && def.place[0]) || 'bottom' };
+        opts.floatingUIOptions = { middleware: [preferPlacement(def.place || ['bottom']), offsetMiddleware] };
+      }
+      if (interactive) opts.advanceOn = def.advanceOn();
+      if (def.prepare || def.target) {
+        opts.beforeShowPromise = () => self.prepareStep(def, { interactive, regular, fallback });
+      }
+      return opts;
     }
 
     /**
-     * Prepara el entorno para el tutorial
-     * Cierra todas las ventanas abiertas y limpia el estado
+     * Antes de mostrar un paso: deja que termine el evento que lo disparó, prepara
+     * el escritorio, espera su elemento (tope WAIT_MS) y sus animaciones. Si el
+     * elemento no aparece, el paso se muestra centrado y con «Siguiente». Si
+     * mientras tanto el tour terminó o cambió de paso, nunca se muestra.
      */
-    prepareEnvironmentForTutorial() {
-        console.log('[DashboardTutorial] Preparing environment for tutorial...');
-
-        // Cerrar todas las ventanas de aplicaciones (iframes)
-        if (window.desktop && typeof window.desktop.closeAllWindows === 'function') {
-            console.log('[DashboardTutorial] Closing all open windows...');
-            window.desktop.closeAllWindows();
-        }
-
-        // Cerrar el menú inicio si está abierto
-        this.closeStartMenu();
-
-        // Cerrar el panel de notificaciones a través del widget (así su estado y el
-        // aria-expanded de la campana quedan coherentes)
-        const notificationWidget = window.dashboardNotificationWidget;
-        if (notificationWidget && typeof notificationWidget.closePanel === 'function') {
-            notificationWidget.closePanel();
-        }
-
-        // Eliminar cualquier panel de notificaciones del tutorial anterior
-        const tutorialNotifPanel = document.getElementById('tutorialNotificationPanel');
-        if (tutorialNotifPanel) {
-            tutorialNotifPanel.remove();
-        }
-
-        console.log('[DashboardTutorial] Environment prepared successfully');
+    async prepareStep(def, cfg) {
+      const tour = this.tour;
+      const step = tour && tour.getById(def.id);
+      await sleep(0);
+      if (def.prepare) {
+        try { def.prepare(); } catch (err) { console.warn('[DashboardTutorial] preparar', def.id, err); }
+      }
+      let el = null;
+      if (def.target) {
+        el = await waitFor(def.target, WAIT_MS);
+        if (el) await settle(el);
+        if (!el) console.warn('[DashboardTutorial] no apareció el elemento del paso', def.id);
+      }
+      if (def.afterWait) await def.afterWait();
+      if (!step || tour !== this.tour || !this.isRunning || !tour.isActive() || tour.getCurrentStep() !== step) {
+        return new Promise(() => {});
+      }
+      if (cfg.interactive) {
+        step.options.advanceOn = el ? def.advanceOn() : undefined;
+        step.options.buttons = el ? cfg.regular : cfg.fallback;
+      }
+      return undefined;
     }
 
-    /**
-     * Muestra modal de confirmación para iniciar el tutorial
-     */
-    showStartConfirmationModal() {
-        // Verificar si el tutorial ya está corriendo o si ya hay un modal abierto
-        if (this.isRunning) {
-            console.log('[DashboardTutorial] Tutorial already running, ignoring request');
-            return;
+    onStepShown(step, def) {
+      this.lastStepId = def.id;
+      const el = step.getElement();
+      if (!el) return;
+      // El click de un botón del popover no debe llegar al documento (cerraría el panel).
+      el.addEventListener('click', (e) => e.stopPropagation());
+      const n = this.available.indexOf(def.id) + 1;
+      if (n > 0) {
+        const footer = el.querySelector('.shepherd-footer');
+        const progress = document.createElement('span');
+        progress.className = 'dashboard-tutorial-progress';
+        progress.textContent = 'Paso ' + n + ' de ' + this.available.length;
+        if (footer) footer.insertBefore(progress, footer.firstChild);
+        else {
+          const content = el.querySelector('.shepherd-content');
+          if (content) content.appendChild(progress);
         }
-
-        // Verificar si ya hay un modal de confirmación abierto
-        const existingModal = document.getElementById('dashboardTutorialStartModal');
-        if (existingModal && existingModal.classList.contains('show')) {
-            console.log('[DashboardTutorial] Confirmation modal already open, ignoring request');
-            return;
-        }
-
-        // Deshabilitar el botón de tutorial inmediatamente
-        const tutorialButton = document.getElementById('dashboardTutorialButton');
-        if (tutorialButton) {
-            tutorialButton.disabled = true;
-            tutorialButton.style.opacity = '0.5';
-            tutorialButton.style.cursor = 'not-allowed';
-        }
-
-        // Crear modal de confirmación si no existe
-        let modal = document.getElementById('dashboardTutorialStartModal');
-
-        if (!modal) {
-            modal = document.createElement('div');
-            modal.id = 'dashboardTutorialStartModal';
-            modal.className = 'modal fade';
-            modal.setAttribute('tabindex', '-1');
-            modal.innerHTML = `
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
-                        <div class="modal-header" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-bottom: none;">
-                            <h5 class="modal-title" style="color: white !important; font-weight: 600;">
-                                <i class="bi bi-compass me-2"></i>
-                                Iniciar Tutorial del Dashboard
-                            </h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <p class="mb-3">¿Deseas iniciar el tutorial interactivo del Dashboard?</p>
-                            <div class="alert alert-info mb-0">
-                                <i class="bi bi-info-circle me-2"></i>
-                                <strong>Nota:</strong> El tutorial cerrará automáticamente todas las ventanas abiertas para preparar el entorno.
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-                                <i class="bi bi-x-circle me-1"></i>
-                                Cancelar
-                            </button>
-                            <button type="button" class="btn btn-primary" id="dashboardTutorialStartConfirm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; border: none;">
-                                <i class="bi bi-play-circle me-1"></i>
-                                Iniciar Tutorial
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-
-        const bsModal = new bootstrap.Modal(modal);
-        bsModal.show();
-
-        // Evento cuando se cierra el modal (cancelar o cerrar con X)
-        modal.addEventListener('hidden.bs.modal', () => {
-            // Re-habilitar el botón de tutorial
-            const tutorialButton = document.getElementById('dashboardTutorialButton');
-            if (tutorialButton && !this.isRunning) {
-                tutorialButton.disabled = false;
-                tutorialButton.style.opacity = '';
-                tutorialButton.style.cursor = '';
-            }
-        }, { once: true });
-
-        // Configurar botón de confirmación
-        const confirmBtn = document.getElementById('dashboardTutorialStartConfirm');
-        if (confirmBtn) {
-            // Remover listeners anteriores
-            const newConfirmBtn = confirmBtn.cloneNode(true);
-            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
-
-            newConfirmBtn.onclick = () => {
-                bsModal.hide();
-
-                // Esperar a que el modal se cierre completamente
-                setTimeout(() => {
-                    // Preparar el entorno
-                    this.prepareEnvironmentForTutorial();
-
-                    // Iniciar el tutorial después de una pequeña pausa
-                    setTimeout(() => {
-                        this.startTutorial();
-                    }, 500);
-                }, 300);
-            };
-        }
+      }
     }
 
-    /**
-     * Inicia el tutorial
-     */
-    async startTutorial() {
-        // Verificar si ya está corriendo
-        if (this.isRunning) {
-            console.log('[DashboardTutorial] Tutorial already running');
-            return;
-        }
-
-        this.isNavigating = false;
-        this.isRunning = true; // Marcar como activo
-        this.enableTutorialMode();
-
-        // Cargar notificaciones de prueba
-        this.tutorialNotifications = await DashboardTutorialUtils.loadTutorialNotifications();
-
-        this.initializeTour();
-
-        const steps = this.getDashboardSteps();
-        steps.forEach(step => this.tour.addStep(step));
-
-        this.installMenuGuard();
-        this.tour.start();
+    onStepHidden(def) {
+      if (def.onHide) {
+        try { def.onHide(); } catch (err) { /* nada */ }
+      }
+      // Entre un paso y el siguiente (que puede esperar a una ventana) el
+      // atenuado se queda: sin parpadeo y sin clics sueltos al escritorio.
+      if (this.isRunning && this.tour && this.tour.modal && typeof this.tour.modal.show === 'function') {
+        this.tour.modal.show();
+      }
     }
 
+    // === CICLO DE VIDA ===
+    createTour() {
+      const tour = new window.Shepherd.Tour({
+        useModalOverlay: true,
+        exitOnEsc: false,           // Esc lo maneja installGuards (pide confirmación)
+        keyboardNavigation: false,  // las flechas no saltan pasos interactivos
+        defaultStepOptions: {
+          classes: 'dashboard-tutorial-step',
+          cancelIcon: { enabled: true, label: 'Salir del tutorial' },
+          scrollTo: false,
+          arrow: true,
+          modalOverlayOpeningPadding: HIT_PAD,
+          modalOverlayOpeningRadius: 8
+        }
+      });
+      this.tour = tour;
+      this.demoKey = this.pickDemoKey();
+      const defs = this.stepDefs();
+      this.available = defs.filter((d) => this.isAvailable(d)).map((d) => d.id);
+      defs.forEach((def) => tour.addStep(this.buildStep(def)));
+      tour.on('cancel', () => { if (this.tour === tour) this.onCancel(); });
+      tour.on('complete', () => { if (this.tour === tour) this.onComplete(); });
+      return tour;
+    }
+
+    /** Arranca el tour; con `resumeId`, directo en ese paso (sin pasar por los anteriores). */
+    startTutorial(resumeId) {
+      if (this.isRunning) return;
+      if (!window.Shepherd || typeof window.Shepherd.Tour !== 'function') {
+        console.error('[DashboardTutorial] Shepherd no está disponible');
+        return;
+      }
+      this.isRunning = true;
+      this.setMode(true);
+      this.setButtonBusy(true);
+      const tour = this.createTour();
+      this.resumeTarget = resumeId && resumeId !== this.available[0] && this.available.includes(resumeId) ? resumeId : null;
+      this.installGuards();
+      tour.start();
+    }
+
+    resumeTour() {
+      const id = RESUME_TO[this.lastStepId] || this.lastStepId;
+      this.startTutorial(id);
+    }
+
+    /** Deshace todo lo que el tour abrió (ventanas, menú, panel, recuadro, guardas, modo). */
+    teardown() {
+      this.isRunning = false;
+      this.removeGuards();
+      this.removeIconsArea();
+      this.closeWindows();
+      this.closeStartMenu();
+      this.closePanel();
+      this.setMode(false);
+    }
+
+    /** Cierre definitivo (completado u omitido): clave guardada y botón Tutorial de vuelta. */
+    finish() {
+      this.markComplete();
+      this.setButtonBusy(false);
+      this.lastStepId = null;
+      if (this.mundialWasOpen) {
+        this.mundialWasOpen = false;
+        try { window.mundialTheme.toggleWidget(true); } catch (err) { /* el tema no debe frenar el tutorial */ }
+      }
+    }
+
+    onComplete() {
+      this.teardown();
+      this.finish();
+    }
+
+    onCancel() {
+      this.teardown();
+      this.showCancelConfirmation();
+    }
+
+    // === MODALES (inicio y salida) ===
+    ensureModal(id, html) {
+      let modal = document.getElementById(id);
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = id;
+        modal.className = 'modal fade dashboard-tutorial-modal';
+        modal.tabIndex = -1;
+        modal.setAttribute('aria-labelledby', id + 'Title');
+        modal.setAttribute('aria-hidden', 'true');
+        modal.innerHTML = html;
+        // Bootstrap ignora hide() mientras el diálogo aún está entrando: se lleva
+        // la cuenta para no perder un clic rápido (ver hideModal).
+        modal.addEventListener('shown.bs.modal', () => { modal.dataset.ready = '1'; });
+        modal.addEventListener('hide.bs.modal', () => { modal.dataset.ready = '0'; });
+        document.body.appendChild(modal);
+      }
+      return modal;
+    }
+
+    modalApi(modal) {
+      const bs = window.bootstrap;
+      return bs && bs.Modal ? bs.Modal.getOrCreateInstance(modal) : null;
+    }
+
+    showModal(modal, api) {
+      modal.dataset.ready = '0';
+      api.show();
+    }
+
+    /** Cierra el diálogo; si todavía está entrando, en cuanto termine de entrar. */
+    hideModal(modal, api) {
+      if (modal.dataset.ready === '1') api.hide();
+      else modal.addEventListener('shown.bs.modal', () => api.hide(), { once: true });
+    }
+
+    /** Botón «Tutorial»: confirma antes de cerrar ventanas e iniciar. */
+    showStartConfirmation() {
+      if (this.isRunning) return;
+      const modal = this.ensureModal('dashboardTutorialStartModal', `
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body">
+              <h2 class="dashboard-tutorial-modal-title" id="dashboardTutorialStartModalTitle">¿Iniciar el tutorial del escritorio?</h2>
+              <p>Es un recorrido guiado y corto por el escritorio.</p>
+              <p class="mb-0">Antes de empezar se cerrarán las ventanas abiertas, el menú de inicio y el panel de notificaciones.</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="dashboard-tutorial-btn" id="dashboardTutorialStartCancel">Cancelar</button>
+              <button type="button" class="dashboard-tutorial-btn is-primary" id="dashboardTutorialStartConfirm">Iniciar</button>
+            </div>
+          </div>
+        </div>`);
+      if (modal.classList.contains('show')) return;
+      const api = this.modalApi(modal);
+      if (!api) {
+        this.prepareEnvironment();
+        this.startTutorial();
+        return;
+      }
+      this.setButtonBusy(true);
+      let confirmed = false;
+      modal.querySelector('#dashboardTutorialStartCancel').onclick = () => this.hideModal(modal, api);
+      modal.querySelector('#dashboardTutorialStartConfirm').onclick = () => {
+        confirmed = true;
+        this.hideModal(modal, api);
+      };
+      modal.addEventListener('hidden.bs.modal', () => {
+        if (confirmed) {
+          this.prepareEnvironment();
+          this.startTutorial();
+        } else if (!this.isRunning) {
+          this.setButtonBusy(false);
+        }
+      }, { once: true });
+      this.showModal(modal, api);
+    }
+
+    /** X, Esc u «Omitir»: confirmar la salida; «Continuar» (o cerrar el diálogo) reanuda. */
+    showCancelConfirmation() {
+      const modal = this.ensureModal('dashboardTutorialCancelModal', `
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-body">
+              <h2 class="dashboard-tutorial-modal-title" id="dashboardTutorialCancelModalTitle">¿Salir del tutorial?</h2>
+              <p class="mb-0">Puedes volver a verlo cuando quieras con el botón <strong>Tutorial</strong> de la barra de tareas.</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="dashboard-tutorial-btn" id="dashboardTutorialCancelConfirm">Salir del tutorial</button>
+              <button type="button" class="dashboard-tutorial-btn is-primary" id="dashboardTutorialCancelResume">Continuar</button>
+            </div>
+          </div>
+        </div>`);
+      const api = this.modalApi(modal);
+      if (!api) {
+        this.finish();
+        return;
+      }
+      let exited = false;
+      modal.querySelector('#dashboardTutorialCancelResume').onclick = () => this.hideModal(modal, api);
+      modal.querySelector('#dashboardTutorialCancelConfirm').onclick = () => {
+        if (!exited) {
+          exited = true;
+          this.finish();
+        }
+        this.hideModal(modal, api);
+      };
+      modal.addEventListener('hidden.bs.modal', () => {
+        if (!exited) this.resumeTour();
+      }, { once: true });
+      this.showModal(modal, api);
+    }
+
+    // === AUTO-INICIO ===
     /**
      * Espera a que el escritorio esté listo y a que el modal de cambio de
      * contraseña (must_change.js) no esté a la vista.
      */
     waitUntilClear() {
-        return new Promise((resolve) => {
-            const started = Date.now();
-            const check = () => {
-                const ready = document.documentElement.classList.contains('desktop-ready');
-                const pwModal = document.getElementById('forcePwModal');
-                const pwVisible = !!(pwModal && pwModal.classList.contains('show'));
-                // must_change.js decide de forma asíncrona: hasta que no expone
-                // passwordModalWasShown no sabemos si el modal va a aparecer (tope 6 s).
-                const gateKnown = typeof window.passwordModalWasShown === 'function' || Date.now() - started > 6000;
-                if (ready && gateKnown && !pwVisible) {
-                    resolve();
-                } else {
-                    setTimeout(check, 250);
-                }
-            };
-            check();
-        });
+      return new Promise((resolve) => {
+        const started = Date.now();
+        const check = () => {
+          const ready = document.documentElement.classList.contains('desktop-ready');
+          const pwModal = document.getElementById('forcePwModal');
+          const pwVisible = !!(pwModal && pwModal.classList.contains('show'));
+          // must_change.js decide de forma asíncrona: hasta que no expone
+          // passwordModalWasShown no sabemos si el modal va a aparecer (tope 6 s).
+          const gateKnown = typeof window.passwordModalWasShown === 'function' || Date.now() - started > 6000;
+          if (ready && gateKnown && !pwVisible) resolve();
+          else setTimeout(check, 250);
+        };
+        check();
+      });
     }
 
-    /**
-     * Inicia automáticamente el tutorial la primera vez (sin modal de confirmación).
-     */
+    /** Primera visita: arranca solo (sin confirmación). */
     async autoStartTutorial() {
-        if (this.hasCompletedTutorial() || !DASHBOARD_TUTORIAL_CONFIG.autoStart) return;
-        await this.waitUntilClear();
-        // Mientras esperábamos pudo completarse o iniciarse a mano
-        if (this.hasCompletedTutorial() || this.isRunning) return;
-        // Un modal de contraseña recién cerrado necesita un instante para desbloquear la interfaz
-        if (typeof window.passwordModalWasShown === 'function' && window.passwordModalWasShown()) {
-            await new Promise((r) => setTimeout(r, 1000));
-        }
-        this.prepareEnvironmentForTutorial();
-        this.startTutorial();
+      if (this.hasCompleted()) return;
+      await this.waitUntilClear();
+      // Mientras esperábamos pudo completarse o iniciarse a mano.
+      if (this.hasCompleted() || this.isRunning || q('.modal.show')) return;
+      // Un modal de contraseña recién cerrado necesita un instante para desbloquear la interfaz.
+      if (typeof window.passwordModalWasShown === 'function' && window.passwordModalWasShown()) await sleep(1000);
+      if (this.hasCompleted() || this.isRunning) return;
+      this.prepareEnvironment();
+      this.startTutorial();
     }
-}
+  }
 
-// ==================== PUNTO DE ENTRADA ====================
-// El cargador (desktop/tutorial-loader.js) inyecta este archivo bajo demanda,
-// así que no se auto-ejecuta: expone un punto de entrada con instancia perezosa.
-function getDashboardTutorial() {
-    if (!window.dashboardTutorial) {
-        window.dashboardTutorial = new DashboardTutorial();
-    }
+  // === PUNTO DE ENTRADA ===
+  // El cargador (desktop/tutorial-loader.js) inyecta este archivo bajo demanda:
+  // no se auto-ejecuta, expone un punto de entrada con instancia perezosa.
+  function instance() {
+    if (!window.dashboardTutorial) window.dashboardTutorial = new DashboardTutorial();
     return window.dashboardTutorial;
-}
+  }
 
-window.DashboardTutorialEntry = {
+  window.DashboardTutorial = DashboardTutorial;
+  window.DashboardTutorialEntry = {
     /** Auto-inicio de la primera visita (respeta #forcePwModal y desktop-ready). */
     autoStart() {
-        return getDashboardTutorial().autoStartTutorial();
+      return instance().autoStartTutorial();
     },
-    /** Botón "Tutorial": pide confirmación y arranca el tour. */
+    /** Botón «Tutorial»: pide confirmación y arranca el tour. */
     start() {
-        getDashboardTutorial().showStartConfirmationModal();
+      instance().showStartConfirmation();
     }
-};
-
-// Exportar para uso global
-window.DashboardTutorial = DashboardTutorial;
-window.DashboardTutorialUtils = DashboardTutorialUtils;
+  };
+})();
