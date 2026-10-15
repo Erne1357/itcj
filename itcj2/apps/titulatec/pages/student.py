@@ -569,11 +569,17 @@ def _docs_status_ctx(db, process, *, codes: tuple[str, ...] | None = None,
         # Modo reemplazo (cita de cotejo, 2026-10-15): el aviso habla SOLO de
         # los reemplazos abiertos, no de los 3/7 documentos de la fase 1.
         # `replacement_rejected` = falta subir alguno; `replacement_sent` =
-        # todos los abiertos ya se subieron y esperan aprobación.
+        # todos los abiertos ya se subieron y esperan aprobación;
+        # `replacement_done` = ya no queda ninguno abierto (Servicios Escolares
+        # lo aprobó mientras el alumno subía): no es «en revisión».
         abiertos = DocumentService.open_replacements(db, process.id)
         pedidos = [a for a in abiertos if a["status"] == "rejected"]
+        if not abiertos:
+            estado = "replacement_done"
+        else:
+            estado = "replacement_rejected" if pedidos else "replacement_sent"
         return {
-            "state": "replacement_rejected" if pedidos else "replacement_sent",
+            "state": estado,
             "names": [a["name"] for a in (pedidos or abiertos)],
             "missing_names": [], "contact_email": None, "next_url": None,
             "total": len(abiertos),

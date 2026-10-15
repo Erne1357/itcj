@@ -228,6 +228,37 @@ class TestSubirYBorrar:
 
         assert resp.status_code == 400, resp.text[:300]
 
+    def test_estado_del_modo_reemplazo_sin_abiertos_es_replacement_done(
+            self, escenario, db_session):
+        """Sin reemplazos abiertos el aviso NO es «en revisión»: ya no hay nada."""
+        from itcj2.apps.titulatec.pages.student import _docs_status_ctx
+
+        esc = escenario(current_phase=2, abiertos={"curp": "approved"})  # bandera vieja = cerrado
+
+        ctx = _docs_status_ctx(db_session, esc.process, mode="replacement")
+
+        assert ctx["state"] == "replacement_done"
+        assert ctx["names"] == []
+
+    def test_subida_negada_por_r8_no_dice_en_revision(self, escenario, client_as,
+                                                      db_session, monkeypatch):
+        """La guarda de la ruta pasa pero el reemplazo ya se cerro (R8 en `save`):
+        el slot muestra el error y el aviso dice que SE ya aprobo, no «en revision»."""
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+
+        esc = escenario(current_phase=2, abiertos={"birth_certificate": "approved"})
+        monkeypatch.setattr(DocumentService, "student_can_replace",
+                            staticmethod(lambda db, process, type_code: True))
+
+        resp = client_as(esc.student).post(f"{DOCS}/birth_certificate", files={"archivo": PDF})
+
+        assert resp.headers.get("X-Tt-Error")
+        html = resp.text
+        assert "ya aprobó tu documento" in html
+        assert "en revisión" not in html
+        assert "Tu reemplazo llegó a Servicios Escolares" not in html
+        assert _doc(db_session, esc.process.id, "birth_certificate").review_status == "approved"
+
     def test_borrar_sigue_negado_aun_con_reemplazo_abierto(self, escenario, client_as,
                                                            db_session):
         esc = escenario(current_phase=2, abiertos={"birth_certificate": "rejected"})
