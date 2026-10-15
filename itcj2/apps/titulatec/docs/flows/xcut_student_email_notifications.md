@@ -519,10 +519,10 @@ del barrido diario es su `cron_expression` en `core_periodic_tasks` (editable en
   'titulatec.email_dispatch';` (o desde `/config/system/tasks`)—; el beat lo toma solo en ≤30 s
   (`_reload_from_db` reconstruye el schedule entero, cron incluido). Solo aplica a la base de dev:
   producción siembra desde cero con `*/5`.
-- Comando `titulatec init-email-tasks [--dry-run]` (`cli/titulatec.py:1156-1193`): corre SOLO ese
-  archivo (`_DML_MAIL_2026_09_FILES`, `:1153`). El archivo también está en `SEED_FILES`
-  (`cli/titulatec.py:94`, antes del 15), así que una instalación desde cero ya lo siembra con
-  `init-titulatec` (`_run_sql_files(SEED_FILES)`, `:283`); en producción ese comando completo NUNCA
+- Comando `titulatec init-email-tasks [--dry-run]` (`itcj2/cli/titulatec/deltas.py::init_email_tasks_command`): corre SOLO ese
+  archivo (`itcj2/cli/titulatec/deltas.py::_DML_MAIL_2026_09_FILES`). El archivo también está en `SEED_FILES`
+  (`itcj2/cli/titulatec/_common.py::SEED_FILES`, antes del 15), así que una instalación desde cero ya lo siembra con
+  `init-titulatec` (`itcj2/cli/titulatec/_common.py::_run_sql_files(SEED_FILES)`); en producción ese comando completo NUNCA
   se re-ejecuta, y por eso el despliegue de este delta usa `init-email-tasks`, que corre solo este
   archivo. Idempotente.
 

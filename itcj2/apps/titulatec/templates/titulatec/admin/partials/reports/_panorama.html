@@ -1,0 +1,157 @@
+{# Pestaña Panorama (spec §5.1): lo que cabe en una pantalla.
+
+   1. Cuatro stat tiles (sin gráfica de una barra): Liberados (+ sparkline del
+      rango), Ritmo (+ pronóstico y la frase obligatoria), Solicitudes por
+      revisar (+ la más vieja) y Atorados (rojo · ámbar, icono + texto).
+   2. Alertas (máx. 5, reglas fijas): arriba de las gráficas porque son lo que
+      pide acción; «Sin alertas» si ninguna dispara.
+   3. «¿Quién tiene la pelota?» a lo ancho (Ronda 2, R2/R4c): por área, la
+      barra partida por MOTIVO (tintes del color del área, sobre el mismo eje
+      que las demás áreas) + la lista de motivos con su conteo, la proyección
+      (si el motivo tiene un ritmo de salida claro) y la liga a Atorados
+      `?motive=`. Cada pendiente cuenta una vez por área, en su PRIMER motivo
+      (la nota lo dice), así que la lista suma el total del área. La identidad
+      del motivo la da la ETIQUETA de la lista, no el tinte.
+   4. «Dónde están hoy» (etapas, rampa ordinal por grupo).
+   Cada número/barra liga a la lista de personas detrás (D7): Atorados
+   prefiltrado. Contrato de llaves: `report_service._ctx_panorama`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import nav, chart_card, stat_tile, hbars, segbar, sparkline, legend, table_twin %}
+{%- set p = panorama %}
+{%- set k = p.kpis %}
+{%- set ritmo_tab = tabs|selectattr("code", "equalto", "ritmo")|first %}
+{%- set rango = ("los últimos " ~ filters.range_days ~ " días") if filters.range_days else "toda la convocatoria" %}
+
+<div class="tt-rep-kpis" id="tt-rep-kpis">
+  {#- La sparkline va FUERA de la liga del tile (`after`): se enfoca sola y su
+      `aria-label` lleva los valores por día, la vía sin ratón de esta serie
+      (la tabla completa está en Ritmo). #}
+  {%- set spark_txt = "Liberados por día en " ~ rango ~ ": " ~ k.liberated.spark_values|join(", ") %}
+  {%- set spark %}{{ sparkline(k.liberated.spark, k.liberated.spark_width, k.liberated.spark_height,
+                               spark_txt, spark_txt, focusable=True) }}{% endset %}
+  {% call stat_tile("tt-rep-kpi-liberated", "Liberados", k.liberated.total, k.liberated.url, k.liberated.body_url, after=spark) %}
+  <span class="tt-rep-kpi-line">{{ k.liberated.in_range }} en {{ rango }}</span>
+  {% endcall %}
+
+  {% call stat_tile("tt-rep-kpi-pace", "Ritmo de liberación", k.pace.text, ritmo_tab.url, ritmo_tab.body_url, unit="por día hábil") %}
+  <span class="tt-rep-kpi-line">Pronóstico: <strong>{{ k.pace.forecast_text }}</strong></span>
+  <span class="tt-rep-kpi-note">{{ k.pace.pending }} {{ "pendiente" if k.pace.pending == 1 else "pendientes" }}; {{ k.pace.note }}.</span>
+  {% endcall %}
+
+  {% call stat_tile("tt-rep-kpi-requests", "Solicitudes por revisar", k.requests.pending, k.requests.url, k.requests.body_url) %}
+  {% if k.requests.oldest_days is not none %}
+  {%- set od = k.requests.oldest_days %}
+  <span class="tt-rep-kpi-line">La más vieja:
+    {#- Estado = icono + PALABRA («atorada»/«lenta»), nunca solo el color. #}
+    {% if od >= idle.crit %}<span class="tt-rep-status tt-rep-status--crit"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>{{ od }} días · atorada</span>
+    {%- elif od >= idle.warn %}<span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ od }} días · lenta</span>
+    {%- else %}<strong>{{ od }} {{ "día" if od == 1 else "días" }}</strong>{% endif %}
+  </span>
+  {% else %}
+  <span class="tt-rep-kpi-line">Ninguna en espera</span>
+  {% endif %}
+  {% endcall %}
+
+  {% call stat_tile("tt-rep-kpi-stuck", "Atorados", k.stuck.crit, k.stuck.url, k.stuck.body_url,
+                    unit=("atorado" if k.stuck.crit == 1 else "atorados"), icon="bi-exclamation-octagon-fill",
+                    tone=("crit" if k.stuck.crit else None)) %}
+  <span class="tt-rep-kpi-line"><i class="bi bi-hourglass-split tt-rep-ico-warn" aria-hidden="true"></i>{{ k.stuck.warn }} {{ "lento" if k.stuck.warn == 1 else "lentos" }}</span>
+  <span class="tt-rep-kpi-note">Sin movimiento: atorado {{ idle.crit }}+ días, lento {{ idle.warn }}+.</span>
+  {% endcall %}
+</div>
+
+<section class="tt-card tt-rep-card" id="tt-rep-alerts" aria-labelledby="tt-rep-alerts-title">
+  <header class="tt-rep-card-head">
+    <h2 class="tt-rep-card-title" id="tt-rep-alerts-title">Alertas</h2>
+    <p class="tt-rep-card-sub">Solo aparecen las reglas que se cumplen hoy; cada una lleva a su lista.</p>
+  </header>
+  {% if p.alerts %}
+  <ul class="tt-rep-alerts">
+    {%- for a in p.alerts %}
+    <li>
+      {%- if a.body_url %}
+      <a class="tt-rep-alert" id="tt-rep-alert-{{ a.code }}" {{ nav(a.url, a.body_url, True) }}>
+      {%- else %}
+      <a class="tt-rep-alert" id="tt-rep-alert-{{ a.code }}" href="{{ a.url }}" hx-get="{{ a.url }}"
+         hx-target="#tt-admin-content" hx-select="#tt-admin-content" hx-swap="morph:outerHTML" hx-push-url="true">
+      {%- endif %}
+        <span class="tt-rep-status tt-rep-status--{{ a.level }}"><i class="bi {{ a.icon }}" aria-hidden="true"></i>{{ "Urgente" if a.level == "crit" else "Atención" }}</span>
+        <span class="tt-rep-alert-text">{{ a.text }}</span>
+        <i class="bi bi-arrow-right tt-rep-alert-go" aria-hidden="true"></i>
+      </a>
+    </li>
+    {%- endfor %}
+  </ul>
+  {% else %}
+  <p class="tt-rep-ok"><i class="bi bi-check-circle" aria-hidden="true"></i>Sin alertas: ninguna regla se cumple con estos filtros.</p>
+  {% endif %}
+</section>
+
+{% call chart_card("tt-rep-balls", "¿Quién tiene la pelota?", "Pendientes según el área que debe moverlos, partidos por motivo. Toca un motivo para ver su lista.", cls="tt-rep-balls") %}
+  {% if p.with_ball %}
+  <ul class="tt-rep-areas" id="tt-rep-ball-list" aria-label="Pendientes por área responsable y motivo">
+    {%- for b in p.balls %}
+    <li class="tt-rep-area" id="tt-rep-ball-{{ b.code }}">
+      <div class="tt-rep-area-id">
+        <a class="tt-rep-area-name" id="tt-rep-ball-{{ b.code }}-link" {{ nav(b.url, b.body_url, True) }} data-tt-tip="{{ b.tip }}">
+          <span class="tt-rep-key tt-rep-key--rect tt-rep-c--a-{{ b.code }}" aria-hidden="true"></span>{{ b.label }}
+        </a>
+        {%- if b.stuck %}
+        <a class="tt-rep-status tt-rep-status--{{ 'crit' if b.crit else 'warn' }} tt-rep-stuck" id="tt-rep-ball-{{ b.code }}-stuck" {{ nav(b.stuck_url, b.stuck_body_url, True) }}>
+          <i class="bi {{ 'bi-exclamation-octagon-fill' if b.crit else 'bi-hourglass-split' }}" aria-hidden="true"></i>{{ b.stuck }} {{ "lento o atorado" if b.stuck == 1 else "lentos o atorados" }}
+        </a>
+        {%- endif %}
+      </div>
+      {% call(m) segbar("tt-rep-ball-" ~ b.code ~ "-bar", b.motives, b.label ~ ": " ~ b.value ~ (" pendiente" if b.value == 1 else " pendientes"),
+                        "m", b.value, items=b.motives, kkey="code", item_prefix="tt-rep-ball-" ~ b.code ~ "-m") %}
+        {%- if m.docs is not none %}
+        <span class="tt-rep-sbar-sub">{{ m.docs }} {{ "documento" if m.docs == 1 else "documentos" }} por dictaminar</span>
+        {%- endif %}
+        {%- if m.forecast %}
+        <span class="tt-rep-sbar-sub tt-rep-sbar-proj tt-rep-sbar-proj--{{ m.forecast.status }}"><i class="bi {{ 'bi-calendar-x' if m.forecast.status == 'no_pace' else 'bi-calendar-check' }}" aria-hidden="true"></i>{{ m.forecast.text }}</span>
+        {%- endif %}
+      {% endcall %}
+    </li>
+    {%- endfor %}
+  </ul>
+  <div class="tt-rep-foot tt-rep-notes" id="tt-rep-balls-notes">
+    <p>
+      {{ p.with_ball }} de {{ p.pending_total }} pendientes esperan a alguna área; los demás tienen su cita agendada.
+      {%- if p.multi_ball %} <strong>{{ p.multi_ball }} {{ "pendiente espera a dos áreas" if p.multi_ball == 1 else "pendientes esperan a dos áreas" }}</strong> y cuenta en las dos barras.{% endif %}
+    </p>
+    <p>{{ p.motive_note }} Por eso cada lista suma el total de su área.</p>
+    <p><i class="bi bi-calendar-check" aria-hidden="true"></i> Proyección: con el ritmo de salida de los últimos {{ p.projection_window }} días hábiles; {{ p.projection_note }}. El alumno no lleva proyección: no es una cola de trabajo.</p>
+  </div>
+  {% else %}
+  <p class="tt-rep-empty"><i class="bi bi-check2-circle" aria-hidden="true"></i>Nadie tiene pendientes por mover con estos filtros.</p>
+  {% endif %}
+  {% call table_twin("tt-rep-balls-table", "Pendientes por área responsable y motivo", ["Área", "Motivo", "Pendientes", "Lentos o atorados", "Ritmo de salida", "Proyección"], num_cols=(2, 3)) %}
+    {%- for b in p.balls %}
+    <tr class="tt-rep-trow-area"><th scope="row">{{ b.label }}</th> <td>Total del área</td> <td class="num">{{ b.value }}</td> <td class="num">{{ b.stuck }} ({{ b.crit }} {{ "atorado" if b.crit == 1 else "atorados" }})</td> <td>—</td> <td>—</td></tr>
+    {%- for m in b.motives %}
+    <tr><td><span class="visually-hidden">{{ b.label }}</span></td> <th scope="row">{{ m.label }}{% if m.docs is not none %} ({{ m.docs }} {{ "documento" if m.docs == 1 else "documentos" }}){% endif %}</th> <td class="num">{{ m.value }}</td> <td class="num">—</td>
+      <td>{{ m.forecast.rate_text if m.forecast else "—" }}</td> <td>{{ m.forecast.text if m.forecast else "—" }}</td></tr>
+    {%- endfor %}
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}
+
+{#- La etapa legada (`unverified`) ya no se escribe: en cero no ocupa renglón
+    (la tabla gemela sí la lista). #}
+{%- set stage_rows = [] %}
+{%- for s in p.stages %}{% if s.value or s.code != "req_unverified" %}{% set _ = stage_rows.append(s) %}{% endif %}{% endfor %}
+{%- set group_items = [] %}
+{%- for s in p.stages|unique(attribute="group") %}{% set _ = group_items.append({"c": "g-" ~ s.group, "label": s.group_label}) %}{% endfor %}
+{% call chart_card("tt-rep-stages", "Dónde están hoy", "Pendientes y liberados por etapa, en orden del proceso. Toca una barra para ver la lista.", cls="tt-rep-stages") %}
+  {% if p.pending_total or k.liberated.total %}
+  {{ hbars(stage_rows, "tt-rep-stage", "Pendientes por etapa", cprefix="g", ckey="group", scroll=True) }}
+  {{ legend("tt-rep-stages-legend", group_items) }}
+  {% else %}
+  <p class="tt-rep-empty"><i class="bi bi-inbox" aria-hidden="true"></i>Sin solicitudes ni procesos con estos filtros.</p>
+  {% endif %}
+  {% if p.on_hold %}<p class="tt-rep-foot">En pausa: {{ p.on_hold }} {{ "proceso" if p.on_hold == 1 else "procesos" }} (no entran a las etapas).</p>{% endif %}
+  {% call table_twin("tt-rep-stages-table", "Pendientes y liberados por etapa", ["Etapa", "Cantidad"]) %}
+    {%- for s in p.stages %}
+    <tr><td>{{ s.label }}</td> <td class="num">{{ s.value }}</td></tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}

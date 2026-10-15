@@ -669,7 +669,7 @@ antes decía que las áreas envían las constancias); lo de la constancia previa
 El comando que crea los puestos NO puede ser el mismo que enciende el candado: los puestos no
 existen hasta el DML 20 y, si el 22 corría en el mismo paso, todo egresado de toda convocatoria
 quedaba bloqueado sin nadie (salvo `admin`) que pudiera liberarlo. Por eso son dos comandos
-(`itcj2/cli/titulatec.py`), y `SEED_FILES` (alta desde cero con `init-titulatec`) conserva los
+(`itcj2/cli/titulatec/biblioteca.py`), y `SEED_FILES` (alta desde cero con `init-titulatec`) conserva los
 CUATRO archivos juntos —ahí no hay procesos que proteger, y el 23 ahí no cambia nada (el 17 ya
 siembra ese texto)—:
 

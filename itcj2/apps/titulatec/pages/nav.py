@@ -73,7 +73,9 @@ def sv_core(path: str) -> str:
 _ROLE_DASHBOARD = [
     ("admin",                          "/titulatec/admin/"),
     ("titulatec_titulaciones",         "/titulatec/admin/"),
-    ("titulatec_school_services_head", "/titulatec/admin/"),
+    # La jefa aterriza en el Tablero (spec 2026-10-14 D9). `admin` va primero y
+    # sigue en la Bandeja (y `resolve_dashboard_url` corta con el JWT admin).
+    ("titulatec_school_services_head", "/titulatec/admin/tablero"),
     ("titulatec_school_services",      "/titulatec/admin/"),
     # Departamento de Titulacion (rol de 2026-09-21; sin esta fila aterrizaba en
     # `/itcj/dashboard`). Desde 2026-10-07 (spec 2026-10-07-titulatec-liberados-
@@ -96,12 +98,30 @@ _ROLE_DASHBOARD = [
 ]
 
 
-def resolve_dashboard_url(roles: set[str], jwt_role: str | None = None) -> str:
-    """Devuelve la URL de dashboard según los roles del usuario en la app."""
+# El Tablero exige este permiso; el aterrizaje de la jefa depende de tenerlo.
+_REPORTS_URL = "/titulatec/admin/tablero"
+_REPORTS_PERM = "titulatec.reports.page.view"
+
+
+def resolve_dashboard_url(
+    roles: set[str],
+    jwt_role: str | None = None,
+    perms: set[str] | None = None,
+) -> str:
+    """Devuelve la URL de dashboard según los roles del usuario en la app.
+
+    `perms` (opcional) son los permisos efectivos del usuario en la app. Con él,
+    el aterrizaje al Tablero exige además `titulatec.reports.page.view`: entre el
+    deploy y `titulatec init-reportes` la jefa cae en la Bandeja en vez de un 403.
+    Con `perms=None` solo cuentan los roles (comportamiento anterior).
+    """
     if jwt_role == "admin":
         return "/titulatec/admin/"
     for role_name, url in _ROLE_DASHBOARD:
         if role_name in roles:
+            if url == _REPORTS_URL and perms is not None and _REPORTS_PERM not in perms:
+                # Sin el permiso: como el resto de Escolares, a la Bandeja.
+                return "/titulatec/admin/"
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"
@@ -126,6 +146,9 @@ def get_titulatec_roles(user_id: int) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _ADMIN_NAV = [
+    # Tablero de la jefa de Servicios Escolares (2026-10-14): solo lectura, un
+    # solo código por fila (`perms & need` es OR). Va PRIMERO.
+    ("Tablero",             "bi-speedometer2", "/titulatec/admin/tablero",    {"titulatec.reports.page.view"}),
     ("Bandeja",             "bi-inbox",       "/titulatec/admin/",             {"titulatec.dashboard.school_services", "titulatec.dashboard.titulaciones"}),
     ("Procesos",            "bi-people",      "/titulatec/admin/processes",    {"titulatec.process.page.list"}),
     ("Documentos",          "bi-file-earmark-check", "/titulatec/admin/documents",    {"titulatec.document.page.list"}),

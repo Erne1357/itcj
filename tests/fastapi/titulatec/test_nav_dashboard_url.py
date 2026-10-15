@@ -42,9 +42,10 @@ def test_un_actor_de_escolares_y_de_gtv_aterriza_por_escolares():
     así que un actor con ambos sigue viendo primero la bandeja de Escolares
     (y, aparte, TODOS los items que sus permisos alcancen en el menú -- eso
     lo cubre `test_survey_reviews_admin_routes.py`, que sí necesita BD)."""
+    # La jefa aterriza en el Tablero desde 2026-10-14 (D9).
     assert (resolve_dashboard_url(
         {"titulatec_school_services_head", "titulatec_tech_management"})
-        == "/titulatec/admin/")
+        == "/titulatec/admin/tablero")
     assert (resolve_dashboard_url(
         {"titulatec_school_services", "titulatec_tech_management"})
         == "/titulatec/admin/")
@@ -126,3 +127,86 @@ def test_el_landing_manda_a_centro_de_computo_a_accesos(
 
     assert resp.status_code == 302, resp.text[:300]
     assert resp.headers["location"] == ACCESOS
+
+
+# --- Aterrizaje tolerante de la jefa (spec 2026-10-14-titulatec-cli-paquete §1) ---
+
+TABLERO = "/titulatec/admin/tablero"
+REPORTS_PERM = "titulatec.reports.page.view"
+BANDEJA = "/titulatec/admin/"
+
+
+def test_jefa_con_el_permiso_en_perms_aterriza_en_el_tablero():
+    assert (resolve_dashboard_url({"titulatec_school_services_head"}, perms={REPORTS_PERM})
+            == TABLERO)
+
+
+def test_jefa_sin_el_permiso_en_perms_aterriza_en_la_bandeja():
+    """Entre el deploy y `titulatec init-reportes` la jefa no recibe un 403."""
+    assert (resolve_dashboard_url({"titulatec_school_services_head"}, perms=set())
+            == BANDEJA)
+    assert (resolve_dashboard_url({"titulatec_school_services_head"},
+                                  perms={"titulatec.dashboard.school_services"})
+            == BANDEJA)
+
+
+def test_sin_perms_se_conserva_el_comportamiento_por_rol():
+    """`perms=None` (otros llamadores): solo roles, como antes."""
+    assert resolve_dashboard_url({"titulatec_school_services_head"}) == TABLERO
+
+
+def test_perms_no_cambia_a_admin_ni_a_los_demas_roles():
+    assert resolve_dashboard_url({"admin"}, jwt_role="admin", perms=set()) == BANDEJA
+    assert (resolve_dashboard_url({"titulatec_school_services_head"}, jwt_role="admin",
+                                  perms={REPORTS_PERM}) == BANDEJA)
+    assert resolve_dashboard_url({"titulatec_computer_center"}, perms=set()) == ACCESOS
+    assert resolve_dashboard_url({"graduate"}, perms=set()) == STUDENT_DASHBOARD
+    assert resolve_dashboard_url({"titulatec_school_services"}, perms=set()) == BANDEJA
+    assert resolve_dashboard_url(set(), perms=set()) == "/itcj/dashboard"
+
+
+def _jefa_real(db_session, make_user, make_role, grant_user_role, *, con_permiso):
+    """Usuario con el rol REAL `titulatec_school_services_head` (el landing resuelve
+    por nombre de rol). La base de dev puede traer ya el permiso (tras
+    `init-reportes`): se pone o se quita dentro del savepoint de la prueba."""
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+    from tests.fastapi.titulatec.conftest import HEAD_PERMS
+
+    sin = tuple(p for p in HEAD_PERMS if p != REPORTS_PERM)
+    rol = make_role("titulatec_school_services_head",
+                    sin + ((REPORTS_PERM,) if con_permiso else ()))
+    if not con_permiso:
+        perm_ids = [pid for (pid,) in db_session.query(Permission.id)
+                    .filter(Permission.code == REPORTS_PERM).all()]
+        if perm_ids:
+            db_session.query(RolePermission).filter(
+                RolePermission.role_id == rol.id,
+                RolePermission.perm_id.in_(perm_ids),
+            ).delete(synchronize_session=False)
+            db_session.flush()
+    user = make_user(first_name="JEFA", last_name="FICTICIA")
+    grant_user_role(user, rol)
+    return user
+
+
+def test_el_landing_manda_a_la_jefa_con_el_permiso_al_tablero(
+    client_as, db_session, make_user, make_role, grant_user_role,
+):
+    jefa = _jefa_real(db_session, make_user, make_role, grant_user_role, con_permiso=True)
+
+    resp = client_as(jefa).get("/titulatec/", follow_redirects=False)
+
+    assert resp.status_code == 302, resp.text[:300]
+    assert resp.headers["location"] == TABLERO
+
+
+def test_el_landing_manda_a_la_jefa_sin_el_permiso_a_la_bandeja(
+    client_as, db_session, make_user, make_role, grant_user_role,
+):
+    jefa = _jefa_real(db_session, make_user, make_role, grant_user_role, con_permiso=False)
+
+    resp = client_as(jefa).get("/titulatec/", follow_redirects=False)
+
+    assert resp.status_code == 302, resp.text[:300]
+    assert resp.headers["location"] == BANDEJA

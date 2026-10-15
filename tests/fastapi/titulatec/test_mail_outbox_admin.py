@@ -341,7 +341,8 @@ def test_seed_files_trae_el_delta_antes_del_15():
 
 
 def _requires_dml():
-    from itcj2.cli.titulatec import DML_TITULATEC, _DML_OUTBOX_2026_10_DIR
+    from itcj2.cli.titulatec import DML_TITULATEC
+    from itcj2.cli.titulatec.deltas import _DML_OUTBOX_2026_10_DIR
 
     return pytest.mark.skipif(
         not (DML_TITULATEC / _DML_OUTBOX_2026_10_DIR).is_dir(),
@@ -351,8 +352,9 @@ def _requires_dml():
 
 @_requires_dml()
 def test_el_directorio_lista_exactamente_su_archivo():
-    from itcj2.cli.titulatec import (
-        DML_TITULATEC, _DML_OUTBOX_2026_10_DIR, _DML_OUTBOX_2026_10_FILES,
+    from itcj2.cli.titulatec import DML_TITULATEC
+    from itcj2.cli.titulatec.deltas import (
+        _DML_OUTBOX_2026_10_DIR, _DML_OUTBOX_2026_10_FILES,
     )
 
     en_disco = sorted(p.name for p in (DML_TITULATEC / _DML_OUTBOX_2026_10_DIR).glob("*.sql"))
@@ -361,8 +363,9 @@ def test_el_directorio_lista_exactamente_su_archivo():
 
 @_requires_dml()
 def test_el_sql_concede_solo_a_admin():
-    from itcj2.cli.titulatec import (
-        DML_TITULATEC, _DML_OUTBOX_2026_10_DIR, _DML_OUTBOX_2026_10_FILES,
+    from itcj2.cli.titulatec import DML_TITULATEC
+    from itcj2.cli.titulatec.deltas import (
+        _DML_OUTBOX_2026_10_DIR, _DML_OUTBOX_2026_10_FILES,
     )
 
     texto = (DML_TITULATEC / _DML_OUTBOX_2026_10_DIR / _DML_OUTBOX_2026_10_FILES[0]).read_text(
@@ -374,7 +377,7 @@ def test_el_sql_concede_solo_a_admin():
 
 
 def test_el_comando_corre_su_archivo_y_verifica():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files") as correr, \
             patch.object(cli, "_verify_outbox_admin", return_value=[]) as verificar:
@@ -386,7 +389,7 @@ def test_el_comando_corre_su_archivo_y_verifica():
 
 
 def test_el_comando_aborta_si_no_aterrizo():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files"), \
             patch.object(cli, "_verify_outbox_admin",
@@ -399,7 +402,7 @@ def test_el_comando_aborta_si_no_aterrizo():
 def test_verify_lee_la_base(patched_session_local, make_role):
     """Con el permiso en un rol `admin` de prueba, nada que reportar; sin la
     concesión, lo dice. Sesión interceptada por `patched_session_local`."""
-    from itcj2.cli.titulatec import _verify_outbox_admin
+    from itcj2.cli.titulatec.deltas import _verify_outbox_admin
 
     # La base de dev ya trae el 24 cargado (o no): se fuerza el estado bueno.
     make_role("admin", (PERM,))

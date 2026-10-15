@@ -27,9 +27,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import (
-    DML_TITULATEC,
-    SEED_FILES,
+from itcj2.cli.titulatec import DML_TITULATEC, SEED_FILES
+from itcj2.cli.titulatec.deltas import (
     _DML_MAIL_2026_09_DIR,
     _DML_MAIL_2026_09_FILES,
     init_email_tasks_command,
@@ -65,7 +64,7 @@ def test_seed_files_incluye_el_delta_antes_del_15():
 def test_dry_run_lista_sin_ejecutar():
     """`--dry-run` no debe requerir `database/` en disco: solo lista lo que
     correria, sin tocar `_run_sql_files` (que sí exige el archivo)."""
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar:
+    with patch("itcj2.cli.titulatec.deltas._run_sql_files") as ejecutar:
         res = CliRunner().invoke(init_email_tasks_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
@@ -77,7 +76,7 @@ def test_dry_run_lista_sin_ejecutar():
 def test_corre_solo_el_archivo_de_correo_via_run_sql_files():
     """Sin `--dry-run`: llama `_run_sql_files` con SOLO el delta de correo,
     nunca el resto de `SEED_FILES` (ese es el trabajo de `init-titulatec`)."""
-    with patch("itcj2.cli.titulatec._run_sql_files") as ejecutar:
+    with patch("itcj2.cli.titulatec.deltas._run_sql_files") as ejecutar:
         res = CliRunner().invoke(init_email_tasks_command, [])
 
     assert res.exit_code == 0, res.output

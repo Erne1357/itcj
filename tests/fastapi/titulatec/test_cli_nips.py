@@ -16,7 +16,7 @@ import re
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import cargar_nips_command, exportar_sin_cuenta_command
+from itcj2.cli.titulatec.nips import cargar_nips_command, exportar_sin_cuenta_command
 from tests.fastapi.titulatec.conftest import audit_query
 
 pytestmark = pytest.mark.usefixtures("audit_mark")

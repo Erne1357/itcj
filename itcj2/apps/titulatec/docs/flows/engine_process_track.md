@@ -121,7 +121,7 @@ sequenceDiagram
 | `pages/appointments.py::_detail_ctx` (visor de cotejo) | ídem | visor con 7 documentos en vez de 3 |
 | `pages/admin.py::_detail_ctx` (expediente) | ídem | expediente con 7 documentos en vez de 3 |
 | `services/survey_service.py::form_for_user` | `TrackService.for_process` (del proceso acreditable del usuario) | resuelve `SURVEY_CODES_BY_TRACK[track]` EN ORDEN — ver más abajo |
-| `cli/titulatec.py::_resync_posgrado_phase1` | `TrackService.for_processes` (lote) | re-sincroniza fase 1 tras clasificar las 4 carreras (§ CLI, abajo) |
+| `itcj2/cli/titulatec/posgrado.py::_resync_posgrado_phase1` | `TrackService.for_processes` (lote) | re-sincroniza fase 1 tras clasificar las 4 carreras (§ CLI, abajo) |
 
 `track_pill(track)` (macro, `templates/titulatec/_macros.html:92`): píldora violeta «Posgrado»
 junto a la carrera, vacía para cualquier otro valor. La pintan `partials/documents_body.html`,
@@ -252,7 +252,7 @@ SurveyService.form_for_user(db, user_id: int | None) -> SurveyForm | None   # (:
 ## DML + CLI `titulatec init-posgrado`
 
 `database/DML/titulatec/posgrado_2026_10/` (gitignored; subcarpeta propia, D10) +
-`itcj2/cli/titulatec.py`:
+`itcj2/cli/titulatec/posgrado.py`:
 
 - **`18_classify_posgrado_programs.sql`**: normaliza
   `upper(translate(name, 'áéíóúüÁÉÍÓÚÜ', 'aeiouuAEIOUU'))` y ubica las 4 carreras **por nombre**,
@@ -263,7 +263,7 @@ SurveyService.form_for_user(db, user_id: int | None) -> SurveyForm | None   # (:
   nombres canónicos.
 - **`19_insert_posgrado_doc_types.sql`**: los 4 tipos de documento extra en fase 1, `ON CONFLICT
   (code) DO UPDATE` (idempotente).
-- **Fuente única de los patrones** (`cli/titulatec.py:1245-1252`, `_POSGRADO_NORM`/
+- **Fuente única de los patrones** (`itcj2/cli/titulatec/posgrado.py::_POSGRADO_NORM`/
   `_POSGRADO_PATRONES`): la usan tanto el pre-chequeo como la verificación, para que un cambio en
   el SQL no desincronice al CLI de lo que el SQL en verdad hace.
 - **`_precheck_posgrado()`** (`:1323-1427`, SOLO LECTURA): antes de escribir nada, dice qué rama
@@ -285,7 +285,7 @@ SurveyService.form_for_user(db, user_id: int | None) -> SurveyForm | None   # (:
   siguen en esa fase (vía `TrackService.for_processes` + `DocumentService.sync_initial_phase`, **sin
   avisos ni correos** — la función solo escribe estado) y respeta R-G (un proceso que ya pasó esa
   fase no entra al filtro por `current_phase`).
-- Ambos archivos están además en `SEED_FILES` (`cli/titulatec.py:108-109`, antes del 15 que da
+- Ambos archivos están además en `SEED_FILES` (`itcj2/cli/titulatec/_common.py::SEED_FILES`, antes del 15 que da
   permisos a `admin`): una instalación desde cero (`init-titulatec`) ya los siembra sin gate extra.
 
 ## Despliegue (spec §9, resumen — no duplica el detalle completo)

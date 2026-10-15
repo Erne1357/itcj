@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli.titulatec import import_survey_xlsx_command
+from itcj2.cli.titulatec.encuesta import import_survey_xlsx_command
 from tests.fastapi.titulatec._survey_xlsx import (
     HEADERS, build_xlsx, fila, make_egresados_form,
 )

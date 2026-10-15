@@ -25,6 +25,7 @@ from .cashier_admin import router as cashier_admin_router
 from .certificates_admin import router as certificates_admin_router
 from .mail_admin import router as mail_admin_router
 from .audit_admin import router as audit_admin_router
+from .reports_admin import router as reports_admin_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -48,3 +49,4 @@ titulatec_pages_router.include_router(cashier_admin_router)
 titulatec_pages_router.include_router(certificates_admin_router)
 titulatec_pages_router.include_router(mail_admin_router)
 titulatec_pages_router.include_router(audit_admin_router)
+titulatec_pages_router.include_router(reports_admin_router)

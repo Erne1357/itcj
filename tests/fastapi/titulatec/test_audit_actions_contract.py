@@ -6,7 +6,7 @@ cuatro partes de §8 (la «b», «todo código registrado se usa», la agrega la
 Tarea 10 cuando ya exista la instrumentación):
 
 (a) todo literal que se le pasa a `AuditService.record(` en
-    `itcj2/apps/titulatec/**`, `itcj2/cli/titulatec.py` e
+    `itcj2/apps/titulatec/**`, `itcj2/cli/titulatec/*.py` e
     `itcj2/tasks/titulatec_tasks.py` está en `AUDIT_ACTIONS` — y es un LITERAL
     en una llamada directa (sin alias ni referencias sueltas a `record`), para
     que (b) pueda encontrarlo;
@@ -28,7 +28,7 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[3]
 _APP_DIR = _REPO / "itcj2" / "apps" / "titulatec"
-_CLI = _REPO / "itcj2" / "cli" / "titulatec.py"
+_CLI_DIR = _REPO / "itcj2" / "cli" / "titulatec"
 _TASKS = _REPO / "itcj2" / "tasks" / "titulatec_tasks.py"
 _ACTIONS_FILE = _APP_DIR / "services" / "audit_actions.py"
 
@@ -212,9 +212,11 @@ def _barrer_llamadas(source: str, origen: str) -> tuple[list, list, list]:
 def _fuentes_instrumentadas() -> list[Path]:
     """Todo lo que puede llamar a `record`: la app, su CLI y sus tareas de Celery."""
     rutas = sorted(_APP_DIR.rglob("*.py"))
-    for extra in (_CLI, _TASKS):
-        assert extra.exists(), f"el contrato debe barrer {extra}, y no existe"
-        rutas.append(extra)
+    cli = sorted(_CLI_DIR.glob("*.py"))
+    assert cli, f"el contrato debe barrer el paquete {_CLI_DIR}, y no tiene módulos"
+    rutas += cli
+    assert _TASKS.exists(), f"el contrato debe barrer {_TASKS}, y no existe"
+    rutas.append(_TASKS)
     return rutas
 
 

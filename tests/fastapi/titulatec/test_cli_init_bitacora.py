@@ -31,7 +31,7 @@ def test_seed_files_tiene_el_25_antes_del_15_y_el_15_al_final():
 
 
 def test_el_comando_corre_solo_el_25_y_verifica():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files") as correr, \
             patch.object(cli, "_verify_bitacora", return_value=[]) as verificar:
@@ -43,7 +43,7 @@ def test_el_comando_corre_solo_el_25_y_verifica():
 
 
 def test_el_comando_aborta_si_no_aterrizo():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files"), \
             patch.object(cli, "_verify_bitacora",
@@ -55,7 +55,7 @@ def test_el_comando_aborta_si_no_aterrizo():
 
 @requires_dml
 def test_dry_run_no_ejecuta_nada_y_no_lista_el_15():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files") as correr:
         res = CliRunner().invoke(cli.init_bitacora_command, ["--dry-run"])
@@ -84,7 +84,7 @@ def test_el_25_concede_el_permiso_a_admin_dentro_de_la_transaccion(
         db_session, patched_session_local, titulatec_app, make_role):
     """Se corre el SQL real del 25 dentro de la transacción del test (se
     revierte): sin el 15, el rol `admin` termina con el permiso."""
-    from itcj2.cli.titulatec import _verify_bitacora
+    from itcj2.cli.titulatec.deltas import _verify_bitacora
     from itcj2.core.models.permission import Permission
     from itcj2.core.models.role import Role
     from itcj2.core.models.role_permission import RolePermission
@@ -111,7 +111,7 @@ def test_el_25_concede_el_permiso_a_admin_dentro_de_la_transaccion(
 def test_verify_lee_la_base(patched_session_local, make_role):
     """Con el permiso en un rol `admin` de prueba, nada que reportar; sin la
     concesion o sin el permiso, lo dice."""
-    from itcj2.cli.titulatec import _verify_bitacora
+    from itcj2.cli.titulatec.deltas import _verify_bitacora
     from itcj2.core.models.permission import Permission
     from itcj2.core.models.role import Role
     from itcj2.core.models.role_permission import RolePermission

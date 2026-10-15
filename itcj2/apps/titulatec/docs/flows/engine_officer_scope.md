@@ -319,7 +319,7 @@ llamar **al mismo guard**.
   `_no_desactiva` (`test_officers_authz.py`) siguen en verde. El rol `admin` recibe TODOS los
   permisos de titulatec (dinámicamente, incluidos los futuros) vía
   `database/DML/titulatec/15_grant_admin_all_perms.sql`, el ÚLTIMO seeder de `SEED_FILES`
-  (`itcj2/cli/titulatec.py`). Tests: `tests/fastapi/titulatec/test_officers_admin_fallback.py`.
+  (`itcj2/cli/titulatec/_common.py::SEED_FILES`). Tests: `tests/fastapi/titulatec/test_officers_admin_fallback.py`.
 - **La validación "usuario fuera del depto" solo existe en el alta, no en la edición.**
   `create_officer` (`officer_service.py:91-94`) calcula `allowed = department_user_ids(...)` y
   `bad = set(user_ids) - allowed`, así que sí rechaza con `ValueError` → `400` + header `X-Tt-Error`

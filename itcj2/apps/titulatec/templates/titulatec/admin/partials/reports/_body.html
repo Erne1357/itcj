@@ -1,0 +1,127 @@
+{# Cuerpo del Tablero (`pages/reports_admin.py`). Raíz `#tt-report-body`: cabecera
+   de impresión, fila de filtros, barra de pestañas y la pestaña activa. Es lo
+   ÚNICO que se repinta: toda liga interna lleva `hx-select` == `hx-target` ==
+   `#tt-report-body` con `morph:outerHTML` (CLAUDE.md de la app, §4) y empuja la
+   URL de la PÁGINA (macro `nav` de `_charts.html`). Ids estables en cada ítem.
+
+   Filtros (spec §5): rango PRIMERO, convocatoria, «Carreras · N ocultas»
+   (`<details>` con chips-enlace: la URL de alternar viene hecha del servidor,
+   sin estado en JS) e Imprimir (`data-tt-print`, `reports.js`). Los dos
+   desplegables son popovers `.tt-rep-pop`; el de Carreras lleva
+   `data-tt-keep` para seguir abierto mientras se ocultan varias.
+
+   La cabecera `#tt-rep-print-head` solo se ve al imprimir (D4): fecha y hora
+   de la consulta (`generated_at_text`, la pone la ruta) y `print_summary`.
+   Encargados, Carreras y Atorados: Task 7b. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import nav %}
+{%- set TAB_ICONS = {"panorama": "bi-grid-1x2", "ritmo": "bi-graph-up-arrow",
+                     "encargados": "bi-people", "carreras": "bi-mortarboard",
+                     "atorados": "bi-hourglass-split"} %}
+<div id="tt-report-body" class="tt-rep" data-tt-view="reports-body" data-tt-tab="{{ tab }}">
+
+  <header class="tt-rep-print-head" id="tt-rep-print-head">
+    <div class="tt-rep-print-title">TitulaTec · Tablero de Servicios Escolares</div>
+    <div class="tt-rep-print-meta">Generado el {{ generated_at_text }} · {{ print_summary }}</div>
+  </header>
+
+  <div class="tt-rep-filters" id="tt-rep-filters">
+    <div class="tt-rep-seg" id="tt-rep-range" role="group" aria-label="Periodo">
+      {%- for r in range_options %}
+      <a class="tt-rep-seg-item{{ ' is-active' if r.active else '' }}" id="tt-rep-range-{{ r.code }}" {{ nav(r.url, r.body_url) }}{% if r.active %} aria-current="true"{% endif %}>{{ r.label }}</a>
+      {%- endfor %}
+    </div>
+
+    {% if cohorts %}
+    <details class="tt-rep-pop" id="tt-rep-cohort">
+      <summary class="tt-rep-pop-btn" title="Convocatoria">
+        <i class="bi bi-calendar3" aria-hidden="true"></i>
+        <span class="visually-hidden">Convocatoria:</span>
+        <span class="tt-rep-pop-v">{{ selected_cohort.name if selected_cohort else "Todas las convocatorias" }}</span>
+        <i class="bi bi-chevron-down tt-rep-pop-chev" aria-hidden="true"></i>
+      </summary>
+      <ul class="tt-rep-pop-panel tt-rep-menu">
+        {%- for c in cohorts %}
+        <li><a id="tt-rep-cohort-{{ c.id }}" class="{{ 'is-active' if c.selected else '' }}" {{ nav(c.url, c.body_url) }}{% if c.selected %} aria-current="true"{% endif %}>
+          <span>{{ c.name }}</span>
+          {%- if c.status == "open" %}<span class="tt-pill tt-pill--success">Abierta</span>{% endif %}
+          {%- if c.selected %}<i class="bi bi-check2 tt-rep-menu-check" aria-hidden="true"></i>{% endif %}
+        </a></li>
+        {%- endfor %}
+      </ul>
+    </details>
+    {% endif %}
+
+    <details class="tt-rep-pop tt-rep-pop--row" id="tt-rep-programs" data-tt-keep>
+      <summary class="tt-rep-pop-btn">
+        <i class="bi bi-mortarboard" aria-hidden="true"></i>
+        <span class="tt-rep-pop-k">Carreras</span>
+        <span class="tt-rep-pop-v">· {% if not hidden_programs_count %}todas{% elif hidden_programs_count == 1 %}1 oculta{% else %}{{ hidden_programs_count }} ocultas{% endif %}</span>
+        <i class="bi bi-chevron-down tt-rep-pop-chev" aria-hidden="true"></i>
+      </summary>
+      <div class="tt-rep-pop-panel tt-rep-pop-panel--wide">
+        <p class="tt-rep-pop-help">Toca una carrera para ocultarla o volver a mostrarla. El número es cuántos pendientes y liberados tiene.</p>
+        {% if program_chips %}
+        <div class="tt-rep-chips">
+          {%- for p in program_chips %}
+          <a class="tt-rep-chip{{ ' is-off' if p.hidden else '' }}" id="tt-rep-prog-{{ p.id }}" role="button"
+             aria-pressed="{{ 'false' if p.hidden else 'true' }}" {{ nav(p.toggle_url, p.body_toggle_url) }}>
+            <i class="bi {{ 'bi-eye-slash' if p.hidden else 'bi-check2' }}" aria-hidden="true"></i><span>{{ p.name }}</span>
+            {%- if p.n is not none %}<span class="tt-rep-chip-n">{{ p.n }}</span>{% endif %}
+          </a>
+          {%- endfor %}
+        </div>
+        {% else %}
+        <p class="tt-rep-pop-help mb-0">No hay carreras con pendientes en este filtro.</p>
+        {% endif %}
+        {% if hidden_programs_count %}
+        <a class="tt-rep-showall" id="tt-rep-show-all" {{ nav(show_all_url, show_all_body_url) }}><i class="bi bi-eye" aria-hidden="true"></i> Mostrar todas</a>
+        {% endif %}
+      </div>
+    </details>
+
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-rep-print" id="tt-rep-print" data-tt-print
+            aria-label="Imprimir el tablero">
+      <i class="bi bi-printer" aria-hidden="true"></i><span class="d-none d-sm-inline"> Imprimir</span>
+    </button>
+  </div>
+
+  <nav class="tt-tabs tt-rep-tabs" id="tt-report-tabs" aria-label="Secciones del tablero">
+    {% for t in tabs %}
+    <a id="tt-report-tab-{{ t.code }}" class="tt-tab{{ ' is-active' if t.active else '' }}"
+       href="{{ t.url }}"
+       hx-get="{{ t.body_url }}"
+       hx-target="#tt-report-body" hx-select="#tt-report-body"
+       hx-swap="morph:outerHTML"
+       hx-push-url="{{ t.url }}"
+       {% if t.active %}aria-current="page"{% endif %}><i class="bi {{ TAB_ICONS.get(t.code, 'bi-dot') }}" aria-hidden="true"></i><span>{{ t.label }}</span></a>
+    {% endfor %}
+  </nav>
+
+  {% if all_hidden %}
+  <div class="tt-card tt-card--accent tt-rep-notice" id="tt-rep-all-hidden" role="status">
+    <i class="bi bi-eye-slash" aria-hidden="true"></i>
+    <span>Ocultaste todas las carreras, así que no hay nada que contar.</span>
+    <a class="tt-rep-showall" {{ nav(show_all_url, show_all_body_url) }}>Mostrar todas</a>
+  </div>
+  {% endif %}
+
+  <section id="tt-report-panel-{{ tab }}" class="tt-rep-panel" aria-labelledby="tt-report-tab-{{ tab }}">
+    {% if no_cohorts %}
+      <div class="tt-card tt-empty" id="tt-rep-no-cohorts">
+        <div class="ico"><i class="bi bi-calendar-x" aria-hidden="true"></i></div>
+        <h6>Aún no hay convocatorias</h6>
+        <p>Cuando exista la primera convocatoria, aquí verás cómo avanza.</p>
+      </div>
+    {% elif tab == "panorama" %}
+      {% include "titulatec/admin/partials/reports/_panorama.html" %}
+    {% elif tab == "ritmo" %}
+      {% include "titulatec/admin/partials/reports/_ritmo.html" %}
+    {% elif tab == "encargados" %}
+      {% include "titulatec/admin/partials/reports/_encargados.html" %}
+    {% elif tab == "carreras" %}
+      {% include "titulatec/admin/partials/reports/_carreras.html" %}
+    {% else %}
+      {% include "titulatec/admin/partials/reports/_atorados.html" %}
+    {% endif %}
+  </section>
+</div>

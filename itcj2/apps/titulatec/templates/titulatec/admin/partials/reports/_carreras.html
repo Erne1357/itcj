@@ -1,0 +1,89 @@
+{# Pestaña Carreras (spec §5.4): una fila por carrera visible, orden por
+   atorados desc. Barra apilada horizontal de etapas (cada segmento toma el
+   color de su GRUPO de etapa, el mismo mapeo de «Dónde están hoy») con el total
+   al final · inscritos · liberados · % liberado · atorados · proyección. Los
+   encargados de la carrera van bajo su nombre (plegables con 2 o más): así la
+   tabla cabe a 1280 y la última columna (la que `.tt-table-wrap` deja fija a la
+   derecha) es la proyección.
+
+   Una carrera con solo pausados o terminados tiene `total` 0 y `segments`
+   vacío: la barra sale en gris con «sin pendientes ni liberados» y sus
+   inscritos se leen igual.
+
+   Ronda 2 (R4b): columna «Proyección» = pendientes de la carrera ÷ sus
+   liberados por día hábil de los últimos 10 días hábiles (`rows[*].forecast`):
+   fecha + días hábiles, «Sin ritmo medible» (ritmo 0) o «Al día» (sin
+   pendientes). Contrato de llaves: `report_service._ctx_carreras`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import chart_card, stacked_bar, legend, table_twin %}
+{%- set c = carreras %}
+
+{% call chart_card("tt-rep-programs-card", "Avance por carrera", "Dónde está cada proceso de la carrera hoy, de la solicitud a la liberación. La barra mide la composición de lo pendiente y lo liberado; el total va al final de la barra. Primero las carreras con más atorados.", cls="tt-rep-programs-card") %}
+  {% if c.rows %}
+  {%- set leg = [] %}
+  {%- for g in c.stage_legend %}{% set _ = leg.append({"c": "g-" ~ g.code, "label": g.label}) %}{% endfor %}
+  {{ legend("tt-rep-programs-legend", leg) }}
+  <div class="tt-table-wrap">
+    <table class="table tt-rep-ctable" id="tt-rep-programs-table">
+      <caption class="visually-hidden">Avance por carrera</caption>
+      <thead>
+        <tr>
+          <th scope="col">Carrera <span class="tt-rep-osub">· encargados</span></th>
+          <th scope="col" class="tt-rep-cbarcol">Etapas <span class="tt-rep-osub">· total</span></th>
+          <th scope="col" class="num">Inscritos</th>
+          <th scope="col" class="num">Liberados</th>
+          <th scope="col" class="num">% liberado</th>
+          <th scope="col" class="num">Atorados</th>
+          <th scope="col" class="tt-rep-cproj">Proyección</th>
+        </tr>
+      </thead>
+      <tbody>
+        {%- for r in c.rows %}
+        {%- set rid = r.id if r.id is not none else "none" %}
+        <tr id="tt-rep-car-{{ rid }}">
+          <th scope="row" class="tt-rep-cname">
+            <span class="tt-rep-cname-t">{{ r.name }}</span>
+            {%- if r.officers|length > 1 %}
+            <details class="tt-rep-cofficers-d" id="tt-rep-car-{{ rid }}-officers-d" data-tt-keep>
+              <summary>{{ r.officers|length }} encargados</summary>
+              <span class="tt-rep-cofficers" id="tt-rep-car-{{ rid }}-officers">{{ r.officers|join(", ") }}</span>
+            </details>
+            {%- elif r.officers %}
+            <span class="tt-rep-cofficers" id="tt-rep-car-{{ rid }}-officers">{{ r.officers[0] }}</span>
+            {%- else %}
+            <span class="tt-rep-cofficers" id="tt-rep-car-{{ rid }}-officers"><span class="tt-rep-osub">{{ "Sin carrera asignada" if r.id is none else "Sin encargado" }}</span></span>
+            {%- endif %}
+          </th>
+          <td class="tt-rep-cbarcol"><div class="tt-rep-cbar">{{ stacked_bar("tt-rep-car-" ~ rid ~ "-bar", r.segments, "Etapas de " ~ r.name) }}<span class="tt-rep-cbar-n" id="tt-rep-car-{{ rid }}-total">{{ r.total }}</span></div></td>
+          <td class="num" id="tt-rep-car-{{ rid }}-enrolled">{{ r.enrolled }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-liberated">{{ r.liberated }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-pct">{{ r.pct_text }}</td>
+          <td class="num" id="tt-rep-car-{{ rid }}-stuck">
+            {%- if r.crit %}<span class="tt-rep-status tt-rep-status--crit"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i>{{ r.crit }} {{ "atorado" if r.crit == 1 else "atorados" }}</span>
+            {%- if r.stuck > r.crit %} <span class="tt-rep-osub">+{{ r.stuck - r.crit }} {{ "lento" if r.stuck - r.crit == 1 else "lentos" }}</span>{% endif %}
+            {%- elif r.stuck %}<span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ r.stuck }} {{ "lento" if r.stuck == 1 else "lentos" }}</span>
+            {%- else %}0{% endif %}
+          </td>
+          <td class="tt-rep-cproj" id="tt-rep-car-{{ rid }}-forecast">
+            {%- set f = r.forecast if r.forecast is defined else none %}
+            {%- if not f %}<span class="tt-rep-osub">—</span>
+            {%- elif f.status in ("ok", "over") %}<span class="tt-rep-cproj-date">{{ f.date_text }}</span> <span class="tt-rep-osub tt-rep-cproj-days">({{ f.days }} {{ "día hábil" if f.days == 1 else "días hábiles" }})</span>
+            {%- elif f.status == "no_pace" %}<span class="tt-rep-osub">Sin ritmo medible</span>
+            {%- else %}<span class="tt-rep-osub">Al día</span>{% endif -%}
+          </td>
+        </tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="tt-rep-foot" id="tt-rep-programs-note"><i class="bi bi-calendar-check" aria-hidden="true"></i> Proyección: pendientes de la carrera ÷ sus liberados por día hábil de los últimos {{ c.projection_window|default(10) }} días hábiles; {{ c.projection_note|default("a este ritmo, sin feriados ni nuevas entradas") }}.</p>
+  {% else %}
+  <p class="tt-rep-empty" id="tt-rep-programs-empty"><i class="bi bi-inbox" aria-hidden="true"></i>No hay carreras con pendientes, liberados o inscritos con estos filtros.</p>
+  {% endif %}
+  {% call table_twin("tt-rep-programs-twin", "Etapas y proyección por carrera", ["Carrera", "Etapas (cantidad por etapa)", "Encargados", "Pendientes", "Ritmo", "Proyección"], text_cols=3) %}
+    {%- for r in c.rows %}
+    {%- set f = r.forecast if r.forecast is defined else none %}
+    <tr><td>{{ r.name }}</td> <td>{% if r.segments %}{% for s in r.segments %}{{ s.label }}: {{ s.value }}{{ "; " if not loop.last else "" }}{% endfor %}{% else %}Sin pendientes ni liberados{% endif %}</td>
+      <td>{{ r.officers|join(", ") if r.officers else "—" }}</td> <td class="num">{{ r.pending if r.pending is defined else "—" }}</td> <td class="num">{{ f.rate_text if f else "—" }}</td> <td class="num">{{ f.text if f else "—" }}</td></tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}

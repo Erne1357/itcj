@@ -40,10 +40,8 @@ from itcj2.apps.titulatec.services.certificate_service import CertificateService
 from itcj2.apps.titulatec.services.folio_backfill_service import FolioBackfillService
 from itcj2.apps.titulatec.services.library_clearance_service import LibraryClearanceService
 from itcj2.apps.titulatec.services.survey_review_service import SurveyReviewService
-from itcj2.cli.titulatec import (
-    _emitir_folios_previos,
-    emitir_folios_previos_command,
-)
+from itcj2.cli.titulatec._common import _emitir_folios_previos
+from itcj2.cli.titulatec.liberaciones import emitir_folios_previos_command
 
 # Octubre de un año sintético: semestre `B` -> el folio cae en `2093A`.
 OCT_2093 = datetime(2093, 10, 5, 9, 30, 0)

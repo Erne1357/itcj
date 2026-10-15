@@ -203,7 +203,7 @@ def test_seed_files_tiene_el_26_despues_del_11_y_el_15_al_final():
 
 
 def test_el_comando_corre_solo_el_26_y_verifica():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files") as correr, \
             patch.object(cli, "_verify_especialidades", return_value=[]) as verificar:
@@ -215,7 +215,7 @@ def test_el_comando_corre_solo_el_26_y_verifica():
 
 
 def test_el_comando_aborta_si_no_aterrizo():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files"), \
             patch.object(cli, "_verify_especialidades",
@@ -227,7 +227,7 @@ def test_el_comando_aborta_si_no_aterrizo():
 
 @requires_dml
 def test_dry_run_no_ejecuta_nada():
-    from itcj2.cli import titulatec as cli
+    from itcj2.cli.titulatec import deltas as cli
 
     with patch.object(cli, "_run_sql_files") as correr:
         res = CliRunner().invoke(cli.init_especialidades_command, ["--dry-run"])

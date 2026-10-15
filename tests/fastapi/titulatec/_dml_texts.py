@@ -8,7 +8,8 @@ importar; quien llame estas funciones va marcado `requires_dml`.
 """
 import re
 
-from itcj2.cli.titulatec import DML_TITULATEC, _DML_MAIL_2026_09_DIR
+from itcj2.cli.titulatec import DML_TITULATEC
+from itcj2.cli.titulatec.deltas import _DML_MAIL_2026_09_DIR
 
 DML_17 = DML_TITULATEC / _DML_MAIL_2026_09_DIR / "17_insert_email_tasks.sql"
 

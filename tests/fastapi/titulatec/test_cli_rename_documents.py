@@ -38,7 +38,7 @@ from types import SimpleNamespace
 import pytest
 from click.testing import CliRunner
 
-from itcj2.cli import titulatec as cli_mod
+from itcj2.cli.titulatec import mantenimiento as cli_mod
 from itcj2.cli.titulatec import titulatec_cli
 
 
