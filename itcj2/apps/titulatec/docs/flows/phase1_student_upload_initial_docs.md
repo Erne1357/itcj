@@ -228,6 +228,56 @@ duda») (ver
   `DocumentService.sync_initial_phase` cuenta contra el set DEL proceso, así que un posgrado con
   los 3 base pero sin los 4 extras se queda en `in_progress`, no en `in_review`.
 
+## Modo reemplazo en la cita de cotejo (2026-10-15)
+
+Spec `2026-10-15-titulatec-reemplazo-cotejo-design.md` §4.3 y §7.2. Flujo completo:
+[`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md). Si en la cita de cotejo
+Servicios Escolares pide reemplazar un documento de la fase 1, el alumno lo re-sube aquí mismo aunque
+la fase 1 ya esté cerrada — **solo ese documento**.
+
+- **`GET /student/documents`** (`documents`, `pages/student.py:1175`). Antes: fuera de la fase 1 la guarda
+  de página (`_phase_guard_page`) redirige al acordeón. Ahora, si redirigiría pero el proceso tiene
+  reemplazos abiertos y `DocumentService.student_can_replace(db, process, type_code)` aplica a alguno
+  (`:1201-1215`), la página se pinta en **modo reemplazo** (`replace_mode`); si no, el redirect de
+  siempre. En la fase 1 esa rama no consulta nada (mismo presupuesto de consultas, plantilla igual).
+- **Qué ve el alumno.** Encabezado «Reemplazo de documentos» / «Cita de cotejo», tarjeta
+  `#tt-replacement-intro` («Servicios Escolares te pidió volver a subir los documentos marcados…»), los
+  documentos con reemplazo abierto con su zona de subida y **el resto de SOLO LECTURA** («Sin enviar» si
+  no hay fila; sin borrar ni subir — `_slot_ctx(readonly=…, replace_mode=…)`, `pages/student.py:496`;
+  `partials/document_slot.html`). `rejected` muestra «Servicios Escolares pidió reemplazarlo», el motivo y
+  «Subir documento de reemplazo»; `pending` muestra «Reemplazo enviado · en revisión» y «Cambiar archivo»
+  (se puede cambiar mientras nadie lo apruebe). **Nunca hay botón de borrar** en este modo.
+- **Aviso de estado propio** (`_docs_status_ctx(mode="replacement")`, `pages/student.py:546/568`; estados
+  `replacement_rejected`: «Falta que subas el reemplazo de: …» / `replacement_sent`: «Tu reemplazo llegó a
+  Servicios Escolares y está en revisión…»), pegado por OOB como el de la fase 1.
+- **`POST /student/documents/{type_code}`** (`document_upload`, `pages/student.py:1271`). `_phase_guard`
+  sigue siendo lo primero; si niega, la subida se permite **solo** si el tipo es de la fase 1 y
+  `student_can_replace` aplica: proceso `active`, `current_phase` == fase `review_appointment`, fila con
+  reemplazo abierto (`replacement_requested_at` y `review_status != "approved"`, el predicado único `DocumentService.replacement_open`). La guarda de la ruta es `DocumentService.student_can_replace`, que a su vez usa `replacement_open` (`pages/student.py:1353-1362`).
+  Cualquier otra cosa devuelve la respuesta de la guarda (400). La guarda del set del perfil
+  (`_initial_docs_set_guard`) sigue aplicando, y la respuesta del slot conserva el modo reemplazo.
+- **`DELETE /student/documents/{type_code}`** (`document_delete`, `:1436`): **sin excepción**. Borrar sigue negado
+  fuera de la fase 1 (`_phase_guard`), con o sin reemplazo abierto — borraría la fila y el fichero de una
+  fase ya dictaminada.
+- **Efecto del `save()`.** Resubir deja el documento `pending`, limpia nota y revisor (como siempre) y
+  **no toca** `replacement_requested_at`: el reemplazo sigue abierto, «por evaluar», hasta que la jefa o
+  un encargado lo aprueben. `sync_initial_phase` no vuelve a mover la fase 1 (ya está `approved`).
+- **Cómo llega el alumno aquí:** aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED`, correo de dictamen de
+  siempre, y el aviso del tablero / «Mi cita» con botón «Subir reemplazo» → `/titulatec/student/documents`
+  (`partials/student/_replacement_notice.html`).
+
+## La versión continúa tras borrar (2026-10-15, D7)
+
+`Document.version` no vuelve a 1 al borrar y re-subir. `DocumentService.save` actualiza una fila existente
+con `version + 1`; al crear una fila NUEVA usa `DocumentService._next_version`
+(`services/document_service.py:604`, llamado en `:738`): `1 + max(subidas previas de ese (proceso, tipo),
+mayor payload.version)` según los `ProcessEvent(document_uploaded)` (una consulta extra, solo al crear;
+sin bitácora da 1). **Datos existentes:** la migración `tt20261015a`
+(`migrations/versions/tt20261015a_titulatec_doc_replacement.py`, `VERSION_FIX_SQL`) corrige
+`version = GREATEST(version, nº de document_uploaded del (proceso, tipo))`, nunca baja una versión y es
+idempotente; en dev eran 120 documentos `version=1` con un `document_deleted` previo. El downgrade quita
+solo la columna del reemplazo, no revierte esa corrección.
+
 ## UI: píldora, fecha de envío y aviso de estado (Tarea 2, 2026-09-28)
 
 Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin botón que tocar
@@ -286,13 +336,16 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
   `egel_proof`) → `400` + `X-Tt-Error` («Este documento no aplica a tu proceso.»), sin fila
   `Document` ni archivo en disco — `_initial_docs_set_guard`, detalle arriba y en
   [el perfil de titulación](engine_process_track.md).
-- Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe versión).
+- Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe el archivo; `version` suma 1, y tras un borrado continúa la numeración — ver «La versión continúa tras borrar»).
 - **Fuera de la fase 1** ([guarda de fase](engine_student_phase_lock.md)): `GET
   /student/documents` responde `302` a `/student/dashboard?fase=1` (el acordeón, que sí
   explica la fase) y los pasos 2-3 devuelven `400` + `X-Tt-Error`. Son los que antes
   dejaban **borrar un documento aprobado** —fila y fichero— desde la fase 2 (el otro
   agujero del reporte, **reabrir la fase 1 ya aprobada** vía `POST /phase/1/submit`, ya no
   aplica: esa ruta no existe).
+- **Excepción (2026-10-15):** si la jefatura pidió el reemplazo de un documento en la cita de cotejo, la
+  subida de ESE documento sí pasa estando en la fase 2 y `GET /student/documents` no redirige
+  (modo reemplazo, sección de arriba). El borrado sigue negado.
 - El paso 2 guarda por el **tipo**, no por la URL: subir un `DocumentType` de otra fase
   (`anexo_iii`, `ine`, `final_project`…) también da `400`.
 - Fase 1 `rejected` → sigue abierta: es el camino de corrección y reenvío.
@@ -300,6 +353,7 @@ Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin bot�
 ## Flujos relacionados
 
 - ← Previo: [import CSV](phase0_school_services_import_csv.md) (crea el proceso).
+- ⤵ Reabierta en la fase 2 para un documento: [reemplazo de documento en el cotejo](xcut_cotejo_document_replacement.md).
 - ⤵ Siguiente: [revisión admin de docs iniciales](phase1_admin_review_initial_docs.md).
 - ⤵ De dónde sale el set de 3 vs. 7 y el perfil del proceso: [perfil de titulación por nivel de
   carrera](engine_process_track.md).

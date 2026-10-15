@@ -125,7 +125,10 @@ que no llame a `StudentMail` sale en rojo).
 
 ## Guarda de transición (desde 2026-09)
 
-`approve_phase` y `reject_phase` empiezan llamando a `PhaseService.assert_can_transition`
+`approve_phase` y `reject_phase` empiezan bloqueando la fila del proceso
+(`PhaseService._lock_process_row`, `FOR NO KEY UPDATE` + relectura; Ruling R14, 2026-10-15: así
+dos dictámenes simultáneos de la misma fase se hacen uno tras otro y el segundo valida sobre el
+estado ya movido) y luego llaman a `PhaseService.assert_can_transition`
 (`services/phase_service.py:121-133`, que delega la comprobación en `_transition_error`,
 `:72-106`), que lanza `ValueError` si falla alguna de las **cuatro** reglas. La ruta lo traduce
 al canal de error de la app: `400` + header `X-Tt-Error` (`pages/admin.py:1590`, `:1621`), y el
@@ -176,8 +179,9 @@ dictamen tardío, que es su uso normal, no una excepción). Detalle completo de 
   (solo `pending`/`rejected` pasan a `in_progress`).
 - Proceso inexistente → `404` (antes se renderizaba el detalle con contexto `None`).
 - El auto-avance del dictamen de documentos (`pages/documents.py:198-203`) pregunta con
-  `PhaseService.can_transition` en vez de atrapar la excepción: si el proceso no está `active` o ya
-  no está en la fase 1, simplemente no avanza. (Ese dictamen en sí, desde 2026-09-21, puede
+  `PhaseService.can_transition` (filtro sin bloqueo) y ADEMÁS atrapa el `ValueError` de
+  `approve_phase`: si el proceso no está `active`, ya no está en la fase 1, u otro revisor avanzó
+  la fase al mismo tiempo (R14), simplemente no avanza y responde 200. (Ese dictamen en sí, desde 2026-09-21, puede
   rechazarse *antes* de llegar aquí si el TIPO del documento pertenece a una fase congelada por
   el corte — guarda distinta a esta, angosta a propósito: ver
   [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).)

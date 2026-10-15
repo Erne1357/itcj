@@ -30,6 +30,10 @@
   {% include "titulatec/partials/cita_card.html" %}
 </div>
 
+{# Reemplazo de documento pedido en el cotejo (2026-10-15): FUERA de
+   `#tt-cita-card`, que se swappea solo y se llevaría el aviso. #}
+{% include "titulatec/partials/student/_replacement_notice.html" %}
+
 {# — Requisitos de cotejo de SU convocatoria (D10): plegados, `open` solo con
    una cita vigente VIVA (`scheduled`/`confirmed`/`in_progress`) -mismos tres
    estados que `_ESTADOS_ACTIVOS`-. Contenido sin cambios respecto a la

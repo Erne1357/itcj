@@ -37,8 +37,8 @@
    =========================================================================== #}
 {% set _s = status_oob if (status_oob is defined and status_oob) else status %}
 {% set _oob = status_oob is defined and status_oob %}
-{% set _tone = {"rejected": "danger", "missing": "accent", "approved": "success", "sent": "accent"} %}
-{% set _icon = {"rejected": "exclamation-triangle", "missing": "cloud-upload", "approved": "check-circle", "sent": "check2-circle"} %}
+{% set _tone = {"rejected": "danger", "missing": "accent", "approved": "success", "sent": "accent", "replacement_rejected": "danger", "replacement_sent": "accent", "replacement_done": "success"} %}
+{% set _icon = {"rejected": "exclamation-triangle", "missing": "cloud-upload", "approved": "check-circle", "sent": "check2-circle", "replacement_rejected": "arrow-repeat", "replacement_sent": "check2-circle", "replacement_done": "check-circle"} %}
 {% if not _oob %}<div id="tt-docs-status" role="status" aria-live="polite">{% endif %}
 <div id="tt-docs-status-card" class="tt-card tt-card--{{ _tone[_s.state] }} mt-3 tt-anim-in"
      {%- if _oob %} hx-swap-oob="true"{% endif %}>
@@ -49,6 +49,13 @@
     {% elif _s.state == "missing" %}
       {% set _n = _s.missing_names|length %}
       <p class="mb-0">Te {{ "falta" if _n == 1 else "faltan" }} {{ _n }}: {{ _s.missing_names|join(", ")|e }}.</p>
+    {% elif _s.state == "replacement_rejected" %}
+      {# Modo reemplazo (2026-10-15): solo habla de los reemplazos abiertos. #}
+      <p class="mb-0">Falta que subas el reemplazo de: {{ _s.names|join(", ")|e }}. Al subirlo vuelve a revisión solo.</p>
+    {% elif _s.state == "replacement_sent" %}
+      <p class="mb-0">Tu reemplazo llegó a Servicios Escolares y está en revisión. Te avisaremos aquí en la app.</p>
+    {% elif _s.state == "replacement_done" %}
+      <p class="mb-0">Servicios Escolares ya aprobó tu documento. No tienes nada pendiente aquí.</p>
     {% elif _s.state == "approved" %}
       <p class="mb-0">¡Tus documentos fueron aprobados! Sigue: <a href="{{ _s.next_url }}">cita de cotejo</a>.</p>
     {% else %}

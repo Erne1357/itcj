@@ -4,6 +4,15 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 
+class DocumentVersionChanged(ValueError):
+    """`review(..., expected_version=N)` encontró OTRA versión del documento:
+    el alumno cambió el archivo entre que el personal lo vio y lo aprobó
+    (Ruling R10 de la revisión final del reemplazo en cotejo, 2026-10-15).
+    Subclase de `ValueError` para que cualquier `except ValueError` existente
+    la siga atrapando; la ruta del panel de Citas la distingue para contestar
+    200 + aviso en vez de 400."""
+
+
 class DocumentService:
     # Fase 1 por PERFIL (spec 2026-09-30-titulatec-posgrado-design.md §4.4,
     # invariante 1: el set de fase 1 de un proceso sale SOLO de aquí). Retira
@@ -43,6 +52,33 @@ class DocumentService:
     # Starlette, UTF-8 en su TestClient), igual que los de `PhaseService`.
     PHASE_CLOSED_MSG = ("La fase de este documento ya fue aprobada: su dictamen "
                         "ya no admite rechazo ni cambios.")
+
+    # Reemplazo en la cita de cotejo (spec 2026-10-15-titulatec-reemplazo-
+    # cotejo-design.md §4.1): los `ValueError` de `request_replacement`. Mismo
+    # ASCII que `PHASE_CLOSED_MSG`, por la misma razón (viajan en `X-Tt-Error`).
+    REPLACEMENT_NOTE_MAX = 1000
+    REPLACEMENT_NOTE_REQUIRED_MSG = "Escribe el motivo del reemplazo."
+    REPLACEMENT_NOTE_TOO_LONG_MSG = "El motivo del reemplazo admite hasta 1000 caracteres."
+    REPLACEMENT_NO_PROCESS_MSG = "El proceso no existe."
+    REPLACEMENT_INACTIVE_MSG = ("El proceso no esta activo: no admite reemplazo "
+                                "de documentos.")
+    REPLACEMENT_NOT_COTEJO_MSG = ("Solo se puede pedir el reemplazo de un documento "
+                                  "durante la cita de cotejo (fase 02).")
+    REPLACEMENT_COTEJO_CLOSED_MSG = ("La fase 02 ya fue liberada: ya no se puede pedir "
+                                     "el reemplazo de un documento.")
+    REPLACEMENT_NOT_INITIAL_MSG = ("Ese documento no es de la fase 01 del alumno: "
+                                   "no admite reemplazo.")
+    REPLACEMENT_NO_DOC_MSG = ("El alumno no ha subido ese documento: no hay nada "
+                              "que reemplazar.")
+    # R8 (revisión final): `save()` de un tipo de una fase YA PASADA sin
+    # reemplazo abierto -- p. ej. la subida en vuelo que llega después de que
+    # la jefa aprobó el reemplazo.
+    REPLACEMENT_CLOSED_MSG = ("El reemplazo de este documento ya se cerro: ya no "
+                              "admite cambios.")
+    # R10: `review(..., expected_version=)` con otra versión en la fila. La ruta
+    # del panel muestra su propio texto acentuado; este es el del `ValueError`.
+    REPLACEMENT_VERSION_CHANGED_MSG = ("El alumno cambio el archivo: revisalo antes "
+                                       "de aprobar.")
 
     # ------------------------------------------------------------- set por perfil
     @staticmethod
@@ -206,7 +242,8 @@ class DocumentService:
 
     @staticmethod
     def initial_docs_approved_map(db, processes, *,
-                                  codes_by_process: dict | None = None) -> dict[int, bool]:
+                                  codes_by_process: dict | None = None,
+                                  replacement_ok: bool = False) -> dict[int, bool]:
         """`initial_docs_all_approved` de VARIOS procesos YA CARGADOS, en
         consultas FIJAS (Tarea 7, spec 2026-10-04-titulatec-paginacion-
         design.md §8): la cola de «Citas de cotejo» la pedía candidato por
@@ -227,6 +264,15 @@ class DocumentService:
         `codes_by_process` (opcional): {process_id: codes} ya resuelto por
         el llamador; un proceso que no aparezca ahí cae a su propio perfil.
         Lista vacía -> `{}` sin consultar.
+
+        `replacement_ok` (2026-10-15, spec titulatec-reemplazo-cotejo §4.5):
+        un documento con REEMPLAZO ABIERTO (`replacement_open`, R7: bandera y
+        no `approved`; pedido en la cita de cotejo) cuenta como aprobado. Lo pide SOLO
+        la cola del encargado (`AppointmentService.queue_candidates`: agendar
+        no se atrasa por un reemplazo, D2). Por omisión `False`: la regla
+        estricta de siempre, la del auto-avance 1->2 de la bandeja. Las
+        mismas consultas en los dos modos (la columna viaja en la consulta de
+        estados de siempre).
         """
         from itcj2.apps.titulatec.models import Document
         from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -242,11 +288,14 @@ class DocumentService:
         en_juego = set()
         for p in processes:
             en_juego.update(codes_by_process[p.id])
-        estados: dict[tuple[int, str], str] = {}
+        # (proceso, tipo) -> (review_status, ¿reemplazo abierto?)
+        estados: dict[tuple[int, str], tuple[str, bool]] = {}
         if en_juego:
             estados = {
-                (pid, code): status for pid, code, status in
-                db.query(Document.process_id, Document.type_code, Document.review_status)
+                (pid, code): (status, DocumentService.replacement_open(status, abierto_en))
+                for pid, code, status, abierto_en in
+                db.query(Document.process_id, Document.type_code, Document.review_status,
+                         Document.replacement_requested_at)
                 .filter(Document.process_id.in_({p.id for p in processes}),
                         Document.type_code.in_(en_juego))
                 .all()
@@ -259,7 +308,10 @@ class DocumentService:
             ok = True
             excused = None
             for code in codes_by_process[p.id]:
-                status = estados.get((p.id, code))
+                fila = estados.get((p.id, code))
+                status = fila[0] if fila is not None else None
+                if replacement_ok and fila is not None and fila[1]:
+                    continue
                 if status is None and code in DocumentService.POSGRADO_EXTRA_DOCS:
                     if excused is None:
                         if fase_initial is sin_calcular:
@@ -517,6 +569,28 @@ class DocumentService:
         )
 
     @staticmethod
+    def _locked_document(db: Session, process_id: int, type_code: str):
+        """La fila del documento BLOQUEADA (`SELECT ... FOR UPDATE`) y releída
+        tras el bloqueo (`populate_existing`: si el objeto ya estaba en la
+        sesión, sus atributos se pisan con lo que hay en BD AHORA, no con lo
+        que se leyó antes de esperar el lock). O None.
+
+        Ruling R8 (revisión final 2026-10-15): la usan `save()`, `review()` y
+        `request_replacement`, así que dos escrituras sobre el mismo
+        documento se SERIALIZAN -- una subida en vuelo y la aprobación del
+        reemplazo ya no se pisan: la segunda en llegar ve lo que dejó la
+        primera.
+        """
+        from itcj2.apps.titulatec.models import Document
+        return (
+            db.query(Document)
+            .filter_by(process_id=process_id, type_code=type_code)
+            .with_for_update()
+            .populate_existing()
+            .first()
+        )
+
+    @staticmethod
     def list_phase_document_types(db: Session, phase_number: int) -> list:
         from itcj2.apps.titulatec.models import DocumentType
         return (
@@ -525,6 +599,37 @@ class DocumentService:
             .order_by(DocumentType.id)
             .all()
         )
+
+    @staticmethod
+    def _next_version(db: Session, process_id: int, type_code: str) -> int:
+        """Versión de una fila NUEVA de ese (proceso, tipo) (D7, spec 2026-10-15-
+        titulatec-reemplazo-cotejo-design.md §4.6).
+
+        `1 + max(subidas previas, mayor payload.version de esas subidas)`, según
+        los `ProcessEvent(document_uploaded)`: la fila se borra con `delete()`,
+        pero cada subida real dejó su evento con `type_code` (y `version`) en el
+        payload. Sin bitácora -- la primera subida de verdad -- da 1, igual que
+        antes. Una versión que no sea entero en el payload se ignora (cuenta
+        como subida, no como tope).
+
+        UNA consulta, y solo al crear la fila: filtra el TIPO en Python, igual
+        que `last_uploads` (el `payload` es `json`, no `jsonb`). Se llama ANTES
+        del `_log` de la subida en curso, así que esa no se cuenta.
+        """
+        from itcj2.apps.titulatec.models import ProcessEvent
+
+        subidas, tope = 0, 0
+        for (payload,) in (db.query(ProcessEvent.payload)
+                           .filter(ProcessEvent.process_id == process_id,
+                                   ProcessEvent.event_type == "document_uploaded")
+                           .all()):
+            if not isinstance(payload, dict) or payload.get("type_code") != type_code:
+                continue
+            subidas += 1
+            v = payload.get("version")
+            if isinstance(v, int) and not isinstance(v, bool) and v > tope:
+                tope = v
+        return 1 + max(subidas, tope)
 
     @staticmethod
     def save(
@@ -540,6 +645,26 @@ class DocumentService:
     ):
         """Guarda/sobreescribe el documento de un tipo. Solo última versión.
 
+        `version`: actualizar una fila existente suma 1; crear una (primera
+        subida, o tras un `delete()`) continúa la numeración de la bitácora
+        (`_next_version`, 2026-10-15). Nunca toca `replacement_requested_at`:
+        resubir un reemplazo lo deja «por evaluar» y ABIERTO hasta que se
+        apruebe (`review`).
+
+        **La fila se lee BLOQUEADA y ANTES de tocar el disco** (Ruling R8 de
+        la revisión final del reemplazo en cotejo, 2026-10-15). Si el TIPO es
+        de una fase que el proceso ya pasó (`current_phase > dtype.
+        phase_number`), la única subida válida es la de un reemplazo ABIERTO
+        (`replacement_open`), y se exige aquí, dentro de esta misma
+        transacción y con la fila bloqueada: la guarda de la ruta
+        (`student_can_replace`) corre antes, en otra transacción, y entre las
+        dos la jefa pudo aprobar el reemplazo. Sin esto la subida en vuelo
+        pisaba el archivo y el dictamen ya aprobados (volvía a `pending`) y
+        dejaba la fase 2 liberable con un documento sin dictaminar. Cerrado
+        -> `ValueError(REPLACEMENT_CLOSED_MSG)` sin escribir nada, tampoco el
+        archivo (su nombre es fijo por tipo: escribirlo antes pisaba el
+        aprobado). La fase actual y las futuras no cambian.
+
         ``prepared`` (opcional, revisión 2026-09-28 m1): lo que devolvió
         ``storage.prepare_document`` — validado y comprimido — calculado FUERA
         de cualquier transacción. La ruta del alumno lo pasa así para que la
@@ -554,6 +679,15 @@ class DocumentService:
         dtype = db.query(DocumentType).filter_by(code=type_code, is_active=True).first()
         if not dtype:
             raise ValueError(f"Tipo de documento desconocido: {type_code}")
+
+        # R8: bloqueo y re-verificación ANTES del disco (ver docstring).
+        doc = DocumentService._locked_document(db, process.id, type_code)
+        fase_tipo, actual = dtype.phase_number, getattr(process, "current_phase", None)
+        if (isinstance(fase_tipo, int) and isinstance(actual, int)
+                and not isinstance(actual, bool) and actual > fase_tipo
+                and not (doc is not None and DocumentService.replacement_open(
+                    doc.review_status, doc.replacement_requested_at))):
+            raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
 
         period_code, control = DocumentService._storage_keys(db, process)
         if prepared is None:
@@ -577,7 +711,6 @@ class DocumentService:
                 type_code=type_code,
             )
 
-        doc = DocumentService.get_document(db, process.id, type_code)
         if doc:
             doc.file_path = meta["file_path"]
             doc.original_name = meta["original_name"]
@@ -600,7 +733,9 @@ class DocumentService:
                 original_name=meta["original_name"],
                 mime_type=meta["mime_type"],
                 size_bytes=meta["size_bytes"],
-                version=1,
+                # D7 (2026-10-15): tras un borrado la fila es NUEVA, pero la
+                # numeración sigue la de la bitácora -- antes volvía a 1.
+                version=DocumentService._next_version(db, process.id, type_code),
                 review_status="pending",
                 uploaded_by_id=uploaded_by_id,
             )
@@ -623,7 +758,8 @@ class DocumentService:
         return doc
 
     @staticmethod
-    def review(db: Session, process_id: int, type_code: str, *, status: str, note: str | None, reviewer_id: int) -> bool:
+    def review(db: Session, process_id: int, type_code: str, *, status: str, note: str | None,
+               reviewer_id: int, expected_version: int | None = None) -> bool:
         """Aprueba o rechaza un documento (status 'approved'|'rejected').
 
         **Guarda angosta a propósito -- NO es la gemela de
@@ -664,13 +800,31 @@ class DocumentService:
         permitido es APROBAR uno que no lo esté (p. ej. la fase se movió con
         «Mover de fase» con documentos pendientes): eso solo destraba. Mismo
         criterio en la bandeja (`pages/documents.py::_body_ctx`, `phase_closed`).
+
+        **Reemplazo en el cotejo (2026-10-15).** El rechazo de la jefatura en
+        la fase 2 NO pasa por aquí: es `request_replacement`, con su permiso
+        propio, y esta guarda sigue igual. Lo único nuevo: APROBAR limpia
+        `replacement_requested_at` (cierra el reemplazo, haya resubida o no:
+        aprobar un `rejected`+abierto = «el original sí sirve») y, si cerró
+        uno, el evento lleva `"replacement": True` en el payload.
+
+        **Revisión final (2026-10-15).** R8: la fila se lee BLOQUEADA
+        (`_locked_document`), igual que en `save()`: aprobar y una subida en
+        vuelo se serializan. R10: `expected_version` (opcional) es la versión
+        que el personal VIO; si la fila trae otra, el alumno cambió el
+        archivo entre tanto y se levanta `DocumentVersionChanged` sin
+        escribir nada. Se compara con la fila bloqueada, así que no hay
+        ventana entre comparar y dictaminar. Sin él (la bandeja Documentos),
+        el comportamiento de siempre.
         """
         from itcj2.apps.titulatec.models import DocumentType, TitulationProcess
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
-        doc = DocumentService.get_document(db, process_id, type_code)
+        doc = DocumentService._locked_document(db, process_id, type_code)
         if not doc:
             return False
+        if expected_version is not None and doc.version != expected_version:
+            raise DocumentVersionChanged(DocumentService.REPLACEMENT_VERSION_CHANGED_MSG)
 
         dtype = db.query(DocumentType).filter_by(code=type_code).first()
         fase_para_el_corte = dtype.phase_number if dtype is not None else doc.phase_number
@@ -689,14 +843,23 @@ class DocumentService:
         doc.review_status = status
         doc.review_note = note or None
         doc.reviewed_by_id = reviewer_id
+        # `getattr`: los tests de unidad de este método pasan filas simuladas
+        # sin la columna nueva.
+        cerro_reemplazo = (status == "approved"
+                           and getattr(doc, "replacement_requested_at", None) is not None)
+        if cerro_reemplazo:
+            doc.replacement_requested_at = None
 
         # El evento guarda el motivo porque `review_note` es un solo hueco: la
         # siguiente revision lo pisa y el «por que» del rechazo anterior se va.
+        payload = {"type_code": type_code, "note": note or None}
+        if cerro_reemplazo:
+            payload["replacement"] = True
         DocumentService._log(
             db, process_id, reviewer_id,
             "document_approved" if status == "approved" else "document_rejected",
             doc.phase_number,
-            {"type_code": type_code, "note": note or None},
+            payload,
         )
 
         if status == "rejected" and proc:
@@ -721,6 +884,232 @@ class DocumentService:
 
         db.commit()
         return True
+
+    # ------------------------------------------------- reemplazo en el cotejo
+    # Spec 2026-10-15-titulatec-reemplazo-cotejo-design.md. En la cita de
+    # cotejo (fase 2) el egresado a veces presenta en físico un documento
+    # DISTINTO del que subió en la fase 1. `review` congela el dictamen de una
+    # fase ya pasada (`PHASE_CLOSED_MSG`), así que la jefatura de Servicios
+    # Escolares tiene su vía APARTE, con permiso propio: `request_replacement`.
+    # «Reemplazo abierto» = `replacement_requested_at` no NULL Y no `approved`
+    # (`replacement_open`, R7); lo cierra solo `review(status="approved")`.
+    # Ciclo: approved -> (pide) rejected+abierto -> (sube) pending+abierto ->
+    # (aprueba) approved, cerrado.
+    @staticmethod
+    def request_replacement(db: Session, process_id: int, type_code: str, *,
+                            note: str | None, actor_id: int):
+        """La jefatura pide que el egresado vuelva a subir un documento de su
+        fase 1 estando en la cita de cotejo (spec §4.1 y §5). Devuelve el
+        `Document`.
+
+        Exige, en este orden (cualquier otra cosa -> `ValueError` con un
+        `REPLACEMENT_*_MSG` ASCII, SIN escribir nada): motivo no vacío tras
+        `strip()` y de a lo más `REPLACEMENT_NOTE_MAX` caracteres; el proceso
+        existe y está `active`; su `current_phase` es la fase
+        `review_appointment` del catálogo (sin esa fase en el catálogo, falla
+        CERRADO) y esa `ProcessPhase` no está `approved`; el TIPO es de la
+        fase `initial_docs`, está activo y pertenece al set del perfil
+        (`initial_doc_types_for`); y el documento existe. La fila se bloquea
+        (`with_for_update`) antes de escribir.
+
+        R9 (revisión final 2026-10-15): ANTES de validar la fase se bloquea la
+        fila del PROCESO (`FOR NO KEY UPDATE`, `key_share=True`, igual que
+        `ProcessService.cancel`) y se relee. `PhaseService.approve_phase`
+        toma el mismo bloqueo al liberar la fase 2, antes de su compuerta: o
+        este pedido ve la fase ya liberada (`REPLACEMENT_COTEJO_CLOSED_MSG`),
+        o la liberación espera y ve el reemplazo abierto. Antes las dos podían
+        validar a la vez y terminar con la fase 2 aprobada Y un reemplazo
+        abierto que nadie iba a cerrar. `NO KEY` no choca con el `FOR KEY
+        SHARE` de los INSERT con FK al proceso (eventos, avisos).
+
+        Escribe `rejected` + motivo + revisor y, SOLO si no estaba abierto,
+        `replacement_requested_at = db_now()`: pedirlo otra vez (p. ej. el
+        alumno subió el archivo equivocado) conserva la fecha original. Deja
+        `ProcessEvent(document_replacement_requested)` en la fase de cotejo
+        (la bitácora lo espeja sola), el aviso in-app
+        `DOCUMENT_REPLACEMENT_REQUESTED` y el correo de dictamen de siempre
+        (`StudentMail.doc_reviewed`, grupo `docs:`). Commit propio.
+
+        No mira permisos: eso es de la ruta (`titulatec.document.api.
+        request_replacement`).
+        """
+        from itcj2.apps.titulatec.models import DocumentType, ProcessPhase, TitulationProcess
+        from itcj2.apps.titulatec.services.notify import notify_student
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        from itcj2.core.utils.timezone import db_now
+
+        motivo = (note or "").strip()
+        if not motivo:
+            raise ValueError(DocumentService.REPLACEMENT_NOTE_REQUIRED_MSG)
+        if len(motivo) > DocumentService.REPLACEMENT_NOTE_MAX:
+            raise ValueError(DocumentService.REPLACEMENT_NOTE_TOO_LONG_MSG)
+
+        # R9: el proceso bloqueado y releído tras el bloqueo (ver docstring).
+        process = (db.query(TitulationProcess).filter_by(id=process_id)
+                   .with_for_update(key_share=True).populate_existing().first())
+        if process is None:
+            raise ValueError(DocumentService.REPLACEMENT_NO_PROCESS_MSG)
+        if process.status != "active":
+            raise ValueError(DocumentService.REPLACEMENT_INACTIVE_MSG)
+        fase_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
+        if fase_cotejo is None or process.current_phase != fase_cotejo:
+            raise ValueError(DocumentService.REPLACEMENT_NOT_COTEJO_MSG)
+        estado_fase = (db.query(ProcessPhase.status)
+                       .filter_by(process_id=process.id, phase_number=fase_cotejo)
+                       .scalar())
+        if estado_fase == "approved":
+            raise ValueError(DocumentService.REPLACEMENT_COTEJO_CLOSED_MSG)
+
+        fase_inicial = PhaseService.phase_number_for_code(db, "initial_docs")
+        dtype = db.query(DocumentType).filter_by(code=type_code).first()
+        if (dtype is None or fase_inicial is None
+                or dtype.phase_number != fase_inicial or not dtype.is_active
+                or type_code not in DocumentService.initial_doc_types_for(db, process)):
+            raise ValueError(DocumentService.REPLACEMENT_NOT_INITIAL_MSG)
+
+        doc = DocumentService._locked_document(db, process.id, type_code)
+        if doc is None:
+            raise ValueError(DocumentService.REPLACEMENT_NO_DOC_MSG)
+
+        doc.review_status = "rejected"
+        doc.review_note = motivo
+        doc.reviewed_by_id = actor_id
+        if doc.replacement_requested_at is None:
+            doc.replacement_requested_at = db_now()
+
+        DocumentService._log(db, process.id, actor_id, "document_replacement_requested",
+                             fase_cotejo, {"type_code": type_code, "note": motivo})
+        nombre = dtype.name or type_code
+        notify_student(db, process.student_id, type="DOCUMENT_REPLACEMENT_REQUESTED",
+                       title="Servicios Escolares te pidió reemplazar un documento",
+                       body=f"{nombre}: {motivo}",
+                       process_id=process.id, phase_number=fase_cotejo)
+        # El correo de dictamen de siempre: lleva a Documentos, que se abre en
+        # modo reemplazo para este documento. Sin kind nuevo (spec §5).
+        StudentMail.doc_reviewed(db, process, type_code=type_code, doc_name=nombre,
+                                 status="rejected", note=motivo)
+        db.commit()
+        return doc
+
+    # ---------------------------------------------- «reemplazo abierto» (R7)
+    @staticmethod
+    def replacement_open(status, requested_at) -> bool:
+        """EL predicado de «reemplazo abierto» (Ruling R7 de la revisión final,
+        2026-10-15): bandera `replacement_requested_at` no NULL **y**
+        `review_status != "approved"`. PURO, sin `db`.
+
+        Un `approved` con la bandera puesta es un reemplazo CERRADO. Normalmente
+        no existe (`review(approved)` limpia la bandera), pero sí tras una
+        reversa: el código viejo aprueba sin limpiarla (spec §9). Antes, la
+        compuerta de la fase 2 lo contaba abierto y ese proceso quedaba
+        trabado para siempre (aprobar de nuevo un `approved` de una fase pasada
+        da `PHASE_CLOSED_MSG`), mientras la subida del alumno lo daba cerrado.
+
+        Lo consultan TODOS los que deciden «abierto»: `open_replacements` (con
+        su gemelo SQL `_replacement_open_sql`, y por él `replacement_gate_error`
+        y los avisos del alumno), `student_can_replace`, `save()`,
+        `initial_docs_approved_map(replacement_ok=)` y las banderas
+        `replacement` de `pages/documents.py::_doc_states`,
+        `pages/appointments.py::_detail_ctx` y `pages/admin.py::_detail_ctx`.
+        No lo reimplementes: si la regla cambia, cambia aquí y en el SQL.
+        """
+        return requested_at is not None and status != "approved"
+
+    @staticmethod
+    def _replacement_open_sql():
+        """`replacement_open` como filtro SQL, para no traer filas cerradas.
+        `review_status` es `NOT NULL`, así que `!=` equivale exacto al de Python."""
+        from sqlalchemy import and_
+
+        from itcj2.apps.titulatec.models import Document
+        return and_(Document.replacement_requested_at.isnot(None),
+                    Document.review_status != "approved")
+
+    @staticmethod
+    def student_can_replace(db: Session, process, type_code: str) -> bool:
+        """¿Puede el alumno SUBIR este documento de la fase 1 estando ya en la
+        cita de cotejo? (spec §4.3). Proceso `active`, `current_phase` == fase
+        `review_appointment` del catálogo y reemplazo ABIERTO en la fila
+        (`replacement_open`, R7: bandera y no `approved`). `process=None` -> False.
+
+        Es la excepción a `_phase_guard` SOLO para subir: borrar sigue negado
+        fuera de la fase 1, y la guarda del set del perfil la sigue aplicando
+        la ruta. Es la guarda RÁPIDA de la ruta, fuera de la transacción de la
+        subida: `save()` la vuelve a exigir con la fila bloqueada (R8).
+        """
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        if process is None or process.status != "active":
+            return False
+        fase_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
+        if fase_cotejo is None or process.current_phase != fase_cotejo:
+            return False
+        doc = DocumentService.get_document(db, process.id, type_code)
+        return doc is not None and DocumentService.replacement_open(
+            doc.review_status, doc.replacement_requested_at)
+
+    @staticmethod
+    def open_replacements(db: Session, process_id: int) -> list[dict]:
+        """Reemplazos ABIERTOS de un proceso, como dicts planos:
+        `[{type_code, name, status, note, requested_at}]`.
+
+        Orden: el del set de la fase 1 (`BASE_INITIAL_DOCS` y luego
+        `POSGRADO_EXTRA_DOCS`, el mismo de `initial_doc_types`; un código fuera
+        de esos dos, al final). No resuelve el perfil: un reemplazo solo se
+        abre sobre un tipo del set (`request_replacement` lo valida), así que
+        basta ese orden fijo. A lo más DOS consultas (documentos y nombres);
+        sin reemplazos, una y lista vacía.
+
+        `status` es `rejected` (pedido, sin resubir) o `pending` (el alumno ya
+        lo subió). `note` es el `review_note` ACTUAL: el motivo mientras está
+        `rejected`; `None` en cuanto el alumno resube (`save()` limpia el
+        dictamen). El motivo original sigue en el evento
+        `document_replacement_requested`.
+
+        «Abierto» es el de `replacement_open` (R7), filtrado en SQL
+        (`_replacement_open_sql`): un `approved` con la bandera vieja no sale,
+        ni aquí ni, por tanto, en la compuerta de la fase 2 ni en los avisos.
+        """
+        from itcj2.apps.titulatec.models import Document, DocumentType
+
+        filas = (db.query(Document.type_code, Document.review_status,
+                          Document.review_note, Document.replacement_requested_at)
+                 .filter(Document.process_id == process_id,
+                         DocumentService._replacement_open_sql())
+                 .all())
+        if not filas:
+            return []
+        # Sin `is_active`: un tipo desactivado se sigue nombrando, no con su código.
+        nombres = dict(db.query(DocumentType.code, DocumentType.name)
+                       .filter(DocumentType.code.in_({f[0] for f in filas}))
+                       .all())
+        orden = {code: i for i, code in enumerate(
+            DocumentService.BASE_INITIAL_DOCS + DocumentService.POSGRADO_EXTRA_DOCS)}
+        filas = sorted(filas, key=lambda f: (orden.get(f[0], len(orden)), f[0]))
+        return [
+            {"type_code": code, "name": nombres.get(code) or code, "status": status,
+             "note": nota, "requested_at": pedido_en}
+            for code, status, nota, pedido_en in filas
+        ]
+
+    @staticmethod
+    def replacement_gate_error(db: Session, process) -> str | None:
+        """Motivo por el que la fase 2 NO puede liberarse por un reemplazo
+        abierto, o None (spec §4.4, D4). Nombra los documentos con su nombre
+        del catálogo, en el orden de `open_replacements`.
+
+        Lo consulta `PhaseService._cotejo_gate_error` ANTES que los requisitos
+        de cotejo, así que aplica a las dos vías de liberar la fase 2 (la cita
+        y el expediente, que es también «Mover de fase»). Texto fijo en ASCII;
+        los nombres traen acentos, y por eso las dos rutas pasan el mensaje por
+        `_hdr()` (percent-encode), igual que con los requisitos.
+        """
+        abiertos = DocumentService.open_replacements(db, process.id)
+        if not abiertos:
+            return None
+        nombres = ", ".join(a["name"] for a in abiertos)
+        return f"No se puede liberar la fase 02: falta aprobar el reemplazo de: {nombres}."
 
     @staticmethod
     def delete(db: Session, process_id: int, type_code: str,

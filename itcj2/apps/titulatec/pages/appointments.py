@@ -256,11 +256,27 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         docs.append({
             "type_code": code,
             "name": dt.name if dt else code,
+            # `version` (R10, revisión final 2026-10-15): la que se está VIENDO.
+            # «Aprobar reemplazo» la manda de vuelta y la ruta la compara.
             "doc": ({"original_name": doc.original_name, "review_status": doc.review_status,
-                     "size_bytes": doc.size_bytes or 0} if doc else None),
+                     "size_bytes": doc.size_bytes or 0, "version": doc.version or 1}
+                    if doc else None),
             "missing": bool(doc) and falta,
             "excused": doc is None and code in excused,
-            "view_url": f"/titulatec/admin/appointments/{process_id}/document/{code}",
+            # `?v=` (R10): si el alumno sube otro archivo, el `src` del visor
+            # CAMBIA y el morph lo recarga -- con el mismo `src` Idiomorph no
+            # toca el iframe y el aviso «revísalo» mandaría a ver el PDF viejo.
+            # La ruta del archivo ignora el parámetro.
+            "view_url": (f"/titulatec/admin/appointments/{process_id}/document/{code}"
+                         + (f"?v={doc.version or 1}" if doc else "")),
+            # Reemplazo en el cotejo (spec 2026-10-15 §7.1, Ruling R2):
+            # `review_note` es el motivo SOLO mientras el documento sigue
+            # `rejected`; en cuanto el alumno resube queda `pending` y la nota
+            # se limpia. `replacement` = reemplazo abierto con EL predicado
+            # `DocumentService.replacement_open` (R7: bandera y no `approved`).
+            "review_note": (doc.review_note if doc else None),
+            "replacement": bool(doc is not None and DocumentService.replacement_open(
+                doc.review_status, doc.replacement_requested_at)),
         })
 
     # El documento abierto es ESTADO DE SERVIDOR, no del DOM. Idiomorph conserva
@@ -326,12 +342,21 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # ofrecía junto a la «Revocada» de m42, al que llega una cita `attended`
     # que `ProcessService.cancel` deja vigente).
     can_register_prior = False
+    # Reemplazo de documentos en el cotejo (spec 2026-10-15 §7.1): cada botón
+    # solo se pinta para quien tiene su permiso; `in_cotejo` (proceso activo y
+    # parado en la fase de cotejo) evita ofrecer un botón que el servicio
+    # contestaría con 400.
+    can_request_replacement = False
+    can_approve_docs = False
     if user_id is not None:
         from itcj2.core.services.authz_cache import cached_perms
         _user_perms = cached_perms(db, user_id, "titulatec")
         can_mark_reqs = "titulatec.process.api.requirement.mark" in _user_perms
         can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
                               and proc.status != "cancelled")
+        can_request_replacement = ("titulatec.document.api.request_replacement"
+                                   in _user_perms)
+        can_approve_docs = "titulatec.document.api.approve" in _user_perms
 
     appt = AppointmentService.get_for_process(db, process_id)
 
@@ -473,6 +498,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "survey": survey,
         "library": library,
         "can_register_prior": can_register_prior,
+        "can_request_replacement": can_request_replacement,
+        "can_approve_docs": can_approve_docs,
+        "in_cotejo": bool(proc.status == "active"
+                          and proc.current_phase == PhaseService.PHASE_COTEJO),
         "walkins_hoy": walkins_hoy,
         # I-3: `liberaciones_pendientes` apaga «Agendar a este alumno» /
         # «Atender ahora» en la plantilla cuando abrirían un intento que la
@@ -1034,7 +1063,7 @@ def _espacios_ctx(db, day, *, user_id, cohort_id, editando=None, scope=None):
 
 def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
                estado="", mias=False, program_id=None, mover=None, w=None,
-               seleccion=None, doc="", rechazar=None, **_legacy) -> dict:
+               seleccion=None, doc="", rechazar=None, reemplazo="", **_legacy) -> dict:
     """Contexto de `#appt-shell`: la zona fija mas la sub-vista que toque.
 
     Tres sub-vistas hermanas, no tres zonas peleandose por el ancho:
@@ -1169,6 +1198,9 @@ def _shell_ctx(db, *, user_id, v="", date_raw="", selected_id=None, q="",
         # por querystring como `mover`, no por un `prompt()` (prohibido) ni por
         # `hx-confirm` (que es si/no y no recoge texto).
         "rechazar": rechazar,
+        # Modo «estoy escribiendo el motivo del reemplazo de ESTE documento»
+        # (type_code). Mismo mecanismo que `rechazar`: querystring.
+        "reemplazo": (reemplazo or "").strip(),
         "q": q or "", "f_estado": estado or "", "f_mias": mias,
         "f_program": program_id or "",
         "programs": _programs(db),
@@ -1616,6 +1648,7 @@ def _params(request):
         "program_id": _to_int(q.get("program_id")),
         "mover": _to_int(q.get("mover")),
         "rechazar": _to_int(q.get("rechazar")),
+        "reemplazo": q.get("reemplazo", ""),
         "w": (q.get("w") if q.get("w") == "nuevo" else _to_int(q.get("w"))),
         "seleccion": {int(x) for x in q.getlist("p") if str(x).isdigit()},
         "doc": q.get("doc", ""),
@@ -1663,7 +1696,7 @@ def _action_ctx(request):
     """Estado de la vista que las acciones mandan en su propio querystring, para
     que tras agendar o marcar asistencia la pantalla NO salte de sitio.
 
-    `mover`, `rechazar` y la seleccion se DESCARTAN a proposito: son estados de
+    `mover`, `rechazar`, `reemplazo` y la seleccion se DESCARTAN a proposito: son estados de
     «estoy a mitad de una accion», y la accion ya termino. Si sobrevivieran, el
     tablero seguiria ofreciendo «Mover aqui» despues de haber movido, y el panel
     seguiria pidiendo el motivo despues de haber rechazado.
@@ -1672,6 +1705,7 @@ def _action_ctx(request):
     p.pop("selected_id", None)
     p["mover"] = None
     p["rechazar"] = None
+    p["reemplazo"] = ""
     p["seleccion"] = set()
     return p
 
@@ -2167,6 +2201,144 @@ def _cuerpo_fase2_reject(process_id, request, user, form):
         resp = _render_body(request, db, selected_id=process_id, user_id=uid,
                             **_action_ctx(request))
         resp.headers["X-Tt-Notice"] = _hdr("Fase 02 rechazada. Se le aviso al alumno.")
+        return resp
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Reemplazo de documentos en el cotejo (spec 2026-10-15 §7.1)
+# ===========================================================================
+
+@router.post("/{process_id}/documents/{type_code}/reemplazo",
+             name="titulatec.pages.appointments.document_replacement")
+async def document_replacement(
+    process_id: int,
+    type_code: str,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.document.api.request_replacement"])),
+):
+    """Pide al alumno que vuelva a subir un documento de la fase 1 sin salir
+    del panel de Citas. El motivo es obligatorio: es lo que el alumno lee.
+
+    Se valida ANTES de abrir sesion: un motivo vacio no debe costar una
+    consulta. El resto de las reglas (proceso activo, fase de cotejo, tipo del
+    set del perfil, documento existente) las decide `request_replacement`.
+    """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_document_replacement, process_id=process_id, type_code=type_code,
+        request=request, user=user, form=form)
+
+
+def _cuerpo_document_replacement(process_id, type_code, request, user, form):
+    """Cuerpo síncrono de `document_replacement`: corre en el threadpool."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    note = (form.get("note") or "").strip()
+    if not note:
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+            "Escribe el motivo del reemplazo: es lo que el alumno lee.")})
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
+        try:
+            DocumentService.request_replacement(
+                db, process_id, type_code, note=note, actor_id=uid)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        resp = _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+        resp.headers["X-Tt-Notice"] = _hdr("Reemplazo pedido. Se le avisó al alumno.")
+        resp.headers["X-Tt-Notice-Kind"] = "success"
+        return resp
+    finally:
+        db.close()
+
+
+@router.post("/{process_id}/documents/{type_code}/aprobar",
+             name="titulatec.pages.appointments.document_replacement_approve")
+async def document_replacement_approve(
+    process_id: int,
+    type_code: str,
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.document.api.approve"])),
+):
+    """Aprueba el documento que el alumno subio como reemplazo (Ruling R5).
+
+    Solo aplica a un documento con reemplazo ABIERTO: este boton no es un
+    dictamen general de documentos (esa bandeja es otra), asi que sin
+    reemplazo abierto responde 400. `review(approved)` cierra el reemplazo.
+
+    R10 (revision final 2026-10-15): el boton manda la `version` que pinto
+    (`hx-vals`) y se aprueba ESA o nada. `async` solo para leer el form.
+    """
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_document_replacement_approve, process_id=process_id,
+        type_code=type_code, request=request, user=user, form=form)
+
+
+# R10: lo que lee el personal cuando el archivo cambio entre verlo y aprobarlo.
+_AVISO_VERSION_CAMBIO = "El alumno cambió el archivo: revísalo antes de aprobar."
+
+
+def _cuerpo_document_replacement_approve(process_id, type_code, request, user, form):
+    """Cuerpo síncrono de `document_replacement_approve`: corre en el threadpool.
+
+    Versión vista distinta de la de la fila -- o ausente o ilegible: sin ella
+    no se sabe QUÉ se vio -- = el alumno cambió el archivo: 200 + re-render
+    (ya con el archivo nuevo en el visor y su versión en el botón) +
+    `X-Tt-Notice` de advertencia, SIN aprobar (htmx no hace swap en 4xx). La
+    comparación final la hace `review(expected_version=)` sobre la fila
+    bloqueada: no queda ventana entre comparar y aprobar.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import (
+        DocumentService, DocumentVersionChanged,
+    )
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
+        abiertos = {a["type_code"] for a in DocumentService.open_replacements(db, process_id)}
+        if type_code not in abiertos:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Ese documento no tiene un reemplazo pendiente.")})
+        vista = _to_int(form.get("version"))
+        cambio = vista is None
+        if not cambio:
+            try:
+                DocumentService.review(db, process_id, type_code, status="approved",
+                                       note=None, reviewer_id=uid, expected_version=vista)
+            except DocumentVersionChanged:
+                # `review` levantó ANTES de escribir nada: este commit solo
+                # cierra la transacción de lectura y suelta el bloqueo de la
+                # fila (R8) antes de re-pintar el shell, que tarda. NO
+                # `rollback()`: bajo el harness descarta lo que sembraron las
+                # fábricas (ver `_accion`, `SlotLockTimeout`).
+                db.commit()
+                cambio = True
+            except ValueError as exc:
+                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        resp = _render_body(request, db, selected_id=process_id, user_id=uid,
+                            **_action_ctx(request))
+        if cambio:
+            resp.headers["X-Tt-Notice"] = _hdr(_AVISO_VERSION_CAMBIO)
+            resp.headers["X-Tt-Notice-Kind"] = "warning"
+        else:
+            resp.headers["X-Tt-Notice"] = _hdr("Reemplazo aprobado.")
+            resp.headers["X-Tt-Notice-Kind"] = "success"
         return resp
     finally:
         db.close()

@@ -18,6 +18,21 @@ router = APIRouter(prefix="/admin/documents", tags=["titulatec-pages-documents"]
 _VIEW_PERMS = ["titulatec.document.page.list", "titulatec.dashboard.school_services",
                "titulatec.dashboard.titulaciones", "titulatec.dashboard.admin"]
 _REVIEW_PERMS = ["titulatec.document.api.approve", "titulatec.document.api.reject"]
+# Vía APARTE del dictamen congelado (spec 2026-10-15-titulatec-reemplazo-cotejo):
+# solo la jefatura de Servicios Escolares pide el reemplazo en la cita de cotejo.
+_REPLACE_PERM = "titulatec.document.api.request_replacement"
+
+
+def _hdr(msg: str) -> str:
+    """Percent-encode para que un mensaje acentuado quepa en un header latin-1.
+
+    Gemelo de `pages/appointments.py::_hdr` y `pages/admin.py::_hdr`;
+    `titulatec-utils.js::decodeHeaderMsg` lo deshace al mostrarlo. Hasta la
+    revisión final del reemplazo en cotejo (2026-10-15, R12) este módulo
+    mandaba sus avisos sin acentos a mano («Se pidio...»).
+    """
+    from urllib.parse import quote
+    return quote(msg or "", safe="")
 
 
 def _exigir_bandeja(db, user_id: int) -> None:
@@ -61,7 +76,7 @@ def _doc_states(db, procs):
     columnas (`_body_ctx`). Devuelve un dict por proceso, en el MISMO orden:
     `{"process_id", "created_at", "current_phase", "student_id", "program_id",
     "track", "folio", "program_name", "docs": [{"type_code", "status",
-    "has_file", "created_at", "mime", "note", "view_url"}], "pending",
+    "has_file", "created_at", "mime", "note", "replacement", "view_url"}], "pending",
     "missing", "all_approved"}`. `pending` cuenta SOLO lo subido sin dictaminar
     («por evaluar»: el número de la fila, la pestaña y el contador); `missing`,
     lo que el alumno no ha subido.
@@ -112,7 +127,8 @@ def _doc_states(db, procs):
 
     docs = {(d.process_id, d.type_code): d for d in db.query(
         Document.process_id, Document.type_code, Document.review_status,
-        Document.created_at, Document.mime_type, Document.review_note)
+        Document.created_at, Document.mime_type, Document.review_note,
+        Document.replacement_requested_at)
         .filter(Document.process_id.in_(proc_ids),
                 Document.type_code.in_(all_codes)).all()}
 
@@ -162,6 +178,11 @@ def _doc_states(db, procs):
                 "has_file": doc is not None,
                 "mime": (doc.mime_type if doc else None) or "application/pdf",
                 "note": doc.review_note if doc else None,
+                # Reemplazo abierto en la cita de cotejo (spec 2026-10-15 §3):
+                # EL predicado `replacement_open` (R7: bandera y no `approved`).
+                # Sale de la MISMA consulta.
+                "replacement": bool(doc is not None and DocumentService.replacement_open(
+                    doc.review_status, doc.replacement_requested_at)),
                 "view_url": f"/titulatec/admin/documents/{p.id}/document/{code}" if doc else None,
                 # Respaldo del orden FIFO de "Por evaluar" (`_order_pending_by_wait`)
                 # cuando no hay evento en la bitacora. Ningun template lo pinta.
@@ -294,6 +315,11 @@ def _annotate_phase_lock(db, detail):
 
     n = PhaseService.phase_number_for_code(db, "initial_docs")
     current = detail.get("current_phase")
+    # `in_cotejo`: el proceso (siempre `active` aquí: `_body_ctx` solo arma
+    # procesos activos) está en la fase `review_appointment` del catálogo. Con
+    # `phase_closed` y el permiso nuevo habilita «Pedir reemplazo».
+    n_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
+    detail["in_cotejo"] = n_cotejo is not None and current == n_cotejo
     en_fase = n is not None and current == n
     detail["phase_closed"] = n is not None and isinstance(current, int) and current > n
     faltan = [d for d in detail["docs"] if d["status"] not in ("approved", "excused")]
@@ -332,13 +358,14 @@ def _body_ctx(db, *, user_id, status_filter, selected_id, q=None, page=1,
     # se pintan solo para quien tiene el permiso, no solo por el estado del
     # documento. `_REVIEW_PERMS` es la MISMA lista OR que exige la ruta
     # `POST .../document/review`, asi que "puede verlos" == "puede usarlos".
-    can_review_docs = bool(
-        user_id is not None
-        and cached_perms(db, user_id, "titulatec") & set(_REVIEW_PERMS)
-    )
+    # UNA sola lectura de permisos (presupuesto de consultas de la bandeja).
+    perms = cached_perms(db, user_id, "titulatec") if user_id is not None else set()
+    can_review_docs = bool(perms & set(_REVIEW_PERMS))
+    can_request_replacement = _REPLACE_PERM in perms
     ctx = {"rows": [], "page": Page(items=[], total=0, page=1, per_page=per_page),
            "total_pending": 0, "status_filter": status_filter or "", "q": q or "",
-           "detail": None, "selected_id": None, "can_review_docs": can_review_docs}
+           "detail": None, "selected_id": None, "can_review_docs": can_review_docs,
+           "can_request_replacement": can_request_replacement}
 
     scope = officer_programs(db, user_id)
     TP = TitulationProcess
@@ -471,12 +498,73 @@ def _cuerpo_review(process_id, request, user, form):
         # camino no miraba (dictaminar un doc empujaba de fase a un proceso cancelado).
         if (proc and DocumentService.initial_docs_all_approved(db, process_id)
                 and PhaseService.can_transition(db, proc, 1)):
-            PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
+            try:
+                PhaseService.approve_phase(db, proc, 1, int(user["sub"]))
+            except ValueError as exc:
+                # R14: `can_transition` no bloquea; dos revisores que aprueban a la
+                # vez los últimos documentos lo pasan los dos. `approve_phase` sí
+                # bloquea la fila del proceso y despide al segundo con ValueError
+                # sin escribir nada. El dictamen del documento ya se guardó (su
+                # propio commit): perder el avance = otro ya avanzó, no es error.
+                # `commit()` (no `rollback()`, que bajo el harness tira lo
+                # sembrado) suelta el bloqueo antes de re-pintar.
+                logger.info("auto-avance 1->2 del proceso %s no aplicado: %s",
+                            process_id, exc)
+                db.commit()
         ctx = _body_ctx(db, user_id=int(user["sub"]), status_filter=status_filter,
                         selected_id=process_id, q=tab_q, page=tab_page)
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/documents_body.html", ctx)
+
+
+@router.post("/{process_id}/document/reemplazo", name="titulatec.pages.documents.replacement")
+async def replacement(process_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=[_REPLACE_PERM]))):
+    """«Pedir reemplazo» (spec 2026-10-15-titulatec-reemplazo-cotejo §7.1): con el
+    proceso ya en la cita de cotejo, la jefatura de Servicios Escolares pide que
+    el egresado vuelva a subir un documento de la fase 1 (el dictamen normal está
+    congelado, `review`). El tipo y el motivo llegan en el form del panel de
+    dictamen. Re-pinta la bandeja como `review`."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_replacement, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_replacement(process_id, request, user, form):
+    """Cuerpo síncrono de `replacement`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    type_code = form.get("type_code") or ""
+    if not type_code:
+        return Response(status_code=400, headers={"X-Tt-Error": "Falta el documento a reemplazar."})
+    note = (form.get("note") or "").strip()
+    if not note:
+        return Response(status_code=400, headers={"X-Tt-Error": "Escribe el motivo del reemplazo."})
+    status_filter = form.get("status") or None
+    tab_q, tab_page = form.get("q"), form.get("page")
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_bandeja(db, int(user["sub"]))
+        try:
+            DocumentService.request_replacement(
+                db, process_id, type_code, note=note, actor_id=int(user["sub"]))
+        except ValueError as exc:
+            # Los `REPLACEMENT_*_MSG` del service son ASCII puro: no hace falta `_hdr`.
+            return Response(status_code=400, headers={"X-Tt-Error": str(exc)})
+        ctx = _body_ctx(db, user_id=int(user["sub"]), status_filter=status_filter,
+                        selected_id=process_id, q=tab_q, page=tab_page)
+    finally:
+        db.close()
+    resp = render_titulatec(request, "titulatec/partials/documents_body.html", ctx)
+    # R12: acentuado vía `_hdr` y con su tono (sin `Kind` el toast sale como
+    # advertencia, `titulatec-utils.js`), igual que el panel y el expediente.
+    resp.headers["X-Tt-Notice"] = _hdr("Se pidió el reemplazo del documento al egresado.")
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
 
 
 @router.get("/{process_id}/document/{type_code}", name="titulatec.pages.documents.file")

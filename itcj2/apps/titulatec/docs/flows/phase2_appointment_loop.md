@@ -8,8 +8,8 @@
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (encargado de la carrera) · 👤 Alumno |
 | **Permiso(s)** | **Ver la agenda:** `appointment.page.list` ∨ `dashboard.school_services` ∨ `dashboard.admin`. **Actuar:** `appointment.api.create` (agendar) · `.reschedule` (reagendar / mover) · `.update` (iniciar, no-show, deshacer, **cancelar**) · `.mark_attended` · `process.api.requirement.mark` (checklist) · `process.api.approve_phase` / `.reject_phase`. **Espacios:** `review_window.api.manage` ∨ `.manage.all`. **Alumno:** `appointment.page.my` · `.api.confirm.own` · `.api.book.own` · `.api.cancel.own` |
-| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los documentos iniciales de SU PERFIL aprobados (3 en licenciatura, 7 en posgrado — [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si la fase 1 ya cerró antes del despliegue de ese perfil), la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) y, donde la convocatoria lo exige, el **no adeudo de biblioteca ya LIBERADO** (2026-10-01, D6 — ⤵ [no adeudo de biblioteca](phase2_library_clearance.md)) |
-| **Precondiciones** | `DocumentService.initial_docs_all_approved(db, process_id)` y `ClearanceGate.is_clear(db, process_id)` (guarda dura de `AppointmentService.create`, spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.1: `SurveyNotSubmitted`/`SurveyNotReleased` si falta la encuesta, `LibraryNotCleared` si falta el no adeudo donde la convocatoria lo exige — el PRIMER bloqueo de `ClearanceGate.blockers` es el que se levanta, encuesta primero) |
+| **Trigger** | El proceso aparece en «Por agendar»: activo, **sin cita vigente**, **la fase 02 nunca rechazada**, los documentos iniciales de SU PERFIL aprobados (3 en licenciatura, 7 en posgrado — [perfil de titulación](engine_process_track.md); R-G exceptúa los extras de posgrado FALTANTES si la fase 1 ya cerró antes del despliegue de ese perfil) (un documento con **reemplazo abierto** pedido en el cotejo cuenta como «ok» en esta cola — `replacement_ok=True`, 2026-10-15, ver abajo), la **encuesta de egresados ya LIBERADA** por Gestión Tecnológica y Vinculación (2026-09-29, D1 — revierte D2 del 2026-09-15, que se conformaba con que la hubieran enviado) y, donde la convocatoria lo exige, el **no adeudo de biblioteca ya LIBERADO** (2026-10-01, D6 — ⤵ [no adeudo de biblioteca](phase2_library_clearance.md)) |
+| **Precondiciones** | Documentos iniciales aprobados — **solo para aparecer en la cola** («Por agendar»: `DocumentService.initial_docs_approved_map` dentro de `AppointmentService.queue_candidates`, `services/appointment_service.py:352/411`); **`AppointmentService.create` NO revisa documentos** (corregido 2026-10-15: antes esta fila decía que llamaba a `initial_docs_all_approved`, y el código nunca lo hizo — `create` solo corre `_assert_not_revoked` y `_assert_cleared`, `:723-724`; `SelfBookingService` tampoco mira documentos). Lo que sí es guarda dura de `create` es `ClearanceGate` (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.1: `SurveyNotSubmitted`/`SurveyNotReleased` si falta la encuesta, `LibraryNotCleared` si falta el no adeudo donde la convocatoria lo exige — el PRIMER bloqueo de `ClearanceGate.blockers` es el que se levanta, encuesta primero) |
 | **Sub-flujos** | ⤵ [motor de avance de fase](engine_approve_advance_phase.md) · ⤵ [alcance por carrera](engine_officer_scope.md) · ⤵ [el egresado agenda solo](phase2_student_self_booking.md) · ⤵ [no adeudo de biblioteca](phase2_library_clearance.md) (`ClearanceGate`, segunda liberación) |
 | **Estado final** | Cita `attended`; fase 2 `approved`; fase 3 `in_progress` |
 
@@ -175,7 +175,7 @@ cita **nueva** a los que solo necesitan *seguimiento*:
 > pero **sin** `SurveyReview` (nunca se sembró/migró correctamente). Arrastrarlo a un lugar libre
 > reventaba con `SurveyNotSubmitted` — un error que no dice nada en el contexto de «nada más le
 > rechazaron la fase». La fila del cubo 2 resuelve `liberaciones_pendientes`
-> (`bool(ClearanceGate.blockers(estado))`, `pages/appointments.py:1195`, consultas FIJAS vía
+> (`bool(ClearanceGate.blockers(estado))`, `pages/appointments.py:1338`, consultas FIJAS vía
 > `ClearanceGate.status_map` — D1: cubre el nunca-enviada Y el enviada-pero-sin-liberar, y desde
 > 2026-10-01 también el no adeudo donde aplica) **por fila**: con alguna liberación pendiente
 > pierde `draggable`/`data-tt-drag*` y muestra las píldoras de su estado real
@@ -268,6 +268,8 @@ Todas las rutas del encargado cuelgan de `/titulatec/admin/appointments`.
 | 4d| 🏛️ | Atender | **deshacer «no se presentó»** | `POST /{pid}/undo-no-show` | `undo_no_show` | `no_show → in_progress` | `appointment_undo_no_show` + notif `APPOINTMENT_NO_SHOW_UNDONE` | — (el `appt_no_show` pendiente sale `obsolete` al re-validar) |
 | 4e| 🏛️ | Atender | **cancelar la cita** | `POST /{pid}/cancelar` (form `motivo`) | `AppointmentService.cancel` | `cancelled`, `is_current=False`, sella `cancelled_*`; **libera la franja** | `appointment_cancelled` + notif `APPOINTMENT_CANCELLED` | `appt_changed` (`cancelled`, con el motivo) |
 | 4f| 🏛️ | Atender · checklist | marcar / dispensar / desmarcar requisito | `POST /{pid}/requisitos/{rid}` (form `action`, `note`) | `RequirementService.fulfill` / `.unfulfill` | `RequirementFulfillment(fulfilled\|waived)` o borrada | `requirement_fulfilled` / `requirement_unfulfilled` | — |
+| 4g| 🏛️ (jefa) | Atender · bajo el visor del documento abierto | **pedir reemplazo** de un documento de la fase 1 (motivo obligatorio) | `POST /{pid}/documents/{type_code}/reemplazo` (form `note`) — perm `document.api.request_replacement` | `DocumentService.request_replacement` | documento `rejected` + `review_note`, `replacement_requested_at` | `document_replacement_requested` + notif `DOCUMENT_REPLACEMENT_REQUESTED` | `docs_review` (rechazo, grupo `docs:`) |
+| 4h| 🏛️ | Atender · idem | **aprobar el reemplazo** que el alumno subió | `POST /{pid}/documents/{type_code}/aprobar` — perm `document.api.approve` | `DocumentService.review(approved)` | `approved`, `replacement_requested_at = NULL` | `document_approved` (`replacement: true`) | `docs_review` |
 | 5 | 🏛️/🎓 | Atender | **aprobar fase 02** | `POST /{pid}/fase2/aprobar` | `PhaseService.approve_phase` ⤵ | fase2=`approved`, fase3=`in_progress`, `current_phase=3` | `phase_approved` | `phase_approved` (con el corte por omisión, `handoff=true`) |
 | 5b| 🏛️ | Atender | **rechazar fase 02** (motivo obligatorio) | `POST /{pid}/fase2/rechazar` (form `reason`) | `PhaseService.reject_phase` | fase2=`rejected` + `rejection_reason` | `phase_rejected` + notif `PHASE_REJECTED` | `phase_rejected` (con el motivo) |
 
@@ -314,6 +316,51 @@ estado y su franja ocupada** mientras el alumno recibe una fila nueva en otra.
 > «Rechazar» es una **navegación** con `&rechazar={pid}` (el mismo idiom que «Mover de franja» usa
 > con `&mover=`), que re-renderiza el panel con el textarea abierto: `hx-confirm` es sí/no y
 > `prompt()` está prohibido en el proyecto.
+
+### Reemplazo de un documento en la cita (4g/4h, 2026-10-15)
+
+Flujo transversal completo: [`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md).
+Aquí solo lo que pasa en este panel:
+
+- **Dónde.** Bajo el visor del documento abierto (`#appt-docreplace`, `partials/appointments/_appt_viewer.html`),
+  fuera de `#appt-docbar`: ni el `src` del iframe ni los botones de documento cambian, así que el PDF no se
+  recarga. Muestra la píldora de estado, «Reemplazo pedido» y, con `rejected`, el motivo; con `pending` +
+  abierto, «Reemplazo subido · por aprobar».
+- **«Pedir reemplazo»** (solo con `titulatec.document.api.request_replacement` y el proceso en cotejo:
+  `can_request_replacement`, `pages/appointments.py:346-358`) es una **navegación** con `&reemplazo=<type_code>`
+  — el mismo idiom que `&rechazar=` de la fase 02 (`hx-confirm` no recoge texto, `prompt()` está prohibido) —
+  que abre el textarea `#appt-docreplace-note`. La ruta es `document_replacement`
+  (`pages/appointments.py:2215`, `async def` solo para leer el form + `_cuerpo_document_replacement`, `:2235`):
+  motivo vacío → 400 antes de abrir sesión; luego `assert_process_in_scope` → `_exigir_bandeja` →
+  `request_replacement`; éxito re-renderiza el panel con `X-Tt-Notice` «Reemplazo pedido. Se le avisó al alumno.».
+- **«Aprobar reemplazo»** (`#appt-docreplace-approve`, con `document.api.approve`, solo si el documento está
+  `pending` con reemplazo abierto) es `document_replacement_approve` (`pages/appointments.py:2267`, `async def` solo para leer el form + `_cuerpo_document_replacement_approve`, `:2293`):
+  si el documento no tiene reemplazo abierto responde 400 «Ese documento no tiene un reemplazo pendiente.»
+  (este botón **no** es un dictamen general de documentos) y si lo tiene llama
+  `DocumentService.review(..., status="approved", note=None, reviewer_id=uid)`. R10: el botón manda la `version`
+  que pintó (`hx-vals`); si la fila ya tiene otra (el alumno cambió el archivo), la ruta responde **200** + re-render
+  + `X-Tt-Notice` de tipo warning «El alumno cambió el archivo: revísalo antes de aprobar.» **sin aprobar**
+  (htmx no hace swap en 4xx).
+- **Compuerta de la fase 02 (D4).** Mientras haya un reemplazo abierto, **aprobar la fase 02 se niega**:
+  `PhaseService._cotejo_gate_error` (`services/phase_service.py:363`) consulta primero
+  `DocumentService.replacement_gate_error` (`:392-394`) → «No se puede liberar la fase 02: falta aprobar el
+  reemplazo de: Acta de nacimiento.». Aplica a las dos vías (`fase2/aprobar` de aquí y
+  `admin phase/{n}/approve` del expediente, que es también «Mover de fase»); ambas pasan el mensaje por `_hdr()`
+  (lleva acentos). Va **antes** que los requisitos de cotejo.
+- **Dictamen serializado (R9 → R14).** Aprobar y rechazar la fase 02 (5 y 5b, aquí o en el expediente) bloquean
+  primero la fila del proceso (`PhaseService._lock_process_row`, `FOR NO KEY UPDATE` + relectura,
+  `services/phase_service.py:263`) y validan después, sobre la fila ya releída. Hasta R14 (2026-10-15) solo
+  la liberación lo hacía (R9, contra un reemplazo pedido a la vez); ahora también el rechazo, y en todas las
+  fases: un «Rechazar» de este panel que llega justo después de que otra persona liberó la fase 02 ya no
+  regresa al alumno a la fase 2 — recibe `400` + `X-Tt-Error` «Solo puedes actuar sobre la fase en curso…»
+  (una segunda liberación ya recibía lo mismo desde R9). Detalle en la
+  [máquina de estados](00_state_machine.md), «El dictamen de fase se serializa por fila».
+- **La cola no lo cuenta como faltante (D2).** `queue_candidates` pide
+  `initial_docs_approved_map(..., replacement_ok=True)` (`services/appointment_service.py:412`): un documento
+  con reemplazo abierto (`DocumentService.replacement_open`: bandera no NULL y no `approved`) cuenta como aprobado, así que pedir un reemplazo **no saca al alumno de
+  «Por agendar» ni le impide agendar** (el proceso no regresa de fase). El auto-avance 1→2 de la bandeja de
+  Documentos sigue usando la regla estricta (sin `replacement_ok`).
+- El alumno ve el aviso con botón «Subir reemplazo» en «Mi cita» (fuera de `#tt-cita-card`) y en el tablero.
 
 ## Estado resultante
 
@@ -465,7 +512,7 @@ El indicador (`#appt-skel`) vive **fuera** del shell: dentro se destruiría esta
 
 ## Cola del encargado sin consultas por candidato (2026-10-04)
 
-Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §8, sin cambio de listas, orden, contadores ni UI. Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les agendes», «Liberaciones pendientes») salen de `AppointmentService.queue_candidates` (`services/appointment_service.py:352`, antes `_pending_candidates`), calculado UNA vez por `_shell_ctx` (`pages/appointments.py:959`, uso en `:1017`) con mapas en lote: `DocumentService.initial_docs_approved_map` (`services/document_service.py:208`, misma regla perfil + R-G) y `SelfBookingService.cancellations_map` / `blocked_map` (`services/self_booking_service.py:196`, `:224`, `GROUP BY`). Los métodos por proceso y los `list_*` conservan firma y delegan. `list_appointments` puebla `process` desde su JOIN (`contains_eager`). `_shell_ctx` pasó de 252 a 40 consultas con 3 candidatos por clase y de 2115 a 40 con 30 (test de equivalencia contra el algoritmo por fila congelado). El buscador `#appt-q` ya llevaba `hx-preserve` (es el patrón que copiaron las demás bandejas).
+Cambio de la spec `2026-10-04-titulatec-paginacion-design.md` §8, sin cambio de listas, orden, contadores ni UI. Los tres cubos del universo «sin cita» («Por agendar», «Requieren que les agendes», «Liberaciones pendientes») salen de `AppointmentService.queue_candidates` (`services/appointment_service.py:352`, antes `_pending_candidates`), calculado UNA vez por `_shell_ctx` (`pages/appointments.py:959`, uso en `:1017`) con mapas en lote: `DocumentService.initial_docs_approved_map` (`services/document_service.py:208`, misma regla perfil + R-G) y `SelfBookingService.cancellations_map` / `blocked_map` (`services/self_booking_service.py:196`, `:224`, `GROUP BY`). Los métodos por proceso y los `list_*` conservan firma y delegan. `list_appointments` puebla `process` desde su JOIN (`contains_eager`). `_shell_ctx` pasó de 252 a 40 consultas con 3 candidatos por clase y de 2115 a 40 con 30 (test de equivalencia contra el algoritmo por fila congelado). Desde el 2026-10-15 la llamada pasa `replacement_ok=True` (un reemplazo abierto no atrasa el agendado; mismas consultas en los dos modos). El buscador `#appt-q` ya llevaba `hx-preserve` (es el patrón que copiaron las demás bandejas).
 
 ## Ocupación en lote (2026-10-05)
 
@@ -557,6 +604,7 @@ comportamiento actual, documentado para que nadie asuma otra cosa.
   panel de la fase 2 resume fecha, lugar y si falta confirmar, **sin** dejar confirmar desde ahí.
 - ⤵ Motor: [aprobar/avanzar fase](engine_approve_advance_phase.md).
 - ⤵ Alcance: [días/encargados por carrera](engine_officer_scope.md).
+- ⤵ Reemplazo de un documento de la fase 1 durante la cita: [reemplazo en el cotejo](xcut_cotejo_document_replacement.md).
 - ⤵ Puerta previa (encuesta): [liberación GTV de la encuesta de egresados](phase2_tech_management_survey_release.md).
 - ⤵ Puerta previa (no adeudo): [no adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md)
   — fila de solo lectura en la ficha de atender, botón de constancia previa (D9) y el cubo

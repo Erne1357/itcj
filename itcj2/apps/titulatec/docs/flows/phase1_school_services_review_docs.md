@@ -8,9 +8,9 @@
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Servicios Escolares (`titulatec_school_services` / `_head`) · 🎓 Titulaciones |
-| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) |
+| **Permiso(s)** | ver: cualquiera de `titulatec.document.page.list`, `...dashboard.school_services`, `...dashboard.titulaciones`, `...dashboard.admin` (`_VIEW_PERMS`, `pages/documents.py:14-15`) · dictaminar: `titulatec.document.api.approve` **o** `...reject` (`_REVIEW_PERMS`, `pages/documents.py:16`) · ver el archivo: `titulatec.document.api.read.all` (`pages/documents.py:273`) · pedir reemplazo en el cotejo (2026-10-15): `titulatec.document.api.request_replacement` (`pages/documents.py:23`, solo la jefatura y `admin`) |
 | **Trigger** | El alumno subió documentos (fase 1); aparecen en la pestaña **Documentos**. |
-| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:262`), o sea proceso `active` **y** `current_phase == 1`. |
+| **Precondiciones** | Proceso `status='active'` con **al menos un archivo subido** (`pages/documents.py:161,175`). El auto-avance además exige que la fase 1 sea la transición legal del proceso: `PhaseService.can_transition(db, proc, 1)` (`pages/documents.py:500`), o sea proceso `active` **y** `current_phase == 1` — filtro sin bloqueo; la garantía contra dos avances a la vez la da el bloqueo de fila de `approve_phase` (R14, ver «Dos revisores a la vez»). |
 | **Sub-flujos** | ⤵ al aprobar el último pendiente del set invoca el [motor de avance de fase](engine_approve_advance_phase.md). |
 | **Estado final** | todos los docs del set `approved` → fase 1 `approved`, `current_phase=2` → elegible para [cita de cotejo](phase2_appointment_loop.md). |
 
@@ -72,6 +72,8 @@ sequenceDiagram
     API->>DS: initial_docs_all_approved(pid)?
     alt las 3 approved y can_transition(proc, 1)
         API->>PS: approve_phase(proc, 1, reviewer)
+        PS->>DB: proceso FOR NO KEY UPDATE + relectura (R14) · assert_can_transition
+        Note over PS,API: perdedor de una carrera → ValueError sin escribir; la ruta lo atrapa (200)
         PS->>DB: fase1=approved, current_phase=2, ProcessEvent
         PS->>DB: INSERT email_outbox (phase_approved, MISMO grupo docs:{pid})
         PS->>DB: COMMIT (2.º)
@@ -284,8 +286,8 @@ igual que antes lo hacía el endpoint borrado:
   exige el dictamen por documento (`document.api.approve`/`.reject`, `pages/documents.py:16`); los
   tres roles operativos (`titulatec_school_services`, `..._head`, `titulatec_titulaciones`) tienen
   ambos permisos a la vez.
-- Guarda: `PhaseService.assert_can_transition` (`phase_service.py:122-133`, vía `can_transition`,
-  `:109-119`) exige que `n` sea la fase EN CURSO de un proceso `active`. **No mira el estado de los
+- Guarda: `PhaseService.assert_can_transition` (`phase_service.py:125-136`, vía `can_transition`,
+  `:109-122`) exige que `n` sea la fase EN CURSO de un proceso `active`. **No mira el estado de los
   documentos** — ver [motor de avance](engine_approve_advance_phase.md).
 
 **Consecuencia (verificada en el código):** se puede aprobar la fase 1 desde «Mover de fase» con
@@ -296,15 +298,27 @@ permiso y estado del PROCESO, nunca el de sus documentos — es el mismo defecto
 solo que hoy vive en el modal genérico y no en un botón dedicado de documentos.
 
 **El auto-avance de la bandeja no es atómico.** Son dos transacciones separadas con una lectura en
-medio: `DocumentService.review` hace su propio `db.commit()` (`services/document_service.py:416`);
-después `pages/documents.py:261-263` relee `initial_docs_all_approved` + `can_transition` y, si
-aplica, llama a `PhaseService.approve_phase`, que hace el suyo
-(`services/phase_service.py:450`). Si el segundo commit falla —o dos revisores aprueban el último
-documento a la vez— el documento queda `approved` y la fase no avanza: hay que empujarla con
-«Mover de fase». No hay bloqueo de fila; la idempotencia la da `can_transition` (la segunda pasada
-ya no encuentra el proceso en la fase 1). Los correos siguen a su propia transacción: el
-`docs_review` queda con el 1.er commit y el `phase_approved` solo existe si el 2.º se confirmó —
-nunca se avisa un avance que no ocurrió.
+medio: `DocumentService.review` hace su propio `db.commit()`; después `pages/documents.py:498-513`
+relee `initial_docs_all_approved` + `can_transition` y, si aplica, llama a
+`PhaseService.approve_phase`, que hace el suyo (`services/phase_service.py:541`). Si el segundo
+commit falla el documento queda `approved` y la fase no avanza: hay que empujarla con «Mover de
+fase». Los correos siguen a su propia transacción: el `docs_review` queda con el 1.er commit y el
+`phase_approved` solo existe si el 2.º se confirmó — nunca se avisa un avance que no ocurrió.
+
+**Dos revisores a la vez: serializado por fila (Ruling R14, 2026-10-15).** `can_transition` es un
+filtro **sin** bloqueo: si dos revisores aprueban a la vez los dos últimos documentos, las dos
+peticiones lo pasan. Hasta el 2026-10-15 las dos llamaban `approve_phase(1)` y el avance quedaba
+duplicado (dos `phase_approved`, dos avisos `PHASE_APPROVED`, dos correos) — la frase vieja de este
+documento, «la idempotencia la da `can_transition`», era falsa con concurrencia. Ahora
+`approve_phase` toma primero el bloqueo de la fila del proceso (`PhaseService._lock_process_row`,
+`FOR NO KEY UPDATE` + `populate_existing`, `services/phase_service.py:263`) y **después** corre
+`assert_can_transition` sobre la fila ya releída: la segunda petición espera el commit de la primera,
+ve `current_phase = 2` y recibe `ValueError` sin escribir nada. La ruta lo **atrapa**
+(`pages/documents.py:503-513`): el dictamen del documento ya se guardó, perder el avance significa que
+otro ya avanzó, no es un error — responde 200 con la bandeja re-pintada (antes habría sido un 500) y
+hace `commit()` para soltar el bloqueo antes de re-pintar (nunca `rollback()`: bajo el harness tira lo
+sembrado). Lo fija `tests/fastapi/titulatec/test_phase_verdict_lock.py` (`TestAutoAvanceDeLaBandeja`,
+la carrera reproducida de forma determinista).
 
 ## Último aprobado = re-confirmación, y después el dictamen se congela (desde 2026-10-04)
 
@@ -337,6 +351,52 @@ fase, se impide**.
 - **Fuera de alcance:** «Mover de fase» del expediente sigue pudiendo aprobar la fase 1 sin los
   documentos aprobados (sección de arriba); no hay re-confirmación ahí.
 
+## Excepción al dictamen congelado: el reemplazo en el cotejo (2026-10-15)
+
+Spec `docs/superpowers/specs/2026-10-15-titulatec-reemplazo-cotejo-design.md`. Flujo transversal
+completo (alumno, panel de Citas, expediente, compuerta de la fase 2):
+[`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md). Aquí solo lo que cambia
+en esta bandeja.
+
+**El problema.** En la cita de cotejo el egresado a veces presenta en físico un documento DISTINTO del
+que subió en la fase 1 (igual de válido), y el congelado de arriba impedía rechazar el original para que
+subiera el otro. **La regla de congelado no se tocó**: `DocumentService.review` sigue negando el rechazo
+con `PHASE_CLOSED_MSG` (`test_documents_phase_lock.py` sigue verde). La excepción es una vía APARTE con
+permiso propio:
+
+- **Permiso:** `titulatec.document.api.request_replacement` (`_REPLACE_PERM`,
+  `pages/documents.py:23`), solo `titulatec_school_services_head` y `admin` (D1). Los encargados que
+  dictaminan NO lo tienen: no ven el botón y la ruta responde 403.
+- **Botón «Pedir reemplazo»** (`#tt-inline-replace`, `partials/documents_body.html`): aparece junto a
+  Aprobar/Rechazar cuando coinciden `phase_closed` (la fase 1 ya pasó), `detail.in_cotejo` (el proceso
+  está `active` y parado en la fase `review_appointment` del catálogo; lo calcula `_annotate_phase_lock`,
+  `pages/documents.py:301`) y el permiso (`can_request_replacement`, `:364`, de la MISMA lectura de
+  permisos de la bandeja — sin consulta nueva). Usa el motivo del formulario («Comentario», que ahora
+  dice «obligatorio si rechazas o pides reemplazo») y se confirma con `hx-confirm="Pedir reemplazo|…"` +
+  `data-tt-confirm-ok`. El JS del panel (`static/js/admin/doc-viewer.js:180`) lo muestra solo con la fase
+  cerrada y un documento con archivo; un listener en captura (`:297`) frena el clic sin motivo con el toast
+  «Indica el motivo del reemplazo.» antes de que htmx abra el `hx-confirm`.
+- **Ruta:** `POST /titulatec/admin/documents/{process_id}/document/reemplazo`
+  (`replacement`, `pages/documents.py:510`; `async def` solo para leer el form y `_cuerpo_replacement`,
+  `:522`, en el threadpool). Orden: `type_code` y motivo (400 + `X-Tt-Error` si faltan) → `SessionLocal()` →
+  `assert_process_in_scope` (404 fuera de alcance) → `_exigir_bandeja` →
+  `DocumentService.request_replacement`. Un `ValueError` del service sale como 400 + `X-Tt-Error` (los
+  `REPLACEMENT_*_MSG` son ASCII, no hace falta `_hdr`). Éxito: re-pinta `documents_body.html` con los
+  filtros de la pestaña y `X-Tt-Notice` «Se pidio el reemplazo del documento al egresado.».
+- **Qué hace el service** (`services/document_service.py:899`): valida motivo (no vacío, ≤1000), proceso
+  `active`, fase de cotejo vigente y no liberada, tipo de la fase 1 dentro del set del perfil y documento
+  existente; deja el documento `rejected` + `review_note` = motivo + `reviewed_by_id` = la jefa y abre
+  el reemplazo (`replacement_requested_at`); escribe `ProcessEvent(document_replacement_requested)`,
+  el aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED` y el correo de dictamen de siempre
+  (`StudentMail.doc_reviewed`, grupo `docs:`). Commit propio.
+- **El reemplazo subido entra a «Por evaluar»** (el alumno resube → `pending`, como siempre) y se
+  **aprueba con el Aprobar de siempre**: `DocumentService.review` permite aprobar uno no aprobado aunque
+  la fase esté cerrada, y al aprobar limpia `replacement_requested_at`. La fila del selector lleva la
+  píldora «Reemplazo en cotejo» (`d.replacement`, `data-replacement`; la bandera sale de la MISMA consulta
+  de `_doc_states`, `pages/documents.py:184`, con el predicado único `DocumentService.replacement_open`) y aprobar no auto-avanza nada (la fase 1 ya cerró).
+- **Lo que NO hay:** botón «Pedir reemplazo» dentro del modal grande del visor; recordatorios por
+  reemplazo abierto (el barrido de documentos solo mira la fase 1).
+
 ## Estado resultante
 
 - Todos los `Document.review_status = approved` del set del PERFIL (3 en licenciatura, 7 en
@@ -364,7 +424,7 @@ fase, se impide**.
   "Por evaluar" solo si le queda OTRO archivo sin dictaminar). Cuando el alumno re-sube,
   `DocumentService.save` lo devuelve a `pending` —vuelve a «Por evaluar»— y limpia nota y revisor
   (`review_note`, `reviewed_by_id`; este último se quedaba con el revisor anterior hasta el 2026-10-09). **Solo mientras la fase 1 sea la actual**: con la fase
-  ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba).
+  ya aprobada el rechazo responde `400` + `PHASE_CLOSED_MSG` (ver sección de arriba). La única salida es «Pedir reemplazo» de la jefatura (sección «Excepción al dictamen congelado»).
 - Aprobar solo una parte del set (p. ej. 2 de 3 en licenciatura, o 6 de 7 en posgrado) → no avanza
   (el avance solo dispara con el set COMPLETO del perfil aprobado y `current_phase == 1`).
 - Aprobar el set completo cuando la fase 1 ya no es la actual → no avanza; queda para «Mover de
@@ -387,6 +447,7 @@ fase, se impide**.
 ## Flujos relacionados
 
 - ← Previo: [el alumno sube documentos](phase1_student_upload_initial_docs.md).
+- ⤵ Excepción al congelado en la fase 2: [reemplazo de documento en el cotejo](xcut_cotejo_document_replacement.md).
 - ↔ Antes existía un dictamen gemelo desde el "detalle del proceso" (sin auto-avance); se borró
   con el rediseño del expediente (2026-09-03, ver "El dictamen de documentos…" arriba).
   [`phase1_admin_review_initial_docs.md`](phase1_admin_review_initial_docs.md) todavía describe esa

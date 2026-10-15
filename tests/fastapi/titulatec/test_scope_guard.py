@@ -642,7 +642,12 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # registrar/deshacer no-adeudo-previo desde el expediente
     # (`POST /admin/processes/{id}/no-adeudo-previo[/deshacer]`) y desde el panel
     # de atender (`POST /admin/appointments/{id}/no-adeudo-previo[/deshacer]`).
-    assert revisadas == 25, (
+    # 29 desde 2026-10-15: + 4 rutas del reemplazo de documento en cotejo:
+    # `POST /admin/documents/{id}/document/reemplazo` (bandeja),
+    # `POST /admin/appointments/{id}/documents/{tipo}/reemplazo` y `/aprobar`
+    # (panel de atender) y `POST /admin/processes/{id}/documents/{tipo}/reemplazo`
+    # (expediente).
+    assert revisadas == 29, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

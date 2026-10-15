@@ -57,7 +57,17 @@
    `hx-confirm` + `data-tt-confirm-ok` van en el `<form>` (no en el botón):
    mismo idiom que `library_body.html` -- el puente hx-confirm -> modal ya
    existe (`static/js/shared/titulatec-utils.js:265`). Sin `<script>` inline
-   ni `confirm()/alert()`. #}
+   ni `confirm()/alert()`.
+
+   Orden y pantallas chicas (spec 2026-10-15-titulatec-reemplazo-cotejo §11):
+   la Carrera va AL FINAL del renglón, tras la acción, en las dos tablas
+   (búsqueda/«Por cobrar»: Egresado · Control · Estado · Monto · acción ·
+   Carrera). Cuando la tabla no cabe en el ancho de la bandeja, cada renglón
+   se pinta como TARJETA (`static/css/admin/cashier.css`, consulta de
+   contenedor sobre esta raíz): las clases `tt-cash-*` de cada celda dicen
+   su lugar en la tarjeta y `data-label` (el MISMO texto de su encabezado)
+   la etiqueta. Sin `style=`: todo vive en esa hoja, que se carga una vez
+   desde `admin/base_admin.html`. #}
 {% from "titulatec/_macros.html" import pill, pager %}
 {% macro tab_fields(tab, q, dia, page) -%}
 <input type="hidden" name="tab" value="{{ tab }}">
@@ -150,25 +160,25 @@
       <p class="mb-0">No hay movimientos ese día.</p>
     </div>
     {% else %}
-    <div class="tt-table-wrap">
-      <table class="table table-sm align-middle">
+    <div class="tt-table-wrap tt-cash-wrap">
+      <table id="tt-cashier-cut" class="table table-sm align-middle tt-cash-table tt-cash-table--cut">
         <thead><tr>
-          <th>Hora</th><th>Egresado</th><th>Control</th><th>Carrera</th><th>Movimiento</th>
+          <th>Hora</th><th>Egresado</th><th>Control</th><th>Movimiento</th>
           <th>Monto</th><th>Recibo</th><th>Quién</th><th>Motivo</th><th>Cobro original</th><th></th>
+          <th>Carrera</th>
         </tr></thead>
         <tbody>
         {% for r in day_cut.rows %}
         <tr id="caja-mov-{{ r.id }}">
-          <td>{{ r.at.strftime('%H:%M') }}</td>
-          <td>{{ r.student }}</td>
-          <td class="tt-mono">{{ r.control }}</td>
-          <td>{{ r.program }}</td>
-          <td>
+          <td class="tt-cash-time" data-label="Hora">{{ r.at.strftime('%H:%M') }}</td>
+          <td class="tt-cash-student" data-label="Egresado">{{ r.student }}</td>
+          <td class="tt-mono tt-cash-control" data-label="Control">{{ r.control }}</td>
+          <td class="tt-cash-status" data-label="Movimiento">
             {% if r.kind == 'charge' %}{{ pill("Cobro", "success", "cash-coin") }}
             {% else %}{{ pill("Reversa", "danger", "arrow-counterclockwise") }}{% endif %}
             {% if r.held %}<br><span class="small text-body-secondary">Con observación de Biblioteca</span>{% endif %}
           </td>
-          <td{% if r.amount < 0 %} class="text-danger"{% endif %}>
+          <td class="tt-cash-amount{{ ' text-danger' if r.amount < 0 else '' }}" data-label="Monto">
             {%- if not r.amount -%}
               —
             {%- elif r.amount < 0 -%}
@@ -177,11 +187,11 @@
               {{ format_amount(r.amount) }}
             {%- endif -%}
           </td>
-          <td>{{ r.receipt or '—' }}</td>
-          <td>{{ r.actor or '—' }}</td>
-          <td class="tt-td-wrap">{{ r.reason or '—' }}</td>
-          <td>{{ r.original_paid_at.strftime('%d/%m/%Y %H:%M') if r.original_paid_at else '—' }}</td>
-          <td>
+          <td class="tt-cash-meta tt-cash-receipt" data-label="Recibo">{{ r.receipt or '—' }}</td>
+          <td class="tt-cash-meta tt-cash-actor" data-label="Quién">{{ r.actor or '—' }}</td>
+          <td class="tt-td-wrap tt-cash-meta tt-cash-reason" data-label="Motivo">{{ r.reason or '—' }}</td>
+          <td class="tt-cash-meta tt-cash-original" data-label="Cobro original">{{ r.original_paid_at.strftime('%d/%m/%Y %H:%M') if r.original_paid_at else '—' }}</td>
+          <td class="tt-cash-action">
             {% if r.can_revert_here %}
             <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/caja/{{ r.clearance_id }}/revertir"
                   hx-target="#tt-cashier-body" hx-swap="outerHTML" hx-disabled-elt="find button"
@@ -196,6 +206,7 @@
             <span class="small text-body-secondary">—</span>
             {% endif %}
           </td>
+          <td class="tt-cash-program" data-label="Carrera">{{ r.program }}</td>
         </tr>
         {% endfor %}
         </tbody>
@@ -215,25 +226,17 @@
     </p>
   </div>
   {% else %}
-  <div class="tt-table-wrap">
-    <table class="table table-sm align-middle">
+  <div class="tt-table-wrap tt-cash-wrap">
+    <table id="tt-cashier-table" class="table table-sm align-middle tt-cash-table tt-cash-table--rows">
       <thead><tr>
-        <th>Egresado</th><th>Control</th><th>Carrera</th><th>Monto</th><th>Estado</th><th></th>
+        <th>Egresado</th><th>Control</th><th>Estado</th><th>Monto</th><th></th><th>Carrera</th>
       </tr></thead>
       <tbody>
       {% for r in rows %}
       <tr id="caja-{{ r.id }}">
-        <td>{{ r.student }}</td>
-        <td class="tt-mono">{{ r.control }}</td>
-        <td>{{ r.program }}</td>
-        <td>
-          {% if r.status == 'awaiting_payment' or (r.observation_kind == 'with_debt' and not r.held) %}
-            {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
-          {% elif r.total is not none %}
-            {{ format_amount(r.total) }}
-          {% else %}—{% endif %}
-        </td>
-        <td>{{ caja_pill(r) }}
+        <td class="tt-cash-student" data-label="Egresado">{{ r.student }}</td>
+        <td class="tt-mono tt-cash-control" data-label="Control">{{ r.control }}</td>
+        <td class="tt-cash-status" data-label="Estado">{{ caja_pill(r) }}
           {% if r.status == 'cleared' and r.via == 'payment' %}
           <br><span class="small text-body-secondary">Pagó el
             {{ r.paid_at.strftime('%d/%m/%Y') if r.paid_at else '—' }}{% if r.receipt %} · Recibo {{ r.receipt }}{% endif %}</span>
@@ -250,7 +253,14 @@
           {% endif %}
           {% endif %}
         </td>
-        <td>
+        <td class="tt-cash-amount" data-label="Monto">
+          {% if r.status == 'awaiting_payment' or (r.observation_kind == 'with_debt' and not r.held) %}
+            {{ format_amount(r.debt) }} + {{ format_amount(r.donation) }} = <strong>{{ format_amount(r.total) }}</strong>
+          {% elif r.total is not none %}
+            {{ format_amount(r.total) }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="tt-cash-action">
           {% if r.revoked %}
             <span class="small text-body-secondary">Sin acciones en Caja</span>
           {% elif r.status == 'awaiting_payment' or (r.observation_kind == 'with_debt' and not r.held) %}
@@ -282,6 +292,7 @@
             <span class="small text-body-secondary">Sin acciones en Caja</span>
           {% endif %}
         </td>
+        <td class="tt-cash-program" data-label="Carrera">{{ r.program }}</td>
       </tr>
       {% endfor %}
       </tbody>

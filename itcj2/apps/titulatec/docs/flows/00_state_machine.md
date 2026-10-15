@@ -89,6 +89,26 @@ acordeón del dashboard, sin poder ejecutarlas) y las **anteriores** quedan cerr
 La fase `rejected` sigue abierta porque `reject_phase` deja `current_phase` apuntando a
 ella; es corrección, no reapertura.
 
+**El dictamen de fase se serializa por fila (Ruling R14, 2026-10-15).** La guarda de la
+fila 1 compara contra `process.current_phase`, y ese valor solo vale si nadie lo está
+cambiando a la vez. Por eso `approve_phase` y `reject_phase` empiezan, en **todas** las
+fases, con `PhaseService._lock_process_row` (`services/phase_service.py:263`):
+`SELECT … FOR NO KEY UPDATE` sobre `titulatec_processes` + `populate_existing`, y solo
+después `assert_can_transition` sobre la fila ya releída. De dos dictámenes de la misma
+fase, el segundo espera el commit del primero y valida sobre lo que este dejó: si el
+primero APROBÓ (la fase ya se movió), el segundo recibe `ValueError` sin escribir nada
+(las rutas lo traducen a `400` + `X-Tt-Error`; el auto-avance de la bandeja de Documentos
+lo atrapa y responde 200, porque su dictamen de documento ya se guardó). Si el primero
+RECHAZÓ, `current_phase` no cambia y el segundo procede en orden (aprobar una fase
+rechazada es legal; un segundo rechazo pisa el motivo). Cierra dos carreras: dos revisores aprobando los últimos documentos de la fase 1
+(avance, eventos, avisos y correos duplicados) y un rechazo concurrente con la aprobación
+de la misma fase (el proceso regresaba a una fase ya liberada). Además `approve_phase` se
+niega con «Esa fase ya fue aprobada.» si la `ProcessPhase` ya está `approved` (defensa,
+sin consulta extra). Hasta R14 solo la liberación de la fase 2 tomaba ese bloqueo (R9).
+`FOR NO KEY UPDATE` es el modo de `ProcessService.cancel` y `DocumentService.
+request_replacement`: los tres se serializan entre sí, y ninguno choca con el `FOR KEY
+SHARE` de los INSERT con FK al proceso.
+
 ### El corte a T-soft: la misma regla, en los cuatro puntos (desde 2026-09-21)
 
 Los cuatro puntos de arriba comparten una regla más: **ninguna fase con `number >=
@@ -145,6 +165,72 @@ stateDiagram-v2
 ```
 
 > Re-subir **sobreescribe** (solo última versión) y vuelve `review_status=pending`.
+>
+> **`Document.version` es un contador informativo y ya no se reinicia (2026-10-15, D7).** Actualizar
+> una fila existente suma 1; crear una fila NUEVA —la primera subida, o la que sigue a un
+> `delete()`— toma `1 + max(nº de eventos document_uploaded de ese (proceso, tipo), mayor
+> payload.version de esos eventos)` (`DocumentService._next_version`,
+> `services/document_service.py:604`; `save()` lo llama en `:738`). Antes volvía a 1 aunque fuera la
+> 5.ª subida. La migración `tt20261015a` corrigió los datos existentes (ver abajo).
+
+### Reemplazo abierto en el cotejo (2026-10-15)
+
+Eje **aparte** de `review_status`: la bandera `Document.replacement_requested_at` (`DateTime`, NULL;
+`models/document.py:41`): en la cita de cotejo (fase 2) la jefatura de Servicios Escolares pidió que el
+egresado vuelva a subir un documento de la fase 1. No cambia el dominio de `review_status` (sigue
+`pending|approved|rejected`); la columna la escribe SOLO `DocumentService.request_replacement`
+(`services/document_service.py:899`; la primera vez — pedirlo de nuevo conserva la fecha original) y la
+limpia SOLO `DocumentService.review(status="approved")` (`:761`). `save()` (la resubida) **no la toca**.
+
+**Reemplazo ABIERTO = bandera no NULL *y* `review_status != "approved"`** (Ruling R7, revisión final
+2026-10-15): un solo predicado, `DocumentService.replacement_open` (`:997`, con su gemelo SQL
+`_replacement_open_sql`, `:1020`), que usan todos los lectores (lista de abiertos, compuerta de la fase 2,
+avisos del alumno, subida, cola, y las banderas de la bandeja, el panel de Citas y el expediente). Un
+`approved` con la bandera puesta —solo tras una reversa: el código viejo aprueba sin limpiarla— está
+**cerrado**: no es un estado del diagrama de abajo, es `approved`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> approved: dictamen normal (fase 1)
+    approved --> rejected_abierto: 🏛️ jefa pide reemplazo (fase 2, review_note = motivo)
+    pending --> rejected_abierto: 🏛️ jefa pide reemplazo (p. ej. archivo equivocado)
+    rejected_abierto --> pending_abierto: 👤 alumno sube el reemplazo (save)
+    pending_abierto --> rejected_abierto: 🏛️ jefa lo vuelve a pedir
+    pending_abierto --> approved: 🏛️ encargado/jefa aprueba (cierra el reemplazo)
+    rejected_abierto --> approved: 🏛️ aprueba sin resubida («el original sí sirve»)
+    approved --> [*]
+```
+
+`rejected_abierto` = `rejected` con `replacement_requested_at` no NULL; `pending_abierto` = `pending`
+con la columna no NULL. Cuatro consecuencias que no se deducen del diagrama:
+
+- **El motivo vive solo mientras `rejected`.** `review_note` es el motivo hasta que el alumno
+  resube; `save()` limpia el dictamen, así que `pending_abierto` ya no lo tiene
+  (`DocumentService.open_replacements().note` es `None`). El original queda en el
+  `ProcessEvent(document_replacement_requested)`.
+- **El proceso no regresa de fase** (D2): sigue en `current_phase = 2` con su cita. La puerta de
+  `request_replacement` exige proceso `active`, `current_phase` == fase `review_appointment` del
+  catálogo (falla CERRADO si el catálogo no la tiene) y que esa `ProcessPhase` no esté `approved`.
+- **`review` NO cambia su regla de congelado** (decisión 2026-10-04): rechazar un documento con la
+  fase ya pasada por la vía normal sigue dando `PHASE_CLOSED_MSG`. El rechazo de la jefa en la fase 2
+  es otra vía, con permiso propio — [detalle en la bandeja](phase1_school_services_review_docs.md#excepción-al-dictamen-congelado-el-reemplazo-en-el-cotejo-2026-10-15).
+- **Las transiciones se serializan por fila** (R8–R10): `save()` y `review()` leen el documento con
+  `FOR UPDATE` (`DocumentService._locked_document`, `:572`) y `save()` re-exige el reemplazo abierto
+  ahí mismo si el tipo es de una fase ya pasada, antes de tocar el disco (una subida en vuelo no pisa un
+  `approved` recién dado); pedir el reemplazo y liberar la fase 2 bloquean la fila del proceso (R9; desde
+  R14 todo dictamen de fase la bloquea, ver «El dictamen de fase se serializa por fila» arriba); y
+  «Aprobar reemplazo» del panel de Citas aprueba solo la versión que se vio. Detalle:
+  [flujo, «Concurrencia»](xcut_cotejo_document_replacement.md#concurrencia-revisión-final-rulings-r8r10).
+
+Quién lo ve y qué bloquea: [flujo completo](xcut_cotejo_document_replacement.md). En una línea —
+**liberar la fase 2 se niega** mientras haya un reemplazo abierto
+(`DocumentService.replacement_gate_error`, que consulta `PhaseService._cotejo_gate_error`,
+`services/phase_service.py:392-394`); **agendar no se bloquea** (la cola cuenta el documento como
+«ok»: `initial_docs_approved_map(..., replacement_ok=True)`).
+
+Evento nuevo: `document_replacement_requested` (`models/process_event.py:39`), con
+`phase_number` = la fase de cotejo y payload `{type_code, note}`. Aprobar un reemplazo escribe el
+`document_approved` de siempre con `"replacement": true` en el payload.
 
 ## Estado de una cita (`ReviewAppointment.status`) — Fase 2
 

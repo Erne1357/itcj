@@ -407,7 +407,9 @@ class AppointmentService:
                      .order_by(TitulationProcess.created_at).all())
         faltan = (q.filter(ClearanceGate.not_released_clause())
                   .order_by(TitulationProcess.created_at).all())
-        docs_ok = DocumentService.initial_docs_approved_map(db, liberados + faltan)
+        # `replacement_ok`: un reemplazo abierto del cotejo no atrasa el agendado (spec 2026-10-15 §4.5, D2).
+        docs_ok = DocumentService.initial_docs_approved_map(db, liberados + faltan,
+                                                            replacement_ok=True)
         con_docs = [p for p in liberados if docs_ok[p.id]]
         cancelaciones = SelfBookingService.cancellations_map(db, con_docs)
         bloqueado = SelfBookingService.blocked_map(db, con_docs,

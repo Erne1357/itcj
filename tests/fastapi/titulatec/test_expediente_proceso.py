@@ -130,9 +130,15 @@ def expediente(seed_phase_defs, seed_document_types, make_program, make_cohort,
 # ===========================================================================
 def test_subir_un_documento_deja_evento(db_session, expediente, sin_disco):
     """Sin esto, «subio el acta el 3 y la volvio a subir el 5» no se puede saber:
-    la fila se pisa a si misma y el archivo en disco tambien."""
+    la fila se pisa a si misma y el archivo en disco tambien.
+
+    En la fase 1: desde la revision final del reemplazo en cotejo (Ruling R8,
+    2026-10-15) `save()` niega un tipo de una fase YA PASADA sin reemplazo
+    abierto. Que el evento cuelgue de la fase del TIPO y no de la del proceso
+    lo fija ahora, con el proceso en la fase 2,
+    `test_document_replacement.py::TestCarreraSubirVsAprobar`."""
     from itcj2.apps.titulatec.services.document_service import DocumentService
-    esc = expediente()
+    esc = expediente(current_phase=1)
 
     DocumentService.save(db_session, esc["proc"], "birth_certificate",
                          raw=b"%PDF-1.4 x", original_name="acta.pdf",
@@ -151,9 +157,10 @@ def test_subir_un_documento_deja_evento(db_session, expediente, sin_disco):
 
 def test_resubir_cuenta_la_version(db_session, expediente, sin_disco):
     """La version es lo unico que distingue las dos entradas: el archivo de la
-    primera ya no existe cuando llega la segunda."""
+    primera ya no existe cuando llega la segunda. En la fase 1: ver la nota de
+    `test_subir_un_documento_deja_evento` (R8)."""
     from itcj2.apps.titulatec.services.document_service import DocumentService
-    esc = expediente()
+    esc = expediente(current_phase=1)
     for _ in range(2):
         DocumentService.save(db_session, esc["proc"], "curp",
                              raw=b"%PDF-1.4 x", original_name="curp.pdf",

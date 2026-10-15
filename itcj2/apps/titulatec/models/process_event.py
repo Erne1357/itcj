@@ -33,6 +33,10 @@ EVENT_TYPES = frozenset({
     "document_approved",
     "document_rejected",
     "document_deleted",
+    # La jefatura de SE pidió reemplazar uno en la cita de cotejo (spec
+    # 2026-10-15-titulatec-reemplazo-cotejo-design.md §5):
+    # `DocumentService.request_replacement`.
+    "document_replacement_requested",
     # Fases
     "phase_approved",
     "phase_rejected",

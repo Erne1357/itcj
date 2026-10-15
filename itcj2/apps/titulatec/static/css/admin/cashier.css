@@ -1,0 +1,209 @@
+/* ===========================================================================
+   cashier.css — Bandeja de Caja: tabla que cabe o tarjetas (2026-10-15)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-15-titulatec-reemplazo-cotejo-design.md
+   §11. Se carga UNA vez en `admin/base_admin.html` (la navegación admin solo
+   morphea #tt-admin-content, nunca el <head>). Todo cuelga de la raíz del
+   parcial, #tt-cashier-body, y de las clases `tt-cash-*` de sus celdas.
+
+   El problema que resuelve: en un monitor chico con letra grande (zoom), la
+   tabla no cabía y `.tt-table-wrap` la recortaba con scroll propio; la
+   columna de acción anclada (`position: sticky` del último td) tapaba el
+   ESTADO y el MONTO quedaba a medias. Dos modos, sin término medio:
+
+   1. Tabla. Solo mientras cabe ENTERA en el ancho de la bandeja: los textos
+      largos (nombre, carrera, quién, motivo, notas del estado) parten
+      renglón; píldoras, montos y controles no. La Carrera (última columna,
+      spec §11 C1) ya no se ancla: con la tabla completa no hay nada que
+      anclar.
+   2. Tarjetas. Debajo del umbral, cada renglón es una tarjeta: nombre +
+      control arriba, estado y monto grandes y juntos, la acción y la carrera
+      al final. Nada queda tras un scroll horizontal.
+
+   El umbral es una CONSULTA DE CONTENEDOR sobre #tt-cashier-body, no un
+   @media: el ancho útil depende del sidebar (240 px desde 992 px de
+   viewport), del tope de #tt-admin-content (1240 px desde 1280) y del zoom,
+   y lo único que importa es cuánto mide la bandeja. Cada tabla tiene el
+   suyo porque su ancho mínimo es distinto (6 columnas contra 11); ambos se
+   midieron en Chromium con los datos de dev: ver la nota de cada bloque.
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto SOLO con
+   --tt-text-1/2/3 (nunca --tt-mute); escala --tt-fs-*; espaciado --tt-sp-*.
+   Sin `style=` en el parcial. Navegadores sin consultas de contenedor ven
+   la tabla con el scroll de `.tt-table-wrap` de siempre.
+   =========================================================================== */
+
+#tt-cashier-body { container: tt-cashier / inline-size; }
+
+/* === 1. TABLA =============================================================
+   Sin la sombra de «hay más a la derecha» de `.tt-table-wrap`: por encima
+   del umbral la tabla cabe completa y por debajo no hay tabla. La sombra
+   pintaba franjas en los bordes de las tarjetas. */
+#tt-cashier-body .tt-cash-wrap { background: none; }
+
+/* La última columna (Carrera) no se ancla: `titulatec.css` ancla el último
+   td de toda `.tt-table-wrap` pensando en una columna de ACCIÓN, y aquí
+   habría tapado el estado o el monto al desplazar. */
+#tt-cashier-body .tt-cash-table > thead > tr > th:last-child,
+#tt-cashier-body .tt-cash-table > tbody > tr > td:last-child { position: static; }
+
+/* Los textos largos parten renglón (la tabla hereda `nowrap` de
+   `.tt-table-wrap`), encabezados incluidos («Cobro original»): el ancho
+   mínimo de la tabla deja de ser la suma de frases enteras. El texto libre
+   (recibo, motivo, observación) además corta donde haga falta: un recibo de
+   40 caracteres sin espacios no debe ensanchar la tabla. */
+#tt-cashier-body .tt-cash-table > thead > tr > th,
+#tt-cashier-body .tt-cash-student,
+#tt-cashier-body .tt-cash-program,
+#tt-cashier-body .tt-cash-actor,
+#tt-cashier-body .tt-cash-status,
+#tt-cashier-body .tt-cash-original { white-space: normal; }
+#tt-cashier-body .tt-cash-receipt { white-space: normal; overflow-wrap: anywhere; min-width: 7ch; }
+#tt-cashier-body .tt-cash-table .tt-td-wrap { white-space: normal; overflow-wrap: anywhere; }
+/* En la tabla la píldora es UNA etiqueta: nunca en dos renglones (la
+   tarjeta lo permite solo si no cabe, ver bloque 3). */
+#tt-cashier-body .tt-cash-table .tt-pill { white-space: nowrap; }
+#tt-cashier-body .tt-cash-amount { white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* La Carrera se fue al final por ser lo que MENOS se consulta al cobrar
+   (spec §11): letra secundaria, como en la tarjeta. */
+#tt-cashier-body .tt-cash-program { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+/* El campo del recibo/motivo a su ancho natural (20 caracteres) obligaba a
+   la columna de acción a 195 px y empujaba el botón a un segundo renglón.
+   9rem deja ver completo «Recibo (opcional)». En el corte (11 columnas) el
+   campo es el «Motivo» de la reversa y el Motivo de la tabla baja de 11ch
+   (`td.tt-td-wrap` de titulatec.css) a 8ch: los dos juntos le quitan ~60 px
+   al ancho mínimo, lo que separa «tabla» de «tarjetas» a 1366 px. */
+#tt-cashier-body .tt-cash-action .tt-field--xs { width: 9rem; }
+#tt-cashier-body .tt-cash-table--cut .tt-cash-action .tt-field--xs { width: 7.5rem; }
+#tt-cashier-body .tt-cash-table--cut td.tt-cash-reason { min-width: 8ch; }
+
+/* === 2. TARJETAS ==========================================================
+   Una tarjeta por renglón, en flex con salto de línea: los td son bloques
+   y su ORDEN visual lo dan `order` y dos saltos forzados (`tr::before` y
+   `tr::after`, ítems de ancho 100 % y alto 0). Mismo markup que la tabla:
+   ninguna celda se duplica ni se oculta salvo el encabezado.
+
+   Umbral de «búsqueda / Por cobrar» (6 columnas), medido 2026-10-15 en
+   Chromium con `width: min-content` sobre la tabla: 813-833 px con los datos
+   de dev (las dos páginas de «Por cobrar» y tres búsquedas) y 969 px con un
+   peor caso inventado (la píldora más ancha, «Pagado — retenido por
+   Biblioteca», más un adeudo de $10,000.00, control con letra y nombres de
+   40 letras). Tarjetas por debajo de 970 px de bandeja, o sea: por encima
+   cabe hasta ese peor caso. A 1280 px de viewport la bandeja mide 977 (975
+   con la barra de scroll de 17 px de Windows): sigue siendo tabla. */
+@container tt-cashier (max-width: 969.98px) {
+  #tt-cashier-body .tt-cash-table--rows,
+  #tt-cashier-body .tt-cash-table--rows > tbody { display: block; }
+  #tt-cashier-body .tt-cash-table--rows > thead { display: none; }
+
+  #tt-cashier-body .tt-cash-table--rows > tbody > tr {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: var(--tt-sp-2) var(--tt-sp-3);
+    margin-bottom: var(--tt-sp-2); padding: var(--tt-sp-3) var(--tt-sp-4);
+    background: var(--tt-paper); border: 1px solid var(--tt-line);
+    border-radius: var(--tt-r-lg); box-shadow: var(--tt-shadow-card);
+  }
+  /* Salto tras «nombre + control». */
+  #tt-cashier-body .tt-cash-table--rows > tbody > tr::before {
+    content: ""; order: 3; flex: 0 0 100%; height: 0;
+  }
+  #tt-cashier-body .tt-cash-table--rows > tbody > tr > td {
+    display: block; min-width: 0; max-width: 100%; padding: 0; border: 0;
+    background: transparent; box-shadow: none; white-space: normal;
+  }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-student { order: 1; flex: 1 1 0; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-control { order: 2; flex: 0 0 auto; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-status  { order: 4; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-amount  { order: 5; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-action  { order: 6; flex: 1 1 100%; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-program { order: 7; flex: 1 1 100%; }
+}
+
+/* Umbral del «Corte del día» (11 columnas), misma medición: 941-984 px con
+   los cortes de dev (13, 9 y 7 de octubre de 2026) y 1054 px con un peor
+   caso inventado (recibo de 40 caracteres, reversa de -$10,150.00, nombres
+   largos). Tarjetas por debajo de 1056 px de bandeja: a 1366 px de viewport
+   (bandeja de 1063, 1061 con barra de 17 px) sigue siendo tabla; a 1280
+   (977) ya son tarjetas. */
+@container tt-cashier (max-width: 1055.98px) {
+  #tt-cashier-body .tt-cash-table--cut,
+  #tt-cashier-body .tt-cash-table--cut > tbody { display: block; }
+  #tt-cashier-body .tt-cash-table--cut > thead { display: none; }
+
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr {
+    display: flex; flex-wrap: wrap; align-items: baseline;
+    gap: var(--tt-sp-2) var(--tt-sp-3);
+    margin-bottom: var(--tt-sp-2); padding: var(--tt-sp-3) var(--tt-sp-4);
+    background: var(--tt-paper); border: 1px solid var(--tt-line);
+    border-radius: var(--tt-r-lg); box-shadow: var(--tt-shadow-card);
+  }
+  /* Saltos: tras «nombre + control» y tras «movimiento + monto». */
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr::before,
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr::after {
+    content: ""; flex: 0 0 100%; height: 0;
+  }
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr::before { order: 3; }
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr::after { order: 6; }
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr > td {
+    display: block; min-width: 0; max-width: 100%; padding: 0; border: 0;
+    background: transparent; box-shadow: none; white-space: normal;
+  }
+  /* El mínimo de 8ch del Motivo es de la tabla; en la tarjeta dejaba un
+     hueco tras «Motivo —». */
+  #tt-cashier-body .tt-cash-table--cut > tbody > tr > td.tt-cash-reason { min-width: 0; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-student  { order: 1; flex: 1 1 0; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-control  { order: 2; flex: 0 0 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-status   { order: 4; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-amount   { order: 5; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-time     { order: 7; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-receipt  { order: 8; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-actor    { order: 9; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-reason   { order: 10; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-original { order: 11; flex: 0 1 auto; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-action   { order: 12; flex: 1 1 100%; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-program  { order: 13; flex: 1 1 100%; }
+}
+
+/* === 3. PIEZAS DE LA TARJETA (las dos tablas) =============================
+   Mismo umbral que su tabla: cada selector nombra la tabla que lo usa. */
+@container tt-cashier (max-width: 969.98px) {
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-student { font-size: var(--tt-fs-300); font-weight: 600; line-height: 1.3; color: var(--tt-text-1); }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-control { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+  /* Píldora grande. En la tabla nunca parte renglón; en la tarjeta sí, pero
+     solo si no cabe: «Pagado — retenido por Biblioteca» a 360 px con barra de
+     scroll de escritorio se metía 4 px en el relleno de la tarjeta. */
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-status > .tt-pill { font-size: var(--tt-fs-200); padding: 4px 10px; white-space: normal; max-width: 100%; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-status > .tt-pill i { font-size: var(--tt-fs-200); }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-amount { font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); white-space: normal; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-amount strong { font-size: var(--tt-fs-400); }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-action form { width: 100%; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-action .tt-field--xs { flex: 1 1 10rem; width: auto; min-width: 0; }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-action .tt-field--xs,
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-action .btn { min-height: 38px; font-size: var(--tt-fs-200); }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-program { padding-top: var(--tt-sp-2); border-top: 1px solid var(--tt-line-soft); }
+  #tt-cashier-body .tt-cash-table--rows .tt-cash-program::before {
+    content: attr(data-label); margin-right: var(--tt-sp-2);
+    font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3);
+  }
+}
+@container tt-cashier (max-width: 1055.98px) {
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-student { font-size: var(--tt-fs-300); font-weight: 600; line-height: 1.3; color: var(--tt-text-1); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-control { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-status > .tt-pill { font-size: var(--tt-fs-200); padding: 4px 10px; white-space: normal; max-width: 100%; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-status > .tt-pill i { font-size: var(--tt-fs-200); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-amount { font-size: var(--tt-fs-400); font-weight: 700; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-amount:not(.text-danger) { color: var(--tt-text-1); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-meta,
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-time { font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-meta::before,
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-time::before,
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-program::before {
+    content: attr(data-label); margin-right: var(--tt-sp-1);
+    font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3);
+  }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-action form { width: 100%; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-action .tt-field--xs { flex: 1 1 10rem; width: auto; min-width: 0; }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-action .tt-field--xs,
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-action .btn { min-height: 38px; font-size: var(--tt-fs-200); }
+  #tt-cashier-body .tt-cash-table--cut .tt-cash-program { padding-top: var(--tt-sp-2); border-top: 1px solid var(--tt-line-soft); }
+}
