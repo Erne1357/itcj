@@ -364,7 +364,11 @@ class Settings(BaseSettings):
     # reemplazo» en la bandeja Documentos y exige el motivo antes del
     # `hx-confirm` (reemplazo de documento en la cita de cotejo). Sin el bump,
     # el JS cacheado deja el botón oculto para siempre.
-    STATIC_VERSION: str = "1.0.1111594"
+    #
+    # Bump 2026-10-15 (2): `titulatec/css/admin/cashier.css` (nuevo, cargado por
+    # `base_admin.html`): la bandeja de Caja pasa a tarjetas cuando la tabla no
+    # cabe y la carrera va al final del renglón.
+    STATIC_VERSION: str = "1.0.1111595"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
