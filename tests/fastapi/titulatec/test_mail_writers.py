@@ -91,6 +91,7 @@ EVENTO_A_CORREO = {
 # Escritores que SÍ encolan: función -> la de `StudentMail` que deben llamar.
 MAPEO = {
     "DocumentService.review": "doc_reviewed",
+    "DocumentService.request_replacement": "doc_reviewed",
     "PhaseService.approve_phase": "phase_approved",
     "PhaseService.reject_phase": "phase_rejected",
     "SurveyReviewService.approve": "survey_result",

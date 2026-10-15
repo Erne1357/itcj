@@ -285,6 +285,9 @@ _EVENT_LABELS = {
     # Neutral a propósito: lo escribe `DocumentService` tanto cuando el alumno
     # borra el suyo como cuando lo retira Servicios Escolares.
     "document_deleted":            "Se eliminó un documento",
+    # `DocumentService.request_replacement`: en la cita de cotejo te pidieron
+    # volver a subir uno de la fase 1 (spec 2026-10-15).
+    "document_replacement_requested": "Servicios Escolares te pidió reemplazar un documento",
     # ---- Requisitos de cotejo ------------------------------------------
     "requirement_fulfilled":       "Te acreditaron un requisito",
     "requirement_unfulfilled":     "Se desmarcó un requisito",

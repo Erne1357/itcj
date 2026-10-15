@@ -1123,13 +1123,23 @@ def make_document(db_session):
     NO escribe en disco: `file_path` es relativa a `TITULATEC_UPLOAD_PATH` y solo
     la ruta de servir archivo (`documents.py:142`) la resuelve. Si el test la
     necesita en disco, creala el mismo con `tmp_path`.
+
+    `version` (opcional): sin pasarla, la fila toma el `server_default` (1),
+    como siempre. `replacement_requested_at` (opcional, NULL por omision):
+    no NULL = reemplazo abierto en la cita de cotejo (spec 2026-10-15).
     """
     from itcj2.apps.titulatec.models import Document
 
     def _make(process, type_code="birth_certificate", phase_number=1,
               review_status="pending", uploaded_by=None, note=None,
-              file_path=None, original_name="documento.pdf"):
+              file_path=None, original_name="documento.pdf",
+              version=None, replacement_requested_at=None):
+        # `version=None` NO se manda: un None explicito iria como NULL al INSERT
+        # y la columna es NOT NULL con `server_default`.
+        extra = {"version": version} if version is not None else {}
         row = Document(
+            replacement_requested_at=replacement_requested_at,
+            **extra,
             process_id=process.id,
             phase_number=phase_number,
             type_code=type_code,

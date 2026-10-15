@@ -343,8 +343,19 @@ class PhaseService:
           es del trámite, no del momento del alta. No es un descuido.
 
         Nunca siembra: una convocatoria sin lista configurada no bloquea a nadie.
+
+        **Antes que los requisitos, los reemplazos (2026-10-15, spec titulatec-
+        reemplazo-cotejo §4.4, D4).** Mientras un documento de la fase 1 tenga
+        un reemplazo ABIERTO (pedido en el cotejo, rechazado o subido sin
+        aprobar), la fase 2 no se libera: `DocumentService.
+        replacement_gate_error` lo nombra y ese mensaje sale primero.
         """
+        from itcj2.apps.titulatec.services.document_service import DocumentService
         from itcj2.apps.titulatec.services.requirement_service import RequirementService
+
+        reemplazo = DocumentService.replacement_gate_error(db, process)
+        if reemplazo:
+            return reemplazo
 
         faltantes = RequirementService.missing_required(db, process.id)
         if not faltantes:

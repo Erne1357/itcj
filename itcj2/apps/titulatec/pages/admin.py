@@ -1323,6 +1323,9 @@ _EVENT_UI = {
     "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
     "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
     "document_deleted":             ("Documento eliminado",       "trash",                  "danger"),
+    # `DocumentService.request_replacement` (spec 2026-10-15): la jefatura de SE
+    # lo pidió en el cotejo; el motivo viaja en el payload (`note`).
+    "document_replacement_requested": ("Reemplazo de documento solicitado", "arrow-repeat", "amber"),
     "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
     "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),

@@ -20,12 +20,25 @@ class Document(Base):
     original_name = Column(String(255), nullable=True)
     mime_type = Column(String(100), nullable=True)
     size_bytes = Column(Integer, nullable=True)
-    version = Column(Integer, nullable=False, server_default=text("1"))  # contador informativo
+    # Contador informativo de subidas de ese (proceso, tipo). Continúa tras borrar
+    # y volver a subir (`DocumentService._next_version`, 2026-10-15): una fila
+    # nueva no arranca en 1 si la bitácora ya tiene subidas de ese tipo.
+    version = Column(Integer, nullable=False, server_default=text("1"))
 
     review_status = Column(String(20), nullable=False, server_default=text("'pending'"))  # pending|approved|rejected
     reviewed_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
     review_note = Column(Text, nullable=True)
     uploaded_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False)
+
+    # REEMPLAZO ABIERTO en la cita de cotejo (spec 2026-10-15-titulatec-
+    # reemplazo-cotejo-design.md §3): no NULL = la jefatura de Servicios
+    # Escolares pidió que el egresado vuelva a subir este documento de la fase 1
+    # estando ya en la fase 2. La escribe SOLO `DocumentService.
+    # request_replacement` (la primera vez; pedirlo otra vez conserva la fecha)
+    # y la limpia SOLO `DocumentService.review(status="approved")`; `save()` no
+    # la toca. Sin «quién»: lo guardan el `ProcessEvent` y la bitácora.
+    # Migración `tt20261015a`.
+    replacement_requested_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
