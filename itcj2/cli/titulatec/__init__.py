@@ -19,6 +19,7 @@ La lista de comandos con sus opciones está en el docstring de `_common.py`.
     mantenimiento   fix-missing-credentials, rename-documents, fix-control-l
     nips            exportar-sin-cuenta, cargar-nips, purgar-nips
     promedios       exportar-controles, cargar-promedios
+    documentos      init-reemplazo-docs
 
 Cada submódulo registra sus comandos en `titulatec_cli` al importarse: por eso
 este archivo los importa TODOS. Los submódulos de comandos solo dependen de
@@ -50,6 +51,7 @@ from itcj2.cli.titulatec import (  # noqa: F401
     mantenimiento,
     nips,
     promedios,
+    documentos,
 )
 # isort: on
 

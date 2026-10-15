@@ -205,12 +205,13 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_102_permisos_conocidos():
+def test_el_dml_declara_los_103_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    102 es el numero verificado en BD tras `titulatec init-reportes`
+    103 es el numero verificado en BD tras `titulatec init-reemplazo-docs`
     (o tras `init-titulatec` desde cero).
 
+    2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement (reemplazo en cotejo, reemplazo_2026_10/27).
     2026-10-14: sube de 101 a 102 por titulatec.reports.page.view (Tablero de la jefa, reportes_2026_10/26).
     Eran 99 hasta el 2026-10-07, cuando
     el expediente resumido de Titulacion (spec 2026-10-07-titulatec-liberados-
@@ -254,10 +255,10 @@ def test_el_dml_declara_los_102_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 102, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 102 "
-        "(2026-10-14: sube de 101 a 102 por titulatec.reports.page.view, el "
-        "Tablero de la jefa). Actualiza este numero "
+    assert len(declared) == 103, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 103 "
+        "(2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement, "
+        "el reemplazo en cotejo). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )

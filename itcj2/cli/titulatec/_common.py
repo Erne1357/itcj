@@ -25,6 +25,7 @@ Comandos:
     titulatec purgar-nips [--dry-run]  Borra los NIP precargados que ya no se pueden usar (solo imprime el conteo).
     titulatec exportar-controles [--salida RUTA]  Controles con solicitud no rechazada o proceso (CSV para pedir los promedios al SII).
     titulatec cargar-promedios ARCHIVO --actor USUARIO [--dry-run]  Carga los promedios oficiales (los aplica a los procesos existentes).
+    titulatec init-reemplazo-docs [--dry-run]  Permiso para pedir reemplazo de un documento en cotejo (jefa de SE y admin).
 """
 import logging
 from pathlib import Path
@@ -163,10 +164,15 @@ SEED_FILES = [
     # `titulatec init-especialidades` (produccion: el 11 nunca se re-corre).
     "survey_2026_10/26_especialidades_por_carrera.sql",
     # --- Delta 2026-10-14: Tablero de la jefa de Servicios Escolares. El permiso
-    # `titulatec.reports.page.view` para `titulatec_school_services_head`; `admin`
-    # lo recibe del 15 (dinamico). Inserta un permiso, asi que va ANTES del 15.
-    # Tambien corre con `titulatec init-reportes` (que ademas re-corre el 15).
+    # `titulatec.reports.page.view` para `titulatec_school_services_head` y `admin`
+    # (explicito). Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO
+    # con `titulatec init-reportes` (que NO re-corre el 15).
     "reportes_2026_10/26_insert_reports_perm.sql",
+    # --- Delta 2026-10-15: reemplazo de documentos en cotejo. El permiso
+    # `titulatec.document.api.request_replacement` para la jefa de SE y `admin`
+    # (explicito). Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO
+    # con `titulatec init-reemplazo-docs`.
+    "reemplazo_2026_10/27_insert_doc_replacement_perm.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
