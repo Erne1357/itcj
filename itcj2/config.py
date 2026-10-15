@@ -359,7 +359,12 @@ class Settings(BaseSettings):
     # Bump 2026-10-05: `titulatec/js/admin/doc-viewer.js` (estado de revision
     # tras cerrar el modal, guarda expando, historyRestore) y
     # `core/js/dashboard/dashboard.js` (sandbox solo en iframes cross-origin).
-    STATIC_VERSION: str = "1.0.1111593"
+    #
+    # Bump 2026-10-15: `titulatec/js/admin/doc-viewer.js` muestra «Pedir
+    # reemplazo» en la bandeja Documentos y exige el motivo antes del
+    # `hx-confirm` (reemplazo de documento en la cita de cotejo). Sin el bump,
+    # el JS cacheado deja el botón oculto para siempre.
+    STATIC_VERSION: str = "1.0.1111594"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
