@@ -65,7 +65,7 @@
     <!-- Sistema de Tematicas Dinamicas -->
     {% if active_theme %}
         {% if active_theme.css_file %}
-    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file | replace('core/', '', 1)) }}">
         {% endif %}
         {% if active_theme.custom_css %}
     <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
@@ -93,6 +93,9 @@
         <div class="desktop-background" data-src="{{ bg_url }}" style="background-image: url('{{ bg_url }}')" aria-hidden="true"></div>
 
         <div class="desktop-shell">
+            {%- if active_theme %}
+            <div id="theme-decor" class="theme-decor" aria-hidden="true"></div>
+            {%- endif %}
             <div id="desktop-grid" class="desktop-grid" aria-label="Escritorio">
                 {#- Papelera: decoración, primer tile, no abre nada. -#}
                 <div class="desktop-icon is-decorative" data-app="papelera" tabindex="0" role="button" aria-label="Papelera de reciclaje">
@@ -243,7 +246,7 @@
         window.activeTheme = {{ active_theme | tojson | safe }};
     </script>
         {% if active_theme.js_file %}
-    <script defer src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}"></script>
+    <script defer src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file | replace('core/', '', 1)) }}"></script>
         {% endif %}
     {% endif %}
 </body>

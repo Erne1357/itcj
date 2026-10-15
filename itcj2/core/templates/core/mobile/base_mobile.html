@@ -27,7 +27,7 @@
     {% if active_theme %}
         {% if active_theme.css_file %}
     <link rel="stylesheet"
-        href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+        href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file | replace('core/', '', 1)) }}">
         {% endif %}
         {% if active_theme.custom_css %}
     <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
@@ -127,7 +127,7 @@
     </script>
         {% if active_theme.js_file %}
     <script
-        src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}">
+        src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file | replace('core/', '', 1)) }}">
     </script>
         {% endif %}
     {% endif %}

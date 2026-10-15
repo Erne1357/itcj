@@ -92,12 +92,28 @@ body.itcj-desktop {
   inset: 0;
 }
 
+/* Capa de decoraciones de los temas estacionales. Sin transform/filter/contain/
+   will-change: los hijos position:fixed deben seguir referidos al viewport.
+   Pantalla chica: detrás de los iconos; grande: encima de todo (--theme-band lo
+   define cada tema en :root). */
+.theme-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (min-width: 1600px) and (min-height: 760px) {
+  .theme-decor { z-index: 900; }
+}
+
 /* --------------------------------------------------------------------------
    Cuadrícula de iconos (por filas, como hoy)
    -------------------------------------------------------------------------- */
 .desktop-grid {
   position: absolute;
-  top: 12px;
+  z-index: 2;
+  top: calc(12px + var(--theme-band, 0px));
   left: 12px;
   right: 12px;
   bottom: calc(var(--taskbar-h) + 12px);
@@ -479,12 +495,17 @@ body.itcj-desktop {
   .taskbar #dashboardTutorialButton { width: 40px; padding: 0; justify-content: center; }
 }
 
+/* Entre 761 y 960 px el buscador abierto (176 px) empujaba el centro contra la
+   bandeja: el icono de TitulaTec tocaba el «?» del tutorial a 820 px. */
+@media (max-width: 960px) {
+  .taskbar-search { width: 40px; padding: 0; justify-content: center; margin: 0; }
+  .taskbar-search input { position: absolute; width: 1px; opacity: 0; }
+}
+
 @media (max-width: 760px) {
   .taskbar { grid-template-columns: auto 1fr; }
   .taskbar-center { grid-column: 1; }
   .system-tray { grid-column: 2; }
-  .taskbar-search { width: 40px; padding: 0; justify-content: center; margin: 0; }
-  .taskbar-search input { position: absolute; width: 1px; opacity: 0; }
   .tray-connection { display: none; }
 }
 
