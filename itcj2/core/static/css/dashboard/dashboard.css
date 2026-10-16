@@ -226,7 +226,10 @@ body.itcj-desktop {
   height: var(--taskbar-h);
   z-index: 1000;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* Centro centrado mientras quepa; la bandeja nunca baja de su ancho real
+     (max-content): si crece (p. ej. el botón del Mundial), el centro se corre a la
+     izquierda en vez de quedar debajo de ella. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   column-gap: 8px;
   padding: 0 6px;
@@ -496,7 +499,10 @@ body.itcj-desktop {
 }
 
 /* Entre 761 y 960 px el buscador abierto (176 px) empujaba el centro contra la
-   bandeja: el icono de TitulaTec tocaba el «?» del tutorial a 820 px. */
+   bandeja: el icono de TitulaTec tocaba el «?» del tutorial a 820 px. Aquí la
+   barra solo muestra la lupa; el input sigue enfocable (Tab, clic en la lupa) y
+   start-menu.js, al medirlo colapsado, abre la búsqueda en el menú de inicio con
+   un campo visible propio (patrón de Windows 11). */
 @media (max-width: 960px) {
   .taskbar-search { width: 40px; padding: 0; justify-content: center; margin: 0; }
   .taskbar-search input { position: absolute; width: 1px; opacity: 0; }

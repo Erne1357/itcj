@@ -7,7 +7,9 @@
  * 14 pasos con ids estables (spec «Temas y tutorial» §C). Los pasivos solo
  * señalan (`canClickTarget: false`); los interactivos avanzan con la acción
  * real (`advanceOn`): doble clic en una app, minimizar, restaurar desde la
- * barra, cerrar, botón de inicio y campana. Cada paso prepara lo que necesita
+ * barra, cerrar, botón de inicio y campana. Cada interactivo trae además
+ * «Hazlo por mí», que hace esa misma acción sobre el mismo elemento (salida
+ * para teclado y pantallas táctiles). Cada paso prepara lo que necesita
  * (abre/cierra la ventana demo, el menú o el panel) y espera a que su elemento
  * exista, con tope, antes de mostrarse: así funcionan igual «Atrás» y reanudar.
  *
@@ -262,6 +264,17 @@
       if (menu && typeof menu.close === 'function') menu.close();
     }
 
+    /** ¿La barra solo muestra la lupa y la búsqueda se escribe en el menú de inicio? */
+    searchInMenu() {
+      const menu = D().startMenu;
+      return !!(menu && typeof menu.searchInMenu === 'function' && menu.searchInMenu());
+    }
+
+    closeDemo() {
+      const wm = this.wm();
+      if (wm && this.demoKey && wm.isOpen(this.demoKey)) wm.close(this.demoKey);
+    }
+
     widget() {
       return window.dashboardNotificationWidget || null;
     }
@@ -332,11 +345,18 @@
      *    fuera) ni el panel (cierra con click fuera; ese click se corta en el popover);
      *  - la zona atenuada no hace nada;
      *  - en los pasos pasivos el objetivo señalado no se puede usar;
-     *  - Esc pide confirmar la salida; Ctrl+K no abre el buscador bajo el atenuado;
+     *  - Esc pide confirmar la salida; ni Ctrl+K ni teclear con el foco en la barra
+     *    o el menú (búsqueda al teclear de start-menu.js) abren el buscador bajo el
+     *    atenuado;
      *  - abrir la app demo con Enter también avanza «open-app».
      */
     installGuards() {
       if (this.listeners) return;
+      const typesIntoSearch = (e) => {
+        const t = e.target;
+        return typeof e.key === 'string' && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey &&
+          !!(t && t.closest && !t.closest('.shepherd-element') && t.closest('.taskbar, #startMenu'));
+      };
       const onPointer = (e) => {
         if (!this.isRunning) return;
         const t = e.target;
@@ -356,8 +376,8 @@
           e.preventDefault();
           e.stopPropagation();
           this.tour.cancel();
-        } else if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k') {
-          // Ctrl+K abriría el buscador debajo del atenuado: durante el tour solo se explica.
+        } else if (((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'k') || typesIntoSearch(e)) {
+          // Abrirían el buscador debajo del atenuado: durante el tour solo se explica.
           e.preventDefault();
           e.stopPropagation();
         }
@@ -457,6 +477,7 @@
             return isShown(el) ? el : null;
           },
           advanceOn: () => ({ selector: '.desktop-icon[data-app="' + attr(self.demoKey) + '"]', event: 'dblclick' }),
+          doIt: () => self.showDemo(),
           buttons: 'back',
           demo: true
         },
@@ -500,6 +521,7 @@
           prepare: () => self.showDemo(),
           target: win('.window-control.minimize'),
           advanceOn: () => ({ selector: '.app-window[data-app-id="' + attr(self.demoKey) + '"] .window-control.minimize', event: 'click' }),
+          doIt: () => self.minimizeDemo(),
           buttons: 'back',
           demo: true
         },
@@ -515,6 +537,7 @@
             return self.demoState() === 'minimized' && isShown(btn) ? btn : null;
           },
           advanceOn: () => ({ selector: '.taskbar-app[data-app="' + attr(self.demoKey) + '"]', event: 'click' }),
+          doIt: () => self.showDemo(),
           buttons: 'back',
           demo: true
         },
@@ -526,14 +549,19 @@
           prepare: () => self.showDemo(),
           target: win('.window-control.close'),
           advanceOn: () => ({ selector: '.app-window[data-app-id="' + attr(self.demoKey) + '"] .window-control.close', event: 'click' }),
+          doIt: () => self.closeDemo(),
           buttons: 'back',
           demo: true
         },
         {
           id: 'search',
           title: 'Busca una aplicación',
-          text: () => '<p>Con el buscador de la barra de tareas encuentras cualquier aplicación por su nombre; <kbd>Enter</kbd> abre la primera de la lista.</p>' +
-            '<p>Desde cualquier parte del escritorio, <kbd>Ctrl</kbd> + <kbd>K</kbd> te lleva directo al buscador.</p>',
+          // Con la barra estrecha el campo se colapsa a la lupa y la búsqueda se escribe en el menú de inicio.
+          text: () => (self.searchInMenu()
+            ? '<p>Con la lupa ' + ico('search') + ' de la barra de tareas encuentras cualquier aplicación por su nombre: haz clic en ella, o pulsa <kbd>Ctrl</kbd> + <kbd>K</kbd>, y escribe. La búsqueda se abre en el menú de inicio.</p>' +
+              '<p><kbd>Enter</kbd> abre la primera de la lista.</p>'
+            : '<p>Con el buscador de la barra de tareas encuentras cualquier aplicación por su nombre; <kbd>Enter</kbd> abre la primera de la lista.</p>' +
+              '<p>Desde cualquier parte del escritorio, <kbd>Ctrl</kbd> + <kbd>K</kbd> te lleva directo al buscador.</p>'),
           passive: true,
           place: ['top'],
           prepare: () => { self.closeStartMenu(); self.closePanel(); },
@@ -548,6 +576,7 @@
           prepare: () => { self.closeStartMenu(); self.closePanel(); },
           target: () => { const el = q('.start-button'); return isShown(el) ? el : null; },
           advanceOn: () => ({ selector: '.start-button', event: 'click' }),
+          doIt: () => self.openStartMenu(),
           buttons: 'back',
           available: () => has('.start-button') && has('#startMenu') && !!D().startMenu
         },
@@ -611,9 +640,17 @@
       const interactive = typeof def.advanceOn === 'function';
       const kind = def.buttons || 'next';
       // «Ver notificaciones» abre el panel real y avanza (igual que un clic en la campana).
-      const regular = kind === 'notifications'
+      let regular = kind === 'notifications'
         ? this.buttons('back').concat([{ text: 'Ver notificaciones', action: () => { self.openPanel(); self.tour.next(); } }])
         : this.buttons(kind);
+      if (interactive && typeof def.doIt === 'function') {
+        regular = regular.concat([{
+          text: 'Hazlo por mí',
+          secondary: true,
+          classes: 'dashboard-tutorial-doit',
+          action: () => self.doItForMe(def)
+        }]);
+      }
       const fallback = this.buttons('next');
       const opts = {
         id: def.id,
@@ -673,6 +710,31 @@
         step.options.buttons = el ? cfg.regular : cfg.fallback;
       }
       return undefined;
+    }
+
+    /**
+     * «Hazlo por mí» (pasos interactivos): dispara sobre el mismo elemento el
+     * mismo evento que escucha `advanceOn` (doble clic en el icono, clic en
+     * minimizar, en la barra, en cerrar o en Inicio). Corren los manejadores
+     * reales del escritorio y el avance de Shepherd: mismo paso siguiente y mismo
+     * estado que si lo hubiera hecho el usuario. Red por si el evento no avanzó
+     * (elemento cambiado): la acción por la API del escritorio y `next()`.
+     */
+    doItForMe(def) {
+      const tour = this.tour;
+      const step = tour && tour.getCurrentStep();
+      if (!step || step.id !== def.id || !step.isOpen()) return;
+      const stillHere = () => this.tour === tour && tour.isActive() && tour.getCurrentStep() === step && step.isOpen();
+      const how = def.advanceOn();
+      let el = null;
+      try { el = q(how.selector); } catch (err) { el = null; }
+      if (el) {
+        if (how.event === 'click' && typeof el.click === 'function') el.click();
+        else el.dispatchEvent(new MouseEvent(how.event, { bubbles: true, cancelable: true, view: window, detail: 2 }));
+      }
+      if (!stillHere()) return;
+      try { def.doIt(); } catch (err) { console.warn('[DashboardTutorial] Hazlo por mí', def.id, err); }
+      if (stillHere()) tour.next();
     }
 
     onStepShown(step, def) {

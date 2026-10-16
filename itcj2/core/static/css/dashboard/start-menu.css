@@ -53,6 +53,49 @@
 
 .start-menu-section[hidden] { display: none; }
 
+/* --- Campo de búsqueda del menú (solo con el de la barra colapsado: start-menu.js) --- */
+.start-menu-searchbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 36px;
+  margin: 16px 18px 0;
+  padding: 0 14px;
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 18px;
+  background: #fff;
+  color: var(--ink-muted);
+  cursor: text;
+}
+
+.start-menu-searchbox[hidden] { display: none; }
+
+.start-menu-searchbox:focus-within {
+  border-color: rgba(5, 150, 105, .55);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, .25);
+}
+
+.start-menu-searchbox .ico { width: 16px; height: 16px; }
+
+.start-menu-searchbox input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.start-menu-searchbox input::placeholder { color: var(--ink-muted); opacity: 1; }
+.start-menu-searchbox input::-webkit-search-cancel-button { display: none; }
+
+.start-menu-searchbox:not([hidden]) + .start-menu-body { padding-top: 14px; }
+
 /* --- Cuadrícula de apps --- */
 .start-menu-apps {
   display: grid;

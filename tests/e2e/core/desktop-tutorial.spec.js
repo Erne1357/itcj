@@ -8,6 +8,10 @@
  *    minimizar, restaurar desde la barra, cerrar, botón de inicio, campana);
  *  - pasivos con `canClickTarget:false`, interactivos sin «Siguiente», indicador
  *    «Paso n de N», sin emojis ni «dashboard» en el texto;
+ *  - recorrido completo usando solo «Hazlo por mí» (con el teclado) en los
+ *    interactivos: hace la acción real y avanza al mismo paso siguiente;
+ *  - el paso del buscador explica la lupa + menú de inicio con la barra
+ *    estrecha (≤ 960 px) y el campo de la barra con la ancha;
  *  - con la clave no se descarga Shepherd; el botón Tutorial pide confirmación;
  *  - omitir + confirmar deja todo limpio;
  *  - X o Esc a media ventana/menú/panel → «Continuar» reanuda en el paso que
@@ -36,7 +40,10 @@ const IDS = [
 const INTERACTIVE = ['open-app', 'minimize', 'taskbar-restore', 'close-window', 'start-open'];
 /** Pasos que solo señalan (objetivo no clicable). */
 const PASSIVE = ['desktop-apps', 'window-move', 'window-controls', 'search', 'start-menu', 'notifications-panel'];
-const CAPTURE_AT = { welcome: 'welcome', 'window-controls': 'ventana', 'start-menu': 'menu-inicio', 'notifications-panel': 'notificaciones' };
+const CAPTURE_AT = {
+  welcome: 'welcome', 'window-controls': 'ventana', minimize: 'hazlo-por-mi',
+  'start-menu': 'menu-inicio', 'notifications-panel': 'notificaciones'
+};
 
 const VISIBLE_STEP = '.shepherd-element[data-shepherd-step-id]:visible';
 
@@ -227,6 +234,20 @@ async function expectNothingAbove(page, id) {
   expect(covered, `${id}: algo tapa el popover`).toEqual([]);
 }
 
+/** El pie del popover (progreso + botones) cabe en una línea, sin desbordar ni encimarse. */
+async function expectFooterFits(page, id) {
+  const res = await page.locator(VISIBLE_STEP).evaluate((pop) => {
+    const footer = pop.querySelector('.shepherd-footer');
+    const f = footer.getBoundingClientRect();
+    const items = Array.from(footer.children).map((el) => el.getBoundingClientRect());
+    const inside = items.every((r) => r.left >= f.left - 0.5 && r.right <= f.right + 0.5 && r.top >= f.top - 0.5 && r.bottom <= f.bottom + 0.5);
+    const oneLine = items.every((r) => Math.abs(r.top + r.height / 2 - (items[0].top + items[0].height / 2)) < 2);
+    const apart = items.every((r, i) => i === 0 || r.left >= items[i - 1].right - 0.5);
+    return { overflow: footer.scrollWidth - footer.clientWidth, inside, oneLine, apart };
+  });
+  expect(res, `${id}: pie del popover`).toEqual({ overflow: 0, inside: true, oneLine: true, apart: true });
+}
+
 test.describe('tutorial del escritorio', () => {
   test('sin la clave aparece solo y se recorre completo con acciones reales', async ({ page }) => {
     test.setTimeout(120_000);
@@ -263,8 +284,15 @@ test.describe('tutorial del escritorio', () => {
       }
       if (INTERACTIVE.includes(id)) {
         await expect(step.getByRole('button', { name: 'Siguiente' })).toHaveCount(0);
+        await expect(step.getByRole('button', { name: 'Atrás' })).toHaveCount(1);
+        await expect(step.getByRole('button', { name: 'Hazlo por mí' })).toHaveCount(1);
         await expect(page.locator('.shepherd-target.shepherd-target-click-disabled')).toHaveCount(0);
+        await expectFooterFits(page, id);
+      } else {
+        await expect(step.getByRole('button', { name: 'Hazlo por mí' })).toHaveCount(0);
       }
+      // A 1280 px el campo de la barra está a la vista: el texto habla de él.
+      if (id === 'search') expect(text).toContain('buscador de la barra de tareas');
       if (CAPTURE && CAPTURE_AT[id]) {
         await page.waitForTimeout(400);
         await page.screenshot({ path: path.join(SHOTS, `tutorial-${CAPTURE_AT[id]}.png`) });
@@ -272,6 +300,75 @@ test.describe('tutorial del escritorio', () => {
 
       await act(page, id, key);
       await waitStepChange(page, id, id === 'done');
+    }
+
+    expect(visited).toEqual(IDS);
+    await expectCleanDesktop(page);
+    expect(errors).toEqual([]);
+  });
+
+  test('recorrido completo usando solo «Hazlo por mí» (con el teclado) en los pasos interactivos', async ({ page }) => {
+    test.setTimeout(120_000);
+    const errors = trackErrors(page);
+    await setCompletedKey(page, false);
+    await gotoDesktop(page);
+    const key = await demoKey(page);
+    await expectStep(page, 'welcome');
+
+    // Estado justo después de pulsar (antes de que el paso siguiente prepare nada):
+    // prueba que el botón hizo la acción real, no que la rehízo el paso siguiente.
+    const AFTER = {
+      'open-app': { open: true, minimized: false },
+      minimize: { open: true, minimized: true },
+      'taskbar-restore': { open: true, minimized: false },
+      'close-window': { open: false },
+      'start-open': { menu: true },
+    };
+    const visited = [];
+    let viaTab = false;
+    for (let guard = 0; guard < 20; guard++) {
+      const id = await currentStepId(page);
+      if (!id) break;
+      visited.push(id);
+      const step = page.locator(`.shepherd-element[data-shepherd-step-id="${id}"]`);
+      const doIt = step.getByRole('button', { name: 'Hazlo por mí' });
+      if (!INTERACTIVE.includes(id)) {
+        await act(page, id, key);
+        await waitStepChange(page, id, id === 'done');
+        continue;
+      }
+
+      await expect(doIt).toBeVisible();
+      await expect(step.getByRole('button', { name: 'Atrás' })).toBeVisible();
+      // Se registra después del de Shepherd: corre en cuanto termina la acción del botón.
+      await doIt.evaluate((btn, k) => {
+        btn.addEventListener('click', () => {
+          const wm = window.ItcjDesktop.wm;
+          const open = wm.isOpen(k);
+          window.__doItSnap = {
+            open,
+            minimized: open ? wm.getState(k) === 'minimized' : null,
+            menu: !document.getElementById('startMenu').hidden,
+            next: window.dashboardTutorial.tour.getCurrentStep().id,
+          };
+        });
+      }, key);
+      if (!viaTab) {
+        // Shepherd retiene el foco en el popover: con Tab se llega al botón.
+        for (let i = 0; i < 6 && !(await doIt.evaluate((b) => b === document.activeElement)); i++) {
+          await page.keyboard.press('Tab');
+        }
+        await expect(doIt).toBeFocused();
+        await page.keyboard.press('Enter');
+        viaTab = true;
+      } else {
+        await doIt.press('Enter');
+      }
+      await expect.poll(() => page.evaluate(() => window.__doItSnap || null)).not.toBeNull();
+      const snap = await page.evaluate(() => { const s = window.__doItSnap; window.__doItSnap = null; return s; });
+      expect(snap, id).toMatchObject(AFTER[id]);
+      expect(snap.next, `${id}: paso siguiente`).toBe(IDS[IDS.indexOf(id) + 1]);
+      await waitStepChange(page, id, false);
     }
 
     expect(visited).toEqual(IDS);
@@ -467,6 +564,13 @@ test.describe('tutorial del escritorio', () => {
           expect(bb && bb.x >= 0 && bb.x + bb.width <= 820 && bb.y + bb.height <= 640, `${id}: botón visible`).toBeTruthy();
         }
         await expectNothingAbove(page, id);
+        await expectFooterFits(page, id);
+        // A 820 px la barra solo muestra la lupa: el texto dice que la búsqueda se abre en el menú.
+        if (id === 'search') {
+          const text = await pop.innerText();
+          expect(text).toContain('menú de inicio');
+          expect(text).toContain('lupa');
+        }
         // Un paso con objetivo no lo tapa.
         const target = page.locator('.shepherd-target:not(body)');
         if (await target.count()) {
@@ -476,6 +580,9 @@ test.describe('tutorial del escritorio', () => {
         }
         if (CAPTURE && id === 'start-menu') {
           await page.screenshot({ path: path.join(SHOTS, 'tutorial-estrecho.png') });
+        }
+        if (CAPTURE && id === 'search') {
+          await page.screenshot({ path: path.join(SHOTS, 'tutorial-buscador-estrecho.png') });
         }
         await act(page, id, key);
         await waitStepChange(page, id, id === 'done');

@@ -1,7 +1,15 @@
 {#- Menú inicio del escritorio. Contexto: `user_card` y `desktop_apps`. El comportamiento
     (abrir/cerrar, buscador de la barra, atajos) vive en desktop/start-menu.js; la cuadrícula
-    la pinta el servidor y los resultados el JS desde el registro de apps. -#}
+    la pinta el servidor y los resultados el JS desde el registro de apps. El campo de
+    arriba solo aparece en modo búsqueda cuando el de la barra está colapsado (solo la
+    lupa, ≤ 960 px): ahí se escribe, como en Windows 11. -#}
 <div id="startMenu" class="start-menu" role="dialog" aria-label="Menú de inicio" hidden>
+    <label id="startMenuSearchBox" class="start-menu-searchbox" for="startMenuSearchInput" hidden>
+        <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="startMenuSearchInput" type="search" placeholder="Buscar aplicaciones…" autocomplete="off"
+            spellcheck="false" aria-label="Buscar aplicaciones" aria-controls="startMenuResults" aria-autocomplete="list">
+    </label>
+
     <div class="start-menu-body">
         <section class="start-menu-section" id="startMenuHome">
             <h2 class="start-menu-heading">Aplicaciones</h2>
