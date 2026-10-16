@@ -16,7 +16,11 @@
  *  - Mundial: ningún indicador regional (U+1F1E6–U+1F1FF) en la capa y el botón
  *    de la bandeja con el aspecto de la campana (.tray-btn);
  *  - tutorial (botón Tutorial → confirmar): «Comenzar» es lo que está encima en
- *    su centro.
+ *    su centro;
+ *  - modo encima (1920×1080), Mundial y Navidad: con una ventana maximizada la
+ *    bandera grande de México / el muñeco de nieve quedan con opacity 0 (o
+ *    display none) y al restaurar vuelven. Cada prueba obtiene su propia línea
+ *    base «sin tema» (no depende del orden ni de --grep).
  * Más: Mundial en el shell móvil (/itcj/m/, iPhone 13): la guirnalda no tapa el
  * saludo.
  *
@@ -126,15 +130,33 @@ function labelRects(page) {
 }
 
 /** El centro de cada control y del título de la ventana es ese elemento (o un hijo). */
+// Partículas que cruzan la pantalla al azar: pueden pasar por encima de un botón
+// un instante sin que sea un defecto, así que no se miden.
+// .mundial-lights es un contenedor transparente de pantalla completa (solo sus halos pintan).
+const MOVING_PARTICLES = '.snowflake, .floating-heart, .shot-heart, .mundial-float-flag, .mundial-confetti, .mundial-ball, .mundial-lights';
+
+/**
+ * elementFromPoint atraviesa lo que tiene pointer-events:none (todas las
+ * decoraciones): durante la medición se fuerza pointer-events:auto en los
+ * descendientes fijos de #theme-decor (guirnalda, luces, cables) para detectar
+ * si alguno pinta sobre la barra de título.
+ */
 function titlebarHits(page, key) {
-  return page.evaluate((k) => {
-    const win = document.querySelector(`.app-window[data-app-id="${k}"]`);
-    return [...win.querySelectorAll('.window-title, .window-control')].map((el) => {
-      const r = el.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { el: el.className, ok: !!hit && (hit === el || el.contains(hit)), hit: hit ? hit.className || hit.tagName : null };
-    });
-  }, key);
+  return page.evaluate(({ k, particles }) => {
+    const style = document.createElement('style');
+    style.textContent = `#theme-decor * { pointer-events: auto !important; } #theme-decor :is(${particles}) { pointer-events: none !important; }`;
+    document.head.appendChild(style);
+    try {
+      const win = document.querySelector(`.app-window[data-app-id="${k}"]`);
+      return [...win.querySelectorAll('.window-title, .window-control')].map((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { el: el.className, ok: !!hit && (hit === el || el.contains(hit)), hit: hit ? hit.className || hit.tagName : null };
+      });
+    } finally {
+      style.remove();
+    }
+  }, { k: key, particles: MOVING_PARTICLES });
 }
 
 /**
@@ -174,6 +196,30 @@ async function openMaximized(page, key) {
 const baseline = {};
 let snapshot = null;
 
+/**
+ * Línea base de etiquetas «sin tema» para un viewport, obtenida por la prueba que
+ * la necesita (cacheada): desactiva todos los temas, mide en una página aparte y
+ * deja activo `theme` otra vez.
+ */
+async function ensureBaseline(browser, baseURL, vp, theme) {
+  if (baseline[vp.name]) return baseline[vp.name];
+  activateOnly(null);
+  const ctx = await browser.newContext({ storageState: STORAGE_STATE, baseURL });
+  try {
+    const page = await ctx.newPage();
+    const errors = trackErrors(page);
+    await gotoDesktop(page, vp);
+    await expect(page.locator('#theme-decor')).toHaveCount(0);
+    baseline[vp.name] = await labelRects(page);
+    expect(Object.keys(baseline[vp.name]).length).toBeGreaterThan(1);
+    expect(errors).toEqual([]);
+  } finally {
+    await ctx.close();
+    activateOnly(theme);
+  }
+  return baseline[vp.name];
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test.beforeAll(() => {
@@ -186,28 +232,14 @@ test.afterAll(() => {
   if (snapshot) py(PY_APPLY, snapshot);
 });
 
-test.describe('sin tema (línea base)', () => {
-  test.beforeAll(() => activateOnly(null));
-
-  for (const vp of VIEWPORTS) {
-    test(`etiquetas sin tema ${vp.name}`, async ({ page }) => {
-      const errors = trackErrors(page);
-      await gotoDesktop(page, vp);
-      await expect(page.locator('#theme-decor')).toHaveCount(0);
-      baseline[vp.name] = await labelRects(page);
-      expect(Object.keys(baseline[vp.name]).length).toBeGreaterThan(1);
-      expect(errors).toEqual([]);
-    });
-  }
-});
-
 for (const theme of THEMES) {
   test.describe(`tema ${theme}`, () => {
     test.beforeAll(() => activateOnly(theme));
 
     for (const vp of VIEWPORTS) {
-      test(`${theme} ${vp.name}`, async ({ page }) => {
-        test.setTimeout(90_000);
+      test(`${theme} ${vp.name}`, async ({ page, browser, baseURL }) => {
+        test.setTimeout(120_000);
+        const base = await ensureBaseline(browser, baseURL, vp, theme);
         const errors = trackErrors(page);
         await gotoDesktop(page, vp);
         await expect.poll(() => page.evaluate(() => window.activeTheme && window.activeTheme.name)).toBe(theme);
@@ -223,7 +255,7 @@ for (const theme of THEMES) {
         expect(await decor.evaluate((el) => getComputedStyle(el).zIndex)).toBe(vp.over ? '900' : '1');
 
         // --- Etiquetas: mismo rect respecto a su tile que sin tema ---
-        expect(await labelRects(page)).toEqual(baseline[vp.name]);
+        expect(await labelRects(page)).toEqual(base);
 
         // --- Mundial: banderas sin letras y botón de bandeja como la campana ---
         if (theme === 'Mundial 2026') {
@@ -260,6 +292,23 @@ for (const theme of THEMES) {
           const garlandBottom = await page.evaluate((sel) => Math.max(...[...document.querySelectorAll(sel)]
             .map((el) => el.getBoundingClientRect().bottom)), GARLAND_ITEMS);
           expect(garlandBottom).toBeLessThanOrEqual(winTop + 0.5);
+          if (theme === 'Navidad') {
+            // elementFromPoint no ve el brillo (box-shadow) de los focos: se mide
+            // el recorte de la capa de luces, que debe terminar en la banda.
+            const clipBottom = await page.evaluate(() => {
+              const el = document.querySelector('#theme-decor .christmas-lights');
+              const cp = getComputedStyle(el).clipPath;
+              if (!/^inset\(/.test(cp)) return null;
+              const r = el.getBoundingClientRect();
+              // inset(top right bottom left); el fondo se resuelve como calc(100% - Npx) o px.
+              const calc = /calc\(100% - ([\d.]+)px\)/.exec(cp);
+              if (calc) return r.top + parseFloat(calc[1]);
+              const parts = cp.slice(6, -1).trim().split(/\s+/).map(parseFloat);
+              return r.bottom - (parts.length === 1 ? parts[0] : parts[2]);
+            });
+            expect(clipBottom, 'brillo de los focos sin recortar a la banda').not.toBeNull();
+            expect(clipBottom).toBeLessThanOrEqual(winTop + 0.5);
+          }
         } else {
           expect(winTop).toBe(0);
         }
@@ -306,6 +355,59 @@ for (const theme of THEMES) {
   });
 }
 
+// Modo encima (>= 1600x760): con una ventana maximizada o acoplada las piezas
+// grandes «de suelo» se desvanecen; al restaurar vuelven. Las partículas siguen.
+const FLOOR_PIECES = [
+  { theme: 'Mundial 2026', selector: '.mundial-mexico', ensure: () => {} },
+  {
+    theme: 'Navidad', selector: '.snowman-container',
+    // Aparece de forma periódica: se fuerza con el método del tema.
+    ensure: () => {
+      if (!document.querySelector('#theme-decor .snowman-container')) window.christmasSnow.createSnowman();
+    },
+  },
+];
+for (const piece of FLOOR_PIECES) {
+  test.describe(`piezas de suelo — ${piece.theme}`, () => {
+    test.beforeAll(() => activateOnly(piece.theme));
+
+    test(`${piece.selector} se oculta con una ventana maximizada y vuelve al restaurar (1920x1080)`, async ({ page }) => {
+      test.setTimeout(90_000);
+      const errors = trackErrors(page);
+      await gotoDesktop(page, VIEWPORTS[1]);
+      await expect.poll(() => page.evaluate(() => window.activeTheme && window.activeTheme.name)).toBe(piece.theme);
+      await page.evaluate(piece.ensure);
+      const sel = `#theme-decor ${piece.selector}`;
+      const gone = () => page.evaluate((q) => {
+        const el = document.querySelector(q);
+        if (!el) return 'ausente';
+        const cs = getComputedStyle(el);
+        return cs.display === 'none' || parseFloat(cs.opacity) === 0;
+      }, sel);
+
+      expect(await gone(), 'visible sin ventanas').toBe(false);
+
+      const win = await openMaximized(page, 'helpdesk');
+      await expect.poll(gone, { message: 'oculta con la ventana maximizada' }).toBe(true);
+      // Fade: el elemento sigue en el flujo (sin cambio de layout).
+      expect(await page.evaluate((q) => getComputedStyle(document.querySelector(q)).display, sel)).not.toBe('none');
+
+      // Minimizada, la pieza vuelve; restaurada, vuelve a ocultarse.
+      await page.evaluate(() => window.ItcjDesktop.wm.minimize('helpdesk'));
+      await expect(win).toHaveClass(/is-minimized/);
+      await expect.poll(gone, { message: 'visible con la ventana minimizada' }).toBe(false);
+      await page.evaluate(() => window.ItcjDesktop.wm.restore('helpdesk'));
+      await expect.poll(gone).toBe(true);
+
+      // Cerrar la ventana: vuelve.
+      await page.evaluate(() => window.desktop.closeAllWindows());
+      await expect(page.locator('.app-window')).toHaveCount(0);
+      await expect.poll(gone, { message: 'visible tras cerrar' }).toBe(false);
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
 test.describe('Mundial en el shell móvil', () => {
   test.beforeAll(() => activateOnly('Mundial 2026'));
 
@@ -336,4 +438,26 @@ test.describe('Mundial en el shell móvil', () => {
       await ctx.close();
     }
   });
+});
+
+test.describe('Navidad y San Valentín en el shell móvil: bucle pausado fuera de home', () => {
+  for (const [theme, global] of [['Navidad', 'christmasSnow'], ['San Valentin', 'valentineHearts']]) {
+    test(`${theme}: el bucle rAF se pausa con la capa oculta y se reanuda en home`, async ({ browser, baseURL }) => {
+      activateOnly(theme);
+      const ctx = await browser.newContext({ ...devices['iPhone 13'], storageState: STORAGE_STATE, baseURL });
+      try {
+        const page = await ctx.newPage();
+        const errors = trackErrors(page);
+        await page.goto('/itcj/m/', { waitUntil: 'domcontentloaded' });
+        await expect.poll(() => page.evaluate((g) => !!(window[g] && window[g].isRunning), global)).toBe(true);
+        await page.evaluate(() => window.mobileApp.setActiveView('app'));
+        await expect.poll(() => page.evaluate((g) => window[g].isRunning, global)).toBe(false);
+        await page.evaluate(() => window.mobileApp.setActiveView('home'));
+        await expect.poll(() => page.evaluate((g) => window[g].isRunning, global)).toBe(true);
+        expect(errors).toEqual([]);
+      } finally {
+        await ctx.close();
+      }
+    });
+  }
 });

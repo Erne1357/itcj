@@ -2,7 +2,7 @@
    TEMA MUNDIAL 2026 — decoraciones + widget + modal
    Lee window.activeTheme.decorations. Self-init en DOMContentLoaded.
    Las decoraciones van en #theme-decor (escritorio; dashboard.css la pone detrás
-   o encima de las ventanas según la resolución) o en <body> (móvil). El FAB, el
+   o encima de las ventanas según la resolución) o en #theme-decor.theme-decor-mobile (móvil, base_mobile.html; se oculta fuera de la vista home). El FAB, el
    widget y el modal (UI interactiva) siempre van en <body>.
    ============================================ */
 (function () {

@@ -2,7 +2,8 @@
    TEMA MUNDIAL 2026 — decoraciones + widget + modal
    En el escritorio las decoraciones viven en #theme-decor (dashboard.css decide
    si van detrás o encima de las ventanas según la resolución); en el móvil, en
-   <body>. El FAB, el widget y el modal siempre van en <body>.
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). El FAB, el widget y el modal siempre van en <body>.
    --theme-band = alto real de la guirnalda (bandera de México 44 px + 4 px de
    ondeo y la perspectiva del giro: 49.8 px medidos): baja los iconos y, en
    pantalla grande, el área de las ventanas.
@@ -52,7 +53,17 @@
   z-index: 9995; pointer-events: none; border-radius: 4px; overflow: hidden;
   box-shadow: 0 8px 22px rgba(0,0,0,.32); transform-origin: left center;
   background: linear-gradient(90deg, #006847 0 33.33%, #ffffff 33.33% 66.66%, #ce1126 66.66% 100%);
+  transition: opacity .35s ease;
   animation: mundial-flagwave 3.2s ease-in-out infinite; }
+/* Modo encima (>= 1600x760): con una ventana maximizada o acoplada (no minimizada) la
+   bandera, opaca y fija, se desvanece (sin cambio de layout) y vuelve al restaurar.
+   La guirnalda y las banderas flotantes siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+  .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .mundial-mexico { opacity: 0; }
+  /* Los reflectores (halos amarillos desde arriba) también: tiñen la barra de título. */
+  .mundial-lights { transition: opacity .35s ease; }
+  .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .mundial-lights { opacity: 0; }
+}
 .mundial-mexico::after { content: "🦅"; position: absolute; inset: 0 0 14px 0;
   display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .9; }
 .mundial-mexico-label { position: absolute; bottom: 5px; left: 0; right: 0; text-align: center;

@@ -3,7 +3,8 @@
    Corazones, cupido y efectos romanticos.
    En el escritorio todo lo decorativo vive en #theme-decor (dashboard.css decide
    si va detrás o encima de las ventanas según la resolución); en el móvil, en
-   <body>. --theme-band = alto real de la guirnalda de corazones (hilo +
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). --theme-band = alto real de la guirnalda de corazones (hilo +
    corazón): baja los iconos y, en pantalla grande, el área de las ventanas.
    ============================================ */
 :root {
@@ -168,6 +169,16 @@
     z-index: 10001;
     transform-origin: center center;
     opacity: 0;
+    transition: filter .35s ease;
+}
+
+/* Modo encima (>= 1600x760): con una ventana maximizada o acoplada (no minimizada) el
+   cupido se desvanece. Su opacidad la animan los keyframes, por eso se usa filter.
+   Los corazones y la guirnalda siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .cupid-container {
+        filter: opacity(0);
+    }
 }
 
 /* Cuerpo del cupido */

@@ -4,7 +4,7 @@
  * Luces, copos que caen, nieve sobre los iconos y muñeco de nieve.
  *
  * Las decoraciones van en #theme-decor (escritorio; dashboard.css la pone detrás
- * o encima de las ventanas según la resolución) o en <body> (móvil). Con
+ * o encima de las ventanas según la resolución) o en #theme-decor.theme-decor-mobile (móvil, base_mobile.html; se oculta fuera de la vista home). Con
  * prefers-reduced-motion no hay copos ni muñeco; el bucle de los copos se pausa
  * mientras la pestaña está oculta.
  * ============================================
@@ -68,6 +68,17 @@ class ChristmasSnow {
                 else this.start();
             };
             document.addEventListener('visibilitychange', this.onVisibility);
+
+            // Móvil: fuera de la vista home la capa está oculta (display none);
+            // se pausa el bucle y se reanuda al volver a home.
+            const mobileBody = document.querySelector('.mobile-body');
+            if (mobileBody && typeof MutationObserver !== 'undefined') {
+                this.viewObserver = new MutationObserver(() => {
+                    if (this.layerHidden()) this.pause();
+                    else this.start();
+                });
+                this.viewObserver.observe(mobileBody, { attributes: true, attributeFilter: ['data-active-view'] });
+            }
         }
 
         // Limpiar al salir
@@ -340,9 +351,15 @@ class ChristmasSnow {
         this.animationFrame = requestAnimationFrame((t) => this.animate(t));
     }
 
+    /** Móvil: la capa de decoraciones solo se ve en la vista home. */
+    layerHidden() {
+        const b = document.querySelector('.mobile-body[data-active-view]');
+        return !!b && b.getAttribute('data-active-view') !== 'home';
+    }
+
     start() {
         if (this.isRunning || this.reducedMotion || !this.snowflakes.length) return;
-        if (document.hidden) return;
+        if (document.hidden || this.layerHidden()) return;
 
         this.isRunning = true;
         this.lastTime = 0;
@@ -383,6 +400,7 @@ class ChristmasSnow {
         this.snowmanActive = false;
 
         if (this.onVisibility) document.removeEventListener('visibilitychange', this.onVisibility);
+        if (this.viewObserver) { this.viewObserver.disconnect(); this.viewObserver = null; }
         if (this.onResize) window.removeEventListener('resize', this.onResize);
 
         // Eliminar todos los copos

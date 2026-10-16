@@ -3,7 +3,8 @@
    Efectos ligeros y elegantes para Navidad.
    En el escritorio todo lo decorativo vive en #theme-decor (dashboard.css decide
    si va detrás o encima de las ventanas según la resolución); en el móvil, en
-   <body>. --theme-band = alto real de la guirnalda de luces (cable + foco):
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). --theme-band = alto real de la guirnalda de luces (cable + foco):
    baja los iconos y, en pantalla grande, el área de las ventanas.
    ============================================ */
 :root {
@@ -264,6 +265,15 @@
     }
 }
 
+/* Modo encima (>= 1600x760): la banda (--theme-band) reserva la franja de la guirnalda
+   y el brillo de los focos (box-shadow de 20 px) se recorta a ella: nada del tema
+   pinta sobre la barra de título de una ventana maximizada. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .christmas-lights {
+        clip-path: inset(0 -30px calc(100% - var(--theme-band)) -30px);
+    }
+}
+
 /* ==================== MUÑECO DE NIEVE ANIMADO ==================== */
 .snowman-container {
     position: fixed;
@@ -272,6 +282,16 @@
     pointer-events: none;
     z-index: 10001;
     transform-origin: bottom center;
+    transition: opacity .35s ease;
+}
+
+/* Modo encima: con una ventana maximizada o acoplada (no minimizada) el muñeco, opaco
+   y fijo, taparía su esquina: se desvanece (sin cambio de layout) y vuelve al
+   restaurar. Los copos y la guirnalda siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .snowman-container {
+        opacity: 0;
+    }
 }
 
 /* Bola base (grande) */
