@@ -1,0 +1,58 @@
+{#- Menú inicio del escritorio. Contexto: `user_card` y `desktop_apps`. El comportamiento
+    (abrir/cerrar, buscador de la barra, atajos) vive en desktop/start-menu.js; la cuadrícula
+    la pinta el servidor y los resultados el JS desde el registro de apps. El campo de
+    arriba solo aparece en modo búsqueda cuando el de la barra está colapsado (solo la
+    lupa, ≤ 960 px): ahí se escribe, como en Windows 11. -#}
+<div id="startMenu" class="start-menu" role="dialog" aria-label="Menú de inicio" hidden>
+    <label id="startMenuSearchBox" class="start-menu-searchbox" for="startMenuSearchInput" hidden>
+        <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="startMenuSearchInput" type="search" placeholder="Buscar aplicaciones…" autocomplete="off"
+            spellcheck="false" aria-label="Buscar aplicaciones" aria-controls="startMenuResults" aria-autocomplete="list">
+    </label>
+
+    <div class="start-menu-body">
+        <section class="start-menu-section" id="startMenuHome">
+            <h2 class="start-menu-heading">Aplicaciones</h2>
+            <div id="startMenuApps" class="start-menu-apps">
+                {%- for app in desktop_apps if app.on_desktop %}
+                <button type="button" class="start-app" data-app="{{ app.key }}" title="{{ app.name }}">
+                    <span class="start-app-img">
+                        {%- if app.image %}
+                        <img src="{{ app.image }}" alt="" width="40" height="40" loading="lazy" decoding="async" draggable="false">
+                        {%- else %}
+                        <svg class="ico" aria-hidden="true"><use href="#i-{{ app.icon }}"/></svg>
+                        {%- endif %}
+                    </span>
+                    <span class="start-app-label">{{ app.name }}</span>
+                </button>
+                {%- endfor %}
+            </div>
+        </section>
+
+        <section class="start-menu-section" id="startMenuSearch" hidden>
+            <h2 class="start-menu-heading">Resultados</h2>
+            <ul id="startMenuResults" class="start-menu-results" role="listbox" aria-label="Resultados de búsqueda"></ul>
+            <p id="startMenuEmpty" class="start-menu-empty" hidden>Sin resultados.</p>
+        </section>
+    </div>
+
+    <div class="start-menu-footer">
+        <button type="button" id="startMenuUser" class="start-user" title="Abrir mi perfil">
+            <span class="start-user-avatar" aria-hidden="true">{{ user_card.initials }}</span>
+            <span class="start-user-text">
+                <span class="start-user-name">{{ user_card.full_name }}</span>
+                {%- if user_card.position or user_card.department %}
+                <span class="start-user-meta">{{ user_card.position }}{% if user_card.position and user_card.department %} · {% endif %}{{ user_card.department }}</span>
+                {%- endif %}
+            </span>
+        </button>
+        <div class="start-actions">
+            <button type="button" id="startMenuSettings" class="start-action" title="Configuración" aria-label="Configuración">
+                <svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg>
+            </button>
+            <button type="button" id="startMenuLogout" class="start-action" title="Cerrar sesión" aria-label="Cerrar sesión">
+                <svg class="ico" aria-hidden="true"><use href="#i-log-out"/></svg>
+            </button>
+        </div>
+    </div>
+</div>

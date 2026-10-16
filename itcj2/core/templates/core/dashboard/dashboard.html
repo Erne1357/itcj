@@ -1,164 +1,185 @@
-<!-- itcj/core/templates/dashboard/dashboard.html -->
+{#- Escritorio del core (/itcj/dashboard). Contexto de core/pages/dashboard.py:
+    desktop_apps (registro de desktop_service, `image` ya versionada), user_card,
+    desktop_bg y user_id. Los tiles y la barra salen del registro en su lugar final
+    (CSS grid puro): el JS solo agrega comportamiento, nunca reacomoda. -#}
 <!DOCTYPE html>
 <html lang="es">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ITCJ - Dashboard</title>
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/dashboard.css') }}?v={{ sv('core', 'css/dashboard/dashboard.css') }}">
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/must_change.css') }}?v={{ sv('core', 'css/must_change.css') }}">
-    <!-- ⭐ NUEVO: Profile Menu CSS -->
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/profile-menu.css') }}?v={{ sv('core', 'css/dashboard/profile-menu.css') }}">
-    <!-- ⭐ NUEVO: Notifications CSS -->
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}">
-    <!-- ⭐ NUEVO: Dashboard Tutorial CSS -->
-    <link rel="stylesheet" href="{{url_for('static', filename='core/css/dashboard/dashboard_tutorial.css') }}?v={{ sv('core', 'css/dashboard/dashboard_tutorial.css') }}">
+    <meta name="color-scheme" content="light">
+    <title>ITCJ - Escritorio</title>
+    {%- set bg_url = url_for('static', filename=desktop_bg.url_path) ~ '?v=' ~ sv('core', desktop_bg.url_path | replace('core/', '', 1)) %}
+    <link rel="preload" as="image" href="{{ bg_url }}" fetchpriority="high">
+
+    {#- CSS crítico: el escritorio entra completo (opacity) cuando boot.js marca
+        html.desktop-ready; el splash solo se ve si eso tarda más de 400 ms. El
+        fade-out usa filter (no opacity) porque la animación de entrada manda sobre
+        cualquier `opacity` declarada; al pausarla, su valor queda como evidencia de
+        si el splash llegó a verse. -#}
+    <style id="desktop-critical">
+        :root { --desktop-bg: {{ desktop_bg.color }}; --desktop-lqip: url("{{ desktop_bg.lqip }}"); }
+        html, body { height: 100%; margin: 0; overflow: hidden; overflow: clip; }
+        body.itcj-desktop { background-color: var(--desktop-bg); }
+        .desktop-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .desktop-shell { opacity: 0; }
+        html.desktop-ready .desktop-shell { opacity: 1; transition: opacity .2s ease; }
+        #desktop-splash {
+            position: fixed; inset: 0; z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+            color: #fff; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+            background: radial-gradient(125% 115% at 82% 8%, #B0202A 0%, #941921 44%, #6E1018 100%);
+            opacity: 0; animation: splash-in .25s ease 400ms forwards;
+        }
+        @keyframes splash-in { to { opacity: 1; } }
+        html.desktop-ready #desktop-splash {
+            animation-play-state: paused; filter: opacity(0); visibility: hidden; pointer-events: none;
+            transition: filter .3s ease, visibility 0s linear .3s;
+        }
+        .desktop-splash-name { font-size: 30px; font-weight: 700; letter-spacing: -.01em; line-height: 1.1; text-align: center; }
+        .desktop-splash-sub { font-size: 13px; font-weight: 500; color: rgba(255, 255, 255, .72); text-align: center; }
+        .desktop-splash-spinner {
+            width: 28px; height: 28px; border-radius: 50%;
+            border: 2.5px solid rgba(255, 255, 255, .22); border-top-color: #fff;
+            animation: splash-spin .8s linear infinite;
+        }
+        @keyframes splash-spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            #desktop-splash { animation-duration: 1ms; }
+            html.desktop-ready .desktop-shell, html.desktop-ready #desktop-splash { transition: none; }
+            .desktop-splash-spinner { animation: none; border-top-color: rgba(255, 255, 255, .22); border-left-color: #fff; }
+        }
+    </style>
+    <noscript><style>.desktop-shell { opacity: 1 !important; } #desktop-splash { display: none !important; }</style></noscript>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/dashboard/dashboard.css') }}?v={{ sv('core', 'css/dashboard/dashboard.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/dashboard/desktop-windows.css') }}?v={{ sv('core', 'css/dashboard/desktop-windows.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/dashboard/start-menu.css') }}?v={{ sv('core', 'css/dashboard/start-menu.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/must_change.css') }}?v={{ sv('core', 'css/must_change.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/notifications/notifications.css') }}?v={{ sv('core', 'css/notifications/notifications.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='core/css/dashboard/dashboard_tutorial.css') }}?v={{ sv('core', 'css/dashboard/dashboard_tutorial.css') }}">
     <!-- Sistema de Tematicas Dinamicas -->
     {% if active_theme %}
         {% if active_theme.css_file %}
-    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file) }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename=active_theme.css_file) }}?v={{ sv('core', active_theme.css_file | replace('core/', '', 1)) }}">
         {% endif %}
         {% if active_theme.custom_css %}
     <style id="theme-custom-css">{{ active_theme.custom_css | safe }}</style>
         {% endif %}
     {% endif %}
-    <!-- Shepherd.js CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/css/shepherd.css">
-
-    <link rel="shortcut icon" href="{{url_for('static', filename='core/icon/favicon.ico') }}?v={{ sv('core', 'icon/favicon.ico') }}"
-        type="image/x-icon">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <script src="https://unpkg.com/lucide@0.378.0/dist/umd/lucide.js"></script>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='core/icon/favicon.ico') }}?v={{ sv('core', 'icon/favicon.ico') }}" type="image/x-icon">
+    {#- Red de seguridad: si boot.js no llega (red caída, 404), el escritorio se
+        muestra igual en vez de quedarse en blanco. -#}
+    <script>setTimeout(function () { document.documentElement.classList.add('desktop-ready'); }, 8000);</script>
 </head>
 
-<body>
-    <div id="desktop" class="desktop">
-        <div class="desktop-background"></div>
+<body class="itcj-desktop" data-user-id="{{ user_id }}" data-user-name="{{ user_card.full_name }}">
+    {% include "core/dashboard/_icons.html" %}
 
-        <div id="desktop-grid" class="desktop-grid" aria-label="Escritorio cuadriculado">
-            <!-- Solo apps e icono de papelera -->
-            <div class="desktop-icon" data-app="agendatec">
-                <div class="icon-container" style="position: relative;">
-                    <img src="{{ url_for('static', filename='agendatec/icon/agendatec.ico') }}" alt="AgendaTec"
-                        style="width:45px;height:45px;">
-                    <span id="badge-agendatec" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
-                </div>
-                <span class="icon-label">AgendaTec</span>
-            </div>
-
-            <div class="desktop-icon" data-app="helpdesk">
-                <div class="icon-container" style="position: relative;">
-                    <img src="{{ url_for('static', filename='helpdesk/images/help-desk.png') }}" alt="Help Desk"
-                        style="width:45px;height:45px;">
-                    <span id="badge-helpdesk" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
-                </div>
-                <span class="icon-label">Help Desk</span>
-            </div>
-
-             <div class="desktop-icon" data-app="maint">
-                <div class="icon-container" style="position: relative;">
-                    <img src="{{ url_for('static', filename='maint/img/maint.png') }}" alt="Mantenimiento"
-                        style="width:45px;height:45px;">
-                    <span id="badge-maint" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
-                </div>
-                <span class="icon-label">Mantenimiento</span>
-            </div>
-
-            <div class="desktop-icon" data-app="directory">
-                <div class="icon-container" style="position: relative;">
-                    <img src="{{ url_for('static', filename='directory/images/directory.png') }}" alt="Extensiones"
-                        style="width:45px;height:45px;">
-                </div>
-                <span class="icon-label">Extensiones</span>
-            </div>
-
-            <div class="desktop-icon" data-app="titulatec">
-                <div class="icon-container" style="position: relative;">
-                    <img src="{{ url_for('static', filename='titulatec/images/titulatec-claro-1024.png') }}?v={{ sv('titulatec', 'images/titulatec-claro-1024.png') }}" alt="TitulaTec"
-                        style="width:45px;height:45px;">
-                </div>
-                <span class="icon-label">TitulaTec</span>
-            </div>
-
-
-           <!-- <div class="desktop-icon" data-app="vistetec">
-                <div class="icon-container" style="position: relative;">
-                    <i class="bi bi-bag-heart-fill" style="font-size:45px;color:#ec4899;"></i>
-                    <span id="badge-vistetec" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 10px; padding: 2px 5px;">0</span>
-                </div>
-                <span class="icon-label">VisteTec</span>
-            </div-->
-            
-            <!-- Papelera (decoración) -->
-            <!-- Se renderizará dinámicamente por JS -->
+    <div id="desktop-splash" role="status" aria-label="Cargando escritorio">
+        <div>
+            <div class="desktop-splash-name">ITCJ</div>
+            <div class="desktop-splash-sub">Plataforma Digital</div>
         </div>
+        <span class="desktop-splash-spinner" aria-hidden="true"></span>
+    </div>
 
-        <div id="windows-container"></div>
+    <div id="desktop" class="desktop">
+        <div class="desktop-lqip" aria-hidden="true"></div>
+        <div class="desktop-background" data-src="{{ bg_url }}" style="background-image: url('{{ bg_url }}')" aria-hidden="true"></div>
 
-        <div class="taskbar">
-            <button class="start-button" title="Menú">
-                <i data-lucide="menu"></i>
-            </button>
-
-            <div class="search-container">
-                <i data-lucide="search" class="search-icon"></i>
-                <input type="text" placeholder="© 2026 ITCJ. Todos los derechos reservados."
-                    class="search-input disabled" readonly>
-            </div>
-
-            <div class="pinned-apps">
-                <button class="pinned-app" title="AgendaTec">
-                    <i data-lucide="calendar"></i>
-                </button>
-                <button class="pinned-app" title="Help Desk">
-                    <i data-lucide="ticket"></i>
-                </button>
-                <button class="pinned-app" title="Mantenimiento">
-                    <i data-lucide="wrench"></i>
-                </button>
-                <button class="pinned-app" title="VisteTec">
-                    <i data-lucide="shirt"></i>
-                </button>
-            </div>
-
-            <div id="open-apps" class="open-apps"></div>
-
-            <div class="system-tray">
-                <!-- ⭐ NUEVO: Tutorial Button -->
-                <button id="dashboardTutorialButton" title="Ver Tutorial del Dashboard">
-                    <i data-lucide="help-circle"></i>
-                    <span>Tutorial</span>
-                </button>
-
-                <!-- ⭐ NUEVO: Notification Bell -->
-                <button id="notificationBell" class="system-icon" title="Notificaciones" style="position: relative;">
-                    <i data-lucide="bell"></i>
-                    <span id="globalNotificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none; font-size: 9px; padding: 2px 4px; min-width: 16px;">0</span>
-                </button>
-
-                <button class="system-icon">
-                    <i data-lucide="wifi"></i>
-                </button>
-                <button class="system-icon">
-                    <i data-lucide="volume-2"></i>
-                </button>
-                <button class="system-icon">
-                    <i data-lucide="battery"></i>
-                </button>
-
-                <div class="datetime">
-                    <div id="time"></div>
-                    <div id="date"></div>
+        <div class="desktop-shell">
+            {%- if active_theme %}
+            <div id="theme-decor" class="theme-decor" aria-hidden="true"></div>
+            {%- endif %}
+            <div id="desktop-grid" class="desktop-grid" aria-label="Escritorio">
+                {#- Papelera: decoración, primer tile, no abre nada. -#}
+                <div class="desktop-icon is-decorative" data-app="papelera" tabindex="0" role="button" aria-label="Papelera de reciclaje">
+                    <span class="desktop-icon-img"><svg class="ico desktop-icon-glyph" aria-hidden="true"><use href="#i-trash"/></svg></span>
+                    <span class="desktop-icon-label">Papelera de reciclaje</span>
                 </div>
+                {%- for app in desktop_apps if app.on_desktop %}
+                <div class="desktop-icon" data-app="{{ app.key }}" tabindex="0" role="button" aria-label="{{ app.name }}">
+                    <span class="desktop-icon-img">
+                        {%- if app.image %}
+                        <img src="{{ app.image }}" alt="{{ app.name }}" width="48" height="48" loading="eager" decoding="async" draggable="false">
+                        {%- else %}
+                        <svg class="ico desktop-icon-glyph" aria-hidden="true"><use href="#i-{{ app.icon }}"/></svg>
+                        {%- endif %}
+                        <span id="badge-{{ app.key }}" class="desktop-badge"{% if app.badge_key %} data-badge-for="{{ app.badge_key }}"{% endif %} hidden>0</span>
+                    </span>
+                    <span class="desktop-icon-label">{{ app.name }}</span>
+                </div>
+                {%- endfor %}
             </div>
+
+            <div id="windows-container" class="windows-container"></div>
+
+            <nav class="taskbar" aria-label="Barra de tareas">
+                <div class="taskbar-center">
+                    <button type="button" class="start-button taskbar-btn" title="Inicio" aria-label="Inicio"
+                        aria-haspopup="true" aria-expanded="false" aria-controls="startMenu">
+                        <svg class="ico" aria-hidden="true"><use href="#i-menu"/></svg>
+                    </button>
+
+                    <label class="taskbar-search" for="taskbarSearch">
+                        <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+                        <input id="taskbarSearch" type="search" placeholder="Buscar aplicaciones…" autocomplete="off"
+                            spellcheck="false" aria-label="Buscar aplicaciones" aria-controls="startMenuResults">
+                    </label>
+
+                    <div id="taskbarApps" class="taskbar-apps" role="group" aria-label="Aplicaciones">
+                        {%- for app in desktop_apps if app.pinned %}
+                        <button type="button" class="taskbar-app" data-app="{{ app.key }}" title="{{ app.name }}" aria-label="{{ app.name }}">
+                            {%- if app.image %}
+                            <img src="{{ app.image }}" alt="" width="24" height="24" decoding="async" draggable="false">
+                            {%- else %}
+                            <svg class="ico" aria-hidden="true"><use href="#i-{{ app.icon }}"/></svg>
+                            {%- endif %}
+                            {%- if app.badge_key %}
+                            <span class="taskbar-badge" data-badge-for="{{ app.badge_key }}" hidden>0</span>
+                            {%- endif %}
+                            <span class="taskbar-app-indicator" aria-hidden="true"></span>
+                        </button>
+                        {%- endfor %}
+                    </div>
+                </div>
+
+                <div class="system-tray">
+                    <button type="button" id="dashboardTutorialButton" title="Ver el tutorial del escritorio"
+                        data-tutorial-src="{{ url_for('static', filename='core/js/dashboard/dashboard_tutorial.js') }}?v={{ sv('core', 'js/dashboard/dashboard_tutorial.js') }}">
+                        <svg class="ico" aria-hidden="true"><use href="#i-help"/></svg>
+                        <span class="tray-label">Tutorial</span>
+                    </button>
+
+                    <button type="button" id="notificationBell" class="system-icon tray-btn" title="Notificaciones"
+                        aria-label="Notificaciones" aria-haspopup="true" aria-expanded="false" aria-controls="notification-panel">
+                        <svg class="ico" aria-hidden="true"><use href="#i-bell"/></svg>
+                        <span id="globalNotificationBadge" class="tray-badge" hidden>0</span>
+                    </button>
+
+                    <span id="trayConnection" class="tray-connection is-online" role="status" title="Conectado" aria-label="Conectado">
+                        <svg class="ico ico-online" aria-hidden="true"><use href="#i-wifi"/></svg>
+                        <svg class="ico ico-offline" aria-hidden="true"><use href="#i-wifi-off"/></svg>
+                        <span class="tray-connection-dot" aria-hidden="true"></span>
+                    </span>
+
+                    <div class="datetime" id="trayClock">
+                        <div id="time"></div>
+                        <div id="date"></div>
+                    </div>
+                </div>
+            </nav>
+
+            {% include "core/dashboard/_start_menu.html" %}
         </div>
     </div>
 
-
-    <!-- Modal de cambio de contraseña -->
+    <!-- Modal de cambio de contraseña (fuera del shell: debe verse aunque el escritorio siga cargando) -->
     <div class="modal fade" id="forcePwModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static"
         data-bs-keyboard="false">
         <div class="modal-dialog modal-dialog-centered">
@@ -172,7 +193,7 @@
                     <div class="d-flex align-items-start mb-3">
                         <i class="bi bi-exclamation-triangle-fill text-warning fs-1 me-3"></i>
                         <div>
-                            <p class="mb-2 windows-text">❌ ¡Contraseña por defecto detectada!</p>
+                            <p class="mb-2 windows-text">¡Contraseña por defecto detectada!</p>
                             <p class="mb-0 windows-text">Para continuar, debe actualizar su contraseña por motivos de
                                 seguridad.</p>
                         </div>
@@ -194,23 +215,29 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {#- Registro para el JS (tojson escapa < > & ' : no hay forma de cerrar el script). -#}
+    <script type="application/json" id="desktop-apps-data">{{ desktop_apps | tojson }}</script>
 
-    <!-- Shepherd.js JS -->
-    <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11.2.0/dist/js/shepherd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-    <!-- Notification System (WebSocket-based) -->
-    <script src="{{url_for('static', filename='core/js/dashboard/notification-widget.js') }}?v={{ sv('core', 'js/dashboard/notification-widget.js') }}"></script>
+    {#- Módulos del escritorio (IIFE, window.ItcjDesktop). Van antes del widget de
+        notificaciones: este usa ItcjDesktop.icon al iniciar. boot.js va al final y
+        arranca todo en DOMContentLoaded. -#}
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/icons.js') }}?v={{ sv('core', 'js/dashboard/desktop/icons.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/registry.js') }}?v={{ sv('core', 'js/dashboard/desktop/registry.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/session.js') }}?v={{ sv('core', 'js/dashboard/desktop/session.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/window-manager.js') }}?v={{ sv('core', 'js/dashboard/desktop/window-manager.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/taskbar.js') }}?v={{ sv('core', 'js/dashboard/desktop/taskbar.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/desktop-grid.js') }}?v={{ sv('core', 'js/dashboard/desktop/desktop-grid.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/start-menu.js') }}?v={{ sv('core', 'js/dashboard/desktop/start-menu.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/tutorial-loader.js') }}?v={{ sv('core', 'js/dashboard/desktop/tutorial-loader.js') }}"></script>
 
-    <!-- ⭐ NUEVO: Presencia en vivo (latido con la app abierta en el iframe) -->
-    <script src="{{url_for('static', filename='core/js/dashboard/presence-heartbeat.js') }}?v={{ sv('core', 'js/dashboard/presence-heartbeat.js') }}"></script>
+    <!-- Notificaciones (WebSocket /notify) y presencia en vivo -->
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/notification-widget.js') }}?v={{ sv('core', 'js/dashboard/notification-widget.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/presence-heartbeat.js') }}?v={{ sv('core', 'js/dashboard/presence-heartbeat.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/must_change.js') }}?v={{ sv('core', 'js/must_change.js') }}"></script>
 
-    <script src="{{url_for('static', filename='core/js/dashboard/profile-menu.js') }}?v={{ sv('core', 'js/dashboard/profile-menu.js') }}"></script>
-    <script src="{{url_for('static', filename='core/js/dashboard/dashboard.js') }}?v={{ sv('core', 'js/dashboard/dashboard.js') }}"></script>
-    <script src="{{url_for('static', filename='core/js/must_change.js') }}?v={{ sv('core', 'js/must_change.js') }}"></script>
-
-    <!-- ⭐ NUEVO: Dashboard Tutorial Script -->
-    <script src="{{url_for('static', filename='core/js/dashboard/dashboard_tutorial.js') }}?v={{ sv('core', 'js/dashboard/dashboard_tutorial.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='core/js/dashboard/desktop/boot.js') }}?v={{ sv('core', 'js/dashboard/desktop/boot.js') }}"></script>
 
     <!-- Sistema de Tematicas Dinamicas - JavaScript -->
     {% if active_theme %}
@@ -219,11 +246,9 @@
         window.activeTheme = {{ active_theme | tojson | safe }};
     </script>
         {% if active_theme.js_file %}
-    <script src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file) }}"></script>
+    <script defer src="{{ url_for('static', filename=active_theme.js_file) }}?v={{ sv('core', active_theme.js_file | replace('core/', '', 1)) }}"></script>
         {% endif %}
     {% endif %}
-
-    <!-- Notification Widget se auto-inicializa en notification-widget.js -->
 </body>
 
 </html>

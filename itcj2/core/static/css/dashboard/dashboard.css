@@ -1,49 +1,128 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ==========================================================================
+   Escritorio del core (/itcj/dashboard): fondo, cuadrícula de iconos, barra de
+   tareas estilo Windows 11 y bandeja. Las ventanas viven en desktop-windows.css
+   y el menú inicio en start-menu.css. El CSS crítico (splash y "listo") va
+   inline en dashboard.html.
+   ========================================================================== */
+
+:root {
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Cuadrícula del escritorio: px fijos, sin JS que la reacomode. */
+  --tile: 96px;
+  --tile-gap: 6px;
+
+  /* Barra de tareas */
+  --taskbar-h: 48px;
+  --taskbar-bg: rgba(238, 240, 244, .78);
+  --taskbar-line: rgba(255, 255, 255, .6);
+  --taskbar-hover: rgba(255, 255, 255, .62);
+  --taskbar-press: rgba(255, 255, 255, .4);
+  --taskbar-open: rgba(255, 255, 255, .5);
+
+  --ink: #1b1f24;
+  --ink-muted: #5c6470;
+  --accent: #059669;
+  --danger: #c42b1c;
+  --online: #0f9d58;
+  --radius-btn: 6px;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  overflow: hidden;
-  height: 100vh;
-  width: 100vw;
+/* --------------------------------------------------------------------------
+   Base y fondo
+   -------------------------------------------------------------------------- */
+html, body { overflow: hidden; overflow: clip; }
+
+body.itcj-desktop {
+  font-family: var(--font-ui);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+.ico {
+  width: 1em;
+  height: 1em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
 }
 
 .desktop {
-  position: relative;
-  height: 100vh;
-  width: 100vw;
-  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overflow: clip;
+  isolation: isolate;                 /* todo el escritorio es un contexto propio */
+  background-color: var(--desktop-bg, #61697a);
 }
 
+.desktop-lqip,
 .desktop-background {
   position: absolute;
   inset: 0;
-  background-image: url("../../images/windows.webp");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  opacity: 0.8;
+  pointer-events: none;
 }
 
+/* Vista previa diminuta (inline en el HTML) mientras llega la imagen completa. */
+.desktop-lqip {
+  background-image: var(--desktop-lqip);
+  filter: blur(18px);
+  transform: scale(1.08);
+  opacity: .8;
+  transition: opacity .4s ease .5s;
+}
 
+.desktop-background {
+  opacity: 0;
+  transition: opacity .6s ease;
+}
+
+.desktop-background.is-loaded { opacity: .8; }
+.desktop.is-bg-loaded .desktop-lqip { opacity: 0; }
+
+.desktop-shell {
+  position: absolute;
+  inset: 0;
+}
+
+/* Capa de decoraciones de los temas estacionales. Sin transform/filter/contain/
+   will-change: los hijos position:fixed deben seguir referidos al viewport.
+   Pantalla chica: detrás de los iconos; grande: encima de todo (--theme-band lo
+   define cada tema en :root). */
+.theme-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@media (min-width: 1600px) and (min-height: 760px) {
+  .theme-decor { z-index: 900; }
+}
+
+/* --------------------------------------------------------------------------
+   Cuadrícula de iconos (por filas, como hoy)
+   -------------------------------------------------------------------------- */
 .desktop-grid {
   position: absolute;
-  top: 16px; left: 16px; right: 16px; bottom: 64px;
+  z-index: 2;
+  top: calc(12px + var(--theme-band, 0px));
+  left: 12px;
+  right: 12px;
+  bottom: calc(var(--taskbar-h) + 12px);
   display: grid;
-  --tile: 95;            /* tamaño del cuadrado en px (numérico, lo leeremos en JS) */
-  --gap: 12;              /* gap en px (numérico) */
-  gap: calc(var(--gap) * 1px);
+  grid-template-columns: repeat(auto-fill, var(--tile));
+  grid-auto-rows: var(--tile);
+  gap: var(--tile-gap);
   align-content: start;
   justify-content: start;
-}
-.desktop-grid .desktop-icon {
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
 }
 
 .desktop-icon {
@@ -51,314 +130,397 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: calc(var(--tile) * 1px);
-  height: calc(var(--tile) * 1px);
-  padding: 8px;
-  border-radius: 8px;
-  cursor: pointer;
-  background: rgba(0, 0, 0, 0.09);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: background-color 0.2s;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  color: #fff;
+  cursor: default;
   user-select: none;
+  -webkit-user-select: none;
+  outline: none;
+  transition: background-color .12s ease, border-color .12s ease;
 }
 
 .desktop-icon:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, .14);
+  border-color: rgba(255, 255, 255, .16);
 }
 
 .desktop-icon.selected {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, .24);
+  border-color: rgba(255, 255, 255, .34);
 }
 
-.desktop-icon.recycle-bin {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  left: auto;
+.desktop-icon:focus-visible {
+  border-color: rgba(255, 255, 255, .9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
 }
 
-.icon-container {
-  color: white;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-  margin-bottom: 4px;
+.desktop-icon-img {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: none;
 }
 
-.icon-container i {
-  width: 32px;
-  height: 32px;
+.desktop-icon-img img {
+  display: block;
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, .3));
+  -webkit-user-drag: none;
 }
 
-.icon-label {
-  color: white;
+/* Glifo del sprite cuando la app no trae imagen (y la Papelera). */
+.desktop-icon-glyph {
+  width: 40px;
+  height: 40px;
+  stroke-width: 1.5;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .45));
+}
+
+.desktop-icon-label {
+  max-width: 100%;
   font-size: 12px;
+  line-height: 1.25;
   text-align: center;
-  font-weight: 500;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-  line-height: 1.2;
-}
-
-/* Application Windows */
-.app-window {
-  position: absolute;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .65), 0 0 1px rgba(0, 0, 0, .5);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  z-index: 1000;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
 }
 
-.app-window.maximized {
-  top: 16px !important;
-  left: 16px !important;
-  right: 16px !important;
-  bottom: 64px !important;
-  width: auto !important;
-  height: auto !important;
+.desktop-badge {
+  position: absolute;
+  top: -4px;
+  right: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .9);
 }
 
-.window-titlebar {
-  height: 32px;
-  background: #059669;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  cursor: move;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-.window-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.window-title-text {
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.window-url {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
-}
-
-.window-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.window-control {
-  width: 24px;
-  height: 24px;
-  border: none;
-  background: transparent;
-  color: white;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
-}
-
-.window-control:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.window-control.close:hover {
-  background: #ef4444;
-}
-
-.window-control i {
-  width: 12px;
-  height: 12px;
-}
-
-.window-content {
-  flex: 1;
-  min-height: 0;
-}
-
-.window-iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
-}
-
-/* Taskbar */
+/* --------------------------------------------------------------------------
+   Barra de tareas (Windows 11): inicio + buscador + apps al centro, bandeja a
+   la derecha.
+   -------------------------------------------------------------------------- */
 .taskbar {
   position: absolute;
-  bottom: 0;
   left: 0;
   right: 0;
-  height: 48px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid #e5e7eb;
+  bottom: 0;
+  height: var(--taskbar-h);
+  z-index: 1000;
+  display: grid;
+  /* Centro centrado mientras quepa; la bandeja nunca baja de su ancho real
+     (max-content): si crece (p. ej. el botón del Mundial), el centro se corre a la
+     izquierda en vez de quedar debajo de ella. */
+  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  padding: 0 6px;
+  background: var(--taskbar-bg);
+  -webkit-backdrop-filter: saturate(1.6) blur(24px);
+  backdrop-filter: saturate(1.6) blur(24px);
+  border-top: 1px solid var(--taskbar-line);
+  box-shadow: 0 -1px 0 rgba(0, 0, 0, .06);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.taskbar-center {
+  grid-column: 2;
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  gap: 8px;
-  z-index: 2000;
+  gap: 4px;
+  min-width: 0;
 }
 
-.start-button {
-  height: 40px;
-  width: 40px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
+.taskbar-apps {
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
+  gap: 4px;
+  min-width: 0;
 }
 
-.start-button:hover {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.start-button i {
-  width: 20px;
-  height: 20px;
-}
-
-.search-container {
+.taskbar-btn,
+.taskbar-app {
   position: relative;
-  flex: 1;
-  max-width: 384px;
-}
-
-.search-icon {
-  position: absolute;
-  left: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  color: #6b7280;
-}
-
-.search-input {
-  width: 100%;
-  height: 32px;
-  padding: 0 12px 0 40px;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  background: #f9fafb;
-  font-size: 14px;
-  outline: none;
-}
-
-.search-input:focus {
-  border-color: #059669;
-  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.2);
-}
-
-.pinned-apps {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.pinned-app {
-  height: 40px;
+  display: grid;
+  place-items: center;
   width: 40px;
-  border: none;
+  height: 40px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-btn);
   background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
+  color: var(--ink);
+  transition: background-color .12s ease;
 }
 
-.pinned-app:hover {
-  background: rgba(0, 0, 0, 0.1);
+.taskbar-btn .ico { width: 20px; height: 20px; stroke-width: 1.75; }
+
+.taskbar-app img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  -webkit-user-drag: none;
 }
 
-.pinned-app i {
-  width: 20px;
-  height: 20px;
+.taskbar-app > .ico { width: 22px; height: 22px; stroke-width: 1.75; }
+
+.taskbar-btn:hover,
+.taskbar-app:hover { background: var(--taskbar-hover); }
+
+.taskbar-btn:active,
+.taskbar-app:active { background: var(--taskbar-press); }
+
+.taskbar-app:active img,
+.taskbar-app:active > .ico { transform: scale(.9); }
+
+.taskbar-app.is-active { background: var(--taskbar-open); }
+
+.taskbar-btn:focus-visible,
+.taskbar-app:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
 
-.open-apps {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 8px;
+/* Rayita: corta = abierta; larga y de acento = al frente. */
+.taskbar-app-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: #8a909a;
+  transform: translateX(-50%) scaleX(0);
+  transition: transform .15s ease, width .15s ease, background-color .15s ease;
 }
 
-.open-app {
-  height: 32px;
-  padding: 0 12px;
-  border: none;
-  background: rgba(5, 150, 105, 0.2);
-  cursor: pointer;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  transition: background-color 0.2s;
-}
+.taskbar-app.is-open .taskbar-app-indicator { transform: translateX(-50%) scaleX(1); }
 
-.open-app:hover {
-  background: rgba(5, 150, 105, 0.3);
-}
-
-.open-app i {
+.taskbar-app.is-active .taskbar-app-indicator {
   width: 16px;
-  height: 16px;
+  background: var(--accent);
 }
 
-.system-tray {
+.taskbar-app[data-dynamic="1"] { animation: taskbar-app-in .16s ease-out; }
+
+@keyframes taskbar-app-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.taskbar-badge,
+.tray-badge {
+  position: absolute;
+  top: 3px;
+  right: 1px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+}
+
+/* Buscador (lo activa el menú inicio, Task 4). */
+.taskbar-search {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  width: clamp(176px, 16vw, 232px);
+  height: 34px;
+  margin: 0 4px;
+  padding: 0 12px;
+  border: 1px solid rgba(0, 0, 0, .07);
+  border-radius: 17px;
+  background: rgba(255, 255, 255, .72);
+  color: var(--ink-muted);
+  cursor: text;
+  transition: background-color .12s ease, border-color .12s ease;
 }
 
-.system-icon {
-  height: 32px;
-  width: 32px;
-  border: none;
+.taskbar-search:hover { background: rgba(255, 255, 255, .88); }
+
+.taskbar-search:focus-within {
+  background: #fff;
+  border-color: rgba(5, 150, 105, .55);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, .25);
+}
+
+.taskbar-search .ico { width: 16px; height: 16px; }
+
+.taskbar-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
   background: transparent;
-  cursor: pointer;
-  border-radius: 4px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.taskbar-search input::placeholder { color: var(--ink-muted); opacity: 1; }
+.taskbar-search input::-webkit-search-cancel-button { display: none; }
+
+/* --------------------------------------------------------------------------
+   Bandeja: tutorial, campana, conexión, reloj
+   -------------------------------------------------------------------------- */
+.system-tray {
+  grid-column: 3;
+  justify-self: end;
   display: flex;
   align-items: center;
-  justify-content: center;
-  transition: background-color 0.2s;
+  gap: 2px;
+  min-width: 0;
 }
 
-.system-icon:hover {
-  background: rgba(0, 0, 0, 0.1);
+.tray-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--ink);
+  transition: background-color .12s ease;
 }
 
-.system-icon i {
-  width: 16px;
-  height: 16px;
+.tray-btn .ico { width: 18px; height: 18px; stroke-width: 1.75; }
+.tray-btn:hover { background: var(--taskbar-hover); }
+.tray-btn:active { background: var(--taskbar-press); }
+.tray-btn[aria-expanded="true"] { background: var(--taskbar-open); }
+
+/* Botón de tutorial: se alinea con el resto de la bandeja (su estado
+   deshabilitado mientras corre el tour vive en dashboard_tutorial.css). */
+.taskbar #dashboardTutorialButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  transform: none;
 }
+
+.taskbar #dashboardTutorialButton .ico { width: 18px; height: 18px; stroke-width: 1.75; }
+.taskbar #dashboardTutorialButton:hover { background: var(--taskbar-hover); transform: none; }
+.taskbar #dashboardTutorialButton:active { background: var(--taskbar-press); }
+
+.tray-connection {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 40px;
+  border-radius: var(--radius-btn);
+  color: var(--ink);
+}
+
+.tray-connection .ico { width: 18px; height: 18px; stroke-width: 1.75; }
+.tray-connection .ico-offline { display: none; }
+.tray-connection.is-offline .ico-online { display: none; }
+.tray-connection.is-offline .ico-offline { display: block; color: var(--danger); }
+
+.tray-connection-dot {
+  position: absolute;
+  right: 6px;
+  bottom: 10px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--online);
+  box-shadow: 0 0 0 1.5px var(--taskbar-bg);
+}
+
+.tray-connection.is-offline .tray-connection-dot { background: var(--danger); }
 
 .datetime {
-  font-size: 12px;
-  text-align: center;
-  line-height: 1.2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  height: 40px;
   padding: 0 8px;
-  color: #374151;
+  border-radius: var(--radius-btn);
+  font-size: 12px;
+  line-height: 1.3;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
 }
 
-@media (max-width: 1200px) { .desktop-grid { --tile: 96px; } }
-@media (max-width: 768px)  { .desktop-grid { --tile: 88px; } }
+.datetime:hover { background: var(--taskbar-hover); }
 
+/* --------------------------------------------------------------------------
+   Pantallas angostas
+   -------------------------------------------------------------------------- */
+@media (max-width: 1100px) {
+  .taskbar #dashboardTutorialButton .tray-label { display: none; }
+  .taskbar #dashboardTutorialButton { width: 40px; padding: 0; justify-content: center; }
+}
+
+/* Entre 761 y 960 px el buscador abierto (176 px) empujaba el centro contra la
+   bandeja: el icono de TitulaTec tocaba el «?» del tutorial a 820 px. Aquí la
+   barra solo muestra la lupa; el input sigue enfocable (Tab, clic en la lupa) y
+   start-menu.js, al medirlo colapsado, abre la búsqueda en el menú de inicio con
+   un campo visible propio (patrón de Windows 11). */
+@media (max-width: 960px) {
+  .taskbar-search { width: 40px; padding: 0; justify-content: center; margin: 0; }
+  .taskbar-search input { position: absolute; width: 1px; opacity: 0; }
+}
+
+@media (max-width: 760px) {
+  .taskbar { grid-template-columns: auto 1fr; }
+  .taskbar-center { grid-column: 1; }
+  .system-tray { grid-column: 2; }
+  .tray-connection { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-background,
+  .desktop-lqip,
+  .desktop-icon,
+  .taskbar-btn,
+  .taskbar-app,
+  .taskbar-app-indicator { transition: none; }
+  .taskbar-app[data-dynamic="1"] { animation: none; }
+}

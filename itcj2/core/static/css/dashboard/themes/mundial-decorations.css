@@ -1,10 +1,18 @@
 /* ============================================
    TEMA MUNDIAL 2026 — decoraciones + widget + modal
+   En el escritorio las decoraciones viven en #theme-decor (dashboard.css decide
+   si van detrás o encima de las ventanas según la resolución); en el móvil, en
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). El FAB, el widget y el modal siempre van en <body>.
+   --theme-band = alto real de la guirnalda (bandera de México 44 px + 4 px de
+   ondeo y la perspectiva del giro: 49.8 px medidos): baja los iconos y, en
+   pantalla grande, el área de las ventanas.
    ============================================ */
 :root {
   --mundial-primary: #0B6E4F;
   --mundial-secondary: #1A7A3D;
   --mundial-accent: #FFD23F;
+  --theme-band: 50px;
 }
 
 /* Guirnalda de banderas ondeando (arriba). El color de cada bandera lo pone el JS. */
@@ -19,8 +27,18 @@
   50%     { transform: perspective(220px) rotateY(16deg) translateY(4px); }
 }
 
-/* Banderas (emoji) flotando hacia arriba, mayoría México */
-.mundial-float-flag { position: fixed; bottom: -60px; font-size: 32px; line-height: 1;
+/* Escudo de México (insinuado) al centro de sus banderas de franjas. */
+.mundial-gflag.mex::after,
+.mundial-float-flag.mex::after { content: ""; position: absolute; left: 50%; top: 50%;
+  width: 22%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%);
+  background: radial-gradient(circle at 45% 40%, #b07a3a 0 35%, #7a4e1f 60%, #4f7a2b 61% 100%); }
+.mundial-gflag { position: relative; }
+
+/* Banderas de franjas (CSS, no emoji: Windows no trae glifos de banderas y las
+   pintaba como letras) flotando hacia arriba, mayoría México. El JS pone fondo,
+   tamaño, posición y duración. */
+.mundial-float-flag { position: fixed; bottom: -60px; border-radius: 3px;
+  box-shadow: 0 3px 8px rgba(0,0,0,.28), inset 0 0 0 1px rgba(0,0,0,.08);
   z-index: 9996; pointer-events: none; will-change: transform;
   animation: mundial-rise linear forwards; }
 @keyframes mundial-rise {
@@ -35,7 +53,17 @@
   z-index: 9995; pointer-events: none; border-radius: 4px; overflow: hidden;
   box-shadow: 0 8px 22px rgba(0,0,0,.32); transform-origin: left center;
   background: linear-gradient(90deg, #006847 0 33.33%, #ffffff 33.33% 66.66%, #ce1126 66.66% 100%);
+  transition: opacity .35s ease;
   animation: mundial-flagwave 3.2s ease-in-out infinite; }
+/* Modo encima (>= 1600x760): con una ventana maximizada o acoplada (no minimizada) la
+   bandera, opaca y fija, se desvanece (sin cambio de layout) y vuelve al restaurar.
+   La guirnalda y las banderas flotantes siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+  .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .mundial-mexico { opacity: 0; }
+  /* Los reflectores (halos amarillos desde arriba) también: tiñen la barra de título. */
+  .mundial-lights { transition: opacity .35s ease; }
+  .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .mundial-lights { opacity: 0; }
+}
 .mundial-mexico::after { content: "🦅"; position: absolute; inset: 0 0 14px 0;
   display: flex; align-items: center; justify-content: center; font-size: 34px; opacity: .9; }
 .mundial-mexico-label { position: absolute; bottom: 5px; left: 0; right: 0; text-align: center;
@@ -48,8 +76,8 @@
   75%     { transform: skewY(2.4deg) scaleX(.985); }
 }
 
-/* Balón rebotando (más grande, con sombra) */
-.mundial-ball { position: fixed; bottom: 40px; left: -80px; width: 62px; height: 62px;
+/* Balón rebotando (más grande, con sombra), rodando sobre la barra de tareas */
+.mundial-ball { position: fixed; bottom: var(--taskbar-h, 40px); left: -80px; width: 62px; height: 62px;
   font-size: 62px; line-height: 62px; z-index: 9997; pointer-events: none;
   filter: drop-shadow(0 8px 6px rgba(0,0,0,.3));
   animation: mundial-roll 7s linear forwards, mundial-bounce 1.05s ease-in-out infinite; }
@@ -64,9 +92,10 @@
   z-index: 9996; pointer-events: none; opacity: 0.95; animation: mundial-fall linear forwards; }
 @keyframes mundial-fall { to { transform: translateY(108vh) rotate(720deg); opacity: 0.2; } }
 
-/* Reflectores */
+/* Reflectores (un div .mundial-lights en la capa del tema) */
+.mundial-lights { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
 .mundial-lights::before, .mundial-lights::after {
-  content: ""; position: fixed; top: -40px; width: 240px; height: 240px;
+  content: ""; position: absolute; top: -40px; width: 240px; height: 240px;
   background: radial-gradient(circle, rgba(255,210,63,0.18), transparent 70%);
   pointer-events: none; z-index: 1; animation: mundial-shimmer 4s ease-in-out infinite alternate; }
 .mundial-lights::before { left: 8%; }
@@ -96,10 +125,9 @@
 .mundial-time { font-size: 12px; color: #666; min-width: 44px; text-align: center; }
 .mundial-live { color: #e10600; font-weight: 700; font-size: 11px; }
 .mundial-empty { padding: 18px 14px; color: #777; text-align: center; }
-/* Botón tray (escritorio) */
-#mundial-tray-btn { position: relative; }
-#mundial-tray-badge { position: absolute; top: -2px; right: -2px; background: #e10600; color: #fff;
-  border-radius: 10px; font-size: 9px; padding: 1px 5px; }
+/* Botón de la bandeja (escritorio): es un .tray-btn (mismo tamaño, hover y
+   foco que la campana); su insignia, un .tray-badge. Aquí solo el balón. */
+#mundial-tray-btn .mundial-tray-ball { font-size: 17px; line-height: 1; }
 
 /* FAB (mobile / cuando no hay system-tray): abajo-izquierda, encima del bottom-nav */
 #mundial-fab { position: fixed; left: 16px;
@@ -173,23 +201,28 @@ body.mundial-modal-open .modal-backdrop { z-index: 99990 !important; }
 .mundial-bk-empty { color: #bbb; text-align: center; padding: 8px; }
 .mundial-bk-third { padding: 0 12px 12px; max-width: 220px; }
 
-/* prefers-reduced-motion */
+/* prefers-reduced-motion: guirnalda, bandera y reflectores quietos (el JS no
+   crea banderas flotantes, balón ni confeti) */
 @media (prefers-reduced-motion: reduce) {
   .mundial-gflag, .mundial-float-flag, .mundial-mexico, .mundial-ball, .mundial-confetti,
   .mundial-lights::before, .mundial-lights::after { animation: none !important; }
 }
 
 /* Móvil: widget como tarjeta inferior (encima del bottom-nav), FAB visible,
-   decoraciones más chicas y bandera grande oculta (chocaría con el FAB) */
+   decoraciones más chicas y bandera grande oculta (chocaría con el FAB).
+   La guirnalda (26.5 px) queda por encima del saludo de /itcj/m/: el saludo baja
+   16 px para no quedar debajo de las banderas. */
 @media (max-width: 576px) {
+  :root { --theme-band: 27px; }
+  .mobile-greeting { padding-top: calc(var(--mobile-safe-top, 0px) + 40px); }
   #mundial-widget { top: auto; right: 8px; left: 8px; width: auto;
     bottom: calc(var(--mobile-bottom-nav-height, 64px) + var(--mobile-safe-bottom, 0px) + 12px); }
   .mundial-widget-header { cursor: default; }
   .mundial-widget-actions { gap: 6px; }
   .mundial-widget-actions button { width: 36px; height: 36px; font-size: 18px; } /* tap targets cómodos */
-  .mundial-garland { height: 36px; }
-  .mundial-gflag { height: 30px; }
-  .mundial-gflag.mex { height: 33px; }
+  .mundial-garland { height: 26px; gap: 2px; padding: 0 2px; }
+  .mundial-gflag { height: 20px; }
+  .mundial-gflag.mex { height: 22px; }
   .mundial-mexico { display: none; }
   #mundial-fab { display: flex; }
   /* Modal: tablas de grupos a una columna ya por auto-fill; bracket con scroll horizontal */

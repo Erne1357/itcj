@@ -1,7 +1,12 @@
 /**
  * ============================================
  * EFECTO DE SAN VALENTIN - DASHBOARD
- * Corazones flotantes, guirnalda y cupido
+ * Corazones flotantes, guirnalda y cupido.
+ *
+ * Las decoraciones van en #theme-decor (escritorio; dashboard.css la pone detrás
+ * o encima de las ventanas según la resolución) o en #theme-decor.theme-decor-mobile (móvil, base_mobile.html; se oculta fuera de la vista home). Con
+ * prefers-reduced-motion no hay corazones flotantes ni cupido; el bucle se pausa
+ * mientras la pestaña está oculta.
  * ============================================
  */
 
@@ -20,21 +25,26 @@ class ValentineHearts {
             defaultHeartCount = 20; // Desktop
         }
 
+        // Velocidades en px por segundo
         this.config = {
             heartCount: options.heartCount || defaultHeartCount,
             minSize: options.minSize || 10,
             maxSize: options.maxSize || 22,
-            minSpeed: options.minSpeed || 0.5,
-            maxSpeed: options.maxSpeed || 2,
+            minSpeed: options.minSpeed || 25,
+            maxSpeed: options.maxSpeed || 70,
             heartChars: options.heartChars || ['♥', '♡', '❤', '💕'],
             garlandEnabled: options.garlandEnabled !== false,
             cupidEnabled: options.cupidEnabled !== false,
             enabled: options.enabled !== false
         };
 
+        this.host = document.getElementById('theme-decor') || document.body;
+        this.reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         this.hearts = [];
         this.animationFrame = null;
         this.isRunning = false;
+        this.lastTime = 0;
+        this.timers = [];
 
         if (this.config.enabled) {
             this.init();
@@ -42,26 +52,41 @@ class ValentineHearts {
     }
 
     init() {
-        console.log('💘 Inicializando decoraciones de San Valentín...');
-
         // Crear guirnalda de corazones
         if (this.config.garlandEnabled) {
             this.createHeartGarland();
         }
 
-        // Crear corazones flotantes
-        this.createFloatingHearts();
-
-        // Iniciar animación
-        this.start();
-
         // Variables para controlar el cupido
         this.cupidActive = false;
         this.cupidTimeout = null;
 
-        // Iniciar ciclo del cupido
-        if (this.config.cupidEnabled) {
-            this.startCupidCycle();
+        // Corazones flotantes y cupido son movimiento puro: fuera con
+        // prefers-reduced-motion.
+        if (!this.reducedMotion) {
+            this.createFloatingHearts();
+            this.start();
+
+            if (this.config.cupidEnabled) {
+                this.startCupidCycle();
+            }
+
+            this.onVisibility = () => {
+                if (document.hidden) this.pause();
+                else this.start();
+            };
+            document.addEventListener('visibilitychange', this.onVisibility);
+
+            // Móvil: fuera de la vista home la capa está oculta (display none);
+            // se pausa el bucle y se reanuda al volver a home.
+            const mobileBody = document.querySelector('.mobile-body');
+            if (mobileBody && typeof MutationObserver !== 'undefined') {
+                this.viewObserver = new MutationObserver(() => {
+                    if (this.layerHidden()) this.pause();
+                    else this.start();
+                });
+                this.viewObserver.observe(mobileBody, { attributes: true, attributeFilter: ['data-active-view'] });
+            }
         }
 
         // Limpiar al salir
@@ -95,39 +120,42 @@ class ValentineHearts {
             garland.appendChild(heart);
         }
 
-        document.body.appendChild(garland);
+        this.host.appendChild(garland);
+        this.garlandEl = garland;
     }
 
     // ==================== CORAZONES FLOTANTES ====================
     createFloatingHearts() {
         for (let i = 0; i < this.config.heartCount; i++) {
-            this.createHeart();
+            // Repartidos en toda la altura: sin la "ola" de corazones al cargar.
+            this.createHeart(Math.random() * window.innerHeight);
         }
     }
 
-    createHeart() {
+    createHeart(startY = window.innerHeight + 30) {
         const heart = {
             element: document.createElement('div'),
-            x: Math.random() * window.innerWidth,
-            y: window.innerHeight + 30,
+            baseX: Math.random() * window.innerWidth,
+            x: 0,
+            y: startY,
             size: this.randomBetween(this.config.minSize, this.config.maxSize),
             speed: this.randomBetween(this.config.minSpeed, this.config.maxSpeed),
-            drift: this.randomBetween(-0.8, 0.8),
+            drift: this.randomBetween(-12, 12), // deriva horizontal (px/s)
             wobble: Math.random() * Math.PI * 2, // Fase inicial del movimiento ondulante
-            wobbleSpeed: this.randomBetween(0.01, 0.03),
-            wobbleAmount: this.randomBetween(0.5, 2),
+            wobbleSpeed: this.randomBetween(0.8, 1.8), // rad/s
+            wobbleAmount: this.randomBetween(12, 36), // px de vaivén
             rotation: this.randomBetween(-20, 20),
-            rotationSpeed: this.randomBetween(-0.3, 0.3),
+            rotationSpeed: this.randomBetween(-15, 15), // grados por segundo
+            maxOpacity: this.randomBetween(0.45, 0.85),
             char: this.config.heartChars[Math.floor(Math.random() * this.config.heartChars.length)]
         };
 
         heart.element.className = 'floating-heart';
         heart.element.textContent = heart.char;
-        heart.element.style.fontSize = `${heart.size}px`;
-        heart.element.style.opacity = this.randomBetween(0.3, 0.8);
+        heart.element.style.fontSize = `${heart.size.toFixed(1)}px`;
         heart.element.style.color = this.getRandomHeartColor();
 
-        document.body.appendChild(heart.element);
+        this.host.appendChild(heart.element);
         this.hearts.push(heart);
     }
 
@@ -140,52 +168,54 @@ class ValentineHearts {
         return colors[Math.floor(Math.random() * colors.length)];
     }
 
-    updateHearts() {
+    updateHearts(dt) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
         this.hearts.forEach(heart => {
             // Subir (velocidad negativa en Y porque sube)
-            heart.y -= heart.speed;
+            heart.y -= heart.speed * dt;
 
-            // Movimiento ondulante horizontal
-            heart.wobble += heart.wobbleSpeed;
-            heart.x += Math.sin(heart.wobble) * heart.wobbleAmount + heart.drift * 0.1;
+            // Vaivén horizontal alrededor de una línea que deriva despacio
+            heart.wobble += heart.wobbleSpeed * dt;
+            heart.baseX += heart.drift * dt;
+            if (heart.baseX < -50) {
+                heart.baseX = w + 50;
+            } else if (heart.baseX > w + 50) {
+                heart.baseX = -50;
+            }
+            heart.x = heart.baseX + Math.sin(heart.wobble) * heart.wobbleAmount;
 
             // Rotación suave
-            heart.rotation += heart.rotationSpeed;
+            heart.rotation += heart.rotationSpeed * dt;
 
-            // Calcular opacidad basada en posición (fade in al inicio, fade out al final)
-            const progress = 1 - (heart.y / window.innerHeight);
-            let opacity = 0.7;
+            // Opacidad según la altura: aparece abajo, se desvanece arriba
+            const progress = 1 - (heart.y / h);
+            let opacity = heart.maxOpacity;
             if (progress < 0.1) {
-                opacity = progress * 7; // Fade in
+                opacity *= Math.max(0, progress) * 10; // Fade in
             } else if (progress > 0.85) {
-                opacity = (1 - progress) * 6.67; // Fade out
+                opacity *= Math.max(0, 1 - progress) * 6.67; // Fade out
             }
 
-            // Escala sutil basada en posición
-            const scale = 0.7 + Math.sin(heart.wobble * 0.5) * 0.15;
+            // Escala sutil con el vaivén
+            const scale = 0.85 + Math.sin(heart.wobble * 0.5) * 0.15;
 
-            heart.element.style.transform = `translate(${heart.x}px, ${heart.y}px) rotate(${heart.rotation}deg) scale(${scale})`;
-            heart.element.style.opacity = Math.max(0, Math.min(1, opacity));
+            heart.element.style.transform =
+                `translate(${heart.x.toFixed(1)}px, ${heart.y.toFixed(1)}px) rotate(${heart.rotation.toFixed(1)}deg) scale(${scale.toFixed(3)})`;
+            heart.element.style.opacity = Math.max(0, Math.min(1, opacity)).toFixed(3);
 
-            // Si sale por arriba, reiniciar
+            // Si sale por arriba, reiniciar abajo
             if (heart.y < -50) {
                 this.resetHeart(heart);
-            }
-
-            // Si se sale por los lados, ajustar
-            if (heart.x < -50) {
-                heart.x = window.innerWidth + 50;
-            } else if (heart.x > window.innerWidth + 50) {
-                heart.x = -50;
             }
         });
     }
 
     resetHeart(heart) {
-        heart.x = Math.random() * window.innerWidth;
+        heart.baseX = Math.random() * window.innerWidth;
         heart.y = window.innerHeight + 30;
         heart.speed = this.randomBetween(this.config.minSpeed, this.config.maxSpeed);
-        heart.drift = this.randomBetween(-0.8, 0.8);
+        heart.drift = this.randomBetween(-12, 12);
         heart.wobble = Math.random() * Math.PI * 2;
         heart.rotation = this.randomBetween(-20, 20);
         heart.char = this.config.heartChars[Math.floor(Math.random() * this.config.heartChars.length)];
@@ -196,9 +226,7 @@ class ValentineHearts {
     // ==================== CUPIDO ====================
     startCupidCycle() {
         // Primer cupido después de 15 segundos
-        setTimeout(() => {
-            this.scheduleNextCupid();
-        }, 15000);
+        this.timers.push(setTimeout(() => this.scheduleNextCupid(), 15000));
     }
 
     scheduleNextCupid() {
@@ -219,7 +247,6 @@ class ValentineHearts {
     createCupid() {
         if (this.cupidActive) return;
 
-        console.log('💘 Cupido apareciendo...');
         this.cupidActive = true;
 
         const container = document.createElement('div');
@@ -297,24 +324,22 @@ class ValentineHearts {
         body.appendChild(halo);
 
         container.appendChild(body);
-        document.body.appendChild(container);
+        this.host.appendChild(container);
 
         // Animación de entrada
         container.classList.add('entering');
 
         // Después de la entrada, flotar
-        setTimeout(() => {
+        this.timers.push(setTimeout(() => {
             container.classList.remove('entering');
             container.classList.add('floating');
 
             // Disparar flechas periódicamente
             this.startArrowShooting(container);
-        }, 3000);
+        }, 3000));
 
         // Después de 2 minutos, salir
-        setTimeout(() => {
-            this.removeCupid(container);
-        }, 120000);
+        this.timers.push(setTimeout(() => this.removeCupid(container), 120000));
     }
 
     startArrowShooting(container) {
@@ -345,12 +370,12 @@ class ValentineHearts {
             // Programar siguiente disparo
             const nextShot = this.randomBetween(15000, 25000);
             if (this.cupidActive && container.parentNode) {
-                setTimeout(shoot, nextShot);
+                this.timers.push(setTimeout(shoot, nextShot));
             }
         };
 
         // Primer disparo después de 5 segundos
-        setTimeout(shoot, 5000);
+        this.timers.push(setTimeout(shoot, 5000));
     }
 
     createShotHeart(x, y) {
@@ -360,7 +385,7 @@ class ValentineHearts {
         heart.style.left = `${x}px`;
         heart.style.top = `${y}px`;
 
-        document.body.appendChild(heart);
+        this.host.appendChild(heart);
 
         // Crear mini corazones que se dispersan
         for (let i = 0; i < 5; i++) {
@@ -371,7 +396,7 @@ class ValentineHearts {
             mini.style.top = `${y + this.randomBetween(-20, 20)}px`;
             mini.style.fontSize = `${this.randomBetween(10, 16)}px`;
             mini.style.animationDelay = `${this.randomBetween(0.1, 0.4)}s`;
-            document.body.appendChild(mini);
+            this.host.appendChild(mini);
 
             setTimeout(() => {
                 if (mini.parentNode) mini.parentNode.removeChild(mini);
@@ -384,42 +409,55 @@ class ValentineHearts {
     }
 
     removeCupid(container) {
-        console.log('💘 Cupido despidiéndose...');
-
         container.classList.remove('floating');
         container.classList.add('leaving');
 
-        setTimeout(() => {
+        this.timers.push(setTimeout(() => {
             if (container && container.parentNode) {
                 container.parentNode.removeChild(container);
             }
             this.cupidActive = false;
-            console.log('💘 Cupido se fue. Listo para el siguiente.');
-        }, 3000);
+        }, 3000));
     }
 
     // ==================== ANIMACIÓN PRINCIPAL ====================
-    animate() {
+    animate(now) {
         if (!this.isRunning) return;
 
-        this.updateHearts();
-        this.animationFrame = requestAnimationFrame(() => this.animate());
+        // Paso por tiempo real (no por cuadro): igual en 60 y en 144 Hz; tope de
+        // 50 ms para que un tirón no teletransporte los corazones.
+        const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.05) : 0;
+        this.lastTime = now;
+        this.updateHearts(dt);
+        this.animationFrame = requestAnimationFrame((t) => this.animate(t));
+    }
+
+    /** Móvil: la capa de decoraciones solo se ve en la vista home. */
+    layerHidden() {
+        const b = document.querySelector('.mobile-body[data-active-view]');
+        return !!b && b.getAttribute('data-active-view') !== 'home';
     }
 
     start() {
-        if (this.isRunning) return;
+        if (this.isRunning || this.reducedMotion || !this.hearts.length) return;
+        if (document.hidden || this.layerHidden()) return;
 
         this.isRunning = true;
-        this.animate();
-        console.log('💕 Efecto de corazones iniciado');
+        this.lastTime = 0;
+        this.animationFrame = requestAnimationFrame((t) => this.animate(t));
     }
 
-    stop() {
+    /** Detiene el bucle sin quitar nada (pestaña oculta). */
+    pause() {
         this.isRunning = false;
         if (this.animationFrame) {
             cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
         }
-        console.log('💕 Efecto de corazones detenido');
+    }
+
+    stop() {
+        this.pause();
     }
 
     toggle() {
@@ -432,39 +470,22 @@ class ValentineHearts {
 
     cleanup() {
         this.stop();
+        this.timers.forEach(clearTimeout);
+        this.timers = [];
 
         // Detener ciclo del cupido
         if (this.cupidTimeout) {
             clearTimeout(this.cupidTimeout);
         }
         this.cupidActive = false;
+        if (this.onVisibility) document.removeEventListener('visibilitychange', this.onVisibility);
+        if (this.viewObserver) { this.viewObserver.disconnect(); this.viewObserver = null; }
 
-        // Eliminar corazones flotantes
-        this.hearts.forEach(heart => {
-            if (heart.element && heart.element.parentNode) {
-                heart.element.parentNode.removeChild(heart.element);
-            }
-        });
-
-        // Eliminar guirnalda
-        const garland = document.querySelector('.valentine-garland');
-        if (garland && garland.parentNode) {
-            garland.parentNode.removeChild(garland);
-        }
-
-        // Eliminar cupido
-        const cupid = document.querySelector('.cupid-container');
-        if (cupid && cupid.parentNode) {
-            cupid.parentNode.removeChild(cupid);
-        }
-
-        // Eliminar corazones de disparo
-        document.querySelectorAll('.shot-heart').forEach(h => {
-            if (h.parentNode) h.parentNode.removeChild(h);
-        });
-
+        // Corazones flotantes, guirnalda, cupido y corazones de disparo
+        this.hearts.forEach(heart => heart.element.remove());
         this.hearts = [];
-        console.log('💘 Decoraciones de San Valentín limpiadas');
+        if (this.garlandEl) this.garlandEl.remove();
+        document.querySelectorAll('.cupid-container, .shot-heart').forEach(el => el.remove());
     }
 
     // ==================== UTILIDADES ====================
@@ -473,12 +494,14 @@ class ValentineHearts {
     }
 
     setHeartCount(count) {
+        if (this.reducedMotion) return;
         const currentCount = this.hearts.length;
 
         if (count > currentCount) {
             for (let i = 0; i < count - currentCount; i++) {
                 this.createHeart();
             }
+            this.start();
         } else if (count < currentCount) {
             const toRemove = currentCount - count;
             for (let i = 0; i < toRemove; i++) {
@@ -507,14 +530,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 heartCount: deco.hearts?.count || 20,
                 minSize: 10,
                 maxSize: 22,
-                minSpeed: 0.5,
-                maxSpeed: 2,
                 garlandEnabled: deco.garland?.enabled !== false,
                 cupidEnabled: deco.cupid?.enabled !== false,
                 enabled: deco.hearts?.enabled !== false
             });
-
-            console.log(`💘 Temática activa: "${window.activeTheme.name}" - Decoraciones de San Valentín habilitadas`);
         }
     } else {
         // Fallback: comportamiento basado en fechas (por compatibilidad)
@@ -530,14 +549,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 heartCount: 20,
                 minSize: 10,
                 maxSize: 22,
-                minSpeed: 0.5,
-                maxSpeed: 2,
                 garlandEnabled: true,
                 cupidEnabled: true,
                 enabled: true
             });
-
-            console.log('💘 ¡Feliz San Valentín! Decoraciones activadas automáticamente (fallback por fechas)');
         }
     }
 });

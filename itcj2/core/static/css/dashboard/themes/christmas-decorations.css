@@ -1,7 +1,15 @@
 /* ============================================
    DECORACIONES NAVIDEÑAS - DASHBOARD
-   Efectos ligeros y elegantes para Navidad
+   Efectos ligeros y elegantes para Navidad.
+   En el escritorio todo lo decorativo vive en #theme-decor (dashboard.css decide
+   si va detrás o encima de las ventanas según la resolución); en el móvil, en
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). --theme-band = alto real de la guirnalda de luces (cable + foco):
+   baja los iconos y, en pantalla grande, el área de las ventanas.
    ============================================ */
+:root {
+    --theme-band: 36px;
+}
 
 /* ==================== LUCES NAVIDEÑAS CON CABLES CURVOS ==================== */
 .christmas-lights {
@@ -106,137 +114,61 @@
     }
 }
 
-/* ==================== NIEVE ACUMULADA EN ÍCONOS ==================== */
-/* COMENTADO: Ya pasó la navidad (enero 2026)
-.desktop-icon {
-    position: relative;
-}
-
-.desktop-icon::before {
+/* ==================== NIEVE ACUMULADA EN LOS ICONOS ==================== */
+/* Los iconos del escritorio van sin fondo: la nieve se posa sobre el borde
+   superior de la imagen (.desktop-icon-img, 48x48, position:relative). Todo es
+   absoluto DENTRO de la imagen: nada entra al flujo del tile, así que la
+   etiqueta conserva su tamaño y posición. La capa es una unión de "montoncitos"
+   (gradientes radiales) sobre una franja; drop-shadow sigue su contorno y la
+   despega de iconos claros (TitulaTec) y del glifo de la Papelera. */
+.desktop-icon-img::before {
     content: '';
     position: absolute;
-    top: -8px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 70%;
-    height: 12px;
-    background: linear-gradient(to bottom,
-        #ffffff 0%,
-        #f0f8ff 40%,
-        rgba(255, 255, 255, 0.8) 70%,
-        transparent 100%
-    );
-    border-radius: 50% 50% 0 0 / 60% 60% 0 0;
-    box-shadow:
-        0 2px 4px rgba(255, 255, 255, 0.5),
-        inset 0 -2px 4px rgba(200, 220, 255, 0.3);
+    z-index: 1;
+    top: -6px;
+    left: -2px;
+    right: -2px;
+    height: 13px;
     pointer-events: none;
-    z-index: 10;
-    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+    background:
+        /* sombra suave de la panza de la nieve (solo sobre la franja) */
+        linear-gradient(to bottom, rgba(196, 216, 238, 0) 0%, rgba(186, 208, 234, .55) 100%) 4px 7px / calc(100% - 8px) 6px no-repeat,
+        /* montoncitos */
+        radial-gradient(8px 4.8px at 14% 8px, #fff 90%, rgba(255, 255, 255, 0) 100%),
+        radial-gradient(10.5px 6.5px at 39% 6.5px, #fff 90%, rgba(255, 255, 255, 0) 100%),
+        radial-gradient(9px 5.8px at 65% 7px, #fff 90%, rgba(255, 255, 255, 0) 100%),
+        radial-gradient(7px 4.6px at 87% 8px, #fff 90%, rgba(255, 255, 255, 0) 100%),
+        /* franja que une los montoncitos sobre el borde del icono */
+        linear-gradient(#fff, #fff) 4px 7px / calc(100% - 8px) 6px no-repeat;
+    filter: drop-shadow(0 1px 1.2px rgba(16, 42, 84, .36));
 }
 
-.desktop-icon::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 35%;
-    width: 0;
-    height: 0;
-    border-left: 3px solid transparent;
-    border-right: 3px solid transparent;
-    border-top: 8px solid rgba(255, 255, 255, 0.9);
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.1));
-    pointer-events: none;
-    z-index: 9;
-    animation: snowDrip 3s ease-in-out infinite;
-}
-
-.desktop-icon:nth-child(odd)::after {
-    left: 60%;
-    animation-delay: 1.5s;
-}
-
-.desktop-icon:nth-child(even)::after {
-    left: 40%;
-    border-top-width: 6px;
-    animation-delay: 0.8s;
-}
-
-@keyframes snowDrip {
-    0%, 90%, 100% {
-        opacity: 1;
-        transform: translateY(0) scaleY(1);
-    }
-    50% {
-        opacity: 0.8;
-        transform: translateY(3px) scaleY(1.2);
-    }
-}
-
+/* Un carámbano fijo por icono; .snow-drip-extra (JS) agrega 1-2 más. */
+.desktop-icon-img::after,
 .snow-drip-extra {
     position: absolute;
-    top: 2px;
-    background: linear-gradient(to bottom,
-        rgba(255, 255, 255, 0.95) 0%,
-        rgba(240, 248, 255, 0.9) 50%,
-        rgba(255, 255, 255, 0.7) 100%
-    );
-    border-radius: 0 0 50% 50%;
-    pointer-events: none;
-    z-index: 9;
-    animation: snowDripExtra 4s ease-in-out infinite;
-    box-shadow:
-        inset 0 1px 2px rgba(255, 255, 255, 0.5),
-        0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-@keyframes snowDripExtra {
-    0%, 85%, 100% {
-        opacity: 1;
-        transform: translateY(0) scaleY(1);
-    }
-    50% {
-        opacity: 0.9;
-        transform: translateY(4px) scaleY(1.3);
-    }
-    70% {
-        opacity: 0.7;
-        transform: translateY(6px) scaleY(1.5);
-    }
-}
-
-.desktop-icon .icon-container {
-    position: relative;
-}
-
-.desktop-icon .icon-container::before {
-    content: '';
-    position: absolute;
-    top: -5px;
-    left: -5px;
-    right: -5px;
-    bottom: -5px;
-    background: radial-gradient(circle at top, rgba(255, 255, 255, 0.2) 0%, transparent 60%);
-    border-radius: 10px;
-    opacity: 0;
-    animation: snowShimmer 4s ease-in-out infinite;
-    pointer-events: none;
     z-index: 1;
+    top: 4px;
+    width: 4px;
+    height: 7px;
+    pointer-events: none;
+    border-radius: 2px 2px 50% 50% / 2px 2px 80% 80%;
+    background: linear-gradient(to bottom, #fff 0%, #f1f7fe 60%, rgba(225, 238, 252, .85) 100%);
+    box-shadow: 0 1px 1px rgba(16, 42, 84, .3);
+    transform-origin: top center;
+    animation: snowDrip 4s ease-in-out infinite;
 }
 
-.desktop-icon:nth-child(odd) .icon-container::before {
-    animation-delay: 2s;
+.desktop-icon-img::after { content: ''; left: 24%; }
+.desktop-icon:nth-child(even) .desktop-icon-img::after { left: 52%; height: 6px; animation-delay: 1.4s; }
+
+@keyframes snowDrip {
+    0%, 70%, 100% { transform: scaleY(1); }
+    85% { transform: scaleY(1.35); }
 }
 
-@keyframes snowShimmer {
-    0%, 100% {
-        opacity: 0;
-    }
-    50% {
-        opacity: 0.5;
-    }
-}
-FIN COMENTADO: Nieve en íconos */
+/* La insignia de pendientes queda sobre la nieve. */
+.desktop-badge { z-index: 2; }
 
 /* ==================== TASKBAR NAVIDEÑA ==================== */
 /* Decoración en la parte superior de la taskbar sin modificar su posición */
@@ -257,8 +189,9 @@ FIN COMENTADO: Nieve en íconos */
         #00ffff 83.33%,
         #ff0000 100%
     );
+    background-size: 200% 100%;
     opacity: 0.3;
-    animation: lightMove 3s linear infinite;
+    animation: lightMove 6s linear infinite;
     pointer-events: none;
     z-index: 10;
 }
@@ -268,48 +201,23 @@ FIN COMENTADO: Nieve en íconos */
         background-position: 0% 0%;
     }
     100% {
-        background-position: 100% 0%;
+        background-position: 200% 0%;
     }
 }
 
-/* ==================== COPOS DE NIEVE (CSS) ==================== */
+/* ==================== COPOS DE NIEVE ==================== */
+/* Los mueve el JS (transform por cuadro); aquí solo el aspecto. */
 .snowflake {
     position: fixed;
-    top: -10px;
+    top: 0;
+    left: 0;
     color: #fff;
-    font-size: 1em;
+    line-height: 1;
     pointer-events: none;
     z-index: 10000;
     user-select: none;
-    animation: fall linear infinite;
-    opacity: 0.8;
-}
-
-@keyframes fall {
-    0% {
-        transform: translateY(0) rotate(0deg);
-        opacity: 0.8;
-    }
-    100% {
-        transform: translateY(100vh) rotate(360deg);
-        opacity: 0.3;
-    }
-}
-
-/* Diferentes tamaños y velocidades para variedad */
-.snowflake:nth-child(3n) {
-    font-size: 0.8em;
-    animation-duration: 15s;
-}
-
-.snowflake:nth-child(3n+1) {
-    font-size: 1.2em;
-    animation-duration: 20s;
-}
-
-.snowflake:nth-child(3n+2) {
-    font-size: 1em;
-    animation-duration: 18s;
+    will-change: transform;
+    text-shadow: 0 0 2px rgba(16, 42, 84, .25);
 }
 
 /* ==================== DECORACIONES ADICIONALES ==================== */
@@ -338,22 +246,10 @@ FIN COMENTADO: Nieve en íconos */
     z-index: 1;
 }
 
-/* Mensaje navideño sutil en la barra de búsqueda */
-.search-input::placeholder {
-    animation: christmasMessage 8s ease-in-out infinite;
-}
-
-@keyframes christmasMessage {
-    0%, 90%, 100% {
-        opacity: 1;
-    }
-    45%, 55% {
-        opacity: 0.7;
-    }
-}
-
 /* ==================== ANIMACIONES AL HOVER ==================== */
-.desktop-icon:hover {
+/* Solo el icono (con su nieve) se sacude: el resaltado del tile y la etiqueta
+   no se mueven. */
+.desktop-icon:hover .desktop-icon-img {
     animation: jingleBell 0.5s ease-in-out;
 }
 
@@ -369,14 +265,33 @@ FIN COMENTADO: Nieve en íconos */
     }
 }
 
+/* Modo encima (>= 1600x760): la banda (--theme-band) reserva la franja de la guirnalda
+   y el brillo de los focos (box-shadow de 20 px) se recorta a ella: nada del tema
+   pinta sobre la barra de título de una ventana maximizada. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .christmas-lights {
+        clip-path: inset(0 -30px calc(100% - var(--theme-band)) -30px);
+    }
+}
+
 /* ==================== MUÑECO DE NIEVE ANIMADO ==================== */
 .snowman-container {
     position: fixed;
-    bottom: 40px; /* Justo encima de la taskbar */
+    bottom: var(--taskbar-h, 40px); /* Parado sobre la barra de tareas (en el móvil, 40px) */
     right: 150px; /* Cerca de las notificaciones */
     pointer-events: none;
     z-index: 10001;
     transform-origin: bottom center;
+    transition: opacity .35s ease;
+}
+
+/* Modo encima: con una ventana maximizada o acoplada (no minimizada) el muñeco, opaco
+   y fijo, taparía su esquina: se desvanece (sin cambio de layout) y vuelve al
+   restaurar. Los copos y la guirnalda siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .snowman-container {
+        opacity: 0;
+    }
 }
 
 /* Bola base (grande) */
@@ -801,6 +716,10 @@ FIN COMENTADO: Nieve en íconos */
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {
+    :root {
+        --theme-band: 27px;
+    }
+
     .christmas-lights {
         height: 35px;
     }
@@ -821,12 +740,6 @@ FIN COMENTADO: Nieve en íconos */
         top: -3px;
     }
 
-    .desktop-icon .icon-container::after {
-        font-size: 16px;
-        top: -12px;
-        right: -8px;
-    }
-
     /* Muñeco de nieve más pequeño en móviles */
     .snowman-container {
         right: 80px;
@@ -845,6 +758,10 @@ FIN COMENTADO: Nieve en íconos */
 }
 
 @media (max-width: 480px) {
+    :root {
+        --theme-band: 22px;
+    }
+
     .christmas-lights {
         height: 28px;
     }
@@ -872,5 +789,18 @@ FIN COMENTADO: Nieve en íconos */
     
     .snowflake {
         font-size: 0.6em !important;
+    }
+}
+
+/* ==================== MOVIMIENTO REDUCIDO ==================== */
+/* Sin copos ni muñeco (el JS no los crea); las luces quedan encendidas y fijas
+   y la nieve de los iconos, quieta. */
+@media (prefers-reduced-motion: reduce) {
+    .christmas-light,
+    .taskbar::before,
+    .desktop-icon-img::after,
+    .snow-drip-extra,
+    .desktop-icon:hover .desktop-icon-img {
+        animation: none;
     }
 }

@@ -12,12 +12,15 @@ body {
   width: 80px;
   height: 80px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #1b396a;
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  font-size: 3rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  user-select: none;
 }
 
 /* Tabs */
@@ -101,11 +104,35 @@ body {
   background-color: var(--app-badge-color, #6c757d);
 }
 
-/* Permission Section */
+/* Permission Section (un <details> por app) */
 .app-permission-section {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   background-color: #f8f9fa;
   border-radius: 8px;
+}
+
+.app-permission-section > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.app-permission-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-permission-section > summary:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.summary-chevron {
+  transition: transform 0.2s ease;
+  color: #6c757d;
+}
+
+.app-permission-section[open] .summary-chevron {
+  transform: rotate(180deg);
 }
 
 .permission-card {
@@ -124,48 +151,6 @@ body {
   color: #495057;
   font-weight: 500;
   padding: 0.5rem 0.75rem;
-}
-
-/* Activity Timeline */
-.activity-timeline {
-  padding: 0;
-}
-
-.activity-item {
-  display: flex;
-  gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  border-bottom: 1px solid #f0f0f0;
-  transition: background-color 0.2s ease;
-}
-
-.activity-item:hover {
-  background-color: #f8f9fa;
-}
-
-.activity-item:last-child {
-  border-bottom: none;
-}
-
-.activity-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.25rem;
-  color: white;
-  flex-shrink: 0;
-}
-
-.activity-content {
-  flex: 1;
-}
-
-.activity-content h6 {
-  font-size: 0.95rem;
-  font-weight: 600;
 }
 
 /* Notifications */
@@ -188,22 +173,65 @@ body {
 
 .notification-item:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
+}
+
+.notification-item.has-action {
+  cursor: pointer;
+}
+
+.notification-item.has-action:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+}
+
+.notif-group-header {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6c757d;
+}
+
+.notif-group-header:first-child {
+  margin-top: 0;
+}
+
+/* Chips de filtro por app */
+.notif-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.notif-chip {
+  border: 1px solid #ced4da;
+  background: white;
+  color: #495057;
+  border-radius: 999px;
+  padding: 0.25rem 0.85rem;
+  font-size: 0.85rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.notif-chip:hover {
+  background-color: #f1f3f5;
+}
+
+.notif-chip.active {
+  background-color: #0d6efd;
+  border-color: #0d6efd;
+  color: white;
+}
+
+.notif-chip.active .badge {
+  background-color: white !important;
+  color: #0d6efd !important;
 }
 
 .notification-item.unread {
   background-color: #f0f7ff;
   border-left: 4px solid #0d6efd;
-}
-
-.notification-indicator {
-  position: absolute;
-  top: 1.25rem;
-  left: 0.5rem;
-  width: 8px;
-  height: 8px;
-  background-color: #0d6efd;
-  border-radius: 50%;
 }
 
 .notification-icon {
@@ -232,24 +260,12 @@ body {
   align-items: center;
 }
 
-/* Filter Buttons */
-.btn-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.btn-group .btn {
-  flex: 1;
-  min-width: 120px;
-}
-
 /* Responsive */
 @media (max-width: 768px) {
   .profile-avatar {
     width: 60px;
     height: 60px;
-    font-size: 2rem;
+    font-size: 1.35rem;
   }
 
   .app-icon {
@@ -272,14 +288,6 @@ body {
     flex-direction: column;
   }
 
-  .activity-item {
-    padding: 1rem;
-  }
-
-  .btn-group .btn {
-    min-width: auto;
-    font-size: 0.875rem;
-  }
 }
 
 @media (max-width: 576px) {

@@ -1,7 +1,15 @@
 /* ============================================
    DECORACIONES DE SAN VALENTIN - DASHBOARD
-   Corazones, cupido y efectos romanticos
+   Corazones, cupido y efectos romanticos.
+   En el escritorio todo lo decorativo vive en #theme-decor (dashboard.css decide
+   si va detrás o encima de las ventanas según la resolución); en el móvil, en
+   #theme-decor.theme-decor-mobile (base_mobile.html; se oculta fuera de la vista
+   home). --theme-band = alto real de la guirnalda de corazones (hilo +
+   corazón): baja los iconos y, en pantalla grande, el área de las ventanas.
    ============================================ */
+:root {
+    --theme-band: 40px;
+}
 
 /* ==================== GUIRNALDA DE CORAZONES ==================== */
 .valentine-garland {
@@ -74,49 +82,19 @@
 }
 
 /* ==================== CORAZONES FLOTANTES ==================== */
+/* Los mueve el JS (transform y opacidad por cuadro, de abajo hacia arriba);
+   aquí solo el aspecto. Antes una animación CSS pisaba ese transform y los
+   corazones subían desde fuera de la pantalla: no se veían. */
 .floating-heart {
     position: fixed;
-    top: -30px;
+    top: 0;
+    left: 0;
+    line-height: 1;
     pointer-events: none;
     z-index: 10000;
     user-select: none;
-    animation: floatUp linear infinite;
     opacity: 0;
-}
-
-@keyframes floatUp {
-    0% {
-        opacity: 0;
-        transform: translateY(0) rotate(0deg) scale(0.5);
-    }
-    10% {
-        opacity: 0.8;
-        transform: translateY(-10vh) rotate(15deg) scale(1);
-    }
-    90% {
-        opacity: 0.6;
-        transform: translateY(-90vh) rotate(-15deg) scale(0.9);
-    }
-    100% {
-        opacity: 0;
-        transform: translateY(-105vh) rotate(25deg) scale(0.7);
-    }
-}
-
-/* Variaciones de tamano y velocidad */
-.floating-heart:nth-child(3n) {
-    font-size: 14px;
-    animation-duration: 12s;
-}
-
-.floating-heart:nth-child(3n+1) {
-    font-size: 18px;
-    animation-duration: 16s;
-}
-
-.floating-heart:nth-child(3n+2) {
-    font-size: 11px;
-    animation-duration: 14s;
+    will-change: transform, opacity;
 }
 
 /* ==================== BORDE ROMANTICO SUPERIOR ==================== */
@@ -191,6 +169,16 @@
     z-index: 10001;
     transform-origin: center center;
     opacity: 0;
+    transition: filter .35s ease;
+}
+
+/* Modo encima (>= 1600x760): con una ventana maximizada o acoplada (no minimizada) el
+   cupido se desvanece. Su opacidad la animan los keyframes, por eso se usa filter.
+   Los corazones y la guirnalda siguen. */
+@media (min-width: 1600px) and (min-height: 760px) {
+    .desktop:has(.app-window:is(.is-maximized, .is-snap-left, .is-snap-right):not(.is-minimized)) .cupid-container {
+        filter: opacity(0);
+    }
 }
 
 /* Cuerpo del cupido */
@@ -521,7 +509,8 @@
 }
 
 /* ==================== HOVER EN ICONOS ==================== */
-.desktop-icon:hover {
+/* Solo el icono late: el resaltado del tile y la etiqueta no se mueven. */
+.desktop-icon:hover .desktop-icon-img {
     animation: loveShake 0.5s ease-in-out;
 }
 
@@ -535,6 +524,10 @@
 
 /* ==================== RESPONSIVE ==================== */
 @media (max-width: 768px) {
+    :root {
+        --theme-band: 34px;
+    }
+
     .valentine-garland {
         height: 35px;
     }
@@ -567,6 +560,10 @@
 }
 
 @media (max-width: 480px) {
+    :root {
+        --theme-band: 32px;
+    }
+
     .valentine-garland {
         height: 30px;
         padding: 0 5px;
@@ -595,5 +592,15 @@
     .desktop::after {
         width: 120px;
         height: 120px;
+    }
+}
+
+/* ==================== MOVIMIENTO REDUCIDO ==================== */
+/* Sin corazones flotantes ni cupido (el JS no los crea); la guirnalda queda fija. */
+@media (prefers-reduced-motion: reduce) {
+    .valentine-heart-light,
+    .taskbar::before,
+    .desktop-icon:hover .desktop-icon-img {
+        animation: none;
     }
 }

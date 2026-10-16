@@ -1,13 +1,58 @@
 ﻿/**
- * Widget de Notificaciones para el Dashboard
+ * Widget de Notificaciones del escritorio (/itcj/dashboard)
  *
- * Muestra un icono de campana en la taskbar con badge de notificaciones no leídas,
- * panel desplegable con notificaciones recientes, y actualización en tiempo real vía WebSocket.
+ * Campana de la bandeja del sistema con badge de no leídas, panel desplegable con
+ * las notificaciones recientes y actualización en vivo vía WebSocket (/notify).
+ * Los badges de apps son cualquier `[data-badge-for="<badge_key>"]` del documento.
  *
- * Uso:
- *   // El widget se inicializa automáticamente al cargar
- *   // Requiere: Socket.IO (cargado dinámicamente si no está disponible)
+ * Depende de `window.desktop` (boot.js: openUrl/openProfile) y de
+ * `window.ItcjDesktop.icon` (icons.js); ambos se resuelven de forma perezosa
+ * porque boot.js arranca en DOMContentLoaded, después de este script.
+ * Requiere Socket.IO (se carga dinámicamente si no está disponible).
  */
+(function () {
+'use strict';
+
+const BELL_ID = 'notificationBell';
+
+/** Icono del sprite del escritorio; vacío si icons.js aún no cargó. */
+function ico(name, cls) {
+    const D = window.ItcjDesktop;
+    return D && typeof D.icon === 'function' ? D.icon(name, cls) : '';
+}
+
+/**
+ * URL de acción segura (misma regla que el perfil, profile.js `safeUrl`): ruta
+ * relativa que empieza con `/` o absoluta http/https, siempre del mismo origen.
+ * Rechaza tab/CR/LF y `\` en cualquier parte (el parser de URL los quita o los
+ * lee como `/`: `"/\t/evil.example"` acabaría en `//evil.example`) y `//`.
+ * Devuelve la ruta normalizada (pathname + search + hash) o '' (sin acción).
+ */
+function safeUrl(u) {
+    if (typeof u !== 'string' || !u) return '';
+    if (/[\t\r\n\\]/.test(u)) return '';
+    const value = u.trim();
+    if (!value || value.startsWith('//')) return '';
+    if (!value.startsWith('/') && !/^https?:/i.test(value)) return '';
+    try {
+        const parsed = new URL(value, window.location.origin);
+        if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+            parsed.origin === window.location.origin) {
+            return parsed.pathname + parsed.search + parsed.hash;
+        }
+    } catch (e) { /* inválida: sin acción */ }
+    return '';
+}
+
+/** Color de la app: solo #rrggbb; si no, gris. */
+function safeColor(c) {
+    return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c : '#6c757d';
+}
+
+/** Icono de la app (clase de Bootstrap Icons); si no es válida, campana. */
+function safeIcon(cls) {
+    return typeof cls === 'string' && /^bi-[a-z0-9-]+$/i.test(cls) ? cls : 'bi-bell';
+}
 
 class DashboardNotificationWidget {
     constructor() {
@@ -33,7 +78,7 @@ class DashboardNotificationWidget {
      */
     injectHTML() {
         // Verificar si ya existe el icono de campana en el HTML
-        const existingBell = document.getElementById('notificationBell');
+        const existingBell = document.getElementById(BELL_ID);
 
         if (!existingBell) {
             console.error('[NotificationWidget] Notification bell not found in HTML');
@@ -45,16 +90,16 @@ class DashboardNotificationWidget {
 
         // Panel desplegable
         const panelHTML = `
-            <div class="notification-panel" id="notification-panel" hidden>
+            <div class="notification-panel" id="notification-panel" role="dialog" aria-label="Notificaciones" hidden>
                 <div class="notification-panel-header">
                     <h6 class="mb-0">Notificaciones</h6>
                     <button class="btn btn-sm btn-link" id="mark-all-read-btn">
-                        <i data-lucide="check-check"></i> Marcar todas
+                        ${ico('check-check')} Marcar todas
                     </button>
                 </div>
                 <div class="notification-panel-body" id="notification-list">
                     <div class="text-center py-4 text-muted">
-                        <i data-lucide="inbox"></i>
+                        ${ico('inbox')}
                         <p class="small mb-0 mt-2">Cargando...</p>
                     </div>
                 </div>
@@ -67,11 +112,6 @@ class DashboardNotificationWidget {
         `;
 
         document.body.insertAdjacentHTML('beforeend', panelHTML);
-
-        // Inicializar iconos lucide si está disponible
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons();
-        }
     }
 
     /**
@@ -79,7 +119,7 @@ class DashboardNotificationWidget {
      */
     attachEventListeners() {
         // Toggle panel - usar el icono existente en el HTML
-        const bellBtn = document.getElementById('notificationBell');
+        const bellBtn = document.getElementById(BELL_ID);
         if (bellBtn) {
             bellBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -106,10 +146,28 @@ class DashboardNotificationWidget {
         // Cerrar panel al hacer click fuera
         document.addEventListener('click', (e) => {
             const panel = document.getElementById('notification-panel');
-            const bell = document.getElementById('notificationBell');
+            const bell = document.getElementById(BELL_ID);
 
-            if (panel && !panel.contains(e.target) && !bell.contains(e.target)) {
+            if (panel && !panel.contains(e.target) && !(bell && bell.contains(e.target))) {
                 this.closePanel();
+            }
+        });
+
+        // Un clic dentro de una ventana (iframe) no llega a este documento: la página
+        // pierde el foco y el iframe queda como elemento activo (como en start-menu.js).
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                const ae = document.activeElement;
+                if (this.panelOpen && ae && ae.tagName === 'IFRAME') this.closePanel();
+            }, 0);
+        });
+
+        // Esc cierra el panel y devuelve el foco a la campana
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.panelOpen) {
+                this.closePanel();
+                const bell = document.getElementById(BELL_ID);
+                if (bell) bell.focus();
             }
         });
     }
@@ -204,9 +262,9 @@ class DashboardNotificationWidget {
         if (badge) {
             if (total > 0) {
                 badge.textContent = total > 99 ? '99+' : total;
-                badge.style.display = 'inline';
+                badge.hidden = false;
             } else {
-                badge.style.display = 'none';
+                badge.hidden = true;
             }
         }
 
@@ -218,19 +276,13 @@ class DashboardNotificationWidget {
      * Actualiza badges en iconos de aplicaciones del escritorio
      */
     updateAppBadges() {
-        const apps = ['agendatec', 'helpdesk', 'vistetec'];
-
-        apps.forEach(appName => {
-            const badge = document.getElementById(`badge-${appName}`);
-            const count = this.counts[appName] || 0;
-
-            if (badge) {
-                if (count > 0) {
-                    badge.textContent = count > 99 ? '99+' : count;
-                    badge.style.display = 'inline';
-                } else {
-                    badge.style.display = 'none';
-                }
+        document.querySelectorAll('[data-badge-for]').forEach(badge => {
+            const count = this.counts[badge.getAttribute('data-badge-for')] || 0;
+            if (count > 0) {
+                badge.textContent = count > 99 ? '99+' : count;
+                badge.hidden = false;
+            } else {
+                badge.hidden = true;
             }
         });
     }
@@ -269,6 +321,8 @@ class DashboardNotificationWidget {
     async togglePanel() {
         this.panelOpen = !this.panelOpen;
 
+        const bell = document.getElementById(BELL_ID);
+        if (bell) bell.setAttribute('aria-expanded', String(this.panelOpen));
         const panel = document.getElementById('notification-panel');
         if (panel) {
             panel.hidden = !this.panelOpen;
@@ -285,6 +339,8 @@ class DashboardNotificationWidget {
      */
     closePanel() {
         this.panelOpen = false;
+        const bell = document.getElementById(BELL_ID);
+        if (bell) bell.setAttribute('aria-expanded', 'false');
         const panel = document.getElementById('notification-panel');
         if (panel) {
             panel.hidden = true;
@@ -319,29 +375,21 @@ class DashboardNotificationWidget {
         if (this.notifications.length === 0) {
             list.innerHTML = `
                 <div class="text-center py-4 text-muted">
-                    <i data-lucide="inbox"></i>
+                    ${ico('inbox')}
                     <p class="small mb-0 mt-2">No hay notificaciones</p>
                 </div>
             `;
-
-            if (typeof lucide !== 'undefined') {
-                lucide.createIcons();
-            }
             return;
         }
 
         const html = this.notifications.map(n => this.renderNotificationItem(n)).join('');
         list.innerHTML = html;
 
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons();
-        }
-
         // Attach click listeners
         list.querySelectorAll('.notification-item').forEach(item => {
             item.addEventListener('click', (e) => {
-                const id = parseInt(item.dataset.id);
-                const url = item.dataset.url;
+                const id = parseInt(item.dataset.id, 10);
+                const url = safeUrl(item.dataset.url);
 
                 if (!item.classList.contains('read')) {
                     this.markAsRead(id);
@@ -359,24 +407,23 @@ class DashboardNotificationWidget {
      */
     renderNotificationItem(notification) {
         const isUnread = !notification.is_read;
-        const icon = notification.app_icon || 'bi-bell';
-        const color = notification.app_color_hex || '#6c757d';
-        const url = notification.action_url || '';
+        const color = safeColor(notification.app_color_hex);
+        const url = safeUrl(notification.action_url);
         const timeAgo = this.getTimeAgo(notification.created_at);
 
         return `
             <div class="notification-item ${isUnread ? 'unread' : 'read'}"
-                 data-id="${notification.id}"
-                 data-url="${url}">
+                 data-id="${this.escapeHtml(notification.id)}"
+                 data-url="${this.escapeHtml(url)}">
                 <div class="notification-icon" style="background-color: ${color}">
-                    <i class="bi ${icon}"></i>
+                    <i class="bi ${safeIcon(notification.app_icon)}" aria-hidden="true"></i>
                 </div>
                 <div class="notification-content">
                     <div class="notification-title">${this.escapeHtml(notification.title)}</div>
                     ${notification.body ? `<div class="notification-body">${this.escapeHtml(notification.body)}</div>` : ''}
                     <div class="notification-meta">
                         <span class="app-tag badge" style="background-color: ${color}">${this.escapeHtml(notification.app_name)}</span>
-                        <span class="time">${timeAgo}</span>
+                        <span class="time">${this.escapeHtml(timeAgo)}</span>
                     </div>
                 </div>
                 ${isUnread ? '<div class="unread-indicator"></div>' : ''}
@@ -427,93 +474,32 @@ class DashboardNotificationWidget {
     }
 
     /**
-     * Maneja el click en una notificación
-     * Si está en dashboard, abre iframe de la app. Si está en iframe, navega directamente.
+     * Click en una notificación (o toast) con `action_url`: abre la URL en el
+     * escritorio. Si no pasa safeUrl no se hace nada. Dentro de un iframe (sin
+     * escritorio) se navega directamente.
      */
     handleNotificationClick(url) {
         this.closePanel();
+        const target = safeUrl(url);
+        if (!target) return;
 
-        // Detectar si estamos en el dashboard principal o dentro de un iframe
-        const isInDashboard = window.self === window.top;
-
-        if (isInDashboard) {
-            // Estamos en el dashboard - abrir como iframe
-            this.openUrlInDesktop(url);
+        if (window.self !== window.top) {
+            window.location.href = target;
+        } else if (window.desktop && typeof window.desktop.openUrl === 'function') {
+            window.desktop.openUrl(target);
         } else {
-            // Estamos dentro de un iframe - navegar directamente
-            window.location.href = url;
+            window.location.href = target;
         }
     }
 
-    /**
-     * Abre una URL en el dashboard como iframe
-     * Detecta la aplicación basándose en la URL y usa WindowsDesktop.openApplication()
-     */
-    openUrlInDesktop(url) {
-        // Extraer la aplicación de la URL
-        let appId = null;
-
-        if (url.includes('/agendatec')) {
-            appId = 'agendatec';
-        } else if (url.includes('/help-desk')) {
-            appId = 'helpdesk';
-        } else if (url.includes('/maint')) {
-            appId = 'maint';
-        } else if (url.includes('/vistetec')) {
-            appId = 'vistetec';
-        } else if (url.includes('/compras')) {
-            appId = 'compras';
-        } else if (url.includes('/itcj/profile')) {
-            appId = 'profile';
-        } else if (url.includes('/itcj/config')) {
-            appId = 'settings';
-        }
-
-        if (appId && window.desktop && typeof window.desktop.openApplication === 'function') {
-            window.desktop.openApplication(appId);
-            
-            // Si la URL es más específica que la raíz de la app, esperar a que cargue
-            // y luego navegar dentro del iframe
-            if (!url.endsWith(`/${appId}/`) && !url.endsWith(`/${appId}`)) {
-                setTimeout(() => {
-                    const iframe = document.querySelector(`[data-app-id="${appId}"] .window-iframe`);
-                    if (iframe) {
-                        try {
-                            iframe.contentWindow.location.href = url;
-                        } catch (e) {
-                            // Si falla el acceso directo, intentar cambiar el src
-                            iframe.src = url;
-                        }
-                    }
-                }, 500);
-            }
-        } else {
-            // Fallback: abrir en la misma ventana
-            window.location.href = url;
-        }
-    }
-
-    /**
-     * Abre la página de perfil con notificaciones
-     * Si está en dashboard, abre iframe. Si está en iframe, navega directamente.
-     */
+    /** "Ver todas": pestaña de notificaciones del perfil, como ventana del escritorio. */
     openProfileNotifications() {
         this.closePanel();
 
-        // Detectar si estamos en el dashboard principal o dentro de un iframe
-        const isInDashboard = window.self === window.top;
-
-        if (isInDashboard) {
-            // Estamos en el dashboard - abrir como iframe usando WindowsDesktop
-            if (window.desktop && typeof window.desktop.openApplication === 'function') {
-                window.desktop.openApplication('profile');
-            } else {
-                // Fallback si desktop no está disponible
-                window.location.href = '/itcj/profile';
-            }
+        if (window.self === window.top && window.desktop && typeof window.desktop.openProfile === 'function') {
+            window.desktop.openProfile('notifications');
         } else {
-            // Estamos dentro de un iframe - navegar directamente
-            window.location.href = '/itcj/profile';
+            window.location.href = '/itcj/profile?tab=notifications';
         }
     }
 
@@ -547,18 +533,28 @@ class DashboardNotificationWidget {
      * Muestra un toast de notificación
      */
     showToast(notification) {
-        // Implementación simple de toast
+        const url = safeUrl(notification.action_url);
         const toast = document.createElement('div');
         toast.className = 'notification-toast';
+        toast.setAttribute('role', 'status');
         toast.innerHTML = `
             <div class="d-flex align-items-center">
-                <i class="bi ${notification.app_icon || 'bi-bell'} me-2"></i>
+                <span class="notification-toast-icon me-2"><i class="bi ${safeIcon(notification.app_icon)}" aria-hidden="true"></i></span>
                 <div>
                     <div class="fw-bold">${this.escapeHtml(notification.title)}</div>
                     ${notification.body ? `<div class="small">${this.escapeHtml(notification.body)}</div>` : ''}
                 </div>
             </div>
         `;
+
+        if (url) {
+            toast.classList.add('is-actionable');
+            toast.addEventListener('click', () => {
+                if (notification.id != null) this.markAsRead(parseInt(notification.id, 10));
+                this.handleNotificationClick(url);
+                toast.remove();
+            });
+        }
 
         document.body.appendChild(toast);
 
@@ -595,3 +591,4 @@ if (document.readyState === 'loading') {
 } else {
     window.dashboardNotificationWidget = new DashboardNotificationWidget();
 }
+})();

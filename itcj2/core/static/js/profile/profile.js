@@ -1,704 +1,571 @@
-﻿class ProfileManager {
-    constructor() {
-        this.apiBase = '/api/core/v2';
-        this.currentFilter = 'all';
-        this.readStatusFilter = 'all';
-        this.dateRangeFilter = 'week';
-        this.socket = null;
-        this.init();
-    }
+﻿(function () {
+    'use strict';
 
-    init() {
-        this.bindEvents();
-        this.loadActivity();
-        this.loadNotifications();
-        this.connectWebSocket();
+    const PAGE_SIZE = 20;
+    const TABS = ['info', 'permissions', 'notifications'];
+    const APP_NAMES = {
+        agendatec: 'AgendaTec',
+        helpdesk: 'Help Desk',
+        maint: 'Mantenimiento',
+        vistetec: 'VisteTec',
+        warehouse: 'Almacén',
+        inventory: 'Inventario',
+        directory: 'Directorio',
+        titulatec: 'TitulaTec',
+        core: 'Sistema',
+    };
+    const GROUP_ORDER = ['Hoy', 'Ayer', 'Esta semana', 'Este mes', 'Anteriores'];
 
-        // Make instance globally accessible for SSE
-        window.profileManager = this;
-    }
+    class ProfileManager {
+        constructor() {
+            this.apiBase = '/api/core/v2';
+            this.appFilter = '';          // '' = todas
+            this.statusFilter = 'all';    // all | unread
+            this.lastId = null;
+            this.hasMore = false;
+            this.loaded = false;          // ya se pidió la primera página
+            this.loading = false;
+            this.requestSeq = 0;          // descarta respuestas de filtros anteriores
+            this.lastGroup = null;
+            this.knownApps = new Map();   // appKey -> unread
+            this.selfReadAt = 0;          // última marca hecha desde esta vista
+            this.init();
+        }
 
-    /**
-     * Conecta al WS /notify para sincronizar:
-     *  - notify          → llega notificación nueva: refrescar lista
-     *  - notification:read → se marcó leída en otro lugar: refrescar
-     */
-    connectWebSocket() {
-        const ensureIO = () => new Promise((resolve, reject) => {
-            if (window.io) return resolve();
-            const s = document.createElement('script');
-            s.src = '/static/core/js/vendor/socket.io.min.js?v=4.7.5';
-            s.onload = () => resolve();
-            s.onerror = reject;
-            document.head.appendChild(s);
-        });
+        init() {
+            this.bindEvents();
+            this.initTabs();
+            this.bindPermissionFilter();
+            window.profileManager = this;
+        }
 
-        ensureIO().then(() => {
-            if (window.__notifySocket) {
-                this.socket = window.__notifySocket;
-            } else {
-                this.socket = window.io('/notify', {
-                    withCredentials: true,
-                    reconnection: true,
-                    transports: ['websocket', 'polling'],
+        // === PESTAÑAS ===
+        initTabs() {
+            const wanted = new URLSearchParams(location.search).get('tab')
+                || location.hash.replace('#', '')
+                || document.body.dataset.initialTab
+                || 'info';
+            const initial = TABS.includes(wanted) ? wanted : 'info';
+
+            document.querySelectorAll('#profileTabs button[data-bs-toggle="tab"]').forEach((btn) => {
+                btn.addEventListener('shown.bs.tab', (e) => {
+                    const id = e.target.getAttribute('data-bs-target').replace('#', '');
+                    const url = new URL(location.href);
+                    url.searchParams.set('tab', id);
+                    url.hash = '';
+                    history.replaceState(null, '', url);
+                    if (id === 'notifications') this.ensureNotificationsLoaded();
                 });
-                window.__notifySocket = this.socket;
+            });
+
+            const btn = document.getElementById(initial + '-tab');
+            if (btn && initial !== 'info' && window.bootstrap) {
+                window.bootstrap.Tab.getOrCreateInstance(btn).show();   // dispara shown.bs.tab
+            }
+            // Contador del badge de la pestaña aunque no esté activa.
+            this.refreshBadge();
+        }
+
+        // === EVENTOS ===
+        bindEvents() {
+            const status = document.getElementById('readStatusFilter');
+            if (status) {
+                status.addEventListener('change', (e) => {
+                    this.statusFilter = e.target.value;
+                    this.reloadNotifications();
+                });
             }
 
-            this.socket.on('notify', () => {
-                // Refrescar lista para mostrar la nueva
-                this.loadNotifications();
-            });
-
-            this.socket.on('notification:read', () => {
-                // Estado cambió desde otro tab/iframe — re-render
-                this.loadNotifications();
-            });
-        }).catch(err => {
-            console.warn('[ProfileManager] socket.io load failed:', err);
-        });
-    }
-
-    bindEvents() {
-        // Tab change events
-        const tabTriggers = document.querySelectorAll('#profileTabs button[data-bs-toggle="tab"]');
-        tabTriggers.forEach(tab => {
-            tab.addEventListener('shown.bs.tab', (e) => {
-                const targetId = e.target.getAttribute('data-bs-target');
-
-                if (targetId === '#activity') {
-                    this.loadActivity();
-                } else if (targetId === '#notifications') {
-                    this.loadNotifications();
-                }
-            });
-        });
-
-        // Activity filter
-        const activityFilter = document.getElementById('activityFilter');
-        if (activityFilter) {
-            activityFilter.addEventListener('change', () => this.loadActivity());
-        }
-
-        // Notification filters - App filter
-        const filterButtons = document.querySelectorAll('input[name="notifFilter"]');
-        filterButtons.forEach(button => {
-            button.addEventListener('change', (e) => {
-                this.currentFilter = e.target.id.replace('notif', '').toLowerCase();
-                this.filterNotifications();
-            });
-        });
-
-        // Notification filters - Read/Unread status
-        const readStatusFilter = document.getElementById('readStatusFilter');
-        if (readStatusFilter) {
-            readStatusFilter.addEventListener('change', (e) => {
-                this.readStatusFilter = e.target.value;
-                this.filterNotifications();
-            });
-        }
-
-        // Notification filters - Date range
-        const dateRangeFilter = document.getElementById('dateRangeFilter');
-        if (dateRangeFilter) {
-            dateRangeFilter.addEventListener('change', (e) => {
-                this.dateRangeFilter = e.target.value;
-                this.filterNotifications();
-            });
-        }
-
-        // Mark all as read
-        const markAllBtn = document.getElementById('markAllReadBtn');
-        if (markAllBtn) {
-            markAllBtn.addEventListener('click', () => this.markAllAsRead());
-        }
-
-        // Edit profile
-        const saveBtn = document.getElementById('saveProfileBtn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => this.saveProfile());
-        }
-
-        // Delegated event for marking individual notifications as read
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('.mark-read-btn')) {
-                const btn = e.target.closest('.mark-read-btn');
-                const notifId = btn.dataset.notifId;
-                this.markNotificationAsRead(notifId);
-                return;
+            const chips = document.getElementById('notificationFilters');
+            if (chips) {
+                chips.addEventListener('click', (e) => {
+                    const chip = e.target.closest('.notif-chip');
+                    if (!chip) return;
+                    this.appFilter = chip.dataset.appKey || '';
+                    this.syncChips();
+                    this.reloadNotifications();
+                });
             }
 
-            // Interceptar click en boton "Ver" de notificacion → abrir como ventana
-            const notifLink = e.target.closest('.notification-action-link');
-            if (notifLink) {
-                e.preventDefault();
-                const url = notifLink.getAttribute('href') || notifLink.dataset.url;
-                const notifId = notifLink.dataset.notifId;
-                if (notifId) {
-                    this.markNotificationAsRead(notifId);
-                }
-                this.openNotificationUrl(url);
-            }
-        });
-    }
+            const more = document.getElementById('loadMoreBtn');
+            if (more) more.addEventListener('click', () => this.loadMore());
 
-    /**
-     * Mapea una URL a un appId del dashboard.
-     */
-    detectAppId(url) {
-        if (!url) return null;
-        if (url.includes('/agendatec')) return 'agendatec';
-        if (url.includes('/help-desk')) return 'helpdesk';
-        if (url.includes('/maint')) return 'maint';
-        if (url.includes('/vistetec')) return 'vistetec';
-        if (url.includes('/compras')) return 'compras';
-        if (url.includes('/itcj/config')) return 'settings';
-        if (url.includes('/itcj/profile')) return 'profile';
-        return null;
-    }
+            const markAll = document.getElementById('markAllReadBtn');
+            if (markAll) markAll.addEventListener('click', () => this.markAllAsRead());
 
-    /**
-     * Abre el URL de la notificacion como ventana del dashboard.
-     * Si profile esta dentro de un iframe → usa parent.desktop API.
-     * Si esta en top-level → window.location fallback.
-     */
-    openNotificationUrl(url) {
-        if (!url) return;
+            const save = document.getElementById('saveProfileBtn');
+            if (save) save.addEventListener('click', () => this.saveProfile());
 
-        const appId = this.detectAppId(url);
-        const isIframe = window.self !== window.top;
-
-        // Resolver objeto desktop (vive en el dashboard padre)
-        let desktopApi = null;
-        try {
-            if (isIframe && window.parent && window.parent.desktop) {
-                desktopApi = window.parent.desktop;
-            } else if (!isIframe && window.desktop) {
-                desktopApi = window.desktop;
-            }
-        } catch (err) {
-            // Cross-origin: parent inaccesible. Fallback abajo.
-            desktopApi = null;
-        }
-
-        if (appId && desktopApi && typeof desktopApi.openApplication === 'function') {
-            desktopApi.openApplication(appId);
-
-            // Navegar dentro del iframe de la app a la URL especifica
-            // Dar tiempo a createWindow si es la primera vez
-            const navigateToUrl = () => {
-                try {
-                    const parentDoc = isIframe ? window.parent.document : document;
-                    const iframe = parentDoc.querySelector(`[data-app-id="${appId}"] .window-iframe`);
-                    if (iframe) {
-                        try {
-                            iframe.contentWindow.location.href = url;
-                        } catch (_) {
-                            iframe.src = url;
-                        }
+            const container = document.getElementById('notificationsContainer');
+            if (container) {
+                container.addEventListener('click', (e) => {
+                    const markBtn = e.target.closest('.mark-read-btn');
+                    if (markBtn) {
+                        e.stopPropagation();
+                        this.markNotificationAsRead(markBtn.dataset.notifId);
+                        return;
                     }
-                } catch (err) {
-                    console.warn('[ProfileManager] navigateToUrl failed:', err);
+                    const item = e.target.closest('.notification-item');
+                    if (item) this.activateItem(item);
+                });
+                container.addEventListener('keydown', (e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    if (e.target.closest('.mark-read-btn')) return;
+                    const item = e.target.closest('.notification-item');
+                    if (item) {
+                        e.preventDefault();
+                        this.activateItem(item);
+                    }
+                });
+            }
+        }
+
+        // === PERMISOS: filtro ===
+        bindPermissionFilter() {
+            const input = document.getElementById('permissionFilter');
+            if (!input) return;
+            input.addEventListener('input', () => {
+                const q = input.value.trim().toLowerCase();
+                let anyVisible = false;
+                document.querySelectorAll('#permissions details.app-permission-section').forEach((det) => {
+                    let hits = 0;
+                    det.querySelectorAll('.perm-badge').forEach((b) => {
+                        const ok = !q || b.textContent.toLowerCase().includes(q);
+                        b.classList.toggle('d-none', !ok);
+                        if (ok) hits++;
+                    });
+                    // Con filtro activo solo se muestran las apps con coincidencias (y se abren).
+                    det.classList.toggle('d-none', !!q && hits === 0);
+                    if (q && hits > 0) det.open = true;
+                    if (!det.classList.contains('d-none')) anyVisible = true;
+                });
+                const empty = document.getElementById('permissionFilterEmpty');
+                if (empty) empty.classList.toggle('d-none', anyVisible || !q);
+            });
+        }
+
+        // === NOTIFICACIONES: carga ===
+        ensureNotificationsLoaded() {
+            if (this.loaded) return;
+            this.loaded = true;
+            this.reloadNotifications();
+        }
+
+        /** Reinicia la lista (primera página) con los filtros vigentes. */
+        reloadNotifications() {
+            this.lastId = null;
+            this.lastGroup = null;
+            this.hasMore = false;
+            return this.fetchPage(true);
+        }
+
+        /** Compatibilidad con profile_inline.js (eventos de socket). */
+        loadNotifications() {
+            if (!this.loaded) return Promise.resolve();
+            if (Date.now() - this.selfReadAt < 2000) return Promise.resolve();   // eco de nuestra propia marca
+            return this.reloadNotifications();
+        }
+
+        loadMore() {
+            if (this.loading || !this.hasMore) return Promise.resolve();
+            return this.fetchPage(false);
+        }
+
+        async fetchPage(reset) {
+            const container = document.getElementById('notificationsContainer');
+            if (!container) return;
+            const seq = ++this.requestSeq;
+            this.loading = true;
+            this.setLoadMore(false, true);
+
+            const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+            if (this.appFilter) params.set('app', this.appFilter);
+            if (this.statusFilter === 'unread') params.set('unread', 'true');
+            if (!reset && this.lastId) params.set('before_id', String(this.lastId));
+
+            try {
+                const response = await fetch(`${this.apiBase}/notifications?${params}`, { credentials: 'include' });
+                const result = await response.json();
+                if (seq !== this.requestSeq) return;   // llegó tarde: ya hay otro filtro
+
+                if (!response.ok || !result.data) throw new Error('bad response');
+                const data = result.data;
+                const items = data.items || [];
+
+                if (reset) {
+                    container.innerHTML = '';
+                    this.lastGroup = null;
                 }
-            };
-
-            // Si root del app, no necesita navegacion adicional
-            const isRootUrl = url.endsWith('/agendatec') || url.endsWith('/agendatec/')
-                           || url.endsWith('/help-desk') || url.endsWith('/help-desk/')
-                           || url.endsWith('/maint') || url.endsWith('/maint/')
-                           || url.endsWith('/vistetec') || url.endsWith('/vistetec/');
-            if (!isRootUrl) {
-                setTimeout(navigateToUrl, 500);
+                if (reset && items.length === 0) {
+                    this.renderEmpty();
+                } else {
+                    this.appendItems(items);
+                }
+                items.forEach((n) => this.rememberApp(n.app_name));
+                if (items.length) this.lastId = items[items.length - 1].id;
+                this.hasMore = !!data.has_more;
+                if (!this.appFilter && this.statusFilter === 'all') this.updateBadge(data.unread);
+                this.renderChips();
+                this.refreshUnreadPerApp();
+            } catch (error) {
+                if (seq !== this.requestSeq) return;
+                console.error('Error loading notifications:', error);
+                if (reset) this.renderError();
+                else this.showError('No se pudieron cargar más notificaciones');
+            } finally {
+                if (seq === this.requestSeq) {
+                    this.loading = false;
+                    this.setLoadMore(this.hasMore, false);
+                }
             }
-        } else {
-            // Sin desktop API: navegar directo (peor caso)
-            window.location.href = url;
-        }
-    }
-
-    async loadActivity() {
-        const container = document.getElementById('activityContainer');
-        if (!container) return;
-
-        try {
-            const filter = document.getElementById('activityFilter')?.value || 7;
-            const response = await fetch(`${this.apiBase}/user/me/activity?limit=20`);
-            const result = await response.json();
-
-            if (response.ok && result.data) {
-                this.renderActivity(result.data);
-            } else {
-                this.renderActivityEmpty();
-            }
-        } catch (error) {
-            console.error('Error loading activity:', error);
-            this.renderActivityError();
-        }
-    }
-
-    renderActivity(activities) {
-        const container = document.getElementById('activityContainer');
-        if (!container) return;
-
-        if (activities.length === 0) {
-            this.renderActivityEmpty();
-            return;
         }
 
-        let html = '';
-        activities.forEach(activity => {
-            html += `
-                <div class="activity-item">
-                    <div class="activity-icon app-icon" style="background-color: ${this.escapeHtml(activity.app_color_hex || '#6c757d')}">
-                        <i class="bi ${this.escapeHtml(activity.icon || 'bi-circle')}"></i>
-                    </div>
-                    <div class="activity-content">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <h6 class="mb-0">${this.escapeHtml(activity.action)}</h6>
-                            <small class="text-muted">${this.formatTimeAgo(activity.created_at)}</small>
-                        </div>
-                        <p class="text-muted small mb-1">${this.escapeHtml(activity.description)}</p>
-                        <span class="badge small" style="background-color: ${this.escapeHtml(activity.app_color_hex || '#6c757d')}; color: #fff">${this.escapeHtml(activity.app_name)}</span>
-                    </div>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-    }
-
-    renderActivityEmpty() {
-        const container = document.getElementById('activityContainer');
-        if (container) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="bi bi-clock-history display-4 text-muted"></i>
-                    <p class="text-muted mt-3">No hay actividad reciente</p>
-                </div>
-            `;
-        }
-    }
-
-    renderActivityError() {
-        const container = document.getElementById('activityContainer');
-        if (container) {
-            container.innerHTML = `
-                <div class="text-center py-5">
-                    <i class="bi bi-exclamation-triangle display-4 text-danger"></i>
-                    <p class="text-danger mt-3">Error al cargar la actividad</p>
-                </div>
-            `;
-        }
-    }
-
-    async loadNotifications() {
-        const container = document.getElementById('notificationsContainer');
-        if (!container) return;
-
-        try {
-            const response = await fetch(`${this.apiBase}/notifications?limit=50`);
-            const result = await response.json();
-
-            if (response.ok && result.data) {
-                this.renderNotifications(result.data);
-                this.updateNotificationBadge(result.data.unread);
-            } else {
-                this.renderNotificationsEmpty();
-            }
-        } catch (error) {
-            console.error('Error loading notifications:', error);
-            this.renderNotificationsError();
-        }
-    }
-
-    renderNotifications(data) {
-        const container = document.getElementById('notificationsContainer');
-        if (!container) return;
-
-        const notifications = data.items || [];
-
-        if (notifications.length === 0) {
-            this.renderNotificationsEmpty();
-            return;
+        setLoadMore(visible, busy) {
+            const wrap = document.getElementById('loadMoreWrap');
+            const btn = document.getElementById('loadMoreBtn');
+            if (!wrap || !btn) return;
+            wrap.classList.toggle('d-none', !visible && !busy);
+            btn.disabled = !!busy;
+            btn.textContent = busy ? 'Cargando…' : 'Cargar más';
+            if (busy && !this.lastId) wrap.classList.add('d-none');
         }
 
-        // Group notifications by app for filters
-        const appCounts = {};
-        notifications.forEach(notif => {
-            const app = notif.app_name || 'other';
-            appCounts[app] = (appCounts[app] || 0) + 1;
-        });
+        // === NOTIFICACIONES: render ===
+        appendItems(items) {
+            const container = document.getElementById('notificationsContainer');
+            let html = '';
+            items.forEach((n) => {
+                const group = this.groupOf(n.created_at);
+                if (group !== this.lastGroup) {
+                    html += `<h6 class="notif-group-header">${this.escapeHtml(group)}</h6>`;
+                    this.lastGroup = group;
+                }
+                html += this.itemHtml(n);
+            });
+            container.insertAdjacentHTML('beforeend', html);
+        }
 
-        // Update filter buttons
-        this.updateFilterButtons(appCounts, notifications.length);
-
-        // Render notifications
-        let html = '';
-        notifications.forEach(notif => {
-            const unreadClass = notif.is_read ? 'read' : 'unread';
-            const appKey = this.getAppKeyFromName(notif.app_name);
-            const icon = this.escapeHtml(notif.app_icon || 'bi-bell');
-            const color = this.escapeHtml(notif.app_color_hex || '#6c757d');
-
-            html += `
-                <div class="notification-item ${unreadClass}"
-                     data-app="${appKey}"
-                     data-notif-id="${notif.id}"
-                     data-created="${notif.created_at}">
-                    ${!notif.is_read ? '<div class="notification-indicator"></div>' : ''}
+        itemHtml(n) {
+            const unread = !n.is_read;
+            const color = this.safeColor(n.app_color_hex);
+            const icon = this.escapeHtml(this.safeIcon(n.app_icon));
+            const url = this.safeUrl(n.action_url);
+            const attrs = url
+                ? ` role="link" tabindex="0" data-url="${this.escapeHtml(url)}"`
+                : '';
+            return `
+                <div class="notification-item ${unread ? 'unread' : 'read'}${url ? ' has-action' : ''}"
+                     data-app="${this.escapeHtml(this.getAppKey(n.app_name))}"
+                     data-notif-id="${Number(n.id)}"${attrs}>
                     <div class="notification-icon" style="background-color: ${color}">
                         <i class="bi ${icon}"></i>
                     </div>
                     <div class="notification-content">
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <h6 class="mb-0 ${notif.is_read ? 'text-muted' : ''}">${this.escapeHtml(notif.title)}</h6>
-                            <small class="text-muted">${this.formatTimeAgo(notif.created_at)}</small>
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+                            <h6 class="mb-0 ${unread ? '' : 'text-muted'}">${this.escapeHtml(n.title)}</h6>
+                            <small class="text-muted text-nowrap">${this.escapeHtml(this.formatTimeAgo(n.created_at))}</small>
                         </div>
-                        ${notif.body ? `<p class="text-muted small mb-2">${this.escapeHtml(notif.body)}</p>` : ''}
+                        ${n.body ? `<p class="text-muted small mb-2">${this.escapeHtml(n.body)}</p>` : ''}
                         <div class="d-flex justify-content-between align-items-center">
-                            <span class="badge" style="background-color: ${color}">${this.escapeHtml(notif.app_name)}</span>
+                            <span class="badge" style="background-color: ${color}">${this.escapeHtml(this.getAppDisplayName(this.getAppKey(n.app_name)))}</span>
                             <div class="notification-actions">
-                                ${notif.action_url ? `<a href="${notif.action_url}"
-                                    class="btn btn-sm btn-primary notification-action-link"
-                                    data-notif-id="${notif.id}"
-                                    data-url="${notif.action_url}">Ver</a>` : ''}
-                                ${!notif.is_read ? `
-                                    <button class="btn btn-sm btn-outline-secondary ms-2 mark-read-btn" data-notif-id="${notif.id}">
+                                ${unread ? `
+                                    <button type="button" class="btn btn-sm btn-outline-secondary mark-read-btn"
+                                            data-notif-id="${Number(n.id)}" title="Marcar como leída" aria-label="Marcar como leída">
                                         <i class="bi bi-check2"></i>
-                                    </button>
-                                ` : ''}
+                                    </button>` : ''}
                             </div>
                         </div>
                     </div>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-
-        // Apply current filters
-        this.filterNotifications();
-    }
-
-    updateFilterButtons(appCounts, total) {
-        const filterGroup = document.getElementById('notificationFilters');
-        if (!filterGroup) return;
-
-        // Update "All" badge
-        const allBadge = document.getElementById('badgeAll');
-        if (allBadge) {
-            allBadge.textContent = total;
+                </div>`;
         }
 
-        // Limpiar filtros dinámicos previos (mantener solo "All")
-        filterGroup.querySelectorAll('[data-dynamic-filter="1"]').forEach(el => el.remove());
-
-        // Generar dinámicamente: una entrada por cada app_name presente
-        Object.entries(appCounts)
-            .sort((a, b) => b[1] - a[1])  // mayor count primero
-            .forEach(([appName, count]) => {
-                const appKey = this.getAppKey(appName);
-                const displayName = this.getAppDisplayName(appKey);
-                const safeKey = appKey.replace(/[^a-z0-9_-]/gi, '');
-                const filterId = `notif-${safeKey}`;
-
-                const inputHtml = `
-                    <input type="radio" class="btn-check" name="notifFilter"
-                           id="${filterId}" data-dynamic-filter="1" data-app-key="${appKey}">
-                    <label class="btn btn-outline-secondary btn-sm" for="${filterId}"
-                           data-dynamic-filter="1">
-                        ${displayName}
-                        <span class="badge bg-secondary ms-1">${count}</span>
-                    </label>
-                `;
-                filterGroup.insertAdjacentHTML('beforeend', inputHtml);
-
-                document.getElementById(filterId).addEventListener('change', () => {
-                    this.currentFilter = appKey;
-                    this.filterNotifications();
-                });
-            });
-
-        // Si el filtro activo desapareció (app sin notificaciones), reset a "All"
-        const activeRadio = document.querySelector('input[name="notifFilter"]:checked');
-        if (!activeRadio) {
-            const allRadio = document.getElementById('notifAll');
-            if (allRadio) {
-                allRadio.checked = true;
-                this.currentFilter = 'all';
-            }
-        }
-    }
-
-    filterNotifications() {
-        const notifications = document.querySelectorAll('.notification-item');
-        const now = new Date();
-
-        notifications.forEach(notif => {
-            const app = notif.getAttribute('data-app');
-            const isRead = notif.classList.contains('read') || !notif.classList.contains('unread');
-            const createdAt = new Date(notif.getAttribute('data-created'));
-
-            let showNotif = true;
-
-            // Filter by app
-            if (this.currentFilter !== 'all') {
-                showNotif = showNotif && (app === this.currentFilter);
-            }
-
-            // Filter by read status
-            if (this.readStatusFilter === 'unread') {
-                showNotif = showNotif && !isRead;
-            } else if (this.readStatusFilter === 'read') {
-                showNotif = showNotif && isRead;
-            }
-
-            // Filter by date range
-            if (this.dateRangeFilter !== 'all' && createdAt) {
-                const daysDiff = Math.floor((now - createdAt) / (1000 * 60 * 60 * 24));
-
-                switch (this.dateRangeFilter) {
-                    case 'today':
-                        showNotif = showNotif && (daysDiff === 0);
-                        break;
-                    case 'week':
-                        showNotif = showNotif && (daysDiff <= 7);
-                        break;
-                    case 'month':
-                        showNotif = showNotif && (daysDiff <= 30);
-                        break;
-                    case '3months':
-                        showNotif = showNotif && (daysDiff <= 90);
-                        break;
-                }
-            }
-
-            notif.style.display = showNotif ? 'flex' : 'none';
-        });
-    }
-
-    async markNotificationAsRead(notifId) {
-        try {
-            const response = await fetch(`${this.apiBase}/notifications/${notifId}/read`, {
-                method: 'PATCH'
-            });
-
-            if (response.ok) {
-                // Update UI
-                const notifItem = document.querySelector(`[data-notif-id="${notifId}"]`);
-                if (notifItem) {
-                    notifItem.classList.remove('unread');
-                    const indicator = notifItem.querySelector('.notification-indicator');
-                    if (indicator) indicator.remove();
-                    
-                    const title = notifItem.querySelector('h6');
-                    if (title) title.classList.add('text-muted');
-                    
-                    const markReadBtn = notifItem.querySelector('.mark-read-btn');
-                    if (markReadBtn) markReadBtn.remove();
-                }
-                
-                // Update badge
-                this.updateNotificationBadgeCount(-1);
-            }
-        } catch (error) {
-            console.error('Error marking notification as read:', error);
-            this.showError('Error al marcar como leída');
-        }
-    }
-
-    async markAllAsRead() {
-        try {
-            const response = await fetch(`${this.apiBase}/notifications/mark-all-read`, {
-                method: 'PATCH'
-            });
-
-            if (response.ok) {
-                this.showSuccess('Todas las notificaciones marcadas como leídas');
-                await this.loadNotifications();
-            } else {
-                this.showError('Error al marcar notificaciones');
-            }
-        } catch (error) {
-            console.error('Error marking all as read:', error);
-            this.showError('Error de conexión');
-        }
-    }
-
-    async saveProfile() {
-        const email = document.getElementById('editEmail')?.value;
-        
-        if (!email) {
-            this.showError('El correo electrónico es requerido');
-            return;
-        }
-
-        try {
-            const response = await fetch(`${this.apiBase}/user/me/profile`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ email })
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                this.showSuccess('Perfil actualizado correctamente');
-                
-                // Close modal
-                const modal = bootstrap.Modal.getInstance(document.getElementById('editProfileModal'));
-                if (modal) modal.hide();
-                
-                // Reload page to reflect changes
-                setTimeout(() => window.location.reload(), 1000);
-            } else {
-                this.showError(result.error || 'Error al actualizar el perfil');
-            }
-        } catch (error) {
-            console.error('Error saving profile:', error);
-            this.showError('Error de conexión');
-        }
-    }
-
-    updateNotificationBadge(count) {
-        const badge = document.getElementById('notificationBadge');
-        if (badge) {
-            badge.textContent = count;
-            badge.style.display = count > 0 ? 'inline' : 'none';
-        }
-    }
-
-    updateNotificationBadgeCount(delta) {
-        const badge = document.getElementById('notificationBadge');
-        if (badge) {
-            const current = parseInt(badge.textContent) || 0;
-            const newCount = Math.max(0, current + delta);
-            badge.textContent = newCount;
-            badge.style.display = newCount > 0 ? 'inline' : 'none';
-        }
-    }
-
-    renderNotificationsEmpty() {
-        const container = document.getElementById('notificationsContainer');
-        if (container) {
+        renderEmpty() {
+            const container = document.getElementById('notificationsContainer');
             container.innerHTML = `
                 <div class="text-center py-5">
                     <i class="bi bi-bell-slash display-4 text-muted"></i>
                     <p class="text-muted mt-3">No tienes notificaciones</p>
-                </div>
-            `;
+                </div>`;
         }
-    }
 
-    renderNotificationsError() {
-        const container = document.getElementById('notificationsContainer');
-        if (container) {
+        renderError() {
+            const container = document.getElementById('notificationsContainer');
             container.innerHTML = `
                 <div class="text-center py-5">
                     <i class="bi bi-exclamation-triangle display-4 text-danger"></i>
                     <p class="text-danger mt-3">Error al cargar notificaciones</p>
-                </div>
-            `;
+                </div>`;
+        }
+
+        // === NOTIFICACIONES: chips por app ===
+        rememberApp(appName) {
+            const key = this.getAppKey(appName);
+            if (!this.knownApps.has(key)) this.knownApps.set(key, 0);
+        }
+
+        async refreshUnreadPerApp() {
+            try {
+                const r = await fetch(`${this.apiBase}/notifications/unread-counts`, { credentials: 'include' });
+                const j = await r.json();
+                const counts = (j.data && j.data.counts) || {};
+                Object.entries(counts).forEach(([k, v]) => this.knownApps.set(this.getAppKey(k), v));
+                this.knownApps.forEach((_, k) => { if (!(k in counts)) this.knownApps.set(k, 0); });
+                this.renderChips();
+            } catch (_) { /* los chips siguen sin contador */ }
+        }
+
+        renderChips() {
+            const group = document.getElementById('notificationFilters');
+            if (!group) return;
+            group.querySelectorAll('[data-dynamic="1"]').forEach((el) => el.remove());
+            [...this.knownApps.entries()]
+                .sort((a, b) => this.getAppDisplayName(a[0]).localeCompare(this.getAppDisplayName(b[0])))
+                .forEach(([key, unread]) => {
+                    const b = document.createElement('button');
+                    b.type = 'button';
+                    b.className = 'notif-chip';
+                    b.dataset.dynamic = '1';
+                    b.dataset.appKey = key;
+                    b.textContent = this.getAppDisplayName(key);
+                    if (unread > 0) {
+                        const c = document.createElement('span');
+                        c.className = 'badge text-bg-primary ms-1';
+                        c.textContent = unread > 99 ? '99+' : String(unread);
+                        b.appendChild(c);
+                    }
+                    group.appendChild(b);
+                });
+            this.syncChips();
+        }
+
+        syncChips() {
+            document.querySelectorAll('#notificationFilters .notif-chip').forEach((c) => {
+                const on = (c.dataset.appKey || '') === this.appFilter;
+                c.classList.toggle('active', on);
+                c.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+        }
+
+        // === NOTIFICACIONES: acciones ===
+        activateItem(item) {
+            const id = item.dataset.notifId;
+            const url = item.dataset.url;
+            if (item.classList.contains('unread')) this.markNotificationAsRead(id);
+            if (url) this.openNotificationUrl(url);
+        }
+
+        /** Solo mismo origen: relativa con "/" (no "//" ni "/\\") o absoluta del mismo origen. */
+        safeUrl(raw) {
+            if (!raw || typeof raw !== 'string') return null;
+            if (/[\t\r\n\\]/.test(raw)) return null;
+            const value = raw.trim();
+            if (!value || value.startsWith('//')) return null;
+            try {
+                const u = new URL(value, location.origin);
+                if (u.origin !== location.origin) return null;
+                if (value.startsWith('/') || /^https?:/i.test(value)) {
+                    return u.pathname + u.search + u.hash;
+                }
+                return null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        openNotificationUrl(raw) {
+            const url = this.safeUrl(raw);
+            if (!url) return;
+
+            const embedded = window.self !== window.top;
+            const inMobile = document.body.classList.contains('in-mobile-iframe');
+            if (embedded && !inMobile) {
+                try {
+                    if (window.parent.desktop && typeof window.parent.desktop.openUrl === 'function') {
+                        window.parent.desktop.openUrl(url);
+                        return;
+                    }
+                } catch (_) { /* parent inaccesible: probar postMessage */ }
+                try {
+                    window.parent.postMessage({ type: 'OPEN_URL', url }, location.origin);
+                } catch (err) {
+                    console.warn('[Profile] no se pudo abrir la URL en el escritorio:', err);
+                }
+                return;
+            }
+            window.location.href = url;
+        }
+
+        async markNotificationAsRead(notifId) {
+            try {
+                const response = await fetch(`${this.apiBase}/notifications/${encodeURIComponent(notifId)}/read`, {
+                    method: 'PATCH', credentials: 'include',
+                });
+                if (!response.ok) return;
+                this.selfReadAt = Date.now();
+                const item = document.querySelector(`.notification-item[data-notif-id="${CSS.escape(String(notifId))}"]`);
+                if (item) {
+                    item.classList.remove('unread');
+                    item.classList.add('read');
+                    const title = item.querySelector('h6');
+                    if (title) title.classList.add('text-muted');
+                    const btn = item.querySelector('.mark-read-btn');
+                    if (btn) btn.remove();
+                }
+                this.refreshBadge();
+                this.refreshUnreadPerApp();
+            } catch (error) {
+                console.error('Error marking notification as read:', error);
+                this.showError('Error al marcar como leída');
+            }
+        }
+
+        async markAllAsRead() {
+            const btn = document.getElementById('markAllReadBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const qs = this.appFilter ? `?app=${encodeURIComponent(this.appFilter)}` : '';
+                const response = await fetch(`${this.apiBase}/notifications/mark-all-read${qs}`, {
+                    method: 'PATCH', credentials: 'include',
+                });
+                if (response.ok) {
+                    this.selfReadAt = Date.now();
+                    this.showSuccess('Notificaciones marcadas como leídas');
+                    await this.reloadNotifications();
+                    this.refreshBadge();
+                } else {
+                    this.showError('Error al marcar notificaciones');
+                }
+            } catch (error) {
+                console.error('Error marking all as read:', error);
+                this.showError('Error de conexión');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        // === PERFIL ===
+        async saveProfile() {
+            const email = document.getElementById('editEmail')?.value;
+            if (!email) {
+                this.showError('El correo electrónico es requerido');
+                return;
+            }
+            const btn = document.getElementById('saveProfileBtn');
+            if (btn) btn.disabled = true;
+            try {
+                const response = await fetch(`${this.apiBase}/user/me/profile`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email }),
+                });
+                const result = await response.json().catch(() => ({}));
+                if (response.ok) {
+                    this.showSuccess('Perfil actualizado correctamente');
+                    const modal = window.bootstrap.Modal.getInstance(document.getElementById('editProfileModal'));
+                    if (modal) modal.hide();
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    this.showError(this.errorText(result) || 'Error al actualizar el perfil');
+                }
+            } catch (error) {
+                console.error('Error saving profile:', error);
+                this.showError('Error de conexión');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        errorText(result) {
+            const d = result && result.detail;
+            if (typeof d === 'string') return d;
+            if (Array.isArray(d) && d.length) return d.map((x) => (x && x.msg) || '').filter(Boolean).join('. ');
+            return '';
+        }
+
+        // === BADGE ===
+        updateBadge(count) {
+            const badge = document.getElementById('notificationBadge');
+            if (!badge) return;
+            const n = Number(count) || 0;
+            badge.textContent = n > 99 ? '99+' : String(n);
+            badge.style.display = n > 0 ? 'inline' : 'none';
+        }
+
+        async refreshBadge() {
+            try {
+                const r = await fetch(`${this.apiBase}/notifications/unread-counts`, { credentials: 'include' });
+                const j = await r.json();
+                if (j.data) this.updateBadge(j.data.total);
+            } catch (_) { /* sin badge */ }
+        }
+
+        // === UTILIDADES ===
+        groupOf(dateString) {
+            const d = new Date(dateString);
+            if (isNaN(d)) return 'Anteriores';
+            const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+            const today = startOf(new Date());
+            const days = Math.round((today - startOf(d)) / 86400000);
+            if (days <= 0) return 'Hoy';
+            if (days === 1) return 'Ayer';
+            if (days < 7) return 'Esta semana';
+            if (days < 30) return 'Este mes';
+            return 'Anteriores';
+        }
+
+        safeColor(value) {
+            return /^#[0-9a-f]{3,8}$/i.test(String(value || '')) ? value : '#6c757d';
+        }
+
+        safeIcon(value) {
+            return /^bi-[a-z0-9-]+$/i.test(String(value || '')) ? value : 'bi-bell';
+        }
+
+        getAppKey(appName) {
+            if (!appName) return 'other';
+            const lower = String(appName).trim().toLowerCase();
+            const legacy = { 'itcj core': 'core', 'help desk': 'helpdesk', 'mantenimiento': 'maint' };
+            return legacy[lower] || lower;
+        }
+
+        getAppDisplayName(appKey) {
+            if (APP_NAMES[appKey]) return APP_NAMES[appKey];
+            return appKey ? appKey.charAt(0).toUpperCase() + appKey.slice(1) : 'Otro';
+        }
+
+        escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        formatTimeAgo(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            const diff = Math.floor((Date.now() - date) / 1000);
+            if (diff < 60) return 'Hace unos segundos';
+            if (diff < 3600) return `Hace ${Math.floor(diff / 60)} min`;
+            if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} h`;
+            if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
+            return date.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+        }
+
+        showSuccess(message) { this.toast('successToast', 'successMessage', message); }
+        showError(message) { this.toast('errorToast', 'errorMessage', message); }
+
+        toast(toastId, messageId, message) {
+            const toast = document.getElementById(toastId);
+            const el = document.getElementById(messageId);
+            if (toast && el && window.bootstrap) {
+                el.textContent = message;
+                window.bootstrap.Toast.getOrCreateInstance(toast).show();
+            }
         }
     }
 
-    getAppKey(appName) {
-        // app_name viene ya como key raw ('helpdesk', 'maint', etc).
-        // Mapping legacy para casos donde llegue display name.
-        if (!appName) return 'other';
-        const lower = String(appName).trim().toLowerCase();
-        const legacyMap = {
-            'itcj core': 'core',
-            'agendatec': 'agendatec',
-            'help desk': 'helpdesk',
-            'vistetec': 'vistetec',
-            'mantenimiento': 'maint',
-            'tickets': 'tickets',
-        };
-        return legacyMap[lower] || lower;
-    }
-
-    getAppDisplayName(appKey) {
-        const names = {
-            'agendatec': 'AgendaTec',
-            'helpdesk': 'Help Desk',
-            'maint': 'Mantenimiento',
-            'vistetec': 'VisteTec',
-            'warehouse': 'Almacén',
-            'inventory': 'Inventario',
-            'core': 'Sistema',
-        };
-        if (names[appKey]) return names[appKey];
-        // Fallback: capitalizar primera letra
-        return appKey ? appKey.charAt(0).toUpperCase() + appKey.slice(1) : 'Otro';
-    }
-
-    getAppKeyFromName(appName) {
-        return this.getAppKey(appName);
-    }
-
-    escapeHtml(value) {
-        return String(value == null ? '' : value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
-
-    getNotificationIcon(type) {
-        const icons = {
-            'info': 'bi-info-circle',
-            'success': 'bi-check-circle',
-            'warning': 'bi-exclamation-triangle',
-            'error': 'bi-x-circle',
-            'assignment': 'bi-person-check',
-            'comment': 'bi-chat-dots',
-            'status_change': 'bi-arrow-repeat',
-            'reminder': 'bi-bell'
-        };
-        return icons[type] || 'bi-bell';
-    }
-
-    formatTimeAgo(dateString) {
-        if (!dateString) return '';
-        
-        const date = new Date(dateString);
-        const now = new Date();
-        const diff = Math.floor((now - date) / 1000); // seconds
-
-        if (diff < 60) return 'Hace unos segundos';
-        if (diff < 3600) return `Hace ${Math.floor(diff / 60)} minutos`;
-        if (diff < 86400) return `Hace ${Math.floor(diff / 3600)} horas`;
-        if (diff < 604800) return `Hace ${Math.floor(diff / 86400)} días`;
-        
-        return date.toLocaleDateString('es-ES');
-    }
-
-    showSuccess(message) {
-        const toast = document.getElementById('successToast');
-        const messageEl = document.getElementById('successMessage');
-        if (toast && messageEl) {
-            messageEl.textContent = message;
-            const bsToast = new bootstrap.Toast(toast);
-            bsToast.show();
-        }
-    }
-
-    showError(message) {
-        const toast = document.getElementById('errorToast');
-        const messageEl = document.getElementById('errorMessage');
-        if (toast && messageEl) {
-            messageEl.textContent = message;
-            const bsToast = new bootstrap.Toast(toast);
-            bsToast.show();
-        }
-    }
-}
-
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    new ProfileManager();
-});
+    document.addEventListener('DOMContentLoaded', () => { new ProfileManager(); });
+})();

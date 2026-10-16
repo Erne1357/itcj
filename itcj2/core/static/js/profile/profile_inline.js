@@ -1,8 +1,15 @@
 'use strict';
 
-// Detectar si estamos en un iframe móvil
+// Detectar si estamos en un iframe del shell MÓVIL (/itcj/m). Dentro del
+// escritorio (ventana del dashboard) el iframe NO debe mostrar la cabecera móvil.
 const inIframe = window.self !== window.top;
-if (inIframe) {
+let inMobileShell = false;
+try {
+    inMobileShell = inIframe && window.parent.location.pathname.startsWith('/itcj/m');
+} catch (e) {
+    inMobileShell = false;
+}
+if (inMobileShell) {
     document.body.classList.add('in-mobile-iframe');
 }
 

@@ -154,7 +154,7 @@ Si tocas el visor, edita `static/js/admin/doc-viewer.js` (comportamiento), `docu
 el escritorio llevaba `sandbox`, y Chromium **bloquea el visor de PDF** en documentos con sandbox
 (incluidas las pestañas abiertas desde ellos: «bloqueó esta página»). Se retiró el `sandbox` (con
 `allow-scripts`+`allow-same-origin` ya era evadible, no protegía) y quedó
-`allow="fullscreen"` + `referrerpolicy="same-origin"` (`itcj2/core/static/js/dashboard/dashboard.js:250-256`;
+`allow="fullscreen"` + `referrerpolicy="same-origin"` (`itcj2/core/static/js/dashboard/desktop/window-manager.js` `_buildElement`;
 shell móvil: `itcj2/core/templates/core/mobile/base_mobile.html`). Efecto aquí: el PDF del documento y «Abrir en
 pestaña» funcionan con clic izquierdo dentro del escritorio.
 

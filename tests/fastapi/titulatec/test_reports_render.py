@@ -122,6 +122,11 @@ def esc(db_session, seed_phase_defs, seed_document_types, make_program, make_coh
     lib = make_process(alumno_lib, cohort=c, program=pb, current_phase=3)
     f2 = db_session.query(ProcessPhase).filter_by(process_id=lib.id, phase_number=2).one()
     f2.completed_at = datetime.combine(b0, time(13))
+    # Sin fecha explícita, created_at sale del now() de la BD: en CI (Postgres en
+    # UTC) entre las 18 y las 24 h de Juárez ya es «mañana» y los procesos caen
+    # fuera del rango que termina en db_now().date().
+    listo.created_at = doble.created_at = hace(0, h=0)
+    lib.created_at = datetime.combine(b0, time(8))
     db_session.flush()
     return SimpleNamespace(c=c, pa=pa, pb=pb, hoy=hoy, b0=b0, lib=lib,
                            alumno_lib=alumno_lib, make_cohort=make_cohort)

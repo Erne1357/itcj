@@ -1,0 +1,336 @@
+/* ==========================================================================
+   Ventanas del escritorio (window-manager.js). La geometría la pone el JS en
+   línea según el estado (normal en px; maximizada y acopladas en %), así que
+   aquí solo va lo visual: ventana, barra de título, manijas de redimensión y
+   vista previa de acople (#snapPreview).
+   ========================================================================== */
+
+:root {
+  --win-radius: 8px;
+  --win-radius-inner: calc(var(--win-radius) - 1px);   /* esquinas de barra y contenido (dentro del borde de 1 px) */
+  --win-shadow: 0 16px 48px rgba(0, 0, 0, .26), 0 2px 8px rgba(0, 0, 0, .14);
+  --win-shadow-inactive: 0 8px 28px rgba(0, 0, 0, .18), 0 1px 4px rgba(0, 0, 0, .1);
+  --titlebar-h: 36px;
+  --titlebar-active: #059669;
+  --titlebar-inactive: #557a6e;
+}
+
+/* Área útil: todo el escritorio menos la barra. No atrapa clics (los iconos de
+   abajo siguen vivos); las ventanas sí. */
+.windows-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: var(--taskbar-h, 48px);
+  pointer-events: none;
+}
+
+@media (min-width: 1600px) and (min-height: 760px) {
+  .windows-container { top: var(--theme-band, 0px); }
+}
+
+.app-window {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, .14);
+  border-radius: var(--win-radius);
+  box-shadow: var(--win-shadow-inactive);
+  /* Sin recorte propio (overflow visible): las manijas de redimensión van por
+     fuera del borde y la ventana no es contenedor de scroll. B1 lo resuelven
+     `.window-content` (overflow: clip, no desplazable ni por scrollIntoView) y
+     el escritorio y el body recortados. Las esquinas las redondean la barra de
+     título y el contenido. */
+  pointer-events: auto;
+  transform-origin: center center;
+}
+
+.app-window.is-active { box-shadow: var(--win-shadow); }
+
+/* Maximizada y acopladas: a ras del área útil, sin esquinas ni sombra; las
+   acopladas solo conservan la línea que las separa. */
+.app-window.is-maximized,
+.app-window.is-snap-left,
+.app-window.is-snap-right {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.app-window.is-snap-left { border-right: 1px solid rgba(0, 0, 0, .18); }
+.app-window.is-snap-right { border-left: 1px solid rgba(0, 0, 0, .18); }
+
+.app-window.is-maximized .window-titlebar,
+.app-window.is-maximized .window-content,
+.app-window.is-snap-left .window-titlebar,
+.app-window.is-snap-left .window-content,
+.app-window.is-snap-right .window-titlebar,
+.app-window.is-snap-right .window-content { border-radius: 0; }
+
+/* Minimizada: conserva su tamaño (las gráficas de las apps no se rompen). */
+.app-window.is-minimized {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* Solo durante maximizar/restaurar (clase de ~160 ms que pone el JS). */
+.app-window.is-transitioning {
+  transition: left .16s cubic-bezier(.2, .8, .2, 1), top .16s cubic-bezier(.2, .8, .2, 1),
+    width .16s cubic-bezier(.2, .8, .2, 1), height .16s cubic-bezier(.2, .8, .2, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Barra de título
+   -------------------------------------------------------------------------- */
+.window-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--titlebar-h);
+  flex: none;
+  padding-left: 10px;
+  border-radius: var(--win-radius-inner) var(--win-radius-inner) 0 0;
+  /* Recorta a la esquina redondeada el hover de "Cerrar" (no contiene al iframe:
+     no afecta a B1). */
+  overflow: hidden;
+  overflow: clip;
+  background: var(--titlebar-inactive);
+  color: rgba(255, 255, 255, .86);
+  font-family: var(--font-ui, "Segoe UI", system-ui, sans-serif);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  cursor: default;
+  transition: background-color .12s ease, color .12s ease;
+}
+
+.app-window.is-active .window-titlebar {
+  background: var(--titlebar-active);
+  color: #fff;
+}
+
+.window-app-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.window-app-icon img { display: block; width: 18px; height: 18px; -webkit-user-drag: none; }
+.window-app-icon .ico { width: 16px; height: 16px; }
+
+.window-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.window-title-text {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.window-url {
+  min-width: 0;
+  font-size: 12px;
+  opacity: .78;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Barra de progreso de carga (indeterminada), pegada al borde inferior. */
+.window-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .2s ease;
+}
+
+.window-progress::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -35%;
+  width: 35%;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, .92);
+  animation: window-progress 1.1s ease-in-out infinite;
+}
+
+.app-window.is-loading .window-progress { opacity: 1; }
+
+@keyframes window-progress {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+
+/* Controles: recargar y abrir aparte como botones chicos; minimizar,
+   maximizar y cerrar a lo alto de la barra, como en Windows. */
+.window-controls {
+  position: relative;
+  z-index: 4;          /* sobre las manijas: un clic en el borde de "Cerrar" cierra, no redimensiona */
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  flex: none;
+}
+
+.window-control {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  transition: background-color .1s ease;
+}
+
+.window-control .ico { width: 16px; height: 16px; stroke-width: 1.6; }
+
+.window-control:hover { background: rgba(255, 255, 255, .16); }
+.window-control:active { background: rgba(255, 255, 255, .26); }
+
+.window-control.reload,
+.window-control.popout {
+  width: 30px;
+  height: 28px;
+  align-self: center;
+  margin-right: 2px;
+  border-radius: 6px;
+}
+
+.window-control.popout { margin-right: 8px; }
+.window-control.reload .ico,
+.window-control.popout .ico { width: 15px; height: 15px; }
+
+.window-control.close:hover { background: #c42b1c; color: #fff; }
+.window-control.close:active { background: #a52417; color: #fff; }
+
+.window-control:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+}
+
+/* Solo la maximizada ofrece "Restaurar"; una acoplada muestra el cuadrado
+   (su botón la maximiza). */
+.window-control.maximize .ico-restore { display: none; }
+.app-window.is-maximized .window-control.maximize .ico-square { display: none; }
+.app-window.is-maximized .window-control.maximize .ico-restore { display: block; }
+
+/* --------------------------------------------------------------------------
+   Contenido
+   -------------------------------------------------------------------------- */
+.window-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  /* B1: `clip` no es desplazable ni por scrollIntoView; `hidden` es el respaldo.
+     Con el radio recorta también las esquinas inferiores del iframe. */
+  overflow: hidden;
+  overflow: clip;
+  border-radius: 0 0 var(--win-radius-inner) var(--win-radius-inner);
+  background: #fff;
+}
+
+/* B1: `block` quita el hueco de línea base que dejaba un iframe `inline`. */
+.window-iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Manijas de redimensión: bordes de 6 px por FUERA de la ventana (no tapan la
+   barra de scroll del iframe ni el borde de la barra de título) y esquinas de
+   12 px centradas en cada vértice. La mitad interior de "ne" queda bajo los
+   controles (z-index 4): ahí manda "Cerrar". Ocultas en maximizada y minimizada.
+   -------------------------------------------------------------------------- */
+.window-resize {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.window-resize[data-dir="n"],
+.window-resize[data-dir="s"] { left: 6px; right: 6px; height: 6px; cursor: ns-resize; }
+.window-resize[data-dir="e"],
+.window-resize[data-dir="w"] { top: 6px; bottom: 6px; width: 6px; cursor: ew-resize; }
+.window-resize[data-dir="ne"],
+.window-resize[data-dir="nw"],
+.window-resize[data-dir="se"],
+.window-resize[data-dir="sw"] { width: 12px; height: 12px; }
+
+.window-resize[data-dir="n"] { top: -6px; }
+.window-resize[data-dir="s"] { bottom: -6px; }
+.window-resize[data-dir="e"] { right: -6px; }
+.window-resize[data-dir="w"] { left: -6px; }
+.window-resize[data-dir="ne"] { top: -6px; right: -6px; cursor: nesw-resize; }
+.window-resize[data-dir="sw"] { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.window-resize[data-dir="nw"] { top: -6px; left: -6px; cursor: nwse-resize; }
+.window-resize[data-dir="se"] { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
+.app-window.is-maximized .window-resize,
+.app-window.is-minimized .window-resize { display: none; }
+
+/* --------------------------------------------------------------------------
+   Vista previa de acople (Aero Snap): la crea el JS al arrastrar cerca de un
+   borde. Sobre las ventanas (10 + n) y bajo la barra (1000); translúcida para
+   que la ventana arrastrada se siga viendo debajo.
+   -------------------------------------------------------------------------- */
+.snap-preview {
+  position: fixed;
+  z-index: 999;
+  border-radius: var(--win-radius);
+  background: rgba(255, 255, 255, .24);
+  border: 1px solid rgba(255, 255, 255, .7);
+  box-shadow: 0 0 0 1px rgba(5, 150, 105, .35), 0 12px 40px rgba(0, 0, 0, .22);
+  opacity: 0;
+  transform: scale(.96);
+  pointer-events: none;
+  transition: opacity .14s ease, transform .18s cubic-bezier(.2, .8, .2, 1),
+    left .18s cubic-bezier(.2, .8, .2, 1), width .18s cubic-bezier(.2, .8, .2, 1),
+    top .18s cubic-bezier(.2, .8, .2, 1), height .18s cubic-bezier(.2, .8, .2, 1);
+}
+
+.snap-preview.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Escudo durante arrastre/redimensión: el iframe no se traga el puntero. */
+body.desktop-dragging .window-iframe { pointer-events: none; }
+body.desktop-dragging,
+body.desktop-dragging * { user-select: none !important; -webkit-user-select: none !important; }
+/* Redimensionando: el cursor de la manija se mantiene aunque el puntero salga de ella. */
+body.desktop-resizing,
+body.desktop-resizing * { cursor: var(--resize-cursor, default) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-window.is-transitioning,
+  .window-titlebar,
+  .window-control,
+  .snap-preview { transition: none; }
+  .window-progress::before { animation: none; left: 0; width: 40%; }
+}

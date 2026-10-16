@@ -511,3 +511,60 @@
         color: #adb5bd;
     }
 }
+
+/* ==========================================================================
+   6. ESCRITORIO (body.itcj-desktop): panel de la campana y toasts
+   El panel vive en <body>: z-index sobre ventanas (10+n) y barra (1000),
+   debajo de modales Bootstrap (1050).
+   ========================================================================== */
+
+body.itcj-desktop .notification-panel {
+    bottom: 56px;
+    z-index: 1040;
+}
+
+body.itcj-desktop .notification-toast {
+    bottom: 64px;
+    z-index: 1045;
+}
+
+body.itcj-desktop .notification-toast.is-actionable {
+    cursor: pointer;
+}
+
+body.itcj-desktop .notification-icon .ico {
+    width: 18px;
+    height: 18px;
+}
+
+body.itcj-desktop .notification-toast .ico {
+    width: 20px;
+    height: 20px;
+}
+
+body.itcj-desktop .notification-panel .ico {
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.125em;
+}
+
+/* Acento verde del escritorio (el mismo de la barra de título activa) en vez del
+   azul de Bootstrap: "Ver todas", hover de "Marcar todas" e icono del toast. */
+body.itcj-desktop #view-all-notifications-btn {
+    --bs-btn-bg: #059669;
+    --bs-btn-border-color: #059669;
+    --bs-btn-hover-bg: #047857;
+    --bs-btn-hover-border-color: #047857;
+    --bs-btn-active-bg: #065f46;
+    --bs-btn-active-border-color: #065f46;
+    --bs-btn-focus-shadow-rgb: 5, 150, 105;
+}
+
+body.itcj-desktop #mark-all-read-btn:hover {
+    color: #059669;
+}
+
+body.itcj-desktop .notification-toast i,
+body.itcj-desktop .notification-toast .ico {
+    color: #059669;
+}
