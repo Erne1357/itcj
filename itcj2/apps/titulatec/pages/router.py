@@ -14,6 +14,18 @@ from .appointments import router as appointments_router
 from .roles import router as roles_router
 from .officers import router as officers_router
 from .documents import router as documents_router
+from .public import router as public_router
+from .requests_admin import router as requests_admin_router
+from .surveys_admin import router as surveys_admin_router
+from .survey_reviews_admin import router as survey_reviews_admin_router
+from .handoff_admin import router as handoff_admin_router
+from .access_admin import router as access_admin_router
+from .library_admin import router as library_admin_router
+from .cashier_admin import router as cashier_admin_router
+from .certificates_admin import router as certificates_admin_router
+from .mail_admin import router as mail_admin_router
+from .audit_admin import router as audit_admin_router
+from .reports_admin import router as reports_admin_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -24,3 +36,17 @@ titulatec_pages_router.include_router(appointments_router)
 titulatec_pages_router.include_router(roles_router)
 titulatec_pages_router.include_router(officers_router)
 titulatec_pages_router.include_router(documents_router)
+# El ÚNICO sub-router sin `require_page_*`: sus rutas son públicas por omitir la
+# dependencia (no hay allowlist en este repo). Ver `public.py`.
+titulatec_pages_router.include_router(public_router)
+titulatec_pages_router.include_router(requests_admin_router)
+titulatec_pages_router.include_router(surveys_admin_router)
+titulatec_pages_router.include_router(survey_reviews_admin_router)
+titulatec_pages_router.include_router(handoff_admin_router)
+titulatec_pages_router.include_router(access_admin_router)
+titulatec_pages_router.include_router(library_admin_router)
+titulatec_pages_router.include_router(cashier_admin_router)
+titulatec_pages_router.include_router(certificates_admin_router)
+titulatec_pages_router.include_router(mail_admin_router)
+titulatec_pages_router.include_router(audit_admin_router)
+titulatec_pages_router.include_router(reports_admin_router)

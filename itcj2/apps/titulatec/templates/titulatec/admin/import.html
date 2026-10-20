@@ -1,6 +1,7 @@
 {% extends "titulatec/admin/base_admin.html" %}
 {% block title %}Importar alumnos · TitulaTec{% endblock %}
 
+{% block admin_view %}cohort-import{% endblock %}
 {% block admin_main %}
 <div class="px-4 pt-4">
   <nav class="d-flex align-items-center gap-2 mb-1" style="font-size:.75rem;color:var(--tt-mute)">
@@ -19,7 +20,7 @@
 
 <div class="px-4 pt-2 pb-4">
   {# Paso 1: subir #}
-  <form class="tt-dropzone" style="max-width:520px"
+  <form class="tt-dropzone tt-pane"
         hx-post="/titulatec/admin/cohorts/{{ cohort.id }}/import/upload"
         hx-encoding="multipart/form-data" hx-trigger="change from:#csv-file"
         hx-target="#import-body" hx-swap="innerHTML">

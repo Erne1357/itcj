@@ -5,7 +5,7 @@
   corregir filas antes de crear los procesos.
 </p>
 
-<form class="tt-dropzone" style="max-width:520px"
+<form class="tt-dropzone tt-pane"
       hx-post="/titulatec/admin/cohorts/{{ cohort_id }}/import/upload"
       hx-encoding="multipart/form-data" hx-trigger="change from:#csv-file"
       hx-target="#import-body" hx-swap="innerHTML">

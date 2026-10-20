@@ -1,0 +1,926 @@
+"""Reglas del EGRESADO para su cita de cotejo (spec 2026-09-15 §3 y §4.1).
+
+D13 (del spec 2026-09-15, sin fecha propia en este docstring -no confundir con
+el D13 de 2026-09-30, más abajo en `eligibility`, que es una decisión DISTINTA
+del spec 2026-09-29-titulatec-cotejo-espacios-design.md-) parte las guardas en
+dos capas, y esa partición decide dónde vive cada regla:
+
+* **Duras**, en `AppointmentService` / `SlotService`, para TODOS (encargado
+  incluido): una sola cita vigente por proceso, liberaciones completas según
+  `ClearanceGate` —encuesta LIBERADA por GTV (D1 de 2026-09-29, revierte D2
+  del 2026-09-15: enviarla ya no basta) y, donde la convocatoria lo exige, no
+  adeudo de biblioteca liberado (D6 de 2026-10-01)—, día habilitado, franja
+  real de la rejilla, cupo libre, lock de ventana y advisory lock del proceso.
+* **Del alumno**, aquí: fase 2 aprobada, tope de cancelaciones propias,
+  anticipación mínima, que la ventana esté publicada y sea de su carrera, y
+  -desde el 2026-09-30- que una `attended` vigente no deje la fase 2 sin
+  dictaminar (D13 de 2026-09-30, `cotejo_en_dictamen`).
+
+Por eso `cancel` **envuelve** a `AppointmentService.cancel` en vez de
+duplicarla, y `book` delega en `AppointmentService.create`: si la ventana de
+2 h se colara a la capa compartida se le aplicaría también al encargado, que
+no tiene ventana de tiempo, y reimplementar aquí las guardas duras es
+exactamente como se abren los agujeros. Si acabas escribiendo dos veces la
+misma regla, la partición está mal hecha.
+
+`eligibility` es la ÚNICA fuente de la verdad de «¿puede agendar solo?»
+-------------------------------------------------------------------------
+La consumen la pantalla del alumno (sus cuatro caras) y el cubo «Requieren que
+les agendes» de la cola del encargado (D10). Con dos implementaciones, el cubo
+diría una cosa y el alumno vería otra — y el alumno tendría razón la mitad de
+las veces.
+
+El reloj es `db_now()`
+----------------------
+Hora local naive, idéntica a la que produce `NOW()` en Postgres, porque TODAS
+las columnas de fecha de esta app son naive. Nunca `datetime.utcnow` —escrito
+sin los paréntesis A PROPÓSITO: `test_timezone_consistency.py::
+test_ningun_modulo_de_produccion_usa_utcnow` barre el literal con paréntesis
+por TODO `itcj2/`, docstrings incluidos, y solo exime a `core/utils/timezone.py`;
+con la forma llamable ahí, esta docstring ponía en rojo la suite global—:
+restaría seis horas y la ventana de D8 se abriría o cerraría sola. Se importa a nivel de
+módulo a propósito, para que un test pueda fijarlo con
+`monkeypatch.setattr(mod, "db_now", ...)`.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+from sqlalchemy.orm import Session
+
+from itcj2.apps.titulatec.services.appointment_errors import (
+    CancelTooLate, NotYours, SelfBookingNotAllowed, SlotTooSoon,
+)
+from itcj2.core.utils.timezone import db_now
+
+# Los dos modos PUBLICADOS de un espacio (D1). `private` es el default y
+# significa «el egresado no lo ve»: no entra ni a la oferta ni a la
+# revalidación de `book`, así que publicar sigue siendo un acto deliberado.
+_VISIBLES: tuple[str, ...] = ("bookable", "walkin")
+
+# Centinela privado de `cita_ocupa_el_cotejo` (m37, Tarea 9 de
+# 2026-10-02-titulatec-constancias-y-pendientes): «no me pasaron el status de
+# fase 2, consúltalo tú». No puede ser `None` -ese SÍ es un valor real y
+# distinto: el proceso todavía no tiene fila de `ProcessPhase` para el cotejo
+# (ver `_fase_cotejo_status`)-.
+_FASE2_NO_PROVISTA = object()
+
+
+def _nombre(user) -> str:
+    """Nombre del encargado para el anuncio del espacio.
+
+    `full_name` es la propiedad que ya usa el resto de la app (`_proc_rows`).
+    El respaldo evita que una fila de usuario perdida deje un anuncio mudo.
+    """
+    return (getattr(user, "full_name", None) or "").strip() or "Servicios Escolares"
+
+
+class SelfBookingService:
+    """Todas las reglas del auto-agendado del egresado."""
+
+    # §3, columna «Mensaje al alumno», literal. Vive aquí y no en la plantilla
+    # porque la consumen dos sitios: la cara 4 de la pantalla del alumno («una
+    # frase que dice por qué», nunca un botón deshabilitado y mudo) y el error
+    # que levanta `book`. Con el texto en la plantilla, el error diría otra cosa.
+    MENSAJES: dict[str, str] = {
+        "proceso_inactivo": "Tu proceso no está activo.",
+        "fase_aprobada": "Tu cotejo ya quedó aprobado. No necesitas otra cita.",
+        "sin_encuesta": "Primero envía la encuesta de egresados.",
+        # D1 (revierte D2 del 2026-09-15): la envió, pero GTV todavía no la
+        # libera. Dos frases DISTINTAS de "sin_encuesta" -el alumno ya hizo
+        # su parte- para que sepa que no tiene nada más que hacer aquí.
+        "encuesta_en_revision": ("Tu encuesta de egresados está en revisión con Gestión "
+                                 "Tecnológica y Vinculación. Podrás agendar en cuanto la "
+                                 "liberen."),
+        "encuesta_con_observaciones": ("Gestión Tecnológica y Vinculación dejó observaciones "
+                                       "en tu encuesta de egresados. Podrás agendar en cuanto "
+                                       "la liberen."),
+        # Spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4, literal:
+        # el no adeudo de biblioteca (D6), SOLO donde la convocatoria lo exige.
+        # `{total}` es el total congelado YA formateado («$1,200.00»): lo pone
+        # `message_for`, que lo recibe por parámetro igual que `{n}`.
+        "biblioteca_en_revision": ("El Centro de Información está revisando si tienes "
+                                   "adeudo con la biblioteca. Podrás agendar en cuanto se "
+                                   "libere tu Constancia de no adeudo."),
+        "pago_pendiente": ("Pasa a Caja (Recursos Financieros) a pagar {total}; no "
+                           "necesitas cita. Podrás agendar en cuanto se libere tu "
+                           "Constancia de no adeudo."),
+        # Spec 2026-10-05-titulatec-biblioteca-observaciones §3.4: Biblioteca
+        # lo detuvo con un motivo («Con observaciones»). Lo resuelve EN la
+        # Biblioteca; el motivo lo ve en su tablero y en «Mi cita».
+        "biblioteca_con_observaciones": ("Biblioteca registró observaciones en tu "
+                                         "Constancia de no adeudo: acude a la Biblioteca "
+                                         "(Centro de Información) para resolverlas. Podrás "
+                                         "agendar en cuanto se libere tu Constancia de "
+                                         "no adeudo."),
+        "tiene_cita": "Ya tienes una cita. Cancélala si necesitas otra.",
+        # D13 (2026-09-30): la cita vigente está `attended` -el encargado ya
+        # cotejó- y la fase 2 sigue SIN veredicto -ni aprobada ni rechazada-.
+        # Revierte EN PARTE la regla del auto-agendado del 2026-09-15: el
+        # corte ya no es solo la fase aprobada, `attended` también bloquea
+        # mientras Servicios Escolares no dictamine. Con la fase `rejected`
+        # esta razón no se dispara -ahí SÍ puede, que es justo el caso que
+        # aquella regla del 2026-09-15 vino a habilitar-.
+        "cotejo_en_dictamen": ("Tu cotejo ya se realizó. Servicios Escolares está por "
+                               "dictaminarlo; si queda con observaciones podrás agendar "
+                               "otra cita."),
+        "bloqueado_por_cancelaciones": ("Cancelaste {n} veces. Pídele la cita a tu "
+                                        "encargado de carrera."),
+    }
+
+    # Traduce el PRIMER bloqueo de `ClearanceGate.blockers` (regla 3: la
+    # encuesta primero, luego el no adeudo de biblioteca) al código de razón
+    # de la tabla de §3. Vive junto a `MENSAJES` porque los seis valores de
+    # este dict SON llaves de `MENSAJES`, y sus llaves son el conjunto cerrado
+    # `clearance_gate.BLOCKERS` (lo cruza `test_clearance_gate.py`).
+    _CLEARANCE_REASONS: dict[str, str] = {
+        "survey_missing": "sin_encuesta",
+        "survey_in_review": "encuesta_en_revision",
+        "survey_rejected": "encuesta_con_observaciones",
+        "library_pending": "biblioteca_en_revision",
+        "library_awaiting_payment": "pago_pendiente",
+        "library_observed": "biblioteca_con_observaciones",
+    }
+
+    # ------------------------------------------------------------- utilería
+    @staticmethod
+    def _settings():
+        """`get_settings()` está cacheado; el import va local (gotcha 2)."""
+        from itcj2.config import get_settings
+        return get_settings()
+
+    @staticmethod
+    def message_for(reason: str | None, *, cancellations: int | None = None,
+                    total=None) -> str | None:
+        """La frase que ve el alumno para ese `reason`, o None si puede agendar.
+
+        El conteo entra por parámetro para que el mensaje diga las veces REALES
+        que canceló y no el tope configurado (son iguales en el caso normal, y
+        dejan de serlo en cuanto alguien baje el tope con gente ya bloqueada).
+
+        `total` (`Decimal`, el `library_total` de `eligibility`) entra igual,
+        para `pago_pendiente`: el monto CONGELADO de su fila de no adeudo, que
+        se formatea aquí («$1,200.00», `format_amount`). Sin él, la frase sale
+        sin la cifra en vez de con un hueco.
+        """
+        if not reason:
+            return None
+        plantilla = SelfBookingService.MENSAJES.get(reason)
+        if plantilla is None:
+            return None
+        if "{n}" in plantilla:
+            n = (cancellations if cancellations is not None
+                 else SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX)
+            return plantilla.format(n=n)
+        if "{total}" in plantilla:
+            if total is None:
+                return plantilla.replace(" {total}", "")
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                format_amount,
+            )
+            return plantilla.format(total=format_amount(total))
+        return plantilla
+
+    # -------------------------------------------------------- D9: el contador
+    @staticmethod
+    def cancellations(db: Session, proc) -> int:
+        """Cuántas veces canceló ÉL su propia cita.
+
+        Derivado, sin columna denormalizada: `status='cancelled'` **y**
+        `cancelled_by_id == process.student_id`. Si cancela el encargado no le
+        consume cupo — si no, el encargado podría dejarlo bloqueado sin querer.
+
+        `student_id` y `cancelled_by_id` son las dos `BigInteger` con FK a
+        `core_users.id`, así que la comparación es directa y no pasa por
+        ninguna otra tabla.
+
+        Delega en `cancellations_map` (Tarea 7): una sola implementación del
+        conteo para el alumno y para la cola.
+        """
+        if proc is None:
+            return 0
+        return SelfBookingService.cancellations_map(db, [proc])[proc.id]
+
+    @staticmethod
+    def cancellations_map(db: Session, processes) -> dict[int, int]:
+        """`cancellations` de VARIOS procesos YA CARGADOS en UNA consulta
+        (`GROUP BY process_id, cancelled_by_id`; Tarea 7, spec 2026-10-04-
+        titulatec-paginacion-design.md §8). El cruce con `student_id` se hace
+        aquí contra el proceso en memoria -- mismo predicado que el COUNT por
+        proceso de antes: solo cuentan las que canceló ÉL. Lista vacía -> `{}`
+        sin consultar; un proceso sin cancelaciones sale con 0.
+        """
+        from sqlalchemy import func
+
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        processes = [p for p in processes if p is not None]
+        if not processes:
+            return {}
+        por_proceso: dict[tuple[int, int], int] = {
+            (pid, quien): n for pid, quien, n in
+            db.query(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id,
+                     func.count(ReviewAppointment.id))
+            .filter(ReviewAppointment.process_id.in_({p.id for p in processes}),
+                    ReviewAppointment.status == "cancelled",
+                    ReviewAppointment.cancelled_by_id.isnot(None))
+            .group_by(ReviewAppointment.process_id, ReviewAppointment.cancelled_by_id)
+            .all()
+        }
+        return {p.id: por_proceso.get((p.id, p.student_id), 0) for p in processes}
+
+    @staticmethod
+    def blocked_map(db: Session, processes, *, cancellations: dict | None = None
+                    ) -> dict[int, bool]:
+        """`is_blocked_by_cancellations` en lote (D9). `cancellations` (el
+        resultado de `cancellations_map`, opcional) evita repetir la consulta
+        a quien ya tiene los conteos en mano."""
+        processes = [p for p in processes if p is not None]
+        if cancellations is None:
+            cancellations = SelfBookingService.cancellations_map(db, processes)
+        tope = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MAX
+        return {p.id: cancellations[p.id] >= tope for p in processes}
+
+    @staticmethod
+    def is_blocked_by_cancellations(db: Session, proc) -> bool:
+        """El predicado de D9, aislado.
+
+        Lo comparten la regla 6 de `eligibility` y el cubo de D10
+        (`AppointmentService.list_self_blocked_processes`, vía `blocked_map`),
+        que así no puede discrepar de lo que ve el alumno en su pantalla.
+        """
+        if proc is None:
+            return False
+        return SelfBookingService.blocked_map(db, [proc])[proc.id]
+
+    # ------------------------------------------------------------ §3: la puerta
+    @staticmethod
+    def _fase_cotejo_status(db: Session, proc) -> str | None:
+        """El `status` de la `ProcessPhase` de la fase 2 (cotejo), o `None` si
+        el proceso todavía no tiene esa fila.
+
+        Consulta ÚNICA -reemplaza a la vieja `_fase_cotejo_aprobada`, que solo
+        devolvía el booleano de la regla 2- porque dos reglas la necesitan:
+
+        * Regla 2 (`fase_aprobada`): `status == "approved"`. D5: el corte real
+          es la FASE aprobada, nunca `appt.status`. `PhaseService.PHASE_COTEJO`
+          y no un `2` literal, para que grep lo encuentre desde el otro lado.
+        * Regla 5 (`cotejo_en_dictamen`, D13 2026-09-30): con la cita vigente
+          en `attended`, bloquea mientras `status` no sea `rejected` -ni
+          `approved`, que ya cortó antes en la regla 2-. Una cita `attended`
+          a la que le faltaron papeles sigue pudiendo agendar otra SOLO en
+          cuanto la fase queda `rejected` -es lo que la feature del
+          2026-09-15 vino a habilitar-; mientras siga SIN veredicto, D13 la
+          bloquea.
+
+        Con dos funciones leyendo la misma fila por separado, el día que
+        alguien toque una regla y no la otra, divergen.
+        """
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        fila = (db.query(ProcessPhase)
+                .filter_by(process_id=proc.id,
+                           phase_number=PhaseService.PHASE_COTEJO)
+                .first())
+        return fila.status if fila is not None else None
+
+    @staticmethod
+    def cita_ocupa_el_cotejo(db: Session, proc, current, fase2_status=_FASE2_NO_PROVISTA) -> bool:
+        """¿La cita VIGENTE (`current`, el resultado de `AppointmentService.
+        get_for_process`, o `None`) sigue OCUPANDO el cotejo -el egresado NO
+        necesita (ni puede) agendar otra ahora mismo-?
+
+        Ruling R18 (revisión de la Tarea 12, spec 2026-10-01-titulatec-
+        biblioteca-caja-design.md): extrae a UN predicado público el que ya
+        vivía DUPLICADO e inline en `mail_compose.py::_que_falta` (D11,
+        Ruling R17 de la Tarea 10) -las mismas reglas 4/5 de `eligibility`,
+        leídas aparte-: `current` en uno de `_ESTADOS_ACTIVOS` (scheduled/
+        confirmed/in_progress, regla 4, D17) o `attended` mientras la fase 2
+        sigue SIN veredicto (regla 5, `cotejo_en_dictamen`, D13 2026-09-30:
+        `approved` ya cerró el proceso antes de llegar aquí en los dos
+        llamadores, así que basta excluir `rejected`). `None` (sin cita),
+        `no_show` y `attended` con la fase 2 YA `rejected` devuelven
+        `False` -esos SÍ agendan otra, y decirles «ya tienes una cita» sería
+        tan falso como prometerles «podrás agendar» estando `scheduled`-.
+
+        Dos llamadores, MISMA pregunta, cada uno con su propio «y entonces
+        qué digo»: `mail_compose.py::_que_falta` (si ocupa el cotejo, no hay
+        frase de agendado que mandar en el correo de liberación) y
+        `pages/student.py::_agenda_ctx` (Ruling R12: si ocupa el cotejo Y el
+        motivo es de biblioteca, la cara 4 no promete agendar). Recibe
+        `current` YA resuelto -no vuelve a consultar `ReviewAppointment`-
+        porque los dos llamadores (y `eligibility`) ya lo tienen a mano; una
+        tercera consulta por el mismo dato sería puro N+1.
+
+        `fase2_status`, opcional (m37, Tarea 9 de 2026-10-02-titulatec-
+        constancias-y-pendientes): el status de `ProcessPhase` del cotejo YA
+        LEÍDO por el llamador (`_fase_cotejo_status`), para el único camino
+        que lo necesita -`current.status == "attended"`-. `eligibility` ya lo
+        lee SIEMPRE (reglas 2/5) y lo expone en su dict de retorno
+        (`elig["fase2_status"]`); `_agenda_ctx` se lo pasa aquí para no
+        volver a consultar la MISMA fila de `ProcessPhase` que `eligibility`
+        acaba de leer -el N+1 que describe m37-. Por omisión -el centinela
+        `_FASE2_NO_PROVISTA`, nunca `None`: un proceso SIN fila de fase 2 es
+        un caso real y distinto de «no me lo pasaron»- se consulta aquí
+        mismo, como siempre: `mail_compose.py::_que_falta` y cualquier otro
+        llamador que no lo tenga a mano siguen funcionando IGUAL, sin tocar
+        su firma.
+        """
+        from itcj2.apps.titulatec.services.appointment_service import _ESTADOS_ACTIVOS
+
+        if current is None:
+            return False
+        if current.status in _ESTADOS_ACTIVOS:
+            return True
+        if current.status != "attended":
+            return False
+        if fase2_status is _FASE2_NO_PROVISTA:
+            fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
+        return fase2_status != "rejected"
+
+    @staticmethod
+    def eligibility(db: Session, process_id: int) -> dict:
+        """¿Puede agendar solo, y si no, por qué? (spec §3; regla 3 revisada
+        por D1 de 2026-09-29-titulatec-cotejo-espacios-design.md §2, que
+        revierte D2 del 2026-09-15, y ampliada a las LIBERACIONES por la spec
+        2026-10-01-titulatec-biblioteca-caja-design.md §4.4.4; regla 5 nueva
+        por D13 del spec 2026-09-29 §1, 2026-09-30, que revierte EN PARTE la
+        regla del auto-agendado del 2026-09-15)
+
+        Devuelve `{can_book, can_walkin, reason, cancellations,
+        blocked_by_cancellations, current, library_total, fase2_status}`.
+        `fase2_status` es el status de `ProcessPhase` del cotejo que las
+        reglas 2/5 YA leyeron (`_fase_cotejo_status`): se expone para que
+        `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin releerlo (m37,
+        Tarea 9 de 2026-10-02-titulatec-constancias-y-pendientes).
+
+        **El ORDEN de evaluación es parte del contrato**: la primera regla que
+        falla es la que se reporta, así que un proceso inactivo **y** sin
+        encuesta dice `proceso_inactivo`, no `sin_encuesta`. Reordenar la
+        cadena le cambia el mensaje al alumno aunque las siete sigan estando.
+
+        La regla 3 son las LIBERACIONES y las decide `ClearanceGate` (único
+        lector, invariante 2): se reporta su PRIMER bloqueo, y el gate los
+        ordena con la encuesta primero y luego el no adeudo de biblioteca.
+        Cinco caras (`_CLEARANCE_REASONS`): `sin_encuesta` (nunca la envió),
+        `encuesta_en_revision` (la envió, GTV la revisa),
+        `encuesta_con_observaciones` (GTV dejó observaciones) y, SOLO donde la
+        convocatoria exige el no adeudo, `biblioteca_en_revision` (el Centro
+        de Información lo revisa, o el proceso aún no tiene fila) y
+        `pago_pendiente` (pasa a Caja; `library_total` trae el total
+        CONGELADO de su fila para el mensaje, `None` en cualquier otro caso).
+        Las cinco bloquean `can_book` por igual, pero cada una le dice al
+        alumno algo distinto sobre qué falta.
+
+        **Regla 5, `cotejo_en_dictamen` (D13, 2026-09-30).** La cita vigente
+        está `attended` -el encargado ya cotejó- y la fase 2 sigue SIN
+        veredicto: ni `approved` (que ya cortó antes, en la regla 2) ni
+        `rejected`. Mientras Servicios Escolares no dictamine, el egresado no
+        agenda ni se presenta. Con la fase `rejected` esta regla NO se
+        dispara -ahí puede agendar otra, que es justo el caso «vino,
+        cotejamos y le faltaron papeles» que la feature del 2026-09-15 vino a
+        habilitar-, y `no_show`/`cancelled` tampoco la disparan -no están
+        `attended`-, así que los dos siguen agendando sin cambio.
+
+        `can_walkin` **no es** `can_book`: pasa con las reglas 1 a 5 y la 6 NO
+        lo apaga. El bloqueado por D9 perdió el derecho a *reservar un lugar*,
+        no el de *presentarse* a una atención que el encargado anunció abierta
+        a todos. Colgarlo de `can_book` le fabricaría un callejón sin salida —
+        una pantalla que solo dice «pídele la cita a tu encargado» el mismo día
+        en que su encargado atiende sin cita.
+
+        `current` es la cita VIGENTE (`get_for_process`), que puede venir en
+        `attended`, `no_show` o ninguna: los estados VIVOS disparan la regla 4
+        y un `attended` sin veredicto dispara la regla 5.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.appointment_service import (
+            _ESTADOS_ACTIVOS, AppointmentService,
+        )
+        from itcj2.apps.titulatec.services.clearance_gate import ClearanceGate
+
+        proc = db.get(TitulationProcess, int(process_id))
+        if proc is None:
+            # Fail-closed. No es una fila de la tabla de §3 porque no debería
+            # pasar; se reporta como proceso inactivo en vez de reventar.
+            return {"can_book": False, "can_walkin": False,
+                    "reason": "proceso_inactivo", "cancellations": 0,
+                    "blocked_by_cancellations": False, "current": None,
+                    "library_total": None, "fase2_status": None}
+
+        current = AppointmentService.get_for_process(db, proc.id)
+        # Un solo conteo para la cifra y para el bloqueo de D9 (`blocked_map`
+        # con los conteos en mano es el MISMO predicado que
+        # `is_blocked_by_cancellations`): perf 2026-10-07, antes eran dos.
+        conteos = SelfBookingService.cancellations_map(db, [proc])
+        cancelaciones = conteos[proc.id]
+        bloqueado = SelfBookingService.blocked_map(db, [proc], cancellations=conteos)[proc.id]
+        bloqueos = ClearanceGate.blockers(ClearanceGate.status(db, proc.id))
+        # Consulta ÚNICA para las reglas 2 y 5 -ver `_fase_cotejo_status`-.
+        fase2_status = SelfBookingService._fase_cotejo_status(db, proc)
+
+        # Las 7 reglas de §3, EN ORDEN.
+        reason = None
+        if proc.status != "active":
+            reason = "proceso_inactivo"
+        elif fase2_status == "approved":
+            reason = "fase_aprobada"
+        elif bloqueos:
+            reason = SelfBookingService._CLEARANCE_REASONS[bloqueos[0]]
+        elif current is not None and current.status in _ESTADOS_ACTIVOS:
+            reason = "tiene_cita"
+        elif (current is not None and current.status == "attended"
+              and fase2_status != "rejected"):
+            # D13: asistió, pero Servicios Escolares todavía no dictamina.
+            # `fase2_status == "approved"` ya cortó arriba en la regla 2, así
+            # que aquí solo quedan `None`/`pending`/`in_progress`/`in_review`.
+            reason = "cotejo_en_dictamen"
+        elif bloqueado:
+            reason = "bloqueado_por_cancelaciones"
+
+        # El total congelado de su fila de no adeudo, SOLO para el mensaje de
+        # `pago_pendiente` («Pasa a Caja … a pagar $X»). Leerlo no decide
+        # nada: el estado ya lo decidió el gate.
+        total = None
+        if reason == "pago_pendiente":
+            from itcj2.apps.titulatec.services.library_clearance_service import (
+                LibraryClearanceService,
+            )
+            fila = LibraryClearanceService.get_for_process(db, proc.id)
+            total = fila.total_amount if fila is not None else None
+
+        return {
+            "can_book": reason is None,
+            # Reglas 1 a 5 sí lo apagan; la 6 no. Escrito como una sola
+            # expresión para que no pueda divergir de `reason`.
+            "can_walkin": reason in (None, "bloqueado_por_cancelaciones"),
+            "reason": reason,
+            "cancellations": cancelaciones,
+            "blocked_by_cancellations": bloqueado,
+            "current": current,
+            "library_total": total,
+            # El status de fase 2 YA LEÍDO arriba (reglas 2/5), para que
+            # `_agenda_ctx` se lo pase a `cita_ocupa_el_cotejo` sin volver a
+            # consultar la MISMA fila de `ProcessPhase` (m37, Tarea 9 de
+            # 2026-10-02-titulatec-constancias-y-pendientes).
+            "fase2_status": fase2_status,
+        }
+
+    # ------------------------------------------------------------ §4.1: oferta
+    @staticmethod
+    def _owners_serving(db: Session, owner_ids: set, program_id: int | None) -> set:
+        """De esos dueños, los que ATIENDEN esa carrera (D3).
+
+        Es el predicado de alcance de `scope_service._program_ids_for_user`
+        recorrido al revés (carrera -> encargados), y se resuelve **llamando a
+        la función que ya existe**, no reescribiendo su join (`ProgramPosition`
+        ⋈ `Position` ⋈ `PositionAppRole` / `PositionAppPerm` ⋈ `UserPosition`
+        con `_active_position_filter()`). Una segunda implementación de ese
+        join diverge en tres meses y nadie se entera: el día que alguien añada
+        una vía de asignación, el alcance del encargado la respetaría y la
+        oferta del alumno no.
+
+        Llama a la versión EN LOTE, `_program_ids_for_users` (de la que la
+        singular es el caso de un usuario): dos consultas para todos los dueños
+        de la oferta, no dos por dueño (H10, spec 2026-10-05-titulatec-
+        rendimiento §3.5).
+        """
+        from itcj2.apps.titulatec.services.scope_service import _program_ids_for_users
+
+        if not owner_ids or not program_id:
+            return set()
+        carreras = _program_ids_for_users(db, owner_ids)
+        return {uid for uid in owner_ids if program_id in carreras.get(uid, ())}
+
+    @staticmethod
+    def _offerable_windows(db: Session, proc, *, ahora: datetime) -> list:
+        """`[(día, ventana)]` publicadas, vigentes y de la carrera del proceso.
+
+        UN solo predicado para los dos consumidores: `offer`, que las pinta, y
+        `_window_in_offer`, que revalida lo que llega del formulario. Si la
+        oferta y la escritura usaran consultas distintas, un día divergen y el
+        agujero se abre justo por el lado que nadie mira.
+
+        **No filtra por franjas libres a propósito.** Una ventana llena sigue
+        siendo «suya», y agendar en ella tiene que responder «esa franja se
+        llenó hace un momento» (`SlotFull`, que refresca el tablero), no un 404
+        de recurso ajeno.
+        """
+        from itcj2.apps.titulatec.models import CohortReviewDay, ReviewWindow
+
+        if proc is None or proc.program_id is None:
+            # Fail-closed, igual que el alcance del encargado: un proceso sin
+            # carrera no cae en el conjunto de nadie (ver `scope_service`).
+            return []
+        dias = (db.query(CohortReviewDay)
+                .filter(CohortReviewDay.cohort_id == proc.cohort_id,
+                        CohortReviewDay.is_closed.is_(False),
+                        CohortReviewDay.date >= ahora.date())
+                .order_by(CohortReviewDay.date).all())
+        if not dias:
+            return []
+        por_id = {d.id: d for d in dias}
+        ventanas = (db.query(ReviewWindow)
+                    .filter(ReviewWindow.review_day_id.in_(list(por_id)),
+                            ReviewWindow.status == "open",
+                            ReviewWindow.visibility.in_(_VISIBLES))
+                    .order_by(ReviewWindow.start_time, ReviewWindow.id).all())
+        if not ventanas:
+            return []
+        atienden = SelfBookingService._owners_serving(
+            db, {w.owner_user_id for w in ventanas}, proc.program_id)
+        return [(por_id[w.review_day_id], w) for w in ventanas
+                if w.owner_user_id in atienden]
+
+    @staticmethod
+    def _min_bookable_at(ahora: datetime | None = None) -> datetime:
+        """El primer instante reservable: `db_now() + MIN_LEAD` (D8)."""
+        ahora = ahora or db_now()
+        return ahora + timedelta(
+            minutes=SelfBookingService._settings().TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES)
+
+    @staticmethod
+    def _offerable_slots(db: Session, window, *, ahora: datetime | None = None,
+                         ocupacion: dict | None = None) -> list:
+        """Franjas -o lugar- LIBRES de una ventana `bookable`/`walkin` que
+        todavía admiten reserva.
+
+        Mismo corte que usa `book`, a propósito: si la oferta pintara una
+        franja (o un lugar) que la escritura va a rechazar, el egresado
+        pulsaría un botón que siempre falla y no sabría por qué.
+
+        Sin horario (D5, spec 2026-09-29-titulatec-cotejo-espacios-design.md
+        §3.3): `SlotService.free_slots_from` ya dice si queda lugar -una sola
+        franja, la apertura, con TODAS las citas vivas contando contra
+        `capacity`-, y aquí la anticipación mínima se mide contra el CIERRE
+        del espacio, no contra la apertura: es apartar lugar, no elegir hora.
+        Devuelve `[start_time]` o `[]`, nunca la apertura si el espacio está
+        lleno o cierra en menos del lapso mínimo.
+
+        `ocupacion` es la de ESTA ventana (`SlotService.occupancy_map`) cuando
+        quien llama ya la leyó para todas de una vez (`offer`); sin ella la
+        consulta aquí, una ventana.
+        """
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+
+        ahora = ahora or db_now()
+        minimo = SelfBookingService._min_bookable_at(ahora)
+        dia = window.review_day.date
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy(db, window)
+        libres = SlotService.free_slots_from(window, ocupacion)
+        if window.visibility == "walkin":
+            if not libres or datetime.combine(dia, window.end_time) < minimo:
+                return []
+            return libres
+        return [h for h in libres if datetime.combine(dia, h) >= minimo]
+
+    @staticmethod
+    def offer(db: Session, process_id: int) -> list[dict]:
+        """Los días y espacios ofrecibles, por día y dentro del día por encargado.
+
+        Forma::
+
+            [{"date": date,
+              "owners": [{"owner_id": int, "owner_name": str,
+                          "windows": [{"window_id", "visibility",
+                                       "start_time", "end_time",
+                                       "location", "slots": [time, ...],
+                                       # SOLO en walkin (D3/D4, §3.3):
+                                       "capacity": int,
+                                       "places_left": int,
+                                       "reservable": bool,
+                                       "motivo": "lleno" | "cierra_pronto" | None}]}]}]
+
+        Es el CATÁLOGO, no la puerta: quién puede reservar lo decide
+        `eligibility`, y los dos se consumen juntos en la pantalla del alumno.
+        Por eso la oferta incluye los `walkin` aunque el alumno esté bloqueado
+        por D9: puede presentarse aunque no pueda reservar.
+
+        Un `walkin` (D3: «sin horario · apartan lugar») viaja con `capacity`
+        (el total del espacio), `places_left` (nunca negativo: `capacity`
+        menos la ocupación TOTAL de `SlotService.occupancy_map`, que en `walkin`
+        cuenta toda cita viva bajo la apertura) y `reservable` -derivado de
+        `slots`, nunca de una cuenta aparte, para que las dos no puedan
+        divergir-. `slots` es `[start_time]` si se puede apartar lugar, `[]`
+        si está lleno o cierra en menos del lapso mínimo (D5). El que ya
+        TERMINÓ hoy sigue omitido por completo -mismo corte de siempre, ahora
+        también aplicado a un espacio que sí se puede reservar-: el corte por
+        DÍA (`date >= hoy`) no basta, a las 18:00 la pantalla seguiría
+        diciendo «abierto sin cita, 09:00-11:00» y mandaría al egresado a
+        caminar hasta un cubículo vacío. Vive aquí y no en la plantilla: la UI
+        pinta lo que recibe, no filtra datos.
+
+        `motivo` (revisión final, I-2) distingue POR QUÉ un `walkin` no
+        `reservable` no lo es -«lleno» son cosas distintas para el egresado:
+        `"lleno"` (`places_left == 0`, el encargado puede «Abrir más
+        lugares») contra `"cierra_pronto"` (sobran lugares, pero
+        `ahora + MIN_LEAD` ya pasó del cierre: nadie puede abrir nada, el
+        espacio simplemente ya no acepta reservas en línea). `None` cuando SÍ
+        es reservable. Se deriva de `places_left`/`reservable`, nunca de una
+        cuenta aparte, por la misma razón que `reservable` se deriva de
+        `slots`.
+
+        Una `bookable` sin franjas ofrecibles se omite: no es oferta, es ruido.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.core.models.user import User
+
+        proc = db.get(TitulationProcess, int(process_id))
+        ahora = db_now()
+        pares = SelfBookingService._offerable_windows(db, proc, ahora=ahora)
+        if not pares:
+            return []
+
+        duenos = {w.owner_user_id for _, w in pares}
+        nombres = {u.id: u for u in
+                   db.query(User).filter(User.id.in_(duenos)).all()}
+        # La ocupación de TODAS las ventanas ofrecidas con UN SELECT (H10,
+        # Ampliación de la spec 2026-10-05-titulatec-rendimiento §3.5): antes,
+        # una consulta por ventana -dos en un sin horario-. Es la regla única
+        # de `SlotService.occupancy_map`; aquí no se filtra por estado.
+        ocupacion = SlotService.occupancy_map(db, [w for _, w in pares])
+
+        por_dia: dict = {}
+        for dia, w in pares:
+            item = {"window_id": w.id, "visibility": w.visibility,
+                    "start_time": w.start_time, "end_time": w.end_time,
+                    "location": w.location, "slots": []}
+            if w.visibility == "bookable":
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
+                if not item["slots"]:
+                    continue
+            else:
+                if datetime.combine(dia.date, w.end_time) <= ahora:
+                    # Un `walkin` que YA TERMINÓ hoy deja de anunciarse. El
+                    # corte por DÍA (`date >= hoy`) no basta: a las 18:00 la
+                    # pantalla seguiría diciendo «abierto sin cita, 09:00-11:00»
+                    # y mandaría al egresado a caminar hasta un cubículo vacío.
+                    # Es el gemelo del corte por hora de las `bookable`, y vive
+                    # aquí —en la oferta— y no en la plantilla: la UI pinta lo
+                    # que recibe, no filtra datos.
+                    continue
+                item["slots"] = SelfBookingService._offerable_slots(
+                    db, w, ahora=ahora, ocupacion=ocupacion.get(w.id, {}))
+                capacidad = int(w.capacity or 1)
+                ocupados = ocupacion.get(w.id, {}).get(w.start_time, 0)
+                item["capacity"] = capacidad
+                item["places_left"] = max(0, capacidad - ocupados)
+                # Derivado de `slots` -que ya decidió lugar libre Y anticipación
+                # contra el CIERRE, D5- y no una cuenta aparte: con dos cuentas
+                # separadas un día divergen y el botón se pinta cuando el
+                # servidor ya va a rechazarlo.
+                item["reservable"] = bool(item["slots"])
+                # I-2 (revisión final): «lleno» (sin lugares, el encargado
+                # puede abrir más) es un caso distinto de «cierra pronto»
+                # (sobran lugares, pero ya no da tiempo de apartar en línea).
+                item["motivo"] = None if item["reservable"] else (
+                    "lleno" if item["places_left"] <= 0 else "cierra_pronto")
+            por_dia.setdefault(dia.date, {}).setdefault(w.owner_user_id, []).append(item)
+
+        salida = []
+        for fecha in sorted(por_dia):
+            grupos = por_dia[fecha]
+            orden = sorted(grupos, key=lambda uid: _nombre(nombres.get(uid)))
+            salida.append({
+                "date": fecha,
+                "owners": [{"owner_id": uid,
+                            "owner_name": _nombre(nombres.get(uid)),
+                            "windows": grupos[uid]} for uid in orden],
+            })
+        return salida
+
+    # ------------------------------------------------------------ §4.1: agendar
+    @staticmethod
+    def _window_in_offer(db: Session, process_id: int, window_id):
+        """La ventana **ofrecible** -`bookable` o `walkin`- de la oferta de ESE
+        proceso, o None.
+
+        **Control de seguridad crítico de la spec.** `window_id` llega en el
+        cuerpo del formulario, no en la ruta, así que el regresor estructural
+        `test_scope_guard.py` —que barre las rutas con `{process_id}`— no lo
+        ve. Sin esta revalidación, un egresado se sienta en la ventana de
+        cualquier encargado de cualquier carrera cambiando un número; es la
+        misma clase de agujero que dejó abierto el reparto masivo.
+
+        Se revalida contra el proceso del usuario autenticado, jamás contra un
+        id que venga del formulario. Desde D3/D4 (spec 2026-09-29 §3.3) un
+        `walkin` YA es agendable -el egresado aparta lugar sin hora-, así que
+        `_VISIBLES` (`bookable`, `walkin`) decide, no un literal repetido: es
+        el MISMO conjunto que ya filtra `_offerable_windows`, para que este
+        `in` nunca acepte algo que la oferta no ofreció.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        if not window_id:
+            return None
+        proc = db.get(TitulationProcess, int(process_id))
+        wid = int(window_id)
+        for _dia, w in SelfBookingService._offerable_windows(db, proc, ahora=db_now()):
+            if w.id == wid and w.visibility in _VISIBLES:
+                return w
+        return None
+
+    @staticmethod
+    def book(db: Session, process_id: int, window_id, slot_start, actor_id: int):
+        """El egresado toma una franja -o aparta lugar en un `walkin`-. Dueña
+        de la transacción.
+
+        El orden importa (§4.1):
+
+        1. `eligibility` se re-verifica **aquí dentro**, no antes: lo que pintó
+           la UI es informativo y pudo quedarse rancio.
+        2. La ventana tiene que existir, estar `open`, ser `bookable` o
+           `walkin` (D3/D4) y pertenecer a la oferta de ESTE proceso
+           (`_window_in_offer`).
+        3. La anticipación mínima se mide contra `db_now()` (D8): en
+           `bookable` contra la FRANJA elegida; en `walkin` (D5) contra el
+           CIERRE del espacio, y el `slot_start` que haya mandado el
+           formulario se IGNORA -no hay hora que elegir, se ignora ANTES de
+           mirar si venía vacío, así que un walkin nunca levanta
+           `MissingSchedule`- y se reemplaza por `ventana.start_time`, la
+           misma franja única que ya usa `SlotService.slots` para un `walkin`.
+        4. Se delega en `AppointmentService.create(..., booked_by='student')`,
+           que aporta las guardas duras —liberaciones (`ClearanceGate`), día
+           habilitado, franja real, cupo, lock de ventana y advisory lock del
+           proceso, con la re-comprobación de D4 DENTRO del lock que cierra el
+           TOCTOU del doble clic—. **No se reimplementan aquí.** Es también
+           quien decide `SlotFull` si dos egresados apartan el último lugar a
+           la vez.
+        5. No notifica a nadie: al alumno porque acaba de pulsar el botón
+           (`create` lo calla cuando el actor es el propio alumno) y al
+           encargado porque D11 dice que se entera por su tablero.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.appointment_errors import (
+            AppointmentConflict, EnrollmentRevoked, MissingSchedule,
+        )
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+
+        # Que el proceso sea SUYO, antes que nada. Paridad con `cancel`: la
+        # ruta resuelve el proceso del usuario autenticado, pero el service no
+        # se fía de eso. Además la supresión de la notificación de `create`
+        # depende EN SILENCIO de este emparejamiento — avisar o no al alumno se
+        # decide comparando el actor con `student_id`.
+        #
+        # Va ANTES de `eligibility` y no después: al revés, un `process_id`
+        # ajeno recibiría `SelfBookingNotAllowed` con el motivo de ESE proceso,
+        # que es justo el oráculo que el 404 uniforme viene a cerrar (mismo
+        # criterio que `scope_service`: los ids son enteros secuenciales).
+        proc = db.get(TitulationProcess, int(process_id))
+        if proc is None or int(actor_id) != int(proc.student_id):
+            raise NotYours("Ese proceso no es tuyo.")
+
+        elig = SelfBookingService.eligibility(db, process_id)
+        if not elig["can_book"]:
+            raise SelfBookingNotAllowed(
+                elig["reason"],
+                SelfBookingService.message_for(elig["reason"],
+                                               cancellations=elig["cancellations"],
+                                               total=elig.get("library_total")))
+
+        ventana = SelfBookingService._window_in_offer(db, process_id, window_id)
+        if ventana is None:
+            raise NotYours("Ese espacio ya no está disponible para agendar.")
+
+        minutos = SelfBookingService._settings().TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES
+        if ventana.visibility == "walkin":
+            # D3/D4: aparta LUGAR, no hora. Lo que haya mandado el formulario
+            # se descarta -antes de comprobar si venía vacío- y se sienta a la
+            # apertura, la misma franja única que ofrece `offer()` en `slots`.
+            slot_start = ventana.start_time
+            cierra = datetime.combine(ventana.review_day.date, ventana.end_time)
+            if cierra < SelfBookingService._min_bookable_at():
+                raise SlotTooSoon(minutos, sin_horario=True)
+        else:
+            if slot_start is None:
+                raise MissingSchedule()
+            cuando = datetime.combine(ventana.review_day.date, slot_start)
+            if cuando < SelfBookingService._min_bookable_at():
+                raise SlotTooSoon(minutos)
+
+        # El conflicto de D4 puede llegar TAMBIÉN por debajo de `eligibility`, y
+        # cuando llega trae el mensaje equivocado. `eligibility` corre fuera de
+        # los locks, así que dos clics concurrentes en «Agendar» la pasan los
+        # dos y el segundo choca contra la guarda de D4 de `create` —o, si la
+        # esquiva por tiempos, contra la de `_open_new_attempt`, ya dentro del
+        # `pg_advisory_xact_lock`—. Las dos levantan `AppointmentConflict`, cuyo
+        # texto está escrito para el ENCARGADO: «Ese alumno ya tiene una cita
+        # activa. Muévela o cancélala antes de agendar otra.» Y como
+        # `refresca_la_vista` es True, eso sale 200 + `X-Tt-Notice` y se le
+        # pinta al propio egresado, que se lee a sí mismo en tercera persona.
+        #
+        # Se re-lanza como la regla 4 de §3 —que es lo que ese choque SIGNIFICA
+        # en la capa del alumno— con el mismo texto que ya daba el camino
+        # secuencial. Los dos caminos dicen ahora lo mismo; que el secuencial ya
+        # estuviera bien es justo por lo que este otro pasó desapercibido.
+        #
+        # El comportamiento HTTP no cambia: `SelfBookingNotAllowed` enciende
+        # `refresca_la_vista` para `tiene_cita`, igual que `AppointmentConflict`,
+        # así que la ruta sigue respondiendo 200 con el panel fresco — que es lo
+        # correcto, porque la pantalla del alumno SÍ está rancia.
+        #
+        # Lo mismo con la revocación: si Servicios Escolares revoca mientras el
+        # clic espera el lock, `create` levanta `EnrollmentRevoked` (dentro del
+        # advisory, `SlotService._open_new_attempt` punto 5), cuyo texto es del
+        # encargado («La inscripción de este alumno…»). Aquí significa la
+        # regla 1 de §3, y dice lo que ya decía el camino secuencial.
+        try:
+            return AppointmentService.create(
+                db, process_id, window_id=ventana.id, slot_start=slot_start,
+                created_by_id=actor_id, booked_by="student")
+        except AppointmentConflict:
+            raise SelfBookingNotAllowed(
+                "tiene_cita", SelfBookingService.message_for("tiene_cita"))
+        except EnrollmentRevoked:
+            raise SelfBookingNotAllowed(
+                "proceso_inactivo", SelfBookingService.message_for("proceso_inactivo"))
+
+    # ----------------------------------------------------------- §4.1: cancelar
+    @staticmethod
+    def _within_cancel_window(appt) -> bool:
+        """¿Estamos todavía a más de `MIN_LEAD` de la cita -o del CIERRE, en
+        un `walkin`-? (D8, D5)
+
+        La desigualdad vive AQUÍ y en ningún otro sitio. La consumen `cancel`,
+        que la niega para levantar `CancelTooLate`, y `can_self_cancel`, que es
+        quien decide si la pantalla pinta el botón «Cancelar mi cita». Con la
+        cuenta repetida en la plantilla, el botón se ofrecería justo cuando el
+        servidor ya va a rechazarlo.
+
+        `SlotService.is_walkin_reservation` decide la referencia: un lugar
+        apartado en un `walkin` (D5, spec 2026-09-29 §3.3) mide el corte
+        contra el CIERRE del espacio, no contra `scheduled_at` -que ahí es la
+        APERTURA, no una hora de cita-. La cita de legado sentada a mano a
+        OTRA hora dentro de un `walkin` (la regla de legado de D11) sigue
+        siendo una cita normal: mide contra su propia `scheduled_at`, como
+        siempre.
+        """
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+
+        minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
+        if SlotService.is_walkin_reservation(appt):
+            referencia = datetime.combine(appt.scheduled_at.date(), appt.window.end_time)
+        else:
+            referencia = appt.scheduled_at
+        return db_now() <= referencia - timedelta(minutes=minutos)
+
+    @staticmethod
+    def can_self_cancel(appt) -> bool:
+        """¿Se le ofrece al alumno el botón «Cancelar mi cita»?
+
+        Estado cancelable **y** dentro de la ventana de 2 h. Los dos, y en este
+        orden, son lo que `cancel` va a exigir: la transición la valida
+        `AppointmentService.cancel` y la ventana la valida esta capa.
+
+        NO se usa dentro de `cancel` tal cual, a propósito: allí un estado no
+        cancelable tiene que salir por `InvalidTransition` («esa cita ya cambió
+        de estado»), no por `CancelTooLate` («ya faltan menos de 2 horas»), que
+        sería un mensaje falso.
+        """
+        return (appt is not None
+                and appt.status in ("scheduled", "confirmed")
+                and SelfBookingService._within_cancel_window(appt))
+
+    @staticmethod
+    def cancel(db: Session, appt, actor_id: int, reason: str | None = None):
+        """El egresado cancela su propia cita. Dueña de la transacción.
+
+        **Envuelve** a `AppointmentService.cancel`, no la duplica (D13). Lo
+        único propio de esta capa son dos cosas:
+
+        * que la cita sea SUYA (defensa en profundidad: la ruta ya resuelve el
+          proceso del usuario autenticado, pero el service no confía en eso);
+        * la ventana de 2 h de D8.
+
+        Todo lo demás —que el estado admita la cancelación, el sellado de
+        `cancelled_at` / `cancelled_by_id` / `cancel_reason`, el
+        `ProcessEvent`, dejar la fila fuera de vigencia y devolver la franja al
+        pozo (D12)— es de la capa compartida, que también usa el encargado. El
+        encargado no pasa por aquí y por eso no tiene ventana de tiempo.
+
+        Tampoco notifica: `AppointmentService.cancel` avisa al alumno salvo que
+        el actor sea él mismo, y aquí el actor es siempre él.
+        """
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.appointment_service import AppointmentService
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+
+        proc = db.get(TitulationProcess, appt.process_id)
+        if proc is None or int(actor_id) != int(proc.student_id):
+            raise NotYours("Esa cita no es tuya.")
+
+        minutos = SelfBookingService._settings().TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES
+        # Spec, literal: puede cancelar mientras
+        # `db_now() <= scheduled_at - MIN_LEAD` -o, en un lugar apartado sin
+        # horario (D5), `db_now() <= cierre - MIN_LEAD`. La desigualdad vive en
+        # `_within_cancel_window`, que es lo MISMO que mira la pantalla para
+        # decidir si pinta el botón: dos cuentas separadas acabarían ofreciendo
+        # un botón que el servidor rechaza.
+        if not SelfBookingService._within_cancel_window(appt):
+            raise CancelTooLate(minutos, sin_horario=SlotService.is_walkin_reservation(appt))
+
+        return AppointmentService.cancel(db, appt, actor_id, reason)

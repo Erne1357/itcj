@@ -1,0 +1,35 @@
+{# Recordatorio de los documentos iniciales (spec 2026-09-28 §5, #10). Lo
+   encola el barrido diario a los 3 días de la última actividad (inicio de la
+   fase 1, última subida o último rechazo), luego cada 7, máximo 3. Se arma con
+   el estado ACTUAL al enviar (D8): si ya no falta nada ni hay nada por
+   corregir, no sale.
+   Contexto: first_name, link, faltantes = [nombre], por_corregir = [nombre]. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if faltantes %}Te faltan documentos por subir{% else %}Te faltan documentos por corregir{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Tu trámite de titulación sigue en <strong>Documentos iniciales</strong> y te está esperando:
+</p>
+{% if faltantes %}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Te faltan por subir</p>
+<ul style="margin:0 0 20px;padding-left:20px;">
+  {%- for nombre in faltantes %}
+  <li style="margin:0 0 6px;">{{ nombre|e }}</li>
+  {%- endfor %}
+</ul>
+{% endif %}
+{% if por_corregir %}
+<p style="margin:0 0 8px;color:#B71C1C;font-weight:700;">Necesitan corrección</p>
+<ul style="margin:0 0 20px;padding-left:20px;">
+  {%- for nombre in por_corregir %}
+  <li style="margin:0 0 6px;">{{ nombre|e }}</li>
+  {%- endfor %}
+</ul>
+<p style="margin:0 0 24px;">
+  En la plataforma ves el motivo de cada uno. Al volver a subirlos regresan solos a revisión.
+</p>
+{% endif %}
+{{ m.boton(link, "Ver mis documentos") }}
+{% endblock %}

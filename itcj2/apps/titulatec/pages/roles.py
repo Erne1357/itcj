@@ -23,7 +23,7 @@ def _first_name(user_id: int):
 
 
 @router.get("/sinodal/", name="titulatec.pages.sinodal.home")
-async def sinodal_home(
+def sinodal_home(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.sinodal"])),
 ):
@@ -34,7 +34,7 @@ async def sinodal_home(
 
 
 @router.get("/vinculacion/", name="titulatec.pages.vinculacion.home")
-async def vinculacion_home(
+def vinculacion_home(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.dashboard.vinculacion"])),
 ):

@@ -1,0 +1,15 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Encuestas · TitulaTec{% endblock %}
+{% block admin_view %}surveys{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Encuesta de egresados</span>
+  <h1 class="tt-display tt-h1">Respuestas</h1>
+  <p class="mb-0">Quien contesta sin sesión cuenta para la estadística. El requisito de
+     cotejo ya no lo acredita el envío: lo libera Gestión Tecnológica y Vinculación desde
+     <a href="/titulatec/admin/liberaciones">Liberaciones</a>.</p>
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/surveys_body.html" %}
+</div>
+{% endblock %}

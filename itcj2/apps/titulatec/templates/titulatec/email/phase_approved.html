@@ -1,0 +1,30 @@
+{# Fase aprobada, correo individual (spec 2026-09-28 §5, #2). `variant`:
+   completed («¡Proceso completado!»), handoff (la fase siguiente ya la atiende
+   el Departamento de Titulación en T-soft) o advanced («Avanzaste a …»). El
+   texto del corte es la misma idea que `_HANDOFF_COPY` de `pages/student.py`,
+   escrito aquí a propósito: un service no importa `pages/`. La fase
+   `initial_docs` NO usa esta plantilla: su avance sale en `docs_review.html`.
+   Contexto: first_name, link, variant, phase_name, next_name. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if variant == "completed" %}¡Proceso completado!{% elif variant == "handoff" %}Concluiste tu trámite con Servicios Escolares{% else %}Avanzaste de fase{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+{% if variant == "completed" %}
+<p style="margin:0 0 24px;">
+  <strong>¡Proceso completado!</strong> Se aprobó tu {{ phase_name|e }} y con ella
+  concluiste todas las fases de tu proceso de titulación. ¡Felicidades!
+</p>
+{% elif variant == "handoff" %}
+<p style="margin:0 0 20px;">
+  Se aprobó tu {{ phase_name|e }}: <strong>concluiste tu trámite con Servicios Escolares</strong>.
+</p>
+{{ m.aviso("Tu proceso continúa en el Departamento de Titulación, en el sistema T-soft. El departamento te contactará por correo para darte tu usuario.") }}
+{% else %}
+<p style="margin:0 0 24px;">
+  Se aprobó tu {{ phase_name|e }}. <strong>Avanzaste a {{ next_name|e }}</strong>:
+  entra a la plataforma para ver qué sigue.
+</p>
+{% endif %}
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

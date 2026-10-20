@@ -1,10 +1,24 @@
 {# Resumen de la convocatoria. Contenido interno del tab (sin wrapper #cohort-tab-body). #}
 <div class="tt-kpis tt-stagger">
-  <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ summary.total }}</div></div>
+  {# Revocadas fuera del total (`_cohort_summary_ctx`); se dicen aquí para que
+     el número no discrepe en silencio con la pestaña Alumnos. #}
+  <div class="tt-kpi"><div class="tt-kicker">Alumnos</div><div class="num">{{ summary.total }}{% if summary.cancelled %} <small>+{{ summary.cancelled }} revocada{{ 's' if summary.cancelled != 1 }}</small>{% endif %}</div></div>
   <div class="tt-kpi"><div class="tt-kicker">Completados</div><div class="num">{{ summary.completed }} <small>{{ summary.pct_completed }}%</small></div></div>
   <div class="tt-kpi"><div class="tt-kicker">Con cita</div><div class="num">{{ summary.with_appt }}</div></div>
   <div class="tt-kpi"><div class="tt-kicker">Días de cotejo</div><div class="num">{{ summary.review_days }}</div></div>
 </div>
+
+{# La ventana va ARRIBA de la distribución por fase: es lo único accionable del
+   tab y lo que la jefa viene a tocar. El contexto (`window`, `cohort_id`,
+   `can_edit_window`) lo pone `_window_ctx` dentro de la rama `resumen` de
+   `cohort_detail`. #}
+<div class="mt-3">
+  {% include "titulatec/partials/cohort/cohort_window.html" %}
+</div>
+
+{# Donación voluntaria de libro (D5, Tarea 11): el contexto (`donation`,
+   `can_edit_donation`) lo pone `_donation_ctx`, misma rama `resumen`. #}
+{% include "titulatec/partials/cohort/cohort_donation.html" %}
 
 <div class="tt-card mt-3">
   <div class="d-flex align-items-center justify-content-between mb-2">

@@ -3,8 +3,12 @@ import logging
 from typing import Iterable, Optional, Tuple, Set, Dict
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_, func, union
+from sqlalchemy import event as sa_event
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+
+from itcj2.observability.tracing import traced
 
 from itcj2.core.models.app import App
 from itcj2.core.models.role import Role
@@ -44,8 +48,63 @@ def _bust_user_app(user_id: int, app_key: str) -> None:
 # Lookups básicos
 # ---------------------------
 
+_APPS_MEMO = "itcj2.core.active_apps_by_key"
+
+
+@sa_event.listens_for(Session, "after_commit")
+@sa_event.listens_for(Session, "after_soft_rollback")
+def _forget_apps_memo(session, *_args) -> None:
+    """La memoria de apps vale dentro de UNA transacción: un commit o cualquier
+    rollback (también el de un savepoint, que puede deshacer el alta de una
+    app sin expirar la instancia que ya se había leído) la tira."""
+    session.info.pop(_APPS_MEMO, None)
+
+
+def _apps_memo(db: Session) -> Optional[dict]:
+    """Apps activas por `key`, recordadas en `db.info` hasta el siguiente
+    commit/rollback (`_forget_apps_memo`).
+
+    Perf 2026-10-07: `user_roles_in_app` buscaba la app dos veces por llamada
+    (la otra en `user_roles_via_positions`), y `/user/me` o `/itcj/m/` lo
+    hacían por cada app: 16-22 SELECT a `core_apps` por petición. La tabla es
+    diminuta, así que en el primer uso se cargan TODAS las activas de una vez.
+    Las instancias son las del identity map de ESTA sesión (no se comparten
+    entre sesiones). Una sesión sin `info` real (un MagicMock en pruebas) no
+    usa memoria y consulta como siempre.
+    """
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return None
+    memo = info.get(_APPS_MEMO)
+    if memo is None:
+        memo = {a.key: a for a in db.query(App).filter_by(is_active=True).all()}
+        info[_APPS_MEMO] = memo
+    return memo
+
+
 def get_app_by_key(db: Session, app_key: str) -> Optional[App]:
-    return db.query(App).filter_by(key=app_key, is_active=True).first()
+    memo = _apps_memo(db)
+    if memo is None:
+        return db.query(App).filter_by(key=app_key, is_active=True).first()
+    app = memo.get(app_key)
+    if app is not None:
+        try:
+            # La instancia es la del identity map: si en esta sesión se
+            # desactivó o se le cambió la key, lo refleja (y tras un commit se
+            # recarga sola). Ya no persistente (un rollback deshizo su alta,
+            # borrada o desligada) -> se vuelve a consultar.
+            if (sa_inspect(app).persistent and app.is_active
+                    and app.key == app_key):
+                return app
+        except Exception:
+            pass
+        memo.pop(app_key, None)
+    # No estaba (creada después de cargar la memoria, o inexistente/inactiva):
+    # la consulta de siempre, y se recuerda si aparece.
+    app = db.query(App).filter_by(key=app_key, is_active=True).first()
+    if app is not None:
+        memo[app_key] = app
+    return app
 
 def get_or_404_app(db: Session, app_key: str) -> App:
     app = get_app_by_key(db, app_key)
@@ -409,27 +468,30 @@ def effective_perms(db: Session, user_id: int, app_key: str, include_positions: 
     ``effective = (direct | via_roles) - denied`` — un deny explícito (allow=False)
     gana sobre cualquier otorgamiento.
     """
-    roles = user_roles_in_app(db, user_id, app_key, include_positions)
-    direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
-    via = perms_via_roles(db, user_id, app_key, include_positions)
-    denied = denied_perms_in_app(db, user_id, app_key, include_positions)
-    effective = (direct | via) - denied
+    # Su propio span: `/itcj/profile` lo llama una vez por app y cada llamada
+    # son ~15 consultas; en Tempo se veía como una pared de SELECT sin dueño.
+    with traced("authz.effective_perms", {"itcj.app_key": app_key}):
+        roles = user_roles_in_app(db, user_id, app_key, include_positions)
+        direct = user_direct_perms_in_app(db, user_id, app_key, include_positions)
+        via = perms_via_roles(db, user_id, app_key, include_positions)
+        denied = denied_perms_in_app(db, user_id, app_key, include_positions)
+        effective = (direct | via) - denied
 
-    result = {
-        "roles": sorted(list(roles)),
-        "direct_perms": sorted(list(direct)),
-        "via_roles": sorted(list(via)),
-        "denied": sorted(list(denied)),
-        "effective": sorted(list(effective)),
-    }
+        result = {
+            "roles": sorted(list(roles)),
+            "direct_perms": sorted(list(direct)),
+            "via_roles": sorted(list(via)),
+            "denied": sorted(list(denied)),
+            "effective": sorted(list(effective)),
+        }
 
-    # Si se incluyeron puestos, agregar desglose
-    if include_positions:
-        result["roles_via_positions"] = sorted(list(user_roles_via_positions(db, user_id, app_key)))
-        result["perms_via_positions_direct"] = sorted(list(user_perms_via_positions_direct(db, user_id, app_key)))
-        result["perms_via_position_roles"] = sorted(list(user_perms_via_position_roles(db, user_id, app_key)))
+        # Si se incluyeron puestos, agregar desglose
+        if include_positions:
+            result["roles_via_positions"] = sorted(list(user_roles_via_positions(db, user_id, app_key)))
+            result["perms_via_positions_direct"] = sorted(list(user_perms_via_positions_direct(db, user_id, app_key)))
+            result["perms_via_position_roles"] = sorted(list(user_perms_via_position_roles(db, user_id, app_key)))
 
-    return result
+        return result
 
 def list_roles(db: Session) -> Iterable[str]:
     return [r[0] for r in db.query(Role.name).order_by(Role.name.asc()).all()]

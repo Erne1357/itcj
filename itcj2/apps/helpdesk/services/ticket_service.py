@@ -3,6 +3,7 @@ import os
 
 from fastapi import HTTPException
 from sqlalchemy import and_, case, or_
+from sqlalchemy import event as sa_event
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.orm.attributes import flag_modified
 from werkzeug.utils import secure_filename
@@ -21,6 +22,37 @@ from itcj2.core.models.department import Department
 from itcj2.models.base import paginate
 
 logger = logging.getLogger(__name__)
+
+
+# Perf 2026-10-07: la secretaría del Centro de Cómputo se pedía en CADA
+# `list_tickets`/`can_user_view_ticket`/`_summary_visible_departments`, y una
+# página hace varias en la misma sesión (asignar tickets: 3 listas; dashboard
+# del técnico: 4). Se recuerda en `db.info` hasta el siguiente commit o
+# rollback (también de savepoint), como la memoria de apps de core.
+_SECRETARY_CC_MEMO = "itcj2.helpdesk.secretary_cc_ids"
+
+
+@sa_event.listens_for(Session, "after_commit")
+@sa_event.listens_for(Session, "after_soft_rollback")
+def _forget_secretary_cc_memo(session, *_args) -> None:
+    session.info.pop(_SECRETARY_CC_MEMO, None)
+
+
+def _secretary_cc_ids(db: Session) -> set:
+    """Ids de usuarios con puesto `secretary_comp_center` activo.
+
+    Una sesión sin `info` real (un MagicMock en pruebas) no memoriza.
+    """
+    from itcj2.core.services.authz_service import _get_users_with_position
+
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return set(_get_users_with_position(db, ['secretary_comp_center']))
+    memo = info.get(_SECRETARY_CC_MEMO)
+    if memo is None:
+        memo = frozenset(_get_users_with_position(db, ['secretary_comp_center']))
+        info[_SECRETARY_CC_MEMO] = memo
+    return set(memo)
 
 
 # ==================== GUARDAR FOTO DEL TICKET ====================
@@ -331,10 +363,169 @@ _SORT_CLAUSES = {
 
 
 # ==================== LISTAR TICKETS ====================
-def list_tickets(
+def department_scope_ids(db, user_id: int) -> set[int]:
+    """Los departamentos cuyos tickets alcanza este usuario. Aditivo.
+
+      * `read.department` -> sus departamentos por PROCEDENCIA (los de los puestos
+        que le otorgan helpdesk), en plural.
+      * `read.subtree`    -> además, sus sub-departamentos.
+
+    Es el ÚNICO sitio donde se decide esto. Lo consumen la visibilidad de
+    `list_tickets`, `can_user_view_ticket` y el filtro del dashboard de
+    secretaría. Cuando el dashboard calculaba su propio conjunto por su cuenta
+    —el subárbol del departamento agnóstico— filtraba por un conjunto distinto
+    del que la visibilidad permitía: a una secretaría le sobraba anchura muerta,
+    y a un jefe con `read.subtree` un filtro exacto le habría borrado sus
+    sub-departamentos (medido: 486 tickets -> 20).
+    """
+    from itcj2.core.services.departments_service import app_departments
+    from itcj2.core.services.scope_service import subtree_scope_for
+
+    dept_ids: set[int] = set()
+    if _tiene_scope_departamental(db, user_id):
+        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
+    dept_ids |= subtree_scope_for(db, user_id, "helpdesk",
+                                  "helpdesk.tickets.api.read.subtree")
+    return dept_ids
+
+
+def _tiene_scope_departamental(db, user_id: int) -> bool:
+    """¿Puede leer los tickets de SU departamento?
+
+    Se pregunta por el PERMISO (`helpdesk.tickets.api.read.department`), no por
+    el rol. Antes era `'department_head' in user_roles`, y ahí se caían las
+    secretarías: tienen el permiso y nunca entraban a la rama, así que solo veían
+    los tickets donde eran solicitantes o asignadas. No saltaba a la vista porque
+    la secretaría levanta casi todos los tickets de su departamento — una veía 20
+    de los 21 del suyo, y el que faltaba era el que había creado otra persona.
+
+    Comprobado sobre la base antes de cambiarlo: 0 personas tienen el rol
+    `department_head` sin este permiso, así que nadie pierde alcance; lo ganan
+    las 28 secretarías a las que el DML ya se lo había concedido.
+    """
+    from itcj2.core.services.authz_service import effective_perm_set
+    return "helpdesk.tickets.api.read.department" in effective_perm_set(db, user_id, "helpdesk")
+
+
+def _LIST_LOAD_OPTIONS():
+    """Relaciones de uno que `Ticket.to_dict(include_relations=True)` lee, en
+    lote (`selectinload`: una consulta por relación, no una por ticket). El rol
+    de `resolved_by` va porque `User.to_dict()` lo pinta."""
+    from sqlalchemy.orm import selectinload
+
+    return (
+        selectinload(Ticket.requester),
+        selectinload(Ticket.assigned_to),
+        selectinload(Ticket.resolved_by).selectinload(User.role),
+        selectinload(Ticket.created_by_user),
+        selectinload(Ticket.updated_by_user),
+        selectinload(Ticket.requester_department),
+        selectinload(Ticket.category),
+        selectinload(Ticket.split_from),
+    )
+
+
+def prefetch_for_dict(db: Session, tickets) -> None:
+    """Carga EN LOTE lo que `to_dict(include_relations=True)` pide por ticket a
+    relaciones `lazy='dynamic'` (que no admiten `selectinload`): colaboradores
+    (con su usuario y quién los agregó) y equipos (con categoría, asignado y
+    grupo). Antes eran ~5 consultas por ticket (listar + contar colaboradores,
+    listar equipos DOS veces + contarlos) más una por equipo: el technician
+    dashboard hacía 375 consultas (rendimiento 2026-10-07).
+
+    Deja el resultado en `ticket._hd_prefetch`; `to_dict` lo usa si existe. Es
+    una foto del momento: quien llama debe `clear_prefetch` al terminar de
+    serializar, para que un `to_dict` posterior en la misma sesión no lea datos
+    viejos. Mismo orden que las relaciones dinámicas: colaboradores por
+    `added_at` (y `id` para desempatar), equipos por `id`.
+    """
+    if not tickets:
+        return
+    from collections import defaultdict
+
+    from sqlalchemy.orm import selectinload
+
+    from itcj2.apps.helpdesk.models.collaborator import TicketCollaborator
+    from itcj2.apps.helpdesk.models.inventory_item import InventoryItem
+    from itcj2.apps.helpdesk.models.ticket_inventory_item import TicketInventoryItem
+
+    ids = [t.id for t in tickets]
+    colaboradores = defaultdict(list)
+    for c in (
+        db.query(TicketCollaborator)
+        .filter(TicketCollaborator.ticket_id.in_(ids))
+        .options(selectinload(TicketCollaborator.user),
+                 selectinload(TicketCollaborator.added_by))
+        .order_by(TicketCollaborator.ticket_id, TicketCollaborator.added_at,
+                  TicketCollaborator.id)
+    ):
+        colaboradores[c.ticket_id].append(c)
+
+    equipos = defaultdict(list)
+    for ti in (
+        db.query(TicketInventoryItem)
+        .filter(TicketInventoryItem.ticket_id.in_(ids))
+        .options(selectinload(TicketInventoryItem.inventory_item).options(
+            selectinload(InventoryItem.category),
+            selectinload(InventoryItem.assigned_to_user),
+            selectinload(InventoryItem.group),
+        ))
+        .order_by(TicketInventoryItem.id)
+    ):
+        equipos[ti.ticket_id].append(ti)
+
+    for t in tickets:
+        t._hd_prefetch = {
+            "collaborators": colaboradores.get(t.id, []),
+            "ticket_items": equipos.get(t.id, []),
+        }
+
+
+def clear_prefetch(tickets) -> None:
+    """Quita la foto de `prefetch_for_dict` (ver su docstring)."""
+    for t in tickets or ():
+        t.__dict__.pop("_hd_prefetch", None)
+
+
+def _visibility_clause(db: Session, user_id: int, user_roles):
+    """Qué tickets puede ver ``user_id`` en una lista: el criterio SQL, o
+    ``None`` si los ve todos (admin, secretaría del Centro de Cómputo, técnicos).
+
+    Es el bloque de visibilidad de `list_tickets` tal cual, sacado para que
+    `list_ticket_sections` lo calcule UNA vez y lo aplique a cada sección. Los
+    roles de acceso total se revisan antes de preguntar por la secretaría: las
+    tres ramas daban lo mismo (`pass`), así que el orden no cambia el resultado
+    y un admin o un técnico se ahorra la consulta de puestos.
+    """
+    if 'admin' in user_roles or 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
+        return None
+    if user_id in _secretary_cc_ids(db):
+        return None
+
+    # Scope departamental/subárbol. El criterio vive en `department_scope_ids`,
+    # que es también el que usa el dashboard de secretaría para su filtro.
+    dept_ids = department_scope_ids(db, user_id)
+
+    # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
+    # solicitante / me lo asignaron", no lo reemplaza. `requester_department_id`
+    # es un snapshot al crear, así que quien cambia de departamento conserva
+    # tickets propios sellados con el departamento anterior; en AND se le
+    # borrarían de "Mis Tickets". Mismo conjunto que `can_user_view_ticket`
+    # → lista y detalle no se desalinean.
+    visibility = [
+        Ticket.requester_id == user_id,
+        Ticket.assigned_to_user_id == user_id,
+    ]
+    if dept_ids:
+        visibility.append(Ticket.requester_department_id.in_(dept_ids))
+    return or_(*visibility)
+
+
+def _apply_list_filters(
     db: Session,
+    query,
     user_id: int,
-    user_roles: list,
+    *,
     status=None,
     area: str = None,
     priority: str = None,
@@ -349,54 +540,12 @@ def list_tickets(
     created_from=None,
     created_to=None,
     search: str = None,
-    sort: str = 'recent',
-    page: int = 1,
-    per_page: int = 20,
-    include_metrics: bool = False
-) -> dict:
+):
+    """Los filtros de `list_tickets` (todo menos visibilidad, orden y paginado).
+
+    Compartido con `list_ticket_sections` para que una sección del dashboard
+    filtre exactamente igual que la lista que reemplaza.
     """
-    Lista tickets según filtros y permisos del usuario.
-    """
-    from itcj2.core.services.authz_service import _get_users_with_position
-
-    query = db.query(Ticket)
-
-    secretary_comp_center = _get_users_with_position(db, ['secretary_comp_center'])
-
-    if 'admin' in user_roles or user_id in secretary_comp_center:
-        pass
-    elif 'tech_desarrollo' in user_roles or 'tech_soporte' in user_roles:
-        pass
-    else:
-        # Scope departamental/subárbol: jefe de depto (su depto) + cualquiera que
-        # tenga helpdesk.tickets.api.read.subtree (su depto + sub-departamentos, por
-        # procedencia). Aditivo: sin .subtree, el jefe de depto ve su depto como antes.
-        from itcj2.core.services.departments_service import app_departments
-        from itcj2.core.services.scope_service import subtree_scope_for
-
-        dept_ids: set[int] = set()
-        if 'department_head' in user_roles:
-            # TODOS los departamentos que le dan acceso a helpdesk, no uno solo:
-            # una secretaria de dos departamentos veía los tickets de uno nada más,
-            # y con un puesto en un departamento ajeno a la app podía ver el
-            # equivocado (el desempate por antigüedad no miraba la app).
-            dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
-        dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
-
-        # La propiedad NUNCA se pierde: el scope departamental SUMA sobre "soy el
-        # solicitante / me lo asignaron", no lo reemplaza. `requester_department_id`
-        # es un snapshot al crear, así que quien cambia de departamento conserva
-        # tickets propios sellados con el departamento anterior; en AND se le
-        # borrarían de "Mis Tickets". Mismo conjunto que `can_user_view_ticket`
-        # → lista y detalle no se desalinean.
-        visibility = [
-            Ticket.requester_id == user_id,
-            Ticket.assigned_to_user_id == user_id,
-        ]
-        if dept_ids:
-            visibility.append(Ticket.requester_department_id.in_(dept_ids))
-        query = query.filter(or_(*visibility))
-
     if status:
         if isinstance(status, list):
             if len(status) == 1:
@@ -487,13 +636,68 @@ def list_tickets(
             )
         )
 
+    return query
+
+
+def list_tickets(
+    db: Session,
+    user_id: int,
+    user_roles: list,
+    status=None,
+    area: str = None,
+    priority: str = None,
+    assigned_to_me: bool = False,
+    assigned_to_team: str = None,
+    assigned_to_user_id: int = None,
+    unassigned: bool = False,
+    created_by_me: bool = False,
+    department_id: int = None,
+    department_ids: set = None,
+    category_id: int = None,
+    created_from=None,
+    created_to=None,
+    search: str = None,
+    sort: str = 'recent',
+    page: int = 1,
+    per_page: int = 20,
+    include_metrics: bool = False
+) -> dict:
+    """
+    Lista tickets según filtros y permisos del usuario.
+    """
+    query = db.query(Ticket)
+
+    visibility = _visibility_clause(db, user_id, user_roles)
+    if visibility is not None:
+        query = query.filter(visibility)
+
+    query = _apply_list_filters(
+        db, query, user_id,
+        status=status, area=area, priority=priority,
+        assigned_to_me=assigned_to_me, assigned_to_team=assigned_to_team,
+        assigned_to_user_id=assigned_to_user_id, unassigned=unassigned,
+        created_by_me=created_by_me, department_id=department_id,
+        department_ids=department_ids, category_id=category_id,
+        created_from=created_from, created_to=created_to, search=search,
+    )
+
     order_clauses = _SORT_CLAUSES.get(sort, lambda: [Ticket.created_at.desc()])()
     query = query.order_by(*order_clauses)
+    query = query.options(*_LIST_LOAD_OPTIONS())
 
     pagination = paginate(query, page=page, per_page=per_page)
+    prefetch_for_dict(db, pagination.items)
+    try:
+        tickets = [
+            t.to_dict(include_relations=True, include_metrics=include_metrics,
+                      db=db if include_metrics else None)
+            for t in pagination.items
+        ]
+    finally:
+        clear_prefetch(pagination.items)
 
     return {
-        'tickets': [t.to_dict(include_relations=True, include_metrics=include_metrics, db=db if include_metrics else None) for t in pagination.items],
+        'tickets': tickets,
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page,
@@ -501,6 +705,96 @@ def list_tickets(
         'has_next': pagination.has_next,
         'has_prev': pagination.has_prev
     }
+
+
+def _CARD_LOAD_OPTIONS():
+    """Lo que `Ticket.to_card_dict()` lee, en UN join (`LEFT JOIN` de uno).
+
+    Para una lista corta sale más barato que un `selectinload` por relación (una
+    ida y vuelta cada uno): cinco relaciones de uno son una sola sentencia.
+    `load_only` deja fuera lo que la tarjeta no pinta (el hash de contraseña de
+    los tres usuarios, la plantilla de campos de la categoría, la descripción
+    del ticket del que se partió).
+    """
+    from sqlalchemy.orm import joinedload
+
+    nombre =(User.id, User.first_name, User.middle_name, User.last_name)
+    return (
+        joinedload(Ticket.requester).load_only(*nombre),
+        joinedload(Ticket.assigned_to).load_only(*nombre),
+        joinedload(Ticket.created_by_user).load_only(*nombre),
+        joinedload(Ticket.category).load_only(Category.id, Category.name),
+        joinedload(Ticket.split_from).load_only(Ticket.id, Ticket.ticket_number),
+    )
+
+
+def list_ticket_sections(db: Session, user_id: int, user_roles, sections: dict) -> dict:
+    """Varias listas cortas de tickets en UNA sola sentencia SQL.
+
+    Para pantallas que arman varias listas a la vez (el dashboard del técnico
+    pintaba 4). Cada una por separado costaba un `count`, un `select` y su juego
+    de cargas en lote de relaciones (~50 sentencias en total, medido); aquí:
+
+      * la visibilidad (`_visibility_clause`) se calcula una vez;
+      * cada sección es un `SELECT id ... ORDER BY created_at DESC LIMIT n` con
+        los mismos filtros que `list_tickets` (`_apply_list_filters`);
+      * las secciones se unen (`UNION ALL`) y se une contra `helpdesk_ticket`
+        con las relaciones de `_CARD_LOAD_OPTIONS`, así que es una sola ida y
+        vuelta a Postgres;
+      * no hay `count`: quien pide listas por sección no usa el total.
+
+    ``sections``: ``{nombre: {"limit": int, "status": [...], "assigned_to_me": bool,
+    "assigned_to_team": str, "search": str}}`` (todo salvo ``limit`` es opcional,
+    con el significado que tiene en `list_tickets`). Un mismo ticket puede salir
+    en dos secciones solo si el llamador las define solapadas.
+
+    Devuelve ``{nombre: [ticket.to_card_dict(), ...]}``: a lo más ``limit`` por
+    sección, de más nuevo a más viejo, igual que `list_tickets(sort='recent')`.
+    """
+    from sqlalchemy import String, literal, union_all
+
+    if not sections:
+        return {}
+
+    visibility = _visibility_clause(db, user_id, user_roles)
+
+    selects = []
+    for nombre, spec in sections.items():
+        query = db.query(Ticket)
+        if visibility is not None:
+            query = query.filter(visibility)
+        query = _apply_list_filters(
+            db, query, user_id,
+            status=spec.get("status"),
+            assigned_to_me=spec.get("assigned_to_me", False),
+            assigned_to_team=spec.get("assigned_to_team"),
+            search=spec.get("search"),
+        )
+        selects.append(
+            query.with_entities(
+                Ticket.id.label("id"),
+                literal(nombre, String).label("section"),
+            )
+            .order_by(Ticket.created_at.desc())
+            .limit(spec["limit"])
+            .statement
+        )
+
+    union = selects[0] if len(selects) == 1 else union_all(*selects)
+    secciones = union.subquery("secciones")
+
+    filas = (
+        db.query(Ticket, secciones.c.section)
+        .join(secciones, Ticket.id == secciones.c.id)
+        .options(*_CARD_LOAD_OPTIONS())
+        .order_by(Ticket.created_at.desc())
+        .all()
+    )
+
+    resultado = {nombre: [] for nombre in sections}
+    for ticket, nombre in filas:
+        resultado[nombre].append(ticket.to_card_dict())
+    return resultado
 
 
 # Buckets de estatus para el resumen por divisiones (jefe/director).
@@ -515,13 +809,13 @@ def _summary_visible_departments(db: Session, user_id: int, root_department_id: 
     centro de cómputo / técnicos; para el resto, el subárbol autorizado más el
     departamento raíz que ya gestiona (ese siempre lo ve, con permiso o sin él).
     """
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.core.services.scope_service import subtree_scope_for
 
     roles = set(user_roles_in_app(db, user_id, 'helpdesk'))
     if roles & {'admin', 'tech_desarrollo', 'tech_soporte'}:
         return None
-    if user_id in set(_get_users_with_position(db, ['secretary_comp_center'])):
+    if user_id in _secretary_cc_ids(db):
         return None
 
     return subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree") | {root_department_id}
@@ -870,10 +1164,10 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
     """
     Verifica si un usuario puede ver un ticket específico.
     """
-    from itcj2.core.services.authz_service import user_roles_in_app, _get_users_with_position
+    from itcj2.core.services.authz_service import user_roles_in_app
 
     user_roles = user_roles_in_app(db, user_id, 'helpdesk')
-    secretary_comp_center = _get_users_with_position(db, ['secretary_comp_center'])
+    secretary_comp_center = _secretary_cc_ids(db)
 
     if 'admin' in user_roles or user_id in secretary_comp_center:
         return True
@@ -901,14 +1195,10 @@ def can_user_view_ticket(db: Session, ticket: Ticket, user_id: int) -> bool:
         if is_collaborator:
             return True
 
-    # Scope departamental/subárbol (debe seguir en sync con list_tickets).
-    from itcj2.core.services.departments_service import app_departments
-    from itcj2.core.services.scope_service import subtree_scope_for
-
-    dept_ids: set[int] = set()
-    if 'department_head' in user_roles:
-        dept_ids |= {d.id for d in app_departments(db, user_id, "helpdesk")}
-    dept_ids |= subtree_scope_for(db, user_id, "helpdesk", "helpdesk.tickets.api.read.subtree")
+    # Scope departamental/subárbol: el MISMO conjunto que `list_tickets`, por
+    # construcción y no por disciplina — antes eran dos copias que había que
+    # acordarse de mover juntas.
+    dept_ids = department_scope_ids(db, user_id)
 
     if ticket.requester_department_id in dept_ids:
         return True
@@ -941,29 +1231,29 @@ def _is_valid_status_transition(from_status: str, to_status: str, db: Session) -
         return to_status in _fallback.get(from_status, set())
 
 
-# ==================== EDITAR TICKET PENDIENTE ====================
-def update_pending_ticket(
+# ==================== APLICAR EDICIONES DE CAMPOS ====================
+def apply_ticket_field_edits(
     db: Session,
-    ticket_id: int,
+    ticket: Ticket,
     updated_by_id: int,
+    *,
     area: str = None,
     category_id: int = None,
     priority: str = None,
     title: str = None,
     description: str = None,
     location: str = None
-) -> Ticket:
+) -> int:
     """
-    Edita campos de un ticket en estado PENDING.
+    Valida y aplica cambios de campos sobre un `ticket` ya cargado: agrega un
+    `TicketEditLog` por campo modificado y, si hubo al menos un cambio, fija
+    `updated_at`/`updated_by_id`. NO revisa el estado del ticket ni hace
+    commit — eso es responsabilidad del caller (`update_pending_ticket` abajo,
+    y a futuro `ticket_split_service.split_ticket` para editar el ticket
+    original al partirlo, que puede estar ASSIGNED/IN_PROGRESS).
+    Devuelve el número de campos modificados (== TicketEditLog creados).
     """
     from itcj2.apps.helpdesk.models.ticket_edit_log import TicketEditLog
-
-    ticket = db.get(Ticket, ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail='Ticket no encontrado')
-
-    if ticket.status != 'PENDING':
-        raise HTTPException(status_code=400, detail='Solo se pueden editar tickets en estado PENDING')
 
     changes = []
 
@@ -1056,14 +1346,14 @@ def update_pending_ticket(
         ticket.location = location if location else None
 
     if not changes:
-        return ticket
+        return 0
 
     ticket.updated_at = now_local()
     ticket.updated_by_id = updated_by_id
 
     for change in changes:
         edit_log = TicketEditLog(
-            ticket_id=ticket_id,
+            ticket_id=ticket.id,
             field_name=change['field'],
             old_value=change['old'],
             new_value=change['new'],
@@ -1071,9 +1361,47 @@ def update_pending_ticket(
         )
         db.add(edit_log)
 
+    return len(changes)
+
+
+# ==================== EDITAR TICKET PENDIENTE ====================
+def update_pending_ticket(
+    db: Session,
+    ticket_id: int,
+    updated_by_id: int,
+    area: str = None,
+    category_id: int = None,
+    priority: str = None,
+    title: str = None,
+    description: str = None,
+    location: str = None
+) -> Ticket:
+    """
+    Edita campos de un ticket en estado PENDING.
+    """
+    ticket = db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail='Ticket no encontrado')
+
+    if ticket.status != 'PENDING':
+        raise HTTPException(status_code=400, detail='Solo se pueden editar tickets en estado PENDING')
+
+    changed_count = apply_ticket_field_edits(
+        db, ticket, updated_by_id,
+        area=area,
+        category_id=category_id,
+        priority=priority,
+        title=title,
+        description=description,
+        location=location,
+    )
+
+    if not changed_count:
+        return ticket
+
     try:
         db.commit()
-        logger.info(f"Ticket {ticket.ticket_number} editado: {len(changes)} campo(s) modificado(s) por usuario {updated_by_id}")
+        logger.info(f"Ticket {ticket.ticket_number} editado: {changed_count} campo(s) modificado(s) por usuario {updated_by_id}")
         return ticket
     except Exception as e:
         db.rollback()

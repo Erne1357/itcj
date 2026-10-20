@@ -30,10 +30,12 @@ def get_warehouse_perms_via_helpdesk(db: Session, user_id: int) -> set[str]:
         from itcj2.core.models.user_app_role import UserAppRole
         from itcj2.core.models.role_permission import RolePermission
         from itcj2.core.models.permission import Permission
-        from itcj2.core.models.app import App
+        from itcj2.core.services.authz_service import get_app_by_key
 
-        helpdesk_app = db.query(App).filter_by(key="helpdesk", is_active=True).first()
-        warehouse_app = db.query(App).filter_by(key="warehouse", is_active=True).first()
+        # `get_app_by_key` (memoria de apps por sesión de core, perf 2026-10-07):
+        # el menú y la página la llaman en la misma petición.
+        helpdesk_app = get_app_by_key(db, "helpdesk")
+        warehouse_app = get_app_by_key(db, "warehouse")
 
         if not helpdesk_app or not warehouse_app:
             return set()

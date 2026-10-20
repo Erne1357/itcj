@@ -6,7 +6,10 @@
     ticket          dict del ticket (to_dict): ticket_number, area, priority,
                     status, title, description, created_at, category, created_by,
                     requester, assigned_to, assigned_to_team, id, location,
-                    resolution_notes, resolved_at, rating_attention/speed/efficiency.
+                    resolution_notes, resolved_at, rating_attention/speed/efficiency,
+                    split_from ({id, ticket_number} o ausente/None — requiere
+                    include_relations=True; callers sin relaciones simplemente no
+                    la traen, undefined es falso en Jinja).
     href            si se da, la tarjeta es un <a> al detalle.
     show_people     muestra creado_por / solicitante (default true).
     show_assigned   muestra el asignado (default true).
@@ -31,6 +34,12 @@
         {{ area_badge(ticket.area) }}
         {% if ticket.category %}{{ category_badge(ticket.category.name) }}{% endif %}
         {{ priority_badge(ticket.priority) }}
+        {% if ticket.split_from %}
+          <span class="badge rounded-pill bg-secondary-subtle text-secondary border"
+                title="Derivado de {{ ticket.split_from.ticket_number }}">
+            <i class="fas fa-code-branch me-1"></i>{{ ticket.split_from.ticket_number }}
+          </span>
+        {% endif %}
         {% if show_department and ticket.requester_department %}
           {% set _own_dept = own_department_id and ticket.requester_department.id == own_department_id %}
           <span class="badge rounded-pill {{ 'bg-primary' if _own_dept else 'bg-secondary-subtle text-secondary border' }}"

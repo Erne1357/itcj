@@ -357,12 +357,24 @@ def download_attachment(
         "webp": "image/webp",
         "pdf": "application/pdf",
     }
-    mime_type = att.mime_type or mime_map.get(ext, "application/octet-stream")
+    # `inline`: la miniatura del detalle abre la imagen/PDF en otra pestaña en
+    # vez de descargarla; el nombre original se conserva para "Guardar como".
+    # Solo se renderiza un tipo de la lista: en los documentos `att.mime_type`
+    # es el `content_type` que mandó el navegador, y un PDF declarado
+    # `text/html` servido inline desde este dominio sería XSS almacenado.
+    safe_types = set(mime_map.values())
+    if att.mime_type in safe_types:
+        mime_type = att.mime_type
+    else:
+        mime_type = mime_map.get(ext)
+    inline = mime_type in safe_types
 
     return FileResponse(
         att.filepath,
-        media_type=mime_type,
+        media_type=mime_type if inline else "application/octet-stream",
         filename=att.original_filename,
+        content_disposition_type="inline" if inline else "attachment",
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 

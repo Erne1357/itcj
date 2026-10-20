@@ -1,43 +1,202 @@
-{# Lista de encargados + alta. Re-render en #officers-body (HTMX). #}
-<form class="tt-card mb-3 d-flex flex-wrap align-items-end gap-2"
-      hx-post="/titulatec/admin/officers" hx-target="#officers-body" hx-swap="innerHTML">
-  <div class="flex-grow-1" style="min-width:180px">
-    <label class="tt-label">Nombre del encargado</label>
-    <input class="form-control" name="name" placeholder="Ej. Encargado Sistemas/Industrial" required>
-  </div>
-  <div style="min-width:200px">
-    <label class="tt-label">Usuarios</label>
-    <select class="form-select" name="user_ids" multiple size="3">
-      {% for u in dept_users %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}
-    </select>
-  </div>
-  <div style="min-width:200px">
-    <label class="tt-label">Carreras</label>
-    <select class="form-select" name="program_ids" multiple size="3">
-      {% for p in programs %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
-    </select>
-  </div>
-  <button class="btn tt-btn-ink"><i class="bi bi-plus-lg me-1"></i>Crear</button>
-</form>
+{# ===========================================================================
+   officers_body.html — lista y alta de encargados. Re-render en #officers-body.
 
-<div class="d-flex flex-column gap-2">
-  {% for o in officers %}
-  <div class="tt-card">
-    <div class="d-flex justify-content-between align-items-start">
-      <div class="fw-semibold">{{ o.name }}</div>
-      <button class="btn btn-sm tt-btn-ghost" hx-post="/titulatec/admin/officers/{{ o.id }}/deactivate"
-              hx-target="#officers-body" hx-swap="innerHTML" hx-confirm="¿Quitar este encargado?">
-        <i class="bi bi-trash"></i></button>
-    </div>
-    <div class="d-flex flex-wrap gap-1 mt-2">
-      {% for u in o.users %}<span class="tt-pill tt-pill--navy">{{ u.name }}</span>{% endfor %}
-      {% for p in o.programs %}<span class="tt-pill tt-pill--amber">{{ p.name }}</span>{% endfor %}
-      {% if not o.users %}<span class="tt-pill">Sin usuarios</span>{% endif %}
-      {% if not o.programs %}<span class="tt-pill">Sin carreras</span>{% endif %}
+   Rediseño 2026-09-17. Lo que había y por qué se fue:
+
+   - Usuarios y carreras se elegían en dos `<select multiple size="3">`: tres
+     renglones visibles de 11 usuarios y de 25 carreras, Ctrl+click obligatorio
+     y el cuarto nombre cortado por la mitad.
+   - En la tarjeta del encargado, usuarios y carreras iban revueltos en la MISMA
+     fila de pastillas y solo el color decía cuál era cuál.
+   - La ruta `POST /titulatec/admin/officers/{id}` existía y tenía tests, pero
+     NINGUNA plantilla la llamaba: no había forma de corregir una asignación sin
+     borrar el encargado y rehacerlo. Ahora la llama el formulario de edición.
+   - El selector listaba a las 9 cuentas INACTIVAS de Servicios Escolares sin
+     marca alguna. Nombrar encargado a una de ellas producía un encargado que no
+     podía iniciar sesión (`auth_service` filtra `is_active`).
+
+   La macro `picker` la usan el alta y CADA formulario de edición, así que el
+   marcado del selector existe una sola vez. No lleva `for`/`id` en las
+   casillas: la fila entera es el `<label>`, y así no hay que inventar ids
+   únicos entre los N formularios que conviven en la página.
+
+   Contexto: officers, dept_users (con `is_active`), programs, reactivated.
+   =========================================================================== #}
+
+{% macro picker(campo, titulo, items, seleccionados) %}
+<div class="tt-picker" data-tt-picker>
+  <div class="tt-picker-head">
+    <span class="tt-picker-title">{{ titulo }}</span>
+    {# El texto lo reescribe `officers.js`; este es el valor con el que nace,
+       correcto ya sin JS. #}
+    <span class="tt-picker-count" data-tt-picker-count>{{ seleccionados|length }} de {{ items|length }}</span>
+  </div>
+  <div class="tt-picker-search">
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <input type="search" class="tt-field tt-picker-input" placeholder="Buscar…"
+           aria-label="Buscar en {{ titulo|lower }}" autocomplete="off"
+           data-tt-picker-search>
+  </div>
+  <ul class="tt-picker-list" role="group" aria-label="{{ titulo }}">
+    {% for it in items %}
+    {% set inactiva = it.is_active is defined and not it.is_active %}
+    <li class="tt-picker-row" data-tt-picker-text="{{ it.name|lower }}"
+        {% if inactiva %}data-tt-picker-inactive="1"{% endif %}>
+      <label class="tt-picker-opt">
+        <input class="form-check-input" type="checkbox" name="{{ campo }}" value="{{ it.id }}"
+               {% if it.id in seleccionados %}checked{% endif %}>
+        <span class="tt-picker-name">{{ it.name }}</span>
+        {% if inactiva %}
+        <span class="tt-pill tt-pill--amber tt-picker-flag">Inactiva</span>
+        {% endif %}
+      </label>
+    </li>
+    {% endfor %}
+  </ul>
+  <p class="tt-picker-empty" data-tt-picker-empty hidden>Nada coincide con tu búsqueda.</p>
+</div>
+{% endmacro %}
+
+{# El aviso que se pinta ANTES de guardar, en cuanto hay una cuenta inactiva
+   marcada. Nace oculto y lo destapa `officers.js` con el número real. #}
+{% macro aviso_reactivacion() %}
+{# La frase se parte en tres para que el plural sea correcto SIN construir HTML
+   desde JS: el trozo del medio lleva el `<code>` y es fijo, y `officers.js`
+   solo reescribe el texto de los extremos. Un `textContent` con la frase
+   entera perdería el `<code>`, y un `innerHTML` metería marcado desde JS. #}
+<div class="tt-off-warn" data-tt-officers="warn" role="status" hidden>
+  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+  <span>
+    <strong data-tt-officers="warn-head">Se reactivará 1 cuenta</strong>
+    y su contraseña quedará en <code>tecno#2K</code>.
+    <span data-tt-officers="warn-tail">Tendrá que cambiarla al entrar.</span>
+  </span>
+</div>
+{% endmacro %}
+
+{% if reactivated %}
+{# Confirmación de lo que ACABA de pasar. Nombra las cuentas: «se reactivaron 3»
+   sin decir cuáles obliga a ir a buscarlas a la configuración del core. #}
+<div class="tt-card tt-card--success mb-3 tt-anim-in" role="status"
+     data-tt-officers="reactivated">
+  <div class="d-flex gap-3 align-items-start">
+    <i class="bi bi-person-check" aria-hidden="true"></i>
+    <div class="min-w-0">
+      <h2 class="tt-display h6 mb-1">
+        {{ reactivated|length }} cuenta{{ '' if reactivated|length == 1 else 's' }} reactivada{{ '' if reactivated|length == 1 else 's' }}
+      </h2>
+      <p class="mb-0">
+        {{ reactivated|map(attribute='name')|join(' · ') }}.
+        Su contraseña quedó en <code>tecno#2K</code> y el sistema les pedirá
+        cambiarla la primera vez que entren.
+      </p>
     </div>
   </div>
+</div>
+{% endif %}
+
+{# El alta va PLEGADA en cuanto hay encargados, y abierta cuando no hay ninguno.
+   Con los dos selectores desplegados mide ~470 px: con la lista debajo, el
+   trabajo del día (ver y corregir a los encargados que ya existen) quedaba
+   fuera de la pantalla. Abierto/cerrado se decide por el estado de los datos,
+   no se recuerda: tras crear uno, el parcial vuelve con la lista no vacía y el
+   formulario se cierra solo, que es justo lo que se quiere al terminar. #}
+<details class="tt-card mb-4 tt-off-new"{% if not officers %} open{% endif %}>
+  <summary class="tt-off-new-summary">
+    <i class="bi bi-plus-lg" aria-hidden="true"></i>
+    <span>Nuevo encargado</span>
+  </summary>
+<form data-tt-officers="form"
+      hx-post="/titulatec/admin/officers"
+      hx-target="#officers-body" hx-swap="innerHTML">
+  <div class="tt-off-form-grid">
+    <div class="tt-off-field tt-off-name-field">
+      <label class="tt-label" for="tt-off-name">Nombre del encargado</label>
+      <input class="tt-field" id="tt-off-name" name="name" required maxlength="120"
+             placeholder="Ej. Encargado Sistemas/Industrial">
+    </div>
+    <div class="tt-off-field">{{ picker('user_ids', 'Usuarios', dept_users, []) }}</div>
+    <div class="tt-off-field">{{ picker('program_ids', 'Carreras', programs, []) }}</div>
+  </div>
+  {{ aviso_reactivacion() }}
+  <div class="tt-off-actions">
+    <button class="btn tt-btn-ink"><i class="bi bi-plus-lg me-1"></i>Crear encargado</button>
+  </div>
+</form>
+</details>
+
+<div class="d-flex flex-column gap-3">
+  {% for o in officers %}
+  {% set uids = o.users|map(attribute='id')|list %}
+  {% set pids = o.programs|map(attribute='id')|list %}
+  <article class="tt-card tt-off" id="officer-{{ o.id }}">
+    <header class="tt-off-head">
+      <h2 class="tt-off-name">{{ o.name }}</h2>
+      <div class="tt-off-tools">
+        <button type="button" class="btn btn-sm tt-btn-ghost"
+                data-tt-officers="edit" aria-expanded="false"
+                aria-controls="officer-edit-{{ o.id }}">
+          <i class="bi bi-pencil"></i><span class="d-none d-sm-inline ms-1">Editar</span>
+        </button>
+        {# `hx-confirm` NO cae al `confirm()` nativo (prohibido en el proyecto):
+           `titulatec-utils.js` intercepta `htmx:confirm` y lo convierte en el
+           modal compartido. El formato es «Título|Cuerpo» y `data-tt-confirm-ok`
+           da la etiqueta del botón, que es verbo + objeto, nunca «Sí». #}
+        <button class="btn btn-sm tt-btn-ghost tt-btn-danger-ghost"
+                hx-post="/titulatec/admin/officers/{{ o.id }}/deactivate"
+                hx-target="#officers-body" hx-swap="innerHTML"
+                data-tt-confirm-ok="Quitar encargado"
+                hx-confirm="Quitar encargado|«{{ o.name }}» desaparece de la lista y sus ocupantes pierden el rol y las carreras. Las cuentas siguen activas.">
+          <i class="bi bi-trash"></i><span class="d-none d-sm-inline ms-1">Quitar</span>
+        </button>
+      </div>
+    </header>
+
+    <dl class="tt-off-rows">
+      <div class="tt-off-row">
+        <dt>Usuarios</dt>
+        <dd>
+          {% for u in o.users %}
+          {# Una cuenta se puede desactivar DESPUÉS desde la configuración del
+             core, y entonces el encargado deja de poder entrar. La pastilla lo
+             dice con palabras, no solo con color. #}
+          <span class="tt-pill {{ 'tt-pill--navy' if u.is_active else 'tt-pill--danger' }}">
+            {{ u.name }}{% if not u.is_active %} · sin acceso{% endif %}
+          </span>
+          {% else %}
+          <span class="tt-off-none">Sin usuarios asignados</span>
+          {% endfor %}
+        </dd>
+      </div>
+      <div class="tt-off-row">
+        <dt>Carreras</dt>
+        <dd>
+          {% for p in o.programs %}
+          <span class="tt-pill tt-pill--amber">{{ p.name }}</span>
+          {% else %}
+          <span class="tt-off-none">Sin carreras asignadas</span>
+          {% endfor %}
+        </dd>
+      </div>
+    </dl>
+
+    <form class="tt-off-edit" id="officer-edit-{{ o.id }}" hidden
+          hx-post="/titulatec/admin/officers/{{ o.id }}"
+          hx-target="#officers-body" hx-swap="innerHTML">
+      <div class="tt-off-form-grid">
+        <div class="tt-off-field">{{ picker('user_ids', 'Usuarios', dept_users, uids) }}</div>
+        <div class="tt-off-field">{{ picker('program_ids', 'Carreras', programs, pids) }}</div>
+      </div>
+      {{ aviso_reactivacion() }}
+      <div class="tt-off-actions">
+        <button class="btn btn-sm tt-btn-ink">Guardar cambios</button>
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-officers="cancel">Cancelar</button>
+      </div>
+    </form>
+  </article>
   {% else %}
   <div class="tt-empty"><div class="ico"><i class="bi bi-people"></i></div>
-    <h6>Aún no hay encargados</h6><p>Crea el primero arriba.</p></div>
+    <h6>Aún no hay encargados</h6>
+    <p>Crea el primero arriba: elige a quién atiende cada carrera.</p></div>
   {% endfor %}
 </div>

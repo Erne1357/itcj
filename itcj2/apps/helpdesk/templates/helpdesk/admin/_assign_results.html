@@ -9,9 +9,12 @@
   Los onclick de los botones de acción invocan las funciones del módulo JS
   (openAssignmentModal, openReassignmentModal, openEditTicketModal,
   showTicketQuickView, showTicketDetail) que siguen leyendo los arrays JS por id.
+  openSplitTicketModal es la excepción: pide el ticket fresco al servidor (los
+  arrays de activos tienen tope de 100).
 
   Contexto esperado: tickets (list), tab ('queue'|'assigned'|'inprogress'),
-                     count (int), oob (bool).
+                     count (int), oob (bool), can_split (bool — botón "Partir";
+                     indefinido = sin botón).
 
   Badges OOB:
     tab=queue      → #queueBadge      (bg-danger)
@@ -47,6 +50,13 @@
                   title="Vista previa / Editar">
             <i class="fas fa-edit"></i>
           </button>
+          {% if can_split %}
+          <button type="button" class="btn btn-outline-secondary btn-sm"
+                  onclick="event.stopPropagation(); openSplitTicketModal({{ t.id }})"
+                  title="Partir en varios tickets" aria-label="Partir en varios tickets">
+            <i class="fas fa-code-branch"></i>
+          </button>
+          {% endif %}
           <button type="button" class="btn btn-primary btn-sm"
                   onclick="event.stopPropagation(); openAssignmentModal({{ t.id }})">
             <i class="fas fa-user-plus me-1"></i>Asignar
@@ -57,6 +67,13 @@
                   title="Reasignar">
             <i class="fas fa-exchange-alt"></i>
           </button>
+          {% if can_split %}
+          <button type="button" class="btn btn-outline-secondary btn-sm"
+                  onclick="event.stopPropagation(); openSplitTicketModal({{ t.id }})"
+                  title="Partir en varios tickets" aria-label="Partir en varios tickets">
+            <i class="fas fa-code-branch"></i>
+          </button>
+          {% endif %}
           <button type="button" class="btn btn-outline-primary btn-sm"
                   onclick="event.stopPropagation(); showTicketDetail({{ t.id }})"
                   title="Detalle">

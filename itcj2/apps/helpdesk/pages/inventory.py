@@ -389,9 +389,10 @@ async def item_detail(
 
     _db = SessionLocal()
     try:
-        current_user = _db.get(User, user_id)
-        current_dept = current_user.get_current_department() if current_user else None
-        is_comp_center = current_dept and (current_dept.code == 'comp_center' or current_dept.name == 'CENTRO DE COMPUTO')
+        # Por TODOS sus puestos, no por el "primario" (el del puesto más antiguo):
+        # ver `inventory_access.is_comp_center_user`, que es donde vive el criterio.
+        from itcj2.apps.helpdesk.utils.inventory_access import is_comp_center_user
+        is_comp_center = is_comp_center_user(_db, user_id)
 
         secretary_comp_center_ids = _get_users_with_position(_db, ["secretary_comp_center"])
     finally:

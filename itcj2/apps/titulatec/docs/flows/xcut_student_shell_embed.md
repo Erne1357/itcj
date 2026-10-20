@@ -6,10 +6,10 @@
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) |
+| **Actor(es)** | 👤 Alumno (`graduate`) |
 | **Permiso(s)** | los de cada vista (dashboard/documents/cita/fase/perfil) |
 | **Trigger** | Tocar la tarjeta **TitulaTec** en `/itcj/m/` (embebido) **o** entrar directo a `/titulatec/student/...` (standalone) |
-| **Precondiciones** | Sesión iniciada; rol `student` en titulatec |
+| **Precondiciones** | Sesión iniciada; rol `graduate` en titulatec |
 | **Estado final** | — (chrome; cada vista muta lo suyo) |
 
 ## Cómo se integra
@@ -60,7 +60,9 @@ flowchart TD
   (`window.self !== window.top`): en móvil la superficie única es el tab **Avisos** del shell (lista
   todas las apps). Standalone/desktop sí muestran el FAB (scope de la app).
 - TitulaTec enruta sus eventos por `NotificationService.create(app_name='titulatec')` con
-  `data={'url','process_id','phase_number'}` (helper `services/notify.py`). El `action_url` lo lee el
+  `data={'url','process_id','phase_number'}` (helper `services/notify.py`). Ese `url` sigue siendo
+  `/titulatec/student/fase/{n}`, que desde 2026-09-02 **redirige (302)** a
+  `/titulatec/student/dashboard?fase={n}` y deja ese acordeón abierto y resaltado. El `action_url` lo lee el
   shell; se añadió `titulatec` a `getAppInfoFromUrl` (`mobile-app.js`) → el click **abre la app en el
   iframe** (no rompe el shell). Iconos/colores de titulatec en `core/models/notification.py`.
 
@@ -71,14 +73,34 @@ flowchart TD
 | Fase aprobada | `PHASE_APPROVED` | `PhaseService.approve_phase` | siguiente fase |
 | Proceso completado | `PROCESS_COMPLETED` | `PhaseService.approve_phase` (última) | dashboard |
 | Fase rechazada | `PHASE_REJECTED` | `PhaseService.reject_phase` | esa fase |
+| Proceso revocado (2026-09-25) | `PROCESS_CANCELLED` | `ProcessService.cancel` (`process_service.py:147-150`) | dashboard (sin `phase_number`) |
 | Cita agendada | `APPOINTMENT_SCHEDULED` | `AppointmentService.create` | fase 2 |
 | Cita reagendada | `APPOINTMENT_RESCHEDULED` | `AppointmentService.reschedule` | fase 2 |
+| Cita cancelada (2026-09-16) | `APPOINTMENT_CANCELLED` | `AppointmentService.cancel` (`appointment_service.py:873-877`) — solo si `notify=True` **y** el actor no es el alumno (mismo criterio que el correo #7) | fase 2 |
+| No se presentó (2026-09-28) | `APPOINTMENT_NO_SHOW` | `AppointmentService.mark_no_show` | fase 2 |
+| Se corrigió la asistencia (2026-09-28) | `APPOINTMENT_NO_SHOW_UNDONE` | `AppointmentService.undo_no_show` | fase 2 |
+| Recordatorio de la cita (2026-09-29) | `APPOINTMENT_REMINDER` | `MailReminders.run` (barrido diario `titulatec.email_reminders`) | fase 2 |
+| Recordatorio de documentos (2026-09-29) | `DOCUMENTS_REMINDER` | `MailReminders.run` (idem) | fase 1 |
+| Recordatorio de la encuesta de egresados (2026-09-29) | `SURVEY_REMINDER` | `MailReminders.run` (idem) | fase 2 |
+| GTV liberó la encuesta (2026-09-15) | `SURVEY_REVIEW_APPROVED` | `SurveyReviewService.approve` (`survey_review_service.py:197-199`) | fase 2 |
+| GTV dejó observaciones (2026-09-15) | `SURVEY_REVIEW_REJECTED` | `SurveyReviewService.reject` (`:232-234`) | fase 2 |
+| Se revocó la liberación de GTV (2026-09-15) | `SURVEY_REVIEW_REVOKED` | `SurveyReviewService.revoke` (`:272-274`) | fase 2 |
+
+Los tres recordatorios nacen en Celery, sin loop para el push de Socket.IO: el aviso aparece al
+recargar. Y solo si su correo se encoló de verdad (fila nueva), así que el barrido corrido dos
+veces no duplica avisos.
+
+> Tabla verificada 2026-09-29 con `grep -rn 'notify_student(' itcj2/apps/titulatec/services/` —
+> antes le faltaban `PROCESS_CANCELLED`, `APPOINTMENT_CANCELLED` y los tres `SURVEY_REVIEW_*`
+> (deuda de documentación de revisiones previas a esta fila). Detalle de los correos que
+> acompañan a varios de estos eventos: [correos del proceso al
+> egresado](xcut_student_email_notifications.md).
 
 ## Mini-perfil (standalone)
 
 `GET /titulatec/student/perfil` → identidad (nombre / nº control / correo) + resumen del proceso
 (folio / modalidad / convocatoria / fase actual → link dashboard) + **cerrar sesión**. Solo se enlaza
-standalone; embebido lo cubre el shell. El alumno reutiliza rol `student` → **no** hay cambio de
+standalone; embebido lo cubre el shell. El alumno tiene rol `graduate` → **no** hay cambio de
 contraseña aquí (el endpoint core es solo staff).
 
 ## Archivos
@@ -91,6 +113,6 @@ contraseña aquí (el endpoint core es solo staff).
 
 ## Flujos relacionados
 
-- Vistas que viven en este shell: [dashboard/detalle de fase](xcut_student_phase_detail.md),
+- Vistas que viven en este shell: [dashboard con el acordeón de fases](xcut_student_phase_detail.md),
   [documentos](phase1_student_upload_initial_docs.md), [cita](phase2_appointment_loop.md),
   [Formato B](phase3_student_formato_b.md).

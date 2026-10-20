@@ -1,7 +1,13 @@
-"""D8/C7: numero de control = ^(\\d{8}|[A-Za-z]\\d{7,9})$ en create y update.
+"""D8/C7: numero de control = ^[A-Za-z]?\\d{8}$ en create y update (revisado 2026-09-17).
 
-Acepta: 12345678 (licenciatura), M2111118 (letra+7), M211111822 (letra+9).
-Rechaza: 123456789 (9 digitos numericos), 1234567, MM111182, vacio.
+Acepta: 12345678 (formato normal), B21221523 (traslado, letra + 8 digitos).
+Rechaza: 123456789 (9 digitos puros), 1234567 (7 digitos), M2111118 (letra +
+7 digitos, formato viejo de posgrado), M211111822 (letra + 9 digitos, formato
+viejo de posgrado, retirado), MM111182 (dos letras), vacio.
+
+La letra se normaliza a MAYUSCULA (y se recorta el espacio) antes de validar
+y de guardar: los lookups son `filter_by(control_number=...)` exactos, y una
+'b' minuscula duplicaria cuentas frente a una 'B' ya existente.
 """
 from unittest.mock import MagicMock, patch
 
@@ -9,8 +15,8 @@ import pytest
 
 from itcj2.database import get_db
 
-VALID = ["12345678", "M2111118", "M211111822"]
-INVALID = ["123456789", "1234567", "MM111182", ""]
+VALID = ["12345678", "B21221523"]
+INVALID = ["123456789", "1234567", "M2111118", "M211111822", "MM111182", ""]
 
 
 def _db_for_create():
@@ -64,6 +70,21 @@ class TestCreateControlNumber:
         assert resp.status_code == 400
         assert isinstance(resp.json()["error"], str)
 
+    def test_lowercase_letter_is_normalized_to_uppercase(self, app_client, auth_headers):
+        """`b21221523` se guarda como `B21221523`: el lookup exacto de
+        `filter_by(control_number=...)` no perdona el case, y una letra en
+        minuscula duplicaria la cuenta frente a una ya existente en mayuscula."""
+        def override():
+            yield _db_for_create()
+
+        app_client.app.dependency_overrides[get_db] = override
+        try:
+            resp = _post_create(app_client, auth_headers, "b21221523")
+        finally:
+            app_client.app.dependency_overrides.pop(get_db, None)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["data"]["control_number"] == "B21221523"
+
 
 class TestUpdateControlNumber:
     def _db_for_update(self):
@@ -78,9 +99,7 @@ class TestUpdateControlNumber:
         db.query.return_value.filter.return_value.first.return_value = None
         return db
 
-    def _patch(self, app_client, auth_headers, ctrl):
-        db = self._db_for_update()
-
+    def _patch(self, db, app_client, auth_headers, ctrl):
         def override():
             yield db
 
@@ -98,10 +117,18 @@ class TestUpdateControlNumber:
 
     @pytest.mark.parametrize("ctrl", VALID)
     def test_accepts_valid(self, app_client, auth_headers, ctrl):
-        resp = self._patch(app_client, auth_headers, ctrl)
+        resp = self._patch(self._db_for_update(), app_client, auth_headers, ctrl)
         assert resp.status_code == 200, resp.text
 
-    @pytest.mark.parametrize("ctrl", ["123456789", "MM111182"])
+    @pytest.mark.parametrize("ctrl", ["123456789", "MM111182", "M2111118", "M211111822"])
     def test_rejects_invalid(self, app_client, auth_headers, ctrl):
-        resp = self._patch(app_client, auth_headers, ctrl)
+        resp = self._patch(self._db_for_update(), app_client, auth_headers, ctrl)
         assert resp.status_code == 400
+
+    def test_lowercase_letter_is_normalized_to_uppercase(self, app_client, auth_headers):
+        """Misma normalizacion que create: `b21221523` -> `B21221523` antes de
+        buscar duplicados y de guardar."""
+        db = self._db_for_update()
+        resp = self._patch(db, app_client, auth_headers, "b21221523")
+        assert resp.status_code == 200, resp.text
+        assert db.get.return_value.control_number == "B21221523"

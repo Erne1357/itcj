@@ -1,0 +1,15 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Liberados · TitulaTec{% endblock %}
+{% block admin_view %}handoff{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Departamento de Titulación</span>
+  <h1 class="tt-display" style="font-size:1.5rem;font-weight:600;margin:.15rem 0 0">Liberados</h1>
+  <p class="mb-0" style="font-size:.82rem;color:var(--tt-slate)">
+    Egresados que Servicios Escolares ya liberó (Cita de cotejo aprobada) y están listos
+    para darse de alta en T-soft. Bandeja de solo lectura.</p>
+</div>
+<div class="px-4 pb-4" id="tt-handoff">
+  {% include "titulatec/partials/handoff_table.html" %}
+</div>
+{% endblock %}

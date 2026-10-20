@@ -4,7 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 logger = logging.getLogger("itcj2")
 
@@ -20,7 +20,30 @@ async def _handle_task_event(data: dict) -> None:
     Tipos de evento:
         task_completed    — tarea finalizada (SUCCESS/FAILURE), emite 'task_event'
         user_notification — notificación individual,   emite 'notify'
+
+    Se procesa bajo el contexto que trae el mensaje, y SOLO ese mensaje: el
+    subscriber es UN task de larga vida que atiende todos, así que el
+    `restore()` va por mensaje y se deshace al salir, o el `trace_id` de un
+    aviso se filtraría a los siguientes.
+
+    Del `itcj_ctx` del payload (Fase 5a) solo se ligan los ids con forma W3C
+    (`sanitize_carried`): un worker viejo no lo manda (despliegue mixto), y
+    nada de lo que venga ahí puede impedir el aviso.
     """
+    from itcj2.observability.context import restore, sanitize_carried
+
+    with restore(sanitize_carried(data.get("itcj_ctx"))):
+        # El fallo se loguea AQUÍ, dentro del `restore`: es la única línea del
+        # tier sockets cuando el aviso no llega, la que más se busca por
+        # `trace_id` en un incidente. En el `except` del subscriber el
+        # contexto ya se habría deshecho y saldría sin ids.
+        try:
+            await _relay_task_event(data)
+        except Exception as e:
+            logger.error(f"Redis subscriber: error procesando mensaje: {e}")
+
+
+async def _relay_task_event(data: dict) -> None:
     from itcj2.sockets.notifications import push_notification
 
     event_type = data.get("type")
@@ -36,6 +59,15 @@ async def _handle_task_event(data: dict) -> None:
             "task_name": data.get("task_name"),
             "status": data.get("status"),
         })
+        # Sin esta línea, buscar en Loki el `trace_id` de la petición nunca
+        # llegaría a `service="sockets"` cuando todo sale bien:
+        # `push_notification` no loguea nada. Solo aquí, una por tarea manual:
+        # `user_notification` puede ser una por destinatario de una
+        # notificación masiva.
+        logger.info(
+            "task_events: aviso de fin de tarea retransmitido (task_run_id=%s, status=%s)",
+            data.get("task_run_id"), data.get("status"),
+        )
 
     elif event_type == "user_notification":
         notification = data.get("notification")
@@ -56,6 +88,9 @@ async def _redis_task_subscriber() -> None:
 
     while True:
         try:
+            # Cliente PROPIO y SIN socket_timeout, a propósito: `listen()` bloquea
+            # horas esperando mensajes y el timeout de 2 s de `get_redis_async`
+            # lo mataría y lo reconectaría en bucle. No migrarlo a ese cliente.
             async with aioredis.from_url(settings.REDIS_URL) as r:
                 async with r.pubsub() as pubsub:
                     await pubsub.subscribe("task_events")
@@ -67,6 +102,10 @@ async def _redis_task_subscriber() -> None:
                         try:
                             data = json.loads(message["data"])
                             await _handle_task_event(data)
+                        # Lo que falla ANTES del contexto del mensaje (JSON
+                        # roto, un payload que no es un dict): no hay ids que
+                        # poner. Los fallos del aviso los loguea
+                        # `_handle_task_event` bajo su `restore`.
                         except Exception as e:
                             logger.error(
                                 f"Redis subscriber: error procesando mensaje: {e}"
@@ -82,15 +121,61 @@ async def _redis_task_subscriber() -> None:
             await asyncio.sleep(5)
 
 
+def _warm_routes(app: FastAPI) -> None:
+    """Arma YA el estado de todas las rutas, antes de servir.
+
+    fastapi 0.142 lo arma PEREZOSAMENTE (`get_dependant` y un `TypeAdapter` de
+    pydantic por parámetro) la primera vez que el enrutador recorre cada ruta:
+    con ~560 rutas, la primera petición de cada worker pagaba ~350 ms (Tempo,
+    deploy del 2026-10-13: `/itcj/dashboard` 366 ms en frío contra ~12 ms).
+    `url_path_for` con un nombre que no existe recorre todos los routers
+    incluidos y deja cacheado lo que arma, igual que lo haría esa petición.
+    Lo fija `tests/fastapi/infra/test_route_warmup.py` (con un control que
+    falla si fastapi deja de ser perezoso y esto sobra).
+    """
+    import time
+
+    from starlette.routing import NoMatchFound
+
+    inicio = time.perf_counter()
+    try:
+        app.url_path_for("__itcj_precalentar_rutas__")
+    except NoMatchFound:
+        pass
+    except Exception:       # nunca impedir el arranque por precalentar
+        logger.warning("No se pudieron precalentar las rutas", exc_info=True)
+        return
+    logger.info("Rutas precalentadas en %.0f ms", (time.perf_counter() - inicio) * 1000)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup y shutdown de la aplicación."""
     logger.info("FastAPI ITCJ v2 iniciando...")
 
-    # Capturar el event loop principal para que async_broadcast funcione
-    # desde endpoints síncronos (que corren en el threadpool).
+    # Antes de servir (rendimiento 2026-10-14): sin esto, la primera petición de
+    # cada worker paga ~350 ms armando el estado de las rutas.
+    _warm_routes(app)
+
+    # Capturar el event loop principal para que async_broadcast y el push de
+    # `NotificationService` funcionen desde endpoints síncronos (que corren en
+    # el threadpool). En TODOS los roles (http, sockets, all): cualquier proceso
+    # que sirve peticiones tiene hilos que necesitan saltar a su loop.
     from itcj2.utils import set_main_loop
-    set_main_loop(asyncio.get_running_loop())
+    loop = asyncio.get_running_loop()
+    set_main_loop(loop)
+
+    # Sondas de saturación y lag del event loop (Fase 3), en TODOS los roles:
+    # cada worker publica su propio pool/threadpool y `livesum` los suma. El
+    # executor se instala ANTES de que nada use `asyncio.to_thread`: bajo
+    # uvloop es la única forma de poder observarlo. El lag también lo suben
+    # las llamadas síncronas a Redis de `/notify` (ver `loop_lag.py`), no
+    # solo lo que arregla la Fase 6.
+    from itcj2.observability.loop_lag import PROBE_TASK_NAME, run_probe
+    from itcj2.observability.saturation import install_default_executor
+
+    install_default_executor(loop)
+    probe_task = asyncio.create_task(run_probe(), name=PROBE_TASK_NAME)
 
     # Subscriber de Redis Pub/Sub para eventos de tareas Celery.
     # SOLO en el proceso que sirve Socket.IO (F2.1). Redis pub/sub entrega el
@@ -108,7 +193,14 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: detener subscriber y cerrar pool de conexiones.
+    # Shutdown: detener sondas y subscriber, y cerrar pool de conexiones. La
+    # sonda para ANTES de `engine.dispose()`: lee `engine.pool`.
+    probe_task.cancel()
+    try:
+        await probe_task
+    except asyncio.CancelledError:
+        pass
+
     if subscriber_task is not None:
         subscriber_task.cancel()
         try:
@@ -118,10 +210,28 @@ async def lifespan(app: FastAPI):
 
     from itcj2.database import engine
     engine.dispose()
+
+    # Vacía el batch de spans pendiente (Fase 7); no-op con el tracing apagado.
+    from itcj2.observability.tracing import shutdown_tracing
+    shutdown_tracing()
     logger.info("FastAPI ITCJ v2 detenido.")
 
 
 def create_app() -> FastAPI:
+    # Primero que nada: así lo que se loguee al registrar routers y al importar
+    # itcj2.sockets (python-socketio decide ahí si cuelga su propio handler)
+    # ya sale con el formato y los niveles buenos.
+    from itcj2.observability.logging_config import configure_logging
+    configure_logging()
+
+    # Trazas OTel (Fase 7), solo con OTEL_ENABLED=1. Aquí y no al importar:
+    # con `uvicorn --workers 4` cada worker es un proceso nuevo que corre
+    # `create_app()`, así que cada uno arma su propio provider y su hilo de
+    # exportación. Antes de registrar routers: lo que instrumenta (el engine
+    # de SQLAlchemy, Redis, requests, httpx, Celery) es global al proceso.
+    from itcj2.observability.tracing import setup_tracing
+    setup_tracing()
+
     from itcj2.config import get_settings
 
     # Swagger/ReDoc/openapi.json exponen sin auth el inventario completo de rutas,
@@ -137,6 +247,21 @@ def create_app() -> FastAPI:
         redoc_url=None if _is_prod else "/api/redoc",
         openapi_url=None if _is_prod else "/api/openapi.json",
         lifespan=lifespan,
+        # TRAMPA (Fase 7): FastAPI trae su propia telemetría OTel ENCENDIDA
+        # por defecto, y se activa sola en cuanto hay un TracerProvider global
+        # — el que fija `setup_tracing()`. Envolvería la app POR FUERA del
+        # middleware de observabilidad: un segundo span servidor (sin la
+        # regla `__unmatched__`) del que el nuestro quedaría como hijo, más
+        # spans por dependencia/serialización y registros de excepciones con
+        # sus mensajes. Las trazas, métricas y logs de la app ya los da
+        # `itcj2.observability`: se apaga entera.
+        telemetry={
+            "tracing": False,
+            "metrics": False,
+            "logs": False,
+            "operation_spans": False,
+            "auto_configure": False,
+        },
     )
 
     # Middleware (JWT, CORS)
@@ -179,6 +304,27 @@ def create_app() -> FastAPI:
         if errors:
             return JSONResponse(status_code=503, content={"ready": False, "errors": errors})
         return {"ready": True}
+
+    # Scrape de Prometheus. El trabajo va a un hilo y no al event loop: en
+    # modo multiproceso `MultiProcessCollector` lee los ficheros mmap de TODOS
+    # los workers (hasta ~0.5 s de CPU en el peor caso medido) y la presencia
+    # lee Redis de forma síncrona. Pero NO por el threadpool de los endpoints
+    # `def` (R24): con ese agotado, el scrape haría cola detrás de las
+    # peticiones y Prometheus quedaría ciego justo en la saturación que debe
+    # medir. Por eso `async def` + limiter propio de un token. Da igual en qué
+    # worker caiga el scrape: el agregado sale de los ficheros de todos.
+    # Fuera del esquema OpenAPI (no es API de la app); hacia internet lo corta
+    # nginx con un 404 (Fase 0).
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics():
+        import anyio.to_thread
+
+        from itcj2.observability.metrics import render_latest, scrape_limiter
+
+        content, content_type = await anyio.to_thread.run_sync(
+            render_latest, limiter=scrape_limiter()
+        )
+        return Response(content, media_type=content_type)
 
     # Error handlers
     _register_error_handlers(app)

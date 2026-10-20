@@ -1,0 +1,50 @@
+{# Ranura de UNA constancia (TitulaTec, WeasyPrint).
+
+   Pieza que cambia por tipo (`SLOT_TEMPLATES`, `utils/certificate_pdf.py`,
+   spec `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 E8):
+   hoy `library_clearance` y `survey_release` apuntan los dos aquí (contenido
+   idéntico al de siempre, sin cambios); cuando lleguen los formatos
+   oficiales de cada área, cada `kind` trae su propia plantilla de ranura sin
+   tocar `sheet.html` ni el motor (`render_certificates_pdf`).
+
+   SIEMPRE incluida desde `sheet.html` (`{% include c.slot_template %}`
+   dentro de su `{% for c in grupo %}`) -- nunca se renderiza sola. El alto
+   de la ranura y el tamaño de letra por acomodo viven en el `<style>` de
+   `sheet.html` (`.sheet--2 .slot` / `.sheet--3 .slot`), no aquí.
+
+   Contexto: `c`, el dict de UNA constancia
+   (`utils/certificate_pdf.py::_cert_ctx`) -- disponible porque `{% include %}`
+   hereda el contexto del bucle que la llama. Todo ya viene PRECALCULADO: esta
+   pieza solo pinta, no decide nada. #}
+<div class="slot">
+  {% if c.voided %}<div class="stamp">ANULADA</div>{% endif %}
+  <div class="slot-head">
+    <img src="images/logo_tecnm.png" alt="TecNM">
+    <div class="titles">
+      <p class="inst">Tecnológico Nacional de México</p>
+      <p class="dept">Instituto Tecnológico de Ciudad Juárez · {{ c.department }}</p>
+    </div>
+    <img src="images/escudo_itcj_negro.png" alt="ITCJ">
+  </div>
+  <div class="slot-title">{{ c.title }}</div>
+  <div class="slot-body">
+    Se hace constar que <strong>{{ c.student_name }}</strong> {{ c.phrase }}.
+  </div>
+  <table class="fields">
+    <tr>
+      <td class="label">No. de control:</td><td>{{ c.control_number }}</td>
+      <td class="label">Carrera:</td><td>{{ c.program_name }}</td>
+    </tr>
+    <tr>
+      <td class="label">Semestre:</td><td>{{ c.period_label }}</td>
+      <td class="label">Folio:</td><td>{{ c.number }}</td>
+    </tr>
+  </table>
+  <div class="slot-foot">
+    <div>Fecha de emisión: {{ c.issued_label }}</div>
+    <div class="signature">
+      <div class="line"></div>
+      Nombre, firma y sello
+    </div>
+  </div>
+</div>

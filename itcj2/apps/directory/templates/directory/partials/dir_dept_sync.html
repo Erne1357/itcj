@@ -1,0 +1,23 @@
+{# Nodos FUERA de #dir-list que el toggle debe re-sincronizar.
+   outerHTML PLANO, nunca morph: #dir-entry-dept vive fuera de #dir-shell, o sea
+   fuera del hx-ext="morph": htmx no encontraria la extension y caeria a
+   innerHTML, metiendo un <select> dentro del <select>. #}
+<select class="form-select" name="filter_dept" id="dir-filter-dept" hx-swap-oob="outerHTML"
+        hx-get="/directory/list" hx-target="#dir-list" hx-swap="morph:innerHTML"
+        hx-include="#dir-filters" hx-indicator="#dir-skel">
+  <option value="">Todos los departamentos</option>
+  {% for d in departments %}
+  <option value="{{ d.id }}"{% if effective_filter_dept == d.id %} selected{% endif %}>{{ d.dir_label }}</option>
+  {% endfor %}
+</select>
+
+<div id="dir-unofficial-panel" class="dir-setting" hx-swap-oob="outerHTML">
+  {% include "directory/partials/dir_setting_switch.html" %}
+</div>
+
+{% if can_manage %}
+<select class="form-select" name="department_id" id="dir-entry-dept" required hx-swap-oob="outerHTML">
+  <option value="">Selecciona…</option>
+  {% for d in entry_departments %}<option value="{{ d.id }}">{{ d.dir_label }}</option>{% endfor %}
+</select>
+{% endif %}

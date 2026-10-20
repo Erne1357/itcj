@@ -12,6 +12,12 @@ from fastapi import Request
 from starlette.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+# Import a nivel de módulo SEGURO: `certificate_service` solo importa
+# `db_now` arriba (modelos y servicios son locales) y no toca páginas.
+from itcj2.apps.titulatec.services.certificate_service import printing_enabled
+# Seguro también: el validador de encuestas es casi puro (solo `re`/`unicodedata`).
+from itcj2.apps.titulatec.utils.survey_validator import option_groups
+
 logger = logging.getLogger("itcj2.apps.titulatec.pages")
 
 _HERE = Path(__file__).parent
@@ -19,6 +25,18 @@ _TEMPLATES_DIR = _HERE.parent / "templates"
 
 # Instancia propia de Jinja2Templates — no toca itcj2/templates.py
 titulatec_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Switch de impresión de constancias (spec folios 2026-10-05 §3.5): CALLABLE
+# global, no variable de contexto -los globales de Jinja SÍ llegan a las macros
+# importadas sin contexto (`{% from "titulatec/_macros.html" import
+# certificate_cell %}`); el contexto de la página no-. Se evalúa en cada
+# render: `printing_enabled()` lee `get_settings()` cada vez.
+titulatec_templates.env.globals["tt_certificate_printing"] = printing_enabled
+
+# Lista desplegable de la encuesta agrupada por `group` (<optgroup>), en orden
+# alfabético en español. Global y no filtro por lo mismo que el de arriba: lo
+# llama la macro `tt_field` de `public/partials/survey_form.html`.
+titulatec_templates.env.globals["tt_option_groups"] = option_groups
 
 
 def sv(path: str) -> str:
@@ -55,20 +73,55 @@ def sv_core(path: str) -> str:
 _ROLE_DASHBOARD = [
     ("admin",                          "/titulatec/admin/"),
     ("titulatec_titulaciones",         "/titulatec/admin/"),
-    ("titulatec_school_services_head", "/titulatec/admin/"),
+    # La jefa aterriza en el Tablero (spec 2026-10-14 D9). `admin` va primero y
+    # sigue en la Bandeja (y `resolve_dashboard_url` corta con el JWT admin).
+    ("titulatec_school_services_head", "/titulatec/admin/tablero"),
     ("titulatec_school_services",      "/titulatec/admin/"),
+    # Departamento de Titulacion (rol de 2026-09-21; sin esta fila aterrizaba en
+    # `/itcj/dashboard`). Desde 2026-10-07 (spec 2026-10-07-titulatec-liberados-
+    # biblioteca-helpdesk-design.md D1) ya no ve la Bandeja: su pantalla de
+    # trabajo es Liberados, una bandeja propia como las de GTV, Computo,
+    # Biblioteca y Caja, y por eso va DESPUES de los roles con Bandeja completa
+    # (titulaciones, admin y Escolares ganan si alguien tiene ambos).
+    ("titulatec_titulacion",      "/titulatec/admin/liberados"),
+    ("titulatec_tech_management", "/titulatec/admin/liberaciones"),  # GTV: bandeja de liberaciones (2026-09-15)
+    # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
+    # ademas `admin` por su puesto (D2) y por eso aterriza arriba, en la Bandeja.
+    ("titulatec_computer_center", "/titulatec/admin/accesos"),
+    # No adeudo de biblioteca (2026-10-01): bandejas propias de Biblioteca y Caja.
+    ("titulatec_library", "/titulatec/admin/biblioteca"),
+    ("titulatec_cashier", "/titulatec/admin/caja"),
     ("titulatec_vinculacion",     "/titulatec/vinculacion/"),
     ("titulatec_sinodal",         "/titulatec/sinodal/"),
-    ("student",                   "/titulatec/student/dashboard"),  # rol global reciclado
+    ("graduate",                  "/titulatec/student/dashboard"),  # egresado: el alumno (2026-09-15)
+    ("student",                   "/titulatec/student/dashboard"),  # legado: filas que el backfill 14 no movió
 ]
 
 
-def resolve_dashboard_url(roles: set[str], jwt_role: str | None = None) -> str:
-    """Devuelve la URL de dashboard según los roles del usuario en la app."""
+# El Tablero exige este permiso; el aterrizaje de la jefa depende de tenerlo.
+_REPORTS_URL = "/titulatec/admin/tablero"
+_REPORTS_PERM = "titulatec.reports.page.view"
+
+
+def resolve_dashboard_url(
+    roles: set[str],
+    jwt_role: str | None = None,
+    perms: set[str] | None = None,
+) -> str:
+    """Devuelve la URL de dashboard según los roles del usuario en la app.
+
+    `perms` (opcional) son los permisos efectivos del usuario en la app. Con él,
+    el aterrizaje al Tablero exige además `titulatec.reports.page.view`: entre el
+    deploy y `titulatec init-reportes` la jefa cae en la Bandeja en vez de un 403.
+    Con `perms=None` solo cuentan los roles (comportamiento anterior).
+    """
     if jwt_role == "admin":
         return "/titulatec/admin/"
     for role_name, url in _ROLE_DASHBOARD:
         if role_name in roles:
+            if url == _REPORTS_URL and perms is not None and _REPORTS_PERM not in perms:
+                # Sin el permiso: como el resto de Escolares, a la Bandeja.
+                return "/titulatec/admin/"
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"
@@ -93,23 +146,60 @@ def get_titulatec_roles(user_id: int) -> set[str]:
 # ---------------------------------------------------------------------------
 
 _ADMIN_NAV = [
+    # Tablero de la jefa de Servicios Escolares (2026-10-14): solo lectura, un
+    # solo código por fila (`perms & need` es OR). Va PRIMERO.
+    ("Tablero",             "bi-speedometer2", "/titulatec/admin/tablero",    {"titulatec.reports.page.view"}),
     ("Bandeja",             "bi-inbox",       "/titulatec/admin/",             {"titulatec.dashboard.school_services", "titulatec.dashboard.titulaciones"}),
     ("Procesos",            "bi-people",      "/titulatec/admin/processes",    {"titulatec.process.page.list"}),
     ("Documentos",          "bi-file-earmark-check", "/titulatec/admin/documents",    {"titulatec.document.page.list"}),
     ("Convocatorias",       "bi-award",       "/titulatec/admin/cohorts",      {"titulatec.cohort.page.list"}),
     ("Citas de cotejo",     "bi-calendar",    "/titulatec/admin/appointments", {"titulatec.appointment.page.list"}),
+    # Bandeja de solo lectura del Departamento de Titulacion (2026-09-21, Tarea
+    # 5 del deslinde a T-soft): egresados ya liberados por Servicios Escolares.
+    ("Liberados",           "bi-box-arrow-right", "/titulatec/admin/liberados", {"titulatec.handoff.page.list"}),
     ("Encargados",          "bi-people-fill", "/titulatec/admin/officers",     {"titulatec.officers.page.list"}),
+    # Un solo código por fila: `admin_nav_items` (:118) hace `perms & need`, que
+    # es OR — un `dashboard.*` de más abriría el item a todos los oficiales.
+    ("Solicitudes",         "bi-person-plus", "/titulatec/admin/solicitudes",  {"titulatec.enrollment_request.page.list"}),
+    # Centro de Computo (2026-09-24): da el NIP a las solicitudes que SE aprobo
+    # sin cuenta; en modo alterno, revisa todo.
+    ("Accesos",             "bi-key",         "/titulatec/admin/accesos",      {"titulatec.enrollment_access.page.list"}),
+    ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
+    # No adeudo de biblioteca (2026-10-01): bandejas de Biblioteca (Centro de
+    # Información) y Caja (Recursos Financieros).
+    ("Biblioteca",          "bi-book",        "/titulatec/admin/biblioteca",   {"titulatec.library_clearance.page.list"}),
+    ("Caja",                "bi-cash-coin",   "/titulatec/admin/caja",         {"titulatec.library_payment.page.list"}),
+    # Folios de liberación (2026-10-05): la pestaña que antes era «Constancias»
+    # (misma URL, mismo permiso); la impresión por lotes quedó tras un switch.
+    ("Folios",              "bi-hash",        "/titulatec/admin/constancias",  {"titulatec.certificate.page.list"}),
+    ("Encuestas",           "bi-clipboard-data", "/titulatec/admin/encuestas", {"titulatec.survey.page.list"}),
+    # Bandeja de salida de correos (2026-10-06): solo lectura, solo `admin`
+    # (`outbox_2026_10/24`, `titulatec init-outbox-admin`).
+    ("Correos",             "bi-envelope",    "/titulatec/admin/correos",      {"titulatec.email_outbox.page.list"}),
+    # Bitácora de auditoría (2026-10-07): solo lectura, solo `admin` (D2 de la spec).
+    ("Bitácora",            "bi-journal-text", "/titulatec/admin/bitacora",    {"titulatec.audit.page.list"}),
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 
 
-def admin_nav_items(user_id: int) -> list[dict]:
-    """Items del menú admin visibles según los permisos del usuario en titulatec."""
-    from itcj2.database import SessionLocal
-    from itcj2.core.services.authz_service import get_user_permissions_for_app
+def admin_nav_items(user_id: int, db=None) -> list[dict]:
+    """Items del menú admin visibles según los permisos del usuario en titulatec.
+
+    Los permisos salen de `cached_perms`, la MISMA fuente que el gate
+    (`require_page_app`): con la caché tibia no emite ninguna consulta. Con `db`
+    usa esa sesión; sin ella abre la suya (`SessionLocal` no toma conexión del
+    pool hasta la primera consulta, así que con la caché tibia ni eso cuesta) —
+    `render_titulatec` no tiene la sesión de la ruta (cada ruta la cierra antes
+    de renderizar) y no hay que abrir una tercera.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
     try:
-        with SessionLocal() as db:
-            perms = get_user_permissions_for_app(db, user_id, "titulatec")
+        if db is not None:
+            perms = cached_perms(db, user_id, "titulatec")
+        else:
+            from itcj2.database import SessionLocal
+            with SessionLocal() as _db:
+                perms = cached_perms(_db, user_id, "titulatec")
     except Exception as exc:
         logger.warning("Error obteniendo permisos titulatec para admin_nav (user %s): %s", user_id, exc)
         return []
@@ -140,11 +230,19 @@ def render_titulatec(
         "current_route": request.url.path,
         **(context or {}),
     }
-    # Inyectar admin_nav solo si no viene ya en el contexto y hay usuario autenticado.
+    # `admin_nav` es un CALLABLE perezoso, no una lista: el menú cuesta (permisos
+    # efectivos del usuario) y solo lo pinta `admin/base_admin.html`, que lo
+    # invoca. Jinja evalúa un callable del contexto únicamente donde la plantilla
+    # lo llama: las vistas del alumno y los parciales HTMX (que no extienden esa
+    # base) ya no pagan nada. Si el llamador trae su propio `admin_nav` en el
+    # contexto, se respeta.
     if "admin_nav" not in ctx and user is not None:
         try:
-            ctx["admin_nav"] = admin_nav_items(int(user["sub"]))
+            uid = int(user["sub"])
         except Exception as exc:
             logger.warning("Error calculando admin_nav para user %s: %s", user.get("sub"), exc)
-            ctx["admin_nav"] = []
+            ctx["admin_nav"] = lambda: []
+        else:
+            # `admin_nav_items` se resuelve como global del módulo al invocar.
+            ctx["admin_nav"] = lambda: admin_nav_items(uid)
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)

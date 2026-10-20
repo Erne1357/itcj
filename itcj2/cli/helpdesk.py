@@ -15,6 +15,7 @@ DML_INVENTORY_CAMPAIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inven
 DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
 DML_INVENTORY_ASSIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory" / "assign"
 DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
+DML_TICKET_SPLIT = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "ticket_split"
 
 
 def _run_sql_files(base_dir: Path, files: list[str]) -> None:
@@ -358,6 +359,42 @@ def init_assign_permissions_command():
         raise
 
 
+@click.command("init-split-permissions")
+def init_split_permissions_command():
+    """Carga los permisos `helpdesk.tickets.api.split.{all,own}` y los asigna.
+
+    Ejecuta en orden:
+      01_add_split_permission.sql    — Borra el permiso plano de la fase 1
+                                        (`helpdesk.tickets.api.split`, nunca
+                                        llegó a producción) e inserta los dos
+                                        permisos con alcance own/all.
+      02_assign_split_permission.sql — Los asigna a sus titulares.
+
+    Tras ejecutar, quien tenga CUALQUIERA de los dos permisos puede partir un
+    ticket PENDING, ASSIGNED o IN_PROGRESS en varios tickets nuevos (feature
+    "Partir ticket"):
+      - helpdesk.tickets.api.split.all → cualquier ticket que pueda VER (rol
+        admin, posición secretary_comp_center) — quien asigna.
+      - helpdesk.tickets.api.split.own → solo un ticket asignado a él o sin
+        asignar en la cola de su equipo (roles tech_desarrollo, tech_soporte)
+        — el técnico que lo trae entre manos.
+    """
+    click.echo("🔀 Inicializando permisos de partir ticket (own/all)...")
+    try:
+        _run_sql_files(DML_TICKET_SPLIT, [
+            "01_add_split_permission.sql",
+            "02_assign_split_permission.sql",
+        ])
+        click.echo("\n🎉 Permisos aplicados.")
+        click.echo("   • rol admin                      → helpdesk.tickets.api.split.all")
+        click.echo("   • posición secretary_comp_center → helpdesk.tickets.api.split.all")
+        click.echo("   • rol tech_desarrollo            → helpdesk.tickets.api.split.own")
+        click.echo("   • rol tech_soporte               → helpdesk.tickets.api.split.own")
+    except Exception as e:
+        click.echo(f"\n💥 Error: {e}")
+        raise
+
+
 @click.command("seed-config")
 def seed_config_command():
     """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
@@ -405,4 +442,5 @@ helpdesk_cli.add_command(load_inventory_csv)
 helpdesk_cli.add_command(init_inventory_campaign_command)
 helpdesk_cli.add_command(init_retirement_permissions_command)
 helpdesk_cli.add_command(init_assign_permissions_command)
+helpdesk_cli.add_command(init_split_permissions_command)
 helpdesk_cli.add_command(seed_config_command)

@@ -3,7 +3,8 @@ Landing page y redirección por rol de Help-Desk.
 Equivalente a las rutas raíz del blueprint helpdesk_pages_bp en Flask.
 
 Rutas:
-  GET  /help-desk/   → Landing page (home_landing.html)
+  GET  /help-desk/   → Landing page (home_landing.html); exige acceso a la app
+                       (sin asignación → 403 de Help-Desk)
   POST /help-desk/   → Redirige al dashboard por rol (respuesta JSON)
 """
 import logging
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from itcj2.apps.helpdesk.pages.nav import render_helpdesk
-from itcj2.dependencies import require_page_login
+from itcj2.dependencies import require_page_app, require_page_login
 
 logger = logging.getLogger("itcj2.apps.helpdesk.pages.landing")
 
@@ -35,9 +36,14 @@ _ROLE_PRIORITY = ["admin", "tech_desarrollo", "tech_soporte", "department_head",
 @router.get("/", name="helpdesk.pages.landing.home")
 async def home(
     request: Request,
-    user: dict = Depends(require_page_login),
+    user: dict = Depends(require_page_app("helpdesk")),
 ):
-    """Landing page de Help-Desk — punto de entrada para todos los usuarios."""
+    """Landing page de Help-Desk — solo para usuarios con acceso a la app.
+
+    Sin asignación en helpdesk, `require_page_app` lanza `PageForbidden` y el
+    handler global pinta el 403 verde de Help-Desk (botón al panel principal),
+    igual que en `maint/pages/landing.py`.
+    """
     return render_helpdesk(request, "helpdesk/home_landing.html", {"title": "Help-Desk"})
 
 

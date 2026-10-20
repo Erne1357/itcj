@@ -71,7 +71,7 @@ def test_current_version_falls_back_to_postgres_when_redis_is_empty(db_session, 
 def test_token_survives_redis_outage(app_client):
     """Con Redis caído, un token con sv>=1 sigue autenticando."""
     tok = _tok(5559201, sv=3)
-    with patch.object(ss, "current_version", return_value=None):
+    with patch.object(ss, "current_version_async", return_value=None):
         r = app_client.get("/api/core/v2/auth/me", headers={"Cookie": f"itcj_token={tok}"})
     assert r.status_code == 200
 

@@ -1,0 +1,66 @@
+{# ===========================================================================
+   _exp_mail.html — bitácora de correos al egresado (spec 2026-09-28-titulatec-
+   correos-notificaciones §7, D11).
+
+   Zona de SOLO LECTURA: qué se mandó, cuándo, a dónde y si falló. Sin botón
+   de reenviar. `_exp_shell.html` solo la incluye cuando `correos` no está
+   vacía (mismo patrón que `#exp-otros`), así que aquí no se repite el guard.
+
+   Un único `.tt-acc-item`, MISMO mecanismo del acordeón de fases
+   (`#exp-fases`): botón con `aria-expanded`/`aria-controls` + panel `hidden`,
+   clase `is-open` que rota el chevron. La delegación del clic de
+   `admin/expediente.js` para las fases está acotada a `#exp-fases`, así que
+   esta sección se engancha por separado (`#exp-correos [data-tt-acc]`) en el
+   mismo archivo, reusando su helper interno `abrir()` -- sin memoria entre
+   swaps: a diferencia de las fases, nace cerrada siempre (la lista no cambia
+   con las acciones del expediente, así que no hay nada que el usuario pierda).
+
+   Una ENTRADA por CORREO, no por aviso (ruling 21, `pages/admin.py::
+   _bitacora_correos`): los avisos de un grupo con el mismo estado y el mismo
+   `sent_at` son un solo correo; `m.n` dice cuántos junta («N avisos
+   agrupados» si N > 1) y `m.when` es la fecha de envío si salió, o la de alta
+   del aviso más reciente si no. El conteo del encabezado cuenta entradas.
+
+   Cada entrada usa `.tt-timeline-item` (mismas clases que `_exp_timeline.html`,
+   sin incluirlo: esa vista es icono+tono, y aquí el estado va en una píldora
+   de `_macros.html`, no en el icono) con id estable `exp-mail-{{ m.id }}` = la
+   fila más reciente de su grupo (morph-safe, aunque hoy el shell entero se
+   re-renderiza como unidad).
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import pill %}
+<div class="tt-acc-item" id="exp-correos-item">
+  <h2 class="tt-acc-h">
+    <button type="button" class="tt-acc-btn" id="exp-correos-btn" data-tt-acc="correos"
+            aria-expanded="false" aria-controls="exp-correos-panel">
+      <span class="tt-acc-num"><i class="bi bi-envelope" aria-hidden="true"></i></span>
+      <span class="tt-acc-name">Correos
+        <span class="tt-acc-sub">{{ correos|length }} correo{{ 's' if correos|length != 1 }}</span>
+      </span>
+      <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
+    </button>
+  </h2>
+
+  <div class="tt-acc-panel" id="exp-correos-panel" role="region"
+       aria-labelledby="exp-correos-btn" hidden>
+    <div class="tt-acc-panel-in tt-anim-in">
+      {% for m in correos %}
+      <div class="tt-timeline-item" id="exp-mail-{{ m.id }}">
+        <span class="ico tone-{{ m.tone }}"><i class="bi bi-envelope" aria-hidden="true"></i></span>
+        <div class="min-w-0 flex-grow-1">
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="label">{{ m.subject }}</span>
+            {{ pill(m.status_label, m.tone) }}
+          </div>
+          <div class="when"><span class="tt-mono">{{ m.when }}</span>
+            · <span class="quien">{{ m.to }}</span>
+            {%- if m.n > 1 %} · {{ m.n }} avisos agrupados{% endif %}</div>
+          {# El motivo solo explica algo en lo que falló, sigue en cola (el
+             reintento dice por qué) o ya no aplicaba; en un enviado o en «Sin
+             correo personal» sería un error viejo que ya no describe nada. #}
+          {% if m.error and m.status in ("failed", "pending", "obsolete") %}<div class="detalle">{{ m.error }}</div>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

@@ -23,6 +23,8 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from itcj2.observability.work import measured
+
 logger = logging.getLogger(__name__)
 
 # ── Constantes institucionales ─────────────────────────────────────────────────
@@ -152,17 +154,19 @@ class RetirementDocumentService:
         if not os.path.exists(template_path):
             raise RuntimeError(f"Plantilla no encontrada en {template_path}")
 
-        wb = openpyxl.load_workbook(template_path, keep_vba=False)
-        ws = wb.active
+        # Sin PDF (R36): openpyxl sobre la plantilla es todo el trabajo pesado.
+        with measured("retirement_oficio", "openpyxl"):
+            wb = openpyxl.load_workbook(template_path, keep_vba=False)
+            ws = wb.active
 
-        if ctx:
-            RetirementDocumentService._fill_header(ws, ctx)
-            RetirementDocumentService._fill_items(ws, ctx)
-            RetirementDocumentService._fill_signers(ws, ctx)
+            if ctx:
+                RetirementDocumentService._fill_header(ws, ctx)
+                RetirementDocumentService._fill_items(ws, ctx)
+                RetirementDocumentService._fill_signers(ws, ctx)
 
-        buf = io.BytesIO()
-        wb.save(buf)
-        return buf.getvalue()
+            buf = io.BytesIO()
+            wb.save(buf)
+            return buf.getvalue()
 
     # ── PDF — DESHABILITADO ────────────────────────────────────────────────────
 

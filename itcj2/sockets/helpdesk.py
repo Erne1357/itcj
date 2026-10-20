@@ -275,7 +275,7 @@ def register_helpdesk_namespace(sio_server):
 
     @sio_server.on("connect", namespace=NAMESPACE)
     async def on_connect(sid, environ):
-        user = current_user_from_environ(environ)
+        user = await current_user_from_environ(environ)
         if not user:
             return False
         await sio_server.save_session(sid, {"user": user}, namespace=NAMESPACE)

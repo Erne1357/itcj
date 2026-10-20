@@ -8,8 +8,11 @@ RUN sed -i 's/Components: main/Components: main contrib/' /etc/apt/sources.list.
     libreoffice-writer \
     fonts-liberation fonts-dejavu-core \
     ttf-mscorefonts-installer \
+    unixodbc tdsodbc freetds-bin \
  && fc-cache -f \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
+# `tdsodbc` registra el driver `[FreeTDS]` en /etc/odbcinst.ini vía su propio
+# postinst -- no hace falta escribirlo a mano (ver `Dockerfile.fastapi`).
 
 # Zona horaria (Cd. Juárez)
 RUN ln -snf /usr/share/zoneinfo/America/Ciudad_Juarez /etc/localtime && \

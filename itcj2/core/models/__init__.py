@@ -16,6 +16,7 @@ from .department import Department
 from .notification import Notification
 from .position import Position, UserPosition, PositionAppRole, PositionAppPerm, ProgramPosition
 from .task_models import TaskDefinition, PeriodicTask, TaskRun
+from .student_profile import StudentProfile
 
 __all__ = [
     "Role", "User", "App", "Permission", "RolePermission",
@@ -24,4 +25,5 @@ __all__ = [
     "Notification", "Position", "UserPosition", "PositionAppRole",
     "PositionAppPerm", "ProgramPosition",
     "TaskDefinition", "PeriodicTask", "TaskRun",
+    "StudentProfile",
 ]

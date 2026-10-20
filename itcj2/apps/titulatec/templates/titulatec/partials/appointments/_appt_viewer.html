@@ -1,0 +1,132 @@
+{# Visor de documentos para el cotejo contra el papel.
+
+   El documento abierto es ESTADO DE SERVIDOR (`?doc=`), no del DOM. Idiomorph
+   conserva el nodo del `<iframe>` pero SINCRONIZA SUS ATRIBUTOS, y `src` es uno:
+   sin esto, marcar asistencia recargaba el PDF desde cero.
+
+   `id="appt-docbar"` y los `data-tt-doc` / `data-tt-doc-name` son API que
+   consume `js/admin/appointments.js` y el modal grande. No se renombran.
+
+   Un documento que falta va con `aria-disabled`, NO con `disabled`: un control
+   `disabled` no es enfocable, así que un lector de pantalla no podía descubrir
+   tabulando que faltaba la CURP. #}
+{% from "titulatec/partials/appointments/_appt_macros.html" import appt_nav, appt_action %}
+{% from "titulatec/_macros.html" import estado_pill %}
+
+<div id="appt-viewer" class="tt-card" data-tt-fade-key="viewer:{{ detail.process.id }}|{{ detail.doc_abierto or '' }}">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
+    <h3 class="tt-h-sec">Documentos del alumno</h3>
+    {% if detail.doc_src %}
+    <button type="button" class="btn btn-sm tt-btn-ghost" data-bs-toggle="modal"
+            data-bs-target="#tt-appt-doc-modal" aria-label="Ver a pantalla completa">
+      <i class="bi bi-arrows-fullscreen" aria-hidden="true"></i>
+      <span class="d-none d-sm-inline ms-1">Pantalla completa</span></button>
+    {% endif %}
+  </div>
+
+  <div id="appt-docbar" class="mb-2">
+    {% for d in detail.docs %}
+    {% if d.doc and not d.missing %}
+    <a class="btn btn-sm {{ 'tt-btn-soft is-active' if d.type_code == detail.doc_abierto else 'tt-btn-ghost' }}"
+       data-tt-doc="{{ d.view_url }}" data-tt-doc-name="{{ d.name }}"
+       {% if d.type_code == detail.doc_abierto %}aria-current="true"{% endif %}
+       {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id ~ '&doc=' ~ d.type_code) }}>
+      {{ d.name }} {{ estado_pill(d.doc.review_status) }}</a>
+    {% else %}
+    <button type="button" class="btn btn-sm tt-btn-ghost" aria-disabled="true">
+      {{ d.name }}
+      {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
+         DISPENSADO por R-G (D9) -- se rotula "Se entrega en el cotejo" en vez
+         de "Falta", para que Servicios Escolares sepa qué pedirle EN el
+         cotejo en vez de leer que el alumno lo dejó pendiente. #}
+      <span class="tt-pill tt-pill--neutral ms-1">
+        {{- 'Archivo perdido' if d.missing
+            else ('Se entrega en el cotejo' if d.excused else 'Falta') -}}</span></button>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if detail.doc_src %}
+  <iframe id="tt-appt-doc-frame" class="tt-appt-frame" src="{{ detail.doc_src }}"
+          title="{{ detail.doc_abierto }} de {{ detail.student.name }}"></iframe>
+
+  {# --- Reemplazo del documento abierto (spec 2026-10-15 §7.1) ---------------
+     Vive BAJO el iframe y fuera de `#appt-docbar`: ni el `src` del visor ni
+     los botones de documento cambian por esto, así que el PDF no se recarga.
+     «Pedir reemplazo» es una NAVEGACIÓN con `&reemplazo=<type_code>` (mismo
+     idiom que `&rechazar=` de la fase 02): `hx-confirm` no recoge texto y
+     `prompt()` está prohibido. Ruling R2: el motivo solo existe mientras el
+     documento está `rejected`; ya resubido (`pending`) no hay motivo que
+     mostrar. Ids estables para el morph. #}
+  {% set BASE = page_url ~ '/' ~ detail.process.id %}
+  {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
+  {% set ab = (detail.docs | selectattr('type_code', 'equalto', detail.doc_abierto) | list | first) %}
+  {% set puede_pedir = detail.can_request_replacement and detail.in_cotejo %}
+  {% set puede_aprobar = ab and ab.replacement and ab.doc.review_status == 'pending'
+                         and detail.can_approve_docs %}
+  {% if ab and (ab.replacement or puede_pedir) %}
+  <div id="appt-docreplace" class="d-flex flex-column gap-2 mt-2">
+    <div id="appt-docreplace-state" class="d-flex flex-wrap align-items-center gap-2">
+      {{ estado_pill(ab.doc.review_status) }}
+      {% if ab.replacement %}
+      <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat"></i>Reemplazo pedido</span>
+      {% endif %}
+      {% if ab.replacement and ab.doc.review_status == 'rejected' and ab.review_note %}
+      <span class="tt-appt-note">Motivo: {{ ab.review_note }}</span>
+      {% elif ab.replacement and ab.doc.review_status == 'pending' %}
+      <span class="tt-appt-note">Reemplazo subido · por aprobar</span>
+      {% endif %}
+    </div>
+
+    {% if puede_pedir and reemplazo == detail.doc_abierto %}
+    <form id="appt-docreplace-form" class="tt-card d-flex flex-column gap-2"
+          {{ appt_action(BASE ~ '/documents/' ~ detail.doc_abierto ~ '/reemplazo' ~ QZ) }}>
+      <label class="tt-kicker" for="appt-docreplace-note">Motivo del reemplazo</label>
+      <textarea id="appt-docreplace-note" name="note" rows="3" maxlength="1000"
+                class="form-control form-control-sm"
+                placeholder="Qué documento necesita y por qué. Es lo que el alumno lee."
+                required></textarea>
+      <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-sm tt-btn-danger-soft">
+          <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Pedir reemplazo</button>
+        <a class="btn btn-sm tt-btn-ghost"
+           {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id
+                       ~ '&doc=' ~ detail.doc_abierto) }}>Cancelar</a>
+      </div>
+    </form>
+    {% else %}
+    <div id="appt-docreplace-actions" class="d-flex flex-wrap gap-2">
+      {% if puede_pedir %}
+      <a id="appt-docreplace-ask" class="btn btn-sm tt-btn-danger-soft"
+         {{ appt_nav(page_url ~ '?v=atender&date=' ~ day ~ '&selected=' ~ detail.process.id
+                     ~ '&doc=' ~ detail.doc_abierto ~ '&reemplazo=' ~ detail.doc_abierto) }}>
+        <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Pedir reemplazo</a>
+      {% endif %}
+      {% if puede_aprobar %}
+      {# R10 (revisión final 2026-10-15): manda la `version` que se está viendo;
+         si el alumno subió otro archivo entre tanto, la ruta NO aprueba y
+         re-pinta con el nuevo en el visor (su `src` lleva `?v=`). #}
+      <button id="appt-docreplace-approve" type="button" class="btn btn-sm tt-btn-ink"
+              hx-confirm="Aprobar reemplazo|Se da por bueno el documento que el alumno subió de nuevo."
+              data-tt-confirm-ok="Aprobar"
+              hx-vals='{"version":"{{ ab.doc.version }}"}'
+              {{ appt_action(BASE ~ '/documents/' ~ detail.doc_abierto ~ '/aprobar' ~ QZ) }}>
+        <i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Aprobar reemplazo</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  {# Antes esto era una caja gris de 460-520 px sin una sola palabra. #}
+  <div class="tt-derivada">
+    {% set perdidos = detail.docs | selectattr('missing') | list %}
+    {% if perdidos %}
+    <p class="mb-1"><strong>El archivo ya no está en el servidor.</strong></p>
+    <p class="mb-0">Pídele al alumno que lo vuelva a subir desde su portal.</p>
+    {% else %}
+    <p class="mb-0">El alumno todavía no sube sus documentos, así que no hay nada que cotejar.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

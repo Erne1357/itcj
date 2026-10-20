@@ -58,8 +58,15 @@
             if (el) { try { var inst = bootstrap.Modal.getInstance(el); if (inst) inst.dispose(); } catch (e) { /* ignore */ } }
         });
 
+        // Modal compartido "Partir ticket": suelta su modal, sus listeners y su
+        // estado, e invalida la carga/envío que siga en vuelo (al resolver ya no
+        // encontrará su página y no tocará el DOM de la nueva). Mismo criterio
+        // que assign_tickets.js.
+        window.HelpdeskSplit?.teardown();
+
         ['refreshDashboard', 'openStartWorkModal', 'openResolveModal', 'closeResolveTab',
-         'openResolutionFilesModal', 'deleteResolutionFile', 'viewAttachmentImage', 'openSelfAssignModal'
+         'openResolutionFilesModal', 'deleteResolutionFile', 'viewAttachmentImage', 'openSelfAssignModal',
+         'openSplitTicketModal'
         ].forEach(function (fn) { delete window[fn]; });
     }
 
@@ -72,6 +79,7 @@
         window.deleteResolutionFile = deleteResolutionFile;
         window.viewAttachmentImage = viewAttachmentImage;
         window.openSelfAssignModal = openSelfAssignModal;
+        window.openSplitTicketModal = openSplitTicketModal;
 
         updateDashboardStats();
         setupModals();
@@ -566,6 +574,33 @@
         if (imgEl) imgEl.src = url;
         if (titleEl) titleEl.innerHTML = '<i class="fas fa-image me-2"></i>' + (title || 'Imagen');
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    // ==================== SPLIT TICKET MODAL ====================
+    // "Partir ticket" vive en js/shared/split_ticket.js (window.HelpdeskSplit) y
+    // su markup en el partial helpdesk/_components/split_ticket_modal.html — el
+    // mismo que usa la pantalla de asignación. Aquí solo se abre y, cuando la
+    // división ya se aplicó (el módulo muestra el toast y cierra el modal), se
+    // refrescan las listas (mismo patrón que tras tomar/resolver un ticket).
+    function openSplitTicketModal(ticketId) {
+        if (!window.HelpdeskSplit) {
+            console.error('[Dashboard] HelpdeskSplit no está cargado (js/shared/split_ticket.js).');
+            HelpdeskUtils.showToast('No se pudo abrir "Partir ticket". Recarga la página.', 'error');
+            return;
+        }
+        return window.HelpdeskSplit.open(ticketId, { onSplit: onTicketSplit });
+    }
+
+    // El original conserva su asignación (queda en la misma pestaña; solo
+    // pudieron cambiar título/descripción/categoría/prioridad) y las partes
+    // nuevas nacen PENDING sin asignar (no aparecen en ningún tab de este
+    // dashboard) — se refrescan las tres pestañas donde vive el botón para
+    // que la tarjeta del original se repinte con los datos que haya quedado.
+    async function onTicketSplit() {
+        refreshTab('assigned');
+        refreshTab('inProgress');
+        refreshTab('team');
+        await updateDashboardStats();
     }
 
     // ==================== HELPERS ====================

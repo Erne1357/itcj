@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from itcj2.celery_app import celery_app
-from itcj2.tasks.base import LoggedTask
+from itcj2.tasks.base import LoggedTask, with_itcj_ctx
 
 logger = logging.getLogger(__name__)
 
@@ -162,11 +162,11 @@ def _push_user_notifications(notif_dicts: list[dict]) -> None:
 
         r = redis.from_url(get_settings().REDIS_URL)
         for notif in notif_dicts:
-            r.publish("task_events", json.dumps({
+            r.publish("task_events", json.dumps(with_itcj_ctx({
                 "type": "user_notification",
                 "user_id": notif["user_id"] if "user_id" in notif else None,
                 "notification": notif,
-            }))
+            })))
     except Exception as e:
         logger.error(f"[send_mass_notification] Error publicando en Redis: {e}")
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from itcj2.config import get_settings
+from itcj2.core.utils.security import hash_nip
 
 # Campos destino (semánticos). El admin mapea cada uno a un encabezado del CSV.
 TARGET_FIELDS = ["control_number", "full_name", "email", "career", "modality"]
@@ -30,6 +31,125 @@ _FIELD_KEYWORDS = {
 
 _INSTITUTIONAL_DOMAIN = "@cdjuarez.tecnm.mx"
 
+# Celdas que el admin puede corregir a mano en el preview. Son las únicas que
+# `parse_overrides` acepta: nada más del CSV es editable.
+_OVERRIDABLE_TEXT = ("control_number", "full_name", "email")
+_OVERRIDABLE_ID = ("program_id", "modality_id")
+
+# Secuencia final del folio `TT-{period_code}-{NNNN}`.
+_FOLIO_SEQ_RE = re.compile(r"(\d+)$")
+
+# Namespace del advisory lock que serializa la emisión de folios por
+# convocatoria. Arbitrario pero fijo: cambiarlo deja de excluir a las
+# importaciones que ya estén corriendo con el valor viejo.
+_FOLIO_LOCK_NS = 0x7454  # "tT"
+
+# Bitácora (revisión final I4, 2026-10-07). `import.students_committed` es el
+# resumen de una IMPORTACIÓN de verdad: CSV o alta manual de Servicios
+# Escolares. Las altas que nacen de una solicitud (`_create_account`, origen
+# `enrollment_request`; la liga de activación `_convert`, origen
+# `self_service`) ya dejan su propio rastro (`enrollment.approved`, el espejo de
+# `enrollment_self_service`), y un «Importó alumnos» por cada egresado que abre
+# su liga —firmado por «Público»— sería falso e imborrable.
+_SUMMARY_SOURCES = frozenset({"csv", "manual"})
+# Orígenes cuyo llamador CREA la cuenta en la misma transacción, justo antes de
+# llamar a `import_rows` (`EnrollmentRequestService._create_account`): para la
+# bitácora es una cuenta nueva, no un cambio de roles de una que ya existía.
+_FRESH_ACCOUNT_SOURCES = frozenset({"enrollment_request"})
+
+
+def set_initial_credential(user) -> None:
+    """Credencial inicial del alumno: la contraseña ES su número de control.
+
+    Política única de alta de alumnos, compartida con el alta manual
+    (`pages/admin.py::_add_student`). El dato es público a propósito: el alumno
+    no tiene otro canal para recibirla, y `must_change_password` lo obliga a
+    cambiarla en el primer login.
+
+    No se llama nunca sobre un `password_hash` existente: sobrescribirlo dejaría
+    fuera al alumno que ya cambió la suya. NULL, en cambio, no es una contraseña
+    —`auth_service.authenticate` (`core/services/auth_service.py:25`) lo rechaza
+    sin siquiera comparar— así que ponerle la inicial solo puede desbloquear.
+    """
+    user.password_hash = hash_nip(user.control_number)
+    user.must_change_password = True
+
+
+# — Rol del alumno de titulación (2026-09-15) —
+#
+# El alumno dejó de reciclar el rol global `student`: ese es el que AgendaTec
+# exige LITERALMENTE (`apps/agendatec/pages/student.py:27`) y el `role_id` de
+# miles de cuentas, así que "alumno de AgendaTec" y "se está titulando" eran lo
+# mismo para la autorización. `import_rows` es el ÚNICO punto de alta de roles de
+# esta app (CSV, alta manual, aprobación de bandeja y liga de activación): el
+# cambio vive aquí y no en cada llamador. Se leen en cada llamada, no al importar.
+GRADUATE_ROLE = "graduate"
+LEGACY_STUDENT_ROLE = "student"
+# Dónde se asegura `graduate`: la plataforma (shell móvil y `role_home`) y la app.
+GRADUATE_APP_KEYS = ("itcj", "titulatec")
+# Dónde se revoca `student`. Una app que no exista en la BD se salta en silencio.
+STUDENT_REVOKE_APP_KEYS = ("itcj", "titulatec", "agendatec")
+
+
+def _sync_graduate_roles(db, user, *, graduate_role, student_role, app_ids,
+                         detail: dict | None = None) -> set[str]:
+    """Deja a `user` como egresado. Devuelve las claves de las apps cuyas filas cambió.
+
+    - `graduate` en cada app de `GRADUATE_APP_KEYS` (el llamador ya comprobó que
+      existen);
+    - fuera `student` en cada app de `STUDENT_REVOKE_APP_KEYS` que exista;
+    - el alias legado `core_users.role_id` pasa a `graduate` SOLO desde `student`
+      o NULL: pisar otro rol global (`staff`) le cambiaría el `role` del JWT en
+      el siguiente refresco de sesión.
+
+    Una consulta por usuario y `flush()` solo si algo cambió; nunca `commit()`
+    (ver ATOMICIDAD en `import_rows`). `role_id` no cuenta como cambio para el
+    caché: el de authz sale de `core_user_app_roles` y de los puestos.
+
+    `detail` (opcional) se llena con `granted`/`revoked` (claves de app) y
+    `role_alias_changed`, para que el llamador pueda dejar rastro en la bitácora
+    de qué roles se otorgaron y cuáles se quitaron.
+    """
+    from itcj2.core.models.user_app_role import UserAppRole
+
+    grant_ids = {app_ids[k] for k in GRADUATE_APP_KEYS}
+    revoke_ids = {app_ids[k] for k in STUDENT_REVOKE_APP_KEYS if k in app_ids}
+    role_ids = [graduate_role.id] + ([student_role.id] if student_role is not None else [])
+
+    filas = (db.query(UserAppRole)
+             .filter(UserAppRole.user_id == user.id,
+                     UserAppRole.app_id.in_(grant_ids | revoke_ids),
+                     UserAppRole.role_id.in_(role_ids))
+             .all())
+    tocadas: set[int] = set()
+    revocadas: set[int] = set()
+    otorgadas: set[int] = set()
+    ya_graduate = {f.app_id for f in filas if f.role_id == graduate_role.id}
+    for fila in filas:
+        if (student_role is not None and fila.role_id == student_role.id
+                and fila.app_id in revoke_ids):
+            db.delete(fila)
+            tocadas.add(fila.app_id)
+            revocadas.add(fila.app_id)
+    for app_id in sorted(grant_ids - ya_graduate):
+        db.add(UserAppRole(user_id=user.id, app_id=app_id, role_id=graduate_role.id))
+        tocadas.add(app_id)
+        otorgadas.add(app_id)
+    if tocadas:
+        db.flush()
+
+    alias_cambiado = False
+    if user.role_id is None or (student_role is not None and user.role_id == student_role.id):
+        alias_cambiado = user.role_id != graduate_role.id
+        user.role_id = graduate_role.id
+
+    clave = {app_id: key for key, app_id in app_ids.items()}
+    if detail is not None:
+        detail["granted"] = sorted(clave[a] for a in otorgadas)
+        detail["revoked"] = sorted(clave[a] for a in revocadas)
+        detail["role_alias_changed"] = alias_cambiado
+    return {clave[app_id] for app_id in tocadas}
+
 
 def _norm(s: str) -> str:
     """Normaliza: minúsculas, sin acentos, sin puntuación, espacios colapsados."""
@@ -39,10 +159,37 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-# Formato de número de control. Copia deliberada del regex de
+# Formato de número de control: 8 dígitos, o una letra + 8 dígitos para quien
+# viene de traslado (ej. B21221523). Copia deliberada del regex de
 # itcj2/core/api/users_admin.py:23 — importarlo en top-level desde un módulo de
-# core/api crea ciclo de imports (gotcha #2 del CLAUDE.md). Mantener en sync.
-CONTROL_NUMBER_RE = re.compile(r"^(\d{8}|[A-Za-z]\d{7,9})$")
+# core/api crea ciclo de imports (gotcha #2 del CLAUDE.md). Mantener en sync
+# (`.pattern` idéntico; test_path_traversal_regression.py lo exige, y
+# enrollment_request_service.py importa ESTE objeto, no una copia propia). La
+# letra se normaliza a MAYÚSCULA en cada punto de entrada (import_rows,
+# build_preview, alta manual de pages/admin.py) antes de validar/buscar: los
+# lookups son filter_by(control_number=...) exactos.
+CONTROL_NUMBER_RE = re.compile(r"^[A-Za-z]?\d{8}$")
+
+# La «L» inicial es el prefijo del correo institucional de licenciatura
+# (L21111134@cdjuarez.tecnm.mx), NO parte del número de control: aquí las
+# cuentas de licenciatura son los 8 dígitos (2026-10-09). Las letras de traslado
+# o posgrado (B, C, D, M) sí son parte del número y se conservan.
+_PREFIJO_LICENCIATURA_RE = re.compile(r"^L(\d{8})$")
+
+
+def normalize_control(raw) -> str:
+    """Número de control tal como se guarda y se busca en TitulaTec.
+
+    Sin espacios en los extremos, la letra en MAYÚSCULA (los lookups son
+    `filter_by` exactos: «b…» y «B…» duplicarían la cuenta) y SIN la «L» de
+    licenciatura: «L21111134» -> «21111134». Quien escribió la L no encontraba su
+    cuenta y Centro de Cómputo le creaba una segunda. Único punto de entrada
+    para todo número de control que captura TitulaTec (formulario público,
+    reenvío, alta manual, importación CSV); no valida, solo normaliza.
+    """
+    control = str(raw or "").strip().upper()
+    m = _PREFIJO_LICENCIATURA_RE.fullmatch(control)
+    return m.group(1) if m else control
 
 
 def _imports_dir() -> Path:
@@ -104,11 +251,26 @@ class ImportService:
         return {}
 
     @staticmethod
-    def save_mapping(mapping: dict) -> None:
+    def save_mapping(mapping: dict, *, db: Session | None = None,
+                     actor_id: int | None = None) -> None:
+        """Guarda el mapeo de columnas reusable (archivo, no BD).
+
+        Con `db` deja además la fila de bitácora `import.mapping_saved` en la
+        sesión del llamador (se persiste con su próximo commit: en el asistente,
+        el del `import_rows` que sigue). Sin `db` se comporta como siempre.
+        """
         try:
             _mapping_store().write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
         except OSError:
-            pass
+            return
+        if db is not None:
+            from itcj2.apps.titulatec.services.audit_service import AuditService
+            AuditService.record(
+                db, "import.mapping_saved",
+                entity_type="import_mapping",
+                after={"mapping": dict(mapping or {})},
+                actor_id=actor_id,
+            )
 
     # ---------- parsing ----------
     @staticmethod
@@ -143,14 +305,67 @@ class ImportService:
             mapping[field] = chosen
         return mapping
 
+    # ---------- estado editable del preview (viaja en 2 campos, no 6 por fila) ----------
+    @staticmethod
+    def parse_excluded(raw) -> set[int]:
+        """`"3,17,42"` → `{3, 17, 42}`. Índices de fila que el admin desmarcó."""
+        out: set[int] = set()
+        for token in (raw or "").split(","):
+            token = token.strip()
+            if token.isdigit():
+                out.add(int(token))
+        return out
+
+    @staticmethod
+    def parse_overrides(raw) -> dict[int, dict]:
+        """JSON `{"<idx>": {campo: valor}}` → `{idx: {campo: valor}}`, saneado.
+
+        Solo viajan las celdas que el admin REALMENTE editó (el navegador las
+        compara contra el valor que salió del CSV), así que en el caso normal
+        esto llega vacío. Entrada del usuario: se ignora en silencio todo lo que
+        no encaje en la forma esperada, igual que hacía el `int(form[...])` del
+        endpoint viejo con un id vacío.
+        """
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        out: dict[int, dict] = {}
+        for key, patch in data.items():
+            try:
+                idx = int(key)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(patch, dict):
+                continue
+            clean: dict = {}
+            for f in _OVERRIDABLE_TEXT:
+                if f in patch:
+                    clean[f] = str(patch[f] if patch[f] is not None else "").strip()
+            for f in _OVERRIDABLE_ID:
+                if f in patch:
+                    value = str(patch[f] if patch[f] is not None else "").strip()
+                    clean[f] = int(value) if value.isdigit() else None
+            if clean:
+                out[idx] = clean
+        return out
+
     # ---------- matching de catálogos ----------
     @staticmethod
-    def _match_program(db: Session, value: str):
+    def _match_program(db: Session, value: str, programs=None):
         from itcj2.core.models.program import Program
         if not value:
             return None
         nv = _norm(value)
-        programs = db.query(Program).all()
+        # `programs` se pasa desde build_preview: releerlo por fila eran 400
+        # consultas por preview, y ahora el preview se reconstruye entero en
+        # cada revalidación.
+        if programs is None:
+            programs = db.query(Program).all()
         # match exacto normalizado, luego contains
         for p in programs:
             if _norm(p.name) == nv:
@@ -162,12 +377,13 @@ class ImportService:
         return None
 
     @staticmethod
-    def _match_modality(db: Session, value: str):
+    def _match_modality(db: Session, value: str, mods=None):
         from itcj2.apps.titulatec.models import Modality
         if not value:
             return None
         nv = _norm(value)
-        mods = db.query(Modality).filter_by(is_active=True).all()
+        if mods is None:
+            mods = db.query(Modality).filter_by(is_active=True).all()
         for m in mods:
             if _norm(m.code) == nv or _norm(m.name) == nv:
                 return m
@@ -178,8 +394,37 @@ class ImportService:
 
     # ---------- validación / preview ----------
     @staticmethod
-    def build_preview(db: Session, rows: list[dict], mapping: dict) -> list[dict]:
-        """Para cada fila devuelve datos normalizados + matches + issues + status."""
+    def build_preview(db: Session, rows: list[dict], mapping: dict, *,
+                      overrides: dict[int, dict] | None = None,
+                      excluded: set[int] | None = None) -> list[dict]:
+        """Para cada fila devuelve datos normalizados + matches + issues + status.
+
+        Es la ÚNICA fuente de las filas del wizard: el navegador ya no reenvía el
+        preview (6 inputs por fila reventaban el `max_fields=1000` de Starlette
+        pasada la fila 165), solo el token del CSV, el mapeo y estos dos campos:
+
+        - ``overrides``: celdas corregidas a mano, aplicadas ANTES de validar —
+          si el admin arregla un número de control, la fila deja de ser `error`.
+        - ``excluded``: filas desmarcadas. `None` = primera carga, y ahí el
+          default es el de siempre: entra todo salvo lo que tenga `error`.
+
+        Cada fila trae además ``base``: el valor que sale del CSV con el mapeo
+        vigente, antes de aplicar el override. El navegador lo usa como línea de
+        comparación para volver a derivar el override en la siguiente petición,
+        así que el ciclo editar → revalidar → editar es estable.
+        """
+        from itcj2.core.models.program import Program
+        from itcj2.apps.titulatec.models import Modality
+
+        overrides = overrides or {}
+        programs = db.query(Program).all()
+        modalities = db.query(Modality).filter_by(is_active=True).all()
+        programs_by_id = {p.id: p for p in programs}
+        modalities_by_id = {m.id: m for m in modalities}
+        # Memo por texto crudo: un CSV de 400 filas suele traer 10 carreras.
+        program_memo: dict[str, object] = {}
+        modality_memo: dict[str, object] = {}
+
         out = []
         for i, row in enumerate(rows):
             def cell(field):
@@ -192,8 +437,37 @@ class ImportService:
             career_raw = cell("career")
             modality_raw = cell("modality")
 
-            program = ImportService._match_program(db, career_raw)
-            modality = ImportService._match_modality(db, modality_raw)
+            if career_raw not in program_memo:
+                program_memo[career_raw] = ImportService._match_program(
+                    db, career_raw, programs)
+            program = program_memo[career_raw]
+            if modality_raw not in modality_memo:
+                modality_memo[modality_raw] = ImportService._match_modality(
+                    db, modality_raw, modalities)
+            modality = modality_memo[modality_raw]
+
+            base = {
+                "control_number": control, "full_name": full_name, "email": email,
+                "program_id": program.id if program else None,
+                "modality_id": modality.id if modality else None,
+            }
+
+            patch = overrides.get(i)
+            if patch:
+                control = patch.get("control_number", control)
+                full_name = patch.get("full_name", full_name)
+                email = patch.get("email", email)
+                if "program_id" in patch:
+                    program = programs_by_id.get(patch["program_id"])
+                if "modality_id" in patch:
+                    modality = modalities_by_id.get(patch["modality_id"])
+
+            # MAYÚSCULA antes de validar/mostrar/importar, venga del CSV o de
+            # un override del admin. `base` (abajo) NO se toca: sigue siendo
+            # el valor crudo del CSV, que es la línea de comparación para
+            # volver a derivar `overrides` en el próximo POST (docstring de
+            # build_preview).
+            control = normalize_control(control)
 
             issues = []
             if not control:
@@ -232,34 +506,144 @@ class ImportService:
                 "modality_name": modality.name if modality else None,
                 "issues": issues,
                 "status": status,
+                # Primera carga: entra todo salvo los `error`. Después manda lo
+                # que el admin dejó marcado.
+                "include": (status != "error") if excluded is None else (i not in excluded),
+                "base": base,
             })
         return out
 
+    @staticmethod
+    def rows_to_import(preview: list[dict]) -> list[dict]:
+        """Filas marcadas del preview, en la forma que espera `import_rows`."""
+        return [
+            {
+                "control_number": r["control_number"],
+                "full_name": r["full_name"],
+                "email": r["email"],
+                "program_id": r["program_id"],
+                "modality_id": r["modality_id"],
+            }
+            for r in preview if r["include"]
+        ]
+
     # ---------- importación ----------
     @staticmethod
-    def import_rows(db: Session, cohort, rows: list[dict]) -> dict:
-        """Crea User (merge por control_number) + Process + phases + rol student.
+    def import_rows(db: Session, cohort, rows: list[dict], *,
+                    actor_id: int | None = None, source: str = "csv",
+                    commit: bool = True, repair_credentials: bool = True) -> dict:
+        """Crea User (merge por control_number) + Process + phases + no adeudo
+        de biblioteca (`pending`) + rol `graduate`.
 
         `rows` = lista de dicts ya resueltos (del preview/override del admin):
         {control_number, full_name, email, program_id, modality_id}.
-        Devuelve summary.
+
+        Credencial: todo alumno sale de aquí pudiendo entrar — al nuevo se le
+        asigna la inicial y al que venía con `password_hash` NULL se le repara
+        (ver `set_initial_credential`). Nunca se sobrescribe una existente.
+
+        ROL (2026-09-15): todo alumno del lote queda como egresado —`graduate`
+        en `itcj` y `titulatec`, fuera `student` en `itcj`/`titulatec`/
+        `agendatec`, y el alias legado `core_users.role_id` en `graduate` si era
+        `student` o NULL (ver `_sync_graduate_roles`). Si falta el rol `graduate`
+        o la app `itcj`, 400 con el motivo: un alta sin rol es un alumno que no
+        puede entrar.
+
+        ATOMICIDAD: un solo `commit()`, al final. Antes `grant_role` commiteaba
+        DENTRO del bucle (`core/services/authz_service.py:81`) sobre esta misma
+        sesión, así que cada vuelta persistía lo pendiente de las anteriores: un
+        lote que reventaba a media pasada dejaba medio alta escrita y sin
+        rollback posible. Por eso los roles de app se escriben aquí a mano (mismo
+        efecto, sin commit).
+
+        CACHÉ DE AUTHZ, SIEMPRE DESPUÉS DEL COMMIT: si se tirara antes, una
+        lectura concurrente lo repoblaría con el estado viejo y esa entrada
+        viviría el TTL completo. Con `commit=True` lo tira esta función tras su
+        commit. Con `commit=False` todavía no hay nada commiteado: los pares
+        `(user_id, app_key)` que cambiaron viajan en `summary["authz_touched"]` y
+        el llamador llama a `ImportService.invalidate_authz` DESPUÉS de su propio
+        commit (`EnrollmentRequestService.approve`, `.grant_access` y `.verify`
+        lo hacen).
+
+        `repair_credentials=False` apaga `set_initial_credential` en LOS DOS
+        caminos (alta nueva y reparación del que venía con `password_hash` NULL).
+        La credencial inicial ES el número de control, que es dato público: la
+        auto-inscripción fija la contraseña con el NIP que captura quien da el
+        acceso —Centro de Cómputo en `grant_access`, o quien aprueba en el modo
+        alterno (D15, D9 del spec 2026-09-24)— y por eso apaga esto. El
+        llamador que lo apague es dueño de la credencial.
+
+        `commit=False` deja la transacción en manos del llamador: se hace
+        `flush()` en vez de `commit()`, así que el `pg_advisory_xact_lock` de la
+        emisión de folios sigue tomado hasta que el llamador cierre. Ambos
+        parámetros nacen con el valor del comportamiento de hoy, para no tocar a
+        `pages/admin.py:139` ni a `pages/admin.py:587`.
+
+        BITÁCORA (2026-10-07): UNA fila `import.students_committed` por llamada,
+        solo con `source` de `_SUMMARY_SOURCES` (CSV, alta manual), con los ids
+        de las cuentas creadas; `import.roles_synced` solo para cuentas que ya
+        existían antes de esta alta (ver `_FRESH_ACCOUNT_SOURCES`).
+
+        Devuelve summary con created_users / matched_users / repaired_users /
+        processes_created / skipped / authz_touched.
         """
+        from fastapi import HTTPException
+        from sqlalchemy import text
+        from itcj2.core.models.app import App
         from itcj2.core.models.user import User
         from itcj2.core.models.role import Role
-        from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase
-        from itcj2.core.services.authz_service import grant_role
+        from itcj2.apps.titulatec.models import TitulationProcess, ProcessPhase, ProcessEvent
+        from itcj2.apps.titulatec.services.library_clearance_service import (
+            LibraryClearanceService,
+        )
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        from itcj2.core.services.authz_service import get_or_404_app
 
-        student_role = db.query(Role).filter_by(name="student").first()
+        get_or_404_app(db, "titulatec")
+        graduate_role = db.query(Role).filter_by(name=GRADUATE_ROLE).first()
+        student_role = db.query(Role).filter_by(name=LEGACY_STUDENT_ROLE).first()
+        # Las apps de los roles en UNA consulta y sin filtrar `is_active`: una app
+        # desactivada conserva filas que igual hay que limpiar.
+        app_ids = dict(
+            db.query(App.key, App.id)
+            .filter(App.key.in_(set(GRADUATE_APP_KEYS) | set(STUDENT_REVOKE_APP_KEYS)))
+            .all())
         period_code = cohort.period_code or str(cohort.period_id)
 
-        # folio: continúa la numeración del cohort
-        existing = db.query(TitulationProcess).filter_by(cohort_id=cohort.id).count()
-        seq = existing
+        # Serializa la emisión de folios de ESTA convocatoria. `folio` es UNIQUE
+        # global (`models/process.py:15`) y la secuencia se derivaba de un
+        # `count()` sin lock: dos importaciones simultáneas calculaban la misma y
+        # la segunda moría por integridad a media pasada. El lock es de
+        # TRANSACCIÓN (`_xact_`), lo único compatible con PgBouncer en modo
+        # transaction, y se suelta en el commit de abajo.
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :key)"),
+                   {"ns": _FOLIO_LOCK_NS, "key": int(cohort.id)})
+
+        # Continúa desde el ÚLTIMO folio emitido, no desde el conteo: con un
+        # proceso borrado, `count()` reemitía una secuencia ya usada.
+        seq = 0
+        for (folio,) in db.query(TitulationProcess.folio).filter_by(cohort_id=cohort.id).all():
+            m = _FOLIO_SEQ_RE.search(folio or "")
+            if m:
+                seq = max(seq, int(m.group(1)))
+
+        # El catálogo de fases no cambia a media importación: leerlo por proceso
+        # eran 400 consultas en una convocatoria real.
+        phase_numbers = PhaseService.phase_numbers(db)
 
         created_users = matched_users = processes_created = skipped = 0
+        repaired_users = 0
+        created_user_ids: list[int] = []
+        touched: set[tuple[int, str]] = set()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
 
         for r in rows:
-            control = (r.get("control_number") or "").strip()
+            # MAYÚSCULA antes del merge: el punto de entrada real de la
+            # importación (CSV y alta manual pasan los dos por aquí). Sin
+            # esto, "b21221523" y "B21221523" son DOS filter_by distintos y
+            # el segundo alta crea una cuenta duplicada en vez de encontrar
+            # la primera.
+            control = normalize_control(r.get("control_number"))
             full_name = (r.get("full_name") or "").strip()
             if not control or not full_name:
                 skipped += 1
@@ -272,11 +656,49 @@ class ImportService:
                 skipped += 1
                 continue
 
+            # Antes de tocar la cuenta. Un lote sin filas válidas no llega aquí.
+            if graduate_role is None:
+                raise HTTPException(status_code=400,
+                                    detail=f"Rol '{GRADUATE_ROLE}' no existe.")
+            faltan = [k for k in GRADUATE_APP_KEYS if k not in app_ids]
+            if faltan:
+                raise HTTPException(status_code=400,
+                                    detail=f"App '{faltan[0]}' no existe.")
+
             user = db.query(User).filter_by(control_number=control).first()
+            # ¿La cuenta ya existía ANTES de esta alta? Solo entonces su cambio
+            # de roles es un suceso propio en la bitácora (I4).
+            cuenta_previa = user is not None and source not in _FRESH_ACCOUNT_SOURCES
             if user:
                 matched_users += 1
                 if r.get("email") and not user.email:
+                    AuditService.record(
+                        db, "import.user_email_changed",
+                        entity_type="user", entity_id=user.id,
+                        subject=user.control_number,
+                        before={"email": user.email}, after={"email": r["email"]},
+                        payload={"cohort_id": cohort.id, "source": source},
+                        actor_id=actor_id,
+                    )
                     user.email = r["email"]
+                # Auto-reparación: hasta 2026-09 esta función creaba usuarios sin
+                # `password_hash`, y el reset del core está prohibido para quien
+                # tiene `control_number` (`core/api/users_admin.py:427`) — el
+                # alumno quedaba sin ninguna forma de entrar. Re-importarlo lo
+                # desbloquea. Los que ya no se re-importan: comando CLI
+                # `titulatec fix-missing-credentials`.
+                if repair_credentials and not user.password_hash:
+                    set_initial_credential(user)
+                    repaired_users += 1
+                    # Solo el hecho: ni la contraseña ni su hash (D9).
+                    AuditService.record(
+                        db, "import.credential_set",
+                        entity_type="user", entity_id=user.id,
+                        subject=user.control_number,
+                        payload={"cohort_id": cohort.id, "source": source,
+                                 "bulk": False, "forced_change_on_login": True},
+                        actor_id=actor_id,
+                    )
             else:
                 # split simple: último token = apellido, resto = nombres
                 parts = full_name.split()
@@ -286,14 +708,36 @@ class ImportService:
                     username=control, control_number=control,
                     first_name=first, last_name=last,
                     email=r.get("email") or None,
-                    role_id=student_role.id if student_role else None,
+                    role_id=graduate_role.id,
                     is_active=True, must_change_password=True,
                 )
+                if repair_credentials:
+                    set_initial_credential(user)
                 db.add(user)
                 db.flush()
                 created_users += 1
+                created_user_ids.append(user.id)
 
-            grant_role(db, user.id, "titulatec", "student")
+            # Roles de egresado. Equivalente a `grant_role`/`revoke_role` de
+            # `authz_service`, pero con `flush()` en vez de `commit()`: ver
+            # ATOMICIDAD arriba.
+            roles_detail: dict = {}
+            for app_key in _sync_graduate_roles(db, user, graduate_role=graduate_role,
+                                                student_role=student_role,
+                                                app_ids=app_ids, detail=roles_detail):
+                touched.add((user.id, app_key))
+            # Solo cuentas que YA existían: a una que nace aquí (o que el
+            # llamador acaba de crear) darle el rol ES el alta, y su id viaja en
+            # el resumen. Sin esto, un CSV de 300 dejaba 300 filas (I4).
+            if cuenta_previa and (roles_detail.get("granted") or roles_detail.get("revoked")):
+                AuditService.record(
+                    db, "import.roles_synced",
+                    entity_type="user", entity_id=user.id,
+                    subject=user.control_number,
+                    payload={"role": GRADUATE_ROLE, "cohort_id": cohort.id,
+                             "source": source, **roles_detail},
+                    actor_id=actor_id,
+                )
 
             proc = db.query(TitulationProcess).filter_by(student_id=user.id, cohort_id=cohort.id).first()
             if not proc:
@@ -306,11 +750,52 @@ class ImportService:
                 )
                 db.add(proc)
                 db.flush()
-                # fase 0 aprobada (intake), fase 1 en curso, resto pendiente
-                for n in range(9):
-                    st = "approved" if n == 0 else ("in_progress" if n == 1 else "pending")
+                # fase 0 aprobada (intake), fase 1 en curso, resto pendiente.
+                # Las fases salen del catálogo, no de un `range(9)`: es la misma fuente
+                # que usa la guarda de `PhaseService`, así que no pueden desincronizarse.
+                for n in phase_numbers:
+                    st = ("approved" if n < proc.current_phase
+                          else "in_progress" if n == proc.current_phase else "pending")
                     db.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
                 processes_created += 1
+
+                # No adeudo de biblioteca (spec 2026-10-01 biblioteca-caja §4.2,
+                # D3): la fila nace `pending` con el proceso y entra a la
+                # bandeja de Biblioteca. El proceso es NUEVO en esta misma
+                # transaccion y no puede tener fila: `just_created` inserta sin
+                # SELECT previo (costo del lote: test_import_scale.py). Un
+                # proceso que ya existia (re-importacion) no pasa por aqui.
+                LibraryClearanceService.open_for_process(db, proc, just_created=True)
+
+                # Constancias previas (D9, spec 2026-10-01-biblioteca-caja
+                # §4.12, Tarea 6): si Servicios Escolares (o el desarrollador,
+                # para la encuesta) ya habia cargado una `PriorClearance` de
+                # este numero de control ANTES de que el alumno se inscribiera
+                # -diferida por `PriorClearanceService.import_rows`-, se aplica
+                # AHORA que el proceso existe: encuesta -> `SurveyReview`
+                # aprobada; biblioteca -> `cleared/prior`. Va DESPUES del
+                # `open_for_process` de arriba (necesita la fila de biblioteca
+                # ya abierta) y sin commit propio, dentro de esta misma
+                # transaccion del lote.
+                from itcj2.apps.titulatec.services.prior_clearance_service import (
+                    PriorClearanceService,
+                )
+                PriorClearanceService.apply_pending(db, proc, control)
+
+                # Promedio oficial guardado de antes (spec 2026-10-13 promedios):
+                # mismo molde, misma transaccion, sin commit propio.
+                from itcj2.apps.titulatec.services.official_average_service import (
+                    OfficialAverageService,
+                )
+                OfficialAverageService.apply_pending(db, proc, control)
+
+                # Alta del alumno = el unico suceso de la fase 0. Sin el, el
+                # expediente empieza en blanco y no dice ni como entro.
+                db.add(ProcessEvent(
+                    process_id=proc.id, actor_id=actor_id,
+                    event_type="process_created", phase_number=0,
+                    payload={"source": source, "folio": proc.folio},
+                ))
 
                 from itcj2.apps.titulatec.services.notify import notify_student
                 notify_student(db, user.id, type="PROCESS_CREATED",
@@ -318,10 +803,104 @@ class ImportService:
                                body="Servicios Escolares te dio de alta. Empieza subiendo tus documentos iniciales.",
                                process_id=proc.id, phase_number=1)
 
-        db.commit()
+        authz_touched = sorted(touched)
+        if source in _SUMMARY_SOURCES and (
+                created_users or matched_users or processes_created or skipped):
+            # Un resumen por llamada, solo de CSV y alta manual (ver
+            # `_SUMMARY_SOURCES`). Con `commit=False` la fila viaja en la
+            # transacción del llamador. Las cuentas creadas van por id (el
+            # saneo de `record` acota la lista): así cada alta sigue siendo
+            # rastreable sin una fila por alumno.
+            AuditService.record(
+                db, "import.students_committed",
+                entity_type="cohort", entity_id=cohort.id,
+                subject=getattr(cohort, "name", None),
+                payload={"cohort_id": cohort.id, "source": source,
+                         "created_users": created_users,
+                         "created_user_ids": created_user_ids,
+                         "merged_users": matched_users,
+                         "repaired_users": repaired_users,
+                         "processes_created": processes_created,
+                         "skipped": skipped},
+                actor_id=actor_id,
+            )
+        if commit:
+            db.commit()
+            # Después del commit (ver CACHÉ DE AUTHZ en el docstring). Con
+            # `commit=False` ese momento es del llamador.
+            ImportService.invalidate_authz(authz_touched)
+        else:
+            db.flush()
+
         return {
             "created_users": created_users,
             "matched_users": matched_users,
+            "repaired_users": repaired_users,
             "processes_created": processes_created,
             "skipped": skipped,
+            "authz_touched": authz_touched,
         }
+
+    @staticmethod
+    def invalidate_authz(touched) -> None:
+        """Tira el caché de authz de los pares `(user_id, app_key)` de un summary.
+
+        Llamar SOLO después del commit que persiste esos cambios: antes, una
+        lectura concurrente repoblaría el caché con el estado viejo y esa entrada
+        viviría el TTL completo. Best-effort, igual que el `_bust_user_app` de
+        `grant_role`: un Redis caído nunca tumba un alta ya commiteada.
+
+        `None` o vacío no hace nada: los dobles de `import_rows` de las pruebas
+        devuelven summaries sin la llave.
+        """
+        if not touched:
+            return
+        try:
+            from itcj2.core.services.authz_cache import invalidate_user_app
+        except Exception:  # pragma: no cover - sin el módulo no hay caché que tirar
+            return
+        for user_id, app_key in touched:
+            try:
+                invalidate_user_app(user_id, app_key)
+            except Exception:  # nunca romper el alta por el caché
+                pass
+
+    # ---------- remediación ----------
+    @staticmethod
+    def repair_missing_credentials(db: Session, *, cohort_id: int | None = None) -> int:
+        """Le pone la credencial inicial a los alumnos que quedaron sin `password_hash`.
+
+        Existe porque la auto-reparación de `import_rows` solo alcanza a quien se
+        vuelve a importar, y re-importar no es una remediación viable: exige tener
+        a mano el CSV original de la convocatoria. Este barrido es idempotente y no
+        crea procesos, folios ni notificaciones.
+
+        Acotado a usuarios CON proceso en titulatec y CON `control_number`: el
+        staff autentica por `username` y una cuenta suya sin hash puede ser
+        deliberada (SSO), no un alumno bloqueado.
+
+        Devuelve cuántos reparó.
+        """
+        from itcj2.core.models.user import User
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        q = (db.query(User)
+             .join(TitulationProcess, TitulationProcess.student_id == User.id)
+             .filter(User.password_hash.is_(None),
+                     User.control_number.isnot(None)))
+        if cohort_id is not None:
+            q = q.filter(TitulationProcess.cohort_id == cohort_id)
+
+        users = q.distinct().all()
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        for user in users:
+            set_initial_credential(user)
+            AuditService.record(
+                db, "import.credential_set",
+                entity_type="user", entity_id=user.id, subject=user.control_number,
+                payload={"bulk": True, "cohort_id": cohort_id,
+                         "forced_change_on_login": True},
+            )
+        if users:
+            db.commit()
+        return len(users)

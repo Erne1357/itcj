@@ -191,6 +191,30 @@ def init_database_command():
         raise
 
 
+def _directory_seed_files():
+    """Rutas del DML de directory, desde su UNICA fuente (cli/directory.py).
+
+    Import local: cli/directory.py importa de este modulo, asi que a nivel de
+    top-level seria circular. Copiar la lista aqui es lo que dejo fuera a las
+    subcarpetas nuevas en otras apps.
+    """
+    from itcj2.cli.directory import directory_seed_files
+    return directory_seed_files()
+
+
+def _titulatec_seed_files() -> list[str]:
+    """Rutas (relativas a database/DML/) de los seeders de TitulaTec.
+
+    Se derivan de `itcj2.cli.titulatec.SEED_FILES` en vez de copiarse: hasta
+    2026-09 este comando corría 00/04/06/07 y `init-titulatec` corría 00-06, así
+    que NINGUNO de los dos dejaba la app usable — faltaban roles y permisos y todas
+    las páginas devolvían 404. Una sola fuente hace imposible que vuelvan a divergir.
+    """
+    from itcj2.cli.titulatec import SEED_FILES
+
+    return [f"titulatec/{name}" for name in SEED_FILES]
+
+
 @click.command("seed-reference-data")
 def seed_reference_data_command():
     """Carga TODO el catálogo de referencia (apps, roles, permisos, posiciones,
@@ -304,14 +328,8 @@ def seed_reference_data_command():
         "maint/config/04_seed_service_origins.sql",
         "maint/config/05_seed_areas.sql",
         "maint/config/06_seed_notification_templates.sql",
-        "titulatec/00_insert_app.sql",
-        "titulatec/04_insert_vinculacion_positions.sql",
-        "titulatec/06_seed_catalogs.sql",
-        "titulatec/07_insert_cotejo_reqs_perm.sql",
-        "directory/00_insert_app.sql",
-        "directory/01_insert_permissions.sql",
-        "directory/02_insert_role_permission.sql",
-        "directory/03_grant_directory_access.sql",
+        *_titulatec_seed_files(),
+        *_directory_seed_files(),
         "core/config_2026_07/subtree/01_insert_subtree_perms.sql",
         "core/config_2026_07/subtree/02_assign_subtree_perms.sql",
         "core/config_2026_07/subtree/03_fix_subdirector_head_codes.sql",

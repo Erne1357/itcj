@@ -17,7 +17,6 @@ from itcj2.apps.agendatec.models.time_slot import TimeSlot
 from itcj2.core.models.program_coordinator import ProgramCoordinator
 from itcj2.core.models.user import User
 from itcj2.core.services.notification_service import NotificationService
-from itcj2.sockets.notifications import push_notification
 from itcj2.sockets.requests import broadcast_request_status_changed
 from itcj2.utils import async_broadcast as _async_broadcast
 from itcj2.apps.agendatec.config.constants import STUDENT_REQUESTS_URL
@@ -136,7 +135,7 @@ def admin_change_request_status(
     try:
         stu_id = db.query(User.id).filter(User.id == r.student_id).scalar()
         if stu_id:
-            n = NotificationService.create(
+            NotificationService.create(
                 db=db,
                 user_id=stu_id,
                 app_name="agendatec",
@@ -151,7 +150,9 @@ def admin_change_request_status(
                 program_id=r.program_id,
             )
             db.commit()
-            _async_broadcast(push_notification(stu_id, n.to_dict()))
+            # NO llamar push_notification aquí: `NotificationService.create` ya
+            # agenda el push (desde un loop o desde un hilo); otra vez duplicaría
+            # el toast.
     except Exception:
         logger.exception("Failed to create/push status-change notification (admin)")
 

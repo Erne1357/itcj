@@ -1,0 +1,382 @@
+{# ===========================================================================
+   _exp_phase.html — el contenido propio de UNA fase dentro del acordeón.
+
+   Recibe `f` (la fase del bucle) y el contexto del expediente. Las fases sin
+   panel propio DICEN que todavía no están: un panel vacío se lee como «no ha
+   pasado nada», que es una afirmación distinta y falsa.
+
+   Aquí no se dictamina nada de la fase 1: el dictamen vive en la bandeja de
+   Documentos, que exige motivo al rechazar y auto-avanza la fase al aprobar el
+   tercero; tener dos caminos con dos reglas era la razón de quitarlo de aquí.
+   La ÚNICA acción sobre los documentos es «Pedir reemplazo» (spec 2026-10-15):
+   con el proceso en la cita de cotejo y el permiso
+   `titulatec.document.api.request_replacement` (`can_request_replacement`), un
+   `<details>` por documento con motivo obligatorio. El reemplazo abierto se
+   pinta con su píldora; aprobarlo se hace en la bandeja o en el panel de Citas.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import estado_pill, appt_pill, survey_review_pill, library_clearance_pill, certificate_cell %}
+{% set VOLVER = '&from=' ~ (back.url | urlencode) %}
+
+{# — Datos de la fase, comunes a todas — #}
+{% if f.started or f.completed or f.reviewed_by %}
+<p class="tt-exp-fechas">
+  {%- if f.started %}<span>Empezó el {{ f.started }}</span>{% endif -%}
+  {%- if f.completed %}<span>Se cerró el {{ f.completed }}</span>{% endif -%}
+  {%- if f.reviewed_by %}<span>Revisó {{ f.reviewed_by }}</span>{% endif -%}
+</p>
+{% endif %}
+
+{% if f.status == 'rejected' and f.rejection_reason %}
+<div class="tt-exp-nota tt-exp-nota--mal">
+  <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>{{ f.rejection_reason }}
+</div>
+{% endif %}
+
+{# ------------------------------------------------- 00 · alta del alumno -- #}
+{% if f.number == 0 %}
+  <dl class="tt-exp-datos">
+    <div><dt>Convocatoria</dt><dd>{{ cohort_period or '—' }}</dd></div>
+    <div><dt>Carrera</dt><dd>{{ program_name or 'Sin carrera' }}</dd></div>
+    <div><dt>Modalidad</dt><dd>{{ modality_name or 'Sin modalidad' }}</dd></div>
+    <div><dt>Folio</dt><dd class="tt-mono">{{ process.folio }}</dd></div>
+  </dl>
+  {# Los enlaces a OTRAS pestañas solo se pintan si el actor puede abrirlas
+     (`can_open`, spec 2026-10-07 §1.2: la guarda REAL de la ruta destino, ver
+     `pages/admin.py::_TAB_PERMS`). Titulación, p. ej., abre el expediente pero
+     no la convocatoria: el enlace le respondería 403. #}
+  {% if cohort_id and can_open.cohorts %}
+  <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/cohorts/{{ cohort_id }}">
+    <i class="bi bi-people me-1" aria-hidden="true"></i>Ver la convocatoria</a>
+  {% endif %}
+
+{# --------------------------------------------- 01 · documentos iniciales -- #}
+{% elif f.number == 1 %}
+  <div class="tt-exp-docs">
+    {% for d in docs %}
+    <div class="tt-exp-doc flex-wrap{{ ' is-open' if d.type_code == doc_abierto }}" id="exp-doc-{{ d.type_code }}">
+      <div class="min-w-0">
+        <span class="nombre">{{ d.name }}</span>
+        {% if d.doc %}
+        <span class="meta tt-mono">
+          {{ d.doc.original_name }} · {{ (d.doc.size_bytes / 1024) | round | int }} KB
+          {%- if d.doc.version and d.doc.version > 1 %} · v{{ d.doc.version }}{% endif %}</span>
+        {% if d.doc.review_note %}<span class="meta">{{ d.doc.review_note }}</span>{% endif %}
+        {# Reemplazo abierto (R2): el motivo solo vive mientras `rejected` (ya
+           salió arriba como `review_note`); al resubir el alumno queda
+           `pending` sin motivo. #}
+        {% if d.doc.replacement %}
+        <span class="meta">
+          <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reemplazo pedido en cotejo</span>
+          {%- if d.doc.review_status == 'pending' %} · Reemplazo subido · por aprobar{% endif %}</span>
+        {% endif %}
+        {% elif d.excused %}
+        {# "excused" (Ruling R11, revisión final 2026-09-30): extra de posgrado
+           DISPENSADO por R-G (D9) -- no está "sin subir", se entrega en el
+           cotejo (así lo sabe pedir Servicios Escolares). #}
+        <span class="meta">Se entrega en el cotejo</span>
+        {% else %}
+        <span class="meta">Sin subir</span>
+        {% endif %}
+      </div>
+      {% if d.doc %}{{ estado_pill(d.doc.review_status) }}{% endif %}
+      {% if d.missing %}
+      <span class="tt-pill tt-pill--neutral">Archivo perdido</span>
+      {% elif d.excused %}
+      <span class="tt-pill tt-pill--neutral">Se entrega en el cotejo</span>
+      {% elif d.doc %}
+      {# Abrir un documento es ESTADO DE SERVIDOR (`?doc=`): Idiomorph conserva
+         el nodo del iframe pero sincroniza sus atributos, y `src` es uno. Con
+         el documento en el DOM, aprobar una fase lo recargaba desde cero. #}
+      <a class="btn btn-sm {{ 'tt-btn-soft' if d.type_code == doc_abierto else 'tt-btn-ghost' }}"
+         href="/titulatec/admin/processes/{{ process.id }}?fase=1&doc={{ d.type_code }}{{ VOLVER }}"
+         hx-get="/titulatec/admin/processes/{{ process.id }}?fase=1&doc={{ d.type_code }}{{ VOLVER }}"
+         hx-target="#exp-shell" hx-select="#exp-shell" hx-swap="morph:outerHTML"
+         hx-push-url="true"
+         {% if d.type_code == doc_abierto %}aria-current="true"{% endif %}>
+        <i class="bi bi-eye me-1" aria-hidden="true"></i>Ver</a>
+      {% endif %}
+      {# Con «Archivo perdido» también: en la fase 2 pedir el reemplazo es la
+         única vía de que el egresado lo vuelva a subir. #}
+      {% if can_request_replacement and d.doc %}
+      {# «Pedir reemplazo»: id estable por documento (morph). Un `<details>`
+         plegado no ocupa renglón; el form lleva su confirmación
+         (`hx-confirm` + `data-tt-confirm-ok`, nunca `confirm()`). #}
+      <details class="w-100" id="exp-repl-det-{{ d.type_code }}">
+        <summary class="btn btn-sm tt-btn-ghost">
+          <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Pedir reemplazo</summary>
+        <form class="d-flex flex-column gap-2 mt-2" id="exp-repl-{{ d.type_code }}"
+              hx-post="/titulatec/admin/processes/{{ process.id }}/documents/{{ d.type_code }}/reemplazo{{ ('?' ~ zona) if zona }}"
+              hx-target="#exp-shell" hx-swap="morph:outerHTML"
+              hx-confirm="Pedir reemplazo|¿Pedirle a {{ student.name }} que vuelva a subir «{{ d.name }}»? Recibirá el aviso con tu motivo."
+              data-tt-confirm-ok="Pedir reemplazo">
+          <textarea name="note" id="exp-repl-note-{{ d.type_code }}" required rows="2" maxlength="1000"
+                    class="form-control form-control-sm"
+                    placeholder="Motivo (lo verá el egresado)"
+                    aria-label="Motivo del reemplazo de {{ d.name }}"></textarea>
+          <div><button type="submit" class="btn btn-sm tt-btn-ink">Pedir reemplazo</button></div>
+        </form>
+      </details>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if doc_src %}
+  <iframe id="exp-doc-frame" class="tt-exp-frame" src="{{ doc_src }}"
+          title="{{ doc_abierto }} de {{ student.name }}"></iframe>
+  {% endif %}
+
+  {% if can_open.documents %}
+  <div class="tt-exp-acciones">
+    <a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/documents?selected={{ process.id }}">
+      <i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Dictaminar en la bandeja</a>
+  </div>
+  {% endif %}
+
+{# ------------------------------------------------- 02 · cita de cotejo --- #}
+{% elif f.number == 2 %}
+  {% if appt %}
+  <div class="tt-exp-cita">
+    {{ appt_pill(appt.status) }}
+    <span><i class="bi bi-calendar-event me-1" aria-hidden="true"></i>{{ appt.scheduled_label }}</span>
+    <span><i class="bi bi-geo-alt me-1" aria-hidden="true"></i>{{ appt.location or 'Sin lugar' }}</span>
+  </div>
+  {% if appt.change_request %}
+  <div class="tt-exp-nota tt-exp-nota--ojo">
+    <i class="bi bi-chat-left-dots me-1" aria-hidden="true"></i>
+    Pidió otro día{% if appt.change_requested_at %} el {{ appt.change_requested_at }}{% endif %}:
+    {{ appt.change_request }}
+  </div>
+  {% endif %}
+  {% if appt.note %}<p class="tt-exp-fechas"><span>{{ appt.note }}</span></p>{% endif %}
+  {% else %}
+  <p class="tt-exp-vacio">Todavía no tiene cita de cotejo.</p>
+  {% endif %}
+  {# ---- checklist de requisitos de cotejo (§5.4) --------------------------
+     Los requisitos SIN `auto_source` los marca el oficial aquí; es el único
+     camino que abre la guarda de la fase 2. Los que TIENEN `auto_source` los
+     acredita el sistema (hoy, la encuesta de egresados) y van en SOLO LECTURA
+     con su origen: marcarlos a mano rompería la trazabilidad de `external_ref`
+     y la ruta los rechaza con 400.
+
+     La URL de acción lleva `zona` como todas las de este shell: sin ella el
+     swap vuelve con otro documento abierto y con Regresar apuntando a Procesos
+     (lo documenta la cabecera de `_exp_shell.html`).
+
+     Por qué `hx-post` está en el form Y en cada botón: htmx 2 no hereda los
+     verbos, así que un botón dentro del form no dispara nada por sí mismo; el
+     del form cubre el Enter dentro de la nota (la ruta toma `mark` por
+     omisión) y el de cada botón lleva su `hx-vals` con la acción. La nota se
+     serializa sola: htmx incluye el form contenedor en toda petición que no
+     sea GET. #}
+  <div class="tt-exp-reqs mt-3">
+    <span class="tt-kicker">
+      <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Requisitos de cotejo</span>
+    {% if requisitos %}
+    <div class="d-flex flex-column gap-2 mt-2">
+      {% for r in requisitos %}
+      {# id estable por fila: el swap es `morph:outerHTML` de #exp-shell y sin id
+         Idiomorph empareja por POSICION y reescribe lo que no cambio —incluida
+         la nota a medio teclear de otra fila— (CLAUDE.md de la app, §4). #}
+      <div class="tt-card d-flex align-items-start gap-3" id="exp-req-{{ r.id }}">
+        <span class="d-flex align-items-center justify-content-center"
+              style="width:32px;height:32px;border-radius:9px;background:var(--tt-mist);border:1px solid var(--tt-line);flex:0 0 auto">
+          <i class="bi bi-{{ r.icon }}" style="color:var(--tt-slate)" aria-hidden="true"></i></span>
+        <div class="flex-grow-1">
+          <div style="font-size:.86rem;font-weight:600">
+            {{ r.label }}
+            {% if not r.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+            {% if r.status == 'waived' %}<span class="tt-pill tt-pill--neutral">dispensado</span>
+            {% elif r.done %}<span class="tt-pill tt-pill--success">acreditado</span>{% endif %}
+          </div>
+          {% if r.hint %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">{{ r.hint }}</div>
+          {% endif %}
+          {% if r.when %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">
+            {{ r.when }}{% if r.source %} · {{ r.source }}{% endif %}{% if r.note %} — {{ r.note }}{% endif %}
+          </div>
+          {% endif %}
+          {% if r.auto_source == 'graduate_survey' %}
+          {# D3: aqui ya NO manda "lo acredita el sistema" -- el requisito lo
+             libera GTV, no el envio de la encuesta. `survey` es el dict plano
+             de `SurveyReviewService.summary_for_process`, igual que en el
+             panel de atender (`_appt_attend.html`, Tarea 4). `certificate_cell`
+             (Tarea 4, §3.4) pinta si la constancia `survey_release` ya se
+             imprimió -- MISMA fuente (`print_status_map`) que la bandeja de
+             GTV: `survey.certificate` lo cuelga `pages/admin.py::_detail_ctx`
+             con UNA llamada para las dos filas (Ruling R14). Con el proceso
+             `cancelled`, una vigente sin lote pinta «No se imprimirá» + la
+             nota «inscripción revocada» (Rulings R13 y R18,
+             `revoked=`). #}
+          <div class="tt-req-meta">
+            {{ survey_review_pill(survey.status) }}
+            {%- if survey.status == 'rejected' and survey.reason %}
+              — {{ survey.reason }}
+            {%- elif survey.status == 'approved' %}
+              — Liberada por GTV · {{ survey.reviewed_at }}
+            {%- endif %}
+            <br>{{ certificate_cell(survey.certificate, prior=(survey.origin == 'prior'), revoked=(process.status == 'cancelled')) }}
+          </div>
+          {% elif r.auto_source == 'library_clearance' %}
+          {# D9/Tarea 11: el no adeudo lo liberan Biblioteca y Caja, no se
+             marca a mano. `library` es el dict plano de
+             `LibraryClearanceService.summary_for_process`, MISMA fuente que
+             el panel de atender (`_appt_attend.html`). Respaldo D9:
+             «Constancia previa…» / «Deshacer», SOLO con
+             `library_clearance.api.prior` (`can_register_prior`), y la
+             previa SOLO mientras el trámite sigue abierto: con
+             `not_applicable` (Ruling R21, ya pasó su cotejo) la píldora dice
+             «No aplica (cotejo ya liberado)» y no se ofrece nada.
+             `certificate_cell` (Tarea 4, §3.4) pinta si la constancia BIB ya
+             se imprimió y reemplaza el folio suelto que antes salía bajo
+             «Liberado»; con el proceso `cancelled`, una vigente sin lote pinta
+             «No se imprimirá» + la nota «inscripción revocada» (Rulings R13 y
+             R18,
+             `revoked=`). m42 (`triage-minors.md`): con el proceso `cancelled`
+             y el no adeudo todavía `missing`/`pending`, o `awaiting_payment`
+             (Ruling R15: Caja ya no lo cobraría -`register_payment` lo
+             rechaza-), la píldora propia dice «Revocada» y el renglón NO
+             lleva el sufijo «— Por cobrar $X en Caja» --
+             `library_clearance_pill` no mira `TitulationProcess.status`; aquí
+             sí porque esta vista YA tiene `process` a la mano (no se toca la
+             macro compartida, la usan +12 vistas). #}
+          <div class="tt-req-meta">
+            {%- set no_adeudo_revocado = process.status == 'cancelled' and library.status in ('missing', 'pending', 'awaiting_payment', 'observed') -%}
+            {%- if no_adeudo_revocado -%}
+              <span class="tt-pill tt-pill--neutral">Revocada</span>
+            {%- else -%}
+              {{ library_clearance_pill(library.status, via=library.via) }}
+            {%- endif %}
+            {%- if library.status == 'awaiting_payment' and not no_adeudo_revocado %}
+              — Por cobrar {{ format_amount(library.total) }} en Caja
+            {%- elif library.status == 'observed' and not no_adeudo_revocado and library.observation %}
+              — {{ library.observation }}
+              {%- if library.observation_kind == 'with_debt' %}
+              {#- Spec 2026-10-07 §2: observación CON ADEUDO; el pago (retenido) no libera. #}
+              · con adeudo de {{ format_amount(library.total) }}: {% if library.paid_at %}pagado en Caja el {{ library.paid_at.strftime('%d/%m/%Y') }}, falta que Biblioteca lo active{% else %}sin pagar{% endif %}
+              {%- endif %}
+            {%- elif library.status == 'cleared' and library.via == 'prior' %}
+              — Constancia previa{% if library.prior_issued_on %} del {{ library.prior_issued_on.strftime('%d/%m/%Y') }}{% endif %}{% if library.prior_note %} — {{ library.prior_note }}{% endif %}
+            {%- elif library.status == 'cleared' and library.via == 'legacy' %}
+              — Liberado antes de este sistema
+            {%- elif library.status == 'cleared' %}
+              — {{ format_amount(library.total) }}{% if library.receipt %} · recibo {{ library.receipt }}{% endif %}
+            {%- endif %}
+            <br>{{ certificate_cell(library.certificate, prior=(library.via == 'prior'), legacy=(library.via == 'legacy'), revoked=(process.status == 'cancelled')) }}
+          </div>
+          {% if can_register_prior and library.status in ('missing', 'pending', 'awaiting_payment') %}
+          <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
+                hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo{{ ('?' ~ zona) if zona }}"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML"
+                hx-confirm="Constancia previa|¿Registrar que {{ student.name }} ya pagó y trae su Constancia de no adeudo? Queda liberada sin pasar por Caja."
+                data-tt-confirm-ok="Registrar">
+            <input type="date" name="issued_on" required class="form-control form-control-sm"
+                   style="max-width:150px" aria-label="Fecha de la constancia previa de {{ student.name }}">
+            <input name="note" maxlength="1000" placeholder="Nota (opcional)" class="form-control form-control-sm"
+                   style="max-width:180px" aria-label="Nota de la constancia previa de {{ student.name }}">
+            <button type="submit" class="btn btn-sm tt-btn-ghost">Constancia previa…</button>
+          </form>
+          {% elif can_register_prior and library.can_revert and library.via == 'prior' %}
+          <form class="d-flex flex-wrap align-items-center gap-2 mt-1"
+                hx-post="/titulatec/admin/processes/{{ process.id }}/no-adeudo-previo/deshacer{{ ('?' ~ zona) if zona }}"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML"
+                hx-confirm="Deshacer constancia previa|¿Deshacer la constancia previa de {{ student.name }}? Vuelve a pendiente."
+                data-tt-confirm-ok="Deshacer">
+            <input name="reason" required maxlength="1000" placeholder="Motivo" class="form-control form-control-sm"
+                   style="max-width:220px" aria-label="Motivo para deshacer la constancia de {{ student.name }}">
+            <button type="submit" class="btn btn-sm tt-btn-danger-soft">Deshacer…</button>
+          </form>
+          {% endif %}
+          {% elif r.auto_source %}
+          <div style="font-size:.76rem;color:var(--tt-mute)">
+            Lo acredita el sistema ({{ r.auto_source }}); no se marca a mano.</div>
+          {% endif %}
+        </div>
+        {% if can_mark_reqs and not r.auto_source %}
+        <form class="d-flex flex-wrap align-items-center gap-2"
+              hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+              hx-target="#exp-shell" hx-swap="morph:outerHTML">
+          <input name="note" class="form-control form-control-sm" style="max-width:180px"
+                 value="{{ r.note or '' }}" placeholder="Nota (opcional)"
+                 aria-label="Nota del requisito {{ r.label }}">
+          {% if r.done %}
+          <button type="button" class="btn btn-sm tt-btn-ghost"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"unmark"}'>
+            <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Desmarcar</button>
+          {% else %}
+          <button type="button" class="btn btn-sm tt-btn-ink"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"mark"}'>
+            <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Marcar</button>
+          <button type="button" class="btn btn-sm tt-btn-soft"
+                  hx-post="/titulatec/admin/processes/{{ process.id }}/requisitos/{{ r.id }}{{ ('?' ~ zona) if zona }}"
+                  hx-vals='{"action":"waive"}'>
+            <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Dispensar</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tt-exp-vacio">Esta convocatoria todavía no tiene requisitos configurados.</p>
+    {% endif %}
+  </div>
+  {% if can_open.appointments %}
+  <div class="tt-exp-acciones">
+    <a class="btn btn-sm tt-btn-ghost"
+       href="/titulatec/admin/appointments?v=atender&selected={{ process.id }}">
+      <i class="bi bi-calendar-check me-1" aria-hidden="true"></i>Gestionar la cita</a>
+  </div>
+  {% endif %}
+
+{# ---------------------------------------------------- 03 · Formato B ----- #}
+{% elif f.number == 3 %}
+  {% if formato_b %}
+  {# Bloque trasladado LITERAL del detalle anterior. Decisión del 2026-09-03:
+     de la fase 3 en adelante no se toca mientras el trabajo sea la parte de
+     Servicios Escolares (fases 0 a 2). #}
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="tt-kicker">Formato B</span>
+    {{ estado_pill(formato_b.status) }}
+  </div>
+  <div class="row g-2" style="font-size:.82rem">
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Nombre:</span> {{ formato_b.datos.first_name }} {{ formato_b.datos.last_name }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Edad:</span> {{ formato_b.datos.age }}</div>
+    <div class="col-md-3"><span style="color:var(--tt-mute)">Celular:</span> {{ formato_b.datos.mobile_phone }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Carrera:</span> {{ formato_b.program_name or '—' }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Plan:</span> {{ formato_b.datos.study_plan }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Ingreso:</span> {{ formato_b.datos.admission_date }}</div>
+    <div class="col-md-6"><span style="color:var(--tt-mute)">Egreso:</span> {{ formato_b.datos.graduation_date }}</div>
+    <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
+  </div>
+  {% if formato_b.status == 'submitted' and can_dictaminar_fb %}
+  {# `can_dictaminar_fb` (arreglo A2, revision final 2026-09-21): sin el
+     permiso, aprobar/rechazar responderia 403 -- un boton asi es peor que no
+     estar (spec §10 paso 4). Ver `pages/admin.py::_detail_ctx`. #}
+  <div class="d-flex gap-2 mt-3">
+    <button class="btn btn-sm tt-btn-ink"
+            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
+            hx-vals='{"action":"approve"}'
+            hx-target="#exp-shell" hx-swap="morph:outerHTML">
+      <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar Formato B</button>
+    <button class="btn btn-sm tt-btn-ghost"
+            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
+            hx-vals='{"action":"reject"}'
+            hx-target="#exp-shell" hx-swap="morph:outerHTML">
+      <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Rechazar</button>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="tt-exp-vacio">El alumno todavía no envía su Formato B.</p>
+  {% endif %}
+
+{# ------------------------------------------- 04..08 · aún no existen ----- #}
+{% else %}
+  <p class="tt-exp-vacio">
+    Esta fase todavía no está en la app: sinodales, anexo, entrega final y acto
+    protocolario tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es
+    su estado, no su contenido.</p>
+{% endif %}

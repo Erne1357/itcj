@@ -58,7 +58,11 @@
                 <h1>Inicia sesión</h1>
                 <p class="lead">Accede con tu número de control o usuario institucional.</p>
 
-                <form id="loginForm" class="login-form needs-validation" novalidate>
+                {# `next_url` ya viene validado por `safe_next` en el servidor
+                   (auth.py). Jinja lo autoescapa en el atributo; auth.js lo lee
+                   de `form.dataset.next`. Vacío = ruteo por rol de siempre. #}
+                <form id="loginForm" class="login-form needs-validation" novalidate
+                      data-next="{{ next_url|default('', true) }}">
                     <div id="alertBox" class="alert d-none" role="alert"></div>
 
                     <div class="field">

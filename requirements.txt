@@ -4,7 +4,13 @@ alembic>=1.13.0
 psycopg2-binary>=2.9.0
 
 # FastAPI
-fastapi>=0.115.0
+# Piso 0.142.2: `create_app()` pasa `FastAPI(telemetry=...)` para apagar la
+# telemetría OTel propia de FastAPI (Fase 7); una versión sin ese parámetro
+# no arranca.
+# Techo <0.143: FastAPI >=0.142 trae su propia telemetría OTel (la que
+# `create_app` apaga); un minor nuevo podría cambiar esa API o exigir un
+# opentelemetry-api más nuevo que el fijado abajo.
+fastapi>=0.142.2,<0.143
 uvicorn[standard]>=0.34.0
 python-multipart>=0.0.12
 pydantic-settings>=2.0.0
@@ -13,16 +19,21 @@ pydantic-settings>=2.0.0
 PyJWT>=2.8.0
 werkzeug>=3.0.0
 bcrypt>=4.0.0
+nh3==0.3.7
 
 # Templates
 jinja2>=3.1.0
 python-dateutil>=2.8.0
 
 # Socket.IO
-python-socketio[asyncio]>=5.11.0
+# Fijado a 5.17.x: itcj2/sockets/instrumentation.py sobrescribe AsyncServer._trigger_event
+# y depende del reintento de conexión legado; un minor bump podría contar cada conexión como error.
+python-socketio[asyncio]>=5.17,<5.18
 
 # File handling
 Pillow>=10.0.0
+# Compresión de PDFs de TitulaTec (BSD; se evitó PyMuPDF/Ghostscript por la AGPL)
+pypdf>=6.19,<7
 openpyxl>=3.1.0
 reportlab>=4.0.0
 python-docx>=1.0.0
@@ -39,6 +50,49 @@ requests>=2.31.0
 click>=8.1.0
 httpx>=0.27.0
 msal>=1.24.0
+# Fernet para cifrar los NIPs precargados de TitulaTec (antes solo transitiva de msal).
+cryptography>=42
+
+# SII (TitulaTec, elegibilidad automática): FreeTDS vía unixODBC. `pyodbc` se
+# importa perezosamente en el cliente ODBC -- el backend y la suite corren
+# sin el driver instalado (solo hace falta la librería Python).
+pyodbc>=5.1.0
+
+# Constancias de TitulaTec (no adeudo de biblioteca / liberación de encuesta):
+# PDF con WeasyPrint sobre HTML/CSS propio. 70.0 verificado en el contenedor
+# de dev (Ruling R4, spec 2026-10-01-titulatec-biblioteca-caja-design.md §6);
+# system libs: `libpango-1.0-0 libpangoft2-1.0-0` en
+# `docker/backend/Dockerfile.fastapi` (cairo/gdk-pixbuf ya los trae LibreOffice).
+weasyprint>=70,<71
+
+# Observabilidad (métricas de Prometheus en GET /metrics). Piso 0.26: la
+# versión verificada (CONTENT_TYPE_LATEST, set_exemplar no-op en multiproceso,
+# tolera ficheros gauge_live* borrados por el reaper a mitad del scrape).
+prometheus-client>=0.26.0
+
+# Trazas (Fase 7): OTLP gRPC a Alloy -> Tempo, apagadas salvo OTEL_ENABLED=1
+# (itcj2/observability/tracing.py). Fijadas con `==` y en BLOQUE: las contrib
+# (`0.66b1`) solo son compatibles con su SDK emparejado (`1.45.1`), y la API la
+# arrastra fastapi (sin fijar, una subida de fastapi la movería por su cuenta y
+# rompería el emparejamiento). Verificado con `pip check` sobre la imagen.
+# A propósito NO van `-instrumentation-fastapi` (abriría un segundo span
+# servidor sin la regla `__unmatched__`) ni `-instrumentation-logging` (el
+# filtro propio ya pone los ids en cada línea).
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
+opentelemetry-instrumentation-sqlalchemy==0.66b1
+opentelemetry-instrumentation-redis==0.66b1
+opentelemetry-instrumentation-requests==0.66b1
+opentelemetry-instrumentation-httpx==0.66b1
+opentelemetry-instrumentation-celery==0.66b1
+# El render de plantillas era el hueco más común entre consultas en Tempo.
+opentelemetry-instrumentation-jinja2==0.66b1
+# SQLAlchemyInstrumentor importa `sqlalchemy.ext.asyncio` (para envolver
+# `create_async_engine`) aunque la app no use async, y desde SQLAlchemy 2.1 ese
+# módulo exige greenlet, que ya no viene por defecto: sin él, el instrumentor
+# revienta con ImportError y la traza sale sin un solo SELECT.
+greenlet==3.5.6
 
 # Timezone data (zoneinfo)
 tzdata>=2024.1

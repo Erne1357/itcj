@@ -18,25 +18,54 @@
 {% set _is_cer   = '/titulatec/admin/ceremonies' in _p %}
 {% set _section = 'Bandeja' if _is_inbox else 'Procesos' if _is_proc else 'Convocatorias' if _is_coh else 'Citas de cotejo' if _is_appt else 'Actos protocolarios' if _is_cer else 'TitulaTec · Admin' %}
 
+{% block head_extra %}
+{# Tablero de la jefa de SE (`admin/reports.html`): gráficas, filtros e
+   impresión. Se carga UNA vez aquí, en el <head> de toda vista admin, porque la
+   navegación del menú solo trae `#tt-admin-content` (morph): un <link> dentro
+   del fragmento no llegaría al entrar desde otra pestaña. Sus reglas cuelgan de
+   `.tt-rep` y su `@media print` está acotado a `body:has(#tt-report-body)`.
+   Una página admin que redefina `head_extra` debe llamar `{{ super() }}`. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/reports.css?v={{ sv('css/admin/reports.css') }}">
+<link rel="stylesheet" href="/static/titulatec/css/admin/cashier.css?v={{ sv('css/admin/cashier.css') }}">
+{% endblock %}
+
 {% block content %}
-<div class="tt-admin" id="ttAdmin">
+{# `hx-ext="morph"` va AQUI, en un contenedor que nunca entra a ningun swap.
+   Si viviera en `#tt-admin-content` se perderia al primer `morph:outerHTML`
+   (la respuesta no trae el atributo) y htmx caeria en silencio a `innerHTML`,
+   anidando el contenedor dentro de si mismo. La extension solo interviene si
+   `hx-swap` empieza por `morph`, asi que heredarla en todo el subarbol admin
+   no cambia nada para los swaps normales. #}
+<div class="tt-admin" id="ttAdmin" hx-ext="morph">
   <div class="tt-admin-overlay" id="ttAdminOverlay"></div>
   {# Navegación "estilo wire:navigate": cada item swappea SOLO #tt-admin-content
      (morph), nunca el sidebar ni el <body> → el menú queda quieto, sin parpadeo,
-     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive). #}
-  <aside class="side" id="ttSide" hx-ext="morph">
+     y funciona igual embebido en iframe. El activo se actualiza por JS (ttSetActive).
+
+     El swap es `morph:outerHTML`, NO `innerHTML`: `hx-select` conserva el elemento
+     coincidente (no sus hijos), así que el nodo recortado trae el mismo id que el
+     destino. Con `innerHTML` acaba DENTRO de sí mismo y la página queda con dos
+     `#tt-admin-content` anidados en cada navegación (verificado en Chromium con
+     htmx 2.0.3 + Idiomorph 0.7.3). Con `outerHTML` lo REEMPLAZA, que es el mismo
+     idiom que ya usan los otros tres `hx-select` de la app (`cohort_detail.html:25`,
+     `cohort_students.html:8`, `cohort_days_calendar.html:6,9,23`).
+     Invariante cubierto por tests/fastapi/titulatec/test_admin_nav_swap.py. #}
+  <aside class="side" id="ttSide">
     <div class="d-flex align-items-center justify-content-between mb-4">
       <div class="d-flex align-items-center gap-2">
-        <div class="d-flex align-items-center justify-content-center tt-display"
-             style="width:28px;height:28px;background:var(--tt-accent);border-radius:7px;color:#1F1300;font-weight:700;font-size:1rem">T</div>
+        <img class="tt-brand-img" src="/static/titulatec/images/titulatec-claro-1024.png?v={{ sv('images/titulatec-claro-1024.png') }}" alt="">
         <div class="tt-display" style="font-size:.95rem;font-weight:600">TitulaTec · Admin</div>
       </div>
       <button type="button" class="tt-admin-close" id="ttAdminClose" aria-label="Cerrar menú"><i class="bi bi-x-lg"></i></button>
     </div>
-    {% for it in admin_nav|default([]) %}
+    {# `admin_nav` llega como CALLABLE perezoso (`render_titulatec`): este es el UNICO
+       sitio que lo invoca, así que solo las páginas admin completas pagan el menú.
+       Si el contexto trae una lista ya resuelta, se usa tal cual. El `is defined`
+       va primero porque un `Undefined` de Jinja SÍ es «callable» (truena al invocarlo). #}
+    {% for it in (admin_nav() if (admin_nav is defined and admin_nav is callable) else admin_nav|default([])) %}
     <a href="{{ it.url }}"
        hx-get="{{ it.url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
-       hx-swap="morph:innerHTML" hx-push-url="true"
+       hx-swap="morph:outerHTML" hx-push-url="true"
        class="{{ 'active' if (it.url.rstrip('/') == current_route.rstrip('/')) or (it.url not in ('/titulatec/admin/', '#') and it.url in current_route) }}"><i class="bi {{ it.icon }}"></i> {{ it.label }}</a>
     {% endfor %}
     {# "Volver a ITCJ": solo desktop admin standalone. Oculto en móvil (d-none) y
@@ -51,17 +80,117 @@
       <button type="button" class="tt-burger" id="ttAdminBurger" aria-label="Abrir menú"><i class="bi bi-list"></i></button>
       <div class="tt-display" style="font-size:1rem;font-weight:600">{{ _section }}</div>
     </header>
-    <div class="tt-anim-in" id="tt-admin-content">{% block admin_main %}{% endblock %}</div>
+    {# `data-tt-view` es la IDENTIDAD DE VISTA que lee titulatec-utils.js para
+       decidir si re-anima la entrada tras un swap: mismo valor antes y despues
+       = no se movio de vista = no se re-anima (filtros de la propia pagina);
+       valor distinto = navegacion entre pestanas = si se anima. Cada plantilla
+       admin declara el suyo en {% block admin_view %}. Sin declararlo queda
+       vacio, que equivale a "sin identidad" y conserva el comportamiento viejo. #}
+    <div class="tt-anim-in" id="tt-admin-content"
+         data-tt-view="{% block admin_view %}{% endblock %}">{% block admin_main %}{% endblock %}</div>
   </main>
 </div>
 {% endblock %}
 
+{% block modals %}
+{# Visor grande de Documentos. Vive AQUÍ, a nivel <body> (fuera de .tt-admin,
+   cuyo transform del drawer rompe el position:fixed de Bootstrap) y no en
+   `admin/documents.html`: la navegación del menú lateral trae solo
+   `#tt-admin-content`, así que un modal de la página no llegaría al entrar
+   desde otra pestaña. Lo puebla `js/admin/doc-viewer.js` al abrirlo.
+
+   El dictamen (`#tt-modal-actions`) delega en los botones del form inline
+   (`partials/documents_body.html`), que solo se pinta con `can_review_docs`
+   (arreglo A2). Este modal se renderiza en TODA vista admin, donde esa
+   variable no existe: en ese caso se pinta y el módulo lo oculta si no hay
+   botón inline al que delegar. En la propia página de Documentos, sin el
+   permiso, ni se pinta. #}
+<div class="modal fade" id="tt-doc-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header align-items-center gap-2">
+        <div id="tt-modal-picks" class="d-flex flex-wrap gap-2"></div>
+        <div class="ms-auto d-flex gap-2">
+          <a id="tt-modal-open" href="#" target="_blank" rel="noopener" class="btn btn-sm tt-btn-soft" title="Abrir en pestaña">
+            <i class="bi bi-box-arrow-up-right"></i></a>
+          <button type="button" class="btn btn-sm tt-btn-ghost" data-bs-dismiss="modal" aria-label="Cerrar"><i class="bi bi-x-lg"></i></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="tt-modal-stage" class="tt-doc-stage tt-doc-stage--modal"></div>
+      </div>
+      <div class="modal-footer flex-column align-items-stretch gap-2">
+        <div class="tt-kicker">Dictamen · <span id="tt-modal-name"></span>
+          <span style="color:var(--tt-mute);font-weight:400;text-transform:none;letter-spacing:0"> — comentario obligatorio si rechazas</span></div>
+        {% if can_review_docs is not defined or can_review_docs %}
+        {# `display` inline (no `d-flex`): el `[hidden]` de Bootstrap es
+           !important y una utilidad !important posterior le ganaría. #}
+        <div id="tt-modal-actions" style="display:flex;flex-direction:column;gap:.5rem">
+          <textarea id="tt-modal-note" class="tt-field" rows="2" style="width:100%"
+                    placeholder="Motivo del rechazo y la corrección esperada…"></textarea>
+          <div class="d-flex gap-2">
+            <button type="button" id="tt-modal-approve" class="btn btn-sm tt-btn-ink"><i class="bi bi-check-lg me-1"></i>Aprobar</button>
+            <button type="button" id="tt-modal-reject" class="btn btn-sm tt-btn-ghost" style="color:var(--tt-danger);border-color:rgba(220,38,38,.3)"><i class="bi bi-x-lg me-1"></i>Rechazar</button>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
 {% block scripts %}
+{# Wizard de importación CSV: se carga UNA vez aquí (el bloque `scripts` no entra
+   al morph de #tt-admin-content) y se auto-enlaza por delegación en `document`. #}
+<script src="/static/titulatec/js/admin/import.js?v={{ sv('js/admin/import.js') }}"></script>
+{# Bandeja de Procesos: buscar / ordenar / funnel / alto del kanban + marcado de
+   filas nuevas tras un filtro. Mismo contrato que import.js: una sola carga,
+   listeners delegados en `document` y estado en el modulo (sobrevive al morph). #}
+<script src="/static/titulatec/js/admin/processes.js?v={{ sv('js/admin/processes.js') }}"></script>
+{# Citas de cotejo: visor de documentos, modal grande (que vive fuera del morph,
+   en `block modals`, y por eso se puebla al abrirlo) y marcado de la zona que sí
+   cambió tras un swap. Mismo contrato: una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/appointments.js?v={{ sv('js/admin/appointments.js') }}"></script>
+{# Expediente del alumno: acordeón de fases (con memoria de lo desplegado, que
+   un swap no debe cerrar) y la guarda de motivo al rechazar una fase. Se carga
+   aquí y no en `process_detail.html` porque la navegación del admin trae solo
+   `#tt-admin-content` (`hx-select`): un <script> de la plantilla de página no
+   llegaría al entrar desde otra pestaña. #}
+<script src="/static/titulatec/js/admin/expediente.js?v={{ sv('js/admin/expediente.js') }}"></script>
+{# Requisitos de cotejo: editor de «Información para el alumno». Trae Quill 2
+   PEREZOSAMENTE la primera vez que se abre un editor (ninguna otra página admin
+   lo descarga), sincroniza el HTML con el input oculto de su formulario y vuelve
+   a montar los editores tras el outerHTML del parcial o el morph de la
+   navegación. Mismo contrato: una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/cotejo-info-editor.js?v={{ sv('js/admin/cotejo-info-editor.js') }}"></script>
+{# Encargados por carrera: buscador y contador de cada selector de casillas, el
+   aviso de «se reactivarán N cuentas» y la edición en línea de cada tarjeta.
+   Se carga aquí y no en `officers.html` porque la navegación del admin trae
+   solo `#tt-admin-content` (`hx-select`): un <script> de la plantilla de página
+   no llegaría al entrar desde otra pestaña. Mismo contrato que los de arriba:
+   una sola carga y delegación en `document`. #}
+<script src="/static/titulatec/js/admin/officers.js?v={{ sv('js/admin/officers.js') }}"></script>
+{# Visor de Documentos (bandeja de revisión, fase 1): PDF.js, selector del doc
+   activo, dictamen y el modal grande `#tt-doc-modal` (declarado arriba, en
+   `block modals`). Antes era un <script> inline del parcial, que corría antes
+   de Bootstrap y sin modal (al llegar por el menú lateral no se traía), y
+   «Expandir» nunca enganchaba. Mismo contrato: una sola carga, delegación y
+   re-init en `htmx:afterSettle` tras cada swap de `#docs-body`. #}
+<script src="/static/titulatec/js/admin/doc-viewer.js?v={{ sv('js/admin/doc-viewer.js') }}"></script>
+{# Tablero de la jefa de SE: tooltip de las gráficas (hijo de <body>, creado una
+   vez), crosshair de las líneas, Imprimir, popovers de filtros y la opacidad de
+   recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en
+   `document` y re-init en `htmx:afterSettle`. #}
+<script src="/static/titulatec/js/admin/reports.js?v={{ sv('js/admin/reports.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {
-    var msg = (e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error'))
-              || 'No se pudo completar la acción.';
+    var crudo = e.detail && e.detail.xhr && e.detail.xhr.getResponseHeader('X-Tt-Error');
+    // El servidor percent-codifica el mensaje: los headers HTTP son latin-1 y
+    // sin codificar, cualquier acento llegaba roto.
+    var msg = (window.TitulaTecUtils && TitulaTecUtils.decodeHeaderMsg(crudo))
+              || crudo || 'No se pudo completar la acción.';
     if (window.TitulaTecUtils) TitulaTecUtils.showToast(msg, 'danger');
   });
 

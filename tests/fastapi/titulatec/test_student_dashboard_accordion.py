@@ -1,0 +1,663 @@
+"""El acordeon de fases del dashboard del alumno y el redirect de `/fase/{n}`.
+
+Contexto: hasta 2026-09-02 el alumno tocaba una fase y caia en
+`/titulatec/student/fase/{n}`, una PANTALLA APARTE con la descripcion y un boton
+que llevaba al modulo real. Ahora la descripcion se despliega en la propia lista
+del dashboard y la fase ACTUAL no se despliega: sale en grande en la tarjeta "Tu
+proceso" con su CTA.
+
+Casi todo se prueba sobre `_phases_ctx` y no sobre el HTML A PROPOSITO: el
+markup del acordeon lo escribe el frontend y va a cambiar; el contrato de datos
+(que fase se puede desplegar, quien tiene CTA, que dice el sub-progreso) es lo
+que no debe erosionarse. Del HTTP solo se asserta lo que es contrato de red:
+codigo de estado y Location.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+from itcj2.apps.titulatec.pages.student import _HANDOFF_COPY, _parse_open_phase, _phases_ctx
+from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+DASHBOARD = "/titulatec/student/dashboard"
+
+
+def _card(ctx, number):
+    return next(c for c in ctx["phases"] if c["number"] == number)
+
+
+# ---------------------------------------------------------------------------
+# `/fase/{n}` — compat: ya no renderiza, redirige
+# ---------------------------------------------------------------------------
+def test_fase_redirige_al_dashboard_con_la_fase_abierta(
+    client_as, make_student, make_process, seed_phase_defs,
+):
+    """302 a `?fase=N`. Es la URL que llevan TODAS las notificaciones ya emitidas.
+
+    `services/notify.py:31-33` escribio `data['url'] = /titulatec/student/fase/{n}`
+    en filas de `core_notifications` que siguen en BD: si esta ruta muere, mueren
+    esos avisos.
+    """
+    seed_phase_defs()
+    student = make_student()
+    make_process(student, current_phase=2)
+
+    resp = client_as(student).get("/titulatec/student/fase/3", follow_redirects=False)
+
+    assert resp.status_code == 302, resp.text[:300]
+    assert resp.headers["location"] == f"{DASHBOARD}?fase=3"
+
+
+def test_fase_no_es_redirect_permanente(
+    client_as, make_student, make_process, seed_phase_defs,
+):
+    """301/308 lo cachearia el navegador para siempre y nunca volveria a preguntar.
+
+    El destino puede cambiar (otro mecanismo de deep-link, o que la fase recupere
+    pantalla propia); con un permanente, quien ya lo tenga cacheado no se enteraria.
+    """
+    seed_phase_defs()
+    student = make_student()
+    make_process(student)
+
+    resp = client_as(student).get("/titulatec/student/fase/1", follow_redirects=False)
+
+    assert resp.status_code not in (301, 308)
+
+
+def test_fase_fuera_de_rango_sigue_dando_404(
+    client_as, make_student, make_process, seed_phase_defs,
+):
+    seed_phase_defs()
+    student = make_student()
+    make_process(student)
+    cli = client_as(student)
+
+    assert cli.get("/titulatec/student/fase/9", follow_redirects=False).status_code == 404
+    assert cli.get("/titulatec/student/fase/-1", follow_redirects=False).status_code == 404
+
+
+def test_fase_sin_proceso_sigue_dando_404(client_as, make_student, seed_phase_defs):
+    """El alumno sin proceso no tiene fases: 404, no un redirect a un acordeon vacio."""
+    seed_phase_defs()
+
+    resp = client_as(make_student()).get("/titulatec/student/fase/2", follow_redirects=False)
+
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Dashboard — la pantalla responde
+# ---------------------------------------------------------------------------
+def test_dashboard_200_con_proceso(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=1)
+
+    resp = client_as(student).get(DASHBOARD)
+
+    assert resp.status_code == 200, resp.text[:500]
+
+
+def test_dashboard_200_sin_proceso(client_as, make_student, seed_phase_defs):
+    """El alumno recien creado sin proceso no revienta la pantalla principal."""
+    seed_phase_defs()
+
+    resp = client_as(make_student()).get(DASHBOARD)
+
+    assert resp.status_code == 200, resp.text[:500]
+
+
+def test_dashboard_con_fase_basura_no_revienta(
+    client_as, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """`?fase=abc` degrada a "sin acordeon abierto", NO a un 422.
+
+    Por eso `fase` se declara `str | None` y se parsea a mano: la URL viaja en
+    notificaciones viejas y no puede tumbar el dashboard.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student)
+
+    assert client_as(student).get(f"{DASHBOARD}?fase=abc").status_code == 200
+    assert client_as(student).get(f"{DASHBOARD}?fase=").status_code == 200
+    assert client_as(student).get(f"{DASHBOARD}?fase=99").status_code == 200
+
+
+def test_parse_open_phase():
+    assert _parse_open_phase("3") == 3
+    assert _parse_open_phase(" 3 ") == 3
+    assert _parse_open_phase("abc") is None
+    assert _parse_open_phase("") is None
+    assert _parse_open_phase(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Contrato del acordeon
+# ---------------------------------------------------------------------------
+def test_la_fase_actual_no_se_despliega_y_es_la_unica_con_cta(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Decisiones 2 y 3: la actual va grande en la columna A; el resto se despliega.
+
+    Y solo la actual acciona: las anteriores estan cerradas (inmutables) y las
+    siguientes son informativas — el alumno se prepara ahi, no ejecuta.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 2)
+    assert actual["is_current"] and actual["can_expand"] is False
+    assert all(c["can_expand"] for c in ctx["phases"] if not c["is_current"])
+
+    # La fase 1 (anterior) y la 3 (siguiente) TIENEN entrada en `_PHASE_CTA`...
+    assert _card(ctx, 1)["cta"] is None
+    assert _card(ctx, 3)["cta"] is None
+    # ...y aun asi solo la actual la expone.
+    assert [c["number"] for c in ctx["phases"] if c["cta"]] == [2]
+    assert ctx["current"]["cta"]["url"] == "/titulatec/student/cita"
+
+
+def test_la_card_grande_es_la_misma_de_la_fase_actual(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """`current` no es una copia divergente: es la card de la lista."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    assert ctx["current"] is _card(ctx, 3)
+    assert ctx["current"]["desc"]           # descripcion para la tarjeta grande
+    assert ctx["current"]["needs"]          # "que vas a necesitar"
+
+
+def test_clasifica_anterior_actual_y_siguiente(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=4)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    assert [c["rel"] for c in ctx["phases"]] == (
+        ["past"] * 4 + ["current"] + ["future"] * 4
+    )
+
+
+def test_deep_link_abre_solo_esa_fase(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc, open_phase=5)
+
+    assert [c["number"] for c in ctx["phases"] if c["is_open"]] == [5]
+
+
+def test_deep_link_a_la_fase_actual_no_abre_ningun_acordeon(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """La actual no tiene acordeon que abrir: su info ya sale entera en la columna A."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc, open_phase=2)
+
+    assert not any(c["is_open"] for c in ctx["phases"])
+    # ...pero SI se resalta: `is_target` es lo que el template usa para eso.
+    assert [c["number"] for c in ctx["phases"] if c["is_target"]] == [2]
+    assert ctx["open_phase"] == 2
+
+
+def test_deep_link_inexistente_no_abre_nada(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=1)
+
+    ctx = _phases_ctx(db_session, proc, open_phase=42)
+
+    assert not any(c["is_open"] for c in ctx["phases"])
+
+
+def test_sin_proceso_no_hay_fase_actual_ni_cta(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert ctx["has_process"] is False
+    assert ctx["current"] is None
+    assert ctx["current_phase"] == 0 and ctx["progress_pct"] == 0
+    assert len(ctx["phases"]) == 9
+    assert all(c["can_expand"] and c["cta"] is None for c in ctx["phases"])
+
+
+# ---------------------------------------------------------------------------
+# Corte a T-soft en el acordeon (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion)
+# ---------------------------------------------------------------------------
+# La Tarea 2 ya bloquea la EJECUCION en el backend (`PhaseService._handoff_phase`,
+# guardas del alumno y del admin). Esto prueba que el CONTEXTO se lo explica al
+# alumno en vez de dejarlo frente a un boton muerto: cada card gana `handoff`, y
+# `_cta_for` deja de ofrecer el modulo de Formato B cuando aplica.
+def test_las_fases_desde_el_corte_en_adelante_traen_handoff_true(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """`handoff = pd.number >= PhaseService._handoff_phase()`: formula pura, ni
+    siquiera hace falta un proceso para probarla (igual que
+    `test_sin_proceso_no_hay_fase_actual_ni_cta`, del que es vecino)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert [c["number"] for c in ctx["phases"] if c["handoff"]] == [3, 4, 5, 6, 7, 8]
+    assert [c["number"] for c in ctx["phases"] if not c["handoff"]] == [0, 1, 2]
+
+
+def test_handoff_copy_viaja_en_el_contexto_y_es_la_constante_del_modulo(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """El copy CON acentos vive en `_HANDOFF_COPY` (pages/student.py), no
+    repetido a mano en la plantilla -- y no es `PhaseService.HANDOFF_MSG` (ese
+    es el mensaje SIN acentos del header `X-Tt-Error`, para el toast)."""
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    assert ctx["handoff_copy"] == _HANDOFF_COPY
+    assert _HANDOFF_COPY == (
+        "Tu proceso continúa en el Departamento de Titulación, en el sistema "
+        "T-soft. El departamento te contactará por correo para darte tu usuario."
+    )
+
+
+def test_fase_3_actual_pierde_su_cta_por_el_corte(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """El egresado en fase 3 (Formato B): `handoff=True` y CERO cta, ni en la
+    card ni en `ctx["current"]` -- son el mismo dict (ver
+    `test_la_card_grande_es_la_misma_de_la_fase_actual`), asi que si uno se
+    entera el otro tambien.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is True
+    assert actual["cta"] is None
+    assert ctx["current"]["cta"] is None
+    assert [c["number"] for c in ctx["phases"] if c["cta"]] == []
+
+
+def test_fase_2_actual_no_tiene_handoff_y_conserva_su_cta(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Control: antes del corte nada cambia -- sigue habiendo UN cta y es el
+    de la cita."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 2)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/cita"
+
+
+def test_con_el_corte_en_9_la_fase_3_recupera_su_cta_de_formato_b(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """Mismo truco que `test_handoff_phase_cut.py`: 9 desactiva el corte (queda
+    fuera del catalogo 0-8). Prueba que `handoff` LEE `_handoff_phase()` en
+    cada llamada -- si `_phases_ctx` lo hubiera capturado en una constante de
+    modulo o a import time, este monkeypatch no cambiaria nada.
+    """
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    actual = _card(ctx, 3)
+    assert actual["handoff"] is False
+    assert actual["cta"]["url"] == "/titulatec/student/formato-b"
+
+
+# ---------------------------------------------------------------------------
+# Ronda de fix 1 (post-revision del coordinador) -- Hallazgo 2: "A cargo de
+# el Depto. de Titulacion" (falta la contraccion "del"). `dashboard.html:73`
+# arma "A cargo de {{ responsible_label }}", y `_RESPONSIBLE_LABEL["titulaciones"]`
+# ya trae el articulo ("el Depto. de Titulacion") para que sirva tal cual en
+# `dashboard.html:115` ("En proceso por {{ responsible_label }}.", donde "por
+# el" SI es correcto -- el espanol solo contrae "de"+"el" y "a"+"el", nunca
+# "por"+"el"). `responsible_label_de` es el campo nuevo, ya contraido, para el
+# UNICO consumidor que lo necesita.
+# ---------------------------------------------------------------------------
+def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
+    db_session, seed_phase_defs, seed_document_types,
+):
+    """Los 5 valores de `_RESPONSIBLE_LABEL` (los `responsible` 0-8 solo tocan
+    4 mas el propio `student`), probados de una vez contra el catalogo real
+    para que un responsable nuevo que empiece con "el " no vuelva a colarse
+    sin la contraccion.
+    """
+    seed_phase_defs()
+    seed_document_types()
+
+    ctx = _phases_ctx(db_session, None)
+
+    esperado = {
+        0: "de Servicios Escolares",    # cohort_intake -> school_services
+        1: "de ti",                     # initial_docs -> student
+        2: "de Servicios Escolares",    # review_appointment -> school_services
+        3: "del Depto. de Titulación",  # format_b -> titulaciones
+        4: "de Vinculación",            # synodal_assignment -> vinculacion
+        5: "de tus sinodales",          # synodal_review -> synodals
+        6: "del Depto. de Titulación",  # anexo_iii -> titulaciones
+        7: "de ti",                     # final_docs -> student
+        8: "del Depto. de Titulación",  # ceremony -> titulaciones
+    }
+    obtenido = {c["number"]: c["responsible_label_de"] for c in ctx["phases"]}
+    assert obtenido == esperado
+
+
+# ---------------------------------------------------------------------------
+# Sub-progreso (decision 4)
+# ---------------------------------------------------------------------------
+def test_subprogreso_fase_1_cuenta_aprobados_rechazados_y_faltantes(
+    db_session, make_student, make_process, make_document,
+    seed_phase_defs, seed_document_types,
+):
+    """3 documentos: uno aprobado, uno rechazado, uno sin subir.
+
+    `missing` es el pseudo-estado de la UI (no hay fila), distinto de `pending`:
+    "no lo has subido" y "lo subiste y falta que lo revisen" no son lo mismo.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=1)
+    make_document(proc, type_code="birth_certificate", review_status="approved")
+    make_document(proc, type_code="high_school_cert", review_status="rejected",
+                  note="Se ve borrosa")
+
+    prog = _card(_phases_ctx(db_session, proc), 1)["progress"]
+
+    assert prog["kind"] == "documents"
+    # "excused" (Ruling R11, revision final 2026-09-30): `initial_docs_summary`
+    # ahora siempre trae esa clave (0 aqui -- licenciatura nunca dispensa nada).
+    assert prog["counts"] == {"approved": 1, "rejected": 1, "pending": 0, "missing": 1,
+                              "excused": 0}
+    assert prog["uploaded"] == 2 and prog["total"] == 3
+    assert prog["tone"] == "danger"            # hay algo que corregir: manda eso
+    assert {i["code"]: i["status"] for i in prog["items"]} == {
+        "birth_certificate": "approved",
+        "high_school_cert": "rejected",
+        "curp": "missing",
+    }
+
+
+def test_subprogreso_fase_1_todo_aprobado(
+    db_session, make_student, make_process, make_document,
+    seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code, review_status="approved")
+
+    prog = _card(_phases_ctx(db_session, proc), 1)["progress"]
+
+    assert prog["counts"]["approved"] == 3
+    assert prog["tone"] == "success"
+
+
+def test_subprogreso_fase_2_habla_en_lenguaje_del_alumno(
+    db_session, make_student, make_process, make_appointment,
+    seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+    make_appointment(proc, status="confirmed", location="Edificio A")
+
+    prog = _card(_phases_ctx(db_session, proc), 2)["progress"]
+
+    assert prog["kind"] == "appointment"
+    assert prog["label"] == "Confirmaste tu asistencia"
+    assert prog["location"] == "Edificio A"
+    assert prog["scheduled_label"] and prog["scheduled_label"] != "—"
+
+
+def test_subprogreso_fase_2_sin_cita(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+
+    prog = _card(_phases_ctx(db_session, proc), 2)["progress"]
+
+    assert prog["started"] is False
+    assert prog["label"] == "Aún no te asignan fecha y hora"
+
+
+def test_subprogreso_fase_2_solicitud_de_cambio_manda_sobre_el_estado(
+    db_session, make_student, make_process, make_appointment,
+    seed_phase_defs, seed_document_types,
+):
+    """`scheduled` + solicitud de cambio = el alumno pidio otro dia."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+    appt = make_appointment(proc, status="scheduled")
+    appt.change_request = "Trabajo ese dia"
+    db_session.flush()
+
+    prog = _card(_phases_ctx(db_session, proc), 2)["progress"]
+
+    assert prog["change_requested"] is True
+    assert prog["label"] == "Solicitaste un cambio de fecha"
+
+
+def test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """El paso se deriva de datos PROPIOS del alumno, no de los precargados.
+
+    `FormatBService.get_or_create` precarga nombre, control, carrera y modalidad:
+    si contaran, el paso 2 se veria completo desde el minuto cero.
+
+    Corte desactivado a proposito (arreglo A1, revision final 2026-09-21): con
+    el corte por defecto (fase 3) esta fase ya no pinta NINGUN sub-progreso
+    (ver `test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto`, mas abajo).
+    Este test sigue probando el CONTEO de pasos del Formato B, que solo se ve
+    donde el corte no aplica -- de ahi el `monkeypatch` a `_handoff_phase`.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="draft",
+                           first_name="ALUMNO", last_name="FICTICIO",   # precargado
+                           program_id=None, titulation_type="Residencia",  # precargado
+                           gender="female", age=23))                    # paso 1, propio
+    db_session.flush()
+
+    prog = _card(_phases_ctx(db_session, proc), 3)["progress"]
+
+    assert prog["kind"] == "format_b"
+    assert prog["step"] == 2 and prog["total_steps"] == 3
+    assert prog["submitted"] is False
+    assert [s["done"] for s in prog["steps"]] == [True, False, False]
+    assert prog["label"] == "Paso 2 de 3"
+
+
+def test_subprogreso_fase_3_enviado(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+    monkeypatch,
+):
+    """Corte desactivado a proposito -- mismo motivo que la prueba anterior."""
+    from itcj2.apps.titulatec.models import FormatB
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="submitted",
+                           gender="male", study_plan="IIND-2010", project_name="Un proyecto"))
+    db_session.flush()
+
+    prog = _card(_phases_ctx(db_session, proc), 3)["progress"]
+
+    assert prog["submitted"] is True
+    assert prog["tone"] == "amber"
+    assert "revisión" in prog["label"]
+
+
+def test_subprogreso_fase_3_no_se_pinta_con_el_corte_puesto(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Arreglo A1 (revision final 2026-09-21): la fase ACTUAL, cuando esta
+    congelada por el corte, no puede pintar su sub-progreso -- se
+    contradiria con el aviso de T-soft que sale al lado ("Paso 2 de 3" junto
+    a "esto ya no se opera aqui"). Verificado contra un proceso real de dev en
+    `current_phase=3`. Con el corte por DEFECTO (fase 3, sin monkeypatch):
+    misma fixture EXACTA que `test_subprogreso_fase_3_cuenta_los_pasos_del_formato_b`
+    (FormatB en 'draft', paso 2 de 3), pero aqui el sub-progreso debe desaparecer.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    db_session.add(FormatB(process_id=proc.id, status="draft",
+                           first_name="ALUMNO", last_name="FICTICIO",
+                           program_id=None, titulation_type="Residencia",
+                           gender="female", age=23))
+    db_session.flush()
+
+    card = _card(_phases_ctx(db_session, proc), 3)
+
+    assert card["handoff"] is True, "fixture rota: la fase 3 deberia estar en el corte"
+    assert card["progress"] is None, (
+        "la fase actual congelada por el corte no debe pintar sub-progreso: "
+        "se contradice con el aviso de T-soft")
+
+
+def test_fase_futura_intacta_no_muestra_subprogreso_vacio(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    """Anunciarle "Aun no lo empiezas" de la fase 3 al que va en la 1 es ruido."""
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=1)
+
+    ctx = _phases_ctx(db_session, proc)
+
+    assert _card(ctx, 3)["progress"] is None
+    assert _card(ctx, 1)["progress"] is not None   # la actual si, aunque este a cero
+
+
+# ---------------------------------------------------------------------------
+# Historial dentro del acordeon (decision 6)
+# ---------------------------------------------------------------------------
+def test_el_historial_se_reparte_por_fase(
+    db_session, make_student, make_process, seed_phase_defs, seed_document_types,
+):
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=2)
+    base = datetime(2026, 3, 2, 10, 0)
+    db_session.add_all([
+        ProcessEvent(process_id=proc.id, event_type="phase_approved",
+                     phase_number=1, created_at=base),
+        ProcessEvent(process_id=proc.id, event_type="appointment_scheduled",
+                     phase_number=2, created_at=base + timedelta(hours=1)),
+        ProcessEvent(process_id=proc.id, event_type="appointment_confirmed",
+                     phase_number=2, created_at=base + timedelta(hours=2)),
+        # Sin fase: no se cuelga de un acordeon arbitrario.
+        ProcessEvent(process_id=proc.id, event_type="phase_approved",
+                     phase_number=None, created_at=base + timedelta(hours=3)),
+    ])
+    db_session.flush()
+
+    ctx = _phases_ctx(db_session, proc)
+
+    assert [e["label"] for e in _card(ctx, 1)["events"]] == ["Fase aprobada"]
+    assert [e["label"] for e in _card(ctx, 2)["events"]] == [
+        "Cita agendada", "Confirmaste tu asistencia",
+    ]
+    assert _card(ctx, 0)["events"] == []
+    assert sum(len(c["events"]) for c in ctx["phases"]) == 3
+    assert _card(ctx, 2)["events"][0]["when"] == "02 mar 2026 · 11:00"
+
+
+# ---------------------------------------------------------------------------
+# El N+1 que esta pantalla no se puede permitir
+# ---------------------------------------------------------------------------
+def test_el_contexto_no_hace_una_consulta_por_fase(
+    db_session, make_student, make_process, make_document, make_appointment,
+    seed_phase_defs, seed_document_types,
+):
+    """9 fases con datos completos y el numero de SELECT sigue siendo constante.
+
+    Es la pantalla mas visitada del alumno: una consulta por fase (o tres, como
+    hace `initial_docs_all_approved`) la multiplicaria por 9 en cada carga.
+    """
+    from sqlalchemy import event
+
+    seed_phase_defs()
+    seed_document_types()
+    proc = make_process(make_student(), current_phase=3)
+    for code in ("birth_certificate", "high_school_cert", "curp"):
+        make_document(proc, type_code=code, review_status="approved")
+    make_appointment(proc, status="attended")
+
+    selects = []
+
+    def _count(conn, cursor, statement, params, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    bind = db_session.get_bind()
+    event.listen(bind, "before_cursor_execute", _count)
+    try:
+        ctx = _phases_ctx(db_session, proc)
+    finally:
+        event.remove(bind, "before_cursor_execute", _count)
+
+    assert len(ctx["phases"]) == 9
+    # Presupuesto: fases + process_phases + events + documents + document_types
+    # + cita + formato B = 7. El margen absorbe algun lazy load, no un N+1.
+    assert len(selects) <= 10, "\n".join(selects)

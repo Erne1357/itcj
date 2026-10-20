@@ -1,0 +1,422 @@
+"""Métricas RED que registra `ObservabilityMiddleware` (plan Fase 2, test 2).
+
+Los contadores de `itcj2.observability.metrics` son de MÓDULO: viven lo que
+vive el proceso de pytest y acumulan entre tests (y entre archivos: otros
+tests también pasan por el middleware). Por eso todo se mide como DELTA con
+`REGISTRY.get_sample_value`, nunca como valor absoluto.
+
+`get_sample_value` exige el juego de etiquetas EXACTO: si una métrica llevara
+una etiqueta de más (p. ej. `status` en el histograma) la consulta devolvería
+`None` y el delta no cuadraría. Eso ya fija el contrato de etiquetas.
+
+Sin BD ni datos sembrados: la app de prueba solo tiene rutas propias.
+"""
+import asyncio
+import logging
+from unittest.mock import patch
+
+import pytest
+from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
+
+from itcj2.main import _register_error_handlers
+from itcj2.middleware import setup_middleware
+from itcj2.observability.middleware import ObservabilityMiddleware
+from tests.conftest import TEST_SECRET
+
+# Prefijo real de helpdesk: `app` sale de la plantilla ("helpdesk").
+PREFIX = "/api/help-desk/v2/red-probe"
+ITEM_TEMPLATE = f"{PREFIX}/items/{{item_id}}"
+
+REQUESTS = "itcj_http_requests_total"
+DURATION_COUNT = "itcj_http_request_duration_seconds_count"
+IN_FLIGHT = "itcj_http_requests_in_flight"
+EXCEPTIONS = "itcj_http_exceptions_total"
+
+
+class RedProbeError(Exception):
+    """Nombre propio: prueba que `exc_type` es el tipo REAL de la excepción."""
+
+
+def _value(name: str, labels: dict) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+def _family_total(sample_name: str) -> float:
+    """Suma de TODAS las series de una muestra, sea cual sea su etiqueta."""
+    total = 0.0
+    for family in REGISTRY.collect():
+        for sample in family.samples:
+            if sample.name == sample_name:
+                total += sample.value
+    return total
+
+
+def _build_app() -> FastAPI:
+    app = FastAPI()
+    setup_middleware(app)
+    _register_error_handlers(app)
+
+    router = APIRouter(prefix="/items")
+
+    @router.get("/{item_id}")
+    def item(item_id: int):
+        return {"item_id": item_id}
+
+    @router.get("/{item_id}/in-flight")
+    def in_flight(item_id: int):
+        # Leído DENTRO de la petición: el middleware ya tuvo que sumarla.
+        return {"in_flight": _value(IN_FLIGHT, {"app": "helpdesk"})}
+
+    @router.get("/{item_id}/unavailable")
+    def unavailable(item_id: int):
+        raise HTTPException(status_code=503, detail="mantenimiento")
+
+    @router.get("/{item_id}/boom")
+    def boom(item_id: int):
+        raise RedProbeError("explota a propósito")
+
+    app.include_router(router, prefix=PREFIX)
+
+    def excluded():
+        return {"ok": True}
+
+    for path in ("/health", "/ready", "/metrics"):
+        app.add_api_route(path, excluded, methods=["GET"])
+
+    return app
+
+
+@pytest.fixture()
+def client():
+    with patch("itcj2.middleware._JWT_SECRET", TEST_SECRET):
+        # raise_server_exceptions=False: el 500 de la excepción no controlada
+        # lo manda ServerErrorMiddleware y luego re-lanza; sin esto el
+        # TestClient la re-lanzaría en el test.
+        with TestClient(_build_app(), raise_server_exceptions=False) as c:
+            yield c
+
+
+def _requests_labels(route: str, status: str, app: str = "helpdesk") -> dict:
+    return {"app": app, "method": "GET", "route": route, "status": status}
+
+
+# ---------------------------------------------------------------------------
+# Contador de peticiones
+# ---------------------------------------------------------------------------
+
+def test_route_with_param_is_counted_with_its_template(client):
+    labels = _requests_labels(ITEM_TEMPLATE, "200")
+    before = _value(REQUESTS, labels)
+    raw_before = _value(REQUESTS, _requests_labels(f"{PREFIX}/items/7", "200"))
+
+    resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    assert _value(REQUESTS, labels) - before == 1
+    # Nunca la ruta cruda: cada id sería una serie nueva.
+    assert _value(REQUESTS, _requests_labels(f"{PREFIX}/items/7", "200")) == raw_before
+
+
+def test_404_is_counted_as_unmatched_under_otro(client):
+    labels = _requests_labels("__unmatched__", "404", app="otro")
+    before = _value(REQUESTS, labels)
+
+    resp = client.get(f"{PREFIX}/no-existe/48213")
+
+    assert resp.status_code == 404
+    assert _value(REQUESTS, labels) - before == 1
+
+
+def test_http_exception_keeps_its_status(client):
+    # La convierte ExceptionMiddleware POR DENTRO del middleware: llega por el
+    # send envuelto con su 503 y no es una excepción no controlada.
+    labels = _requests_labels(f"{ITEM_TEMPLATE}/unavailable", "503")
+    before = _value(REQUESTS, labels)
+    exceptions_before = _family_total(EXCEPTIONS)
+
+    resp = client.get(f"{PREFIX}/items/7/unavailable")
+
+    assert resp.status_code == 503
+    assert _value(REQUESTS, labels) - before == 1
+    assert _family_total(EXCEPTIONS) == exceptions_before
+
+
+def test_unhandled_exception_counts_500_and_its_type(client):
+    route = f"{ITEM_TEMPLATE}/boom"
+    labels = _requests_labels(route, "500")
+    exc_labels = {"app": "helpdesk", "route": route, "exc_type": "RedProbeError"}
+    before = _value(REQUESTS, labels)
+    exc_before = _value(EXCEPTIONS, exc_labels)
+
+    resp = client.get(f"{PREFIX}/items/7/boom")
+
+    # El 500 lo emite ServerErrorMiddleware por FUERA del send envuelto
+    # (plan §9.15): solo el `except BaseException` del middleware lo ve.
+    assert resp.status_code == 500
+    assert _value(REQUESTS, labels) - before == 1
+    assert _value(EXCEPTIONS, exc_labels) - exc_before == 1
+
+
+# ---------------------------------------------------------------------------
+# El método es entrada del cliente: cardinalidad acotada
+# ---------------------------------------------------------------------------
+# Un 405 deja la ruta matcheada en el scope (match parcial) y llega antes de
+# la autenticación. Con la plantilla real, cada método × cada plantilla sería
+# una serie nueva (más 14 del histograma) que nadie presupuestó. FastAPI no
+# añade HEAD a las rutas GET: un HEAD a cualquier GET es un 405.
+
+@pytest.mark.parametrize("method", ["HEAD", "DELETE"])
+def test_405_is_counted_as_unmatched_not_under_its_template(client, caplog, method):
+    unmatched = {"app": "otro", "method": method, "route": "__unmatched__"}
+    real = {"app": "helpdesk", "method": method, "route": ITEM_TEMPLATE}
+    before = _value(REQUESTS, {**unmatched, "status": "405"})
+    duration_before = _value(DURATION_COUNT, unmatched)
+
+    with caplog.at_level(logging.INFO, logger="itcj2.access"):
+        resp = client.request(method, f"{PREFIX}/items/7")
+
+    assert resp.status_code == 405
+    assert _value(REQUESTS, {**unmatched, "status": "405"}) - before == 1
+    assert _value(DURATION_COUNT, unmatched) - duration_before == 1
+    # `is None` y no un delta: lo que cuesta es que la serie EXISTA.
+    assert REGISTRY.get_sample_value(REQUESTS, {**real, "status": "405"}) is None
+    assert REGISTRY.get_sample_value(DURATION_COUNT, real) is None
+    # Solo en las métricas: la línea-resumen (Loki, sin etiquetas por ruta)
+    # conserva la plantilla, la app y el método reales.
+    [record] = [r for r in caplog.records if r.name == "itcj2.access"]
+    assert (record.method, record.route, record.app, record.status) == (
+        method, ITEM_TEMPLATE, "helpdesk", 405,
+    )
+
+
+@pytest.mark.parametrize(
+    "path, status",
+    [(f"{PREFIX}/items/7", 405), (f"{PREFIX}/no-existe/48213", 404)],
+)
+def test_non_standard_method_is_counted_as_other(client, path, status):
+    labels = {"app": "otro", "method": "OTHER", "route": "__unmatched__"}
+    before = _value(REQUESTS, {**labels, "status": str(status)})
+    duration_before = _value(DURATION_COUNT, labels)
+
+    resp = client.request("PROPFIND", path)
+
+    assert resp.status_code == status
+    assert _value(REQUESTS, {**labels, "status": str(status)}) - before == 1
+    assert _value(DURATION_COUNT, labels) - duration_before == 1
+    leaked = [
+        sample
+        for family in REGISTRY.collect()
+        for sample in family.samples
+        if sample.labels.get("method") == "PROPFIND"
+    ]
+    assert leaked == []
+
+
+@pytest.mark.parametrize("path", ["/ready", "/health", "/metrics"])
+def test_excluded_paths_record_nothing(client, path):
+    totals_before = [
+        _family_total(name) for name in (REQUESTS, DURATION_COUNT, EXCEPTIONS)
+    ]
+
+    resp = client.get(path)
+
+    assert resp.status_code == 200
+    totals_after = [
+        _family_total(name) for name in (REQUESTS, DURATION_COUNT, EXCEPTIONS)
+    ]
+    assert totals_after == totals_before
+
+
+# ---------------------------------------------------------------------------
+# In-flight e histograma
+# ---------------------------------------------------------------------------
+
+def test_in_flight_is_up_during_the_request_and_back_after(client):
+    labels = {"app": "helpdesk"}
+    before = _value(IN_FLIGHT, labels)
+
+    resp = client.get(f"{PREFIX}/items/7/in-flight")
+
+    assert resp.json()["in_flight"] == before + 1
+    assert _value(IN_FLIGHT, labels) == before
+
+
+def test_in_flight_is_back_after_an_unhandled_exception(client):
+    labels = {"app": "helpdesk"}
+    before = _value(IN_FLIGHT, labels)
+
+    client.get(f"{PREFIX}/items/7/boom")
+
+    assert _value(IN_FLIGHT, labels) == before
+
+
+def test_histogram_has_no_status_label(client):
+    labels = {"app": "helpdesk", "method": "GET", "route": ITEM_TEMPLATE}
+    before = _value(DURATION_COUNT, labels)
+
+    client.get(f"{PREFIX}/items/7")
+
+    # Etiquetas EXACTAS app/method/route: con `status` esto sería None.
+    assert _value(DURATION_COUNT, labels) - before == 1
+    [family] = [
+        f for f in REGISTRY.collect()
+        if f.name == "itcj_http_request_duration_seconds"
+    ]
+    assert family.samples
+    for sample in family.samples:
+        assert "status" not in sample.labels, sample
+
+
+# ---------------------------------------------------------------------------
+# R19: la app termina sin responder y sin lanzar
+# ---------------------------------------------------------------------------
+
+def _http_scope(path: str) -> dict:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.4"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"localhost")],
+        "client": ("127.0.0.1", 1),
+        "server": ("localhost", 80),
+    }
+
+
+def test_app_returning_without_response_counts_as_500():
+    # Uvicorn responde entonces con su propio 500 ("ASGI callable returned
+    # without starting response"): eso es lo que vio el cliente.
+    async def silent(scope, receive, send):
+        return None
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        pass
+
+    labels = _requests_labels("__unmatched__", "500", app="otro")
+    before = _value(REQUESTS, labels)
+    exceptions_before = _family_total(EXCEPTIONS)
+
+    asyncio.run(ObservabilityMiddleware(silent)(_http_scope("/x/1"), receive, send))
+
+    assert _value(REQUESTS, labels) - before == 1
+    # Sin excepción no hay `exc_type` que contar.
+    assert _family_total(EXCEPTIONS) == exceptions_before
+
+
+# ---------------------------------------------------------------------------
+# R27: la observabilidad nunca rompe ni silencia una petición
+# ---------------------------------------------------------------------------
+# Una escritura de métrica que lanza (mmap que no se puede crear o crecer)
+# no puede convertir la petición en 500, ni comerse la línea de access, ni
+# tapar la excepción real del endpoint. (El tmpfs LLENO es SIGBUS y no se
+# atrapa: eso lo ataja R25 con el tamaño y la alerta.)
+
+class _MetricsWriteError(OSError):
+    """Nombre propio: si aparece en vez de la del endpoint, se tapó la real."""
+
+
+def _access_records(caplog) -> list:
+    return [r for r in caplog.records if r.name == "itcj2.access"]
+
+
+@pytest.fixture()
+def fresh_failure_log(monkeypatch):
+    # El log de fallo de métricas va con límite de frecuencia: cada test
+    # arranca con la ventana abierta para poder verlo.
+    from itcj2.observability import middleware
+
+    monkeypatch.setattr(middleware, "_last_metrics_failure_log", float("-inf"))
+
+
+def test_counter_write_failure_keeps_the_response_and_the_access_line(
+    client, caplog, fresh_failure_log
+):
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch.object(
+        HTTP_REQUESTS, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.INFO, logger="itcj2"):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    assert len(resp.headers["x-request-id"]) == 32
+    [access] = _access_records(caplog)
+    assert (access.route, access.status) == (ITEM_TEMPLATE, 200)
+    errors = [r for r in caplog.records if r.name == "itcj2.observability"]
+    assert errors and errors[0].exc_info[0] is _MetricsWriteError
+
+
+def test_in_flight_failure_keeps_the_response_and_the_access_line(
+    client, caplog, fresh_failure_log
+):
+    from itcj2.observability.metrics import HTTP_IN_FLIGHT
+
+    with patch.object(
+        HTTP_IN_FLIGHT, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.INFO, logger="itcj2.access"):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    assert len(resp.headers["x-request-id"]) == 32
+    assert len(_access_records(caplog)) == 1
+
+
+def test_failed_in_flight_inc_is_never_decremented(client, fresh_failure_log):
+    # Si el `inc()` no se hizo, un `dec()` dejaría el gauge en -1 para siempre.
+    from unittest.mock import MagicMock
+
+    from itcj2.observability.metrics import HTTP_IN_FLIGHT
+
+    child = MagicMock()
+    child.inc.side_effect = _MetricsWriteError("mmap (simulado)")
+    with patch.object(HTTP_IN_FLIGHT, "labels", return_value=child):
+        resp = client.get(f"{PREFIX}/items/7")
+
+    assert resp.status_code == 200
+    child.dec.assert_not_called()
+
+
+def test_metrics_failure_on_the_exception_path_keeps_the_original_exception(
+    caplog, fresh_failure_log
+):
+    # raise_server_exceptions=True: ServerErrorMiddleware re-lanza lo que le
+    # llegó, así que el TestClient entrega EXACTAMENTE la excepción que vio el
+    # handler global. Tiene que ser la del endpoint, no la de la métrica.
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch("itcj2.middleware._JWT_SECRET", TEST_SECRET), \
+            TestClient(_build_app(), raise_server_exceptions=True) as raising, \
+            patch.object(
+                HTTP_REQUESTS, "labels",
+                side_effect=_MetricsWriteError("mmap (simulado)"),
+            ), caplog.at_level(logging.INFO, logger="itcj2.access"), \
+            pytest.raises(RedProbeError):
+        raising.get(f"{PREFIX}/items/7/boom")
+
+    [access] = _access_records(caplog)
+    assert (access.status, access.exc_type) == (500, "RedProbeError")
+
+
+def test_metrics_failure_log_is_rate_limited(client, caplog, fresh_failure_log):
+    # Con el directorio roto fallaría CADA petición: un traceback por petición
+    # inundaría Loki. Uno por ventana basta para enterarse.
+    from itcj2.observability.metrics import HTTP_REQUESTS
+
+    with patch.object(
+        HTTP_REQUESTS, "labels", side_effect=_MetricsWriteError("mmap (simulado)")
+    ), caplog.at_level(logging.ERROR, logger="itcj2.observability"):
+        for _ in range(3):
+            assert client.get(f"{PREFIX}/items/7").status_code == 200
+
+    errors = [r for r in caplog.records if r.name == "itcj2.observability"]
+    assert len(errors) == 1

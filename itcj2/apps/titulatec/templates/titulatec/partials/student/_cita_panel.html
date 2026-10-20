@@ -1,0 +1,142 @@
+{# ===========================================================================
+   _cita_panel.html — las CUATRO CARAS de la pantalla de la cita (spec §7),
+   MÁS el checklist plegado (D10, Tarea 9).
+
+   Se incluye dentro de `#tt-cita-panel` y es lo que devuelven los dos POST del
+   auto-agendado (`/cita/agendar` y `/cita/cancelar`): un POST de esta app
+   responde con el parcial re-renderizado, no con JSON.
+
+   Contexto: `_cita_panel_ctx(...)` -> `process`, `appt`, `agenda`, `checklist`.
+
+   El ORDEN (spec §6) no es cosmético:
+
+     1. la tarjeta de la cita (si la hay), que es la respuesta a «¿cuándo me
+        toca?» y por eso va primero;
+     2. «Qué llevar», plegado -abierto solo con cita vigente VIVA-: el alumno
+        que ya tiene fecha quiere ver esto antes que el selector;
+     3. el selector -franjas Y sin horario juntos, D3/D4-, cuando hay `modo`;
+     4. la frase que dice POR QUÉ no puede, justo donde estaría el selector —
+        así el hueco queda explicado en lugar de mudo.
+
+   `modo == "presentarse"` (el bloqueado por D9) y `message` conviven a
+   propósito en el único caso donde eso importa: perdió el derecho a
+   RESERVAR, no el de PRESENTARSE.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import survey_review_pill, library_clearance_pill %}
+
+{# `#tt-cita-card` sigue siendo el destino de «Confirmar asistencia» y
+   «Solicitar cambio», que se swappean SOLOS (sin repintar el panel entero). #}
+<div id="tt-cita-card">
+  {% include "titulatec/partials/cita_card.html" %}
+</div>
+
+{# Reemplazo de documento pedido en el cotejo (2026-10-15): FUERA de
+   `#tt-cita-card`, que se swappea solo y se llevaría el aviso. #}
+{% include "titulatec/partials/student/_replacement_notice.html" %}
+
+{# — Requisitos de cotejo de SU convocatoria (D10): plegados, `open` solo con
+   una cita vigente VIVA (`scheduled`/`confirmed`/`in_progress`) -mismos tres
+   estados que `_ESTADOS_ACTIVOS`-. Contenido sin cambios respecto a la
+   versión que vivía en `cita.html`; solo se mudó de sitio y de envoltura. — #}
+{% set _tt_total = checklist|length %}
+{% set _tt_listos = checklist|selectattr('done')|list|length %}
+<details id="tt-cita-reqs" class="tt-card mt-3 tt-anim-in"
+         {% if appt and appt.status in ('scheduled', 'confirmed', 'in_progress') %}open{% endif %}>
+  <summary class="tt-cita-reqs-sum">
+    <i class="bi bi-bag-check" aria-hidden="true"></i>
+    {# M-7 (revisión final): plural real -antes siempre decía "1 requisitos
+       (1 listos)"-. #}
+    <span>Qué llevar a tu cita · {{ _tt_total }} requisito{{ 's' if _tt_total != 1 }} ({{ _tt_listos }} listo{{ 's' if _tt_listos != 1 }})</span>
+    <i class="bi bi-chevron-down tt-cita-reqs-chev" aria-hidden="true"></i>
+  </summary>
+  <p class="tt-cita-reqs-hint mb-2 mt-2">
+    Lleva todo físico el día de tu cita. No se suben aquí.</p>
+  <div class="d-flex flex-column">
+    {% for it in checklist %}
+    <div class="tt-cita-reqs-row d-flex align-items-start gap-3 py-2">
+      <span class="tt-cita-reqs-icon d-flex align-items-center justify-content-center">
+        <i class="bi bi-{{ it.icon }}"></i></span>
+      <div class="flex-grow-1 min-w-0">
+        <div class="tt-cita-reqs-title">{{ it.title }}
+          {% if it.info_html %}<button type="button" class="tt-reqinfo-btn"
+                  data-bs-toggle="modal" data-bs-target="#tt-reqinfo-modal-{{ it.id }}"
+                  aria-haspopup="dialog" aria-label="Información sobre {{ it.title }}"><i class="bi bi-info-circle" aria-hidden="true"></i></button>{% endif %}
+          {% if not it.required %}<span class="tt-pill tt-pill--neutral">opcional</span>{% endif %}
+        </div>
+        {% if it.hint %}<div class="tt-cita-reqs-item-hint">{{ it.hint }}</div>{% endif %}
+        {% if it.survey %}
+        {# D3: la libera GTV, no el envío -- el estatus real de la
+           solicitud sustituye al "Listo"/"Dispensado" genérico de abajo. #}
+        <div class="mt-1">
+          {{ survey_review_pill(it.survey.status) }}
+          {%- if it.survey.status == 'rejected' and it.survey.reason %}
+            — {{ it.survey.reason }}
+          {%- endif %}
+        </div>
+        {% if it.survey.status == 'approved' and it.survey.origin == 'prior' %}
+        {# D9 (spec folios 2026-10-05): la previa ya no pide llevar ni recoger el papel. #}
+        <div class="tt-cita-reqs-item-hint mt-1">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</div>
+        {% endif %}
+        {% endif %}
+        {% if it.library %}
+        {# D6/§4.4/§4.10: lo liberan Biblioteca y Caja, no el alumno -- mismo
+           patrón que `it.survey`: el estatus real sustituye al "Listo"
+           genérico de abajo. Misma píldora que el dashboard, sin liga: aquí
+           no hay nada que el alumno pueda resolver él mismo. #}
+        <div class="mt-1">
+          {{ library_clearance_pill(it.library.status, it.library.via) }}
+          {%- if it.library.status == 'observed' and it.library.observation %}
+            — {{ it.library.observation }}
+          {%- endif %}
+          {%- if it.library.status == 'observed' and it.library.observation_kind == 'with_debt' %}
+            {#- Spec 2026-10-07 §2: con adeudo; el pago no libera hasta la entrega. #}
+            · {% if it.library.paid_at %}ya pagaste {{ it.library.total_fmt }}; falta que Biblioteca registre la entrega{% else %}con adeudo de {{ it.library.total_fmt }}: puedes pagar en Caja y entregar en la misma visita{% endif %}
+          {%- endif %}
+        </div>
+        {% endif %}
+        {% if it.survey_url %}
+        <a href="{{ it.survey_url }}" class="btn btn-sm tt-btn-soft mt-2">
+          <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+        {% endif %}
+      </div>
+      {% if it.done %}
+      <span class="tt-pill tt-pill--success tt-cita-reqs-done">{{ 'Dispensado' if it.status == 'waived' else 'Listo' }}{% if it.when %} · {{ it.when }}{% endif %}</span>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="tt-cita-reqs-empty mb-0">
+      Servicios Escolares aún no publica los requisitos de tu convocatoria.</p>
+    {% endfor %}
+  </div>
+</details>
+
+{% if agenda.modo and agenda.dias %}
+  {% include "titulatec/partials/student/_cita_agendar.html" %}
+{% elif fase_rechazada and appt and agenda.can_book and not agenda.dias %}
+  {# La fase 02 quedó con observaciones y el alumno YA puede volver a agendar
+     (regla 2 de `eligibility`: el corte es la fase APROBADA, no `attended`),
+     pero Servicios Escolares todavía no publica ningún espacio. Sin este
+     aviso el hueco entre la tarjeta y la cara 3/4 quedaba mudo: `agenda.dias`
+     vacío no entra al selector y `agenda.message` es `None` porque SÍ puede
+     agendar — no hay ningún motivo que explicar.
+     Exige `appt`: sin cita vigente, `cita_card.html` ya pinta «Pendiente de
+     agenda · Servicios Escolares agendará tu cita», y repetirlo aquí diría lo
+     mismo dos veces. #}
+  <div class="tt-card tt-card--accent mt-3 tt-anim-in">
+    <div class="tt-cita-why">
+      <i class="bi bi-calendar-event" aria-hidden="true"></i>
+      <p class="mb-0">Servicios Escolares te agendará una nueva cita. Te avisaremos cuando tenga fecha.</p>
+    </div>
+  </div>
+{% endif %}
+
+{% if agenda.message %}
+  {# Cara 4. Nunca un botón deshabilitado y mudo: la frase sale de
+     `SelfBookingService.message_for`, la misma que usa el error de `book`. #}
+  <div class="tt-card tt-card--accent mt-3 tt-anim-in">
+    <div class="tt-cita-why">
+      <i class="bi bi-info-circle" aria-hidden="true"></i>
+      <p class="mb-0">{{ agenda.message }}</p>
+    </div>
+  </div>
+{% endif %}

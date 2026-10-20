@@ -1,16 +1,365 @@
 import os
 import json
 from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # Static versioning
+    # Bump 2026-09-04 (2): Mantenimiento cambia su icono bootstrap por maint.png
+    # en el dashboard de escritorio y en el card movil.
+    #
+    # Bump 2026-09-04: el icono de Extensiones (directory.png) entra al dashboard
+    # de escritorio y al card movil, y cambia `dashboard.js`. Sin bump, el navegador
+    # con cache caliente serviria el JS viejo, que genera el tile con el icono
+    # lucide en vez de reusar el de la plantilla.
+    #
+    # Bump 2026-09-03: el expediente del alumno añade `admin/expediente.js` (que
+    # carga la base admin) y un bloque nuevo en `titulatec.css` (`.tt-exp-*` y
+    # los tonos del historial). Con caché caliente, el acordeón de las 9 fases
+    # se serviría sin CSS ni JS: todo abierto, sin poder plegar nada.
+    #
+    # Bump 2026-09-02: la revisión del admin de TitulaTec tocó `titulatec.css`
+    # (retardo e indicador-overlay, `.tt-enter`, las tres zonas de Citas) y tres
+    # módulos JS que además pasaron a cargarse desde la base admin
+    # (`shared/titulatec-utils.js`, `admin/processes.js`, `admin/appointments.js`).
+    # Sin este bump el navegador con caché caliente serviría el CSS/JS viejo
+    # contra el HTML nuevo: los filtros de Procesos re-animarían la página, el
+    # indicador volvería a parpadear y las Citas se verían sin su rejilla.
+    #
     # Bump 2026-08-10: la revisión de helpdesk tocó 55 archivos CSS/JS (registro
-    # de orígenes, sockets, filtros, detalle de equipo, asignación, home). Sin
-    # este bump el navegador serviría los assets viejos desde caché y los
-    # cambios no se verían hasta un refresh forzado.
-    STATIC_VERSION: str = "1.0.1111506"
+    # de orígenes, sockets, filtros, detalle de equipo, asignación, home).
+    #
+    # Bump 2026-09-08: `titulatec.css` estrena las clases `.tt-win-*` del editor
+    # de ventana de la convocatoria. Sin el bump, un navegador con caché caliente
+    # sirve el CSS viejo contra el parcial nuevo y el formulario sale con los tres
+    # controles estirados a toda la fila.
+    #
+    # Bump 2026-09-08 (b): la base pública de TitulaTec estrena DOS estáticos,
+    # `titulatec/css/public.css` y `titulatec/js/shared/tt-errors.js`. Como no
+    # existe `static-manifest.json` en la raíz, `sv()` cae siempre a esta
+    # constante: sin el bump, un navegador con caché caliente sirve un 404
+    # cacheado de ambos y la página pública sale sin tope de ancho y con el
+    # botón mudo ante cualquier error de HTMX.
+    #
+    # Bump 2026-09-08 (c): `titulatec/css/public.css` gana la capa de la encuesta
+    # pública (escala 1-5, errores en línea, secciones). Sin el bump, quien ya
+    # abrió una página pública tiene la hoja anterior en caché y el cuestionario
+    # sale sin la escala y con la trampa a la vista.
+    #
+    # Bump 2026-09-10: la Tarea 13 estrena `titulatec/js/public/survey.js`
+    # (borrador local + autosave). El archivo no existía antes de hoy: sin el
+    # bump, quien ya tenía la página pública abierta en caché sirve un 404
+    # cacheado del script y se queda sin autoguardado ni fusión del borrador
+    # local, en silencio -sin ningún error visible en pantalla-.
+    #
+    # Bump 2026-09-10 (b): la Tarea 14 hace que `auth.js` honre `?next=` (login
+    # a media encuesta de egresados, TitulaTec) y `login.html` estrena el
+    # atributo `data-next`. Sin el bump, quien ya tiene `/itcj/login` en caché
+    # sigue sirviendo el `auth.js` viejo, que ignora `data-next` y manda
+    # siempre a la home por rol: el `?next=` del banner de la encuesta se ve
+    # en el HTML pero no se usa.
+    #
+    # Bump 2026-09-10 (c): la Tarea 19 estrena el formulario público de
+    # inscripción — `titulatec/js/public/enroll.js` (nuevo) y una capa nueva en
+    # `titulatec/css/public.css` (`.tt-field-error`, `.tt-enroll*`, `.tt-h1`).
+    # Sin el bump, quien ya tenía una página pública abierta en caché sirve un
+    # 404 cacheado del script nuevo y la hoja vieja: el campo de "carrera no
+    # aparece" no alterna y los errores en línea salen sin estilo.
+    #
+    # Bump 2026-09-11: Tarea 27 relocaliza `.tt-field--xs` dentro de
+    # `titulatec.css` (de una regla suelta al final del archivo a modificador
+    # de `.tt-field` en INPUTS/FORM), para que `test_citas_sistema_visual.py`
+    # deje de contarla como parte del bloque de Citas. El selector y el estilo
+    # computado no cambian, pero el archivo sí, así que se bumpea igual.
+    #
+    # Bump 2026-09-14: Tarea 3 de la encuesta de egresados convierte
+    # `survey_form.html` en un asistente por pasos — `public.css` estrena
+    # `.tt-steps*` (indicador de progreso) y `.tt-survey-actions--steps`
+    # (Atrás/Siguiente), y `titulatec/js/public/survey.js` gana el manejo de
+    # `tt_step` y el foco al cambiar de paso. Sin el bump, quien ya tenía la
+    # encuesta en caché sigue viendo el JS/CSS viejos: los botones nuevos
+    # postearían al formulario completo en vez de a `/paso`, y el localStorage
+    # arrastraría un `tt_step` que el HTML nuevo ya no espera ahí.
+    #
+    # Bump 2026-09-14 (b): ronda 2 de la Tarea 3 — el indicador de progreso
+    # deja de ser decorativo (`.tt-steps-list`/`.tt-steps-item`/`.tt-steps-link`
+    # nuevas en `public.css`, reemplazan a `.tt-steps-bar`/`.seg`) para poder
+    # saltar directo a cualquier paso ya visitado. Sin el bump, la hoja vieja
+    # en caché no trae ninguna regla para `.tt-steps-link` y el paso ya
+    # visitado se ve como texto plano sin pista de que es clicable.
+    #
+    # Bump 2026-09-14 (c): fix B1 — `survey.js::applyVisibility` comparaba
+    # `values[k] === cond[k]` sin importar que `cond[k]` ahora puede ser una
+    # LISTA (`visible_when` con semantica "alguna de estas", ya soportada por
+    # `survey_validator.py::is_visible`). Un texto nunca es `===` a un arreglo,
+    # así que toda seccion condicionada por una lista quedaba oculta para
+    # siempre y el envío final la reportaba "por corregir" sin un solo campo
+    # visible en pantalla. Sin el bump, quien ya tenía la encuesta en caché
+    # sigue atascado con el JS viejo.
+    #
+    # Bump 2026-09-15: rediseño de la pantalla de la encuesta de egresados —
+    # `public.css` reescribe su bloque (riel de pasos en escritorio y chips en
+    # móvil, preguntas en tarjetas, opciones como tiles, escala en chips, barra
+    # de acciones) y `titulatec/js/public/survey.js` gana `revealCurrentStep`
+    # (deja el chip del paso actual a la vista en móvil). Sin el bump, quien ya
+    # tenía la encuesta en caché ve el marcado nuevo con la hoja vieja: sin
+    # reglas para `.tt-opt`/`.tt-steps-mark` las opciones salen como casillas
+    # sueltas y el indicador de pasos como una lista cruda.
+    #
+    # Bump 2026-09-15 (2): `public.css` (encuesta compacta en móvil),
+    # `js/public/survey.js` (nota «Guardando… / Guardado hh:mm»),
+    # `titulatec.css` (estados hover/foco/pulsado de `.tt-btn-*` y la sección de
+    # información de requisitos), `js/admin/cotejo-info-editor.js` (nuevo) y
+    # `js/shared/titulatec-utils.js` (guarda del puente `htmx:confirm`). Sin el
+    # bump, el editor de requisitos y la nota de guardado llegan sin su JS.
+    #
+    # Bump 2026-09-15 (3): `public.css` gana `.tt-public-bar-back`, el botón
+    # «Volver a TitulaTec» de la barra de la encuesta.
+    #
+    # Bump 2026-09-15 (4): auto-agendado del egresado — `titulatec.css` gana el
+    # bloque de la pantalla de cita (`.tt-daybar`/`.tt-daychip`, rejilla de
+    # franjas, walk-in) y `js/student/errors.js` pasa a DECODIFICAR
+    # `X-Tt-Error`. Sin el bump, el alumno recibe el CSS viejo (las franjas
+    # salen sin rejilla) y los mensajes nuevos llegan percent-codificados.
+    #
+    # Bump 2026-09-16 (5): UI del encargado del auto-agendado — `titulatec.css`
+    # gana los tres modos de visibilidad del espacio (`.tt-vis*`), el
+    # distintivo «El alumno agendó» dentro de `.tt-seat .meta` y el historial
+    # de intentos (`.tt-attempts`). Sin el bump, el editor de espacios pinta
+    # los tres radios sin rejilla (caen como una lista cruda de casillas), el
+    # distintivo del asiento sale sin contraste y el historial sin separación.
+    # Bump 2026-09-16 (6): limpieza de `partials/cita_card.html` — sus ocho
+    # `style=` y su `onclick` inline pasan a `titulatec.css` (`.tt-cita-note`,
+    # `.tt-cita-when`, `.tt-cita-where`, `.tt-cita-changed`, `.tt-cita-btn` y
+    # `.tt-cita-more-sum`, este ultimo para el `<details>` que sustituye al
+    # `onclick`). Sin el bump, el alumno recibe el CSS viejo: la tarjeta pierde
+    # tamanos y color —el texto cae al del `<body>`— y el nuevo «Solicitar
+    # cambio» se pinta como un `<summary>` crudo, con su triangulo y sin
+    # objetivo tactil.
+    #
+    # Bump 2026-09-21: corte a T-soft, ronda de fix 1 (Hallazgo 1) — `titulatec.css`
+    # gana `.tt-handoff-note` (padding-bottom 88px, mismo colchon que `.tt-canvas`)
+    # en el copy de T-soft del panel del acordeon del dashboard del alumno
+    # (deliberadamente NO en la tarjeta grande de la fase actual, ver el
+    # comentario de la clase). Sin el bump, el FAB standalone del core se sigue
+    # montando sobre la ultima linea del aviso cuando el alumno se desplaza
+    # hasta el borde de un panel expandido.
+    #
+    # Bump 2026-09-21 (2): ronda de fix 2 -- la medicion de la ronda anterior
+    # (117px de holgura, tarjeta grande sin `.tt-handoff-note`) solo se probo a
+    # 390x844. A 375x667 (iPhone SE) esa misma tarjeta, con la fase 3 actual y
+    # SIN SCROLLEAR, ya solapaba el FAB en -59.5px: el FAB es fixed a 80px del
+    # fondo del VIEWPORT, asi que la holgura depende del alto, no del ancho.
+    # Pero `.tt-handoff-note` (padding DESPUES del texto) sola no alcanza ahi:
+    # el alumno nunca desplaza para ver esta tarjeta -sale completa desde la
+    # primera pintura-, asi que el padding de despues no mueve el texto, que
+    # ya esta pintado en su posicion final. `titulatec.css` gana ademas
+    # `.tt-handoff-note--hero` (margin-top 88px, ANTES del texto -reemplaza el
+    # `mt-3` que ya traia el parrafo, no se le suma-) solo para la tarjeta
+    # grande (dashboard.html), que empuja el parrafo bajo el FAB en vez de
+    # encima. Sin el bump, la tarjeta sigue sin colchon en pantallas bajas y
+    # el FAB tapa el aviso ya al cargar la pagina, sin necesidad de que el
+    # alumno haga nada.
+    #
+    # Bump 2026-09-21 (3): la carrera pasa a ser obligatoria y siempre del
+    # catálogo en la inscripción pública (elimina el caso de raíz de "mi
+    # carrera no aparece", que dejaba la solicitud sin `program_id` y por
+    # tanto invisible para todo encargado de carrera). `enroll_form.html`
+    # pierde la opción `__other__` y la fila de texto libre; `js/public/
+    # enroll.js` queda vacío (esa era su única lógica). Sin el bump, quien ya
+    # tenía la página en caché sigue corriendo el JS viejo, que ahora apunta a
+    # un nodo (`program-text-wrap`) que ya no existe en el HTML.
+    #
+    # Bump 2026-09-21 (4): ronda de fix 1 sobre el bump (3) -- `public.css`
+    # pierde la regla `.tt-enroll-row[hidden]` (sección 5) y toda la sección
+    # "9. Movimiento" (la animación de `[data-tt-enroll="program-text-wrap"]`),
+    # las dos huérfanas desde que ese campo se eliminó del HTML. Sin el bump,
+    # quien ya tenía la hoja en caché conserva reglas muertas que no hacen daño
+    # hoy pero confunden al próximo diff.
+    #
+    # Bump 2026-09-21 (5): arregla el desalineamiento de Carrera/Número de
+    # control en `.tt-enroll-row--pair` (`public.css`, sección 5). Convierte
+    # esa fila en subgrid de 4 pistas -etiqueta/aviso/campo/error- con
+    # colocación explícita por hijo, para que un aviso (`.tt-hint`) en una
+    # sola celda ya no empuje su campo una pista más abajo que el de la celda
+    # vecina. Solo CSS, sin cambios de HTML. Sin el bump, quien ya tenía la
+    # hoja en caché sigue viendo el `<select>` de Carrera desalineado.
+    #
+    # Bump 2026-09-21 (6): ronda de fix 1 sobre el bump (5) -- el orden de
+    # pistas del subgrid de `.tt-enroll-row--pair` (`public.css`, sección 5)
+    # pasa de etiqueta/aviso/campo/error a etiqueta/campo/error/aviso, porque
+    # el orden anterior dejaba la etiqueta de Número de control flotando
+    # ~79px sobre su `<input>` (la pista de aviso, vacía en esa celda, caía
+    # ENTRE etiqueta y campo). El aviso de Carrera se mueve en
+    # `enroll_form.html` de antes a después del `<select>` (y del bloque de
+    # error), y `public.css` (bloque 6) gana la regla `.tt-field ~ .tt-hint`
+    # para darle margen arriba en vez de abajo. Sin el bump, quien ya tenía
+    # la hoja en caché sigue viendo la etiqueta flotando.
+    #
+    # Bump 2026-09-22: "Partir ticket" en la pantalla de asignación de
+    # helpdesk. `js/admin/assign_tickets.js` gana el modal de partir
+    # (`openSplitTicketModal`, tarjetas de parte y envío a
+    # `POST /tickets/{id}/split`) y además da `source` propio a cada petición de
+    # `refreshLists()` (sin él htmx encolaba las tres en <body> y la pestaña
+    # Asignado nunca se recargaba); `css/admin/assign_tickets.css` gana los
+    # estilos `.hd-split-*` y deja pasar los clics por el contenedor de toasts.
+    # Sin el bump, quien ya tenía la página en caché recibe el HTML nuevo, con
+    # el botón "Partir" en cada tarjeta, contra el JS viejo que no define
+    # `openSplitTicketModal`: el botón no hace nada y solo deja un
+    # ReferenceError en la consola.
+    #
+    # Bump 2026-09-22 (2): enlaces entre el ticket original y sus partes en el
+    # detalle ("Partir ticket"). `js/user/ticket_detail.js` gana
+    # `renderSplitInfo()` (enlaces "Derivado de TK-X" / "Dividido en: TK-Y,
+    # TK-Z" dentro de `#splitInfoContainer`, invocado desde
+    # `renderTicketDetail()`) y un `escapeHtml()` local para los folios/títulos
+    # que vienen de la API (`ticket.split_from`, `ticket.split_children`). El
+    # HTML (`user/ticket_detail.html`, sin caché por `sv()`) ya declara el
+    # contenedor vacío; sin este bump, quien ya tenía la página en caché con el
+    # `?v=` del bump (1) sigue sirviendo el JS viejo, que no define la función,
+    # y el contenedor se queda oculto siempre.
+    #
+    # Bump 2026-09-22 (3): manejo de errores de "Partir ticket".
+    # `js/admin/assign_tickets.js`: `confirmSplitTicket()` deja de tratar un 2xx
+    # con cuerpo ilegible como error de red (antes decía "Error de conexión" y
+    # rehabilitaba el formulario, así que el siguiente clic partía el ticket por
+    # SEGUNDA vez — el servidor no es idempotente) y siempre llama a
+    # `refreshLists()` tras una división aplicada, aunque falle alguna recarga.
+    # `js/user/ticket_detail.js`: la URL interpolada en los enlaces de
+    # `renderSplitInfo()` pasa por `escapeHtml()`. Sin el bump, quien tenga en
+    # caché el JS del bump (2) conserva el camino que puede duplicar la división.
+    #
+    # Bump 2026-09-22 (4): cierre de la fase 2 de "Partir ticket" — la acción
+    # llega al detalle del ticket (tarea 11), que reúne todo lo de la fase: el
+    # módulo compartido `js/shared/split_ticket.js` (HelpdeskSplit, tarea 9), la
+    # hoja compartida `css/shared/split_ticket.css` (tarea 10), el botón en el
+    # dashboard del técnico (tarea 10) y ahora el menú de acciones rápidas de
+    # `js/user/ticket_detail.js` (`canSplitTicket()`/`openSplitTicketModal()`,
+    # nuevas en esta página) más el `<script>const SPLIT_SCOPE = ...;</script>`
+    # que agrega `user/ticket_detail.html` (extra_js). Sin el bump, quien ya
+    # tenía el detalle en caché sigue sirviendo el JS viejo (sin
+    # `openSplitTicketModal` ni `window.HelpdeskSplit`) contra el HTML nuevo, que
+    # ya trae el modal cuando `split_scope` es verdadero: el botón "Partir" del
+    # menú no aparece o, si aparece por un HTML a medio cachear, no hace nada.
+    #
+    # Bump 2026-09-22 (5): el detalle deja de traer el `<script>` inline con
+    # `const SPLIT_SCOPE` y lee data-split-scope / data-split-team del
+    # `[data-hd-page]`. Dos motivos: (a) ese `<script>` vivía dentro del <body>
+    # que htmx reemplaza con morph, así que en la 2ª visita a un detalle (ida y
+    # vuelta boosteada) la redeclaración del `const` lanzaba un SyntaxError que
+    # abortaba el swap; (b) con alcance ".own" la puerta del cliente aceptaba
+    # CUALQUIER ticket sin asignar que tuviera equipo, también el de la cola del
+    # OTRO equipo, y el técnico descubría el 403 con el modal ya lleno: ahora
+    # compara contra el equipo del actor. `js/user/ticket_detail.js` relee ambos
+    # valores en cada `init()`. Sin el bump, quien tenga en caché el JS del bump
+    # (4) recibe el HTML nuevo (sin el `<script>`) contra un JS que sigue
+    # leyendo `SPLIT_SCOPE`: ReferenceError dentro de `loadTicketDetail()` y el
+    # detalle entero cae a su estado de error.
+    #
+    # Bump 2026-09-24: icono propio de TitulaTec. `core/css/mobile/mobile-base.css`
+    # suma `.has-own-tile` (la tarjeta móvil de titulatec lleva su PNG a sangre) y
+    # `titulatec/css/titulatec.css` dimensiona `.tt-brand-img`, que reemplaza al
+    # glifo de Bootstrap Icons del drawer y al monograma «TT» del rail del alumno.
+    # Sin el bump, quien tenga en caché la hoja vieja ve el PNG de 1024 px sin
+    # tamaño dentro del drawer y del rail.
+    #
+    # Bump 2026-09-24 (2): presencia en vivo por app (ronda 3 de observabilidad,
+    # Task 2). `core/js/dashboard/dashboard.js` gana `setActiveApp()` /
+    # `getTopmostOpenAppId()` y llama a `window.CorePresenceHeartbeat.reportApp()`
+    # (módulo nuevo `core/js/dashboard/presence-heartbeat.js`, cargado ANTES de
+    # dashboard.js en `dashboard.html`) al abrir/cerrar/cambiar de ventana. Sin
+    # el bump, quien tenga el dashboard en caché sigue con el JS viejo (sin
+    # `window.CorePresenceHeartbeat`), así que el shell nunca emite el latido y
+    # el usuario vuelve a decaer de la ventana de 5 min como antes de esta ronda.
+    #
+    # Bump 2026-09-24 (3): el icono propio de TitulaTec llega al encabezado de las
+    # páginas públicas (encuesta de egresados, inscripción) y al menú del admin.
+    # `titulatec/css/public.css` reduce `.tt-public-logo` a un `<img>` dimensionado
+    # (antes pintaba el monograma «TT» sobre tinta) y `titulatec/css/titulatec.css`
+    # suma `.tt-admin .side .tt-brand-img`. Sin el bump, la hoja vieja deja el PNG
+    # de 1024 px sin tamaño en el menú del admin y con fondo de tinta en el público.
+    #
+    # Bump 2026-09-25: `titulatec/css/titulatec.css` suma `.tt-mix--access` (el
+    # desglose «En Cómputo» del bloque «Por año de ingreso» de Solicitudes). Sin
+    # el bump, la hoja vieja pinta el icono de ese cubo sin su color.
+    #
+    # Bump 2026-09-25 (2): `titulatec/css/titulatec.css` extiende el
+    # `position: relative` de `#tt-requests-body .table-responsive` a
+    # `#tt-access-body .table-responsive` (el `<th>` de acciones oculto de la
+    # tabla de Accesos estiraba `document.documentElement.scrollWidth` a 690 px
+    # en 360/390). Sin el bump, quien tenga la hoja vieja en caché sigue con
+    # scroll horizontal en `/titulatec/admin/accesos`.
+    #
+    # Bump 2026-09-25 (3): `titulatec/css/titulatec.css` suma `.tt-sii-*`, el
+    # bloque del veredicto del SII en «Por revisar» de Solicitudes (modo `sii`).
+    # Sin el bump, la hoja vieja pinta las reglas incumplidas sin su icono de
+    # color ni el filete que las separa de los formularios.
+    #
+    # Bump 2026-09-25 (4): `titulatec/css/titulatec.css` suma `.tt-win-auto`, el
+    # renglón propio del interruptor «Aprobación automática (SII)» en el panel de
+    # la ventana de la convocatoria. Sin el bump, la hoja vieja lo deja apretado
+    # entre los campos de fecha.
+    #
+    # Bump 2026-09-25 (5): `titulatec/js/admin/expediente.js` suma la guarda de
+    # motivo vacío del modal «Revocar inscripción» del expediente (toast), lo
+    # cierra tras una revocación exitosa y limpia el motivo al cerrarlo. Sin el
+    # bump, el navegador sirve el JS viejo (el POST funciona igual: el `hx-post`
+    # va en la plantilla, pero el modal no se cierra solo).
+    #
+    # Bump 2026-09-27: `titulatec/css/titulatec.css` («el SII informa, Servicios
+    # Escolares decide» + ventana con hora). Suma `.tt-req-table--sii` (la
+    # SEXTA columna «SII» de Solicitudes con sus anchos y el `min-width: 960px`),
+    # `.tt-sii--compact`/`.tt-sii-fold` (la celda compacta del historial) y los
+    # `.tt-win-*` de la pareja fecha + hora (macro `window_end`, panel de la
+    # ventana y alta de convocatoria); retira `.tt-win-auto` (el interruptor de
+    # la automática). nginx sirve la hoja `immutable`: sin el bump, quien la
+    # tenga en caché ve la columna del SII sin anchos (la tabla se sale) y los
+    # campos de hora a lo ancho de la tarjeta.
+    #
+    # Bump 2026-09-28: `titulatec/css/titulatec.css` reparte otra vez las seis
+    # columnas de Solicitudes en modo `sii` (carrera 13 → 15 %, «Solicitante»
+    # 18 → 17 %, SII 20 → 19 %; revisión final F12). Sin el bump, la hoja
+    # `immutable` en caché sigue partiendo «computacionales» a media palabra.
+    #
+    # Bump 2026-09-28 (2): `titulatec/css/titulatec.css` suma
+    # `.tt-dropzone-hint`, la ayuda de la casilla de subida («PDF de hasta
+    # 2 MB…») que antes iba con estilo en línea. Sin el bump, la hoja
+    # `immutable` en caché no la trae y la ayuda sale del tamaño del título.
+    #
+    # Bump 2026-09-28: aviso de estado de Documentos.
+    #
+    # Bump 2026-09-28 (2): ronda de arreglo 1 de Documentos -- `#tt-docs-status
+    # .tt-cita-why p` suma `overflow-wrap: anywhere` (ruling 11: un correo
+    # personal largo y sin espacios no debe romper `scrollWidth <=
+    # innerWidth`). Sin el bump, la hoja `immutable` en caché sigue sin la regla.
+    #
+    # Bump 2026-09-29: `titulatec/js/admin/expediente.js` suma el acordeón de
+    # la zona «Correos» del expediente (Task 10, spec 2026-09-28-titulatec-
+    # correos-notificaciones §7) -- delegación aparte de la de fases
+    # (`#exp-correos [data-tt-acc]`, sin memoria entre swaps). Sin el bump, el
+    # JS cacheado no abre/cierra la bitácora (el botón queda inerte).
+    #
+    # Bump 2026-09-29 (2): `titulatec/css/titulatec.css` suma
+    # `#exp-correos .quien { overflow-wrap: anywhere; }` -- el correo personal
+    # del destinatario en la bitácora del expediente puede ser largo y sin
+    # espacios, y no debe romper `scrollWidth <= innerWidth` a 360px. Sin el
+    # bump, la hoja `immutable` en caché sigue sin la regla.
+    #
+    # Bump 2026-09-29 (3): `titulatec/css/titulatec.css` suma el sistema
+    # visual de la cita del alumno plegable (Tarea 9, D10 -- requisitos en
+    # `<details id="tt-cita-reqs">`, encargados plegables `.tt-slotblock`,
+    # «Ver N horas más» y el resto de `.tt-cita-*`/`.tt-slotblock-*` nuevos).
+    # Sin el bump, la hoja `immutable` en caché sigue sin los estilos y los
+    # `<details>` se ven sin su cabecera ni su chevron.
+    #
+    # Bump 2026-10-05: `titulatec/js/admin/doc-viewer.js` (estado de revision
+    # tras cerrar el modal, guarda expando, historyRestore) y
+    # `core/js/dashboard/dashboard.js` (sandbox solo en iframes cross-origin).
+    STATIC_VERSION: str = "1.0.1111593"
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg2://postgres:password@pgbouncer:5432/itcj"
@@ -45,8 +394,12 @@ class Settings(BaseSettings):
     AUTHZ_CACHE_TTL: int = 300
 
     # Presencia (core-config-revamp F6) — ventana en segundos para considerar
-    # "activo" a un usuario en los sorted-sets presence:notify:*. La poda ocurre
-    # EN LECTURA (presence_service.get_counts); no hay heartbeat.
+    # "activo" a un usuario en los sorted-sets presence:notify:* y presence:app:*.
+    # La poda ocurre EN LECTURA (presence_service.get_counts / get_app_counts) y
+    # el shell refresca la marca con un latido de ~60 s por el socket /notify
+    # (ronda 3 de observabilidad): con 300 s son 5 latidos de tolerancia antes de
+    # dar a alguien por fuera. Bajarlo por debajo de 2 latidos hace parpadear el
+    # panel con cualquier red intermitente.
     PRESENCE_WINDOW_SECONDS: int = 300
 
     # OAuth de correo (config → email, C6 core-config-revamp): TTL en segundos
@@ -70,6 +423,15 @@ class Settings(BaseSettings):
     # Environment
     FLASK_ENV: str = "production"
     APP_TZ: str = "America/Ciudad_Juarez"
+
+    # Logging (itcj2/observability/logging_config.py). `json` = una línea JSON
+    # por registro con el contexto de la petición (lo que Loki espera en prod);
+    # `text` = legible para dev (docker-compose.dev.yml lo pone, R5). Un valor
+    # inválido tumba el arranque: configure_logging() corre en create_app().
+    # LOG_LEVEL=WARNING calla los logger.info de la app sin tocar código (R6);
+    # la línea por petición (`itcj2.access`) sale siempre.
+    LOG_FORMAT: str = "json"
+    LOG_LEVEL: str = "INFO"
 
     # CORS
     CORS_ORIGINS: str = ""
@@ -96,29 +458,192 @@ class Settings(BaseSettings):
     MAINT_MAX_RESOLUTION_FILES: int = 5
     MAINT_MAX_COMMENT_FILES: int = 3
     MAINT_AUTO_DELETE_DAYS: int = 7
+    # Correo de maint (avisos al asignar, resolver, cancelar y vencer). APAGADO a
+    # proposito desde 2026-10-07: maint no tiene cuenta de correo conectada y
+    # cada intento dejaba un aviso en el log. El codigo sigue intacto: con
+    # MAINT_EMAIL_ENABLED=true en el .env (y la cuenta conectada) vuelve a salir.
+    MAINT_EMAIL_ENABLED: bool = False
 
     VISTETEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "vistetec", "garments")
     VISTETEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
     VISTETEC_ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,webp"
 
     # TitulaTec — archivos del proceso de titulación.
-    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/{tipo_documento}.{ext}
+    # Estructura: instance/apps/titulatec/{convocatoria}/{control_number}/documents/{control_number}_{TIPO}.{ext}
+    # (TIPO = ACTA | CERTIFICADO | CURP | código del tipo en mayúsculas, `utils/storage.py`).
     # Solo se conserva la última versión de cada documento (se sobreescribe por nombre fijo).
     TITULATEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "titulatec")
     TITULATEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
-    TITULATEC_MAX_PDF_SIZE: int = 10 * 1024 * 1024
+    # PDFs (2026-09-28): dos topes distintos a propósito.
+    # - MAX_PDF_SIZE es lo que pesa el archivo GUARDADO. 2 MB alcanza de sobra
+    #   para un acta o una CURP escaneadas a 150 dpi (medido: una página A4
+    #   fotográfica a 150 dpi y JPEG q75 queda en ~250 KB) y deja el disco y la
+    #   descarga del revisor en un tamaño razonable. Antes se guardaban hasta
+    #   10 MB tal cual.
+    # - MAX_PDF_UPLOAD_SIZE es lo máximo que se RECIBE para intentar
+    #   comprimir (`utils/pdf_compress.py`): el alumno no tiene por qué saber
+    #   bajar la resolución de su escáner. Arriba de esto ni se intenta (CPU y
+    #   memoria del worker). Debe quedar por debajo del `client_max_body_size`
+    #   de nginx (30M en el compose).
+    # Ambos por `.env`; cambiarlos exige reiniciar los procesos backend
+    # (`get_settings()` vive en `lru_cache`).
+    TITULATEC_MAX_PDF_SIZE: int = 2 * 1024 * 1024
+    TITULATEC_MAX_PDF_UPLOAD_SIZE: int = 20 * 1024 * 1024
     TITULATEC_ALLOWED_IMAGE_EXTENSIONS: str = "jpg,jpeg,png,webp"
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
+    # Impresión de constancias (lotes/PDF) oculta tras este switch: apagado solo se ve el folio (spec folios 2026-10-05 §3.5).
+    TITULATEC_CERTIFICATE_PRINTING: bool = False
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
 
+    # Auto-agendado de la cita de cotejo por el egresado (spec 2026-09-15).
+    # D8: agenda hasta 1 h antes de la franja y cancela hasta 2 h antes. Las dos
+    # ventanas son SOLO del alumno; el encargado no tiene límite de tiempo.
+    # D9: tope de cancelaciones PROPIAS (las del encargado no le consumen cupo).
+    # Al llegar al tope pierde el auto-agendado y pasa al cubo "Requieren que
+    # les agendes" de la cola del encargado — sigue pudiendo llegar sin cita a
+    # un espacio abierto, que es otra cosa (`can_walkin`).
+    TITULATEC_SELF_BOOK_MIN_LEAD_MINUTES: int = 60
+    TITULATEC_SELF_CANCEL_MIN_LEAD_MINUTES: int = 120
+    TITULATEC_SELF_CANCEL_MAX: int = 3
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    # Corte a T-soft (spec 2026-09-21): primera fase que ya NO se opera en esta
+    # app -- de ahí en adelante el proceso lo atiende el Departamento de
+    # Titulación en su propio sistema (T-soft). 9 la desactiva (el catálogo real
+    # va de 0 a 8, así que ninguna fase legítima la alcanza).
+    # Piso en 3 (arreglo A6, revision final 2026-09-21): la fase 2 es la
+    # LIBERACION hacia T-soft (`PhaseService.approve_phase(2)`, mueve
+    # `current_phase` de 2 a 3) y SIEMPRE debe poder aprobarse -- un 0, 1 o 2
+    # por error congelaria tambien esa liberacion, y el proceso dejaria de
+    # avanzar para todo el mundo sin decir por que (`_transition_error`/
+    # `_student_action_error` comparan `phase_number >= _handoff_phase()`
+    # ANTES que cualquier otra regla). `Field(ge=3)` hace que un valor invalido
+    # truene fuerte al arrancar (`get_settings()`), no en silencio a media
+    # operacion.
+    TITULATEC_HANDOFF_PHASE: int = Field(default=3, ge=3)
+
+    # Inscripción por solicitud (spec 2026-09-24, accesos de Centro de Cómputo).
+    # D4: vida de la liga de activación. Se lee SOLO por
+    # `EnrollmentRequestService._link_ttl_hours()` (BD, TTL del claro en Redis y
+    # los "N días" del correo salen de ahí). `ge=1`: una liga de 0 días nacería
+    # vencida; `le=90`: la liga es una credencial al correo personal y no debe
+    # vivir un semestre. Fuera de rango truena al arrancar, no a media operación.
+    TITULATEC_ENROLLMENT_LINK_TTL_DAYS: int = Field(default=21, ge=1, le=90)
+    # Hotfix 2026-09-28: inscripciones públicas EXITOSAS por hora y por IP
+    # (`pages/public.py::ENROLL_RL_LIMIT_IP`). En producción TODO visitante llega
+    # con la IP de la puerta de enlace de Docker (`rl:enroll:ip:172.19.0.1`) y el
+    # campus sale por un solo NAT, así que en la práctica es un límite GLOBAL: con
+    # 30/hora la inscripción se bloqueaba en el arranque de la convocatoria
+    # (~500 egresados). El anti-abuso por identidad sigue siendo el de 3/día por
+    # número de control. Se lee al importar el módulo: cambiarlo exige reiniciar.
+    TITULATEC_ENROLL_RL_LIMIT_IP: int = Field(default=500, ge=1, le=100000)
+    # D6: quién revisa las solicitudes. Por omisión `sii` (spec 2026-09-27, «el
+    # SII informa, Servicios Escolares decide»): la consulta automática al SII
+    # trae veredicto + NIP, pero SE sigue dando el paso final desde la bandeja
+    # (nada se aprueba solo). `school_services` y `computer_center` quedan como
+    # RESPALDO, activables solo por variable de entorno + reinicio; el DML es
+    # el mismo en los tres. `Literal` hace que un typo truene al arrancar en vez
+    # de dejar la bandeja en un modo que nadie implementa.
+    TITULATEC_ENROLLMENT_REVIEWER: Literal["school_services", "computer_center", "sii"] = "sii"
+
+    # `SiiClient` (perezoso, ver servicio): qué backend habla con el SII.
+    # `disabled` = SII no configurado (spec 2026-09-27 D11): no se consulta ni
+    # se encola nada (no nace ninguna `EligibilityCheck`) y la bandeja aprueba
+    # lo que no tiene cuenta pasándolo a Accesos; `fake` lee
+    # `TITULATEC_SII_FAKE_FILE` (dev/demo/tests), `odbc` es el real (FreeTDS).
+    TITULATEC_SII_BACKEND: Literal["disabled", "fake", "odbc"] = "disabled"
+    # Cadena de conexión ODBC completa (incluye credenciales) — SecretStr para
+    # que un `str(settings)`/log accidental no la exponga, y además
+    # `repr=False` para que ni el NOMBRE del campo aparezca en
+    # `repr(Settings())` (un traceback de validación de arranque imprime los
+    # demás campos tal cual).
+    TITULATEC_SII_ODBC: SecretStr = Field(default=SecretStr(""), repr=False)
+    # Carpeta con `rules.toml` + `queries/*.sql` (gitignored, nunca se
+    # commitean; ver `database/SII/titulatec/` en globals del plan).
+    TITULATEC_SII_RULES_DIR: str = "database/SII/titulatec"
+    # JSON de filas sintéticas que usa el backend `fake`.
+    TITULATEC_SII_FAKE_FILE: str = "database/SII/titulatec/fake_sii.json"
+    TITULATEC_SII_CONNECT_TIMEOUT_S: int = Field(5, ge=1, le=60)
+    TITULATEC_SII_QUERY_TIMEOUT_S: int = Field(10, ge=1, le=120)
+    # Tope de intentos de consulta ante `SiiUnavailable` (tarea y barrido): en
+    # el tope el check se queda en `error` y ya nadie lo retoma solo
+    # (`titulatec sii-sweep --reconsultar-errores` o «Reintentar consulta»).
+    TITULATEC_SII_MAX_ATTEMPTS: int = Field(5, ge=1, le=20)
+    # Llave Fernet (base64 url-safe de 32 bytes) con la que se cifran los NIPs
+    # precargados del SII (`titulatec_nip_stash`). Sin ella la precarga queda
+    # deshabilitada y aprobar cae a Accesos como siempre. Generarla con
+    # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+    # `repr=False`: que ni el nombre del campo salga en un traceback de arranque.
+    TITULATEC_NIP_STASH_KEY: str | None = Field(default=None, repr=False)
+
+    # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
+    # `titulatec_email_outbox` + despachador Celery cada 5 minutos). Cambiar
+    # cualquiera exige variable de entorno y reiniciar TODOS los procesos
+    # backend (`get_settings()` vive en `lru_cache` por proceso).
+    # Apagado completo: no encola, el despachador y el barrido no tocan la BD.
+    TITULATEC_EMAIL_ENABLED: bool = True
+    # Ventana de agrupado (D7): un dictamen/cambio de cita sale en UN correo
+    # cuando la fila mas nueva del grupo lleva esto sin movimiento. Tambien
+    # es la gracia de "no se presento" (C3, D8) antes de encolar el aviso.
+    TITULATEC_EMAIL_DIGEST_MINUTES: int = Field(10, ge=1, le=120)
+    # Intentos de envio con espera creciente (1,2,4,8,16,32 min) antes de
+    # marcar `failed` con `last_error` legible. Ruling 20 (2026-09-29): 7 = seis
+    # esperas, ~1 h de reintentos (con la corrida cada 5 min, el septimo cae
+    # hacia los 80 min del primero); con 6 se daba por fallido a los ~31 min.
+    TITULATEC_EMAIL_MAX_ATTEMPTS: int = Field(7, ge=1, le=20)
+    # Recordatorios de documentos/encuesta (D6): primero a los N dias sin
+    # movimiento, luego cada M dias, hasta el tope de abajo.
+    TITULATEC_REMINDER_FIRST_DAYS: int = Field(3, ge=1, le=60)
+    TITULATEC_REMINDER_EVERY_DAYS: int = Field(7, ge=1, le=60)
+    # Tope de recordatorios por ancla. 0 = sin recordatorios de encuesta/documentos.
+    TITULATEC_REMINDER_MAX: int = Field(3, ge=0, le=10)
+    # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
+    # 9:00). 0 = sin recordatorio de cita.
+    TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
+
+    # `hide_input_in_errors`: el ValidationError de un validador (p. ej. la llave
+    # Fernet mal formada) no debe imprimir el dict de entrada, que lleva secretos.
+    model_config = {"env_file": ".env", "extra": "ignore", "hide_input_in_errors": True}
+
+    @model_validator(mode="after")
+    def _sii_fake_no_en_produccion(self):
+        """El SII FALSO decide quién es apto con un JSON editable: en producción
+        truena al arrancar en vez de aprobar con datos sintéticos (revisión
+        final, spec §8)."""
+        if self.TITULATEC_SII_BACKEND == "fake" and self.FLASK_ENV == "production":
+            raise ValueError("TITULATEC_SII_BACKEND=fake no se permite con "
+                             "FLASK_ENV=production: usa odbc o disabled.")
+        return self
+
+    @model_validator(mode="after")
+    def _nip_stash_key_valida(self):
+        """Una llave Fernet mal formada truena al arrancar: si no, cada carga
+        fallaría después con un error confuso. El mensaje no incluye la llave."""
+        key = self.TITULATEC_NIP_STASH_KEY
+        if key:
+            from cryptography.fernet import Fernet
+            try:
+                Fernet(key.encode())
+            except Exception:
+                raise ValueError("TITULATEC_NIP_STASH_KEY no es una llave Fernet válida "
+                                 "(32 bytes en base64 url-safe).") from None
+        return self
+
+    def _extra_cors_origins(self) -> list[str]:
+        """Orígenes de `CORS_ORIGINS`, sin vacíos ni duplicados de orden."""
+        if not self.CORS_ORIGINS:
+            return []
+        return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     def get_cors_origins(self) -> list[str]:
         if self.FLASK_ENV == "development":
-            return [
+            # En dev, `CORS_ORIGINS` SE SUMA a los locales en vez de ignorarse.
+            # Antes esta rama devolvía la lista fija y salía, así que poner la
+            # variable en el .env no tenía ningún efecto en desarrollo: es justo
+            # donde hace falta al exponer el entorno por un túnel para que alguien
+            # pruebe desde fuera.
+            base = [
                 "http://localhost:8080",
                 "http://127.0.0.1:8080",
                 "http://localhost:8000",
@@ -126,6 +651,7 @@ class Settings(BaseSettings):
                 "http://localhost:8001",
                 "http://127.0.0.1:8001",
             ]
+            return base + [o for o in self._extra_cors_origins() if o not in base]
         if self.CORS_ORIGINS:
             return [o.strip() for o in self.CORS_ORIGINS.split(",")]
         return [

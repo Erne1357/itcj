@@ -19,6 +19,7 @@ class DirectoryEntry(Base):
     holder_name = Column(String(120), nullable=True)
     extension = Column(String(10), nullable=False, index=True)
     notes = Column(String(200), nullable=True)
+    email = Column(String(150), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True, index=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

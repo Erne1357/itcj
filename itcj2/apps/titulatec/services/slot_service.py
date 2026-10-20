@@ -1,0 +1,775 @@
+"""Franjas de cotejo: derivación, ocupación y asignación con cupo duro.
+
+Es el **único camino de escritura** de la hora de una cita. Mientras el POST
+siguiera aceptando fecha y hora libres, el límite duro sería evadible: bastaba
+con no pasar por aquí.
+
+Franjas derivadas, no materializadas
+------------------------------------
+``franjas(w) = [start_time + k*slot_minutes]`` mientras la franja **entera**
+quepa antes de ``end_time``. No hay tabla de slots, así que no hay nada que
+mantener ni que desincronizar. El precio: cambiar ``slot_minutes`` de una
+ventana con citas dentro deja citas fuera de la rejilla (09:30 no cae en una
+rejilla de 20 minutos). Eso la UI lo muestra en una banda «Fuera de la rejilla»
+en vez de esconderlo, y se eligió a sabiendas: materializar los slots crea un
+estado que sí se desincroniza en silencio.
+
+Sin horario (`walkin`): una sola franja
+---------------------------------------
+Spec 2026-09-29 §3.1 (D3). Un `walkin` es UNA franja que abarca todo el
+espacio, a la hora de apertura, y su ``capacity`` es el TOTAL de personas, no
+el cupo por franja. ``slot_minutes`` se conserva (la columna es NOT NULL) pero
+no se usa. El egresado aparta lugar sin hora: su cita guarda día + apertura.
+``free_slots``, ``window_occupancy``, ``day_occupancy`` y ``assign`` salen
+correctos por derivación, sin ramas propias. Lo que sí cambia es
+``occupancy``: en producción hay citas que un encargado sentó a una HORA
+dentro de un `walkin` (p. ej. 10:30), y esas cuentan bajo la apertura igual
+que los apartados, así que siguen ocupando y no caen «fuera de la rejilla».
+Esas citas de legado conservan su hora: ver ``is_walkin_reservation``.
+
+El no-show cuenta
+-----------------
+``occupancy`` incluye las citas en ``no_show``. Decisión del usuario: «si no se
+presentó es que ya pasó», así que la franja se consumió y su lugar no se
+reabre. El registro histórico se queda donde estaba.
+
+EXCEPCIÓN DELIBERADA a la convención de la casa (commit en el service)
+----------------------------------------------------------------------
+**Ningún método de esta clase hace `db.commit()`.** El commit liberaría el
+``FOR UPDATE`` antes de que el INSERT llegara a la base, y el lock no serviría
+de nada. El dueño de la transacción es quien llama: `AppointmentService.create`,
+`.reschedule` o la ruta del reparto masivo. Lo fija un test estructural.
+
+Por qué el lock va sobre la VENTANA
+-----------------------------------
+Lección de AgendaTec: ``FOR UPDATE`` sobre cero filas **no bloquea nada**, y el
+caso normal aquí es insertar la primera cita de una franja vacía. Bloquear «las
+citas de esta franja» no serializaría a dos encargados que llegan a la vez. La
+fila de la ventana, en cambio, siempre existe.
+
+Y como un proceso tiene **una sola** cita mientras que el lock es por ventana,
+dos ventanas distintas no se serializarían entre sí: por eso además se toma un
+``pg_advisory_xact_lock`` sobre el proceso. Es de **transacción** y no de
+sesión, lo único compatible con PgBouncer en modo transaction.
+"""
+from __future__ import annotations
+
+from datetime import date, datetime, time, timedelta
+
+from sqlalchemy import func, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
+
+from itcj2.apps.titulatec.services.appointment_errors import (
+    AppointmentConflict, EnrollmentRevoked, InvalidSlot, MissingSchedule, SlotFull,
+    SlotLockTimeout,
+)
+
+# Namespace del advisory lock que serializa las citas de un mismo proceso.
+# Arbitrario pero fijo: cambiarlo deja de excluir a las transacciones que ya
+# estén corriendo con el valor viejo.
+_PROCESO_LOCK_NS = 0x7455  # "tU"
+
+# Estados que NO ocupan lugar: la franja vuelve al pozo. `cancelled` (D12:
+# canceló a tiempo, el lugar vuelve) y `superseded` (su ocupación la hereda la
+# fila nueva del intento siguiente). `no_show` y `attended` NO están aquí a
+# propósito aunque ya no sean la cita vigente: D10 dice que si no se presentó
+# es que ya pasó, y D5 que una atendida con faltantes sigue "ocupando" hasta
+# que la fase 2 se apruebe. Ver `occupancy` — es el punto exacto donde esto se
+# puede romper otra vez confundiéndolo con `is_current`.
+_ESTADOS_QUE_LIBERAN: set[str] = {"cancelled", "superseded"}
+
+# Estados "vivos" de una cita (D4). **DEFINICIÓN ÚNICA de la app.**
+#
+# Vivía duplicada aquí y en `appointment_service`, unidas solo por comentarios
+# cruzados que se pedían mutuamente no divergir — y los tres consumidores se
+# repartían entre las dos copias: `pages/appointments.py::move` y
+# `self_booking_service` importaban la de allá, mientras `_open_new_attempt`
+# usaba la de acá. Con las dos separadas, un estado añadido a una sola mandaba
+# una cita VIVA por `create` (-> `AppointmentConflict`) donde se quería una
+# reagenda. `appointment_service` la re-exporta IMPORTÁNDOLA, así que los dos
+# nombres apuntan al mismo objeto y ya no hay dónde divergir.
+#
+# Decide dos cosas complementarias, que son la misma regla vista de los dos
+# lados:
+#   · aquí, si la fila vieja pasa a 'superseded' al abrir un intento nuevo.
+#     Fuera del set (`no_show`, `attended`) conserva su status: abrir un
+#     intento nuevo tras esos NO es una transición (spec 2026-09-15 §2.2);
+#   · en `AppointmentService.create`, si se rechaza abrir otra cita (D4).
+#
+# `frozenset` y no `set`: es una constante que ahora comparten dos módulos, y
+# una mutación accidental en cualquiera de ellos se vería en el otro.
+_ESTADOS_ACTIVOS: frozenset[str] = frozenset({"scheduled", "confirmed", "in_progress"})
+
+
+class SlotService:
+    # ------------------------------------------------------------- derivación
+    @staticmethod
+    def slots(window) -> list[time]:
+        """Las horas de inicio de cada franja de la ventana.
+
+        Solo cuenta la franja si cabe ENTERA: una ventana 09:00-10:20 con
+        franjas de 30 da 09:00 y 09:30, no 10:00 (que se saldría a las 10:30).
+
+        Sin horario (`walkin`): la apertura sola, sin mirar `slot_minutes`.
+        """
+        if not window or not window.start_time or not window.end_time:
+            return []
+        if window.visibility == "walkin":
+            return [window.start_time] if window.end_time > window.start_time else []
+        paso = timedelta(minutes=int(window.slot_minutes or 0))
+        if paso <= timedelta(0):
+            return []
+        base = date(2000, 1, 1)
+        actual = datetime.combine(base, window.start_time)
+        fin = datetime.combine(base, window.end_time)
+        salida = []
+        while actual + paso <= fin:
+            salida.append(actual.time())
+            actual += paso
+        return salida
+
+    @staticmethod
+    def slots_from(start, end, minutes, *, walkin: bool = False) -> list:
+        """Las mismas franjas, pero a partir de valores sueltos.
+
+        La usa el editor de espacios para calcular la linea derivada («10 franjas
+        de 2 personas, 20 citas en total») ANTES de que exista la ventana. Acepta
+        `time` o "HH:MM" indistintamente, que es lo que llega de un formulario.
+
+        `walkin=True` es el sin horario, igual que en `slots`: la apertura sola,
+        sin mirar `minutes`. Sirve para derivar el modo DESTINO de un espacio
+        que todavía no lo tiene escrito.
+        """
+        def _t(v):
+            if isinstance(v, time):
+                return v
+            try:
+                h, m = str(v).split(":")[:2]
+                return time(int(h), int(m))
+            except (ValueError, TypeError):
+                return None
+
+        ini, fin = _t(start), _t(end)
+        if walkin:
+            return [ini] if ini is not None and fin is not None and fin > ini else []
+        try:
+            paso = timedelta(minutes=int(minutes))
+        except (TypeError, ValueError):
+            return []
+        if ini is None or fin is None or paso <= timedelta(0):
+            return []
+        base = date(2000, 1, 1)
+        actual, tope = datetime.combine(base, ini), datetime.combine(base, fin)
+        salida = []
+        while actual + paso <= tope:
+            salida.append(actual.time())
+            actual += paso
+        return salida
+
+    @staticmethod
+    def day_defaults(db: Session, review_day) -> dict:
+        """Valores efectivos de un día: override del día, o el de la convocatoria.
+
+        Es lo que precarga el editor de espacios. La ventana en sí guarda sus
+        valores en columnas NOT NULL, así que la herencia ocurre **al crearla**,
+        no al leerla: una vez creada, cambiar el default de la convocatoria no
+        le mueve el horario a nadie.
+        """
+        from itcj2.apps.titulatec.models import Cohort
+        cohort = db.get(Cohort, review_day.cohort_id)
+        return {
+            "start_time": review_day.start_time or (cohort.default_start_time if cohort else time(9, 0)),
+            "end_time": review_day.end_time or (cohort.default_end_time if cohort else time(14, 0)),
+            "slot_minutes": review_day.slot_minutes or (cohort.default_slot_minutes if cohort else 30),
+            "capacity": review_day.capacity or (cohort.default_capacity if cohort else 1),
+            "location": review_day.location or (cohort.default_location if cohort else None),
+        }
+
+    # -------------------------------------------------------------- ocupación
+    #
+    # UNA sola implementación de la regla (spec 2026-10-05-titulatec-
+    # rendimiento §3.4, invariante 2): `_vivas` decide QUÉ cita ocupa lugar y
+    # `occupancy_map` DÓNDE cuenta, para muchas ventanas con un solo SELECT.
+    # Todo lo demás (`occupancy`, `window_occupancy`, `day_occupancy`, sus
+    # mapas y `out_of_grid`) delega aquí. Antes cada ventana pagaba su propia
+    # consulta y el carril de días hacía una por ventana de la convocatoria
+    # (H6). No vuelvas a escribir el filtro por estado en otro método: el
+    # test estructural de `test_slot_occupancy_batch.py` lo vigila.
+    @staticmethod
+    def _vivas(q):
+        """El filtro de «esta cita ocupa lugar». Definición ÚNICA del módulo.
+
+        Filtra por ESTADO, nunca por `is_current`. Una fila `no_show` o
+        `attended` que ya no es la vigente sigue ocupando su franja (D10/D5).
+        Añadir `is_current == True` aquí parece lo natural al leer esto por
+        primera vez tras introducir el historial de intentos, y ES EL ERROR:
+        reabre el defecto de la spec 2026-09-15 §0 (reagendar liberaba la
+        franja del no-show). `is_current` es del historial, no de la
+        ocupación.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        if _ESTADOS_QUE_LIBERAN:
+            q = q.filter(~ReviewAppointment.status.in_(_ESTADOS_QUE_LIBERAN))
+        return q
+
+    @staticmethod
+    def occupancy_map(db: Session, windows, *, excluir_process_id: int | None = None,
+                      walkin: bool | None = None,
+                      inicio: time | None = None) -> dict[int, dict[time, int]]:
+        """{window_id: {hora_de_inicio: cuántas citas}} de VARIAS ventanas, con
+        UN SELECT. Es LA regla de ocupación; `occupancy` es este mapa con una
+        sola ventana.
+
+        Toda ventana pedida (con id) sale en el mapa, con `{}` si no tiene
+        citas. Sin ventanas no consulta nada.
+
+        `excluir_process_id` es para MOVER: al recolocar a un alumno dentro de
+        su propia ventana, su cita actual no puede contarse contra el cupo de
+        la franja destino.
+
+        En sin horario TODAS las citas vivas cuentan bajo la apertura, sea cual
+        sea su hora (spec 2026-09-29 §3.1): la de legado sentada a las 10:30
+        sigue ocupando un lugar del cupo total. `walkin=None` es el modo actual
+        de CADA ventana. `walkin` e `inicio` explícitos son para medir el modo
+        DESTINO antes de escribirlo (`ReviewWindowService.update`, siempre con
+        una sola ventana): con `walkin=False`, cada cita a su hora real; con
+        `walkin=True`, todas bajo `inicio` (o la apertura actual). `inicio`
+        solo cuenta en sin horario.
+
+        Lee columnas, no filas completas: el conteo solo necesita la ventana y
+        la hora, y el carril de días pide TODAS las citas vivas de la
+        convocatoria de una vez.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        ventanas = {w.id: w for w in (windows or []) if w is not None and w.id}
+        if not ventanas:
+            return {}
+        q = SlotService._vivas(
+            db.query(ReviewAppointment.window_id, ReviewAppointment.scheduled_at)
+            .filter(ReviewAppointment.window_id.in_(list(ventanas))))
+        if excluir_process_id:
+            q = q.filter(ReviewAppointment.process_id != excluir_process_id)
+        salida: dict[int, dict[time, int]] = {wid: {} for wid in ventanas}
+        for window_id, cuando in q.all():
+            if not cuando:
+                continue
+            w = ventanas[window_id]
+            en_apertura = (w.visibility == "walkin") if walkin is None else walkin
+            apertura = inicio if inicio is not None else w.start_time
+            hora = apertura if en_apertura else cuando.time()
+            cuenta = salida[window_id]
+            cuenta[hora] = cuenta.get(hora, 0) + 1
+        return salida
+
+    @staticmethod
+    def occupancy(db: Session, window, *, excluir_process_id: int | None = None,
+                  walkin: bool | None = None,
+                  inicio: time | None = None) -> dict[time, int]:
+        """{hora_de_inicio: cuántas citas} de esa ventana.
+
+        Delega en `occupancy_map` (ver ahí `excluir_process_id`, `walkin` e
+        `inicio`): una sola implementación de la regla.
+        """
+        if not window or not window.id:
+            return {}
+        return SlotService.occupancy_map(
+            db, [window], excluir_process_id=excluir_process_id,
+            walkin=walkin, inicio=inicio)[window.id]
+
+    @staticmethod
+    def _totales(window, ocupacion: dict) -> tuple[int, int]:
+        """(ocupados, capacidad total) de una ventana a partir de SU ocupación.
+        Sin BD: es la cuenta que comparten la versión por ventana y los mapas.
+
+        Solo cuentan las citas que caen en una franja real: las que quedaron
+        fuera de la rejilla tras cambiar `slot_minutes` se muestran aparte y
+        no inflan el denominador.
+        """
+        franjas = SlotService.slots(window)
+        validas = set(franjas)
+        ocupados = sum(n for hora, n in ocupacion.items() if hora in validas)
+        return ocupados, len(franjas) * int(window.capacity or 1)
+
+    @staticmethod
+    def _sumar(windows, ocupacion: dict) -> tuple[int, int]:
+        """(ocupados, capacidad) de un conjunto de ventanas, con un mapa de
+        ocupación ya calculado."""
+        total_ocupados = total_capacidad = 0
+        for w in windows:
+            o, c = SlotService._totales(w, ocupacion.get(w.id, {}))
+            total_ocupados += o
+            total_capacidad += c
+        return total_ocupados, total_capacidad
+
+    @staticmethod
+    def window_occupancy(db: Session, window) -> tuple[int, int]:
+        """(ocupados, capacidad total) de UNA ventana."""
+        return SlotService._totales(window, SlotService.occupancy(db, window))
+
+    @staticmethod
+    def window_occupancy_map(db: Session, windows, *, ocupacion: dict | None = None
+                             ) -> dict[int, tuple[int, int]]:
+        """{window_id: (ocupados, capacidad total)} de varias ventanas, con UN
+        SELECT. Lo usa el tablero para sus espacios y los ajenos."""
+        windows = [w for w in (windows or []) if w is not None and w.id]
+        # `ocupacion`: un `occupancy_map` (parámetros por omisión) ya leído que
+        # cubre estas ventanas -- el tablero lo comparte con el carril de días
+        # (perf 2026-10-07). Sin él, la consulta de siempre.
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy_map(db, windows)
+        return {w.id: SlotService._totales(w, ocupacion.get(w.id, {})) for w in windows}
+
+    @staticmethod
+    def day_occupancy(db: Session, windows) -> tuple[int, int]:
+        """(ocupados, capacidad) de un conjunto de ventanas.
+
+        UNA sola función alimenta el chip del carril de días Y la cabecera del
+        tablero. Con dos numeradores distintos la misma pantalla mostraba dos
+        cifras que no cuadraban, y el numerador salía acotado por carrera
+        mientras el denominador no: la carrera decide qué NOMBRES se ven, nunca
+        los conteos.
+        """
+        windows = list(windows or [])
+        return SlotService._sumar(windows, SlotService.occupancy_map(db, windows))
+
+    @staticmethod
+    def day_occupancy_map(db: Session, windows_by_day: dict, *,
+                          ocupacion: dict | None = None) -> dict:
+        """{día: (ocupados, capacidad)} de varios días, con UN SELECT.
+
+        `windows_by_day` es lo que devuelve `windows_for_days`. Es el carril de
+        días entero: antes, una consulta por cada ventana de la convocatoria.
+        """
+        todas = [w for ventanas in windows_by_day.values() for w in ventanas]
+        # `ocupacion`: igual que en `window_occupancy_map`.
+        if ocupacion is None:
+            ocupacion = SlotService.occupancy_map(db, todas)
+        return {dia: SlotService._sumar(ventanas, ocupacion)
+                for dia, ventanas in windows_by_day.items()}
+
+    @staticmethod
+    def free_slots_from(window, ocupacion: dict) -> list[time]:
+        """Franjas con lugar libre, en orden, a partir de una ocupación YA
+        calculada (`occupancy` / un valor de `occupancy_map`). Sin BD: es la
+        comparación contra el cupo que comparten `free_slots` y quien ya leyó
+        la ocupación de varias ventanas de una vez (`SelfBookingService.offer`).
+        """
+        cupo = int(window.capacity or 1)
+        return [h for h in SlotService.slots(window) if ocupacion.get(h, 0) < cupo]
+
+    @staticmethod
+    def free_slots(db: Session, window, *, excluir_process_id: int | None = None) -> list[time]:
+        """Franjas con lugar libre, en orden."""
+        return SlotService.free_slots_from(
+            window, SlotService.occupancy(db, window, excluir_process_id=excluir_process_id))
+
+    # ------------------------------------------------------------ asignación
+    @staticmethod
+    def _lock_window(db: Session, window_id: int):
+        """Bloquea la fila de la ventana y la devuelve RELEÍDA bajo el lock.
+
+        `lock_timeout` es LOCAL, no de sesión: PgBouncer está en modo
+        transaccional y un `SET` de sesión se le queda pegado a otro cliente.
+
+        La relectura es la mitad que hace servir al lock. El objeto del mapa
+        de identidad se cargó ANTES de esperar, así que sin el `refresh`
+        `assign`, `update` y el reparto validaban con el modo, el horario y el
+        cupo de antes de que otro encargado guardara los suyos: una edición de
+        modo o de cupo concurrente con una reserva dejaba una de más. Es la
+        ÚNICA relectura: los llamadores no refrescan por su cuenta (`add_places`
+        lo hacía, solo de dos columnas, y ya no hace falta). Y es del objeto
+        ENTERO: quien ya tenía la ventana en la mano (`update` la recibe de la
+        ruta) ve los valores de ahora sin cambiar de referencia.
+
+        Si la fila ya no existe (la borraron mientras se esperaba), el
+        `FOR UPDATE` no devuelve nada: la frase de ventanilla, no un error de
+        integridad al insertar la cita ni uno del `refresh`.
+        """
+        from itcj2.apps.titulatec.models import ReviewWindow
+        try:
+            db.execute(text("SET LOCAL lock_timeout = '3s'"))
+            fila = db.execute(
+                text("SELECT id FROM titulatec_review_windows WHERE id = :w FOR UPDATE"),
+                {"w": int(window_id)},
+            ).first()
+        except OperationalError as e:      # lock_timeout agotado
+            raise SlotLockTimeout() from e
+        window = db.get(ReviewWindow, int(window_id)) if fila is not None else None
+        if window is None:
+            raise InvalidSlot("Ese espacio ya no existe.")
+        db.refresh(window)
+        return window
+
+    @staticmethod
+    def _lock_process(db: Session, process_id: int) -> None:
+        """Serializa las citas de un mismo proceso entre ventanas distintas.
+
+        También lo toma `ProcessService.cancel`, ANTES del `FOR UPDATE` de la
+        fila del proceso: así revocar y agendar el mismo proceso no se cruzan
+        (ver `_open_new_attempt`, punto 5).
+        """
+        db.execute(text("SELECT pg_advisory_xact_lock(:ns, :pid)"),
+                   {"ns": _PROCESO_LOCK_NS, "pid": int(process_id)})
+
+    @staticmethod
+    def _open_new_attempt(db: Session, process_id: int, *,
+                          rechazar_activa: bool = False) -> int:
+        """Cierra la cita vigente del proceso (si hay una) y devuelve el
+        `attempt_no` que le toca a la fila nueva. NO inserta nada — eso lo
+        hace el llamador, con el resto de los datos de la franja destino.
+
+        Bloque compartido por `assign` y `assign_batch`: antes eran dos
+        copias casi idénticas (solo `process_id` cambiaba por `pid`), y es
+        justo donde viven las tres trampas de esta tarea. Una sola función
+        para que un arreglo futuro no se aplique a una copia y se le olvide
+        la otra — el batch es el camino menos ejercitado por los tests
+        existentes, así que es el más fácil de dejar atrás:
+
+        1. Si hay vigente, la cierra (`is_current=False`) y hace
+           `db.flush()` **antes** de que el llamador inserte la fila nueva.
+           El índice único parcial (`uq_titulatec_review_appt_current`)
+           exige que nunca convivan dos `is_current=True` del mismo proceso;
+           si el INSERT llegara a la base antes que este UPDATE, Postgres
+           revienta con violación de unicidad. El orden importa.
+        2. `status` solo cambia a `superseded` si la vigente estaba ACTIVA
+           (`_ESTADOS_ACTIVOS`, D4). Si no (`no_show`, `attended`), conserva
+           su status: abrir un intento nuevo no es una transición.
+        3. `attempt_no` sale de `MAX(attempt_no)` del proceso, no de
+           `vigente.attempt_no + 1` — hace falta para el caso donde no hay
+           vigente pero sí historial (p. ej. tras una cancelación).
+        4. `rechazar_activa` cierra el TOCTOU de D4. La guarda de
+           `AppointmentService.create` corre FUERA de los locks, así que dos
+           `create` concurrentes del mismo proceso la pasan los dos y el
+           segundo supera al primero: un intento de más y —peor— la franja
+           del primero liberada, porque `superseded` está en
+           `_ESTADOS_QUE_LIBERAN`. Un doble clic en «Agendar» es exactamente
+           ese escenario. Aquí ya estamos DENTRO del `pg_advisory_xact_lock`
+           del proceso, así que ésta es la comprobación que vale; la de
+           `create` se queda como rechazo rápido sin pagar locks.
+           `reschedule` y `assign_batch` NO la piden: superar una cita activa
+           es precisamente lo que vienen a hacer.
+        5. La revocación, mismo TOCTOU con otro escritor.
+           `AppointmentService._assert_not_revoked` corre fuera de los locks:
+           un `create`/`reschedule` que la pasa con `active` y se queda
+           esperando el lock de la ventana podía sentar en la agenda a un
+           proceso que `ProcessService.cancel` revocó en ese intervalo (el
+           `cancel` no veía cita vigente que cancelar). `cancel` toma este
+           mismo advisory antes de leer la cita, así que aquí dentro solo hay
+           dos órdenes posibles: o la revocación ya hizo commit y se lee
+           abajo, o espera a que esta cita haga commit y la cancela ella.
+           Sin condición, a diferencia del 4: ni `create`, ni `reschedule`, ni
+           el reparto masivo tienen por qué sentar a un revocado (en el
+           reparto, uno revocado aborta el lote entero; hoy no tiene
+           llamadores en producción). La lectura es de COLUMNA a
+           propósito: un `db.get` devolvería el objeto que la guarda rápida
+           dejó en el mapa de identidad, todavía `active`.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment, TitulationProcess
+
+        estado = (db.query(TitulationProcess.status)
+                  .filter(TitulationProcess.id == process_id).scalar())
+        if estado == "cancelled":
+            raise EnrollmentRevoked()
+
+        vigente = (db.query(ReviewAppointment)
+                   .filter_by(process_id=process_id, is_current=True)
+                   .first())
+        if vigente is not None:
+            if rechazar_activa and vigente.status in _ESTADOS_ACTIVOS:
+                raise AppointmentConflict()
+            if vigente.status in _ESTADOS_ACTIVOS:
+                vigente.status = "superseded"
+            vigente.is_current = False
+            db.flush()
+
+        return (db.query(func.max(ReviewAppointment.attempt_no))
+                .filter_by(process_id=process_id).scalar() or 0) + 1
+
+    @staticmethod
+    def assign(db: Session, window_id: int | None, slot_start: time | None,
+               process_id: int, actor_id: int, *, location: str | None = None,
+               rechazar_activa: bool = False):
+        """Sienta a un proceso en una franja. NO commitea.
+
+        `rechazar_activa=True` (lo pasa `AppointmentService.create`) levanta
+        `AppointmentConflict` si al tomar el lock resulta que el proceso ya
+        tiene una cita VIVA. Es el cierre del TOCTOU de D4 — ver
+        `_open_new_attempt`, punto 4.
+
+        Nunca mueve una fila existente: si el proceso ya tenía una cita
+        vigente, la CIERRA (a `superseded` si estaba activa —
+        scheduled/confirmed/in_progress—; conserva su status si no, p. ej.
+        `no_show`) e INSERTA un intento nuevo con `attempt_no+1`
+        (`_open_new_attempt`). Devuelve la `ReviewAppointment` recién
+        creada, siempre vigente. Levanta `MissingSchedule`, `InvalidSlot`,
+        `SlotFull` o, si el proceso quedó revocado mientras esperaba el lock,
+        `EnrollmentRevoked`.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        if not window_id or slot_start is None:
+            raise MissingSchedule()
+
+        window = SlotService._lock_window(db, window_id)
+        SlotService._lock_process(db, process_id)
+
+        if slot_start not in set(SlotService.slots(window)):
+            raise InvalidSlot()
+
+        ocupacion = SlotService.occupancy(db, window, excluir_process_id=process_id)
+        if ocupacion.get(slot_start, 0) >= int(window.capacity or 1):
+            # D10 (Tarea 9): en un espacio SIN horario no hay una franja que se
+            # llenó, hay LUGARES -el texto lo dice distinto aunque el código
+            # sea el mismo `SlotFull`, `refresca_la_vista=True`-.
+            raise SlotFull(sin_horario=(window.visibility == "walkin"))
+
+        cuando = datetime.combine(window.review_day.date, slot_start)
+        lugar = location if location is not None else window.location
+
+        attempt_no = SlotService._open_new_attempt(
+            db, process_id, rechazar_activa=rechazar_activa)
+
+        appt = ReviewAppointment(
+            process_id=process_id, window_id=window.id, scheduled_at=cuando,
+            location=lugar, status="scheduled", created_by_id=actor_id,
+            is_current=True, attempt_no=attempt_no,
+        )
+        db.add(appt)
+        db.flush()
+        return appt
+
+    @staticmethod
+    def assign_batch(db: Session, window_id: int, procesos: list, actor_id: int,
+                     *, desde: time | None = None, location: str | None = None):
+        """Reparte varios procesos en franjas consecutivas libres. NO commitea.
+
+        Devuelve `(asignados, fuera)`, donde `asignados` es
+        `[(hora, process_id), ...]` y `fuera` la lista de ids que no cupieron.
+
+        Es **atómico** en el sentido que importa: toma UN solo lock de ventana y
+        hace todos los INSERT dentro de él. Sin eso, reintentar un reparto a
+        medias movía de sitio a los que ya estaban sentados.
+
+        Límite duro: cuando se acaban los lugares **se detiene**, no desborda.
+
+        Igual que `assign` (mismo `_open_new_attempt`): si un proceso ya
+        tenía cita vigente, la CIERRA (superseded si estaba activa; conserva
+        su status si no) e INSERTA un intento nuevo. Nunca mueve la fila
+        existente.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+
+        if not procesos:
+            return [], []
+
+        window = SlotService._lock_window(db, window_id)
+        cupo = int(window.capacity or 1)
+        ocupacion = SlotService.occupancy(db, window)
+        franjas = SlotService.slots(window)
+        if desde is not None:
+            franjas = [h for h in franjas if h >= desde]
+
+        asignados, fuera = [], []
+        pendientes = list(procesos)
+        for hora in franjas:
+            libres = cupo - ocupacion.get(hora, 0)
+            while libres > 0 and pendientes:
+                pid = pendientes.pop(0)
+                SlotService._lock_process(db, pid)
+                cuando = datetime.combine(window.review_day.date, hora)
+                lugar = location if location is not None else window.location
+
+                attempt_no = SlotService._open_new_attempt(db, pid)
+                db.add(ReviewAppointment(
+                    process_id=pid, window_id=window.id, scheduled_at=cuando,
+                    location=lugar, status="scheduled", created_by_id=actor_id,
+                    is_current=True, attempt_no=attempt_no))
+                asignados.append((hora, pid))
+                ocupacion[hora] = ocupacion.get(hora, 0) + 1
+                libres -= 1
+            if not pendientes:
+                break
+
+        fuera = pendientes
+        db.flush()
+        return asignados, fuera
+
+    @staticmethod
+    def propose_batch(db: Session, window, procesos: list, *, desde: time | None = None):
+        """La misma repartición, pero SIN tocar la base. Es la propuesta que el
+        encargado confirma o descarta; vive entera en el querystring."""
+        cupo = int(window.capacity or 1)
+        ocupacion = SlotService.occupancy(db, window)
+        franjas = SlotService.slots(window)
+        if desde is not None:
+            franjas = [h for h in franjas if h >= desde]
+
+        propuesta, pendientes = [], list(procesos)
+        for hora in franjas:
+            libres = cupo - ocupacion.get(hora, 0)
+            while libres > 0 and pendientes:
+                propuesta.append((hora, pendientes.pop(0)))
+                libres -= 1
+            if not pendientes:
+                break
+        return propuesta, pendientes
+
+    @staticmethod
+    def out_of_grid(db: Session, window) -> list:
+        """Citas de la ventana cuya hora ya no cae en ninguna franja.
+
+        Pasa al cambiar `slot_minutes` con citas dentro. Se muestran en su
+        propia banda: esconderlas sería peor que enseñarlas.
+
+        Filtra por ESTADO con el MISMO criterio que `occupancy`, y por la misma
+        razón: una `cancelled` o `superseded` ya no ocupa nada, así que pintarla
+        aquí sería un **asiento fantasma** — un nombre en el tablero que no
+        corresponde a ninguna cita viva. Un `no_show` o una `attended` que ya no
+        son la vigente SÍ siguen ocupando su franja (D10/D5) y tienen que salir.
+        Nunca por `is_current`: eso es del historial, no de la ocupación.
+
+        Sin horario: siempre vacía. No tiene rejilla y `occupancy` cuenta toda
+        cita viva bajo la apertura, así que la de legado de las 10:30 saldría
+        en esta banda aunque sí ocupa su lugar.
+
+        Delega en `out_of_grid_map`.
+        """
+        return SlotService.out_of_grid_map(db, [window]).get(window.id, [])
+
+    @staticmethod
+    def out_of_grid_map(db: Session, windows) -> dict[int, list]:
+        """{window_id: [citas fuera de la rejilla]} de varias ventanas, con UN
+        SELECT (el tablero lo pedía una vez por espacio con franjas).
+
+        Mismo filtro que la ocupación (`_vivas`). Toda ventana pedida (con id)
+        sale en el mapa; las sin horario, siempre con `[]` y sin consultar.
+        Orden: (`scheduled_at`, `id`).
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        ventanas = {w.id: w for w in (windows or []) if w is not None and w.id}
+        salida: dict[int, list] = {wid: [] for wid in ventanas}
+        rejillas = {wid: set(SlotService.slots(w)) for wid, w in ventanas.items()
+                    if w.visibility != "walkin"}
+        if not rejillas:
+            return salida
+        # `window_id` como COLUMNA (lo que dice la base) y no el atributo del
+        # objeto: así se reparte por la misma ventana por la que se filtró.
+        q = SlotService._vivas(
+            db.query(ReviewAppointment, ReviewAppointment.window_id)
+            .filter(ReviewAppointment.window_id.in_(list(rejillas))))
+        for a, window_id in q.order_by(ReviewAppointment.scheduled_at,
+                                       ReviewAppointment.id).all():
+            if a.scheduled_at and a.scheduled_at.time() not in rejillas[window_id]:
+                salida[window_id].append(a)
+        return salida
+
+    @staticmethod
+    def vivas_de_ventanas(db: Session, window_ids) -> dict[int, list]:
+        """{window_id: [citas VIVAS]} de varias ventanas, con UN SELECT, en orden
+        de apartado `(scheduled_at, id)`.
+
+        Es la LISTA de lo que `occupancy_map` CUENTA: el mismo filtro por estado
+        (`_vivas`, nunca `is_current`), así que la lista y el contador de libres
+        de un espacio sin horario no pueden divergir. Ninguna página arma su
+        propio filtro por estado: pide esto (lo vigila
+        `test_slot_occupancy_batch.py`). Toda ventana pedida sale en el mapa
+        (`[]` si no tiene citas); sin ids no consulta.
+        """
+        from itcj2.apps.titulatec.models import ReviewAppointment
+        ids = [i for i in dict.fromkeys(window_ids or []) if i]
+        if not ids:
+            return {}
+        salida: dict[int, list] = {wid: [] for wid in ids}
+        # `window_id` como COLUMNA, igual que `out_of_grid_map`: se reparte por
+        # la misma ventana por la que se filtró.
+        q = SlotService._vivas(
+            db.query(ReviewAppointment, ReviewAppointment.window_id)
+            .filter(ReviewAppointment.window_id.in_(ids)))
+        for a, window_id in q.order_by(ReviewAppointment.scheduled_at,
+                                       ReviewAppointment.id).all():
+            salida[window_id].append(a)
+        return salida
+
+    @staticmethod
+    def is_walkin_reservation(appt) -> bool:
+        """¿Es un lugar apartado en un sin horario, y no una cita con hora?
+
+        Ventana `walkin` **y** sentada a la apertura. La segunda mitad es la
+        regla de legado (spec §6): la cita que un encargado sentó a las 10:30
+        dentro de un `walkin` conserva su hora y se anuncia «10:30», no el
+        rango. Es la definición única para la tarjeta, los avisos, los correos
+        y los cortes del alumno contra el cierre (D5, D11).
+        """
+        ventana = getattr(appt, "window", None)
+        if ventana is None or ventana.visibility != "walkin" or appt.scheduled_at is None:
+            return False
+        return appt.scheduled_at.time() == ventana.start_time
+
+    # ------------------------------------------------------------ resolución
+    @staticmethod
+    def windows_for_days(db: Session, day_ids, *, owner_id: int | None = None,
+                         solo_abiertas: bool = True) -> dict[int, list]:
+        """{review_day_id: [ventanas]} de varios días, con UN SELECT.
+
+        Dentro de cada día, el MISMO orden de siempre: (`start_time`, `id`).
+        Todo día pedido sale en el mapa, con `[]` si no tiene ventanas; sin
+        días no consulta nada. `windows_for_day` delega aquí.
+        """
+        from itcj2.apps.titulatec.models import ReviewWindow
+        ids = list(dict.fromkeys(day_ids or []))
+        if not ids:
+            return {}
+        # `review_day_id` como COLUMNA: se reparte por el día por el que se
+        # filtró, no por un atributo que alguien pudo tocar en memoria.
+        q = (db.query(ReviewWindow, ReviewWindow.review_day_id)
+             .filter(ReviewWindow.review_day_id.in_(ids)))
+        if owner_id is not None:
+            q = q.filter(ReviewWindow.owner_user_id == owner_id)
+        if solo_abiertas:
+            q = q.filter(ReviewWindow.status == "open")
+        salida: dict[int, list] = {dia: [] for dia in ids}
+        for w, dia in q.order_by(ReviewWindow.start_time, ReviewWindow.id).all():
+            salida[dia].append(w)
+        return salida
+
+    @staticmethod
+    def windows_for_day(db: Session, review_day_id: int, *, owner_id: int | None = None,
+                        solo_abiertas: bool = True) -> list:
+        """Ventanas de un día, opcionalmente solo las de un encargado."""
+        return SlotService.windows_for_days(
+            db, [review_day_id], owner_id=owner_id,
+            solo_abiertas=solo_abiertas).get(review_day_id, [])
+
+    @staticmethod
+    def resolve(db: Session, cohort_id: int, day: date, hhmm: time,
+                owner_id: int | None = None):
+        """(ventana, franja) para una fecha y hora dadas, o (None, None).
+
+        Puente para los caminos que todavía llegan con fecha y hora sueltas.
+        Prefiere la ventana del propio encargado; si no tiene ninguna que
+        contenga esa hora, acepta cualquier ventana abierta del día que sí la
+        contenga, para no romper las citas heredadas.
+
+        La hora se ajusta a la franja: 09:17 en una rejilla de 30 cae en 09:00.
+        No es laxitud, es lo que permite que un `datetime` viejo siga casando
+        con la rejilla nueva sin inventar una franja que no existe.
+        """
+        from itcj2.apps.titulatec.models import CohortReviewDay
+        fila = (db.query(CohortReviewDay)
+                .filter_by(cohort_id=cohort_id, date=day).first())
+        if fila is None or fila.is_closed:
+            return None, None
+
+        candidatas = SlotService.windows_for_day(db, fila.id, owner_id=owner_id)
+        if not candidatas:
+            candidatas = SlotService.windows_for_day(db, fila.id)
+
+        for w in candidatas:
+            if not (w.start_time <= hhmm < w.end_time):
+                continue
+            franjas = SlotService.slots(w)
+            cabe = [f for f in franjas if f <= hhmm]
+            if cabe:
+                return w, cabe[-1]
+        return None, None

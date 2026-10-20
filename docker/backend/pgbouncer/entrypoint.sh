@@ -16,6 +16,36 @@ mkdir -p /tmp/pgbouncer
 # Se almacena en texto plano para que pgBouncer pueda realizar
 # autenticación SCRAM-SHA-256 con PostgreSQL 16+.
 printf '"%s" "%s"\n' "${POSTGRES_USER}" "${POSTGRES_PASSWORD}" > /tmp/pgbouncer/userlist.txt
+
+# Rol de solo-monitoreo (opcional). Existe para que el pgbouncer-exporter del
+# stack de observabilidad deje de entrar como SUPERUSUARIO: hoy su password
+# viaja dentro de una URL en una variable de entorno, o sea legible con
+# `docker inspect` por cualquiera del grupo docker, en un host que esta app
+# comparte con otra.
+#
+# Va con guardia y no como variable requerida a proposito: si el .env no las
+# trae, pgBouncer arranca exactamente igual que antes. Un `: "${VAR:?}"` aqui
+# dejaria la BD sin pooler en el primer deploy que no las tuviera.
+#
+# El rol tambien tiene que estar en `stats_users` de pgbouncer.ini para leer la
+# BD virtual "pgbouncer" (SHOW POOLS/STATS), y existir en Postgres con la MISMA
+# password.
+if [ -n "${MONITORING_USER:-}" ] && [ -n "${MONITORING_PASSWORD:-}" ]; then
+  printf '"%s" "%s"\n' "${MONITORING_USER}" "${MONITORING_PASSWORD}" >> /tmp/pgbouncer/userlist.txt
+  echo "[pgBouncer] userlist.txt incluye el rol de monitoreo: ${MONITORING_USER}"
+fi
+# Avisos (a stderr, sin abortar): pgbouncer.ini fija `stats_users = postgres,
+# monitoring`, asi que otro nombre autenticaria pero recibiria "not allowed" al
+# consultar SHOW POOLS; y con solo una de las dos variables el rol se omite
+# en silencio, que parece un exporter roto sin causa visible.
+if [ -n "${MONITORING_USER:-}" ] && [ "${MONITORING_USER}" != "monitoring" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_USER='${MONITORING_USER}' no es 'monitoring'; pgbouncer.ini solo lista 'monitoring' en stats_users, asi que SHOW POOLS/STATS le daran 'not allowed'." >&2
+fi
+if [ -n "${MONITORING_USER:-}" ] && [ -z "${MONITORING_PASSWORD:-}" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_USER esta definido pero MONITORING_PASSWORD no; se omite el rol de monitoreo." >&2
+elif [ -z "${MONITORING_USER:-}" ] && [ -n "${MONITORING_PASSWORD:-}" ]; then
+  echo "[pgBouncer] AVISO: MONITORING_PASSWORD esta definido pero MONITORING_USER no; se omite el rol de monitoreo." >&2
+fi
 chmod 600 /tmp/pgbouncer/userlist.txt
 chown -R pgb:pgb /tmp/pgbouncer
 

@@ -1,0 +1,197 @@
+<!--
+  Hoja de constancias para WeasyPrint (TitulaTec).
+
+  Spec `2026-10-02-titulatec-constancias-y-pendientes-design.md` §2 (E4/E8) y
+  §3.1: 2 o 3 constancias por hoja carta -- el acomodo se elige CADA VEZ que
+  se abre el PDF, nunca se guarda en el lote --, cada una en una ranura de
+  ALTO FIJO (`break-inside: avoid`, el alto exacto depende del acomodo),
+  separadas por una línea de corte punteada con tijera, nunca tras la última
+  de la hoja. NO extiende `base.html` ni ningún layout HTTP de la app -- es
+  un documento HTML completo pensado SOLO para
+  `weasyprint.HTML(...).write_pdf()`
+  (`utils/certificate_pdf.py::render_certificates_pdf`), nunca para un
+  `Request`/`TemplateResponse`.
+
+  Plantilla en DOS PIEZAS (E8): esta hoja (acomodo + línea de corte) y la
+  RANURA de cada constancia, incluida por tipo vía `SLOT_TEMPLATES`
+  (`utils/certificate_pdf.py`) -- ya resuelta por constancia en
+  `c.slot_template` (`_cert_ctx`): esta plantilla no decide nada, solo pinta.
+
+  Contexto esperado: `per_page` (2 o 3) y `groups` = lista de hojas, cada hoja
+  una lista de hasta `per_page` dicts (`utils/certificate_pdf.py::_cert_ctx`)
+  con: number, control_number, student_name, program_name, period_label,
+  issued_label, voided, title, department, phrase, slot_template.
+-->
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Constancias</title>
+<style>
+  @page {
+    size: letter;
+    margin: 0.3in 0.45in;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, "Liberation Sans", "DejaVu Sans", sans-serif;
+    color: #1a1a1a;
+    font-size: 10pt;
+  }
+  /* Una hoja por grupo de `per_page` constancias; la siguiente hoja siempre
+     arranca en una página nueva (nunca tras la última). */
+  .sheet + .sheet {
+    break-before: page;
+    page-break-before: always;
+  }
+  /* Ranura de alto FIJO: si el contenido se desborda (un nombre/carrera muy
+     largos) se recorta en vez de empujar la paginación -- `per_page` por
+     hoja es un contrato duro, no "hasta `per_page`". El alto exacto depende
+     del acomodo (`.sheet--3 .slot` / `.sheet--2 .slot`, abajo). */
+  .slot {
+    position: relative;
+    padding: 0.14in 0.2in;
+    border: 1pt solid #bbb;
+    border-radius: 4pt;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  /* 3 por hoja (acomodo de siempre, D7 de ayer): 3 x 3.2in + 2 líneas de
+     corte caben en carta (11in - 0.6in de márgenes @page = 10.4in útiles). */
+  .sheet--3 .slot { height: 3.2in; }
+  /* 2 por hoja (spec §3.1/E4): ranura más alta y tipografía algo mayor
+     (abajo); 2 x 4.9in + 1 línea de corte ≈ 10.1in, sin desbordar a una
+     tercera página. */
+  .sheet--2 .slot { height: 4.9in; }
+  .sheet--2 .slot-title { font-size: 15pt; }
+  .sheet--2 .slot-body { font-size: 11.5pt; line-height: 1.5; }
+  .sheet--2 .fields { font-size: 10.5pt; }
+  .sheet--2 .fields td.label { width: 1.3in; }
+  .sheet--2 .slot-foot { font-size: 10pt; }
+  /* Línea de corte con tijera, entre ranuras de la MISMA hoja (nunca tras la
+     última de la hoja). */
+  .cut {
+    display: flex;
+    align-items: center;
+    margin: 0.08in 0;
+    color: #777;
+    font-size: 9pt;
+  }
+  .cut .scissors { margin-right: 6pt; }
+  .cut .dash {
+    flex: 1;
+    border-top: 1pt dashed #999;
+    margin-top: 1pt;
+  }
+  .slot-head {
+    display: flex;
+    align-items: center;
+  }
+  .slot-head img { height: 0.5in; width: auto; }
+  .slot-head .titles {
+    flex: 1;
+    text-align: center;
+    padding: 0 0.15in;
+  }
+  .slot-head .titles .inst {
+    font-size: 9pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .slot-head .titles .dept {
+    font-size: 8pt;
+    color: #444;
+    margin: 1pt 0 0;
+  }
+  .slot-title {
+    text-align: center;
+    font-weight: bold;
+    font-size: 12.5pt;
+    letter-spacing: 0.4pt;
+    margin: 0.1in 0 0.06in;
+  }
+  .slot-body {
+    font-size: 9.8pt;
+    line-height: 1.35;
+    margin: 0 0 0.06in;
+    text-align: justify;
+  }
+  .fields {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+  .fields td {
+    padding: 1.5pt 3pt;
+    vertical-align: top;
+  }
+  .fields td.label {
+    color: #555;
+    white-space: nowrap;
+    width: 1.1in;
+  }
+  /* Pie (fecha de emisión + firma) ANCLADO AL FONDO de la ranura con
+     POSICIÓN ABSOLUTA -- no con el truco de flex `margin-top: auto`
+     (Ruling R1, fix round 1): WeasyPrint 70 tiene soporte PARCIAL de flex y
+     ese truco no empujaba nada: el pie quedaba pegado justo debajo de la
+     tabla de datos, con el resto de la ranura en blanco por debajo (hasta
+     ~55% de la ranura vacío en 2 por hoja) y SIN espacio arriba de la línea
+     para firmar y sellar.
+
+     `.slot` ya es `position: relative`: el cuadro de contención de un hijo
+     absoluto es la PADDING BOX del ancestro posicionado (no su content box),
+     así que `left`/`right`/`bottom` repiten el padding de `.slot`
+     (`0.14in 0.2in`) para que el pie quede exactamente donde quedaría un
+     hijo normal con ese mismo padding -- en los dos acomodos, el hueco entre
+     la tabla y la línea de firma es justo el espacio libre que sobra arriba
+     del pie. */
+  .slot-foot {
+    position: absolute;
+    left: 0.2in;
+    right: 0.2in;
+    bottom: 0.14in;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-size: 8.5pt;
+  }
+  .signature { text-align: center; }
+  .signature .line {
+    border-top: 1pt solid #333;
+    width: 2.4in;
+    margin-bottom: 2pt;
+  }
+  .stamp {
+    position: absolute;
+    top: 0.4in;
+    right: 0.35in;
+    border: 2.5pt solid #b00020;
+    color: #b00020;
+    font-weight: bold;
+    font-size: 15pt;
+    padding: 3pt 10pt;
+    transform: rotate(-16deg);
+    opacity: 0.85;
+    letter-spacing: 1pt;
+  }
+</style>
+</head>
+<body>
+{% for grupo in groups %}
+<div class="sheet sheet--{{ per_page }}">
+  {% for c in grupo %}
+  {% include c.slot_template %}
+  {% if not loop.last %}
+  <div class="cut"><span class="scissors">&#9986;</span><span class="dash"></span></div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endfor %}
+</body>
+</html>

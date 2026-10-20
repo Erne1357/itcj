@@ -135,3 +135,29 @@ def test_invalidate_app_preserves_session_version(uid):
     ac.invalidate_app("helpdesk")
 
     assert r.get(ss._KEY.format(uid=uid)) == "7"
+
+
+def test_la_suite_no_corre_sobre_la_db_de_redis_de_los_procesos_vivos():
+    """R10: los tests tienen su propia base de Redis, separada de la db 0.
+
+    El Redis de dev lo comparten procesos VIVOS —worker y beat de Celery, y el
+    servidor de Socket.IO—. Medido: 16 clientes conectados a la db 0 ejecutando
+    brpop/evalsha/publish/subscribe mientras corria la suite.
+
+    Sin separacion, cualquier test que escriba una clave de produccion y afirme
+    que sobrevive es una carrera: `invalidate_all()` borra `authz:v1:deptmap`
+    explicitamente, y basta con que otro proceso pase por ahi entre el `setex` y
+    el `get`. Asi fallaba `test_invalidate_app_only_touches_that_app`, una vez
+    cada varias corridas completas y nunca en aislamiento.
+
+    Esta prueba vigila el aislamiento, no el sintoma: si alguien quita la
+    redireccion de `tests/fastapi/conftest.py`, esto se pone rojo de inmediato en
+    vez de devolvernos un fallo intermitente cada pocos dias.
+    """
+    r = _redis_or_skip()
+    db = r.connection_pool.connection_kwargs.get("db")
+
+    assert db != 0, (
+        "la suite esta usando la db 0 de Redis, la misma que Celery y Socket.IO. "
+        "Revisa el bloque de aislamiento al principio de tests/fastapi/conftest.py."
+    )

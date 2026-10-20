@@ -1,0 +1,17 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Correos · TitulaTec{% endblock %}
+{% block admin_view %}mail{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Bandeja de salida · Administración</span>
+  <h1 class="tt-display h3 fw-medium">Correos</h1>
+  <p class="mb-0 small text-body-secondary">Los avisos que la plataforma manda a los egresados
+     y solicitantes: los que esperan su turno, los que salieron, los que fallaron y los que se
+     descartaron. El despachador los envía cada 5 minutos. Solo lectura: aquí no se reintenta
+     ni se reenvía nada. Los correos con liga de activación o NIP salen al momento y no pasan
+     por esta bandeja.</p>
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/mail_outbox_body.html" %}
+</div>
+{% endblock %}

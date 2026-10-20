@@ -312,6 +312,21 @@ def list_tickets(
             MaintTicket.rated_at.is_(None),
         )
 
+    # Perf 2026-10-07: los dos llamadores (lista y tablero) serializan técnicos
+    # (con su usuario), solicitante, categoría y coordinador de CADA ticket. Sin
+    # esto eran 1 consulta de técnicos por ticket + 1 por usuario/categoría
+    # distintos (38 consultas en una página de 20; 60 en el tablero). Con
+    # `selectinload` es una consulta por relación para toda la página, y el
+    # `count()` del paginador no las arrastra.
+    from sqlalchemy.orm import selectinload
+    from itcj2.apps.maint.models import MaintTicketTechnician
+
+    query = query.options(
+        selectinload(MaintTicket.technicians).selectinload(MaintTicketTechnician.user),
+        selectinload(MaintTicket.requester),
+        selectinload(MaintTicket.category),
+        selectinload(MaintTicket.coordinator),
+    )
     query = query.order_by(MaintTicket.created_at.desc())
     pagination = paginate(query, page=page, per_page=per_page)
 

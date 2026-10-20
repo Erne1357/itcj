@@ -1,0 +1,239 @@
+# Formato de las reglas de elegibilidad del SII
+
+> Spec: `docs/superpowers/specs/2026-09-25-titulatec-elegibilidad-sii-design.md` §3.2 (y
+> `2026-09-27-titulatec-sii-informa-se-decide-design.md`: el SII informa, Servicios Escolares
+> decide — ya nada se aprueba solo).
+> Código: `itcj2/apps/titulatec/services/sii/rules.py` (motor), `client.py` (conector).
+> Ejemplo **sintético** completo y probado: `tests/fastapi/titulatec/sii_fixtures/`.
+
+Las reglas **reales** NO viven en el repo: van en `database/SII/titulatec/` (gitignored, se
+copian al servidor como el DML; la ruta la fija `TITULATEC_SII_RULES_DIR`). Este documento
+describe el formato, que no es sensible.
+
+```
+database/SII/titulatec/
+├── rules.toml          # declaración: consultas, reglas, credencial, identidad, hechos
+├── queries/*.sql       # una consulta SELECT de solo lectura por archivo
+└── fake_sii.json       # (opcional) filas del SII falso para dev/demo
+```
+
+Las reglas son **declarativas**: no hay código en estos archivos. Cambiar una regla es
+editar el TOML/SQL, correr `titulatec sii-rules-validate` y `titulatec sii-check <control>`,
+y subir `version` (queda registrada en cada consulta: así se sabe con qué reglas se decidió).
+
+## `rules.toml`
+
+```toml
+version = "2026-10-01.1"          # obligatoria, ≤ 40 caracteres; se guarda en cada consulta
+
+[[query]]                          # una o más
+id = "alumno"                      # letras, dígitos y _
+file = "queries/alumno.sql"        # relativa a la carpeta; no puede salir de ella
+params = ["control_number"]        # en el orden de los `?` del SQL
+
+[[rule]]                           # una o más; se evalúan en este orden
+id = "existe"
+query = "alumno"
+criterion = { kind = "exists" }
+message = "El número de control no existe en el SII."
+
+[[rule]]
+id = "creditos"
+query = "alumno"
+criterion = { kind = "gte", column = "creditos_aprobados", value_column = "creditos_carrera" }
+message = "Le faltan créditos: {creditos_aprobados} de {creditos_carrera}."
+ok_message = "Créditos completos ({creditos_aprobados})."   # opcional; default «Cumple.»
+
+[credential]                       # opcional: de dónde sale el NIP
+query = "nip"                      # consulta PROPIA (ver abajo)
+column = "nip"
+
+[identity]                         # sin first_name y last_name no se compara el nombre (ver abajo)
+query = "alumno"
+columns = { first_name = "nombre", last_name = "apellido_paterno", middle_name = "apellido_materno", entry_year = "anio_ingreso", program = "carrera" }
+
+[facts]                            # opcional: lista BLANCA de columnas que se guardan para auditoría
+query = "alumno"
+columns = ["estatus", "creditos_aprobados", "creditos_carrera", "anio_ingreso"]
+```
+
+Claves desconocidas son **error** (atrapa typos como `mesage` o `critera`).
+
+### Consultas
+
+- Cada `[[query]]` se ejecuta **a lo más una vez** por evaluación, y la comparten todas sus
+  reglas. Solo corren las que usa alguna regla, `[identity]` o `[facts]`.
+- Parámetros **enlazados** con `?` (nunca interpolados). Permitido: **solo** `control_number`
+  (`curp` se quitó: el formulario no la captura). El número de `?` debe coincidir con `params`.
+- Las columnas se leen en **minúsculas** y el texto sin relleno a la derecha (los `CHAR` de
+  Sybase). Escribe las columnas de las reglas en minúsculas; usa alias (`AS`) si hace falta.
+
+### Criterios (`criterion.kind`, vocabulario cerrado)
+
+| kind | Cumple si… | Claves |
+|---|---|---|
+| `exists` / `not_exists` | la consulta devuelve ≥ 1 / 0 filas | solo `kind` |
+| `equals` / `not_equals` | `column` = / ≠ el valor | `column` + (`value` **o** `value_column`) |
+| `gte` / `lte` | `column` ≥ / ≤ el valor | `column` + (`value` **o** `value_column`) |
+| `in` / `not_in` | `column` está / no está en la lista | `column` + `value = [ … ]` |
+| `truthy` / `falsy` | `column` es verdadero / falso (lista **cerrada**, ver abajo) | `column` |
+
+- `mode = "all"` (default): la condición se cumple en **todas** las filas; `mode = "any"`:
+  en **alguna**. No aplica a `exists`/`not_exists`.
+- `value_column` compara contra otra columna de la **misma fila**.
+- Números: se comparan como números aunque vengan como texto (`"260"` = `260`).
+- Texto: sin espacios a los lados y **sin distinguir mayúsculas** (`"egresado"` = `"EGRESADO "`).
+- Fechas: fecha contra fecha (`value = 2026-01-15` es una fecha TOML).
+- `truthy`/`falsy` son **estrictos** (revisión final C4): sin distinguir mayúsculas y sin
+  espacios alrededor, **verdadero** = `1, S, SI, SÍ, Y, YES, T, TRUE, V, VERDADERO` y
+  **falso** = `0, N, NO, F, FALSE, FALSO`; además un `bool` del driver y el **número** 0 o 1 en
+  cualquier tipo numérico (`INT`, `NUMERIC(1,0)` → `Decimal`, `FLOAT` → `float`; `0.5`, `2` o
+  `-1` no valen). **Cualquier otro valor es error de la regla**, nunca «verdadero»: antes
+  «NO ACREDITADO» o «PENDIENTE» en una columna de estatus contaban como verdadero y daban por
+  apta a una persona que no lo era. Para una columna de texto con estatus usa `equals` o `in`. `equals` con
+  `value = true/false` usa la misma regla.
+
+**Fail-closed** (nada se da por apto por omisión):
+
+- Una comparación sobre **0 filas no cumple** (con `all` sería «verdad vacía»).
+- **`NULL` no cumple ninguna comparación** (ni `not_equals`, como en SQL).
+- **`NULL` en `truthy`/`falsy` es error de la regla** (no «no se sabe», con `all` y con `any`):
+  la evaluación queda en `error` (no reintentable) y la solicitud, para Servicios Escolares. El
+  mensaje nombra la regla y la columna. Si `NULL` debe contar como falso, usa `equals`/`in`
+  (con esos, `NULL` simplemente no cumple).
+- Una columna del criterio que la consulta **no devuelve**, o tipos que no se pueden comparar
+  (texto contra número) → la evaluación entera queda en **`error`**, nunca `apt`.
+
+### Mensajes
+
+`message` es el motivo cuando la regla **falla**; `ok_message` (opcional) cuando cumple.
+`{columna}` se sustituye con el valor de la **primera fila** de la consulta de la regla. Una
+columna que no viene queda literal (`{columna}`) y sale como advertencia en `sii-check`.
+Solo nombres simples: `{a.b}` o `{a[0]}` no se evalúan.
+
+### Identidad (`[identity]`)
+
+- Mapea columnas del SII a `first_name`, `last_name`, `middle_name`, `entry_year`, `program`.
+  Sirve para comparar con lo que se tecleó en el formulario (sin acentos ni mayúsculas).
+- **Alimenta la confirmación de Servicios Escolares** (spec 2026-09-27 D7; antes, del 2026-09-25
+  al 2026-09-27, condicionaba la aprobación automática, retirada el 2026-09-27). Para que el
+  nombre cuente como confirmado tiene que mapear `first_name` y `last_name`, y los dos deben traer
+  valor en el SII y en el formulario (falla cerrado, revisión final C3/C9). Si no se pudo comparar
+  (sin `[identity]`, columna mal escrita, nombre vacío), aprobar una apta pide confirmación con
+  «No se pudo comparar el nombre con el SII.»; si el nombre difiere, con «El nombre del formulario
+  no coincide con el del SII (…); confirma que la solicitud sea de esa persona antes de
+  aprobarla.» (solo etiquetas, nunca valores). La bandeja muestra además las diferencias en la
+  columna «SII». El apellido materno es opcional; una carrera distinta se muestra pero no pide
+  confirmación (el SII suele mandarla como clave).
+- `sii-rules-validate` **advierte** (exit 0) si `[identity]` falta o no mapea `first_name` y
+  `last_name`: las reglas son válidas, pero no se compara el nombre con el formulario, así que
+  **cada aprobación pedirá confirmación** («No se pudo comparar el nombre con el SII»).
+
+### Credencial (NIP)
+
+- La consulta de `[credential]` **no corre dentro de `RuleSet.evaluate`**: la pide aparte
+  `RuleSet.fetch_credential` (vía `eligibility_service.fetch_sii_nip`), y solo cuando la persona
+  **no tiene cuenta**: en la consulta al SII (después del veredicto, si no es `error`), para
+  guardar su **estado** (`EligibilityCheck.nip_status`: `available`/`missing`/`invalid`/
+  `unavailable`/`error`, nunca el valor), y al aprobar «Aprobar y dar acceso», para crear la
+  cuenta. El valor viaja en un `Secret` (`****`) y se descarta tras clasificarlo o hashearlo.
+- **El NIP debe ser texto de exactamente 4 dígitos** (`0`–`9` ASCII; `nip_format_ok`, la misma
+  regla que el alta manual y «Reasignar NIP»). Devuélvelo como **texto** (`CHAR(4)`/`VARCHAR`):
+  si la columna es numérica, un entero (`INT`, `NUMERIC(p,0)`, un `FLOAT` sin decimales) se
+  rellena a 4 dígitos (`123` → `0123`), pero uno con decimales no se trunca y se rechaza. Con
+  otro formato la cuenta no se crea: la consulta guarda `nip_status = invalid` (la bandeja ofrece
+  «Aprobar y pasar a Accesos»), un «dar acceso» responde con el aviso «El NIP del SII no tiene un
+  formato válido (4 dígitos).» sin escribir nada, y `sii-check` lo marca (`4 dígitos: no`, exit 1).
+- Varias filas con NIP **distintos** son error de configuración (`SiiRulesError`, sin valores):
+  antes se tomaba la primera, es decir, uno al azar.
+- Debe ser una consulta **propia**: el validador rechaza que alimente reglas, `[identity]` o
+  `[facts]`, y que su columna aparezca en `[identity]`/`[facts]`.
+- «Sin NIP» es **0 filas** o la columna en `NULL`/vacía. Si la consulta devuelve filas pero
+  **no trae la columna declarada** en `column`, es un error de configuración
+  (`SiiRulesError`, que nombra las columnas que sí vienen, nunca sus valores).
+- Corre en modo **sensible**: si el SII la rechaza, el log y el error llevan solo el tipo y
+  el SQLSTATE, nunca el texto del driver (un error de conversión, p. ej. con
+  `CONVERT(INT, nip)`, lo trae con el valor de la fila).
+
+### Veredicto
+
+`apt` = todas las reglas cumplen · `not_apt` = alguna falla (cada falla trae su motivo) ·
+`error` = el SII no respondió, la consulta es inválida o las reglas están mal escritas.
+Ningún veredicto aprueba nada: desde 2026-09-27 Servicios Escolares decide siempre, con el
+veredicto a la vista; `not_apt`, `error` (o sin consulta) hacen que aprobar pida confirmación.
+
+## `queries/*.sql`
+
+Una sola sentencia de **solo lectura**. El validador (heurística; la defensa real es que el
+usuario de BD del SII sea de solo lectura):
+
+- ignora comentarios (`--`, `/* */`) y el contenido de `'…'`, `"…"` y `[…]`;
+- exige que empiece con `SELECT` o `WITH`;
+- rechaza `;` salvo uno al final;
+- como en Sybase dos sentencias NO necesitan `;` entre ellas (`SELECT 1 DELETE FROM x`),
+  rechaza palabras de escritura/DDL/control en cualquier parte: `INSERT`, `UPDATE`,
+  `DELETE`, `MERGE`, `TRUNCATE`, `DROP`, `ALTER`, `CREATE`, `GRANT`, `REVOKE`, `EXEC`,
+  `EXECUTE`, `CALL`, `INTO` (`SELECT … INTO` crea tablas), `SET`, `DECLARE`, `USE`, `BEGIN`,
+  `COMMIT`, `ROLLBACK`, `WAITFOR`, `DUMP`, `LOAD`, `KILL`, `SHUTDOWN`, `DBCC`, etc., y los
+  verbos que solo **empiezan** una sentencia de ASE: `SETUSER`, `PRINT`, `RAISERROR`,
+  `QUIESCE`, `REORG`, `MOUNT`, `UNMOUNT`, `ONLINE`, `GOTO`, `RETURN`, `IF`, `WHILE`, `BREAK`,
+  `CONTINUE`, `OPEN`, `FETCH`, `CLOSE`, `CONNECT`, `DISCONNECT`, `REMOVE`, `TRANSFER`,
+  `REFRESH`;
+- rechaza identificadores que empiezan con `sp_` o `xp_` (procedimientos de sistema, que en
+  T-SQL se llaman sin `EXEC`);
+- rechaza un **segundo `SELECT` de nivel superior** sin `;` (fuera de paréntesis y que no siga
+  a `UNION`/`EXCEPT`/`INTERSECT`).
+  Si una columna de la tabla se llama como una de esas palabras o empieza con `sp_`/`xp_`,
+  escríbela entre corchetes (`[set]`, `[sp_total]`) o comillas: el validador no mira adentro, y
+  el mensaje de error lo sugiere.
+
+```sql
+-- queries/alumno.sql  (ejemplo genérico; el esquema real lo define el área del SII)
+SELECT a.nombre, a.apellido_paterno, a.apellido_materno, a.carrera,
+       a.anio_ingreso, a.estatus, a.creditos_aprobados, a.creditos_carrera
+  FROM alumnos a
+ WHERE a.no_de_control = ?
+```
+
+## `fake_sii.json` (SII falso)
+
+Con `TITULATEC_SII_BACKEND=fake` el conector lee `TITULATEC_SII_FAKE_FILE`. **No arranca con
+`FLASK_ENV=production`** (`Settings` lo rechaza: daría veredictos y NIP sintéticos, y las cuentas
+nacerían con ellos):
+
+```json
+{
+  "queries": {
+    "alumno": {
+      "20110001": [ {"nombre": "Ana", "estatus": "EGRESADO", "creditos_aprobados": 260, "creditos_carrera": 260} ],
+      "20119999": {"error": "unavailable"}
+    },
+    "nip": { "20110001": [ {"nip": "0000"} ] }
+  }
+}
+```
+
+Llave = valor del parámetro (con varios: `valor1|valor2`). Lo que no aparece = 0 filas.
+`{"error": "unavailable"}` simula el SII caído (reintentable) y `{"error": "query"}` una
+consulta inválida.
+
+## Comandos
+
+```bash
+python -m itcj2.cli.main titulatec sii-ping                        # ¿responde el SII?
+python -m itcj2.cli.main titulatec sii-rules-validate [--dir RUTA] # ¿reglas válidas? (+ advertencias)
+python -m itcj2.cli.main titulatec sii-check 20110001 [--cohort 3] # dry-run, NIP enmascarado
+```
+
+Ninguno escribe en la BD. `sii-check` imprime el estado del NIP —`NIP: disponible — **** (el SII
+lo devuelve · 4 dígitos: sí)`, `NIP: formato inválido — ****…`, `NIP: no tiene — sin NIP…`—, nunca
+el valor (es el estado que guardaría la consulta para alguien sin cuenta), y sale con código 1 si
+el veredicto es `error`, si la consulta de `[credential]` falla o no trae su columna, o si el NIP no
+tiene 4 dígitos. Con `--cohort` imprime el botón que vería Servicios Escolares en «Por revisar»
+(«Aprobar y enviar liga» / «Aprobar y dar acceso» / «Aprobar y pasar a Accesos»), con la misma
+decisión que la bandeja (`EnrollmentRequestService.approval_path`).
+
+En producción las reglas las lee el **worker de Celery** (la consulta y el barrido corren ahí):
+córrelos con `docker compose exec celery-worker python -m itcj2.cli.main titulatec …`, no en el
+backend HTTP, para validar lo que el worker ve de verdad (ver el runbook en
+[`xcut_sii_eligibility.md`](flows/xcut_sii_eligibility.md#despliegue)).

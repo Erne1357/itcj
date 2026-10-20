@@ -154,7 +154,7 @@ def test_init_directory_goes_through_the_chokepoint(tmp_path):
 
     dml_dir = tmp_path / "database" / "DML" / "directory"
     dml_dir.mkdir(parents=True)
-    for name in directory_cli_mod._DML_FILES:
+    for name in directory_cli_mod._DML_BASE_FILES:
         (dml_dir / name).write_text("SELECT 1;", encoding="utf-8")
 
     with patch.object(directory_cli_mod, "PROJECT_ROOT", tmp_path), \
@@ -162,6 +162,6 @@ def test_init_directory_goes_through_the_chokepoint(tmp_path):
         result = CliRunner().invoke(directory_cli_mod.init_directory_command, [])
 
     assert result.exit_code == 0, result.output
-    assert run_sql.call_count == len(directory_cli_mod._DML_FILES)
+    assert run_sql.call_count == len(directory_cli_mod._DML_BASE_FILES)
     for call in run_sql.call_args_list:
         assert call.kwargs.get("invalidate_authz", True) is True, call

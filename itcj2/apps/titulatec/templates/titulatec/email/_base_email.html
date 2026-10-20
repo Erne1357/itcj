@@ -1,0 +1,38 @@
+{# Envoltura común de los correos de TitulaTec. El guion bajo la marca como
+   LAYOUT, no como uno de los seis correos. Tabla de 600px porque Outlook sigue
+   sin entender flex. Cada correo rellena `titulo` y `cuerpo`. #}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block titulo %}TitulaTec ITCJ{% endblock %}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0"
+             style="max-width:600px;width:100%;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+        <tr>
+          <td style="background-color:#1F3D7A;padding:28px 32px;text-align:center;">
+            <p style="margin:0;color:#ffffff;font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.8;">
+              Instituto Tecnológico de Ciudad Juárez</p>
+            <h1 style="margin:8px 0 0;color:#ffffff;font-size:22px;font-weight:700;letter-spacing:.5px;">
+              TitulaTec</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff;padding:32px;color:#37474F;font-size:15px;line-height:1.6;">
+            {% block cuerpo %}{% endblock %}
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ECEFF1;padding:16px 32px;text-align:center;color:#607D8B;font-size:12px;">
+            Correo automático de la Plataforma Digital del ITCJ. Si no esperabas este mensaje, ignóralo.
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

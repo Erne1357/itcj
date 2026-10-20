@@ -74,20 +74,19 @@ def _build_maint_nav(user_id: int, current_path: str, db, jwt_role: str | None =
     `jwt_role` es el `role` del JWT: si es "admin" se trata como admin
     global (bypassa permisos granulares, igual que require_perms).
     """
-    from itcj2.core.services.authz_service import (
-        user_roles_in_app,
-        user_direct_perms_in_app,
-        perms_via_roles,
-    )
+    # Del caché de authz (perf 2026-10-07): el MISMO que usa la guarda de cada
+    # página, así que el menú solo ofrece lo que la página deja abrir (incluido
+    # restar los permisos denegados, que antes no se restaban aquí).
+    from itcj2.core.services.authz_cache import cached_perms, cached_roles
 
     try:
-        roles = set(user_roles_in_app(db, user_id, "maint"))
+        roles = set(cached_roles(db, user_id, "maint"))
     except Exception as exc:
         logger.warning("Error obteniendo roles maint para user %s: %s", user_id, exc)
         roles = set()
 
     try:
-        perms = set(user_direct_perms_in_app(db, user_id, "maint")) | set(perms_via_roles(db, user_id, "maint"))
+        perms = set(cached_perms(db, user_id, "maint"))
     except Exception as exc:
         logger.warning("Error obteniendo perms maint para user %s: %s", user_id, exc)
         perms = set()

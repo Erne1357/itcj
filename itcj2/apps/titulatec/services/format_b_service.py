@@ -17,6 +17,15 @@ STEP_FIELDS = {
 _INT_FIELDS = {"age", "program_id"}
 _MONTH_FIELDS = {"admission_date", "graduation_date"}
 
+# Etiqueta de cada paso (la misma del stepper de `partials/formato_b_step.html`).
+STEP_LABELS = {1: "Personales", 2: "Escolares", 3: "Proyecto"}
+
+# Campos que `get_or_create` PRECARGA del alumno/proceso. No sirven como señal de
+# "el alumno pasó por este paso": están llenos desde el minuto cero. Sin excluirlos,
+# el paso 2 (program_id + titulation_type precargados) se vería completo siempre.
+PRELOADED_FIELDS = {"first_name", "last_name", "middle_name",
+                    "control_number", "program_id", "titulation_type"}
+
 
 def _to_month_str(d) -> str:
     """Date → 'YYYY-MM' para <input type=month>."""
@@ -65,6 +74,9 @@ class FormatBService:
     @staticmethod
     def save_step(db: Session, fb, step: int, form: dict) -> None:
         """Guarda los campos del paso indicado (parcial, status sigue 'draft')."""
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        antes = AuditService.snapshot(fb, STEP_FIELDS.get(step, []))
+        status_antes = fb.status
         for field in STEP_FIELDS.get(step, []):
             if field not in form:
                 continue
@@ -77,23 +89,86 @@ class FormatBService:
                 setattr(fb, field, (raw.strip() or None) if isinstance(raw, str) else raw)
         if fb.status == "rejected":
             fb.status = "draft"
+        # Solo los NOMBRES de los campos que cambiaron: los valores (domicilio,
+        # teléfonos) ya los guarda la red ORM como `data.*` y no se duplican aquí.
+        despues = AuditService.snapshot(fb, STEP_FIELDS.get(step, []))
+        cambiados, _ = AuditService.changes(antes, despues)
+        if cambiados or status_antes == "rejected":
+            AuditService.record(
+                db, "format_b.step_saved",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                payload={"step": step, "label": STEP_LABELS.get(step),
+                         "changed_fields": sorted(cambiados),
+                         "status_reset": status_antes == "rejected"},
+            )
         db.commit()
 
     @staticmethod
-    def submit(db: Session, fb) -> None:
-        """Envía el Formato B a revisión y marca la fase 3 in_review."""
+    def submit(db: Session, fb, process) -> None:
+        """Envía el Formato B a revisión y marca su fase in_review.
+
+        **Guarda propia, no solo en la ruta.** Este es uno de los tres puntos que
+        mueven el estado de una fase desde el lado del alumno, y el que peor
+        fallaba: sin comprobar `current_phase` metía el proceso en la cola de
+        Titulaciones desde la fase 1, saltándose los documentos iniciales y la
+        cita de cotejo. Va aquí por lo mismo que `approve_phase` lleva
+        `assert_can_transition` dentro: el siguiente llamador la hereda gratis.
+
+        `process` es parámetro nuevo (antes solo recibía `fb`): la guarda necesita
+        `current_phase` y `status`, que viven en el proceso, no en el Formato B.
+
+        El número de fase sale del CATÁLOGO (`format_b`), no del literal `3` que
+        estaba escrito aquí: era el tercer sitio del código con el dominio de
+        fases a mano.
+        """
         from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, "format_b")
+        PhaseService.assert_student_can_act(db, process, n)
+
         fb.status = "submitted"
-        phase = db.query(ProcessPhase).filter_by(process_id=fb.process_id, phase_number=3).first()
+        phase = db.query(ProcessPhase).filter_by(process_id=fb.process_id, phase_number=n).first()
         if not phase:
-            phase = ProcessPhase(process_id=fb.process_id, phase_number=3)
+            phase = ProcessPhase(process_id=fb.process_id, phase_number=n)
             db.add(phase)
         phase.status = "in_review"
+        AuditService.record(
+            db, "format_b.submitted",
+            entity_type="format_b", entity_id=fb.process_id,
+            process_id=fb.process_id, subject=fb.control_number,
+            payload={"phase_number": n},
+        )
         db.commit()
 
     @staticmethod
-    def review(db: Session, fb, *, status: str, note: str | None, reviewer_id: int) -> None:
-        """Aprueba o rechaza el Formato B (status 'approved'|'rejected')."""
+    def review(db: Session, fb, process, *, status: str, note: str | None, reviewer_id: int) -> None:
+        """Aprueba o rechaza el Formato B (status 'approved'|'rejected').
+
+        **Guarda propia, no solo en la ruta.** Gemela de la de `submit`, pero del
+        lado del ADMIN: `assert_can_transition` (dictamen), no
+        `assert_student_can_act` (ejecución). Faltaba -la ruta solo validaba
+        permiso y alcance por carrera- y el hueco es real aunque hoy el Formato B
+        nunca llegue a `submitted` con el corte puesto (porque `submit` sí está
+        guardado y los botones no se pintan): el mecanismo de REVERSIÓN que esta
+        misma feature documenta (subir `TITULATEC_HANDOFF_PHASE` a 9, dejar
+        pasar un envío, volver a bajarlo a 3) deja un Formato B en `submitted`
+        que después queda aprobable/rechazable para siempre pese al corte. Sin
+        esta guarda, el corte dejaría de ser cierto justo por el camino que
+        documentamos para desactivarlo.
+
+        `process` es parámetro nuevo (antes solo recibía `fb`), igual que le pasó
+        a `submit`: la guarda necesita `current_phase` y `status`, que viven en
+        el proceso. El número de fase sale del CATÁLOGO (`format_b`), no de un
+        literal `3`, por el mismo motivo que en `submit`.
+        """
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, "format_b")
+        PhaseService.assert_can_transition(db, process, n)
+
         from datetime import datetime
         fb.status = status
         if status == "approved":
@@ -102,7 +177,51 @@ class FormatBService:
             fb.rejection_reason = None
         else:
             fb.rejection_reason = note or None
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        AuditService.record(
+            db, "format_b.reviewed",
+            entity_type="format_b", entity_id=fb.process_id,
+            process_id=fb.process_id, subject=fb.control_number,
+            reason=note or None,
+            payload={"status": status},
+            actor_id=reviewer_id,
+        )
         db.commit()
+
+    @staticmethod
+    def progress(fb) -> dict:
+        """En qué paso va el Formato B y si ya se envió. Sin tocar la BD.
+
+        No hay campos `required` en `partials/formato_b_step.html` (verificado:
+        cero ocurrencias), así que "paso completo" no se puede derivar de una
+        lista de obligatorios que no existe. La señal real y honesta es **si el
+        alumno dejó datos suyos en ese paso**: `save_step` escribe en cada
+        "Siguiente", así que un paso con datos propios es un paso por el que ya
+        pasó. De ahí la resta de `PRELOADED_FIELDS`.
+
+        Devuelve ``{"status", "submitted", "step", "total_steps", "steps",
+        "rejection_reason"}``; `step` es el primer paso sin datos propios (3 si
+        todos los tienen).
+        """
+        steps, first_open = [], None
+        for n in sorted(STEP_FIELDS):
+            fields = [f for f in STEP_FIELDS[n] if f not in PRELOADED_FIELDS]
+            done = any(
+                getattr(fb, f, None) not in (None, "") for f in fields
+            ) if fb is not None else False
+            if not done and first_open is None:
+                first_open = n
+            steps.append({"n": n, "label": STEP_LABELS.get(n, f"Paso {n}"), "done": done})
+
+        status = getattr(fb, "status", None) or "draft"
+        return {
+            "status": status,
+            "submitted": status in ("submitted", "approved"),
+            "step": first_open or max(STEP_FIELDS),
+            "total_steps": len(STEP_FIELDS),
+            "steps": steps,
+            "rejection_reason": getattr(fb, "rejection_reason", None),
+        }
 
     @staticmethod
     def to_ctx(fb) -> dict:

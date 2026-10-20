@@ -16,6 +16,48 @@ from itcj2.core.models.user import User
 logger = logging.getLogger(__name__)
 
 
+class PositionEmailInvalid(ValueError):
+    """Formato de correo inválido. Subclase de ValueError para no romper callers."""
+
+
+class PositionEmailConflict(ValueError):
+    """El correo ya pertenece a otro puesto."""
+
+    def __init__(self, message, *, other_position_id=None, other_position_title=""):
+        super().__init__(message)
+        self.other_position_id = other_position_id
+        self.other_position_title = other_position_title
+
+
+def validate_position_email(db: Session, email, *, exclude_position_id):
+    """Normaliza, valida formato y unicidad case-insensitive. Devuelve el valor a guardar.
+
+    El pre-check NO filtra por is_active: el índice UNIQUE cubre todas las filas,
+    activas o no. Se excluye el propio puesto para que guardar sin cambiar el
+    correo no choque consigo mismo.
+    """
+    from sqlalchemy import func as sa_func
+    from itcj2.core.utils.email_tools import is_valid_email, normalize_email
+
+    value = normalize_email(email)
+    if value is None:
+        return None
+    if not is_valid_email(value):
+        raise PositionEmailInvalid(f"«{value}» no es un correo válido")
+
+    query = db.query(Position).filter(sa_func.lower(Position.email) == value.lower())
+    if exclude_position_id is not None:
+        query = query.filter(Position.id != exclude_position_id)
+    other = query.first()
+    if other:
+        raise PositionEmailConflict(
+            f"El correo ya está asignado al puesto «{other.title}»",
+            other_position_id=other.id,
+            other_position_title=other.title,
+        )
+    return value
+
+
 def _bust_user(user_id: int) -> None:
     """Invalida el caché de authz del usuario en todas las apps (F1.1)."""
     try:
@@ -113,8 +155,9 @@ def create_position(
     if db.query(Position).filter_by(code=code).first():
         raise ValueError(f"Position code '{code}' already exists")
 
-    if email and db.query(Position).filter_by(email=email).first():
-        raise ValueError(f"Position email '{email}' already exists")
+    # `if email` dejaba pasar "" (que colisiona en el UNIQUE con cualquier otra
+    # fila vacía) y comparaba con distinción de caja.
+    email = validate_position_email(db, email, exclude_position_id=None)
 
     position = Position(
         code=code,
@@ -156,12 +199,25 @@ def update_position(db: Session, position_id: int, **kwargs) -> Position:
     if not position:
         raise ValueError("not_found")
 
+    # `in kwargs`, NUNCA kwargs.get(): un email explícito en "" o None es la forma
+    # de LIMPIAR el correo, y con un .get() truthy ese "" se saltaría la
+    # validación y se escribiría crudo — y "" colisiona en el UNIQUE con
+    # cualquier otra fila vacía.
+    if 'email' in kwargs:
+        kwargs['email'] = validate_position_email(
+            db, kwargs['email'], exclude_position_id=position_id
+        )
+
     allowed_fields = ['title', 'description', 'email', 'is_active', 'allows_multiple']
     for key, value in kwargs.items():
         if key in allowed_fields and hasattr(position, key):
             setattr(position, key, value)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise PositionEmailConflict("El correo ya está asignado a otro puesto")
     # Cambiar is_active de un puesto afecta el acceso de sus usuarios. Las
     # asignaciones siguen vivas, así que los ocupantes se pueden leer después
     # del commit. Sin app_key: el puesto puede conceder en varias apps.

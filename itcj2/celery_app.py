@@ -8,8 +8,54 @@ Los workers se arrancan desde Docker con:
     celery -A itcj2.celery_app worker --loglevel=info
 """
 from celery import Celery
+from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
 
 from itcj2.config import get_settings
+from itcj2.observability.logging_config import configure_logging
+
+# Efecto lateral: conecta los receptores que llevan el contexto de la petición
+# a la tarea (Fase 5a). Aquí porque TODO proceso que encola o ejecuta tareas
+# importa esta app: los HTTP que publican, el worker y el beat. Quitar esta
+# línea apaga la propagación entera (palanca de rollback de 5a).
+import itcj2.observability.celery_hooks  # noqa: F401
+
+
+@setup_logging.connect
+def _configure_logging(**kwargs) -> None:
+    """Logs del worker y del beat en el mismo formato que la app (R10).
+
+    Por la señal y no con una llamada suelta al importar este módulo: al
+    arrancar, Celery vacía `root.handlers` (`worker_hijack_root_logger`, activo
+    por defecto) y pone su propio formato de texto, salvo que haya un receptor
+    conectado a `setup_logging`, en cuyo caso deja todo el logging en sus
+    manos. Con un receptor tampoco redirige stdout/stderr al logger.
+
+    `--loglevel` del CLI de Celery (en `kwargs`) se ignora a propósito: manda
+    `LOG_LEVEL`, igual que en la app.
+    """
+    configure_logging()
+
+
+@worker_process_init.connect
+def _setup_tracing(**kwargs) -> None:
+    """Trazas OTel (Fase 7) en CADA hijo del prefork, solo con OTEL_ENABLED=1.
+
+    Nunca al importar ni en el proceso padre: el hilo del `BatchSpanProcessor`
+    y el canal gRPC del exportador no sobreviven al `fork`, y un hijo que los
+    heredara encolaría spans que nadie manda. El import es perezoso por la
+    misma regla que el resto de la cadena de Celery.
+    """
+    from itcj2.observability.tracing import setup_tracing
+
+    setup_tracing(role="celery")
+
+
+@worker_process_shutdown.connect
+def _shutdown_tracing(**kwargs) -> None:
+    """Vacía el batch de spans al morir el hijo (reinicio, `max_tasks`)."""
+    from itcj2.observability.tracing import shutdown_tracing
+
+    shutdown_tracing()
 
 
 def create_celery_app() -> Celery:
@@ -25,6 +71,7 @@ def create_celery_app() -> Celery:
             "itcj2.tasks.helpdesk_tasks",
             "itcj2.tasks.notification_tasks",
             "itcj2.tasks.mundial_tasks",
+            "itcj2.tasks.titulatec_tasks",
         ],
     )
 

@@ -15,12 +15,22 @@ from itcj2.dependencies import DbSession, CurrentUser, require_perms, require_ro
 router = APIRouter(prefix="/users", tags=["users-admin"])
 logger = logging.getLogger(__name__)
 
-DEFAULT_PASSWORD = "tecno#2K"
+# Reexportada desde `core/utils/security`, donde vive junto a `hash_nip`.
+# Se conserva el nombre aquí porque otros módulos ya la importaban de este.
+from itcj2.core.utils.security import DEFAULT_PASSWORD  # noqa: E402,F401
 
-# D8/C7 (core-config-revamp): 8 dígitos (licenciatura) o letra + 7-9 dígitos
-# (posgrado). MISMO regex que el pattern del front (users.html #controlNumber).
-# Un numérico de 9 dígitos NO es válido.
-CONTROL_NUMBER_RE = re.compile(r"^(\d{8}|[A-Za-z]\d{7,9})$")
+# D8/C7 (core-config-revamp; formato de traslado revisado 2026-09-17): 8
+# dígitos, o una letra + 8 dígitos para quien viene de traslado (ej.
+# B21221523). El formato viejo "letra + 7 a 9 dígitos" (posgrado) se retira:
+# medido en dev, los 8,231 números existentes ya cumplen la regla nueva
+# (8,107 de 8 dígitos; 124 letra+8, todos con la letra en mayúscula). MISMO
+# regex que el pattern del front (users.html #controlNumber) y que la copia
+# de itcj2/apps/titulatec/services/import_service.py — mantener en sync
+# (`.pattern` idéntico, test_path_traversal_regression.py lo exige). La letra
+# SIEMPRE se normaliza a mayúscula antes de validar/guardar (create_user y
+# update_user, abajo): el lookup es un filter_by exacto y una 'b' minúscula
+# duplicaría la cuenta frente a una 'B' ya existente.
+CONTROL_NUMBER_RE = re.compile(r"^[A-Za-z]?\d{8}$")
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -204,9 +214,13 @@ def create_user(
     user_type = body.user_type
     if user_type == "student":
         role_name = "student"
-        ctrl = (body.control_number or "").strip()
+        # La letra se normaliza a MAYÚSCULA (y se recorta el espacio) ANTES de
+        # validar y de buscar duplicados: el filter_by de abajo es un lookup
+        # exacto, y una 'b' minúscula duplicaría la cuenta frente a una 'B' ya
+        # existente.
+        ctrl = (body.control_number or "").strip().upper()
         if not CONTROL_NUMBER_RE.match(ctrl):
-            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
+            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o una letra seguida de 8 dígitos)")
         if db.query(User).filter_by(control_number=ctrl).first():
             raise HTTPException(409, detail="El número de control ya está registrado")
     elif user_type == "staff":
@@ -232,7 +246,10 @@ def create_user(
             email=(body.email or "").strip() or None,
             role_id=role.id,
             password_hash=hash_nip(body.password),
-            control_number=(body.control_number or "").strip() or None if user_type == "student" else None,
+            # `ctrl` ya viene normalizado (mayúscula + strip) y validado arriba:
+            # reusarlo, no releer `body.control_number` crudo, o la cuenta se
+            # guardaría con la letra tal como la tecleó el admin.
+            control_number=ctrl if user_type == "student" else None,
             username=(body.username or "").strip() or None if user_type == "staff" else None,
             must_change_password=(user_type == "staff"),
         )
@@ -540,9 +557,11 @@ def update_user(
         u.username = val
 
     if body.control_number is not None and u.control_number is not None:
-        val = body.control_number.strip()
+        # Misma normalización que create_user: MAYÚSCULA antes de validar y
+        # de buscar duplicados.
+        val = body.control_number.strip().upper()
         if not CONTROL_NUMBER_RE.match(val):
-            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o letra seguida de 7 a 9 dígitos)")
+            raise HTTPException(400, detail="Número de control inválido (8 dígitos, o una letra seguida de 8 dígitos)")
         existing = db.query(User).filter(User.control_number == val, User.id != user_id).first()
         if existing:
             raise HTTPException(409, detail="El número de control ya está registrado")

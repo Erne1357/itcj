@@ -1,0 +1,269 @@
+{# Pestaña Encargados (spec §5.3, §4.7 y Ronda 2 §12: R1, R3, R4a).
+
+   1. Chips para ocultar encargados (enlaces calculados por el servidor, `ox`):
+      ocultar a uno no repinta ni reescala a los demás (la escala común de las
+      tarjetas y el `vmax` del mapa de calor incluyen a los ocultos) ni cambia
+      los pendientes globales.
+   2. Una TARJETA por encargado visible, el más cargado primero (orden de la
+      fachada), 2 por fila (1 en móvil): nombre + carreras (plegables con más
+      de 2); proyección «A su ritmo vacía su cola el …» con píldora si rebasa
+      el umbral; «Cola hoy» y «Producción» como barras partidas a escala COMÚN
+      con el conteo de cada parte; liberados, citas atendidas y faltas; y
+      «Lugares» como medidor. La cola es la COMPLETA de sus carreras (dos
+      encargados con la misma carrera ven la misma cola, D2).
+   3. La tabla completa (con la fila «Otros») queda en «Ver tabla», compacta y
+      con scroll propio.
+   4. «Dictámenes y revisiones por día»: mapa de calor encargado × día hábil
+      del rango, con «Otros» al final (sustituye a las sparklines; la gráfica
+      «Días para vaciar su cola» se retiró: la proyección vive en cada tarjeta).
+   Color: las barras de las tarjetas usan tintes de Escolares por PARTE (clases
+   `tt-rep-c--q-*` y `tt-rep-c--p-*`), nunca un color por encargado: la
+   identidad la da el NOMBRE. Contrato de llaves: `report_service._ctx_encargados`. #}
+{% from "titulatec/admin/partials/reports/_charts.html" import nav, chart_card, segbar, meter, heatmap, table_twin %}
+{%- set e = encargados %}
+{%- set n_rows = e.rows|length %}
+{%- set rango = ("los últimos " ~ filters.range_days ~ " días") if filters.range_days else "toda la convocatoria" %}
+{%- set rango_corto = ("últimos " ~ filters.range_days ~ " días") if filters.range_days else "toda la convocatoria" %}
+{%- set umbral = e.projection_threshold %}
+
+<section class="tt-card tt-rep-card" id="tt-rep-officers" aria-labelledby="tt-rep-officers-title">
+  <header class="tt-rep-card-head">
+    <h2 class="tt-rep-card-title" id="tt-rep-officers-title">Encargados de carrera</h2>
+    <p class="tt-rep-card-sub">
+      Cada encargado carga la cola completa de sus carreras: si dos comparten una, ven lo mismo.
+      <span class="tt-rep-noprint">Toca un nombre para ocultarlo o volver a mostrarlo; los pendientes globales y la escala de las barras no cambian.</span>
+    </p>
+  </header>
+  {% if e.officer_chips %}
+  <div class="tt-rep-chips tt-rep-chips--open" id="tt-rep-officer-chips">
+    {%- for c in e.officer_chips %}
+    <a class="tt-rep-chip{{ ' is-off' if c.hidden else '' }}" id="tt-rep-off-chip-{{ c.user_id }}" role="button"
+       aria-pressed="{{ 'false' if c.hidden else 'true' }}" {{ nav(c.toggle_url, c.body_toggle_url) }}>
+      <span>{{ c.name }}</span>
+      <i class="bi {{ 'bi-eye-slash' if c.hidden else 'bi-check2' }}" aria-hidden="true"></i>
+    </a>
+    {%- endfor %}
+  </div>
+  {% if e.hidden_officers_count %}
+  <a class="tt-rep-showall" id="tt-rep-off-show-all" {{ nav(filters.page_url(hidden_officers=[]), filters.body_url(hidden_officers=[])) }}><i class="bi bi-eye" aria-hidden="true"></i> Mostrar todos</a>
+  {% endif %}
+  {% else %}
+  <p class="tt-rep-empty" id="tt-rep-off-none"><i class="bi bi-people" aria-hidden="true"></i>Aún no hay encargados de carrera de Servicios Escolares.</p>
+  {% endif %}
+</section>
+
+{% if e.officer_chips %}
+<section class="tt-rep-osec" id="tt-rep-off-main" aria-labelledby="tt-rep-off-main-title">
+  <header class="tt-rep-osec-head">
+    <h2 class="tt-rep-card-title" id="tt-rep-off-main-title">Cola, producción y proyección</h2>
+    <p class="tt-rep-card-sub">
+      El más cargado primero. La cola es lo que tiene por mover hoy; la producción, lo que hizo en {{ rango }}.
+      Todas las tarjetas usan la misma escala (cola hasta {{ e.card_scale.queue }}, producción hasta {{ e.card_scale.prod }}): las barras se comparan a lo largo.
+    </p>
+  </header>
+  {% if e.cards %}
+  <div class="tt-rep-ocards" id="tt-rep-off-cards">
+    {%- for c in e.cards %}
+    {%- set cid = "tt-rep-off-card-" ~ c.user_id %}
+    {%- set pj = c.projection %}
+    {#- La barra «Cola hoy» incluye «Listos sin cita» (informativo); la
+        proyección solo la cola de Servicios Escolares: se dice para que los dos
+        números no parezcan contradecirse. #}
+    {%- set sin_listos = (" (sin contar " ~ c.queue.ready_to_book ~ (" listo sin cita)" if c.queue.ready_to_book == 1 else " listos sin cita)")) if c.queue.ready_to_book else "" %}
+    <article class="tt-card tt-rep-ocard" id="{{ cid }}" aria-labelledby="{{ cid }}-name">
+      <header class="tt-rep-ocard-head">
+        <h3 class="tt-rep-ocard-name" id="{{ cid }}-name">{{ c.name }}</h3>
+        {%- if c.no_programs %}
+        <span class="tt-rep-onote" id="{{ cid }}-noprog">Sin carreras asignadas</span>
+        {%- else %}
+        {%- set lista %}
+          {%- for p in c.programs %}<span class="tt-rep-oprog">{{ p.name }}</span>{% endfor -%}
+          {%- if c.programs_out_of_scope %}<span class="tt-rep-onote">+{{ c.programs_out_of_scope }} {{ "carrera fuera de tu alcance" if c.programs_out_of_scope == 1 else "carreras fuera de tu alcance" }}</span>{% endif -%}
+        {%- endset %}
+        {%- if c.programs|length > 2 %}
+        <details class="tt-rep-oprogs-d" id="{{ cid }}-progs" data-tt-keep>
+          <summary>{{ c.programs|length }} carreras</summary>
+          <span class="tt-rep-oprogs">{{ lista }}</span>
+        </details>
+        {%- else %}
+        <span class="tt-rep-oprogs">{{ lista }}</span>
+        {%- endif %}
+        {%- endif %}
+      </header>
+
+      <div class="tt-rep-oproj tt-rep-oproj--{{ pj.status }}" id="{{ cid }}-proj">
+        {%- if pj.status in ("ok", "over") %}
+        <p class="tt-rep-oproj-main">
+          <i class="bi bi-calendar-check" aria-hidden="true"></i>
+          <span class="tt-rep-oproj-text">A su ritmo vacía su cola el <strong>{{ pj.date_text }}</strong> ({{ pj.days }} {{ "día hábil" if pj.days == 1 else "días hábiles" }})
+            {%- if pj.over_threshold %} <span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>Rebasa el umbral ({{ umbral.text }})</span>{% endif -%}
+          </span>
+        </p>
+        <p class="tt-rep-oproj-sub">{{ pj.queue }} {{ "pendiente" if pj.queue == 1 else "pendientes" }} de Servicios Escolares{{ sin_listos }} a {{ pj.rate_text }} (últimos {{ e.projection_window }} días hábiles); {{ e.projection_note }}.</p>
+        {%- elif pj.status == "no_pace" %}
+        <p class="tt-rep-oproj-main">
+          <i class="bi bi-dash-circle" aria-hidden="true"></i>
+          <span class="tt-rep-oproj-text"><strong>Sin ritmo medible</strong>: no revisó ni dictaminó en los últimos {{ e.projection_window }} días hábiles</span>
+        </p>
+        <p class="tt-rep-oproj-sub">Tiene {{ pj.queue }} {{ "pendiente" if pj.queue == 1 else "pendientes" }} de Servicios Escolares{{ sin_listos }} y, a este ritmo, nada que {{ "lo" if pj.queue == 1 else "los" }} mueva.</p>
+        {%- else %}
+        <p class="tt-rep-oproj-main">
+          <i class="bi bi-check-circle" aria-hidden="true"></i>
+          <span class="tt-rep-oproj-text"><strong>Al día</strong>: no tiene pendientes de Servicios Escolares</span>
+        </p>
+        {%- endif %}
+      </div>
+
+      <div class="tt-rep-opart">
+        <h4 class="tt-rep-olabel">Cola hoy</h4>
+        {{ segbar(cid ~ "-queue", c.queue_segments, "Cola hoy de " ~ c.name ~ ": " ~ c.queue.total, "q", c.queue.total,
+                  items=e.queue_legend, values=c.queue, compact=True) }}
+      </div>
+
+      <div class="tt-rep-opart">
+        <h4 class="tt-rep-olabel">Producción · {{ rango_corto }}</h4>
+        {%- set nota_rechazo %}Rechazo: <strong>{{ c.reject_text }}</strong>{% if c.prod.dictamenes %} de {{ c.prod.dictamenes }} {{ "dictamen" if c.prod.dictamenes == 1 else "dictámenes" }}{% else %} (sin dictámenes){% endif %}{% endset %}
+        {{ segbar(cid ~ "-prod", c.prod_segments, "Producción de " ~ c.name ~ ": " ~ c.prod.total, "p", c.prod.total,
+                  items=e.prod_legend, values=c.prod, note=nota_rechazo, compact=True) }}
+      </div>
+
+      <dl class="tt-rep-ofigs" id="{{ cid }}-figs">
+        <div class="tt-rep-ofig"><dt>Liberados</dt><dd>{{ c.prod.liberated }}</dd></div>
+        <div class="tt-rep-ofig"><dt>Citas atendidas</dt><dd>{{ c.prod.attended }}</dd></div>
+        <div class="tt-rep-ofig"><dt>Faltas</dt><dd>{{ c.prod.no_show }}</dd></div>
+        <div class="tt-rep-ofig tt-rep-ofig--places">
+          <dt>Lugares <span class="tt-rep-osub">próximos 5 días hábiles</span></dt>
+          <dd>
+            {%- if c.places.pct is not none %}
+            {{ meter(cid ~ "-places", c.places.occupied, c.places.capacity, c.places.pct, "Lugares ocupados de " ~ c.name, c.places.text ~ " ocupados") }}
+            <span class="tt-rep-oplaces-t">{{ c.places.text }} <span class="tt-rep-osub">({{ c.places.free }} {{ "libre" if c.places.free == 1 else "libres" }})</span></span>
+            {%- else %}
+            <span class="tt-rep-osub">Sin lugares abiertos</span>
+            {%- endif %}
+          </dd>
+        </div>
+      </dl>
+    </article>
+    {%- endfor %}
+  </div>
+  {% else %}
+  <p class="tt-card tt-rep-empty" id="tt-rep-off-allhidden"><i class="bi bi-eye-slash" aria-hidden="true"></i>Ocultaste a todos los encargados. Usa «Mostrar todos» para verlos.</p>
+  {% endif %}
+  <p class="tt-rep-foot" id="tt-rep-off-capacity">
+    Proyección = cola de Servicios Escolares (solicitudes, documentos y citas por cerrar; «Listos sin cita» es informativo) ÷ revisiones y dictámenes por día hábil de los últimos {{ e.projection_window }} días hábiles; umbral: {{ umbral.text }}.
+    Lugares de cotejo abiertos en los próximos 5 días hábiles: {{ e.capacity_total.occupied }} ocupados de {{ e.capacity_total.capacity }} ({{ e.capacity_total.free }} libres).
+  </p>
+
+  <details class="tt-rep-table tt-rep-otwin" id="tt-rep-off-table-twin" data-tt-keep>
+    <summary><i class="bi bi-table" aria-hidden="true"></i> Ver tabla</summary>
+    {% if n_rows or e.others %}
+    <div class="tt-table-wrap tt-rep-oscroll">
+      <table class="table tt-rep-otable" id="tt-rep-off-table">
+        <caption class="visually-hidden">Cola y producción por encargado</caption>
+        <thead>
+          <tr class="tt-rep-ogroups">
+            <th rowspan="2" scope="col">Encargado</th>
+            <th colspan="4" scope="colgroup" class="tt-rep-ogroup">Cola hoy</th>
+            <th colspan="5" scope="colgroup" class="tt-rep-ogroup">Producción en el rango</th>
+            <th rowspan="2" scope="col" class="num tt-rep-odays">Días para vaciar</th>
+            <th rowspan="2" scope="col" class="num tt-rep-oplaces">Lugares</th>
+          </tr>
+          <tr>
+            <th scope="col" class="num">Solicitudes</th>
+            <th scope="col" class="num">Documentos</th>
+            <th scope="col" class="num">Citas por cerrar</th>
+            <th scope="col" class="num">Listos sin cita</th>
+            <th scope="col" class="num">Solicitudes revisadas</th>
+            <th scope="col" class="num">Dictámenes</th>
+            <th scope="col" class="num">Rechazo</th>
+            <th scope="col" class="num">Citas atendidas</th>
+            <th scope="col" class="num">Liberados</th>
+          </tr>
+        </thead>
+        <tbody>
+          {%- for r in e.rows %}
+          <tr id="tt-rep-off-{{ r.user_id }}">
+            <th scope="row" class="tt-rep-oname">
+              <span class="tt-rep-oid"><span class="tt-rep-oname-t">{{ r.name }}</span></span>
+              {%- if r.no_programs %}
+              <span class="tt-rep-onote" id="tt-rep-off-{{ r.user_id }}-noprog">Sin carreras asignadas</span>
+              {%- else %}
+              {%- set lista %}
+                {%- for p in r.programs %}<span class="tt-rep-oprog">{{ p.name }}</span>{% endfor -%}
+                {%- if r.programs_out_of_scope %}<span class="tt-rep-onote">+{{ r.programs_out_of_scope }} fuera de tu alcance</span>{% endif -%}
+              {%- endset %}
+              {%- if r.programs|length > 2 %}
+              <details class="tt-rep-oprogs-d" id="tt-rep-off-{{ r.user_id }}-progs" data-tt-keep>
+                <summary>{{ r.programs|length }} carreras</summary>
+                <span class="tt-rep-oprogs">{{ lista }}</span>
+              </details>
+              {%- else %}
+              <span class="tt-rep-oprogs">{{ lista }}</span>
+              {%- endif %}
+              {%- endif %}
+            </th>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-q-requests">{{ r.queue.req_review }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-q-docs">{{ r.queue.docs_pending }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-q-close">{{ r.queue.appts_to_close }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-q-ready">{{ r.queue.ready_to_book }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-p-requests">{{ r.prod.req_reviewed }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-p-docs" title="{{ r.prod.docs_approved }} aprobados, {{ r.prod.docs_rejected }} rechazados">{{ r.prod.dictamenes }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-p-reject">{{ r.reject_text }}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-p-attended">{{ r.prod.attended }}{% if r.prod.no_show %} <span class="tt-rep-osub">({{ r.prod.no_show }} {{ "falta" if r.prod.no_show == 1 else "faltas" }})</span>{% endif %}</td>
+            <td class="num" id="tt-rep-off-{{ r.user_id }}-p-liberated">{{ r.prod.liberated }}</td>
+            <td class="num tt-rep-odays" id="tt-rep-off-{{ r.user_id }}-days">
+              {#- «—» = sin producción en los últimos días hábiles: sin ritmo no hay
+                  estimación (la tarjeta dice «Al día» si además no tiene cola). #}
+              {%- if r.days_to_clear is none %}<abbr class="tt-rep-onone" title="Sin producción en los últimos {{ e.projection_window }} días hábiles: no se puede estimar">—</abbr>
+              {%- else %}{{ r.days_to_clear_text }}{% endif %}
+              {%- if r.over_threshold %}<br><span class="tt-rep-status tt-rep-status--warn"><i class="bi bi-hourglass-split" aria-hidden="true"></i>Rebasa el umbral</span>{% endif %}
+            </td>
+            <td class="num tt-rep-oplaces" id="tt-rep-off-{{ r.user_id }}-places">
+              {%- if r.places.capacity %}<span title="{{ r.places.free }} {{ 'libre' if r.places.free == 1 else 'libres' }}">{{ r.places.occupied }} de {{ r.places.capacity }}</span>{% else %}<span class="tt-rep-osub">Sin lugares</span>{% endif %}
+            </td>
+          </tr>
+          {%- endfor %}
+          {%- if e.others %}
+          {%- set o = e.others %}
+          <tr id="tt-rep-off-others" class="tt-rep-oothers">
+            <th scope="row" class="tt-rep-oname">
+              <span class="tt-rep-oid"><span class="tt-rep-oname-t">Otros</span></span>
+              <span class="tt-rep-onote">{{ o.actors }} {{ "persona que no es encargada (jefatura, administración)" if o.actors == 1 else "personas que no son encargadas (jefatura, administración)" }}</span>
+            </th>
+            <td class="num" colspan="4"><span class="tt-rep-osub">Sin cola propia</span></td>
+            <td class="num">{{ o.req_reviewed }}</td>
+            <td class="num" title="{{ o.docs_approved }} aprobados, {{ o.docs_rejected }} rechazados">{{ o.dictamenes }}</td>
+            <td class="num">{{ o.reject_text }}</td>
+            <td class="num">{{ o.attended }}{% if o.no_show %} <span class="tt-rep-osub">({{ o.no_show }} {{ "falta" if o.no_show == 1 else "faltas" }})</span>{% endif %}</td>
+            <td class="num">{{ o.liberated }}</td>
+            <td class="num" colspan="2"><span class="tt-rep-osub">—</span></td>
+          </tr>
+          {%- endif %}
+        </tbody>
+      </table>
+    </div>
+    <p class="tt-rep-foot">«Días para vaciar» usa el mismo ritmo que la proyección de cada tarjeta (últimos {{ e.projection_window }} días hábiles); «—» = sin producción en esos días.</p>
+    {% else %}
+    <p class="tt-rep-empty">Sin encargados visibles.</p>
+    {% endif %}
+  </details>
+</section>
+
+{% if e.heatmap.rows %}
+{%- set hm = e.heatmap %}
+{% call chart_card("tt-rep-off-heat", "Dictámenes y revisiones por día",
+                   "Documentos dictaminados más solicitudes revisadas por día hábil de " ~ rango ~ ". Más oscuro = más trabajo; todos con la misma escala (máximo " ~ hm.vmax ~ " en un día). El número exacto sale al pasar el puntero y en «Ver tabla». El total suma solo días hábiles; la producción de las tarjetas cuenta también los fines de semana.",
+                   cls="tt-rep-heat-card") %}
+  {% if hm.n_days %}
+  {{ heatmap("tt-rep-off-heat", hm, "Dictámenes y revisiones por día y persona", "tt-rep-off-heat", scale_label="Por día") }}
+  {% else %}
+  <p class="tt-rep-empty"><i class="bi bi-calendar-x" aria-hidden="true"></i>El rango no tiene días hábiles todavía.</p>
+  {% endif %}
+  {% call table_twin("tt-rep-off-heat-twin", "Dictámenes y revisiones por día y persona", ["Nombre"] + (hm.days|map(attribute="label_long")|list) + ["Total (días hábiles)"]) %}
+    {%- for r in hm.rows %}
+    <tr><td>{{ r.name }}</td>{% for c in r.cells %} <td class="num">{{ c.n }}</td>{% endfor %} <td class="num">{{ r.total }}</td></tr>
+    {%- endfor %}
+  {% endcall %}
+{% endcall %}
+{% endif %}
+{% endif %}

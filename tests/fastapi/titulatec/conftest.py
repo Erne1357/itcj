@@ -1,6 +1,1564 @@
-"""Conftest de tests de la app titulatec.
+"""Harness de tests de TitulaTec: Postgres real, transaccion + rollback por test.
 
-Carga eager de `itcj2.models` para resolver los mappers de SQLAlchemy (necesario
-para importar los servicios que referencian modelos en imports locales).
+Hasta 2026-09 esta suite eran 32 tests unitarios con `MagicMock` y cero
+`TestClient`: ni una sola ruta de `pages/` estaba cubierta. Este conftest es la
+base para probar rutas de verdad, con datos SINTETICOS creados por el propio
+test (nada de depender de filas reales de la BD de dev, nada de PII en el repo).
+
+LA TRAMPA DE ESTA APP (leer antes de escribir el primer test de ruta)
+---------------------------------------------------------------------
+TitulaTec es pages-only y **cada handler abre su propia sesion**::
+
+    from itcj2.database import SessionLocal   # import LOCAL, dentro de la funcion
+    db = SessionLocal()
+
+Asi lo hacen todas las rutas de `pages/*.py` (o el `_cuerpo_*` sincrono al que
+delegan desde 2026-10-05), mas `nav.py::get_titulatec_roles` y
+`nav.py::admin_nav_items`, que sin `db` usa `with SessionLocal() as _db:`. Ojo:
+`render_titulatec` ya NO calcula el menu (R2, 2026-10-05): deja `admin_nav`
+como callable perezoso y solo lo invoca `admin/base_admin.html`, asi que
+`admin_nav_items` corre cuando la ruta pinta una pagina admin COMPLETA, no en
+los parciales HTMX. El UNICO `Depends(get_db)` de la cadena es el gate de
+autorizacion, dentro de `require_page_app` (`itcj2/dependencies.py`).
+
+Consecuencia: `dependency_overrides[get_db]` cubre **solo la autorizacion**. Si
+te quedas ahi, el cuerpo de la ruta abre una sesion contra el pool REAL, no ve
+nada de lo que creo el test y consulta la BD de dev — el test pasa o falla por
+razones que no tienen que ver con lo que crees estar probando.
+
+Por eso `client` hace las DOS cosas a la vez y no se puede aplicar a medias:
+
+  1. `dependency_overrides[get_db]` -> la sesion del test (gate).
+  2. `monkeypatch` de `itcj2.database.SessionLocal` -> proxy sobre la MISMA
+     sesion (cuerpo). Funciona precisamente porque el import es local: el
+     nombre se resuelve en cada llamada, no al importar el modulo.
+
+El proxy (`_TestSession`) neutraliza `close()` **y** el protocolo de context
+manager: `Session.__exit__` llama a `close()`, y cerrar la sesion del test
+dejaria invalidas todas las aserciones posteriores. Ojo: los metodos especiales
+se buscan en el TIPO, no via `__getattr__`, asi que `__enter__`/`__exit__` estan
+declarados explicitamente. Un proxy que solo tape `close()` revienta con
+`TypeError: object does not support the context manager protocol` en cuanto la
+ruta pinta una pagina admin completa (la base invoca `admin_nav()` ->
+`admin_nav_items`).
+
+`rollback()` SI pasa al inner a proposito (hoy titulatec no lo llama en ningun
+lado; `grep -rn "rollback" itcj2/apps/titulatec/` no devuelve nada). Si algun
+dia lo hace, ojo: bajo `join_transaction_mode="create_savepoint"` un rollback
+del handler descarta tambien las filas que sembraron las factories.
+
+AUTORIZACION: no hay atajos
+---------------------------
+El 100% de las rutas usa `require_page_app("titulatec", perms=[...])`, que **NO
+bypasea al admin global** (`dependencies.py:104-139`): resuelve todo contra BD
+via `cached_has_assignment` + `cached_perms`. Un JWT con `role="admin"` no abre
+nada por si solo, asi que los clientes de este harness emiten el token con
+`role=""`: si un test pasa, es porque las filas de permisos estan bien puestas.
+`perms=[...]` es OR — basta UNA coincidencia.
+
+Los helpers de concesion invalidan el cache de authz en Redis del usuario
+tocado. El autouse `_clear_authz_cache` global (tests/fastapi/conftest.py:65)
+limpia entre tests, pero no dentro de uno: si un test pega a la ruta ANTES de
+conceder el permiso, el "no" queda cacheado 300s y la concesion posterior no se
+ve. Por eso los helpers llaman a `invalidate_user_app` despues de cada flush.
+
+DATOS
+-----
+Todo es inventado: nombres ficticios, numeros de control `99xxxxxx`, correos
+`@example.invalid`, roles `tt_test_*` (NO los roles reales `titulatec_*`, que en
+la BD de dev ya traen sus 20-27 permisos y falsearian cualquier negativo).
+Ninguna fixture depende de gbarron/fleon/ahernandez ni del alumno 23110952.
 """
+from __future__ import annotations
+
+import itertools
+import os
+from datetime import date, datetime, time, timedelta
+
+import pytest
+
+# Eager import: resuelve los mappers antes de instanciar cualquier modelo.
 import itcj2.models  # noqa: F401
+import itcj2.apps.titulatec.models  # noqa: F401
+
+from itcj2.database import get_db
+from tests.conftest import make_jwt
+
+APP_KEY = "titulatec"
+
+# Roles FICTICIOS. Nunca uses aqui los reales (`titulatec_school_services_head`,
+# etc.): en la BD de dev ya existen con sus permisos, el helper los reutilizaria
+# por nombre y el actor "sin permisos" heredaria 27 permisos de verdad.
+#
+# El sufijo por PROCESO no es cosmetico. `core_roles.name` es UNIQUE y la BD de
+# test se comparte, asi que dos `pytest` a la vez (dos personas, o un agente y su
+# CI) chocaban insertando el MISMO nombre dentro de sus respectivas transacciones:
+# la segunda se quedaba esperando el lock de la primera hasta que Postgres cortaba
+# con `DeadlockDetected`, y los fallos salian en tests que no tenian nada que ver
+# y solo al correr la suite entera. Con el sufijo, cada proceso vive en su propio
+# espacio de nombres y las corridas concurrentes dejan de interferir.
+_RUN = os.getpid()
+ROLE_HEAD = f"tt_test_head_{_RUN}"
+ROLE_OFFICER = f"tt_test_officer_{_RUN}"
+ROLE_STUDENT = f"tt_test_student_{_RUN}"
+ROLE_NOPERMS = f"tt_test_noperms_{_RUN}"
+
+# Sets por defecto de cada actor. Son subconjuntos de los 66 codigos reales
+# (`database/DML/titulatec/02_insert_permissions.sql`); que esos codigos existan
+# de verdad lo verifica test_permissions_contract.py.
+HEAD_PERMS = (
+    "titulatec.dashboard.school_services",
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+    "titulatec.process.api.read.all",      # -> officer_programs() == "ALL"
+    "titulatec.document.page.list",
+    "titulatec.document.api.read.all",
+    "titulatec.cohort.page.list",
+    "titulatec.cohort.api.import_csv",
+    "titulatec.cohort.api.review_days",
+    "titulatec.appointment.page.list",
+    "titulatec.officers.page.list",
+    "titulatec.officers.api.manage",
+)
+
+# Encargado: MISMOS permisos de bandeja pero SIN `process.api.read.all`, que es
+# justo lo que lo deja acotado a sus carreras (`scope_service.py:32`).
+OFFICER_PERMS = (
+    "titulatec.dashboard.school_services",
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+    "titulatec.document.page.list",
+    "titulatec.document.api.read.all",
+    "titulatec.appointment.page.list",
+)
+
+STUDENT_PERMS = (
+    "titulatec.dashboard.student",
+    "titulatec.process.page.my",
+    "titulatec.process.api.read.own",
+    "titulatec.document.api.read.own",
+    "titulatec.document.api.upload.own",
+    "titulatec.appointment.page.my",
+)
+
+# Permiso que NO abre ninguna pagina admin: sirve para el actor que tiene acceso
+# a la app (pasa `cached_has_assignment`) pero le falta el permiso de la pagina.
+INERT_PERM = "titulatec.notifications.api.read.own"
+
+_seq = itertools.count(1)
+
+
+def _n() -> int:
+    """Contador para valores unicos (usuarios, folios, codigos de puesto)."""
+    return next(_seq)
+
+
+_B36 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def _period_code(n: int) -> str:
+    """Codigo de periodo de prueba UNICO por `n`: "29" + `n` en base 36 a 4 cifras.
+
+    `core_academic_periods.code` es String(6): esto da 36**4 = 1 679 616
+    codigos distintos. Si algun dia se rebasa, el codigo mide 7 y la BD lo
+    rechaza en voz alta -- nunca un truncado silencioso. El generador anterior,
+    `f"29{n:03d}A"[:6]`, truncaba desde n = 10 000 (10020...10029 -> "291002"):
+    `make_period` es get-or-create por codigo, devolvia el MISMO periodo y la
+    segunda `make_cohort` chocaba con el UNIQUE de `titulatec_cohorts.period_id`
+    al correr la suite de titulatec entera en un proceso. El prefijo "29" nunca
+    es un periodo real (los reales son AAAAS, 5 cifras) y no choca con los
+    codigos explicitos de 5 caracteres de otras pruebas ("29997").
+    Lo fija `test_conftest_period_codes.py`.
+    """
+    digitos = ""
+    while True:
+        n, resto = divmod(n, 36)
+        digitos = _B36[resto] + digitos
+        if n == 0:
+            break
+    return "29" + digitos.rjust(4, "0")
+
+
+# ---------------------------------------------------------------------------
+# Modo de revision y TTL de la liga: fijos por defecto para TODA la suite
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _modo_oficial_por_defecto(monkeypatch):
+    """`reviewer_mode()` y `_link_ttl_hours()` leen `get_settings()`, que carga
+    `.env`/el entorno del proceso. Sin esto, cambiar `TITULATEC_ENROLLMENT_REVIEWER`
+    o `TITULATEC_ENROLLMENT_LINK_TTL_DAYS` en el contenedor (p. ej. para probar el
+    modo alterno en dev, spec S10) pone en rojo, en falso, toda prueba que no
+    parchea el modo (revision final C7/I-1).
+
+    Fija el modo oficial (`school_services`) y 21 dias parcheando los ATRIBUTOS
+    del singleton de `get_settings()`, nunca el metodo `reviewer_mode()`: hay
+    pruebas (p. ej. `test_el_modo_sale_de_la_variable_de_entorno`) que parchean
+    `get_settings()` y esperan que el metodo REAL lo refleje. La fixture
+    `modo_alterno` de aqui abajo, al pedirse explicitamente en un test, corre
+    despues y gana (mismo `monkeypatch`, ultimo `setattr` manda).
+    """
+    from itcj2.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_REVIEWER", "school_services")
+    monkeypatch.setattr(settings, "TITULATEC_ENROLLMENT_LINK_TTL_DAYS", 21)
+
+
+@pytest.fixture(autouse=True)
+def _impresion_apagada_por_defecto(monkeypatch):
+    """`printing_enabled()` lee `get_settings()` en cada llamada (spec folios
+    2026-10-05 §3.5). Sin esto, `TITULATEC_CERTIFICATE_PRINTING=true` en el
+    `.env` o el entorno del contenedor pondría en rojo, en falso, toda prueba
+    que espera la vista SIN impresión (misma razón que
+    `_modo_oficial_por_defecto`). Corre antes que `printing_on`, que al
+    pedirse explícitamente gana (mismo `monkeypatch`, el último `setattr`
+    manda)."""
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", False)
+
+
+@pytest.fixture()
+def printing_on(monkeypatch):
+    """Enciende la impresión de constancias (lotes, PDF y su estado de
+    impresión en las celdas): `TITULATEC_CERTIFICATE_PRINTING = True`.
+
+    Las pruebas de la ronda del 2026-10-02 (lotes, «Impresa», «Sin imprimir»,
+    «No se imprimirá», «Anulada tras imprimir», «Por imprimir», «Generar
+    lote») describen el comportamiento con el switch ENCENDIDO: lo piden con
+    esta fixture en lugar de reescribirse. Parchea el ATRIBUTO del singleton
+    de `get_settings()`, nunca `printing_enabled()` -la prueba real de que la
+    función lo lee en cada llamada-, igual que `_modo_oficial_por_defecto`.
+    """
+    from itcj2.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "TITULATEC_CERTIFICATE_PRINTING", True)
+
+
+@pytest.fixture()
+def sin_constancias_de_dev(db_session):
+    """Deja la tabla de constancias SIN lotes ni pendientes de dev, dentro de
+    la transacción del test (el rollback externo de `db_session` restaura todo).
+
+    `pending`/`pending_count`/`create_batch`/`list_batches`/
+    `voided_after_print` son GLOBALES por `kind`, y la BD de dev es compartida
+    (copia de prod): hoy trae el lote real #4 y folios GTV vigentes sin lote
+    (backfill de previas). Una prueba que afirma «2 pendientes», «1 lote» o
+    «4 ids de PDF» sale roja por filas que no sembró. Aquí:
+
+      1. se desligan TODAS las constancias de su lote y se anulan las vigentes
+         -- así ninguna fila ajena queda «por imprimir» (vigente sin lote) ni
+         «anulada tras imprimir» (anulada con lote);
+      2. se borran los lotes (ya sin referencias).
+
+    Luego `db_session.commit()` como CHECKPOINT: bajo
+    `join_transaction_mode="create_savepoint"` un `rollback()` de la app
+    desanda hasta el último commit, y sin él resucitaría las filas de dev.
+    Los contadores de folio no se tocan (la numeración no depende de esto).
+    """
+    from sqlalchemy import text
+
+    db_session.execute(text(
+        "UPDATE titulatec_certificates "
+        "SET batch_id = NULL, voided_at = COALESCE(voided_at, NOW()) "
+        "WHERE batch_id IS NOT NULL OR voided_at IS NULL"))
+    db_session.execute(text("DELETE FROM titulatec_certificate_batches"))
+    db_session.commit()          # checkpoint: el rollback de la app no resucita dev
+
+
+# ---------------------------------------------------------------------------
+# Bitácora: solo las filas que escribió ESTA prueba
+# ---------------------------------------------------------------------------
+AUDIT_MARK_KEY = "tt_audit_mark"
+
+
+@pytest.fixture()
+def audit_mark(db_session):
+    """`max(id)` de `titulatec_audit_log` al empezar la prueba (0 si está vacía).
+
+    La bitácora es INMUTABLE (trigger) y la BD de dev es compartida: ya trae el
+    backfill de `titulatec_process_events`, filas de la CLI y una purga real, y
+    cada uso de la app en dev deja más que nadie puede borrar. Una prueba que
+    cuenta `filter_by(action=...)` sobre la tabla entera, o que toma `[0]`, sale
+    roja para siempre en cuanto exista una fila real de esa acción (en CI pasa
+    solo porque la base nace vacía). Toda prueba que LEA la tabla pide esta
+    fixture y consulta con `audit_query(db)`, que agrega `id > marca`.
+
+    La marca se guarda en `db_session.info` para que los helpers de cada archivo
+    (que reciben la sesión, no la fixture) la encuentren; `patched_session_local`
+    es la MISMA sesión, así que también la ve. Se pide con
+    `pytestmark = pytest.mark.usefixtures("audit_mark")`: así se instancia ANTES
+    de las fixtures que siembran datos (las de `usefixtures` entran al cierre
+    antes que los argumentos de la prueba).
+    """
+    from sqlalchemy import func
+
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    marca = db_session.query(func.coalesce(func.max(TitulatecAuditLog.id), 0)).scalar()
+    db_session.info[AUDIT_MARK_KEY] = int(marca)
+    yield int(marca)
+    db_session.info.pop(AUDIT_MARK_KEY, None)
+
+
+def audit_query(db):
+    """`db.query(TitulatecAuditLog)` acotada a `id > audit_mark`.
+
+    Truena si la prueba no pidió `audit_mark`: sin la marca, la consulta
+    volvería a ver toda la bitácora de dev (justo lo que esto evita).
+    """
+    from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog
+
+    marca = db.info.get(AUDIT_MARK_KEY)
+    if marca is None:
+        raise AssertionError(
+            "audit_query() exige la fixture `audit_mark` "
+            '(pytestmark = pytest.mark.usefixtures("audit_mark"))')
+    return db.query(TitulatecAuditLog).filter(TitulatecAuditLog.id > marca)
+
+
+@pytest.fixture()
+def authz_congelada(monkeypatch):
+    """Caché de authz que NO depende de Redis, para las pruebas de PRESUPUESTO
+    de consultas (revisión final M7).
+
+    Esas pruebas calientan la caché con una primera llamada y luego comparan
+    cuentas («las mismas con 2 que con 40»). Redis es compartido: si otra
+    corrida (o el autouse `_clear_authz_cache` de otro proceso) lo vacía entre
+    dos mediciones, `cached_perms`/`cached_has_assignment`/`cached_roles`
+    vuelven a la BD y el conteo cambia por algo ajeno a lo que se mide. Aquí
+    cada una se memoiza por `(usuario, app)` DENTRO del test: la primera
+    llamada -el calentamiento- pasa por la función real y las siguientes no
+    consultan nada. Solo para pruebas que no cambian permisos tras calentar.
+    """
+    from itcj2.core.services import authz_cache
+
+    for nombre in ("cached_perms", "cached_has_assignment", "cached_roles"):
+        real, memo = getattr(authz_cache, nombre), {}
+
+        def _fija(db, user_id, app_key, _real=real, _memo=memo):
+            clave = (user_id, app_key)
+            if clave not in _memo:
+                _memo[clave] = _real(db, user_id, app_key)
+            valor = _memo[clave]
+            return set(valor) if isinstance(valor, set) else valor
+
+        monkeypatch.setattr(authz_cache, nombre, _fija)
+
+
+@pytest.fixture()
+def modo_alterno(monkeypatch):
+    """Centro de Computo revisa todo: se parchea `reviewer_mode`, nunca
+    `get_settings` (spec S5). UNICA copia (antes duplicada en 4 archivos de
+    prueba): C7/I-1 de la revision final la centraliza aqui.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "computer_center"))
+
+
+@pytest.fixture()
+def modo_sii(monkeypatch):
+    """El SII informa, Servicios Escolares decide (spec 2026-09-27, default
+    desde la Tarea 1): se parchea el método, nunca `get_settings`. UNICA copia
+    (antes duplicada en 6 archivos de prueba: `test_eligibility_service.py`,
+    `test_enrollment_inbox.py`, `test_access_inbox.py`,
+    `test_requests_reconsultar.py`, `test_cohort_window_route.py`,
+    `test_sii_cli.py`); se centraliza aqui igual que `modo_alterno`.
+    """
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                        staticmethod(lambda: "sii"))
+
+
+@pytest.fixture(autouse=True)
+def _sin_broker(monkeypatch):
+    """`celery_app.send_task` real tocaría Redis: `enqueue_check` lo llama por
+    nombre (sin sesión de BD de por medio) desde `create()` en modo `sii`,
+    desde «Reintentar consulta» de la bandeja y desde `recheck_errors`
+    (`sii-sweep --reconsultar-errores`). Con `sii` ya de default (Tarea 1) y
+    creciendo el número de archivos que usan la fixture `modo_sii`, este parche
+    es AUTOUSE para que ningún archivo nuevo tenga que acordarse de mockearlo:
+    registra la llamada y devuelve `None` en vez de tocar el broker.
+
+    Los tres tests que prueban el `enqueue_check` REAL
+    (`test_eligibility_service.py::test_enqueue_check_nunca_lanza`,
+    `..._manda_la_tarea_por_nombre_sin_reintentar_el_broker` y
+    `test_sii_no_configurado_no_consulta`) hacen `monkeypatch.undo()` primero
+    (mismo `monkeypatch`, function-scoped: deshace tambien este parche) y
+    vuelven a parchear `send_task` ELLOS MISMOS despues -> su parche, por ser
+    el ultimo `setattr`, gana.
+    """
+    from itcj2.celery_app import celery_app
+
+    llamadas: list = []
+    monkeypatch.setattr(
+        celery_app, "send_task",
+        lambda *a, **k: llamadas.append((a, k)) or None)
+    return llamadas
+
+
+@pytest.fixture()
+def envios_celery(_sin_broker):
+    """Llamadas que `_sin_broker` interceptó, para el test que quiera revisarlas."""
+    return _sin_broker
+
+
+# ---------------------------------------------------------------------------
+# Sesion compartida: proxy + overrides
+# ---------------------------------------------------------------------------
+class _TestSession:
+    """Proxy sobre la sesion del test que ignora `close()` y el `with`.
+
+    Ver el docstring del modulo: `__enter__`/`__exit__` van declarados porque
+    Python busca los metodos especiales en el TIPO, no via `__getattr__`.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def close(self):  # el handler cierra en su `finally`; el test sigue vivo
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture()
+def patched_session_local(db_session, monkeypatch):
+    """`SessionLocal()` -> la sesion del test. Cubre el CUERPO de las rutas.
+
+    Uselo suelto solo para services/helpers que abren su propia sesion sin pasar
+    por HTTP (p. ej. `nav.get_titulatec_roles`). Para rutas use `client`, que ya
+    lo incluye.
+    """
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: _TestSession(db_session))
+    return db_session
+
+
+@pytest.fixture()
+def client(app_client, db_session, patched_session_local):
+    """TestClient con la sesion del test atada por AMBOS caminos (gate + cuerpo).
+
+    No existe una version "solo gate" a proposito: es el error que este harness
+    esta hecho para hacer imposible.
+    """
+    def _override():
+        yield db_session
+
+    app_client.app.dependency_overrides[get_db] = _override
+    yield app_client
+    app_client.app.dependency_overrides.pop(get_db, None)
+
+
+def _invalidate(user_id: int) -> None:
+    """Tira el cache de authz del usuario en titulatec. Best-effort."""
+    try:
+        from itcj2.core.services.authz_cache import invalidate_user_app
+        invalidate_user_app(user_id, APP_KEY)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# App + permisos, DENTRO de la transaccion del test
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def titulatec_app(db_session):
+    """Fila de `core_apps` para titulatec. Idempotente.
+
+    Va aqui y no en `_seed_minimal_reference_data` (tests/fastapi/conftest.py:95)
+    a proposito: aquel fixture COMMITEA fuera de la transaccion del test, contra
+    la BD de dev. Este vive y muere dentro del savepoint.
+    """
+    from itcj2.core.models.app import App
+
+    app = db_session.query(App).filter_by(key=APP_KEY).first()
+    if app is None:
+        app = App(
+            key=APP_KEY, name="TitulaTec", is_active=True,
+            visible_to_students=True, mobile_enabled=True,
+        )
+        db_session.add(app)
+        db_session.flush()
+    return app
+
+
+@pytest.fixture()
+def make_perms(db_session, titulatec_app):
+    """Asegura filas de `core_permissions` para los codigos dados -> {code: Permission}."""
+    from itcj2.core.models.permission import Permission
+
+    def _make(codes):
+        out = {}
+        for code in codes:
+            perm = (
+                db_session.query(Permission)
+                .filter_by(app_id=titulatec_app.id, code=code)
+                .first()
+            )
+            if perm is None:
+                perm = Permission(app_id=titulatec_app.id, code=code, name=code[:120])
+                db_session.add(perm)
+                db_session.flush()
+            out[code] = perm
+        return out
+
+    return _make
+
+
+@pytest.fixture()
+def make_role(db_session, make_perms):
+    """Rol (por nombre) con los permisos indicados en titulatec. Idempotente."""
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.role_permission import RolePermission
+
+    def _make(name, perm_codes=()):
+        role = db_session.query(Role).filter_by(name=name).first()
+        if role is None:
+            role = Role(name=name)
+            db_session.add(role)
+            db_session.flush()
+        for perm in make_perms(perm_codes).values():
+            exists = (
+                db_session.query(RolePermission)
+                .filter_by(role_id=role.id, perm_id=perm.id)
+                .first()
+            )
+            if exists is None:
+                db_session.add(RolePermission(role_id=role.id, perm_id=perm.id))
+        db_session.flush()
+        return role
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Piezas del organigrama
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_user(db_session):
+    """Usuario sintetico. Nombres ficticios, control `99xxxxxx`, correo .invalid."""
+    from itcj2.core.models.user import User
+
+    def _make(first_name="ACTOR", last_name="PRUEBA", control_number=None,
+              username=None, email=None, global_role=None, is_active=True,
+              middle_name=None):
+        n = _n()
+        role_id = None
+        if global_role:
+            from itcj2.core.models.role import Role
+            role = db_session.query(Role).filter_by(name=global_role).first()
+            if role is None:
+                role = Role(name=global_role)
+                db_session.add(role)
+                db_session.flush()
+            role_id = role.id
+        user = User(
+            first_name=first_name,
+            last_name=last_name,
+            middle_name=middle_name,
+            username=username or f"tt_test_{n}",
+            control_number=control_number,
+            email=email or f"tt.test.{n}@example.invalid",
+            is_active=is_active,
+            role_id=role_id,
+        )
+        db_session.add(user)
+        db_session.flush()
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_program(db_session):
+    """Carrera (`core_programs`). Idempotente por nombre.
+
+    `level` (licenciatura|maestria|doctorado, default licenciatura): si la
+    carrera ya existia con OTRO nivel, la ajusta -- para que un test de
+    posgrado pueda reusar una carrera que otro test ya sembro en licenciatura,
+    sin duplicar filas por nombre (UNIQUE).
+    """
+    from itcj2.core.models.program import Program
+
+    def _make(name, level="licenciatura"):
+        prog = db_session.query(Program).filter_by(name=name).first()
+        if prog is None:
+            prog = Program(name=name, level=level)
+            db_session.add(prog)
+            db_session.flush()
+        elif prog.level != level:
+            prog.level = level
+            db_session.flush()
+        return prog
+
+    return _make
+
+
+@pytest.fixture()
+def make_department(db_session):
+    """Departamento del organigrama (opcional: `Position.department_id` es nullable)."""
+    from itcj2.core.models.department import Department
+
+    def _make(code=None, name="Depto de prueba", parent_id=None):
+        code = code or f"tt_test_dept_{_n()}"
+        dept = db_session.query(Department).filter_by(code=code).first()
+        if dept is None:
+            dept = Department(code=code, name=name, parent_id=parent_id,
+                              is_active=True, is_official=False)
+            db_session.add(dept)
+            db_session.flush()
+        return dept
+
+    return _make
+
+
+@pytest.fixture()
+def make_position(db_session):
+    """Puesto (`core_positions`)."""
+    from itcj2.core.models.position import Position
+
+    def _make(code=None, title="Puesto de prueba", department=None):
+        code = code or f"tt_test_pos_{_n()}"
+        pos = db_session.query(Position).filter_by(code=code).first()
+        if pos is None:
+            pos = Position(
+                code=code, title=title, is_active=True,
+                department_id=department.id if department is not None else None,
+            )
+            db_session.add(pos)
+            db_session.flush()
+        return pos
+
+    return _make
+
+
+@pytest.fixture()
+def assign_position(db_session):
+    """`UserPosition` VIGENTE.
+
+    `_active_position_filter()` (`authz_service.py:21-31`) exige `is_active` **y**
+    `start_date <= hoy` **y** (`end_date` NULL o >= hoy). Con `start_date` en el
+    futuro el usuario no hereda nada y el 403 resultante desconcierta.
+    """
+    from itcj2.core.models.position import UserPosition
+
+    def _make(user, position, start_date=None, end_date=None, is_active=True):
+        link = UserPosition(
+            user_id=user.id, position_id=position.id,
+            start_date=start_date or (date.today() - timedelta(days=1)),
+            end_date=end_date, is_active=is_active,
+        )
+        db_session.add(link)
+        db_session.flush()
+        _invalidate(user.id)
+        return link
+
+    return _make
+
+
+@pytest.fixture()
+def link_programs(db_session):
+    """`ProgramPosition`: las carreras que el puesto atiende (eje del scope)."""
+    from itcj2.core.models.position import ProgramPosition
+
+    def _make(position, programs):
+        out = []
+        for prog in programs:
+            pid = getattr(prog, "id", prog)
+            exists = (
+                db_session.query(ProgramPosition)
+                .filter_by(position_id=position.id, program_id=pid)
+                .first()
+            )
+            if exists is None:
+                exists = ProgramPosition(position_id=position.id, program_id=pid)
+                db_session.add(exists)
+            out.append(exists)
+        db_session.flush()
+        return out
+
+    return _make
+
+
+@pytest.fixture()
+def bind_position_role(db_session, titulatec_app):
+    """`PositionAppRole`: el rol que el puesto otorga en titulatec.
+
+    Es la via real de la app: 11 filas en `core_position_app_roles`
+    (`05_insert_position_app_roles.sql`), casi nada por `core_user_app_roles`.
+    """
+    from itcj2.core.models.position import PositionAppRole
+
+    def _make(position, role):
+        exists = (
+            db_session.query(PositionAppRole)
+            .filter_by(position_id=position.id, app_id=titulatec_app.id, role_id=role.id)
+            .first()
+        )
+        if exists is None:
+            exists = PositionAppRole(
+                position_id=position.id, app_id=titulatec_app.id, role_id=role.id,
+            )
+            db_session.add(exists)
+            db_session.flush()
+        return exists
+
+    return _make
+
+
+@pytest.fixture()
+def grant_user_role(db_session, titulatec_app):
+    """`UserAppRole`: rol DIRECTO en la app.
+
+    Es la via que usa el importador de CSV para los alumnos
+    (`import_service.py:298` -> `authz_service.grant_role`).
+    """
+    from itcj2.core.models.user_app_role import UserAppRole
+
+    def _make(user, role):
+        exists = (
+            db_session.query(UserAppRole)
+            .filter_by(user_id=user.id, app_id=titulatec_app.id, role_id=role.id)
+            .first()
+        )
+        if exists is None:
+            exists = UserAppRole(
+                user_id=user.id, app_id=titulatec_app.id, role_id=role.id,
+            )
+            db_session.add(exists)
+            db_session.flush()
+        _invalidate(user.id)
+        return exists
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Actores compuestos
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_head(make_user, make_role, make_position, assign_position, bind_position_role):
+    """Jefa de Servicios Escolares sintetica: ve TODO (`process.api.read.all`).
+
+    Rol por PUESTO, como en produccion. Devuelve el `User`.
+    """
+    def _make(perm_codes=HEAD_PERMS, first_name="JEFA", last_name="FICTICIA"):
+        user = make_user(first_name=first_name, last_name=last_name)
+        role = make_role(ROLE_HEAD, perm_codes)
+        pos = make_position(title="Jefatura de prueba")
+        bind_position_role(pos, role)
+        assign_position(user, pos)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_officer(make_user, make_role, make_position, assign_position,
+                 bind_position_role, link_programs):
+    """Encargado acotado a N carreras: puesto + `ProgramPosition` + rol SIN read.all.
+
+    Devuelve `(user, position)` — el puesto hace falta para reasignar carreras a
+    media prueba (`officer_service.set_programs`).
+    """
+    def _make(programs, perm_codes=OFFICER_PERMS, first_name="ENCARGADO",
+              last_name="FICTICIO"):
+        user = make_user(first_name=first_name, last_name=last_name)
+        role = make_role(ROLE_OFFICER, perm_codes)
+        pos = make_position(title="Encargado de prueba")
+        bind_position_role(pos, role)
+        link_programs(pos, programs)
+        assign_position(user, pos)
+        return user, pos
+
+    return _make
+
+
+@pytest.fixture()
+def make_student(make_user, make_role, grant_user_role):
+    """Alumno sintetico con rol DIRECTO en la app (como lo deja el importador)."""
+    def _make(control_number=None, perm_codes=STUDENT_PERMS,
+              first_name="ALUMNO", last_name="FICTICIO"):
+        control_number = control_number or f"99{_n():06d}"
+        user = make_user(first_name=first_name, last_name=last_name,
+                         control_number=control_number, username=control_number,
+                         global_role="student")
+        role = make_role(ROLE_STUDENT, perm_codes)
+        grant_user_role(user, role)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_app_user_without_perms(make_user, make_role, grant_user_role):
+    """Actor CON acceso a la app pero SIN el permiso de ninguna pagina admin.
+
+    Ejerce la rama `PageForbidden(has_app_access=True)` de `require_page_app`
+    (`dependencies.py:133-137`), distinta del outsider sin asignacion alguna.
+    """
+    def _make(perm_codes=(INERT_PERM,)):
+        user = make_user(first_name="SIN", last_name="PERMISOS")
+        role = make_role(ROLE_NOPERMS, perm_codes)
+        grant_user_role(user, role)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_outsider(make_user):
+    """Usuario SIN ninguna asignacion en titulatec.
+
+    Dispara `PageForbidden(has_app_access=False)` (`dependencies.py:126-128`).
+    """
+    def _make():
+        return make_user(first_name="AJENO", last_name="FICTICIO")
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Clientes autenticados por actor
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def cookies_for():
+    """Header Cookie con el JWT del actor.
+
+    `role=""` a proposito: `require_page_app` no bypasea al admin global, pero
+    `resolve_dashboard_url` (`nav.py:66-74`) SI cortocircuita con
+    `jwt_role == "admin"`. Con el rol vacio ningun test pasa por un atajo.
+    """
+    def _make(user, role=""):
+        token = make_jwt(user_id=user.id, role=role, name=user.full_name,
+                         cn=user.control_number)
+        return {"Cookie": f"itcj_token={token}"}
+
+    return _make
+
+
+@pytest.fixture()
+def client_as(client):
+    """Cliente ya autenticado como `user`. Llamarlo de nuevo cambia de actor.
+
+    Uso::
+
+        resp = client_as(head).get("/titulatec/admin/documents")
+    """
+    def _as(user, role=""):
+        token = make_jwt(user_id=user.id, role=role, name=user.full_name,
+                         cn=user.control_number)
+        client.cookies.set("itcj_token", token)
+        return client
+
+    return _as
+
+
+# ---------------------------------------------------------------------------
+# Catalogos y arbol de datos del proceso
+# ---------------------------------------------------------------------------
+# Copia de `06_seed_catalogs.sql` (catalogo, sin datos personales).
+PHASE_DEFS = (
+    (0, "cohort_intake", "Convocatoria", "school_services"),
+    (1, "initial_docs", "Documentos iniciales", "student"),
+    (2, "review_appointment", "Cita de cotejo", "school_services"),
+    (3, "format_b", "Formato B", "titulaciones"),
+    (4, "synodal_assignment", "Asignacion de sinodales", "vinculacion"),
+    (5, "synodal_review", "Revision de sinodales", "synodals"),
+    (6, "anexo_iii", "Anexo III", "titulaciones"),
+    (7, "final_docs", "Entrega final", "student"),
+    (8, "ceremony", "Acto protocolario", "titulaciones"),
+)
+
+INITIAL_DOC_TYPES = (
+    ("birth_certificate", "Acta de nacimiento", 1),
+    ("high_school_cert", "Certificado de bachillerato", 1),
+    ("curp", "CURP certificada", 1),
+)
+
+# Los 4 extras de fase 1 que solo sube un egresado de posgrado (spec
+# 2026-09-30-titulatec-posgrado-design.md §4.4). `seed_document_types` no los
+# siembra por omision -- se piden con
+# `seed_document_types(types=INITIAL_DOC_TYPES + POSGRADO_DOC_TYPES)`.
+POSGRADO_DOC_TYPES = (
+    ("professional_license", "Cédula profesional", 1),
+    ("degree_title", "Título", 1),
+    ("postgrad_authorization",
+     "Oficios de autorización de la División de Estudios de Posgrado", 1),
+    ("efirma_sat", "Comprobante de e.firma o cita con el SAT", 1),
+)
+
+
+@pytest.fixture()
+def seed_phase_defs(db_session):
+    """Las 9 filas de `titulatec_phase_definitions` (0-8). Idempotente."""
+    from itcj2.apps.titulatec.models import PhaseDefinition
+
+    def _seed():
+        out = []
+        for number, code, name, responsible in PHASE_DEFS:
+            row = db_session.query(PhaseDefinition).filter_by(number=number).first()
+            if row is None:
+                row = PhaseDefinition(number=number, code=code, name=name,
+                                      responsible=responsible, order_index=number,
+                                      is_active=True)
+                db_session.add(row)
+            out.append(row)
+        db_session.flush()
+        return out
+
+    return _seed
+
+
+@pytest.fixture()
+def seed_document_types(db_session):
+    """Tipos de documento. Por defecto los 3 iniciales de la fase 1."""
+    from itcj2.apps.titulatec.models import DocumentType
+
+    def _seed(types=INITIAL_DOC_TYPES):
+        out = []
+        for code, name, phase in types:
+            row = db_session.query(DocumentType).filter_by(code=code).first()
+            if row is None:
+                row = DocumentType(code=code, name=name, phase_number=phase,
+                                   file_kind="pdf", is_versionable=True, is_active=True)
+                db_session.add(row)
+            out.append(row)
+        db_session.flush()
+        return out
+
+    return _seed
+
+
+@pytest.fixture()
+def make_modality(db_session):
+    """Modalidad. `skips_phases` es lo que hace saltar fases (p. ej. EGEL)."""
+    from itcj2.apps.titulatec.models import Modality
+
+    def _make(code=None, name="Modalidad de prueba", requires_synodals=True,
+              signature_rule="president_only", skips_phases=None):
+        code = code or f"tt_test_mod_{_n()}"
+        row = db_session.query(Modality).filter_by(code=code).first()
+        if row is None:
+            row = Modality(code=code, name=name, requires_synodals=requires_synodals,
+                           signature_rule=signature_rule, skips_phases=skips_phases,
+                           is_active=True)
+            db_session.add(row)
+            db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_period(db_session):
+    """`core_academic_periods`. `code` es String(6) y `name` es UNIQUE.
+
+    NO se toca el periodo ACTIVE real: titulatec no resuelve por periodo activo
+    (a diferencia de agendatec), la convocatoria apunta al periodo por FK.
+    """
+    from itcj2.core.models.academic_period import AcademicPeriod
+
+    def _make(code=None, status="INACTIVE"):
+        code = code or _period_code(_n())
+        row = db_session.query(AcademicPeriod).filter_by(code=code).first()
+        if row is None:
+            row = AcademicPeriod(
+                code=code, name=f"Periodo de prueba {code}",
+                start_date=date(2029, 1, 1), end_date=date(2029, 6, 30),
+                status=status,
+            )
+            db_session.add(row)
+            db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_cohort(db_session, make_period):
+    """Convocatoria. `period_id` es UNIQUE: una convocatoria por periodo.
+
+    La ventana es `DateTime` NOT NULL (spec 2026-09-27 §B1): por omisión abre
+    HOY a las 00:00 y cierra en 30 días a las 23:59:59, en el reloj de la
+    ventana (`db_now`, hora local), no en el del proceso. Quien pase
+    `opens_at`/`closes_at` pasa `datetime`: un `date` se guardaría igual, pero
+    el objeto en memoria no se puede comparar contra `db_now()`.
+
+    `book_donation_amount` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.2): NULL por omisión -- «sin configurar», el mismo significado que
+    tiene la columna. Quien necesite una convocatoria con donación ya fijada
+    pasa `Decimal("800.00")`.
+    """
+    from itcj2.apps.titulatec.models import Cohort
+    from itcj2.core.utils.timezone import db_now
+
+    def _make(period=None, name=None, status="open", opens_at=None, closes_at=None,
+              created_by=None, book_donation_amount=None):
+        period = period if period is not None else make_period()
+        hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
+        row = Cohort(
+            period_id=period.id,
+            name=name or f"Convocatoria {period.code}",
+            status=status,
+            opens_at=opens_at or hoy,
+            closes_at=closes_at or (hoy + timedelta(days=30, hours=23, minutes=59,
+                                                    seconds=59)),
+            created_by_id=getattr(created_by, "id", created_by),
+            book_donation_amount=book_donation_amount,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_review_day(db_session):
+    """Dia habilitado para cotejo en una convocatoria (UNIQUE cohort+date)."""
+    from itcj2.apps.titulatec.models import CohortReviewDay
+
+    def _make(cohort, day=None, created_by=None):
+        row = CohortReviewDay(
+            cohort_id=cohort.id,
+            date=day or (date.today() + timedelta(days=7)),
+            created_by_id=getattr(created_by, "id", created_by),
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_library_clearance(db_session):
+    """Fila de no adeudo de biblioteca para un proceso (UNIQUE por proceso).
+
+    `status="cleared"` SIN `cleared_via` explícito usa `"legacy"` -- es el
+    mismo significado que le da el backfill de `tt20261001a` (ya cumplía el
+    requisito antes de este feature). Los montos quedan en NULL salvo que se
+    pasen por `**cols` (spec 2026-10-01-titulatec-biblioteca-caja-design.md
+    §4.1.1).
+    """
+    from itcj2.apps.titulatec.models import LibraryClearance
+
+    def _make(process, status="pending", **cols):
+        if status == "cleared" and "cleared_via" not in cols:
+            cols["cleared_via"] = "legacy"
+        row = LibraryClearance(process_id=process.id, status=status, **cols)
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_process(db_session, make_cohort, make_library_clearance):
+    """Proceso + sus 9 `ProcessPhase`, con la misma forma que deja el importador.
+
+    Reparto de estados (espejo de `import_service.py:309-311`):
+    fase < current_phase -> approved | == -> in_progress | > -> pending.
+    `phases=False` crea el proceso pelado (para probar el camino sin fases).
+
+    `library_clearance="cleared"` (spec 2026-10-01-titulatec-biblioteca-caja-
+    design.md, Ruling R1 del plan): crea TAMBIÉN la fila de no adeudo de
+    biblioteca, `cleared`/`cleared_via="legacy"` por omisión, para que las
+    pruebas existentes de agendado no cambien de comportamiento cuando la
+    Tarea 5 encienda `ClearanceGate`. `library_clearance=None` no crea fila
+    (para quien quiera probar la tabla por sí misma); cualquier otro valor de
+    `LIBRARY_STATUSES` ("pending", "awaiting_payment") crea la fila en ese
+    estado.
+    """
+    from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
+
+    def _make(student, cohort=None, program=None, modality=None, current_phase=1,
+              status="active", phases=True, folio=None, is_app_active=True,
+              library_clearance="cleared"):
+        cohort = cohort if cohort is not None else make_cohort()
+        period_code = cohort.period_code or str(cohort.period_id)
+        proc = TitulationProcess(
+            folio=folio or f"TT-{period_code}-{_n():04d}",
+            student_id=student.id,
+            cohort_id=cohort.id,
+            program_id=getattr(program, "id", program),
+            modality_id=getattr(modality, "id", modality),
+            current_phase=current_phase,
+            status=status,
+            is_app_active=is_app_active,
+        )
+        db_session.add(proc)
+        db_session.flush()
+        if phases:
+            for n in range(9):
+                st = ("approved" if n < current_phase
+                      else "in_progress" if n == current_phase else "pending")
+                db_session.add(ProcessPhase(process_id=proc.id, phase_number=n, status=st))
+            db_session.flush()
+        if library_clearance is not None:
+            make_library_clearance(proc, status=library_clearance)
+        return proc
+
+    return _make
+
+
+@pytest.fixture()
+def make_document(db_session):
+    """Fila de `titulatec_documents` (UNIQUE process+type_code).
+
+    NO escribe en disco: `file_path` es relativa a `TITULATEC_UPLOAD_PATH` y solo
+    la ruta de servir archivo (`documents.py:142`) la resuelve. Si el test la
+    necesita en disco, creala el mismo con `tmp_path`.
+
+    `version` (opcional): sin pasarla, la fila toma el `server_default` (1),
+    como siempre. `replacement_requested_at` (opcional, NULL por omision):
+    no NULL = reemplazo abierto en la cita de cotejo (spec 2026-10-15).
+    """
+    from itcj2.apps.titulatec.models import Document
+
+    def _make(process, type_code="birth_certificate", phase_number=1,
+              review_status="pending", uploaded_by=None, note=None,
+              file_path=None, original_name="documento.pdf",
+              version=None, replacement_requested_at=None):
+        # `version=None` NO se manda: un None explicito iria como NULL al INSERT
+        # y la columna es NOT NULL con `server_default`.
+        extra = {"version": version} if version is not None else {}
+        row = Document(
+            replacement_requested_at=replacement_requested_at,
+            **extra,
+            process_id=process.id,
+            phase_number=phase_number,
+            type_code=type_code,
+            file_path=file_path or f"tt-test/{process.id}/{type_code}.pdf",
+            original_name=original_name,
+            mime_type="application/pdf",
+            size_bytes=1024,
+            review_status=review_status,
+            review_note=note,
+            uploaded_by_id=getattr(uploaded_by, "id", uploaded_by) or process.student_id,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_appointment(db_session):
+    """Cita de cotejo.
+
+    Dominio real de `status` (`appointment_service.py:172-235`, mas
+    `cancelled`/`superseded` del historial de intentos, Tarea 1-2):
+    scheduled|confirmed|in_progress|attended|no_show|cancelled|superseded.
+    NO existe `rescheduled`.
+
+    `is_current`/`attempt_no`/`booked_by` traen los MISMOS defaults que el
+    `server_default` del modelo (vigente, intento 1, agendada por el
+    encargado), asi que un test que no los toca ve el comportamiento normal.
+    Se exponen para fabricar intentos NO vigentes a mano (historial ya
+    cerrado) sin pasar por `SlotService`/`AppointmentService` ni duplicar el
+    constructor de `ReviewAppointment` en cada archivo de test.
+    """
+    from itcj2.apps.titulatec.models import ReviewAppointment
+
+    def _make(process, when=None, status="scheduled", created_by=None,
+              location="Edificio de prueba", note=None,
+              is_current=True, attempt_no=1, booked_by="officer"):
+        default_when = datetime.combine(
+            date.today() + timedelta(days=7), datetime.min.time()
+        ).replace(hour=10)
+        row = ReviewAppointment(
+            process_id=process.id,
+            scheduled_at=when or default_when,
+            location=location,
+            status=status,
+            note=note,
+            is_current=is_current,
+            attempt_no=attempt_no,
+            booked_by=booked_by,
+            created_by_id=getattr(created_by, "id", created_by) or process.student_id,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+# Copia sintetica del `schema` que siembra `11_seed_survey_form.sql`, mas un
+# `multiselect` y un `textarea` para ejercitar el renderizador COMPLETO: la CI
+# corre con `create_all` y sin DML, asi que nada de esto existe alli.
+SURVEY_SCHEMA_V1 = {
+    "enabled": True,
+    "sections": [
+        {"key": "empleo", "title": "Situacion laboral"},
+        {"key": "opinion", "title": "Tu opinion del Tec"},
+    ],
+    "fields": [
+        {"key": "situacion_laboral", "section": "empleo", "type": "radio",
+         "label": "Cual es tu situacion laboral actual?", "required": True,
+         "options": [{"value": "empleado", "label": "Trabajando"},
+                     {"value": "buscando", "label": "Buscando empleo"},
+                     {"value": "estudiando", "label": "Estudiando"}]},
+        {"key": "relacion_carrera", "section": "empleo", "type": "scale",
+         "label": "Que tanto se relaciona tu empleo con tu carrera?", "required": True,
+         "scale": {"min": 1, "max": 5,
+                   "min_label": "Nada relacionado",
+                   "max_label": "Totalmente relacionado"},
+         "visible_when": {"situacion_laboral": "empleado"}},
+        {"key": "areas_fuertes", "section": "opinion", "type": "multiselect",
+         "label": "Que areas sentiste mas fuertes?", "required": False,
+         "options": [{"value": "tecnica", "label": "Formacion tecnica"},
+                     {"value": "practicas", "label": "Practicas profesionales"},
+                     {"value": "idiomas", "label": "Idiomas"}]},
+        {"key": "comentarios", "section": "opinion", "type": "textarea",
+         "label": "Que le cambiarias al Tec?", "required": False,
+         "validation": {"maxLength": 2000}},
+    ],
+}
+
+
+@pytest.fixture()
+def make_survey_form(db_session):
+    """`titulatec_survey_forms`. Una fila = una VERSION del cuestionario.
+
+    1. `code` NO es unique por si sola: el unique es `(code, version)`.
+    2. El indice PARCIAL `uq_titulatec_survey_forms_open` (`code` WHERE
+       status='open') SI existe en la BD de dev migrada — lo declara
+       `__table_args__` (Tarea 1), asi que `create_all` tambien lo crea. Por eso
+       esta fabrica CIERRA las abiertas del mismo `code` antes de insertar: sin
+       ese barrido, en cuanto alguien corra `titulatec load-survey-2026-09` en su
+       BD de dev toda llamada por omision reventaria con IntegrityError.
+    3. GUARDA CONTRA FILAS EXTERNAS, no contra las que la propia fabrica creo:
+       `load-survey-2026-09` deja una fila real `('egresados', 1)` committeada
+       de forma PERMANENTE en la BD de dev (fuera de cualquier transaccion de
+       test), y las suites de Playwright (Tareas 25-27) manejan el navegador
+       real contra esa MISMA base, asi que pueden dejarle respuestas y
+       borradores reales encima. `SurveyResponse.form_id` NO lleva
+       `ondelete='CASCADE'` (a diferencia de `SurveyDraft.form_id`, que si lo
+       lleva), asi que un DELETE de `SurveyForm` sin purgar antes sus
+       respuestas revienta con un IntegrityError de FK — no con el unique que
+       veniamos a evitar. Se purga en orden seguro (answers -> responses ->
+       drafts -> form) DENTRO de esta misma transaccion de test: el
+       `rollback()` final de `db_session` deshace el purgado tambien, asi que
+       el dato real sembrado fuera de pytest nunca se pierde de verdad.
+
+    El `schema` por defecto es `SURVEY_SCHEMA_V1`: los dos campos del v1 del
+    diseno mas un multiselect y un textarea, para ejercer el renderizador entero.
+    """
+    from itcj2.apps.titulatec.models import (
+        SurveyAnswer, SurveyDraft, SurveyForm, SurveyResponse, SurveyReview,
+    )
+
+    def _make(code="egresados", version=1, status="open", schema=None,
+              title=None, description=None, is_anonymous=False,
+              opens_at=None, closes_at=None):
+        if status == "open":
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.code == code, SurveyForm.status == "open")
+             .update({"status": "closed"}, synchronize_session=False))
+            db_session.flush()
+        # El barrido de arriba solo protege el indice PARCIAL (un solo 'open'
+        # por code). Si YA existe una fila real con este mismo (code, version)
+        # se purga entera, respuestas/borradores incluidos (ver punto 3 del
+        # docstring), antes de insertar la nueva: el unique (code, version)
+        # colisionaria igual aunque la fila ya haya quedado 'closed', y el
+        # DELETE de abajo por si solo reventaria con FK si alguien le dejo una
+        # respuesta real encima.
+        existente_id = (
+            db_session.query(SurveyForm.id)
+            .filter(SurveyForm.code == code, SurveyForm.version == version)
+            .scalar()
+        )
+        if existente_id is not None:
+            respuestas = (db_session.query(SurveyResponse.id)
+                          .filter(SurveyResponse.form_id == existente_id))
+            (db_session.query(SurveyAnswer)
+             .filter(SurveyAnswer.response_id.in_(respuestas))
+             .delete(synchronize_session=False))
+            # `SurveyReview` tambien apunta a `SurveyResponse`, y es la tabla
+            # que faltaba (2026-09-18). Nacio el 2026-09-15 con la liberacion de
+            # GTV, despues de que se escribiera este purgado, asi que se quedo
+            # fuera: en cuanto un alumno REAL de dev envio su encuesta y GTV se
+            # la libero, el DELETE de las respuestas reventaba con
+            # `titulatec_survey_reviews_response_id_fkey` y se llevaba por
+            # delante 113 tests de la suite de titulatec, ninguno de ellos
+            # relacionado con la liberacion. El comentario de arriba ya preveia
+            # exactamente este fallo ("reventaria con FK si alguien le dejo una
+            # respuesta real encima"); solo le faltaba esta tabla.
+            (db_session.query(SurveyReview)
+             .filter(SurveyReview.response_id.in_(respuestas))
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyResponse)
+             .filter(SurveyResponse.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyDraft)
+             .filter(SurveyDraft.form_id == existente_id)
+             .delete(synchronize_session=False))
+            (db_session.query(SurveyForm)
+             .filter(SurveyForm.id == existente_id)
+             .delete(synchronize_session=False))
+            db_session.flush()
+        row = SurveyForm(
+            code=code,
+            version=version,
+            status=status,
+            title=title or f"Encuesta de prueba {code} v{version}",
+            description=description or "Cuestionario para egresados del ITCJ.",
+            schema=schema if schema is not None else SURVEY_SCHEMA_V1,
+            is_anonymous=is_anonymous,
+            opens_at=opens_at,
+            closes_at=closes_at,
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_survey_review(db_session, make_survey_form):
+    """`SurveyReview` ya en el estado pedido, con una `SurveyResponse` minima detras.
+
+    Crea SOLO la solicitud (y la respuesta que la respalda, via `make_survey_form`
+    con una VERSION propia por llamada -- `version=_n()` -- para no disparar el
+    purgado por colision de `(code, version)` de esa fabrica: dos llamadas en el
+    mismo test con la version por omision borrarian la respuesta de la primera
+    al crear la segunda). NO acredita el requisito `graduate_survey` aunque
+    `status="approved"`: eso es un EFECTO de `SurveyReviewService.approve`, no
+    un dato que se pueda sembrar por separado sin mentir sobre quien lo hizo.
+    El test que necesite la puerta de la fase 2 realmente abierta debe llamar
+    el mismo a `SurveyReviewService.approve(db_session, review.id, actor_id)`.
+
+    `reviewed_by_id`/`reviewed_at` solo se llenan si se pasa `reviewer`: sin
+    el, quedan en `None` sin importar `status` (fabrica minima, sin inferencias).
+    """
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.apps.titulatec.models import SurveyResponse, SurveyReview
+
+    def _make(process, status="in_review", reason=None, reviewer=None):
+        form = make_survey_form(version=_n())
+        response = SurveyResponse(
+            form_id=form.id,
+            form_version=form.version,
+            user_id=process.student_id,
+            process_id=process.id,
+            cohort_id=process.cohort_id,
+            identity_source="session",
+            answers={},
+        )
+        db_session.add(response)
+        db_session.flush()
+
+        reviewer_id = getattr(reviewer, "id", reviewer)
+        review = SurveyReview(
+            process_id=process.id,
+            response_id=response.id,
+            status=status,
+            rejection_reason=reason,
+            reviewed_by_id=reviewer_id,
+            reviewed_at=(db_now() if reviewer_id is not None else None),
+            submitted_at=db_now(),
+            updated_at=db_now(),
+        )
+        db_session.add(review)
+        db_session.flush()
+        return review
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Escenario listo para usar
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def titulatec_scenario(seed_phase_defs, seed_document_types, make_program,
+                       make_cohort, make_head, make_officer, make_student,
+                       make_process):
+    """Arbol minimo completo y componible.
+
+    Catalogos + 2 carreras + jefa + encargado (solo carrera A) + 2 alumnos con
+    proceso, uno por carrera. Sirve para probar el eje de scope sin re-escribir
+    el andamiaje en cada test.
+    """
+    def _build():
+        seed_phase_defs()
+        seed_document_types()
+        prog_a = make_program("Ingenieria Ficticia A")
+        prog_b = make_program("Ingenieria Ficticia B")
+        cohort = make_cohort()
+        head = make_head()
+        officer, officer_pos = make_officer([prog_a])
+        student_a = make_student()
+        student_b = make_student()
+        proc_a = make_process(student_a, cohort=cohort, program=prog_a)
+        proc_b = make_process(student_b, cohort=cohort, program=prog_b)
+        return {
+            "cohort": cohort,
+            "programs": {"a": prog_a, "b": prog_b},
+            "head": head,
+            "officer": officer,
+            "officer_position": officer_pos,
+            "students": {"a": student_a, "b": student_b},
+            "processes": {"a": proc_a, "b": proc_b},
+        }
+
+    return _build
+
+
+# ===========================================================================
+# Rediseno de Citas de cotejo (2026-09-03)
+# ===========================================================================
+# La jefatura pone los DIAS; cada encargado abre en ellos sus propias VENTANAS
+# con su horario, la duracion de sus franjas y cuantas personas caben en cada
+# una. El dueno es el USUARIO y no el puesto: `aux_school_services` tiene
+# `allows_multiple = TRUE` y nueve ocupantes en la BD real, asi que con
+# dueno = puesto esas nueve personas compartirian una sola ventana.
+
+def _hhmm(v):
+    """'09:30' | time(9,30) -> time(9,30). Azucar para las factories."""
+    if isinstance(v, time):
+        return v
+    h, m = str(v).split(":")
+    return time(int(h), int(m))
+
+
+@pytest.fixture()
+def make_review_window(db_session):
+    """Ventana de atencion de un encargado dentro de un dia de cotejo.
+
+    `visibility` repite el `server_default` de la columna ('private'): quien no
+    lo pasa ve el comportamiento de siempre. Con 'walkin' (sin horario) `cap`
+    es el TOTAL de personas del espacio, no el cupo por franja (spec
+    2026-09-29 §3.1, D3).
+    """
+    from itcj2.apps.titulatec.models import ReviewWindow
+
+    def _make(day, owner, *, start="09:00", end="14:00", slot=30, cap=1,
+              location=None, status="open", position=None, created_by=None,
+              visibility="private"):
+        row = ReviewWindow(
+            review_day_id=day.id,
+            owner_user_id=getattr(owner, "id", owner),
+            owner_position_id=getattr(position, "id", position),
+            start_time=_hhmm(start),
+            end_time=_hhmm(end),
+            slot_minutes=slot,
+            capacity=cap,
+            location=location,
+            status=status,
+            visibility=visibility,
+            created_by_id=(getattr(created_by, "id", created_by)
+                           or getattr(owner, "id", owner)),
+        )
+        db_session.add(row)
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def set_cohort_defaults(db_session):
+    """Defaults de franja de una convocatoria, que la ventana hereda si no los pisa."""
+    def _set(cohort, *, start="09:00", end="14:00", slot=30, cap=1, location=None):
+        cohort.default_start_time = _hhmm(start)
+        cohort.default_end_time = _hhmm(end)
+        cohort.default_slot_minutes = slot
+        cohort.default_capacity = cap
+        cohort.default_location = location
+        db_session.flush()
+        return cohort
+
+    return _set
+
+
+@pytest.fixture()
+def agenda_slots(seed_phase_defs, seed_document_types, make_program, make_cohort,
+                 make_review_day, make_officer, make_student, make_process,
+                 make_review_window):
+    """Escenario minimo de franjas: 1 carrera, 1 dia, 1 ventana, 2 procesos.
+
+    La ventana es 09:00-11:00 en franjas de 30 con capacidad 1, o sea CUATRO
+    lugares. Basta para probar cupo duro, colision y rejilla.
+    """
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria de Franjas")
+    cohort = make_cohort()
+    dia = make_review_day(cohort, day=date(2029, 5, 7))
+    officer, pos = make_officer([prog])
+    ventana = make_review_window(dia, officer, start="09:00", end="11:00",
+                                 slot=30, cap=1, position=pos)
+    p1 = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+    p2 = make_process(make_student(), cohort=cohort, program=prog, current_phase=2)
+    return {"prog": prog, "cohort": cohort, "dia": dia, "off": officer,
+            "pos": pos, "w": ventana, "p1": p1, "p2": p2}
+
+
+@pytest.fixture()
+def agenda_slots_lleno(agenda_slots, make_student, make_process):
+    """El mismo escenario pero con MAS procesos que lugares.
+
+    Ventana de 09:00 a 10:00 en franjas de 30 con capacidad 1 = DOS lugares,
+    contra CUATRO procesos. Es el caso de D4: el reparto se detiene y dice
+    cuantos quedaron fuera.
+    """
+    esc = dict(agenda_slots)
+    esc["w"].end_time = time(10, 0)          # 09:00 y 09:30, nada mas
+    procesos = [esc["p1"], esc["p2"]]
+    procesos += [make_process(make_student(), cohort=esc["cohort"],
+                              program=esc["prog"], current_phase=2)
+                 for _ in range(2)]
+    esc["procesos"] = procesos
+    return esc
+
+
+# ---------------------------------------------------------------------------
+# NIP precargado (spec 2026-10-13): fixtures compartidas por varios archivos
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def llave(monkeypatch):
+    """Llave Fernet válida en el singleton de `get_settings()`."""
+    from cryptography.fernet import Fernet
+    from itcj2.config import get_settings
+
+    k = Fernet.generate_key().decode()
+    monkeypatch.setattr(get_settings(), "TITULATEC_NIP_STASH_KEY", k)
+    return k
+
+
+@pytest.fixture()
+def espia_correo(monkeypatch):
+    """Sustituye TODOS los `send_*` del helper por un registro `(nombre, kwargs)`
+    que dice «salió»."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    llamadas = []
+    for nombre in [n for n in dir(TitulaTecEmailHelper) if n.startswith("send_")]:
+        monkeypatch.setattr(
+            TitulaTecEmailHelper, nombre,
+            staticmethod(lambda *a, _n=nombre, **k: llamadas.append((_n, k)) or True))
+    return llamadas
+
+
+@pytest.fixture()
+def listo(seed_phase_defs, titulatec_app):
+    """Fases y app sembradas: `_create_account` crea el proceso de verdad."""
+    seed_phase_defs()

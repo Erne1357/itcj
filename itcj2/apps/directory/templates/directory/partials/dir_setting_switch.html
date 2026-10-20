@@ -1,0 +1,17 @@
+{# Panel del ajuste global. Lo incluyen index.html y el fragmento OOB del toggle. #}
+{% if can_settings %}
+<div class="form-check form-switch dir-switch">
+  <input class="form-check-input" type="checkbox" role="switch" id="dir-unofficial-switch"
+         {% if show_unofficial %}checked{% endif %}
+         aria-describedby="dir-unofficial-help"
+         hx-post="/directory/settings/unofficial"
+         hx-target="#dir-list" hx-swap="morph:innerHTML"
+         hx-include="#dir-filters"
+         hx-vals='js:{show_unofficial: event.target.checked}'>
+  <label class="form-check-label" for="dir-unofficial-switch">Mostrar departamentos no oficiales</label>
+  <p id="dir-unofficial-help" class="dir-switch-help mb-0">
+    Lo ven todos los usuarios del directorio.
+    {% if hidden_count %}Hay {{ hidden_count }} extensiones en departamentos no oficiales.{% endif %}
+  </p>
+</div>
+{% endif %}

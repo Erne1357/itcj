@@ -33,7 +33,11 @@ def login(body: LoginRequest, request: Request, response: Response, db: DbSessio
     from itcj2.core.services.auth_service import authenticate, authenticate_by_username
     from itcj2.core.utils import rate_limit
 
-    client_ip = request.client.host if request.client else "unknown"
+    # Detrás de nginx, `request.client.host` es la IP de nginx: sin esto, todos los
+    # visitantes comparten un único cubo `rl:login:ip:*` y el límite por IP no
+    # defiende de nada. Ver itcj2/core/utils/client_ip.py.
+    from itcj2.core.utils.client_ip import client_ip as _client_ip
+    client_ip = _client_ip(request)
 
     # Rate limit: demasiados fallos por IP o por cuenta → 429 (anti fuerza bruta).
     if not rate_limit.check_login_allowed(client_ip, raw_id):

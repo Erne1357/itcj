@@ -1,0 +1,1499 @@
+"""Bandeja de solicitudes y `approve()`: alcance, vacíos, aprobar y rechazar.
+
+Desde 2026-09-15 aprobar tiene DOS caminos, decididos con la BD AL APROBAR (no
+con el `kind` que se guardó al enviar el formulario):
+
+- SIN cuenta en `core_users`, modo OFICIAL (2026-09-24): SE aprueba sin NIP ->
+  `awaiting_access`, sin usuario y sin correo; el NIP lo da Centro de Cómputo
+  (`grant_access`, en `test_enrollment_access_service.py`).
+- SIN cuenta, modo ALTERNO (`reviewer_mode() == "computer_center"`): NIP
+  obligatorio -> usuario + `hash_nip` + proceso + perfil -> `converted`, y
+  usuario + NIP al correo personal (el comportamiento de antes, en un paso).
+- SIN cuenta, modo `sii` (por omisión desde 2026-09-27; `TestModoSiiSEDecide`):
+  SE aprueba con el NIP del SII -> `converted` (`nip_source='sii'`), o la pasa
+  a Accesos (`to_access`) -> `awaiting_access`. Si al aprobar el SII no da un
+  NIP válido no se escribe nada de la solicitud, la consulta vigente guarda lo
+  que se acaba de ver (`nip_status`) y la ruta responde 200 con un aviso.
+- CON cuenta: sin NIP -> liga de activación de 21 días al correo personal ->
+  `approved`. La cuenta no se toca (ni credencial, ni `is_active`, ni perfil):
+  la inscripción ocurre al abrir la liga (`test_enrollment_verify.py`).
+
+`officer_programs()` devuelve un conjunto VACÍO en silencio cuando el usuario no
+tiene carreras (riesgo 3 del diseño): la bandeja tiene que distinguir eso de "no
+hay solicitudes", o el encargado ve una pantalla vacía y cree que no hay trabajo.
+"""
+from __future__ import annotations
+
+import hashlib
+from datetime import datetime, timedelta
+from urllib.parse import unquote
+
+import pytest
+
+from tests.fastapi.titulatec._sii_fake import pide_nip, sii  # noqa: F401
+
+URL = "/titulatec/admin/solicitudes"
+NIP = "4917"
+
+LIST_PERMS = (
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+    "titulatec.process.api.read.all",      # -> officer_programs() == "ALL"
+)
+
+# Encargado con los mismos permisos de mutación que la jefa pero SIN
+# `process.api.read.all`: `officer_programs()` le da un `set[int]`, no "ALL".
+SCOPED_PERMS = (
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+)
+
+MSG_SIN_CONTRASENA = ("Esa cuenta no tiene contraseña; dala de alta desde la "
+                      "convocatoria y rechaza esta solicitud.")
+
+
+@pytest.fixture()
+def correo_falso(monkeypatch):
+    """Captura los envíos sin tocar Graph: `(asunto, destinatarios, html)`."""
+    enviados = []
+
+    class _Resp:
+        status_code = 202
+        text = ""
+
+    def _fake_send(access_token, subject, content_html, to_list, save_to_sent=True):
+        enviados.append((subject, list(to_list), content_html))
+        return _Resp()
+
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.acquire_token_silent",
+                        lambda app_key: "token-de-prueba")
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.graph_send_mail", _fake_send)
+    return enviados
+
+
+@pytest.fixture()
+def orden_commit_correo(db_session, monkeypatch):
+    """Registra, en orden, cada `db_session.commit()` y cada envío por Graph."""
+    orden, enviados = [], []
+    commit_real = db_session.commit
+
+    def _commit():
+        orden.append("commit")
+        return commit_real()
+
+    class _Resp:
+        status_code = 202
+        text = ""
+
+    def _fake_send(access_token, subject, content_html, to_list, save_to_sent=True):
+        orden.append("correo")
+        enviados.append((subject, list(to_list), content_html))
+        return _Resp()
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.acquire_token_silent",
+                        lambda app_key: "token-de-prueba")
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail.graph_send_mail", _fake_send)
+    return orden, enviados
+
+
+# `modo_alterno` vive en conftest.py (C7/I-1 de la revision final: una sola
+# copia compartida en vez de 4 duplicadas por archivo).
+
+
+def _make_req(db_session, cohort, *, control, kind="unknown", status="pending_review",
+              program=None, **kw):
+    """Solicitud tal como la deja `create()`: en revisión, sin liga ni envíos."""
+    from itcj2.apps.titulatec.models import EnrollmentRequest
+
+    row = EnrollmentRequest(
+        cohort_id=cohort.id, control_number=control,
+        first_name="EGRESADO", last_name="ANTIGUO", middle_name=None,
+        program_id=getattr(program, "id", program), program_text="Ingenieria de 2005",
+        phone="6561234567", contact_email="egresado@example.invalid",
+        has_efirma=False, kind=kind, status=status, verify_send_count=0,
+    )
+    for k, v in kw.items():
+        setattr(row, k, v)
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def _cuenta(db_session, control, *, password=True, is_active=True, must_change=False):
+    """Cuenta que YA existe en `core_users`."""
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import hash_nip
+
+    user = User(username=control, control_number=control,
+                first_name="YA", last_name="EXISTIA",
+                password_hash=hash_nip("9999") if password else None,
+                is_active=is_active, must_change_password=must_change)
+    db_session.add(user)
+    db_session.flush()
+    return user
+
+
+def _token_de_la_liga(html: str) -> str:
+    return html.split("/inscripcion/verificar?t=", 1)[1].split('"', 1)[0]
+
+
+# ---------------------------------------------------------------------------
+# Listado y alcance
+# ---------------------------------------------------------------------------
+def test_la_bandeja_lista_las_solicitudes_del_alcance(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99550001")
+
+    # Filtrada por SU convocatoria: la BD de dev es compartida y «Por revisar»
+    # es FIFO, así que sin filtro la recién sembrada cae fuera de la página 1.
+    resp = client_as(head).get(f"{URL}?cohort_id={cohort.id}")
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "99550001" in resp.text
+    assert "ANTIGUO" in resp.text
+
+
+def test_body_acepta_los_mismos_query_params_que_la_pagina(
+    client_as, db_session, make_head, make_cohort,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99550002", status="pending_review")
+    _make_req(db_session, cohort, control="99550003", status="rejected")
+    c = client_as(head)
+
+    pagina = c.get(f"{URL}?status=rejected&cohort_id={cohort.id}")
+    body = c.get(f"{URL}/body?status=rejected&cohort_id={cohort.id}")
+
+    assert pagina.status_code == 200 and body.status_code == 200
+    assert "99550003" in body.text
+    assert "99550002" not in body.text
+    assert 'id="tt-requests-body"' in body.text
+
+
+def test_sin_carreras_asignadas_no_dice_no_hay_solicitudes(
+    client_as, db_session, make_officer, make_cohort,
+):
+    """El vacío por alcance NO se puede confundir con el vacío por falta de datos."""
+    officer, _pos = make_officer(
+        programs=[], perm_codes=("titulatec.enrollment_request.page.list",))
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99550004")
+
+    resp = client_as(officer).get(URL)
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert "no tienes carreras asignadas" in resp.text.lower()
+    assert "no hay solicitudes" not in resp.text.lower()
+    assert "99550004" not in resp.text
+
+
+def test_el_menu_admin_ofrece_solicitudes_y_encuestas_con_su_solo_codigo():
+    """`admin_nav_items` hace `perms & need` (OR): una fila, un código."""
+    from itcj2.apps.titulatec.pages.nav import _ADMIN_NAV
+
+    filas = {url: need for _label, _icon, url, need in _ADMIN_NAV}
+    assert filas["/titulatec/admin/solicitudes"] == {"titulatec.enrollment_request.page.list"}
+    assert filas["/titulatec/admin/encuestas"] == {"titulatec.survey.page.list"}
+
+
+# ---------------------------------------------------------------------------
+# Aprobar SIN cuenta, modo oficial: SE aprueba y Centro de Cómputo da el NIP
+# ---------------------------------------------------------------------------
+def test_aprobar_sin_cuenta_por_la_bandeja_pasa_a_computo_sin_pedir_nip(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550010")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar", data={"program_id": ""})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+    assert db_session.query(User).filter_by(control_number="99550010").first() is None
+    assert correo_falso == [], "el alumno no se entera del paso intermedio"
+
+
+def test_sin_cuenta_se_aprueba_y_computo_crea_al_usuario_con_hash_nip_y_cambio_obligatorio(
+    client_as, db_session, make_head, make_cohort, make_program,
+    seed_phase_defs, titulatec_app,
+):
+    """D15: usuario = número de control, contraseña = NIP, `must_change_password`.
+
+    NUNCA se llama `set_initial_credential`, que pondría el número de control
+    (dato público) como contraseña. La carrera la fija SE al aprobar; el NIP lo
+    captura Centro de Cómputo (`grant_access`).
+    """
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.security import verify_nip
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    program = make_program("Ingenieria Ficticia B")
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550011")
+    c = client_as(head)
+
+    resp = c.post(f"{URL}/{req.id}/aprobar", data={"program_id": str(program.id)})
+    assert resp.status_code == 200, resp.text[:500]
+    ok, _folio = EnrollmentRequestService.grant_access(db_session, req.id, nip=NIP,
+                                                       actor_id=head.id)
+    assert ok is True
+
+    user = db_session.query(User).filter_by(control_number="99550011").first()
+    assert user is not None
+    assert user.username == "99550011"
+    assert verify_nip(NIP, user.password_hash)
+    assert not verify_nip("99550011", user.password_hash)
+    assert user.must_change_password is True
+    assert user.is_active is True
+
+    db_session.refresh(req)
+    assert req.status == "converted"
+    proc = db_session.get(TitulationProcess, req.converted_process_id)
+    assert proc.student_id == user.id
+    assert proc.program_id == program.id
+
+    # El folio queda a la vista en la pestaña de inscritas: es lo que el oficial
+    # necesita para saber que la aprobación aterrizó.
+    inscritas = c.get(f"{URL}/body?status=converted")
+    assert proc.folio in inscritas.text
+
+
+def test_aprobar_sin_cuenta_manda_usuario_y_nip_al_correo_personal_despues_del_commit(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
+    orden_commit_correo, modo_alterno,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    orden, enviados = orden_commit_correo
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550012")
+
+    ok, _folio = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True
+    assert orden and orden[0] == "commit", orden
+    assert orden.count("correo") == 1
+    (_asunto, destinatarios, html), = enviados
+    assert destinatarios == ["egresado@example.invalid"]
+    assert NIP in html and "99550012" in html
+    assert "/inscripcion/verificar" not in html, "una cuenta nueva no recibe liga"
+
+
+def test_aprobar_sin_cuenta_nace_graduate_y_tira_el_cache_tras_el_commit(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app,
+    orden_commit_correo, monkeypatch, modo_alterno,
+):
+    """La cuenta nueva nace con el alias legado `graduate` y con los roles de app
+    que deja `import_rows`. `approve` es dueña de la transacción (`commit=False`),
+    así que el caché de authz lo tira ELLA, después de su commit."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user import User
+    from itcj2.core.models.user_app_role import UserAppRole
+    from itcj2.core.services import authz_cache
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    orden, _enviados = orden_commit_correo
+    monkeypatch.setattr(authz_cache, "invalidate_user_app",
+                        lambda user_id, app_key: orden.append((user_id, app_key)))
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550070")
+
+    ok, _folio = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True
+    user = db_session.query(User).filter_by(control_number="99550070").one()
+    assert user.role_id == db_session.query(Role.id).filter_by(name="graduate").scalar()
+    roles = {(k, n) for k, n in (db_session.query(App.key, Role.name)
+                                 .join(UserAppRole, UserAppRole.app_id == App.id)
+                                 .join(Role, Role.id == UserAppRole.role_id)
+                                 .filter(UserAppRole.user_id == user.id).all())}
+    assert roles == {("itcj", "graduate"), ("titulatec", "graduate")}
+    invalidaciones = [i for i, x in enumerate(orden) if isinstance(x, tuple)]
+    assert invalidaciones and min(invalidaciones) > orden.index("commit"), orden
+    assert {orden[i] for i in invalidaciones} == {(user.id, "itcj"), (user.id, "titulatec")}
+
+
+def test_el_nip_no_aparece_en_el_process_event_ni_en_la_respuesta(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app, caplog,
+):
+    """El NIP es la contraseña del alumno: fuera de logs, X-Tt-Error y payload.
+
+    Un formulario viejo en caché todavía puede mandarlo a la bandeja de SE: se
+    ignora, y tampoco regresa en la respuesta."""
+    import json
+    import logging
+
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550013")
+
+    with caplog.at_level(logging.DEBUG):
+        resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                    data={"nip": NIP, "program_id": ""})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert NIP not in resp.text
+    assert NIP not in "".join(resp.headers.values())
+
+    with caplog.at_level(logging.DEBUG):
+        ok, _ = EnrollmentRequestService.grant_access(db_session, req.id, nip=NIP,
+                                                      actor_id=head.id)
+    assert ok is True
+    assert NIP not in caplog.text
+
+    db_session.refresh(req)
+    eventos = (db_session.query(ProcessEvent)
+               .filter_by(process_id=req.converted_process_id).all())
+    assert eventos
+    for ev in eventos:
+        assert NIP not in json.dumps(ev.payload or {})
+
+
+# ---------------------------------------------------------------------------
+# Aprobar CON cuenta: liga de activación, la cuenta no se toca
+# ---------------------------------------------------------------------------
+def test_aprobar_con_cuenta_emite_la_liga_al_correo_personal_y_queda_approved(
+    db_session, make_cohort, make_user, make_program, orden_commit_correo,
+):
+    from itcj2.core.models.student_profile import StudentProfile
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService, _token_cache_get,
+    )
+
+    orden, enviados = orden_commit_correo
+    actor = make_user()
+    program = make_program("Ingenieria Con Cuenta")
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(db_session, "99550020")
+    hash_antes = cuenta.password_hash
+    req = _make_req(db_session, cohort, control="99550020", kind="known")
+
+    ok, _detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=program.id, actor_id=actor.id)
+
+    assert ok is True
+    assert req.status == "approved"
+    assert req.program_id == program.id
+    assert req.reviewed_by_id == actor.id and req.reviewed_at is not None
+    assert req.verify_sent_to == "egresado@example.invalid"
+    assert req.verify_send_count == 1
+    assert req.verify_sent_at is not None
+    assert req.verified_at is None
+    vence = datetime.now() + timedelta(days=21)
+    assert abs((req.verify_expires_at - vence).total_seconds()) < 120
+
+    assert orden and orden[0] == "commit", "la liga salió antes de commitear"
+    (_asunto, destinatarios, html), = enviados
+    assert destinatarios == ["egresado@example.invalid"]
+    token = _token_de_la_liga(html)
+    assert hashlib.sha256(token.encode("utf-8")).hexdigest() == req.verify_token_hash
+    assert token != req.verify_token_hash, "en la BD solo vive el sha256"
+    assert _token_cache_get(req.verify_token_hash) == token, (
+        "sin el claro en Redis el reenvío público no podría mandar la misma liga")
+    assert NIP not in html
+
+    db_session.refresh(cuenta)
+    assert cuenta.password_hash == hash_antes
+    assert cuenta.must_change_password is False
+    assert db_session.get(StudentProfile, cuenta.id) is None
+    assert (db_session.query(TitulationProcess)
+            .filter_by(student_id=cuenta.id).count()) == 0, (
+        "la inscripción ocurre al abrir la liga, no al aprobar")
+
+
+def test_aprobar_con_cuenta_no_pide_nip(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _cuenta(db_session, "99550021")
+    req = _make_req(db_session, cohort, control="99550021", kind="known")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar", data={"program_id": ""})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    db_session.refresh(req)
+    assert req.status == "approved"
+
+
+def test_aprobar_una_cuenta_desactivada_no_la_reactiva(
+    db_session, make_cohort, make_user, correo_falso,
+):
+    """El acceso llega SOLO por la liga: aprobar la emite y nada más. La
+    reactivación es de `verify()` (`test_enrollment_verify.py`)."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    cuenta = _cuenta(db_session, "99550071", is_active=False)
+    req = _make_req(db_session, cohort, control="99550071", kind="known")
+
+    ok, _ = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True and req.status == "approved"
+    db_session.refresh(cuenta)
+    assert cuenta.is_active is False
+
+
+def test_aprobar_con_cuenta_sin_contrasena_devuelve_el_error_sin_cambios(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    """La población con `password_hash` NULL es real (`repair_missing_credentials`
+    existe por ella). Mandarle una liga la inscribiría a una cuenta que nadie
+    puede abrir; darle credencial desde aquí es el secuestro que la revisión
+    final encontró. Se da de alta desde la convocatoria."""
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    _cuenta(db_session, "99550022", password=False)
+    req = _make_req(db_session, cohort, control="99550022")
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar", data={"nip": NIP})
+
+    assert resp.status_code == 400
+    assert unquote(resp.headers["X-Tt-Error"]) == MSG_SIN_CONTRASENA
+    db_session.refresh(req)
+    assert req.status == "pending_review"
+    assert req.verify_token_hash is None
+    assert correo_falso == []
+
+
+def test_aprobar_rechaza_si_la_persona_ya_tiene_proceso_en_otra_convocatoria(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso,
+):
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    control = "99550023"
+    otra_cohort = make_cohort(status="open")
+    esta_cohort = make_cohort(status="open")
+    user = _cuenta(db_session, control)
+    db_session.add(TitulationProcess(
+        folio=f"TT-OTRA-{control}", student_id=user.id, cohort_id=otra_cohort.id,
+        status="active", current_phase=1))
+    db_session.flush()
+    req = _make_req(db_session, esta_cohort, control=control)
+
+    resp = client_as(head).post(f"{URL}/{req.id}/aprobar",
+                                data={"nip": NIP, "program_id": ""})
+
+    assert resp.status_code == 400
+    assert "otra convocatoria" in unquote(resp.headers.get("X-Tt-Error", "")).lower()
+    db_session.refresh(req)
+    assert req.status == "pending_review"
+    assert correo_falso == []
+
+
+@pytest.mark.parametrize("con_cuenta", [False, True], ids=["sin-cuenta", "con-cuenta"])
+def test_aprobar_con_la_convocatoria_cerrada_no_cambia_nada(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    con_cuenta,
+):
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="closed")
+    if con_cuenta:
+        _cuenta(db_session, "99550024")
+    req = _make_req(db_session, cohort, control="99550024")
+
+    ok, detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is False
+    assert detalle == "Esa convocatoria está cerrada."
+    assert req.status == "pending_review"
+    assert req.verify_token_hash is None
+    assert (db_session.query(User).filter_by(control_number="99550024").count()
+            == (1 if con_cuenta else 0))
+    assert correo_falso == []
+
+
+@pytest.mark.parametrize("con_cuenta", [False, True], ids=["sin-cuenta", "con-cuenta"])
+def test_aprobar_con_la_ventana_publica_vencida_si_procede(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    con_cuenta,
+):
+    """D5 (spec 2026-09-24): `opens_at`/`closes_at` solo filtran el formulario
+    público. Una solicitud que entró a tiempo se aprueba aunque la ventana ya
+    haya cerrado; lo único que pausa es `status='closed'`."""
+    from itcj2.apps.titulatec.services.cohort_service import CohortService
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    from itcj2.core.utils.timezone import db_now
+
+    seed_phase_defs()
+    actor = make_user()
+    hoy = db_now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cohort = make_cohort(status="open", opens_at=hoy - timedelta(days=30),
+                         closes_at=hoy - timedelta(seconds=1))
+    assert CohortService.is_public_enrollment_open(cohort) is False, (
+        "precondición: el formulario público ya cerró")
+    if con_cuenta:
+        _cuenta(db_session, "99550025")
+    req = _make_req(db_session, cohort, control="99550025")
+
+    ok, detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True, detalle
+    assert req.status == ("approved" if con_cuenta else "awaiting_access")
+    assert len(correo_falso) == (1 if con_cuenta else 0)
+
+
+def test_una_cuenta_que_aparecio_despues_de_enviar_va_por_la_rama_con_cuenta(
+    db_session, make_cohort, make_user, correo_falso,
+):
+    """Regla 2: "¿tiene cuenta?" se decide con la BD al aprobar. Si al enviar no
+    existía pero un CSV la creó después, crearle otra con NIP chocaría con la
+    cuenta real (y el NIP pisaría su contraseña)."""
+    from itcj2.core.utils.security import verify_nip
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req, outcome = EnrollmentRequestService.create(
+        db_session, cohort,
+        {"control_number": "99550025", "first_name": "EGRESADA", "last_name": "TARDIA",
+         "middle_name": None, "program_id": None, "program_text": "Ingenieria",
+         "phone": "6560000000", "contact_email": "tardia@example.invalid",
+         "has_efirma": False},
+        client_ip=None)
+    assert (outcome, req.kind) == ("created", "unknown")
+    cuenta = _cuenta(db_session, "99550025")        # la creó un CSV entretanto
+
+    ok, _ = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True
+    assert req.status == "approved"
+    assert req.kind == "unknown", "`kind` no decide nada: solo se muestra"
+    db_session.refresh(cuenta)
+    assert not verify_nip(NIP, cuenta.password_hash)
+    assert [d for _a, d, _h in correo_falso] == [["tardia@example.invalid"]]
+
+
+@pytest.mark.parametrize("status,motivo", [
+    ("approved", "Esa solicitud ya fue aprobada; usa Reenviar liga."),
+    ("converted", "Esa solicitud ya se resolvió."),
+    ("rejected", "Esa solicitud ya se resolvió."),
+])
+def test_aprobar_una_solicitud_ya_aprobada_o_resuelta_devuelve_el_motivo(
+    db_session, make_cohort, make_user, correo_falso, status, motivo,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550026", status=status)
+
+    ok, detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert (ok, detalle) == (False, motivo)
+    db_session.refresh(req)
+    assert req.status == status
+    assert correo_falso == []
+
+
+@pytest.mark.parametrize("status", ["unverified", "verified"])
+def test_una_solicitud_legado_se_puede_aprobar(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    status,
+):
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550027", status=status)
+
+    ok, _ = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is True
+    assert req.status == "awaiting_access"
+
+
+@pytest.mark.parametrize("con_cuenta,alterno,correos", [
+    (False, False, 0), (True, False, 1), (False, True, 1),
+], ids=["sin-cuenta", "con-cuenta", "sin-cuenta-alterno"])
+def test_doble_aprobacion_manda_un_solo_correo(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    monkeypatch, con_cuenta, alterno, correos,
+):
+    """Doble clic, o dos oficiales en la misma bandeja: la segunda pasada ve el
+    estado ya escrito (lock + refresh) y no manda nada. Sin eso la persona
+    recibía dos NIP distintos y solo servía el último. En el modo oficial sin
+    cuenta no sale NINGUNO: el NIP es de Centro de Cómputo."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    if alterno:
+        monkeypatch.setattr(EnrollmentRequestService, "reviewer_mode",
+                            staticmethod(lambda: "computer_center"))
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    if con_cuenta:
+        _cuenta(db_session, "99550028")
+    req = _make_req(db_session, cohort, control="99550028")
+
+    primero = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+    segundo = EnrollmentRequestService.approve(
+        db_session, req.id, nip="1111", program_id=None, actor_id=actor.id)
+
+    assert primero[0] is True and segundo[0] is False
+    assert len(correo_falso) == correos
+
+
+def _cuerpo(metodo) -> str:
+    import inspect
+
+    src = inspect.getsource(metodo)
+    _, _, cuerpo = src.partition('"""')
+    _, _, cuerpo = cuerpo.partition('"""')
+    return cuerpo
+
+
+def test_approve_toma_lock_y_refresca_antes_de_leer_status():
+    """Mismo patrón que `verify()`: un gate de estado sin lock deja pasar a las
+    dos peticiones de un doble clic antes de que ninguna escriba. Ruling R3: la
+    invariante es de quien toma el lock, `approve_detailed`; `approve` solo le
+    delega (y no repite el gate)."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    cuerpo = _cuerpo(EnrollmentRequestService.approve_detailed)
+    lock_pos = cuerpo.index("pg_advisory_xact_lock")
+    refresh_pos = cuerpo.index("db.refresh(req)")
+    assert lock_pos < refresh_pos < cuerpo.index("req.status")
+
+    delega = _cuerpo(EnrollmentRequestService.approve)
+    assert "approve_detailed(" in delega
+    assert "pg_advisory_xact_lock" not in delega and "req.status" not in delega
+
+
+def test_si_no_se_crea_el_proceso_approve_no_deja_nada_escrito(
+    db_session, make_cohort, make_user, seed_phase_defs, titulatec_app, correo_falso,
+    monkeypatch, modo_alterno,
+):
+    """Invariante de `approve()`: si devuelve `(False, ...)` no queda NADA en la
+    sesión. Antes lo garantizaba por accidente el `close()` de la ruta, que en
+    las pruebas no hace nada."""
+    from itcj2.core.models.user import User
+    from itcj2.apps.titulatec.services import import_service
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+
+    monkeypatch.setattr(import_service.ImportService, "import_rows",
+                        staticmethod(lambda *a, **k: {"processes_created": 0}))
+    seed_phase_defs()
+    actor = make_user()
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550029")
+
+    ok, detalle = EnrollmentRequestService.approve(
+        db_session, req.id, nip=NIP, program_id=None, actor_id=actor.id)
+
+    assert ok is False
+    assert detalle == "No se pudo crear el proceso; revisa los datos de la solicitud."
+    assert db_session.query(User).filter_by(control_number="99550029").first() is None
+    db_session.refresh(req)
+    assert req.status == "pending_review"
+    assert correo_falso == []
+
+
+# ---------------------------------------------------------------------------
+# Rechazar
+# ---------------------------------------------------------------------------
+def test_rechazar_exige_motivo_y_deja_reintentar(
+    client_as, db_session, make_head, make_cohort, correo_falso,
+):
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550030")
+    c = client_as(head)
+
+    sin_motivo = c.post(f"{URL}/{req.id}/rechazar", data={"note": "   "})
+    assert sin_motivo.status_code == 400
+
+    con_motivo = c.post(f"{URL}/{req.id}/rechazar",
+                        data={"note": "No aparece en el padrón de 2005."})
+    assert con_motivo.status_code == 200, con_motivo.text[:500]
+    db_session.refresh(req)
+    assert req.status == "rejected"
+    assert req.review_note == "No aparece en el padrón de 2005."
+    assert req.reviewed_by_id == head.id
+
+    # El índice parcial deja re-intentar tras un rechazo.
+    otra = _make_req(db_session, cohort, control="99550030")
+    assert otra.id != req.id
+
+
+# ---------------------------------------------------------------------------
+# Alcance por carrera en las mutaciones (Finding 1, ronda 1 de revisión)
+# ---------------------------------------------------------------------------
+def test_encargado_no_alcanza_las_mutaciones_de_otra_carrera(
+    client_as, db_session, make_officer, make_cohort, make_program,
+):
+    prog_a = make_program("Ingenieria Alcance A")
+    prog_b = make_program("Ingenieria Alcance B")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    ajena = _make_req(db_session, cohort, control="99550050", program=prog_b)
+    c = client_as(officer)
+
+    aprobar = c.post(f"{URL}/{ajena.id}/aprobar", data={"nip": "1234", "program_id": ""})
+    rechazar = c.post(f"{URL}/{ajena.id}/rechazar", data={"note": "motivo cualquiera"})
+    reenviar = c.post(f"{URL}/{ajena.id}/reenviar")
+
+    for resp in (aprobar, rechazar, reenviar):
+        assert resp.status_code == 404
+        assert not resp.headers.get("X-Tt-Error")
+    db_session.refresh(ajena)
+    assert ajena.status == "pending_review"
+
+
+def test_una_solicitud_sin_carrera_tampoco_esta_al_alcance_del_encargado(
+    client_as, db_session, make_officer, make_cohort, make_program,
+):
+    prog_a = make_program("Ingenieria Alcance A2")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    sin_carrera = _make_req(db_session, cohort, control="99550051")  # program=None
+
+    resp = client_as(officer).post(f"{URL}/{sin_carrera.id}/aprobar",
+                                   data={"nip": "1234", "program_id": ""})
+
+    assert resp.status_code == 404
+
+
+def test_solicitud_inexistente_responde_igual_que_una_fuera_de_alcance(
+    client_as, db_session, make_officer, make_cohort, make_program,
+):
+    prog_a = make_program("Ingenieria Alcance A3")
+    prog_b = make_program("Ingenieria Alcance B3")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    ajena = _make_req(db_session, cohort, control="99550052", program=prog_b)
+    c = client_as(officer)
+
+    fantasma = c.post(f"{URL}/{ajena.id + 500000}/aprobar",
+                      data={"nip": "1234", "program_id": ""})
+    fuera_de_alcance = c.post(f"{URL}/{ajena.id}/aprobar",
+                              data={"nip": "1234", "program_id": ""})
+
+    assert fantasma.status_code == fuera_de_alcance.status_code == 404
+    assert not fantasma.headers.get("X-Tt-Error")
+    assert not fuera_de_alcance.headers.get("X-Tt-Error")
+
+
+def test_encargado_si_puede_aprobar_una_solicitud_de_su_propia_carrera(
+    client_as, db_session, make_officer, make_cohort, make_program,
+    seed_phase_defs, titulatec_app,
+):
+    seed_phase_defs()
+    prog_a = make_program("Ingenieria Alcance Propia")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550053", program=prog_a)
+
+    resp = client_as(officer).post(f"{URL}/{req.id}/aprobar",
+                                   data={"program_id": str(prog_a.id)})
+
+    assert resp.status_code == 200, resp.text[:500]
+    db_session.refresh(req)
+    assert req.status == "awaiting_access"
+
+
+def test_aprobar_rechaza_una_carrera_fuera_de_alcance_aunque_la_solicitud_si_sea_propia(
+    client_as, db_session, make_officer, make_cohort, make_program,
+):
+    prog_a = make_program("Ingenieria Propia Dropdown")
+    prog_b = make_program("Ingenieria Ajena Dropdown")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    req = _make_req(db_session, cohort, control="99550054", program=prog_a)
+
+    resp = client_as(officer).post(f"{URL}/{req.id}/aprobar",
+                                   data={"nip": "1234", "program_id": str(prog_b.id)})
+
+    assert resp.status_code == 400
+    assert "alcance" in unquote(resp.headers.get("X-Tt-Error", "")).lower()
+    db_session.refresh(req)
+    assert req.status == "pending_review"
+
+
+def test_el_dropdown_de_aprobar_solo_ofrece_carreras_del_alcance(
+    client_as, db_session, make_officer, make_cohort, make_program,
+):
+    prog_a = make_program("Ingenieria Visible En Dropdown")
+    prog_b = make_program("Ingenieria Oculta Del Dropdown")
+    officer, _pos = make_officer([prog_a], perm_codes=SCOPED_PERMS)
+    cohort = make_cohort(status="open")
+    _make_req(db_session, cohort, control="99550055", program=prog_a)
+
+    resp = client_as(officer).get(f"{URL}/body")
+
+    assert resp.status_code == 200
+    assert "Ingenieria Visible En Dropdown" in resp.text
+    assert "Ingenieria Oculta Del Dropdown" not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Transacción de la aprobación (Finding 2, ronda 1 de revisión): desde el
+# 2026-09-24 la bandeja de SE ya no crea cuentas en el modo oficial; el fallo
+# entre `import_rows` y el commit se prueba donde ahora se crea la cuenta,
+# `grant_access` (`test_enrollment_access_service.py`).
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Modo alterno (2026-09-24): SE no aprueba, no rechaza ni reenvía, ni por POST
+# directo (Review Focus 3). El corte es la ruta, no solo la plantilla.
+# ---------------------------------------------------------------------------
+MSG_MODO_ALTERNO = "En este modo la revisión la hace Centro de Cómputo."
+
+
+def test_en_modo_alterno_se_no_aprueba_rechaza_ni_reenvia_por_post_directo(
+    client_as, db_session, make_head, make_cohort, seed_phase_defs, titulatec_app,
+    correo_falso, modo_alterno,
+):
+    from itcj2.core.models.user import User
+
+    seed_phase_defs()
+    head = make_head(perm_codes=LIST_PERMS)
+    cohort = make_cohort(status="open")
+    por_revisar = _make_req(db_session, cohort, control="99550090")
+    a_rechazar = _make_req(db_session, cohort, control="99550091")
+    enviada = _make_req(db_session, cohort, control="99550092", status="approved",
+                        verify_send_count=1, verify_token_hash="8" * 64,
+                        verify_expires_at=datetime.now() + timedelta(days=1))
+    c = client_as(head)
+
+    aprobar = c.post(f"{URL}/{por_revisar.id}/aprobar",
+                     data={"nip": NIP, "program_id": ""})
+    rechazar = c.post(f"{URL}/{a_rechazar.id}/rechazar",
+                      data={"note": "Motivo cualquiera."})
+    reenviar = c.post(f"{URL}/{enviada.id}/reenviar")
+
+    for resp in (aprobar, rechazar, reenviar):
+        assert resp.status_code == 400
+        assert unquote(resp.headers.get("X-Tt-Error", "")) == MSG_MODO_ALTERNO
+        assert NIP not in resp.text
+    for req, estado in ((por_revisar, "pending_review"), (a_rechazar, "pending_review"),
+                        (enviada, "approved")):
+        db_session.refresh(req)
+        assert req.status == estado
+        assert req.reviewed_by_id is None
+    assert enviada.verify_send_count == 1
+    assert enviada.verify_token_hash == "8" * 64
+    assert db_session.query(User).filter_by(control_number="99550090").first() is None
+    assert correo_falso == []
+
+
+def test_en_modo_alterno_el_corte_ocurre_antes_de_buscar_la_solicitud(
+    client_as, db_session, make_head, modo_alterno,
+):
+    """Motivo antes que existencia: el corte no abre sesión, así que un id que
+    no existe da el mismo 400 (y no el 404 de la búsqueda)."""
+    head = make_head(perm_codes=LIST_PERMS)
+    c = client_as(head)
+
+    for accion, datos in (("aprobar", {"program_id": ""}), ("rechazar", {"note": ""}),
+                          ("reenviar", {})):
+        resp = c.post(f"{URL}/999999999/{accion}", data=datos)
+        assert resp.status_code == 400, accion
+        assert unquote(resp.headers.get("X-Tt-Error", "")) == MSG_MODO_ALTERNO, accion
+
+
+# ---------------------------------------------------------------------------
+# Modo `sii` (spec 2026-09-27 §A4, «el SII informa, Servicios Escolares
+# decide»): SIN cuenta, SE aprueba con el NIP del SII o la pasa a Accesos
+# (`to_access`). Si AL APROBAR el SII no da un NIP válido no se escribe nada de
+# la solicitud; la consulta vigente guarda lo que se acaba de ver (`nip_status`,
+# en su propia transacción, ya sin el lock) y la ruta responde 200 con aviso
+# (un 4xx no dejaría a HTMX re-pintar la fila con «pasar a Accesos»).
+# ---------------------------------------------------------------------------
+MSG_NIP_FALLA = {
+    "missing": "El SII no tiene NIP para esta persona.",
+    "invalid": "El NIP del SII no tiene un formato válido (4 dígitos).",
+    "unavailable": "El SII no respondió al pedir el NIP.",
+    "error": "No se pudo leer el NIP en el SII (revisa la configuración de las reglas).",
+}
+AVISO_ACCESOS = "Puedes pasarla a Accesos o reintentar la consulta."
+AVISO_PASO_A_ACCESOS = "Pasó a Accesos: Centro de Cómputo le capturará el NIP."
+NIP_RARO = "12345"
+
+
+def _aviso(resp) -> tuple[str, str]:
+    """`(X-Tt-Notice, X-Tt-Notice-Kind)` ya decodificado; `("", "")` sin aviso."""
+    return (unquote(resp.headers.get("X-Tt-Notice", "")),
+            resp.headers.get("X-Tt-Notice-Kind", ""))
+
+
+@pytest.fixture()
+def espia_correo(monkeypatch):
+    """Sustituye TODOS los `send_*` del helper por un registro `(nombre, kwargs)`."""
+    from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+    llamadas = []
+    for nombre in [n for n in dir(TitulaTecEmailHelper) if n.startswith("send_")]:
+        monkeypatch.setattr(
+            TitulaTecEmailHelper, nombre,
+            staticmethod(lambda *a, _n=nombre, **k: llamadas.append((_n, k)) or True))
+    return llamadas
+
+
+def _fila_repintada(html: str, req) -> str:
+    """El `<tr>` de la solicitud en la bandeja que devolvió la ruta."""
+    marca = f'id="tt-req-{req.id}"'
+    assert marca in html, f"no está la fila de la solicitud {req.id}"
+    return html.split(marca, 1)[1].split("</tr>", 1)[0]
+
+
+def _ers():
+    from itcj2.apps.titulatec.services.enrollment_request_service import (
+        EnrollmentRequestService,
+    )
+    return EnrollmentRequestService
+
+
+def _elig():
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+    return EligibilityService
+
+
+def _usuario(db_session, control):
+    from itcj2.core.models.user import User
+    return db_session.query(User).filter_by(control_number=control).first()
+
+
+def _falla_al_aprobar(sii, control, falla):
+    """Lo que responde el SII AL APROBAR, distinto de lo que vio la consulta."""
+    {"missing": sii.sin_nip,
+     "invalid": lambda c: sii.alumno(c, nip=NIP_RARO),
+     "unavailable": sii.nip_caido,
+     "error": sii.nip_invalido}[falla](control)
+
+
+def _pasos(db_session, monkeypatch):
+    """Registra `lock`/`commit` de la sesión y cada `record_nip_status`."""
+    from itcj2.apps.titulatec.services.eligibility_service import EligibilityService
+
+    pasos = []
+    commit_real, execute_real = db_session.commit, db_session.execute
+    record_real = EligibilityService.record_nip_status
+
+    def _commit():
+        pasos.append("commit")
+        return commit_real()
+
+    def _execute(stmt, *a, **k):
+        if "pg_advisory_xact_lock" in str(stmt):
+            pasos.append("lock")
+        return execute_real(stmt, *a, **k)
+
+    def _record(db, req_id, check_id, status):
+        pasos.append("record")
+        return record_real(db, req_id, check_id, status)
+
+    monkeypatch.setattr(db_session, "commit", _commit)
+    monkeypatch.setattr(db_session, "execute", _execute)
+    monkeypatch.setattr(EligibilityService, "record_nip_status", staticmethod(_record))
+    return pasos
+
+
+@pytest.mark.parametrize("has_account,nip_status,camino", [
+    (True, "available", "link"), (True, "missing", "link"), (True, None, "link"),
+    (False, "available", "sii_nip"),
+    (False, "missing", "access"), (False, "invalid", "access"),
+    (False, "unavailable", "access"), (False, "error", "access"),
+    (False, "not_needed", "access"), (False, None, "access"),
+])
+def test_approval_path_decide_liga_nip_del_sii_o_accesos(has_account, nip_status, camino):
+    """Ruling R8: UNA decisión pura para la CLI (`sii-check --cohort`) y la
+    bandeja. Con cuenta, la liga (el NIP no importa); sin cuenta, el NIP del SII
+    solo si la consulta lo vio `available`; todo lo demás, Accesos."""
+    from itcj2.apps.titulatec.services.enrollment_request_service import APPROVAL_LABELS
+
+    assert _ers().approval_path(has_account, nip_status) == camino
+    assert APPROVAL_LABELS == {"link": "Aprobar y enviar liga",
+                               "sii_nip": "Aprobar y dar acceso",
+                               "access": "Aprobar y pasar a Accesos"}
+
+
+class TestModoSiiSEDecide:
+    """`approve_detailed` / `approve(to_access=…)` en el modo `sii`."""
+
+    @pytest.fixture(autouse=True)
+    def _listo(self, seed_phase_defs, titulatec_app, sii, modo_sii):
+        seed_phase_defs()
+
+    # -- servicio ------------------------------------------------------------
+    def test_sin_cuenta_con_nip_se_crea_la_cuenta_con_el_nip_del_sii(
+        self, db_session, make_cohort, make_user, sii, espia_correo,
+    ):
+        from itcj2.core.utils.security import verify_nip
+
+        se = make_user()
+        req = _make_req(db_session, make_cohort(status="open"), control="99552001")
+        sii.alumno("99552001", nip="3571")
+
+        res = _ers().approve_detailed(db_session, req.id, nip="1111", program_id=None,
+                                      actor_id=se.id)
+
+        assert res.ok is True and res.detail, res
+        assert res.nip_failure is None
+        assert req.status == "converted" and req.nip_source == "sii"
+        assert req.reviewed_by_id == se.id and req.reviewed_at is not None
+        user = _usuario(db_session, "99552001")
+        assert verify_nip("3571", user.password_hash)
+        assert not verify_nip("1111", user.password_hash), "el NIP del formulario se ignora"
+        assert espia_correo == [("send_enrollment_approved",
+                                 {"nip": None, "reassigned": False, "nip_source": "sii"})]
+
+    def test_to_access_manda_a_accesos_sin_pedir_el_nip(
+        self, db_session, make_cohort, make_user, make_program, sii, espia_correo,
+        pide_nip,
+    ):
+        se = make_user()
+        program = make_program("Ingenieria Pasada A Accesos")
+        req = _make_req(db_session, make_cohort(status="open"), control="99552002")
+        sii.alumno("99552002")          # el SII sí tiene NIP: aun así no se pide
+
+        res = _ers().approve_detailed(db_session, req.id, nip="", program_id=program.id,
+                                      actor_id=se.id, to_access=True)
+
+        assert res == (True, "", None)
+        db_session.refresh(req)
+        assert req.status == "awaiting_access" and req.program_id == program.id
+        assert req.reviewed_by_id == se.id and req.reviewed_at is not None
+        assert req.nip_source is None and req.access_granted_at is None
+        assert _usuario(db_session, "99552002") is None
+        assert espia_correo == [], "el alumno no se entera del paso intermedio"
+        assert pide_nip == [], "a Accesos no se le pide el NIP al SII"
+
+    @pytest.mark.parametrize("falla", ["missing", "invalid", "unavailable", "error"])
+    def test_sin_nip_en_el_sii_no_escribe_y_marca_la_consulta(
+        self, db_session, make_cohort, make_user, sii, espia_correo, monkeypatch, caplog,
+        falla,
+    ):
+        from itcj2.apps.titulatec.services.enrollment_request_service import ApproveResult
+
+        se = make_user()
+        control = "99552003"
+        req = _make_req(db_session, make_cohort(status="open"), control=control)
+        sii.alumno(control)
+        chk = _elig().check(db_session, req.id)
+        assert chk.nip_status == "available", "la bandeja pintó «dar acceso»"
+        _falla_al_aprobar(sii, control, falla)
+        pasos = _pasos(db_session, monkeypatch)
+
+        with caplog.at_level("DEBUG"):
+            res = _ers().approve_detailed(db_session, req.id, nip="", program_id=None,
+                                          actor_id=se.id)
+
+        assert res == ApproveResult(False, MSG_NIP_FALLA[falla], falla)
+        assert NIP_RARO not in res.detail and NIP_RARO not in caplog.text
+        db_session.refresh(req)
+        assert req.status == "pending_review"
+        assert req.reviewed_by_id is None and req.reviewed_at is None
+        assert req.nip_source is None
+        assert _usuario(db_session, control) is None
+        assert espia_correo == []
+        db_session.refresh(chk)
+        assert req.last_check_id == chk.id and chk.nip_status == falla
+        # El estado se escribe DESPUÉS de soltar el lock de la aprobación.
+        i = pasos.index("record")
+        previos = [p for p in pasos[:i] if p in ("lock", "commit")]
+        assert previos and previos[-1] == "commit", pasos
+
+    def test_record_nip_status_no_pisa_una_consulta_nueva(self, db_session, make_cohort):
+        from itcj2.apps.titulatec.models import EligibilityCheck
+
+        req = _make_req(db_session, make_cohort(status="open"), control="99552004")
+        ahora = datetime.now()
+        vieja = EligibilityCheck(request_id=req.id, status="apt", attempt=1,
+                                 nip_status="available", started_at=ahora, finished_at=ahora)
+        nueva = EligibilityCheck(request_id=req.id, status="apt", attempt=2,
+                                 nip_status="available", started_at=ahora, finished_at=ahora)
+        db_session.add_all([vieja, nueva])
+        db_session.flush()
+        req.last_check_id = nueva.id
+        db_session.flush()
+
+        assert _elig().record_nip_status(db_session, req.id, vieja.id, "missing") is False
+        assert _elig().record_nip_status(db_session, req.id, None, "missing") is False
+        assert _elig().record_nip_status(db_session, req.id, nueva.id, "otro") is False, (
+            "fuera del dominio NIP_STATUSES no se escribe")
+        for chk in (vieja, nueva):
+            db_session.refresh(chk)
+            assert chk.nip_status == "available"
+
+        assert _elig().record_nip_status(db_session, req.id, nueva.id, "missing") is True
+        db_session.refresh(nueva)
+        assert nueva.nip_status == "missing"
+
+    def test_record_nip_status_nunca_lanza(self, db_session, make_cohort, monkeypatch,
+                                          caplog):
+        from itcj2.apps.titulatec.models import EligibilityCheck
+
+        req = _make_req(db_session, make_cohort(status="open"), control="99552011")
+        chk = EligibilityCheck(request_id=req.id, status="apt", attempt=1,
+                               started_at=datetime.now(), finished_at=datetime.now())
+        db_session.add(chk)
+        db_session.flush()
+        req.last_check_id = chk.id
+        db_session.flush()
+
+        def _revienta(*a, **k):
+            raise RuntimeError("texto de la BD con 4321")
+
+        monkeypatch.setattr(db_session, "execute", _revienta)
+        with caplog.at_level("DEBUG"):
+            assert _elig().record_nip_status(db_session, req.id, chk.id, "missing") is False
+        assert "RuntimeError" in caplog.text and "4321" not in caplog.text
+
+    def test_si_aparece_la_cuenta_se_manda_liga_aunque_pidan_accesos(
+        self, db_session, make_cohort, make_user, sii, espia_correo,
+    ):
+        """Review Focus 2: la consulta vio «sin cuenta, sin NIP» (la bandeja
+        ofreció pasarla a Accesos), pero al aprobar ya hay cuenta: sale la liga
+        y `to_access` se ignora; nada queda en `awaiting_access`."""
+        se = make_user()
+        control = "99552005"
+        req = _make_req(db_session, make_cohort(status="open"), control=control)
+        sii.alumno(control, nip=None)
+        chk = _elig().check(db_session, req.id)
+        assert chk.nip_status == "missing"
+        _cuenta(db_session, control)            # la creó un CSV entretanto
+
+        res = _ers().approve_detailed(db_session, req.id, nip="", program_id=None,
+                                      actor_id=se.id, to_access=True)
+
+        assert res == (True, "", None)
+        assert req.status == "approved" and req.verify_token_hash is not None
+        assert req.nip_source is None
+        assert [n for n, _ in espia_correo] == ["send_verify_enrollment"]
+
+    @pytest.mark.parametrize("status", ["unverified", "verified"])
+    def test_legado_unverified_se_puede_pasar_a_accesos(
+        self, db_session, make_cohort, make_user, espia_correo, pide_nip, status,
+    ):
+        """Review Focus 4: el legado no tiene consulta posible; SE lo pasa a
+        Accesos por la API de siempre (`approve`, ahora con `to_access`)."""
+        se = make_user()
+        req = _make_req(db_session, make_cohort(status="open"), control="99552006",
+                        status=status)
+
+        res = _ers().approve(db_session, req.id, nip="", program_id=None, actor_id=se.id,
+                             to_access=True)
+
+        assert res == (True, "")
+        assert req.status == "awaiting_access" and req.reviewed_by_id == se.id
+        assert _usuario(db_session, "99552006") is None
+        assert pide_nip == [] and espia_correo == []
+
+    @pytest.mark.parametrize("to_access,motivo,correos", [
+        (False, "Esa solicitud ya se resolvió.", 1),
+        (True, "Ya está en Centro de Cómputo para su acceso.", 0),
+    ], ids=["nip_del_sii", "a_accesos"])
+    def test_doble_aprobacion_la_segunda_ve_resuelta(
+        self, db_session, make_cohort, make_user, sii, espia_correo, to_access, motivo,
+        correos,
+    ):
+        se = make_user()
+        req = _make_req(db_session, make_cohort(status="open"), control="99552007")
+        sii.alumno("99552007")
+
+        primero = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                 actor_id=se.id, to_access=to_access)
+        segundo = _ers().approve(db_session, req.id, nip="", program_id=None,
+                                 actor_id=se.id, to_access=to_access)
+
+        assert primero[0] is True
+        assert segundo == (False, motivo)
+        assert len(espia_correo) == correos
+
+    # -- ruta ----------------------------------------------------------------
+    def test_ruta_aprobar_falla_de_nip_responde_200_con_aviso(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo,
+    ):
+        """200 (no 4xx) para que HTMX re-pinte la bandeja; el motivo va en
+        `X-Tt-Notice` de tipo warning, y la fila re-pintada ya ofrece «Aprobar
+        y pasar a Accesos» (la consulta vigente dice ahora `missing`)."""
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552008"
+        req = _make_req(db_session, cohort, control=control)
+        sii.alumno(control)
+        chk = _elig().check(db_session, req.id)
+        sii.sin_nip(control)
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        assert "X-Tt-Error" not in resp.headers
+        assert resp.headers["X-Tt-Notice-Kind"] == "warning"
+        assert unquote(resp.headers["X-Tt-Notice"]) == (
+            f"{MSG_NIP_FALLA['missing']} {AVISO_ACCESOS}")
+        assert f'id="tt-req-{req.id}"' in resp.text, "la fila sigue en «Por revisar»"
+        fila = _fila_repintada(resp.text, req)
+        assert "Aprobar y pasar a Accesos" in fila
+        assert '<input type="hidden" name="to_access" value="1">' in fila
+        assert "Aprobar y dar acceso" not in fila
+        db_session.refresh(req)
+        db_session.refresh(chk)
+        assert req.status == "pending_review" and req.reviewed_by_id is None
+        assert _usuario(db_session, control) is None
+        assert espia_correo == []
+        assert chk.nip_status == "missing"
+
+    def test_ruta_aprobar_sin_sii_configurado_pasa_a_accesos(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo, pide_nip,
+        caplog,
+    ):
+        """Review Focus 1 por la ruta (revisión final F8, D11): con el SII sin
+        configurar, un POST de aprobar SIN `to_access` de una fila sin cuenta
+        (el botón «Aprobar y pasar a Cómputo» de una página pintada por el modo
+        oficial el día del deploy, o una vieja que aún ofrecía «dar acceso») ES
+        pasarla a Accesos: termina `awaiting_access`, 200 sin aviso de error, y
+        nunca se le pide el NIP a un SII que no hay (ni un WARNING por clic)."""
+        sii.backend = "disabled"
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552012"
+        req = _make_req(db_session, cohort, control=control)
+
+        with caplog.at_level("WARNING"):
+            resp = client_as(head).post(
+                f"{URL}/{req.id}/aprobar",
+                data={"program_id": "", "status": "pending_review",
+                      "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        assert "X-Tt-Error" not in resp.headers
+        # Sin aviso de error: el de éxito de pasar a Accesos (F9).
+        assert _aviso(resp) == (AVISO_PASO_A_ACCESOS, "success")
+        assert pide_nip == [], "sin SII configurado no se le pide el NIP"
+        assert not [r for r in caplog.records if r.levelname == "WARNING"], caplog.text
+        assert f'id="tt-req-{req.id}"' not in resp.text, "salió de «Por revisar»"
+        db_session.refresh(req)
+        assert req.status == "awaiting_access" and req.reviewed_by_id == head.id
+        assert req.last_check_id is None, "sin SII no se abre ninguna consulta"
+        assert _usuario(db_session, control) is None
+        assert espia_correo == [], "el alumno no se entera del paso intermedio"
+
+    def test_sin_sii_configurado_aprobar_sin_to_access_es_pasar_a_accesos(
+        self, db_session, make_cohort, make_user, sii, espia_correo, pide_nip,
+    ):
+        """F8 en el servicio: la decisión es de `approve_detailed`, bajo el
+        lock. Sin cuenta → `awaiting_access` como con `to_access=True`; con
+        cuenta, la liga de siempre (el SII no se consulta en ningún caso)."""
+        sii.backend = "disabled"
+        se = make_user()
+        cohort = make_cohort(status="open")
+        sin_cuenta = _make_req(db_session, cohort, control="99552013")
+        _cuenta(db_session, "99552014")
+        con_cuenta = _make_req(db_session, cohort, control="99552014")
+
+        res_sin = _ers().approve_detailed(db_session, sin_cuenta.id, nip="", program_id=None,
+                                          actor_id=se.id)
+        res_con = _ers().approve_detailed(db_session, con_cuenta.id, nip="", program_id=None,
+                                          actor_id=se.id)
+
+        assert res_sin == (True, "", None)
+        assert sin_cuenta.status == "awaiting_access" and sin_cuenta.reviewed_by_id == se.id
+        assert sin_cuenta.nip_source is None and _usuario(db_session, "99552013") is None
+        assert res_con == (True, "", None)
+        assert con_cuenta.status == "approved" and con_cuenta.verify_token_hash is not None
+        assert pide_nip == []
+        assert [n for n, _ in espia_correo] == ["send_verify_enrollment"]
+
+    def test_ruta_aprobar_con_to_access(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo, pide_nip,
+    ):
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99552009")
+        sii.alumno("99552009")
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "to_access": "1", "status": "pending_review",
+                  "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        # Revisión final (F9): la fila sale de «Por revisar»; el aviso dice a dónde.
+        assert _aviso(resp) == (AVISO_PASO_A_ACCESOS, "success")
+        db_session.refresh(req)
+        assert req.status == "awaiting_access" and req.reviewed_by_id == head.id
+        assert _usuario(db_session, "99552009") is None
+        assert pide_nip == [] and espia_correo == []
+
+    # -- aviso tras aprobar (revisión final F9) --------------------------------
+    @pytest.mark.parametrize("sale", [True, False], ids=["correo_sale", "correo_no_sale"])
+    def test_ruta_aprobar_y_dar_acceso_avisa_el_folio_y_si_salio_el_correo(
+        self, client_as, db_session, make_head, make_cohort, sii, monkeypatch, sale,
+    ):
+        """«Aprobar y dar acceso» saca la fila de «Por revisar»: sin aviso SE no
+        sabría si el correo de acceso salió (patrón de `access_admin._grant_notice`,
+        con `access_mail_unsent` como único predicado). Nunca el NIP."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        monkeypatch.setattr(TitulaTecEmailHelper, "send_enrollment_approved",
+                            staticmethod(lambda *a, **k: sale))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552015"
+        req = _make_req(db_session, cohort, control=control)
+        sii.alumno(control, nip="3571")
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert (req.status, req.nip_source) == ("converted", "sii")
+        folio = db_session.get(TitulationProcess, req.converted_process_id).folio
+        if sale:
+            assert _aviso(resp) == (
+                f"Cuenta creada (folio {folio}); se le avisó por correo.", "success")
+        else:
+            assert req.access_sent_at is None, "premisa: el correo no salió"
+            assert _aviso(resp) == (
+                f"Cuenta creada (folio {folio}), pero el correo no salió: reenvíalo "
+                "desde Inscritas.", "warning")
+        assert "3571" not in resp.headers.get("X-Tt-Notice", "")
+
+    @pytest.mark.parametrize("sale", [True, False], ids=["correo_sale", "correo_no_sale"])
+    def test_ruta_aprobar_con_cuenta_avisa_si_salio_la_liga(
+        self, client_as, db_session, make_head, make_cohort, sii, monkeypatch, sale,
+    ):
+        from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+
+        monkeypatch.setattr(TitulaTecEmailHelper, "send_verify_enrollment",
+                            staticmethod(lambda *a, **k: sale))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        control = "99552016"
+        _cuenta(db_session, control)
+        req = _make_req(db_session, cohort, control=control)
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert req.status == "approved"
+        if sale:
+            assert _aviso(resp) == ("Liga enviada al correo del solicitante.", "success")
+        else:
+            assert req.verify_sent_at is None, "premisa: el correo no salió"
+            assert _aviso(resp) == (
+                "Liga generada, pero el correo no salió: reenvíala desde Liga enviada.",
+                "warning")
+
+    def test_modo_oficial_aprobar_sigue_sin_aviso(
+        self, client_as, db_session, make_head, make_cohort, espia_correo, monkeypatch,
+    ):
+        """Los avisos de F9 son del modo `sii`: el oficial queda sin cambios."""
+        monkeypatch.setattr(_ers(), "reviewer_mode", staticmethod(lambda: "school_services"))
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99552017")
+
+        resp = client_as(head).post(
+            f"{URL}/{req.id}/aprobar",
+            data={"program_id": "", "status": "pending_review", "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert req.status == "awaiting_access"
+        assert "X-Tt-Notice" not in resp.headers
+
+    @pytest.mark.parametrize("nip,estado", [("8642", "converted"), ("86421", "pending_review")],
+                             ids=["dar_acceso", "formato_invalido"])
+    def test_ruta_aprobar_no_filtra_el_nip(
+        self, client_as, db_session, make_head, make_cohort, sii, espia_correo, caplog,
+        nip, estado,
+    ):
+        head = make_head(perm_codes=LIST_PERMS)
+        cohort = make_cohort(status="open")
+        req = _make_req(db_session, cohort, control="99552010")
+        sii.alumno("99552010", nip=nip)
+
+        with caplog.at_level("DEBUG"):
+            resp = client_as(head).post(
+                f"{URL}/{req.id}/aprobar",
+                data={"program_id": "", "status": "pending_review",
+                      "cohort_id": str(cohort.id)})
+
+        assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+        db_session.refresh(req)
+        assert req.status == estado
+        assert nip not in resp.text
+        assert nip not in " ".join(f"{k}: {v}" for k, v in resp.headers.items())
+        assert nip not in caplog.text

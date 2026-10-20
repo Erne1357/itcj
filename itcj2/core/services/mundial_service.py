@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from itcj2.core.utils.redis_conn import get_redis
+from itcj2.observability.work import measured_outbound
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +302,9 @@ def _fetch_api_all() -> list | None:
         return None
     try:
         import httpx
-        resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        with measured_outbound("football_api") as call:
+            resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+            call.mark_status(resp.status_code)
         resp.raise_for_status()
         out = []
         for am in resp.json().get("matches", []):
@@ -321,7 +324,9 @@ def _fetch_api_standings() -> list | None:
         return None
     try:
         import httpx
-        resp = httpx.get(_standings_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        with measured_outbound("football_api") as call:
+            resp = httpx.get(_standings_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+            call.mark_status(resp.status_code)
         resp.raise_for_status()
         out = []
         for s in resp.json().get("standings", []):
@@ -369,7 +374,9 @@ def api_diagnostic() -> dict:
         return info
     try:
         import httpx
-        resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+        with measured_outbound("football_api") as call:
+            resp = httpx.get(_matches_endpoint(), headers={"X-Auth-Token": api_key}, timeout=12.0)
+            call.mark_status(resp.status_code)
         info["status_code"] = resp.status_code
         resp.raise_for_status()
         matches = resp.json().get("matches", [])

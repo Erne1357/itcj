@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # ==================== ASIGNAR TÉCNICOS ====================
 @router.post("/{ticket_id}/assign", status_code=200)
-async def assign_technicians(
+def assign_technicians(
     ticket_id: int,
     body: AssignTechnicianRequest,
     user: dict = require_perms("maint", ["maint.assignments.api.assign"], allow_global_admin=False),
@@ -69,7 +69,7 @@ async def assign_technicians(
 
 # ==================== REMOVER TÉCNICO ====================
 @router.post("/{ticket_id}/unassign")
-async def unassign_technician(
+def unassign_technician(
     ticket_id: int,
     body: UnassignTechnicianRequest,
     user: dict = require_perms("maint", ["maint.assignments.api.unassign"], allow_global_admin=False),
@@ -114,7 +114,7 @@ async def unassign_technician(
 
 # ==================== ÁREAS DE TÉCNICO ====================
 @router.get("/areas/{user_id}")
-async def get_technician_areas(
+def get_technician_areas(
     user_id: int,
     user: dict = require_perms("maint", ["maint.admin.api.areas"]),
     db: DbSession = None,
@@ -124,7 +124,7 @@ async def get_technician_areas(
 
 
 @router.post("/areas", status_code=201)
-async def assign_technician_area(
+def assign_technician_area(
     body: AssignTechnicianAreaRequest,
     user: dict = require_perms("maint", ["maint.admin.api.areas"]),
     db: DbSession = None,
@@ -140,7 +140,7 @@ async def assign_technician_area(
 
 
 @router.delete("/areas")
-async def remove_technician_area(
+def remove_technician_area(
     body: RemoveTechnicianAreaRequest,
     user: dict = require_perms("maint", ["maint.admin.api.areas"]),
     db: DbSession = None,

@@ -1,0 +1,166 @@
+"""Contrato de `titulatec_eligibility_checks` y las dos columnas que la enlazan
+(`EnrollmentRequest.last_check_id`, `Cohort.sii_auto_approve`).
+
+Solo modelo + migracion (Tarea 3 del plan de elegibilidad SII): no hay
+service todavia, asi que las filas aqui se arman a mano, como
+`test_review_window_model.py` hace con `IntegrityError` bajo
+`begin_nested()`.
+"""
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from itcj2.apps.titulatec.models import EligibilityCheck, EnrollmentRequest
+
+
+@pytest.fixture()
+def solicitud(db_session, make_cohort):
+    """Una `EnrollmentRequest` minima, para colgarle checks."""
+    cohort = make_cohort()
+    req = EnrollmentRequest(
+        cohort_id=cohort.id,
+        control_number="20221234",
+        first_name="Ana",
+        last_name="Martinez",
+        phone="6560000000",
+        contact_email="ana@example.com",
+        has_efirma=False,
+        kind="unknown",
+    )
+    db_session.add(req)
+    db_session.flush()
+    return {"cohort": cohort, "req": req}
+
+
+def test_el_check_nace_pending_con_intento_1_y_started_at(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id)
+    db_session.add(chk)
+    db_session.flush()
+
+    assert chk.id is not None
+    assert chk.status == "pending"
+    assert chk.attempt == 1
+    assert chk.started_at is not None
+    assert chk.finished_at is None
+    assert chk.duration_ms is None
+
+
+def test_el_check_guarda_resultados_facts_y_version_de_reglas(db_session, solicitud):
+    chk = EligibilityCheck(
+        request_id=solicitud["req"].id,
+        status="apt",
+        rules_version="2026-09-25.1",
+        results=[{"rule": "existe", "ok": True, "message": None}],
+        facts={"estatus": "activo", "creditos_aprobados": 300},
+        attempt=2,
+    )
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.results == [{"rule": "existe", "ok": True, "message": None}]
+    assert chk.facts == {"estatus": "activo", "creditos_aprobados": 300}
+    assert chk.rules_version == "2026-09-25.1"
+    assert chk.attempt == 2
+
+
+def test_el_check_conoce_su_solicitud(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id)
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.request is solicitud["req"]
+
+
+def test_request_id_es_obligatorio(db_session, solicitud):
+    with pytest.raises(IntegrityError):
+        with db_session.begin_nested():
+            db_session.add(EligibilityCheck())
+            db_session.flush()
+
+
+def test_request_id_exige_una_solicitud_existente(db_session, solicitud):
+    with pytest.raises(IntegrityError):
+        with db_session.begin_nested():
+            db_session.add(EligibilityCheck(request_id=9_999_999_999))
+            db_session.flush()
+
+
+def test_la_solicitud_apunta_a_su_check_vigente(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id, status="apt")
+    db_session.add(chk)
+    db_session.flush()
+
+    solicitud["req"].last_check_id = chk.id
+    db_session.flush()
+    db_session.refresh(solicitud["req"])
+
+    assert solicitud["req"].last_check_id == chk.id
+
+
+def test_last_check_id_nace_nulo(db_session, solicitud):
+    assert solicitud["req"].last_check_id is None
+
+
+def test_el_check_declara_nip_status_string20_nullable():
+    from sqlalchemy import String
+
+    col = EligibilityCheck.__table__.columns["nip_status"]
+    assert isinstance(col.type, String)
+    assert col.type.length == 20
+    assert col.nullable is True
+
+
+def test_el_check_nace_con_nip_status_nulo(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id)
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status is None
+
+
+def test_el_check_guarda_el_estado_del_nip(db_session, solicitud):
+    chk = EligibilityCheck(request_id=solicitud["req"].id, status="apt", nip_status="available")
+    db_session.add(chk)
+    db_session.flush()
+    db_session.refresh(chk)
+
+    assert chk.nip_status == "available"
+
+
+def test_el_comentario_de_nip_status_separa_not_needed_de_null():
+    """Contrato para las Tasks 4/5/6/8 (spec A2): `not_needed` es el valor
+    que se escribe cuando la persona SI tenia cuenta al consultar; NULL es
+    un caso aparte (no se reviso), sin relacion con "tiene cuenta". La
+    ronda 1 de revision de esta tarea encontro el comentario al reves --
+    ver `.superpowers/sdd/2026-09-27-titulatec-sii-informa-se-decide/
+    task-2-review-7fc84fe-a730c90.md`.
+    """
+    import inspect
+
+    from itcj2.apps.titulatec.models import eligibility_check as mod
+
+    src = inspect.getsource(mod)
+
+    assert "`not_needed` = la persona SI tenia cuenta" in src
+    # El error de ronda 1: decir que NULL tambien significa "tiene cuenta".
+    assert "NULL = no se reviso (tiene cuenta" not in src
+    assert "Solo se llena si la persona consultada NO tiene cuenta" not in src
+
+
+def test_la_convocatoria_nace_con_auto_approve_encendido(db_session, make_cohort):
+    cohort = make_cohort()
+    db_session.flush()
+    db_session.refresh(cohort)
+
+    assert cohort.sii_auto_approve is True
+
+
+def test_sii_auto_approve_se_puede_apagar(db_session, make_cohort):
+    cohort = make_cohort()
+    cohort.sii_auto_approve = False
+    db_session.flush()
+    db_session.refresh(cohort)
+
+    assert cohort.sii_auto_approve is False

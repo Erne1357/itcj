@@ -46,7 +46,13 @@
         return;
       }
       const { user } = await res.json();
-      if (user?.role === "student") window.location.href = "/itcj/m/";
+      // `data-next` lo escribe el servidor YA validado (core/pages/auth.py:
+      // safe_next). Se revalida aquí por si alguien inyecta el atributo desde
+      // la consola: dos líneas, y el destino nunca sale del origen.
+      const next = (form.dataset.next || "").trim();
+      const nextOk = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\");
+      if (nextOk) window.location.href = next;
+      else if (user?.role === "student") window.location.href = "/itcj/m/";
       else if (user?.role === "coordinator") window.location.href = "/itcj/dashboard";
       else if (user?.role === "social_service") window.location.href = "/itcj/dashboard";
       else window.location.href = "/itcj/dashboard";

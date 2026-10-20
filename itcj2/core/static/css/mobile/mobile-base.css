@@ -130,6 +130,24 @@
 }
 
 /* ==============================================
+   CAPA DE DECORACIONES DEL TEMA
+   La llenan los JS de core/js/dashboard/themes/. En pantalla chica solo adornan
+   el inicio: con una app, el perfil o los avisos abiertos se ocultan para no
+   tapar el contenido. Debajo de los modales de Bootstrap (1050).
+   ============================================== */
+
+.theme-decor-mobile {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1030;
+}
+
+.mobile-body[data-active-view]:not([data-active-view="home"]) .theme-decor-mobile {
+    display: none;
+}
+
+/* ==============================================
    APP IFRAME CONTAINER (SPA Mode)
    ============================================== */
 
@@ -393,6 +411,18 @@
     height: 74%;
     object-fit: contain;
     display: block;
+}
+
+/* Íconos que ya traen su propio tile (titulatec): a sangre, sin el tile blanco
+   ni su borde — si no, se ve un marco dentro de otro. */
+.mobile-app-card-icon.has-own-tile {
+    background: transparent;
+    border: 0;
+}
+
+.mobile-app-card-icon.has-own-tile .mobile-app-card-img {
+    width: 100%;
+    height: 100%;
 }
 
 .mobile-app-card-name {

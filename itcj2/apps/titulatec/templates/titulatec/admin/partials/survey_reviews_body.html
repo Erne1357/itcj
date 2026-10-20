@@ -1,0 +1,179 @@
+{# Bandeja de liberaciones de GTV. Raíz `#tt-releases-body`; TODOS los
+   controles (pestañas, búsqueda, paginación y las 3 acciones de fila) apuntan
+   a ella con `hx-swap="outerHTML"`, así que cada handler devuelve este
+   parcial completo, nunca una fila.
+
+   `status` es la pestaña activa (`_body_ctx` la normaliza: nunca un filtro
+   arbitrario). Cada formulario de fila la manda de vuelta, junto con `q` y
+   `page`, en campos ocultos: liberar, observar o revocar vuelven a pintar la
+   pestaña donde estaba GTV.
+
+   Acciones por pestaña (spec §6.3):
+   - «En revisión»: Liberar (sin motivo) · motivo + Observar.
+   - «Con observaciones»: texto vigente · Liberar (sin motivo) · motivo +
+     Actualizar observaciones.
+   - «Liberadas»: "Liberada por… el…" · si `can_revoke`: motivo + Revocar;
+     si no, la píldora "Fase 2 liberada" (ya no se puede deshacer).
+   - Inscripción revocada (`r.revoked`, cualquier pestaña de historial): sin
+     acciones (todas responderían 400), píldora «Revocada» y, en «Con
+     observaciones», el texto vigente -la columna «Constancia» SÍ conserva
+     su celda (Review Focus #5 de
+     `2026-10-02-titulatec-constancias-y-pendientes-design.md`): «Impresa» y
+     «Anulada tras imprimir» no cambian, y una vigente SIN lote pinta «No se
+     imprimirá» + la nota «inscripción revocada» en vez de «Sin imprimir»
+     (Rulings R13 y R18,
+     `revoked=r.revoked`: «Por imprimir» ya no la toma, R26).
+   - Constancia por recoger (`r.paper_to_collect`, D3 de `2026-10-05-
+     titulatec-import-encuesta-xlsx-design.md` §4.4): píldora junto al
+     estado y, en «Liberadas» sin revocar, «Marcar constancia entregada»
+     (`/entregada`, con `hx-confirm`). «Ver respuestas» sale con
+     `r.response_id`, también en una previa del Excel de Forms (R7).
+   Sin `hx-confirm` salvo Liberar/Revocar/Marcar entregada (Observar no destruye nada) y sin
+   JS ni CSS en línea: el puente `hx-confirm` -> modal ya existe
+   (`static/js/shared/titulatec-utils.js:265`).
+
+   Columna «Folio» (antes «Constancia»; Tarea 3 de `2026-10-02-titulatec-
+   constancias-y-pendientes-design.md` §3.3/E1/E6, y spec folios 2026-10-05
+   §3.5 que la renombra), entre «Estado» y «Ver respuestas»/las acciones, en
+   las 3 pestañas: el folio y, solo con el switch de impresión encendido
+   (`tt_certificate_printing()`), si ya se imprimió (`certificate_cell`, con
+   el dict de `CertificateService.print_status_map` que `list_for_inbox`
+   agrega en `r.certificate`). `prior=True` con `r.origin == 'prior'` (D9,
+   §4.12); GTV no tiene legado (`legacy` queda en su valor por omisión).
+
+   `hx-confirm` y `data-tt-confirm-ok` van en el `<form>` (el elemento que
+   lleva `hx-post`), NUNCA en el `<button>` que dispara el submit: htmx
+   resuelve ambos con `getClosestAttributeValue`, que camina hacia
+   ANCESTROS del elemento con `hx-post`, nunca hacia hijos -- declararlos en
+   el botón (descendiente del form) los deja sin efecto: el puente ve
+   `e.detail.question` vacío, no llama a `preventDefault()`, y htmx sigue
+   con la petición sin confirmar nada (defecto real, detectado por E2E el
+   2026-09-15 en Liberar/Revocar; ver `docs/superpowers/specs/2026-09-15-
+   titulatec-liberacion-gtv-design.md` §6.3 y el reporte de la Tarea 8). #}
+{% from "titulatec/_macros.html" import survey_review_pill, certificate_cell, pager, pill %}
+{% macro tab_fields(tab, q, page) -%}
+<input type="hidden" name="status" value="{{ tab }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="page" value="{{ page }}">
+{%- endmacro %}
+<div id="tt-releases-body" data-tt-view="survey-reviews-body">
+
+  <form id="tt-releases-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}"
+        hx-get="/titulatec/admin/liberaciones/body" hx-target="#tt-releases-body" hx-swap="outerHTML">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search"></i>
+      <input type="search" id="tt-releases-q" name="q" value="{{ q }}" hx-preserve="true" placeholder="Buscar control o nombre"
+             aria-label="Buscar control o nombre" hx-get="/titulatec/admin/liberaciones/body"
+             hx-target="#tt-releases-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="closest form">
+    </div>
+  </form>
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-rev-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/liberaciones/body?status={{ key }}{{ ('&q=' ~ (q | urlencode)) if q else '' }}"
+            hx-target="#tt-releases-body" hx-swap="outerHTML">{{ label }}
+      <span class="tt-pill tt-pill--neutral">{{ counts.get(key, 0) }}</span></button>
+    {% endfor %}
+  </div>
+
+  {% if not rows %}
+  <div class="tt-card">
+    <span class="tt-kicker"><i class="bi bi-patch-check me-1"></i>Bandeja limpia</span>
+    <p class="mb-0">No hay solicitudes en esta pestaña{{ ' con ese filtro' if q else '' }}.</p>
+  </div>
+  {% else %}
+  <div class="tt-table-wrap">
+    <table class="table table-sm align-middle">
+      <thead><tr>
+        <th>Egresado</th><th>Control</th><th>Carrera</th><th>Convocatoria</th>
+        <th>Enviada</th><th>Fase actual</th><th>Estado</th><th>Folio</th><th></th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-rev-{{ r.id }}">
+        <td>{{ r.student }}</td>
+        <td class="tt-mono">{{ r.control }}</td>
+        <td>{{ r.program }}</td>
+        <td>{{ r.cohort }}</td>
+        <td class="tt-mono">{{ r.submitted }}</td>
+        <td class="tt-mono">{{ '%02d'|format(r.current_phase) }}</td>
+        <td>{{ survey_review_pill(r.status, origin=r.origin) }}
+          {%- if r.paper_to_collect and not r.revoked %} {{ pill("Constancia por recoger", "amber", "envelope-paper") }}{% endif %}</td>
+        <td>{{ certificate_cell(r.certificate, prior=(r.origin == 'prior'), revoked=r.revoked) }}</td>
+        <td>{% if r.response_id %}<a class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/encuestas/{{ r.response_id }}">Ver respuestas</a>{% endif %}</td>
+        <td>
+          {% if r.revoked %}
+            {% if r.status == 'rejected' and r.reason %}<p class="small mb-1">{{ r.reason }}</p>{% endif %}
+            <span class="tt-pill tt-pill--neutral">Revocada</span>
+            <p class="small mb-0 mt-1">La inscripción fue revocada: no hay acciones.</p>
+          {% elif r.status == 'in_review' %}
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo" aria-label="Motivo de la observación">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Observar</button>
+            </form>
+          {% elif r.status == 'rejected' %}
+            <p class="small mb-1">{{ r.reason }}</p>
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/liberar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Liberar"
+                  hx-confirm="Liberar encuesta|¿Liberar la encuesta de egresados de {{ r.student }}? Se acredita el requisito de cotejo.">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ink">Liberar</button>
+            </form>
+            <form class="d-flex flex-wrap gap-1 mt-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/observar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Nuevo motivo" aria-label="Actualizar observaciones">
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Actualizar observaciones</button>
+            </form>
+          {% elif r.status == 'approved' %}
+            <p class="small mb-1">Liberada por {{ r.reviewed_by or '—' }} el {{ r.reviewed_at or '—' }}</p>
+            {% if r.paper_to_collect %}
+            <form class="d-inline" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/entregada"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Marcar entregada"
+                  hx-confirm="Marcar constancia entregada|¿Confirmas que {{ r.student }} ya recogió su constancia de liberación en papel?">
+              {{ tab_fields(status, q, page) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost mb-1">Marcar constancia entregada</button>
+            </form>
+            {% endif %}
+            {% if r.can_revoke %}
+            <form class="d-flex flex-wrap gap-1" hx-post="/titulatec/admin/liberaciones/{{ r.id }}/revocar"
+                  hx-target="#tt-releases-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+                  data-tt-confirm-ok="Revocar"
+                  hx-confirm="Revocar liberación|¿Revocar la liberación de {{ r.student }}? Vuelve a quedar con observaciones y ya no acredita el requisito.">
+              {{ tab_fields(status, q, page) }}
+              <input class="tt-field tt-field--xs" name="reason" required maxlength="1000"
+                     placeholder="Motivo de la revocación" aria-label="Motivo de la revocación">
+              <button type="submit" class="btn btn-sm tt-btn-danger-soft">Revocar</button>
+            </form>
+            {% else %}
+            <span class="tt-pill tt-pill--neutral">Fase 2 liberada</span>
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(pg, '/titulatec/admin/liberaciones/body?status=' ~ status ~ (('&q=' ~ (q | urlencode)) if q else ''), '#tt-releases-body', prefix='tt-liberaciones') }}
+  {% endif %}
+</div>

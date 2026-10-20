@@ -1,11 +1,34 @@
 /* ============================================
    TEMA MUNDIAL 2026 — decoraciones + widget + modal
    Lee window.activeTheme.decorations. Self-init en DOMContentLoaded.
+   Las decoraciones van en #theme-decor (escritorio; dashboard.css la pone detrás
+   o encima de las ventanas según la resolución) o en #theme-decor.theme-decor-mobile (móvil, base_mobile.html; se oculta fuera de la vista home). El FAB, el
+   widget y el modal (UI interactiva) siempre van en <body>.
    ============================================ */
 (function () {
   'use strict';
 
   const API = '/api/core/v2/mundial/matches';
+
+  // Banderas de franjas (CSS) para la guirnalda y las banderas flotantes. Sin
+  // emoji de bandera: Windows no trae esos glifos y los pinta como letras ("MX").
+  const FLAG_MEX = 'linear-gradient(90deg,#006847 0 33.33%,#fff 33.33% 66.66%,#ce1126 66.66%)';
+  const FLAG_OTHERS = [
+    'linear-gradient(180deg,#009b3a 62%,#fedf00 62%)',                 // Brasil
+    'linear-gradient(180deg,#75aadb 33%,#fff 33% 66%,#75aadb 66%)',    // Argentina
+    'linear-gradient(90deg,#0055A4 33%,#fff 33% 66%,#EF4135 66%)',     // Francia
+    'linear-gradient(180deg,#000 33%,#D00 33% 66%,#FFCE00 66%)',       // Alemania
+    'linear-gradient(180deg,#AA151B 25%,#F1BF00 25% 75%,#AA151B 75%)', // España
+    'linear-gradient(180deg,#C8102E 50%,#fff 50%)',                    // genérica
+  ];
+
+  /** Bandera de franjas: un div con la clase dada (+ " mex") y su fondo. */
+  function makeFlag(className, isMex, index) {
+    const f = document.createElement('div');
+    f.className = className + (isMex ? ' mex' : '');
+    f.style.background = isMex ? FLAG_MEX : FLAG_OTHERS[index % FLAG_OTHERS.length];
+    return f;
+  }
 
   function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -18,13 +41,14 @@
       this.deco = deco || {};
       this.reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       this.isMobile = window.innerWidth <= 576;
+      this.host = document.getElementById('theme-decor') || document.body;
       this.timers = [];
       this.pollTimer = null;
       this.init();
     }
 
     init() {
-      if (!this.reduced) this.buildDecorations();
+      this.buildDecorations();
       this.buildFab();
       this.buildWidget();
       this.buildTrayButton();
@@ -47,11 +71,14 @@
     }
 
     // ---------- Decoraciones ----------
+    // Con prefers-reduced-motion quedan solo las fijas (guirnalda, bandera y
+    // reflectores, sin animación por CSS): nada flota, rueda ni cae.
     buildDecorations() {
       const d = this.deco;
       if (d.flags?.enabled || d.bunting?.enabled) this.buildFlagGarland();
       if (d.mexico_flag?.enabled) this.buildMexicoFlag();
-      if (d.lights?.enabled) document.body.classList.add('mundial-lights');
+      if (d.lights?.enabled) this.buildLights();
+      if (this.reduced) return;
       if (d.floating_flags?.enabled) {
         this.spawnFloatingFlag();
         this.timers.push(setInterval(() => this.spawnFloatingFlag(), this.isMobile ? 3500 : 2200));
@@ -65,29 +92,17 @@
       }
     }
 
-    // Gradientes de banderas (CSS) para la guirnalda; México va resaltado cada 3.
+    // Guirnalda de banderas de franjas; México va resaltado cada 3.
     buildFlagGarland() {
-      const MEX = 'linear-gradient(90deg,#006847 0 33.33%,#fff 33.33% 66.66%,#ce1126 66.66%)';
-      const OTHERS = [
-        'linear-gradient(180deg,#009b3a 62%,#fedf00 62%)',                 // Brasil
-        'linear-gradient(180deg,#75aadb 33%,#fff 33% 66%,#75aadb 66%)',    // Argentina
-        'linear-gradient(90deg,#0055A4 33%,#fff 33% 66%,#EF4135 66%)',     // Francia
-        'linear-gradient(180deg,#000 33%,#D00 33% 66%,#FFCE00 66%)',       // Alemania
-        'linear-gradient(180deg,#AA151B 25%,#F1BF00 25% 75%,#AA151B 75%)', // España
-        'linear-gradient(180deg,#C8102E 50%,#fff 50%)',                    // genérica
-      ];
       const wrap = document.createElement('div');
       wrap.className = 'mundial-garland';
       const n = this.isMobile ? 16 : 30;
       for (let i = 0; i < n; i++) {
-        const f = document.createElement('div');
-        const isMex = (i % 3 === 0);
-        f.className = 'mundial-gflag' + (isMex ? ' mex' : '');
-        f.style.background = isMex ? MEX : OTHERS[i % OTHERS.length];
+        const f = makeFlag('mundial-gflag', i % 3 === 0, i);
         f.style.animationDelay = (i * 0.08) + 's';
         wrap.appendChild(f);
       }
-      document.body.appendChild(wrap);
+      this.host.appendChild(wrap);
       this.garland = wrap;
     }
 
@@ -95,21 +110,28 @@
       const flag = document.createElement('div');
       flag.className = 'mundial-mexico';
       flag.innerHTML = '<span class="mundial-mexico-label">MÉXICO</span>';
-      document.body.appendChild(flag);
+      this.host.appendChild(flag);
       this.mexicoFlag = flag;
     }
 
+    buildLights() {
+      const lights = document.createElement('div');
+      lights.className = 'mundial-lights';
+      this.host.appendChild(lights);
+      this.lights = lights;
+    }
+
     spawnFloatingFlag() {
-      // Mayoría México (🇲🇽 repetido), más otras selecciones.
-      const FLAGS = ['🇲🇽', '🇲🇽', '🇲🇽', '🇧🇷', '🇦🇷', '🇫🇷', '🇩🇪', '🇪🇸', '🇵🇹', '🇺🇸', '🇨🇦', '🇯🇵'];
-      const el = document.createElement('div');
-      el.className = 'mundial-float-flag';
-      el.textContent = FLAGS[Math.floor(Math.random() * FLAGS.length)];
+      // Mayoría México (40 %), más otras selecciones; proporción 3:2.
+      const isMex = Math.random() < 0.4;
+      const el = makeFlag('mundial-float-flag', isMex, Math.floor(Math.random() * FLAG_OTHERS.length));
+      const w = 26 + Math.random() * 16;
+      el.style.width = w.toFixed(1) + 'px';
+      el.style.height = (w * 2 / 3).toFixed(1) + 'px';
       el.style.left = (Math.random() * 96) + 'vw';
-      el.style.fontSize = (24 + Math.random() * 18) + 'px';
       const dur = 7 + Math.random() * 5;
       el.style.animationDuration = dur + 's';
-      document.body.appendChild(el);
+      this.host.appendChild(el);
       setTimeout(() => el.remove(), dur * 1000 + 300);
     }
 
@@ -117,7 +139,7 @@
       const b = document.createElement('div');
       b.className = 'mundial-ball';
       b.textContent = '⚽';
-      document.body.appendChild(b);
+      this.host.appendChild(b);
       setTimeout(() => b.remove(), 7200);
     }
 
@@ -129,7 +151,7 @@
         c.style.left = Math.random() * 100 + 'vw';
         c.style.background = colors[i % colors.length];
         c.style.animationDuration = (2 + Math.random() * 2) + 's';
-        document.body.appendChild(c);
+        this.host.appendChild(c);
         setTimeout(() => c.remove(), 4200);
       }
     }
@@ -193,14 +215,19 @@
     }
 
     // ---------- Botón en system-tray (escritorio) ----------
+    // Mismo aspecto que la campana (.tray-btn: 40x40, sin borde nativo, hover y
+    // foco de la bandeja); la insignia es un .tray-badge.
     buildTrayButton() {
       const tray = document.querySelector('.system-tray');
       if (!tray) { if (this.fab) this.fab.classList.add('show'); return; }  // sin tray -> usa el FAB
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.id = 'mundial-tray-btn';
-      btn.className = 'system-icon';
+      btn.className = 'system-icon tray-btn';
       btn.title = 'Partidos del Mundial';
-      btn.innerHTML = '⚽<span id="mundial-tray-badge" style="display:none">0</span>';
+      btn.setAttribute('aria-label', 'Partidos del Mundial');
+      btn.innerHTML = '<span class="mundial-tray-ball" aria-hidden="true">⚽</span>' +
+        '<span id="mundial-tray-badge" class="tray-badge" style="display:none">0</span>';
       btn.addEventListener('click', () => this.toggleWidget());
       tray.insertBefore(btn, tray.firstChild);
       this.trayBadge = btn.querySelector('#mundial-tray-badge');
@@ -482,8 +509,8 @@
       if (this._onDragUp) window.removeEventListener('mouseup', this._onDragUp);
       if (this.garland) this.garland.remove();
       if (this.mexicoFlag) this.mexicoFlag.remove();
+      if (this.lights) this.lights.remove();
       if (this.fab) this.fab.remove();
-      document.body.classList.remove('mundial-lights');
       document.querySelectorAll('.mundial-float-flag, .mundial-ball, .mundial-confetti')
         .forEach((el) => el.remove());
     }

@@ -1,367 +1,364 @@
-/**
- * ========================================
- * ESTILOS PARA EL TUTORIAL DEL DASHBOARD
- * ========================================
- *
- * Estilos personalizados para Shepherd.js
- * Tema claro y profesional para el tutorial del dashboard principal
- */
+/* ==========================================================================
+   Tutorial del escritorio (Shepherd 11.2.0) — lenguaje Windows 11 con los
+   tokens del escritorio (dashboard.css :root): superficie blanca, borde sutil,
+   radio 8 px, --font-ui, primario --accent. El CSS de Shepherd (CDN) se
+   inserta ANTES de este archivo: aquí va la última palabra.
+   Capas: atenuado 10010 y popover 10020 (por encima de cualquier decoración o
+   widget de los temas, que viven en 900–10002); modales del tutorial 10060.
+   ========================================================================== */
 
-/* ==================== OVERLAY ==================== */
-.shepherd-modal-overlay-container {
-    background-color: rgba(0, 0, 0, 0.5);
+.dashboard-tutorial-step,
+.dashboard-tutorial-modal {
+  --tt-surface: #ffffff;
+  --tt-line: rgba(0, 0, 0, .1);
+  --tt-subtle: #f3f4f6;
+  --tt-subtle-hover: #e8eaed;
+  --tt-subtle-press: #dfe2e6;
+  --tt-band: #f6f7f9;
+  --tt-ink: var(--ink, #1b1f24);
+  --tt-muted: var(--ink-muted, #5c6470);
+  --tt-accent: var(--accent, #059669);
+  --tt-accent-hover: color-mix(in srgb, var(--tt-accent) 88%, #000);
+  --tt-accent-press: color-mix(in srgb, var(--tt-accent) 78%, #000);
 }
 
-/* ==================== PASO DEL TUTORIAL ==================== */
-.dashboard-tutorial-step {
-    max-width: 500px;
-    border-radius: 12px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-    border: 1px solid #e0e0e0;
+/* --------------------------------------------------------------------------
+   Atenuado
+   -------------------------------------------------------------------------- */
+.shepherd-modal-overlay-container { z-index: 10010; }
+.shepherd-modal-overlay-container.shepherd-modal-is-visible { opacity: .45; }
+
+/* --------------------------------------------------------------------------
+   Popover
+   -------------------------------------------------------------------------- */
+.shepherd-element.dashboard-tutorial-step {
+  z-index: 10020;
+  width: min(340px, calc(100vw - 24px));
+  max-width: none;
+  background: var(--tt-surface);
+  border: 1px solid var(--tt-line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16), 0 2px 6px rgba(0, 0, 0, .06);
+  font-family: var(--font-ui);
+  color: var(--tt-ink);
+  -webkit-font-smoothing: antialiased;
 }
 
-.shepherd-element {
-    z-index: 9999;
+.shepherd-element.dashboard-tutorial-step.shepherd-centered {
+  width: min(440px, calc(100vw - 32px));
 }
 
-/* ==================== HEADER ==================== */
-.shepherd-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-    color: white !important;
-    padding: 20px;
-    border-radius: 12px 12px 0 0;
-    border-bottom: none;
+.dashboard-tutorial-step .shepherd-content { border-radius: 8px; }
+
+/* Encabezado: título y X, sin banda de color. */
+.shepherd-element.dashboard-tutorial-step.shepherd-has-title .shepherd-content .shepherd-header {
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px 12px 0 20px;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
 }
 
-.shepherd-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin: 0;
-    color: white !important;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+.dashboard-tutorial-step .shepherd-title {
+  margin: 0;
+  padding-top: 3px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--tt-ink);
 }
 
-.shepherd-cancel-icon {
-    color: white;
-    opacity: 0.8;
-    font-size: 1.5rem;
-    transition: opacity 0.2s;
+.shepherd-element.dashboard-tutorial-step .shepherd-content .shepherd-cancel-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--tt-muted);
+  transition: background-color .12s ease, color .12s ease;
 }
 
-.shepherd-cancel-icon:hover {
-    opacity: 1;
+.shepherd-element.dashboard-tutorial-step .shepherd-content .shepherd-cancel-icon:hover {
+  background: var(--tt-subtle);
+  color: var(--tt-ink);
 }
 
-/* ==================== CONTENIDO ==================== */
-.shepherd-text {
-    padding: 24px;
-    background: white;
-    color: #333;
-    font-size: 0.95rem;
-    line-height: 1.6;
+/* Texto */
+.dashboard-tutorial-step .shepherd-text {
+  padding: 8px 20px 4px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tt-ink);
 }
 
-.shepherd-text p {
-    margin-bottom: 12px;
+.dashboard-tutorial-step .shepherd-text p { margin: 0 0 8px; }
+.dashboard-tutorial-step .shepherd-text p:last-child { margin-bottom: 0; }
+.dashboard-tutorial-step .shepherd-text strong { font-weight: 600; color: inherit; }
+
+.dashboard-tutorial-step .shepherd-text ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
 }
 
-.shepherd-text p:last-child {
-    margin-bottom: 0;
+.dashboard-tutorial-step .shepherd-text ul:last-child { margin-bottom: 0; }
+.dashboard-tutorial-step .shepherd-text li { margin-bottom: 4px; }
+
+/* Lista con el icono real de cada control. */
+.dashboard-tutorial-step .shepherd-text .tutorial-list {
+  list-style: none;
+  padding-left: 0;
 }
 
-.shepherd-text ul {
-    margin: 12px 0;
-    padding-left: 20px;
+.dashboard-tutorial-step .shepherd-text .tutorial-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
-.shepherd-text li {
-    margin-bottom: 8px;
+.dashboard-tutorial-step .tutorial-ico {
+  width: 16px;
+  height: 16px;
+  color: var(--tt-muted);
+  stroke-width: 1.9;
+  vertical-align: -3px;
 }
 
-.shepherd-text strong {
-    color: #667eea;
-    font-weight: 600;
+.dashboard-tutorial-step .tutorial-list .tutorial-ico { margin-top: 3px; }
+
+.dashboard-tutorial-step .tutorial-note {
+  font-size: 13px;
+  color: var(--tt-muted);
 }
 
-.shepherd-text em {
-    color: #666;
-    font-style: italic;
+.dashboard-tutorial-step kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid rgba(0, 0, 0, .14);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--tt-surface);
+  color: var(--tt-ink);
+  font: 500 12px/1.4 var(--font-ui);
+  text-align: center;
+  white-space: nowrap;
+  box-shadow: none;
 }
 
-.shepherd-text kbd {
-    background-color: #f4f4f4;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
-    color: #333;
-    display: inline-block;
-    font-family: monospace;
-    font-size: 0.85em;
-    line-height: 1;
-    padding: 2px 6px;
-    white-space: nowrap;
+/* Pie: progreso a la izquierda, botones a la derecha. */
+.dashboard-tutorial-step .shepherd-footer {
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 20px;
 }
 
-/* ==================== FOOTER Y BOTONES ==================== */
-.shepherd-footer {
-    padding: 16px 24px;
-    background: #f8f9fa;
-    border-radius: 0 0 12px 12px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+/* Con «Atrás» + «Hazlo por mí» el pie va justo (≈ 8–15 px libres a 340 px con
+   Segoe UI): si una fuente más ancha no deja sitio, se recorta el progreso, nunca
+   un botón. */
+.dashboard-tutorial-step .shepherd-footer .shepherd-button { flex: none; }
+
+.dashboard-tutorial-progress {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--tt-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.shepherd-button {
-    padding: 10px 20px;
-    border-radius: 6px;
-    font-weight: 500;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    border: none;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+.shepherd-content > .dashboard-tutorial-progress {
+  display: block;
+  padding: 0 20px 16px;
 }
 
-.shepherd-button:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+/* --------------------------------------------------------------------------
+   Botones (popover y modales): primario = acento; secundario = gris claro
+   -------------------------------------------------------------------------- */
+.dashboard-tutorial-step .shepherd-footer .shepherd-button,
+.dashboard-tutorial-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  height: 32px;
+  margin: 0;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font: 500 14px/1 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .12s ease, border-color .12s ease, color .12s ease;
 }
 
-.shepherd-button:active {
-    transform: translateY(0);
+.dashboard-tutorial-step .shepherd-footer .shepherd-button,
+.dashboard-tutorial-btn.is-primary {
+  background: var(--tt-accent);
+  border-color: var(--tt-accent);
+  color: #fff;
 }
 
-/* Botón primario */
-.shepherd-button.btn-primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+.dashboard-tutorial-step .shepherd-footer .shepherd-button:not(:disabled):hover,
+.dashboard-tutorial-btn.is-primary:hover {
+  background: var(--tt-accent-hover);
+  border-color: var(--tt-accent-hover);
+  color: #fff;
 }
 
-.shepherd-button.btn-primary:hover {
-    background: linear-gradient(135deg, #5568d3 0%, #653a8a 100%);
+.dashboard-tutorial-step .shepherd-footer .shepherd-button:not(:disabled):active,
+.dashboard-tutorial-btn.is-primary:active {
+  background: var(--tt-accent-press);
+  border-color: var(--tt-accent-press);
 }
 
-/* Botón secundario */
-.shepherd-button.btn-secondary {
-    background: #6c757d;
-    color: white;
+.dashboard-tutorial-step .shepherd-footer .shepherd-button.shepherd-button-secondary,
+.dashboard-tutorial-btn {
+  background: var(--tt-subtle);
+  border-color: var(--tt-line);
+  color: var(--tt-ink);
 }
 
-.shepherd-button.btn-secondary:hover {
-    background: #5a6268;
+.dashboard-tutorial-step .shepherd-footer .shepherd-button.shepherd-button-secondary:not(:disabled):hover,
+.dashboard-tutorial-btn:not(.is-primary):hover {
+  background: var(--tt-subtle-hover);
+  color: var(--tt-ink);
 }
 
-/* Botón success */
-.shepherd-button.btn-success {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    color: white;
+.dashboard-tutorial-step .shepherd-footer .shepherd-button.shepherd-button-secondary:not(:disabled):active,
+.dashboard-tutorial-btn:not(.is-primary):active {
+  background: var(--tt-subtle-press);
 }
 
-.shepherd-button.btn-success:hover {
-    background: linear-gradient(135deg, #0f8074 0%, #2dd46b 100%);
+.dashboard-tutorial-step .shepherd-button:focus-visible,
+.dashboard-tutorial-step .shepherd-cancel-icon:focus-visible,
+.dashboard-tutorial-btn:focus-visible {
+  outline: 2px solid var(--tt-ink);
+  outline-offset: 2px;
 }
 
-/* ==================== FLECHA/ARROW ==================== */
-.shepherd-arrow:before {
-    background: white;
+.shepherd-element.dashboard-tutorial-step:focus,
+.shepherd-element.dashboard-tutorial-step:focus-visible { outline: none; }
+
+/* --------------------------------------------------------------------------
+   Flecha: misma superficie y borde que el popover
+   -------------------------------------------------------------------------- */
+.dashboard-tutorial-step .shepherd-arrow:before,
+.shepherd-element.dashboard-tutorial-step.shepherd-has-title[data-popper-placement^=bottom] > .shepherd-arrow:before {
+  background: var(--tt-surface);
 }
 
-/* Flechas en diferentes posiciones */
-[data-popper-placement^='top'] > .shepherd-arrow:before {
-    border-top-color: white;
+.dashboard-tutorial-step[data-popper-placement^=bottom] > .shepherd-arrow:before {
+  border-top: 1px solid var(--tt-line);
+  border-left: 1px solid var(--tt-line);
 }
 
-[data-popper-placement^='bottom'] > .shepherd-arrow:before {
-    border-bottom-color: white;
+.dashboard-tutorial-step[data-popper-placement^=top] > .shepherd-arrow:before {
+  border-bottom: 1px solid var(--tt-line);
+  border-right: 1px solid var(--tt-line);
 }
 
-[data-popper-placement^='left'] > .shepherd-arrow:before {
-    border-left-color: white;
+.dashboard-tutorial-step[data-popper-placement^=left] > .shepherd-arrow:before {
+  border-top: 1px solid var(--tt-line);
+  border-right: 1px solid var(--tt-line);
 }
 
-[data-popper-placement^='right'] > .shepherd-arrow:before {
-    border-right-color: white;
+.dashboard-tutorial-step[data-popper-placement^=right] > .shepherd-arrow:before {
+  border-bottom: 1px solid var(--tt-line);
+  border-left: 1px solid var(--tt-line);
 }
 
-/* ==================== ELEMENTO DESTACADO ==================== */
-.shepherd-target {
-    animation: pulse-highlight-dashboard 2s ease-in-out infinite;
-    position: relative;
+/* --------------------------------------------------------------------------
+   Objetivo de un paso interactivo: anillo de acento (los pasivos no lo llevan)
+   -------------------------------------------------------------------------- */
+.shepherd-enabled.shepherd-target:not(body):not(.shepherd-target-click-disabled) {
+  outline: 2px solid var(--accent, #059669);
+  outline-offset: 1px;
+  animation: dashboard-tutorial-pulse 1.8s ease-out infinite;
 }
 
-@keyframes pulse-highlight-dashboard {
-    0%, 100% {
-        box-shadow: 0 0 0 0 rgba(102, 126, 234, 0.5);
-    }
-    50% {
-        box-shadow: 0 0 0 12px rgba(102, 126, 234, 0);
-    }
+@keyframes dashboard-tutorial-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #059669) 50%, transparent); }
+  70%, 100% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent, #059669) 0%, transparent); }
 }
 
-/* ==================== BOTÓN DE TUTORIAL EN TASKBAR ==================== */
-#dashboardTutorialButton {
-    position: relative;
-    background: rgba(0, 0, 0, 0.3);
-    color: white;
-    border: 1px solid rgba(0, 0, 0, 0.5);
-    padding: 4px 12px;
-    border-radius: 4px;
-    font-weight: 500;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    margin-right: 8px;
-    height: 32px;
+/* Recuadro invisible alrededor de los iconos (objetivo de «Tus aplicaciones»). */
+.dashboard-tutorial-area {
+  position: fixed;
+  pointer-events: none;
 }
 
-#dashboardTutorialButton:hover {
-    background: rgba(0, 0, 0, 0.5);
-    border-color: rgba(0, 0, 0, 0.7);
-    transform: translateY(-1px);
+/* --------------------------------------------------------------------------
+   Botón «Tutorial» de la barra mientras corre (o espera confirmación)
+   -------------------------------------------------------------------------- */
+.taskbar #dashboardTutorialButton:disabled {
+  opacity: .45;
+  cursor: default;
 }
 
-#dashboardTutorialButton:active {
-    transform: translateY(0);
+.taskbar #dashboardTutorialButton:disabled:hover { background: transparent; }
+
+/* --------------------------------------------------------------------------
+   Modales de inicio y salida (diálogo estilo Windows 11)
+   -------------------------------------------------------------------------- */
+.dashboard-tutorial-modal { --bs-modal-zindex: 10060; }
+
+.dashboard-tutorial-modal .modal-dialog { max-width: min(440px, calc(100vw - 32px)); }
+
+.dashboard-tutorial-modal .modal-content {
+  overflow: hidden;
+  border: 1px solid var(--tt-line);
+  border-radius: 8px;
+  background: var(--tt-surface);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .22);
+  font-family: var(--font-ui);
+  color: var(--tt-ink);
 }
 
-#dashboardTutorialButton i {
-    font-size: 1rem;
+.dashboard-tutorial-modal .modal-body {
+  padding: 24px 24px 20px;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-#dashboardTutorialButton svg {
-    width: 16px;
-    height: 16px;
+.dashboard-tutorial-modal .modal-body p { margin: 0 0 8px; }
+.dashboard-tutorial-modal .modal-body p.mb-0,
+.dashboard-tutorial-modal .modal-body p:last-child { margin-bottom: 0; }
+
+.dashboard-tutorial-modal-title {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--tt-ink);
 }
 
-/* Animación de pulso sutil para llamar la atención */
-@keyframes pulse-tutorial-button {
-    0%, 100% {
-        border-color: rgba(255, 255, 255, 0.3);
-    }
-    50% {
-        border-color: rgba(255, 255, 255, 0.6);
-    }
+.dashboard-tutorial-modal .modal-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--tt-line);
+  background: var(--tt-band);
 }
 
-#dashboardTutorialButton.pulse {
-    animation: pulse-tutorial-button 2s ease-in-out infinite;
+.dashboard-tutorial-modal .modal-footer > .dashboard-tutorial-btn {
+  width: 100%;
+  margin: 0;
 }
 
-/* ==================== RESPONSIVE ==================== */
-@media (max-width: 768px) {
-    .dashboard-tutorial-step {
-        max-width: 90vw;
-    }
-
-    .shepherd-text {
-        font-size: 0.9rem;
-        padding: 20px;
-    }
-
-    .shepherd-header {
-        padding: 16px;
-    }
-
-    .shepherd-title {
-        font-size: 1.1rem;
-    }
-
-    .shepherd-footer {
-        padding: 12px 20px;
-        flex-direction: column-reverse;
-    }
-
-    .shepherd-button {
-        width: 100%;
-        justify-content: center;
-    }
-
-    #dashboardTutorialButton {
-        font-size: 0.75rem;
-        padding: 4px 10px;
-    }
-}
-
-/* ==================== MEJORAS DE ACCESIBILIDAD ==================== */
-.shepherd-button:focus {
-    outline: 2px solid #667eea;
-    outline-offset: 2px;
-}
-
-.shepherd-text a {
-    color: #667eea;
-    text-decoration: underline;
-}
-
-.shepherd-text a:hover {
-    color: #5568d3;
-}
-
-/* ==================== ANIMACIONES DE ENTRADA ==================== */
-@keyframes fadeInScale {
-    from {
-        opacity: 0;
-        transform: scale(0.95);
-    }
-    to {
-        opacity: 1;
-        transform: scale(1);
-    }
-}
-
-.shepherd-element {
-    animation: fadeInScale 0.3s ease-out;
-}
-
-/* ==================== SCROLLBAR PERSONALIZADO ==================== */
-.shepherd-text::-webkit-scrollbar {
-    width: 6px;
-}
-
-.shepherd-text::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 10px;
-}
-
-.shepherd-text::-webkit-scrollbar-thumb {
-    background: #667eea;
-    border-radius: 10px;
-}
-
-.shepherd-text::-webkit-scrollbar-thumb:hover {
-    background: #5568d3;
-}
-
-/* ==================== OVERLAY PARA BLOQUEAR INTERACCIÓN ==================== */
-.tutorial-interaction-blocker {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 9997;
-    pointer-events: none;
-}
-
-.tutorial-interaction-blocker.active {
-    pointer-events: all;
-}
-
-/* ==================== ICONO DE INFORMACIÓN ==================== */
-.shepherd-text .info-icon {
-    color: #667eea;
-    margin-right: 8px;
-}
-
-/* ==================== DESTACAR ELEMENTOS ESPECÍFICOS ==================== */
-.tutorial-highlight {
-    position: relative;
-    z-index: 10000 !important;
+/* --------------------------------------------------------------------------
+   Movimiento reducido
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .shepherd-enabled.shepherd-target:not(body):not(.shepherd-target-click-disabled) { animation: none; }
+  .shepherd-element.dashboard-tutorial-step,
+  .shepherd-modal-overlay-container { transition: none; }
 }

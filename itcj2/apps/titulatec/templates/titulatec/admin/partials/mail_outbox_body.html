@@ -1,0 +1,105 @@
+{# Bandeja de salida de correos (`pages/mail_admin.py`). Raíz `#tt-mail-body`;
+   pestañas, filtros y pager apuntan a ella con `hx-swap="outerHTML"`.
+
+   SOLO LECTURA: ni un <form> ni un hx-post. Una fila por AVISO del outbox
+   (`r.grouped` marca los que salen juntos en un correo, D7). El `payload`
+   nunca se pinta.
+
+   `#tt-mail-filters` es un <div> (no un <form>) con la pestaña, la página 1,
+   la búsqueda y el tipo; búsqueda y tipo lo incluyen con `hx-include`. Las
+   pestañas llevan tipo y búsqueda en su query string (no `hx-include`: el
+   `status` oculto del contenedor pisaría el de la pestaña). El buscador va con
+   `hx-preserve` y el contenedor anuncia el `q` del servidor en
+   `data-tt-q-server` (titulatec-utils.js, `_syncPreservedSearch`).
+   Sin JS ni CSS en línea. #}
+{% from "titulatec/_macros.html" import pager, pill %}
+{%- set qs_kind = ('&kind=' ~ kind) if kind else '' %}
+{%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
+<div id="tt-mail-body" data-tt-view="mail-body">
+
+  <div id="tt-mail-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
+    <input type="hidden" name="status" value="{{ status }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-mail-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+             placeholder="Buscar destinatario, asunto, control, nombre o folio"
+             aria-label="Buscar destinatario, asunto, control, nombre o folio"
+             hx-get="/titulatec/admin/correos/body" hx-target="#tt-mail-body"
+             hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-mail-filters">
+    </div>
+    <select id="tt-mail-kind" name="kind" class="tt-field tt-field--xs" aria-label="Tipo de correo"
+            hx-get="/titulatec/admin/correos/body" hx-target="#tt-mail-body"
+            hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-mail-filters">
+      <option value="">Todos los tipos</option>
+      {% for code, label in kinds %}
+      <option value="{{ code }}"{% if kind == code %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-mail-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if status == key else 'tt-btn-ghost' }}"
+            {% if status == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/correos/body?status={{ key }}{{ qs_kind }}{{ qs_q }}"
+            hx-target="#tt-mail-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
+    {% endfor %}
+  </div>
+
+  {% if not rows and (q or kind) %}
+  <div class="tt-card" id="tt-mail-no-results">
+    <span class="tt-kicker"><i class="bi bi-search me-1" aria-hidden="true"></i>Sin resultados</span>
+    <p class="mb-0">Ningún correo coincide con ese filtro.</p>
+  </div>
+  {% elif not rows %}
+  <div class="tt-card" id="tt-mail-empty">
+    <span class="tt-kicker"><i class="bi bi-inbox me-1" aria-hidden="true"></i>Nada aquí</span>
+    <p class="mb-0">No hay correos en esta pestaña.</p>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm align-top" id="tt-mail-table">
+      <thead><tr>
+        <th>Fecha</th><th>Para</th><th>Correo</th><th>Intentos</th><th>Estado</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-mail-{{ r.id }}">
+        <td class="small text-nowrap">
+          <div>Alta {{ r.created }}</div>
+          {% if r.scheduled %}<div class="text-body-secondary">Sale {{ r.scheduled }}</div>{% endif %}
+          {% if r.sent %}<div class="text-body-secondary">Enviado {{ r.sent }}</div>{% endif %}
+        </td>
+        <td>
+          <div class="fw-medium">{{ r.who.name }}</div>
+          <div class="small text-body-secondary">
+            {% if r.who.control %}<span class="tt-mono">{{ r.who.control }}</span>{% endif %}
+            {% if r.who.request %}<span class="tt-pill tt-pill--neutral">Solicitud</span>{% endif %}
+            {% if r.folio %}
+              {% if r.process_url %}<a href="{{ r.process_url }}" class="tt-mono">{{ r.folio }}</a>
+              {% else %}<span class="tt-mono">{{ r.folio }}</span>{% endif %}
+            {% endif %}
+          </div>
+          <div class="small">{% if r.to %}<i class="bi bi-envelope me-1" aria-hidden="true"></i>{{ r.to }}{% else %}<span class="text-body-secondary">Destinatario al enviar</span>{% endif %}</div>
+        </td>
+        <td>
+          <div>{{ r.kind_label }}</div>
+          {% if r.subject %}<div class="small text-body-secondary">{{ r.subject }}</div>{% endif %}
+          {% if r.grouped %}<div class="small text-body-secondary"><i class="bi bi-collection me-1" aria-hidden="true"></i>Sale agrupado con otros avisos</div>{% endif %}
+        </td>
+        <td class="small">{{ r.attempts }}</td>
+        <td>
+          {{ pill(r.status_label, r.tone) }}
+          {% if r.error %}<div class="small text-body-secondary mt-1" title="{{ r.error }}">{{ r.error }}</div>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, '/titulatec/admin/correos/body', '#tt-mail-body', include='#tt-mail-filters', prefix='tt-mail') }}
+  {% endif %}
+</div>

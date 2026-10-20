@@ -1,0 +1,46 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Solicitudes · TitulaTec{% endblock %}
+{% block admin_view %}requests{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Convocatoria abierta · Servicios Escolares</span>
+  <h1 class="tt-display h3 fw-medium">Solicitudes de inscripción</h1>
+  {# Texto por modo (`mode`); los días de la liga salen de `link_days`
+     (`link_ttl_days()`), la misma fuente que el vencimiento y el correo, con
+     «1 día» en singular. En el `sii` (spec 2026-09-27): quién decide
+     (Servicios Escolares, con el veredicto del SII en su columna: nada se
+     aprueba solo), con qué NIP nace la cuenta (el del SII) y el respaldo
+     cuando el SII no lo tiene (Accesos, D1). Con el SII sin configurar (D11,
+     `sii_configured` falso) nadie lo consulta: SE revisa y todo lo sin cuenta
+     se aprueba pasándolo a Accesos (revisión final F4). En el alterno, quién
+     revisa y qué ves aquí lo dice UNA vez el aviso «Solo lectura» del parcial,
+     que se repinta en cada pestaña. #}
+  {% if sii and not sii_configured %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público. El SII todavía no está configurado: tú revisas cada solicitud y
+     decides. Si la persona no tiene cuenta, se aprueba pasándola a Accesos, donde Centro de
+     Cómputo le captura su NIP. Si ya tiene cuenta, le llega una liga de activación de
+     {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió.</p>
+  {% elif sii %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público. El SII revisa cada solicitud y Servicios Escolares decide: en la
+     columna SII ves su veredicto con el motivo de cada regla, y tú apruebas o rechazas.
+     Si la persona no tiene cuenta y el SII tiene su NIP, la cuenta nace con su NIP del
+     SII; si no lo tiene, pasa a Accesos, donde Centro de Cómputo se lo captura. Si ya
+     tiene cuenta, le llega una liga de activación de {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió.</p>
+  {% elif can_act %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público. Nada entra sin tu revisión y el acceso llega solo por correo. Si
+     la persona no tiene cuenta, al aprobar pasa a Centro de Cómputo, que le da su NIP de
+     4 dígitos: le llega con su usuario. Si ya tiene
+     cuenta, le llega una liga de activación de {{ link_days }} {{ 'día' if link_days == 1 else 'días' }} al correo que escribió:
+     al abrirla queda inscrita y entra con su NIP de siempre.</p>
+  {% else %}
+  <p class="mb-0 small text-body-secondary">Egresados que pidieron inscribirse desde el
+     formulario público.</p>
+  {% endif %}
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/requests_body.html" %}
+</div>
+{% endblock %}

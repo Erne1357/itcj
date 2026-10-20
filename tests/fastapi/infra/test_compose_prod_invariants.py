@@ -145,3 +145,57 @@ def test_presupuesto_de_conexiones_cabe_en_pgbouncer():
         f"presupuesto {peor_caso} > max_client_conn {limite} "
         f"(HTTP {http_por_color} x2 colores + sockets {sockets_total} + celery {celery_total})"
     )
+
+
+def _service_block(service: str) -> list[str]:
+    """Líneas del bloque de un servicio (hasta el siguiente servicio)."""
+    out: list[str] = []
+    in_service = False
+    for line in COMPOSE_PROD.read_text(encoding="utf-8").splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            in_service = line.strip().rstrip(":") == service
+            continue
+        if line and not line.startswith(" "):
+            in_service = False  # otra clave de nivel superior (`volumes:`)
+        if in_service:
+            out.append(line)
+    assert out, f"no se encontró el servicio '{service}' en {COMPOSE_PROD.name}"
+    return out
+
+
+def _services() -> list[str]:
+    names: list[str] = []
+    top = None
+    for line in COMPOSE_PROD.read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith(" ") and line.rstrip().endswith(":"):
+            top = line.strip().rstrip(":")
+            continue
+        if (top == "services" and line.startswith("  ") and not line.startswith("   ")
+                and line.rstrip().endswith(":")):
+            names.append(line.strip().rstrip(":"))
+    return names
+
+
+def test_el_worker_de_la_cola_default_ve_las_reglas_del_sii():
+    """TitulaTec (modo sii): `titulatec.sii_check_request` y `titulatec.sii_sweep`
+    no tienen ruta propia en `task_routes`, así que van a la cola `default`. La
+    imagen no trae `database/` (.dockerignore), así que sin este montaje
+    `RuleSet.load('/app/database/SII/titulatec')` falla y TODA consulta queda en
+    «error» no reintentable: nada se aprueba solo (C1/C10 de la revisión final).
+    Aplica a todo worker que consuma `default` (sin `CELERY_QUEUES` el
+    entrypoint las consume todas).
+    """
+    montaje = "- ../../database/SII:/app/database/SII:ro"
+    workers = [s for s in _services()
+               if any("entrypoint-worker.sh" in line for line in _service_block(s))]
+    assert workers, "no hay ningún worker de Celery en el compose"
+    default = []
+    for service in workers:
+        env = _service_env(service) if any(
+            line.strip() == "environment:" for line in _service_block(service)) else {}
+        colas = [c.strip() for c in env.get("CELERY_QUEUES", "default").split(",")]
+        if "default" in colas:
+            default.append(service)
+            lineas = [line.split("#", 1)[0].strip() for line in _service_block(service)]
+            assert montaje in lineas, f"{service}: falta el montaje «{montaje}»"
+    assert "celery-worker" in default

@@ -8,7 +8,7 @@
 | **Actor(es)** | 🏛️ Servicios Escolares / 🎓 Titulaciones (según fase) · 🤖 lógica |
 | **Permiso(s)** | `titulatec.process.api.approve_phase` · `...reject_phase` |
 | **Trigger** | Botón "Aprobar fase NN" / "Rechazar fase" en el detalle del proceso |
-| **Precondiciones** | Proceso `active`; la fase a aprobar es `current_phase` |
+| **Precondiciones** | Proceso `active`; la fase a aprobar es `current_phase`; la fase no está congelada por el corte a T-soft (desde 2026-09-21). **Se validan** en `PhaseService.assert_can_transition` (`services/phase_service.py:121-133`) |
 | **Estado final** | Fase `approved` + siguiente `in_progress` (o proceso `completed`); o fase `rejected` |
 
 ## Ruta en la app (UI)
@@ -34,16 +34,17 @@ sequenceDiagram
     SVC->>DB: siguiente aplicable → in_progress (si pending/rejected)
     SVC->>DB: process.current_phase = siguiente  (o status=completed)
     SVC->>DB: INSERT ProcessEvent(phase_approved)
+    SVC->>DB: INSERT titulatec_email_outbox (StudentMail.phase_approved) — misma transacción
     SVC-->>API: {next_phase, completed}
     API-->>FE: re-render #process-detail (partial)
 ```
 
 ## Pasos detallados
 
-| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos |
-|---|---|---|---|---|---|---|---|
-| 1 | 🏛️/🎓 | detalle proceso | Aprobar fase N | `POST .../phase/{n}/approve` | `PhaseService.approve_phase` | `ProcessPhase[n]=approved`, `completed_at`, `reviewed_by_id`; siguiente=`in_progress`; `process.current_phase`↑ (o `status=completed`) | `phase_approved` (+`process_completed` si última) |
-| 1b| 🏛️/🎓 | detalle proceso | Rechazar fase N | `POST .../phase/{n}/reject` (form `reason`) | `PhaseService.reject_phase` | `ProcessPhase[n]=rejected`, `rejection_reason`; `current_phase=n` | `phase_rejected` (payload `reason`) |
+| # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos | Correo |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 🏛️/🎓 | detalle proceso | Aprobar fase N | `POST .../phase/{n}/approve` | `PhaseService.approve_phase` | `ProcessPhase[n]=approved`, `completed_at`, `reviewed_by_id`; siguiente=`in_progress`; `process.current_phase`↑ (o `status=completed`) | `phase_approved` (+`process_completed` si última) | `phase_approved` (grupo `docs:{pid}` si N es `initial_docs`; si no, individual) |
+| 1b| 🏛️/🎓 | detalle proceso | Rechazar fase N | `POST .../phase/{n}/reject` (form `reason`) | `PhaseService.reject_phase` | `ProcessPhase[n]=rejected`, `rejection_reason`; `current_phase=n` | `phase_rejected` (payload `reason`) | `phase_rejected` (individual, con el motivo) |
 
 ## Lógica de "siguiente aplicable"
 
@@ -51,6 +52,45 @@ sequenceDiagram
 `modality.skips_phases` (ej. modalidad `egel` salta 4 y 5). Las saltadas se marcan
 `skipped`. Si no hay siguiente → `process.status=completed`, `completed_at`.
 Ver [máquina de estados](00_state_machine.md).
+
+## Cierre automático de la cita de cotejo (solo fase 02, desde 2026-09-17)
+
+**El hueco.** Desde el expediente (`pages/admin.py::phase_approve/phase_reject`) y
+desde el panel de Citas (`pages/appointments.py::fase2_approve/fase2_reject`) se
+podía aprobar **o** rechazar la fase 02 con la cita vigente todavía `in_progress`
+—el encargado la atiende y se le olvida marcar "Asistió" antes de dictaminar—.
+Esa cita quedaba colgada: no aparecía en ningún cubo de la cola (no es `no_show`
+ni `attended`) y D4 bloqueaba volver a agendar (una cita ACTIVA es la única que
+lo impide).
+
+**El arreglo.** `PhaseService._auto_close_cotejo_appointment(db, process,
+actor_id, via)`, invocado desde `approve_phase` y `reject_phase` **solo cuando
+`phase_number == PhaseService.PHASE_COTEJO`**, **después** de todas las guardas
+de esa fase (si una guarda lanza `ValueError`, no se escribe nada — ni la cita
+ni la fase) y **dentro de la misma transacción** que el resto del dictamen
+(antes del `db.commit()` final; nunca `AppointmentService.mark_attended`, que
+commitea por su cuenta):
+
+1. Lee la cita vigente con `AppointmentService.get_for_process`.
+2. Si es `None`, o su `status` no es `in_progress`, no hace nada.
+   `scheduled`/`confirmed`/`no_show`/`attended`/sin cita **no se tocan** — solo
+   `in_progress` queda de verdad "colgado" por el dictamen.
+3. Si es `in_progress`: valida el salto con
+   `AppointmentService.assert_transition("in_progress", "attended")` (legal
+   siempre — está en `_TRANSICIONES`, ver [máquina de estados](00_state_machine.md)),
+   escribe `status = "attended"` y un `ProcessEvent(appointment_attended,
+   phase_number=2, payload={"auto": True, "via": "phase_approved"})` —
+   `"phase_rejected"` si vino de `reject_phase`.
+
+El `via` en el payload distingue en el timeline si el cierre automático vino de
+una aprobación o de un rechazo; lo lee el alumno en su historial de fase con la
+misma etiqueta que un `appointment_attended` manual (`_EVENT_LABELS` en
+`pages/student.py`, "Asististe al cotejo").
+
+**Por qué en el service y no en las rutas.** `approve_phase`/`reject_phase`
+tienen ya dos llamadores cada una (el expediente y el panel de Citas) y
+cualquier futuro tercero lo hereda gratis. Reimplementarlo en cada ruta es
+exactamente como se desincroniza esta clase de regla.
 
 ## Notificaciones al alumno
 
@@ -60,11 +100,91 @@ Ver [máquina de estados](00_state_machine.md).
 la fase). Tabla de eventos en
 [integración del alumno en el shell](xcut_student_shell_embed.md#notificaciones-regla-general-de-toda-app).
 
+> **Ojo con «link a la fase»: ya no abre una pantalla.** Ese link es
+> `/titulatec/student/fase/{n}` y desde 2026-09-02 responde **302** a
+> `/titulatec/student/dashboard?fase={n}` — el acordeón de esa fase, ya abierto y resaltado en el
+> HTML de la respuesta. La ruta **no se puede borrar**: esas URLs están escritas dentro de filas de
+> `core_notifications` que ya existen. Ver [acordeón de fases](xcut_student_phase_detail.md).
+
+## Correo al egresado (desde 2026-09-28)
+
+Además del in-app (que no cambió), las dos funciones **encolan** un correo con `StudentMail`
+(`services/student_mail.py`), en la **misma transacción** que el dictamen — antes del
+`db.commit()` final: si el commit falla, la fila de `titulatec_email_outbox` se va con él. Aquí no
+se envía nada: lo manda el despachador periódico (`titulatec.email_dispatch`, tarea aparte).
+
+| Función | `kind` | Grupo | Payload |
+|---|---|---|---|
+| `approve_phase` | `phase_approved` | `docs:{pid}` si la fase aprobada es `initial_docs` (sale en el MISMO correo que el dictamen de sus documentos, D7); cualquier otra fase, individual | `phase_number`, `phase_name` y `next_name` (`_phase_label`: «Fase NN · Nombre»), `next_phase`, `handoff` (= `next_phase >= _handoff_phase()`: la siguiente ya la opera T-soft), `completed` (sin siguiente) |
+| `reject_phase` | `phase_rejected` | individual | `phase_number`, `phase_name`, `reason` |
+
+`_auto_close_cotejo_appointment` (arriba) **no** encola nada propio: el correo es el del dictamen.
+Lo fija `tests/fastapi/titulatec/test_mail_hooks.py` (qué se encola) y
+`test_mail_writers.py` (barrido por AST: un escritor nuevo de `phase_approved`/`phase_rejected`
+que no llame a `StudentMail` sale en rojo).
+
+## Guarda de transición (desde 2026-09)
+
+`approve_phase` y `reject_phase` empiezan bloqueando la fila del proceso
+(`PhaseService._lock_process_row`, `FOR NO KEY UPDATE` + relectura; Ruling R14, 2026-10-15: así
+dos dictámenes simultáneos de la misma fase se hacen uno tras otro y el segundo valida sobre el
+estado ya movido) y luego llaman a `PhaseService.assert_can_transition`
+(`services/phase_service.py:121-133`, que delega la comprobación en `_transition_error`,
+`:72-106`), que lanza `ValueError` si falla alguna de las **cuatro** reglas. La ruta lo traduce
+al canal de error de la app: `400` + header `X-Tt-Error` (`pages/admin.py:1590`, `:1621`), y el
+path param está acotado con `Path(ge=0)`.
+
+| Regla | Mensaje al usuario |
+|---|---|
+| `n` dentro del catálogo de fases | `Fase {n} fuera de rango: el proceso solo tiene las fases 0 a 8.` |
+| `process.status == 'active'` | `El proceso ya no admite cambios de fase (estado: {status}).` |
+| `n >= PhaseService._handoff_phase()` (corte a T-soft, 2026-09-21 — va ANTES que la de "fase en curso", de ahí abajo) | `PhaseService.HANDOFF_MSG`: `Esta fase continua en el Departamento de Titulacion (sistema T-soft). Te contactaran por correo para darte tu usuario.` |
+| `n == process.current_phase` | `Solo puedes actuar sobre la fase en curso (fase NN, no la MM).` |
+
+El rango **sale del catálogo** `titulatec_phase_definitions` (`PhaseService.phase_range`), no de un
+literal: es la misma fuente que usa `_next_applicable` para saber dónde termina el proceso y que
+`ImportService` para crear las `ProcessPhase` de un alumno nuevo.
+
+Antes de esta guarda, un solo POST de quien tuviera `process.api.approve_phase` podía completar un
+proceso (`n=8` desde la fase 1), inventar fases (`n=99`), retroceder (`n=0` desde la 5), escribir un
+`current_phase` negativo vía `reject` o reabrir un proceso ya `completed`. Cubierto por
+`tests/fastapi/titulatec/test_phase_guard.py`.
+
+> **Tiene gemela.** Esta guarda protege el **dictamen** (🏛️🎓 aprobar / rechazar). La ejecución
+> del 👤 alumno la protege [`assert_student_can_act`](engine_student_phase_lock.md), en el mismo
+> service y con las mismas cuatro reglas. Si tocas una, mira la otra: entre las dos son las únicas
+> puertas por las que el `ProcessPhase`/`current_phase` de un proceso cambia de estado.
+
+### Segundo llamador, desde 2026-09-21: `FormatBService.review`
+
+`assert_can_transition` ya no la invoca solo `approve_phase`/`reject_phase`.
+`FormatBService.review` (`services/format_b_service.py:123-147` — dictamen de Formato B desde
+el expediente, vía `pages/admin.py::fb_review`) también la exige, con el número de fase del
+catálogo (`format_b`): antes de este arreglo `review` **no pasaba por ninguna guarda** (solo
+permiso y alcance por carrera), y el hueco era real por el propio mecanismo de reversión del
+corte que este flujo documenta — subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envío a
+`submitted`, y volver a bajarlo a 3 dejaba ese Formato B aprobable/rechazable para siempre pese
+al corte. Esto **no contradice** "las únicas puertas" de arriba: `FormatBService.review` cambia
+`FormatB.status`, nunca `ProcessPhase`/`current_phase` (no hay auto-avance ahí) — sigue siendo
+la misma guarda, con un segundo punto de aplicación. Su prima angosta,
+`DocumentService.review`, deliberadamente **no** reusa `assert_can_transition` (le rompería el
+dictamen tardío, que es su uso normal, no una excepción). Detalle completo de las dos:
+[`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+
 ## Caminos alternos / errores ❗
 
-- Rechazo NO baja `current_phase` a otra fase: la deja en `n` para que el alumno corrija.
+- Rechazo NO baja `current_phase` a otra fase: la deja en `n` para que el alumno corrija — y `n`
+  solo puede ser la fase en curso.
 - Aprobar cuando la siguiente fase ya está `in_review`/`approved` → **no** la rebaja
   (solo `pending`/`rejected` pasan a `in_progress`).
+- Proceso inexistente → `404` (antes se renderizaba el detalle con contexto `None`).
+- El auto-avance del dictamen de documentos (`pages/documents.py:198-203`) pregunta con
+  `PhaseService.can_transition` (filtro sin bloqueo) y ADEMÁS atrapa el `ValueError` de
+  `approve_phase`: si el proceso no está `active`, ya no está en la fase 1, u otro revisor avanzó
+  la fase al mismo tiempo (R14), simplemente no avanza y responde 200. (Ese dictamen en sí, desde 2026-09-21, puede
+  rechazarse *antes* de llegar aquí si el TIPO del documento pertenece a una fase congelada por
+  el corte — guarda distinta a esta, angosta a propósito: ver
+  [`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).)
 
 ## Flujos relacionados
 

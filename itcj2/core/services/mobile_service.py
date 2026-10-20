@@ -29,7 +29,10 @@ def get_mobile_apps_for_user(db: Session, user_id: int) -> list[dict]:
     - Estudiantes: solo apps con visible_to_students=True
     - Staff: todas las apps según sus permisos
     """
-    from itcj2.core.services.authz_service import user_roles_in_app, has_any_assignment
+    # Del caché de authz (los MISMOS valores e invalidación que el control de
+    # acceso): perf 2026-10-07, antes eran ~6 consultas por app en cada carga
+    # del shell móvil.
+    from itcj2.core.services.authz_cache import cached_has_assignment, cached_roles
 
     user_type = get_user_type(db, user_id)
 
@@ -42,9 +45,9 @@ def get_mobile_apps_for_user(db: Session, user_id: int) -> list[dict]:
 
     result = []
     for app in apps:
-        if has_any_assignment(db, user_id, app.key, include_positions=True):
+        if cached_has_assignment(db, user_id, app.key):
             app_data = app.to_dict(include_mobile=True)
-            roles = user_roles_in_app(db, user_id, app.key)
+            roles = cached_roles(db, user_id, app.key)
             app_data["user_roles"] = sorted(list(roles))
             result.append(app_data)
 

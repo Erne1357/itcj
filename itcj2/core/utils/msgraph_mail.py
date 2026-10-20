@@ -16,6 +16,8 @@ from pathlib import Path
 import msal
 import requests
 
+from itcj2.observability.work import measured_outbound
+
 logger = logging.getLogger(__name__)
 
 TENANT_ID = os.getenv("MS_TENANT_ID", "")
@@ -102,13 +104,27 @@ def save_cache(app_key: str, cache: msal.SerializableTokenCache):
             f.write(cache.serialize())
 
 
+# Caché HTTP de msal, UNA por proceso y compartida por todas las apps que
+# construye `get_msal_app`. Sin ella cada `ConfidentialClientApplication` nacía con
+# la suya vacía y repetía el descubrimiento del tenant
+# (`/.well-known/openid-configuration`, 180-220 ms medidos en producción) en CADA
+# correo. msal guarda ahí solo respuestas HTTP baratas de obtener (el
+# descubrimiento, 24 h) y llaves de throttling hasheadas: nunca tokens (esos viven
+# en la `SerializableTokenCache` de cada `app_key`, que NO se comparte).
+_MSAL_HTTP_CACHE: dict = {}
+
+
 def get_msal_app(app_key: str, cache=None) -> msal.ConfidentialClientApplication:
+    # Se sigue creando una app por llamada y cada una carga la caché de tokens de
+    # SU `app_key` (`load_cache`): compartir la app compartiría también los tokens
+    # entre apps. Lo único compartido es la caché HTTP de arriba.
     cache = cache or load_cache(app_key)
     return msal.ConfidentialClientApplication(
         CLIENT_ID,
         authority=AUTHORITY,
         client_credential=CLIENT_SECRET,
         token_cache=cache,
+        http_cache=_MSAL_HTTP_CACHE,
     )
 
 
@@ -215,11 +231,14 @@ def acquire_token_silent(app_key: str) -> str | None:
     except InvalidAppKey:
         logger.warning("acquire_token_silent con app_key invalido: %r", app_key)
         return None
-    cache = load_cache(app_key)
-    app = get_msal_app(app_key, cache)
+    # Primero la cuenta (un archivo pequeño): sin ella no hay token posible, y
+    # construir la app de MSAL y leer la caché de tokens costaba 200-300 ms en
+    # cada correo de una app sin cuenta conectada (perf 2026-10-07, maint).
     acct = read_account_info(app_key)
     if not acct:
         return None
+    cache = load_cache(app_key)
+    app = get_msal_app(app_key, cache)
 
     account = None
     for a in app.get_accounts():
@@ -229,7 +248,14 @@ def acquire_token_silent(app_key: str) -> str | None:
     if not account:
         return None
 
-    result = app.acquire_token_silent(_SCOPES_FULL, account=account)
+    # Solo la llamada a msal se mide (R1): los `return None` de arriba no salen a
+    # la red y contarlos como `ok` de 0 s taparían el p50 real. Un resultado sin
+    # `access_token` (error de AAD, o nada en la caché) es un token que no se
+    # obtuvo: `error`, aunque msal no lance. Una excepción sale tal cual.
+    with measured_outbound("msal") as call:
+        result = app.acquire_token_silent(_SCOPES_FULL, account=account)
+        if not result or "access_token" not in result:
+            call.mark_error()
     save_cache(app_key, cache)
     if not result or "access_token" not in result:
         return None
@@ -259,4 +285,9 @@ def graph_send_mail(
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
-    return requests.post(endpoint, headers=headers, json=payload, timeout=30)
+    # Cubre a los tres llamadores (maint, agendatec surveys, titulatec): todos
+    # pasan por esta función. El candado de MSAL y el envío síncrono no cambian.
+    with measured_outbound("msgraph") as call:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        call.mark_status(response.status_code)
+        return response

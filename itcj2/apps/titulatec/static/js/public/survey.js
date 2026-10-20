@@ -1,0 +1,366 @@
+/* ===========================================================================
+   TitulaTec — encuesta pública: borrador local + autosave al servidor.
+   ---------------------------------------------------------------------------
+   Cuatro trabajos:
+     1. `localStorage` en cada cambio. Coste de red: cero.
+     2. Autosave al servidor SOLO con sesión: debounce de 5 s, techo duro de una
+        petición cada 30 s, flush al cambiar de sección y al salir de la página.
+     3. `visible_when` en cliente. El servidor lo vuelve a evaluar (§4.3.5): el
+        cliente de un formulario público está bajo control de quien lo abre.
+     4. (2026-09-15) La nota de guardado de la cabecera (`[data-tt-save]`):
+        «Guardando…» al salir el autosave, «Guardado hh:mm» cuando el servidor
+        CONFIRMA la escritura y «No se pudo guardar; lo reintentamos» si no.
+
+   CONTRATO DE REGISTRO — leerlo antes de tocar nada:
+     · el módulo se carga UNA vez desde el bloque `scripts` de la página;
+     · todos los escuchas se registran a nivel de módulo y DELEGAN en `document`;
+     · `htmx:afterSettle` NO registra nada: solo llama a `hydrate()`, que lee el
+       DOM. Volver a registrar ahí multiplicaría las escrituras sin romper
+       ninguna prueba de servidor — por eso el presupuesto se mide en E2E;
+     · PROHIBIDO `data-tt-bound`: Idiomorph sincroniza atributos y lo borraría,
+       con lo que el guard dejaría de guardar nada.
+
+   Tarea 3 (asistente por pasos): un avance/retroceso hace el MISMO
+   `outerHTML` de `#tt-survey-form` que ya hacía un envío fallido -no un swap
+   nuevo con reglas propias-, así que el contrato de arriba ya lo cubre: como
+   TODO escucha delega en `document`, ninguno queda "desenganchado" al
+   reemplazar el `<form>`. Lo único que sí distingue un swap de paso es el
+   foco (`hydrate(viaSwap)` más abajo): sin ancla, cada avance deja el foco
+   donde estaba el botón que ya no existe.
+   =========================================================================== */
+(function () {
+  'use strict';
+
+  var DEBOUNCE_MS = 5000;       // DRAFT_DEBOUNCE_MS del contrato
+  var MIN_INTERVAL_MS = 30000;  // DRAFT_MIN_INTERVAL_MS del contrato
+
+  var debounceTimer = null;
+  var ceilingTimer = null;
+  var lastSentAt = 0;
+  var dirty = false;
+  var lastSection = null;
+
+  function formEl() { return document.getElementById('tt-survey-form'); }
+  function isAuthed(f) { return f.dataset.ttAuth === '1'; }
+  function storageKey(f) {
+    return 'tt.survey.' + f.dataset.ttSurvey + '.v' + f.dataset.ttVersion;
+  }
+
+  // — Instantánea del formulario ———————————————————————————————————————
+  // `tt_step` (Tarea 3) es el indice del PASO que esta mirando el formulario
+  // ahora mismo, no una respuesta: si se guardara en el borrador local, un
+  // GET fresco (que siempre abre en el paso 0) se veria pisado por un indice
+  // viejo al fusionar (`applyValues` no distingue "dato del cuestionario" de
+  // "control de navegacion") y el recorrido arrancaria en la seccion
+  // equivocada. Misma razon por la que la trampa nunca se guarda.
+  function snapshot(f) {
+    var out = {};
+    new FormData(f).forEach(function (value, key) {
+      if (key === 'website' || key === 'tt_step') return;
+      if (Object.prototype.hasOwnProperty.call(out, key)) {
+        if (!Array.isArray(out[key])) out[key] = [out[key]];
+        out[key].push(value);
+      } else {
+        out[key] = value;
+      }
+    });
+    return out;
+  }
+
+  // — localStorage ————————————————————————————————————————————————————
+  // UNA marca de tiempo para TODO el borrador, no por campo: la fusión de 6.5
+  // es "el más nuevo gana entero", que es lo que un humano espera al volver.
+  function saveLocal(f) {
+    try {
+      localStorage.setItem(storageKey(f), JSON.stringify({ t: Date.now(), a: snapshot(f) }));
+    } catch (e) { /* modo privado o cuota llena: el borrador local es un extra */ }
+  }
+  function readLocal(f) {
+    try {
+      var raw = localStorage.getItem(storageKey(f));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function clearLocal(f) {
+    try { localStorage.removeItem(storageKey(f)); } catch (e) {}
+  }
+
+  // — Nota de guardado (2026-09-15) ——————————————————————————————————————
+  // Vive en la CABECERA de `survey.html`, fuera de `#tt-survey-form`: el
+  // formulario se reemplaza entero en cada paso y una region `aria-live` recien
+  // insertada no anuncia nada. Fuera del swap es UNA sola region toda la
+  // visita, y aqui solo se reescribe el texto cuando de verdad cambia: un
+  // `textContent` identico reasignado se vuelve a anunciar en algunos lectores.
+  // Los textos van con escapes para no depender de como se sirva el archivo.
+  var SAVE_STATES = {
+    idle: { icon: 'bi-cloud-check', text: 'Tu avance se guarda automáticamente' },
+    saving: { icon: 'bi-arrow-repeat', text: 'Guardando…' },
+    saved: { icon: 'bi-cloud-check', text: 'Guardado ' },
+    error: { icon: 'bi-cloud-slash', text: 'No se pudo guardar; lo reintentamos' }
+  };
+
+  function hhmm(d) {
+    var h = d.getHours();
+    var m = d.getMinutes();
+    return (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  }
+
+  function paintSave(state) {
+    var box = document.querySelector('[data-tt-save]');
+    var spec = SAVE_STATES[state];
+    if (!box || !spec) return;
+    var text = state === 'saved' ? spec.text + hhmm(new Date()) : spec.text;
+    var label = box.querySelector('[data-tt-save-text]');
+    if (label && label.textContent !== text) label.textContent = text;
+    box.setAttribute('data-tt-save-state', state);
+    var icon = box.querySelector('[data-tt-save-icon]');
+    if (icon) icon.className = 'bi ' + spec.icon;
+  }
+
+  // — Escritura al servidor ———————————————————————————————————————————
+  // `fetch(..., {keepalive:true})` con `FormData`, NUNCA `navigator.sendBeacon`
+  // con un Blob JSON: el endpoint hace `await request.form()` como los otros 15
+  // POST de la app y no sabría parsear `application/json`. `keepalive` sobrevive
+  // a la navegación igual que sendBeacon y sí permite tipo de formulario.
+  //
+  // `fetch()` SOLO rechaza (dispara el `.catch`) ante un fallo de RED, y un 204
+  // tampoco confirma nada: la ruta responde 204 también sin sesión, sin
+  // formulario abierto y cuando `save_draft` revienta (su contrato es "204
+  // siempre"). Dar eso por guardado dejaba el borrador de ese tramo perdido en
+  // silencio, y ahora además pintaría «Guardado» sobre una escritura que no
+  // ocurrió. Solo `X-Tt-Draft-Saved: 1` confirma que la fila se escribió.
+  function send(f, keepalive) {
+    lastSentAt = Date.now();
+    dirty = false;
+    var body = new FormData(f);
+    body.delete('website');
+    body.delete('tt_step');      // control de navegacion (Tarea 3), no respuesta
+    paintSave('saving');
+    fetch(f.dataset.ttDraftUrl, {
+      method: 'POST',
+      body: body,
+      credentials: 'same-origin',
+      keepalive: !!keepalive
+    }).then(function (resp) {
+      if (resp.ok && resp.headers.get('X-Tt-Draft-Saved') === '1') {
+        paintSave('saved');
+      } else {
+        sendFailed();
+      }
+    }).catch(sendFailed);
+  }
+
+  // No se guardó. `dirty` hace que el siguiente ciclo lo reintente, y el
+  // `flush` de aquí es lo que vuelve verdad el «lo reintentamos» aunque el
+  // alumno ya no teclee: agenda el reintento para cuando venza el techo de
+  // 30 s -no manda de inmediato-, así que una caída sostenida sigue dentro de
+  // las 2 escrituras por minuto de D3.
+  function sendFailed() {
+    dirty = true;
+    paintSave('error');
+    flush(formEl(), false);
+  }
+
+  function flush(f, keepalive) {
+    if (!f || !isAuthed(f) || !dirty) return;
+    var wait = MIN_INTERVAL_MS - (Date.now() - lastSentAt);
+    if (keepalive || wait <= 0) { send(f, keepalive); return; }
+    if (ceilingTimer) return;                     // ya hay una salida programada
+    ceilingTimer = setTimeout(function () {
+      ceilingTimer = null;
+      var cur = formEl();
+      if (cur && dirty) send(cur, false);
+    }, wait);
+  }
+
+  function scheduleDebounced() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function () {
+      debounceTimer = null;
+      flush(formEl(), false);
+    }, DEBOUNCE_MS);
+  }
+
+  // — visible_when en cliente ——————————————————————————————————————————
+  // Misma semantica que `is_visible` del validador de Python (servidor,
+  // `survey_validator.py`): igualdad exacta si `cond[k]` es un escalar,
+  // pertenencia ("alguna de estas") si es una lista, y conjuncion (AND)
+  // entre llaves. Divergir de esa semantica fue el defecto B1: contra un
+  // `cond[k]` de arreglo, `values[k] === cond[k]` da SIEMPRE falso -un texto
+  // nunca es `===` a un arreglo, sin importar su contenido-, asi que `hidden`
+  // quedaba SIEMPRE verdadero para toda condicion de lista y la seccion
+  // dependiente jamas se mostraba.
+  function applyVisibility(f) {
+    var values = snapshot(f);
+    f.querySelectorAll('[data-tt-when]').forEach(function (box) {
+      var cond;
+      try { cond = JSON.parse(box.getAttribute('data-tt-when')); } catch (e) { return; }
+      box.hidden = !Object.keys(cond).every(function (k) {
+        var esperado = cond[k];
+        return Array.isArray(esperado) ? esperado.indexOf(values[k]) !== -1 : values[k] === esperado;
+      });
+    });
+  }
+
+  // — Fusión del borrador local con el del servidor (6.5) ————————————————
+  function applyValues(f, values) {
+    Object.keys(values).forEach(function (key) {
+      var wanted = values[key];
+      var list = (Array.isArray(wanted) ? wanted : [wanted]).map(String);
+      var nodes = f.querySelectorAll('[name="' + CSS.escape(key) + '"]');
+      nodes.forEach(function (node) {
+        if (node.type === 'checkbox' || node.type === 'radio') {
+          node.checked = list.indexOf(node.value) !== -1;
+        } else if (nodes.length === 1) {
+          node.value = list[0];
+        }
+      });
+    });
+  }
+
+  function mergeLocalDraft(f) {
+    var local = readLocal(f);
+    if (!local || !local.a) return;
+    var serverAt = Date.parse(f.dataset.ttDraftUpdated || '') || 0;
+    if (local.t > serverAt) {
+      applyValues(f, local.a);
+      dirty = true;
+      // El local ganó: hay que subirlo, pero SIN saltarse el techo de 30 s.
+      // `send()` directo aquí (como en la primera versión de este módulo)
+      // reabre exactamente el agujero que el techo existe para cerrar: cada
+      // POST fallido re-renderiza `#tt-survey-form` con
+      // `data-tt-draft-updated=""` (`_form_ctx` no lo hereda en la rama de
+      // error), así que `serverAt` vuelve a 0 en cada `htmx:afterSettle` y
+      // esta rama se dispara EN CADA intento fallido, no solo al recuperar
+      // sesión una vez. Con `send()` a secas, una racha de erratas de un
+      // alumno autenticado manda un POST de borrador por cada una, sin
+      // importar cuán seguido — justo las "2 escrituras por minuto" que D3
+      // prohíbe. `flush()` conserva el "sube ya" para el caso normal
+      // (primera fusión de la sesión: `lastSentAt` sigue en 0 y el techo ya
+      // está vencido) y respeta la espera en las repeticiones.
+      if (isAuthed(f)) flush(f, false);
+    }
+    clearLocal(f);
+  }
+
+  // Devuelve si encontro algo que enfocar, para que `hydrate` sepa si le toca
+  // al titulo del paso (ver `focusStepHeading`) en vez de pisarle el foco.
+  function focusFirstInvalid(f) {
+    var el = f.querySelector('[data-tt-focus]');
+    if (el && typeof el.focus === 'function') { el.focus(); return true; }
+    return false;
+  }
+
+  // Tarea 3: cada avance/retroceso hace un swap ENTERO de `#tt-survey-form`
+  // (contrato de registro: nada que "re-enganchar" en los escuchas, que ya
+  // delegan en `document`, pero el foco del navegador SI se pierde -Chromium
+  // lo manda al `<body>`- y sin nada que lo recupere un lector de pantalla no
+  // se entera de que aparecio una seccion nueva). Sin error que atender
+  // (`focusFirstInvalid` ya cubre ese caso, y con prioridad), el titulo de la
+  // seccion actual es el ancla mas util: es lo primero que un lector de
+  // pantalla anuncia y no cambia el scroll de forma brusca. Bajo 992 px el h2
+  // esta oculto a la VISTA, no al foco (`public.css`, bloque 8): sigue siendo
+  // el ancla.
+  function focusStepHeading(f) {
+    var h = f.querySelector('.tt-section h2');
+    if (h && typeof h.focus === 'function') h.focus();
+  }
+
+  // Bajo 992 px los pasos son circulos en una sola linea y los 7 del
+  // instrumento caben a 360 px, asi que normalmente esto sale en la primera
+  // guarda. Queda para un formulario con mas pasos de los que caben, donde la
+  // fila hace scroll PROPIO y el actual podria nacer fuera de la vista. Solo
+  // mueve `scrollLeft` DE LA LISTA -nunca `scrollIntoView`, que tambien
+  // desplazaria la pagina en vertical y le robaria el sitio a
+  // `focusStepHeading`-. En el riel de escritorio la lista es vertical y no
+  // desborda. Sin animacion: es la posicion de partida del paso.
+  function revealCurrentStep(f) {
+    var list = f.querySelector('.tt-steps-list');
+    if (!list || list.scrollWidth <= list.clientWidth) return;
+    var cur = list.querySelector('[aria-current="step"]');
+    var item = cur && cur.closest('.tt-steps-item');
+    if (!item) return;
+    var caja = list.getBoundingClientRect();
+    var chip = item.getBoundingClientRect();
+    list.scrollLeft += (chip.left - caja.left) - (caja.width - chip.width) / 2;
+  }
+
+  // `hydrate` solo LEE el DOM. No registra ni un escucha: es lo que la hace
+  // segura de llamar en cada `htmx:afterSettle`.
+  //
+  // `viaSwap` distingue la carga inicial (falso: el visitante todavia no hizo
+  // nada, robarle el foco a la barra de direcciones no le sirve a nadie) de
+  // un swap real -avance, retroceso o un envio que volvio con error- donde SI
+  // hay que anclar el foco a algo (`focusFirstInvalid` primero; si no hubo
+  // error, `focusStepHeading`).
+  function hydrate(viaSwap) {
+    var f = formEl();
+    if (!f) {
+      // Sin formulario ya no hay avance que guardar: el envio lo sustituyo por
+      // la tarjeta de gracias y el servidor borro el borrador. Una nota que
+      // siguiera diciendo «Guardado 10:42» encima de esa tarjeta mentiria.
+      var nota = document.querySelector('[data-tt-save]');
+      if (nota) nota.hidden = true;
+      return;
+    }
+    mergeLocalDraft(f);
+    applyVisibility(f);
+    revealCurrentStep(f);
+    var enfocoError = focusFirstInvalid(f);
+    if (!enfocoError && viaSwap) focusStepHeading(f);
+    lastSection = null;
+  }
+
+  // — Escuchas: se registran UNA vez, delegando en `document` ——————————
+  function onEdit(e) {
+    var f = formEl();
+    if (!f || !f.contains(e.target)) return;
+    dirty = true;
+    saveLocal(f);
+    applyVisibility(f);
+    scheduleDebounced();
+  }
+  document.addEventListener('input', onEdit);
+  document.addEventListener('change', onEdit);
+
+  // Cambio de sección: flush inmediato, pero sujeto al techo de 30 s. Por eso
+  // el E2E exige "al menos una" petición y no "exactamente una": si coincide
+  // con el techo, la petición se agenda en vez de salir, y exigir un número
+  // exacto haría la prueba inestable.
+  document.addEventListener('focusin', function (e) {
+    var f = formEl();
+    if (!f || !f.contains(e.target)) return;
+    var sec = e.target.closest('[data-tt-section]');
+    var key = sec ? sec.getAttribute('data-tt-section') : null;
+    if (lastSection !== null && key !== lastSection) flush(f, false);
+    lastSection = key;
+  });
+
+  // Salida de la página: última oportunidad, ignora el techo.
+  function onLeave() {
+    var f = formEl();
+    if (!f) return;
+    saveLocal(f);
+    flush(f, true);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') onLeave();
+  });
+  window.addEventListener('pagehide', onLeave);
+
+  // "Iniciar sesión y continuar": se persiste antes de navegar. El `href` ya
+  // lleva `?next=/titulatec/encuesta-egresados`, que `core/pages/auth.py` honra.
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('[data-tt-login]');
+    if (!link) return;
+    var f = formEl();
+    if (f) saveLocal(f);
+  });
+
+  document.addEventListener('htmx:afterSettle', function () { hydrate(true); });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { hydrate(false); });
+  } else {
+    hydrate(false);
+  }
+})();

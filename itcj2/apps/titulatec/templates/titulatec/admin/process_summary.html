@@ -1,0 +1,67 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% from "titulatec/_macros.html" import estado_pill, proceso_pill %}
+{% block title %}{{ student.name }} · {{ process.folio }} · TitulaTec{% endblock %}
+{% block admin_view %}process-summary{% endblock %}
+
+{% block admin_main %}
+{# Expediente RESUMIDO (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
+   design.md §7, D7): lo que ve el Departamento de Titulación, que solo tiene
+   `process.page.summary`. Cabecera + fases ANTERIORES al corte a T-soft con
+   número, nombre, estado y fecha. A propósito NO hay desglose (documentos,
+   visor, historial, cita, requisitos, biblioteca, encuesta, correos), ni
+   acciones, ni enlaces a otras pestañas: `_summary_ctx` ni siquiera los lee.
+
+   Sin `hx-*` ni JS propio: la página es estática. Las acciones del expediente
+   (`/processes/{id}/...`) le responden 403 (`_exigir_vista_completa`). #}
+<div class="px-4 py-4">
+  <div id="exp-resumen" class="tt-exp">
+
+    <header id="exp-head" class="tt-card">
+      <div class="tt-exp-bar">
+        {# El regreso: Liberados, con sus filtros si de ahí se vino. La URL la
+           valida el servidor (`_back_ctx`). #}
+        <a id="exp-back" class="btn btn-sm tt-btn-ghost" href="{{ back.url }}">
+          <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>{{ back.label }}</a>
+        <div class="ms-auto">{{ proceso_pill(process.status) }}</div>
+      </div>
+
+      <div class="tt-exp-id">
+        <span class="tt-kicker">Expediente resumido · {{ process.folio }}</span>
+        <h1 class="tt-exp-name">{{ student.name }}</h1>
+      </div>
+
+      <dl class="tt-exp-datos">
+        <div><dt>No. control</dt><dd class="tt-mono">{{ student.control }}</dd></div>
+        <div><dt>Carrera</dt><dd>{{ program_name or 'Sin carrera' }}</dd></div>
+        <div><dt>Convocatoria</dt><dd>{{ cohort_name or '—' }}</dd></div>
+        <div><dt>Modalidad</dt><dd>{{ modality_name or 'Sin elegir' }}</dd></div>
+        <div><dt>Correo</dt><dd class="tt-mono">{{ email or '—' }}</dd></div>
+      </dl>
+    </header>
+
+    <section id="exp-res-fases" class="tt-card" aria-label="Fases del proceso">
+      <h2 class="tt-h-sec">Avance hasta la liberación</h2>
+      {% if fases %}
+      <div class="tt-table-wrap">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Fase</th><th>Nombre</th><th>Estado</th><th>Fecha</th></tr></thead>
+          <tbody>
+          {% for f in fases %}
+          <tr id="exp-res-fase-{{ f.number }}">
+            <td class="tt-mono">{{ '%02d'|format(f.number) }}</td>
+            <td>{{ f.name }}</td>
+            <td>{{ estado_pill(f.status) }}</td>
+            <td>{{ f.fecha or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="tt-exp-vacio">Sin fases que mostrar.</p>
+      {% endif %}
+    </section>
+
+  </div>
+</div>
+{% endblock %}

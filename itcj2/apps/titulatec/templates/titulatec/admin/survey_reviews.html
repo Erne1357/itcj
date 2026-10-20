@@ -1,0 +1,16 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Liberaciones · TitulaTec{% endblock %}
+{% block admin_view %}survey-reviews{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Gestión Tecnológica y Vinculación</span>
+  <h1 class="tt-display h3 fw-medium">Liberaciones de la encuesta de egresados</h1>
+  <p class="mb-0 small text-body-secondary">Revisa lo que el egresado ya contestó y decide si
+     lo liberas o le dejas observaciones. Lo que detectes se atiende en tu ventanilla
+     (Residencias, Prácticas, Servicio Social): el egresado no vuelve a tocar la encuesta
+     desde el sistema, así que cuando resuelva sus pendientes lo liberas tú.</p>
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/survey_reviews_body.html" %}
+</div>
+{% endblock %}

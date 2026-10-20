@@ -1,0 +1,26 @@
+{# ===========================================================================
+   notice_card.html — tarjeta generica de aviso.
+
+   La usan la ventana cerrada, el limite de envios y las salidas
+   indistinguibles de E8 (la inscripcion publica, Tarea 19). `data-tt-notice` es
+   el ancla estable que asertan los tests y las E2E; la clase y el icono no son
+   contrato.
+
+   Vocabulario CERRADO de `notice_key` (contrato de interfaces §8):
+   closed | generic | rate_limited | unavailable | verified | pending |
+   expired | invalid. (`contact_ok`/`contact_invalid` se retiraron el
+   2026-09-15 junto con la liga de contacto.)
+
+   Contexto: notice_key, notice_icon (nombre de Bootstrap Icons SIN el prefijo
+   `bi-`), notice_title, notice_body y notice_class (opcional).
+   =========================================================================== #}
+<div id="tt-notice" class="tt-card {{ notice_class or '' }} tt-anim-in"
+     role="status" data-tt-notice="{{ notice_key }}">
+  <div class="d-flex gap-3 align-items-start">
+    <i class="bi bi-{{ notice_icon or 'info-circle' }}" aria-hidden="true"></i>
+    <div class="min-w-0">
+      <h2 class="tt-display h6 mb-1">{{ notice_title }}</h2>
+      <p class="mb-0">{{ notice_body }}</p>
+    </div>
+  </div>
+</div>

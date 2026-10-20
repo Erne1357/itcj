@@ -1,7 +1,12 @@
 /**
  * ============================================
  * EFECTO DE NIEVE NAVIDEÑA - DASHBOARD
- * Efecto ligero y optimizado de nieve cayendo
+ * Luces, copos que caen, nieve sobre los iconos y muñeco de nieve.
+ *
+ * Las decoraciones van en #theme-decor (escritorio; dashboard.css la pone detrás
+ * o encima de las ventanas según la resolución) o en #theme-decor.theme-decor-mobile (móvil, base_mobile.html; se oculta fuera de la vista home). Con
+ * prefers-reduced-motion no hay copos ni muñeco; el bucle de los copos se pausa
+ * mientras la pestaña está oculta.
  * ============================================
  */
 
@@ -20,20 +25,24 @@ class ChristmasSnow {
             defaultSnowflakeCount = 30; // Desktop
         }
 
-        // Configuración
+        // Configuración (velocidades en px por segundo)
         this.config = {
             snowflakeCount: options.snowflakeCount || defaultSnowflakeCount,
             minSize: options.minSize || 10,
             maxSize: options.maxSize || 20,
-            minSpeed: options.minSpeed || 1,
-            maxSpeed: options.maxSpeed || 3,
+            minSpeed: options.minSpeed || 35,
+            maxSpeed: options.maxSpeed || 90,
             snowflakeChars: options.snowflakeChars || ['❄', '❅', '❆'],
             enabled: options.enabled !== false
         };
 
+        this.host = document.getElementById('theme-decor') || document.body;
+        this.reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
         this.snowflakes = [];
         this.animationFrame = null;
         this.isRunning = false;
+        this.lastTime = 0;
+        this.timers = [];
 
         if (this.config.enabled) {
             this.init();
@@ -41,27 +50,36 @@ class ChristmasSnow {
     }
 
     init() {
-        console.log('🎄 Inicializando efecto de nieve navideña...');
-
-        // Crear luces navideñas
         this.createChristmasLights();
-
-        // Agregar nieve en iconos
         this.addSnowToIcons();
-
-        // Crear copos de nieve
-        this.createSnowflakes();
-
-        // Iniciar animación
-        this.start();
 
         // Variables para controlar el muñeco de nieve
         this.snowmanActive = false;
         this.snowmanTimeout = null;
-        this.snowmanInterval = null;
 
-        // Iniciar muñeco de nieve (aparece cada 3 minutos)
-        this.startSnowmanCycle();
+        // Copos y muñeco son movimiento puro: fuera con prefers-reduced-motion.
+        if (!this.reducedMotion) {
+            this.createSnowflakes();
+            this.start();
+            this.startSnowmanCycle();
+
+            this.onVisibility = () => {
+                if (document.hidden) this.pause();
+                else this.start();
+            };
+            document.addEventListener('visibilitychange', this.onVisibility);
+
+            // Móvil: fuera de la vista home la capa está oculta (display none);
+            // se pausa el bucle y se reanuda al volver a home.
+            const mobileBody = document.querySelector('.mobile-body');
+            if (mobileBody && typeof MutationObserver !== 'undefined') {
+                this.viewObserver = new MutationObserver(() => {
+                    if (this.layerHidden()) this.pause();
+                    else this.start();
+                });
+                this.viewObserver.observe(mobileBody, { attributes: true, attributeFilter: ['data-active-view'] });
+            }
+        }
 
         // Limpiar al salir
         window.addEventListener('beforeunload', () => this.cleanup());
@@ -75,6 +93,7 @@ class ChristmasSnow {
         const svgNS = "http://www.w3.org/2000/svg";
         const svg = document.createElementNS(svgNS, 'svg');
         svg.setAttribute('class', 'christmas-cables-svg');
+        svg.setAttribute('aria-hidden', 'true');
         svg.style.position = 'fixed';
         svg.style.top = '0';
         svg.style.left = '0';
@@ -95,7 +114,7 @@ class ChristmasSnow {
         } else {
             lightCount = 20; // Desktop
         }
-        
+
         const lights = [];
 
         for (let i = 0; i < lightCount; i++) {
@@ -105,304 +124,212 @@ class ChristmasSnow {
             lights.push(light);
         }
 
-        document.body.appendChild(lightsContainer);
-        document.body.appendChild(svg);
+        this.host.appendChild(lightsContainer);
+        this.host.appendChild(svg);
+        this.lightsEl = lightsContainer;
+        this.cablesEl = svg;
 
         // Esperar a que se rendericen las luces para obtener sus posiciones
-        setTimeout(() => {
-            this.createCableCurves(svg, lights);
-        }, 100);
+        this.timers.push(setTimeout(() => this.createCableCurves(svg, lights), 100));
 
         // Recrear cables al cambiar tamaño de ventana
-        window.addEventListener('resize', () => {
-            this.createCableCurves(svg, lights);
-        });
+        this.onResize = () => {
+            clearTimeout(this.resizeTimer);
+            this.resizeTimer = setTimeout(() => this.createCableCurves(svg, lights), 120);
+        };
+        window.addEventListener('resize', this.onResize);
     }
 
     createCableCurves(svg, lights) {
         // Limpiar cables anteriores
-        svg.innerHTML = '';
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
 
         const svgNS = "http://www.w3.org/2000/svg";
-        const positions = [];
+        const sag = 15; // Cuánto baja el cable en el centro
 
-        // Obtener posiciones de todas las luces
-        lights.forEach(light => {
+        // Punto de conexión del cable colgante de cada luz
+        const positions = lights.map(light => {
             const rect = light.getBoundingClientRect();
-            positions.push({
-                x: rect.left + rect.width / 2,
-                y: rect.top - 12 // Punto de conexión del cable colgante
-            });
+            return { x: rect.left + rect.width / 2, y: rect.top - 12 };
         });
+        if (!positions.length) return;
 
-        // Cable inicial desde el borde izquierdo hasta la primera luz
-        if (positions.length > 0) {
+        const addCable = (x1, y1, x2, y2) => {
             const path = document.createElementNS(svgNS, 'path');
-            const startX = -100;
-            const startY = positions[0].y;
-            const endX = positions[0].x;
-            const endY = positions[0].y;
-            const sag = 15; // Cuánto baja el cable en el centro
-
-            const midX = (startX + endX) / 2;
-            const midY = Math.max(startY, endY) + sag;
-
-            const d = `M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`;
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', '#2c2c2c');
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            path.style.filter = 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))';
-            svg.appendChild(path);
-        }
-
-        // Crear cables curvos entre cada par de luces
-        for (let i = 0; i < positions.length - 1; i++) {
-            const path = document.createElementNS(svgNS, 'path');
-
-            const x1 = positions[i].x;
-            const y1 = positions[i].y;
-            const x2 = positions[i + 1].x;
-            const y2 = positions[i + 1].y;
-
-            // Calcular punto de control para la curva (punto medio más bajo)
             const midX = (x1 + x2) / 2;
-            const sag = 15; // Cuánto baja el cable en el centro
             const midY = Math.max(y1, y2) + sag;
-
-            // Crear curva cuadrática (parabólica)
-            const d = `M ${x1} ${y1} Q ${midX} ${midY} ${x2} ${y2}`;
-
-            path.setAttribute('d', d);
-            path.setAttribute('stroke', '#2c2c2c');
-            path.setAttribute('stroke-width', '2');
-            path.setAttribute('fill', 'none');
-            path.style.filter = 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))';
-
-            svg.appendChild(path);
-        }
-
-        // Cable final desde la última luz hasta el borde derecho
-        if (positions.length > 0) {
-            const path = document.createElementNS(svgNS, 'path');
-            const lastPos = positions[positions.length - 1];
-            const startX = lastPos.x;
-            const startY = lastPos.y;
-            const endX = window.innerWidth + 100;
-            const endY = lastPos.y;
-            const sag = 15;
-
-            const midX = (startX + endX) / 2;
-            const midY = Math.max(startY, endY) + sag;
-
-            const d = `M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`;
-            path.setAttribute('d', d);
+            path.setAttribute('d', `M ${x1} ${y1} Q ${midX} ${midY} ${x2} ${y2}`);
             path.setAttribute('stroke', '#2c2c2c');
             path.setAttribute('stroke-width', '2');
             path.setAttribute('fill', 'none');
             path.style.filter = 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))';
             svg.appendChild(path);
+        };
+
+        // Desde el borde izquierdo, entre cada par de luces y hasta el borde derecho
+        addCable(-100, positions[0].y, positions[0].x, positions[0].y);
+        for (let i = 0; i < positions.length - 1; i++) {
+            addCable(positions[i].x, positions[i].y, positions[i + 1].x, positions[i + 1].y);
         }
+        const last = positions[positions.length - 1];
+        addCable(last.x, last.y, window.innerWidth + 100, last.y);
     }
 
+    /**
+     * Carámbanos extra sobre la nieve de cada icono. Van DENTRO de la imagen del
+     * icono (.desktop-icon-img, position:relative) y son absolutos: el tile no
+     * cambia de tamaño y la etiqueta no se mueve. La capa de nieve es CSS.
+     */
     addSnowToIcons() {
-        const icons = document.querySelectorAll('.desktop-icon');
-
-        icons.forEach((icon, index) => {
-            // Agregar goteos adicionales de nieve
+        document.querySelectorAll('.desktop-icon .desktop-icon-img').forEach((img) => {
             const dripsCount = Math.floor(Math.random() * 2) + 1; // 1-2 goteos extra
-
             for (let i = 0; i < dripsCount; i++) {
-                const drip = document.createElement('div');
+                const drip = document.createElement('span');
                 drip.className = 'snow-drip-extra';
-                drip.style.left = `${20 + Math.random() * 60}%`;
-                drip.style.animationDelay = `${Math.random() * 3}s`;
-                drip.style.width = `${2 + Math.random() * 2}px`;
-                drip.style.height = `${6 + Math.random() * 4}px`;
-                icon.appendChild(drip);
+                drip.setAttribute('aria-hidden', 'true');
+                // Lado derecho (68-80 %) y un poco a la izquierda (8-14 %): el
+                // carámbano fijo (::after) va en medio.
+                const left = i === 0 ? this.randomBetween(66, 78) : this.randomBetween(8, 14);
+                drip.style.left = `${left.toFixed(1)}%`;
+                drip.style.width = `${(3 + Math.random()).toFixed(1)}px`;
+                drip.style.height = `${(5 + Math.random() * 4).toFixed(1)}px`;
+                drip.style.animationDelay = `${(Math.random() * 3).toFixed(2)}s`;
+                img.appendChild(drip);
             }
         });
     }
 
     startSnowmanCycle() {
         // Esperar 10 segundos antes del primer muñeco de nieve
-        setTimeout(() => {
-            this.scheduleNextSnowman();
-        }, 10000); // 10 segundos
+        this.timers.push(setTimeout(() => this.scheduleNextSnowman(), 10000));
     }
 
     scheduleNextSnowman() {
         // Solo programar si no hay un muñeco activo
-        if (this.snowmanActive) {
-            console.log('⛄ Ya hay un muñeco activo, esperando...');
-            return;
-        }
+        if (this.snowmanActive) return;
 
         this.createSnowman();
 
-        // Programar el siguiente después de que termine el ciclo completo
-        // El muñeco dura 3 minutos (180000ms) + animación de salida (3000ms)
-        // Esperamos 3 minutos después de que se vaya para el siguiente
-        const totalCycleDuration = 180000 + 3000; // 3 minutos visible + 3 segundos saliendo
-        const waitBetweenSnowmen = 180000; // 3 minutos de espera antes del siguiente
+        // El muñeco dura 3 minutos (180000ms) + animación de salida (3000ms);
+        // el siguiente llega 3 minutos después de que se vaya.
+        const totalCycleDuration = 180000 + 3000;
+        const waitBetweenSnowmen = 180000;
 
         this.snowmanTimeout = setTimeout(() => {
             this.scheduleNextSnowman();
-        }, totalCycleDuration + waitBetweenSnowmen); // Total: 6 minutos entre cada aparición
+        }, totalCycleDuration + waitBetweenSnowmen);
     }
 
     createSnowman() {
-        // Verificar si ya hay un muñeco activo
-        if (this.snowmanActive) {
-            console.log('⛄ Ya hay un muñeco de nieve activo, saltando creación...');
-            return;
-        }
-
-        console.log('⛄ Creando muñeco de nieve...');
+        if (this.snowmanActive) return;
         this.snowmanActive = true;
 
-        // Crear contenedor
+        const part = (className, parent) => {
+            const el = document.createElement('div');
+            el.className = className;
+            parent.appendChild(el);
+            return el;
+        };
+
         const container = document.createElement('div');
         container.className = 'snowman-container';
 
         // Bola base (grande)
-        const ballBottom = document.createElement('div');
-        ballBottom.className = 'snowman-ball-bottom';
-        container.appendChild(ballBottom);
+        part('snowman-ball-bottom', container);
 
-        // Bola media
-        const ballMiddle = document.createElement('div');
-        ballMiddle.className = 'snowman-ball-middle';
+        // Bola media con botones y brazos
+        const ballMiddle = part('snowman-ball-middle', container);
+        ['btn1', 'btn2', 'btn3'].forEach((btn) => part(`snowman-button ${btn}`, ballMiddle));
+        part('snowman-arm left', ballMiddle);
+        part('snowman-arm right', ballMiddle);
 
-        // Botones en la bola media
-        for (let i = 1; i <= 3; i++) {
-            const button = document.createElement('div');
-            button.className = `snowman-button btn${i}`;
-            ballMiddle.appendChild(button);
-        }
-
-        // Brazos
-        const armLeft = document.createElement('div');
-        armLeft.className = 'snowman-arm left';
-        ballMiddle.appendChild(armLeft);
-
-        const armRight = document.createElement('div');
-        armRight.className = 'snowman-arm right';
-        ballMiddle.appendChild(armRight);
-
-        container.appendChild(ballMiddle);
-
-        // Bola cabeza (pequeña)
-        const ballHead = document.createElement('div');
-        ballHead.className = 'snowman-ball-head';
-
-        // Ojos
-        const eyeLeft = document.createElement('div');
-        eyeLeft.className = 'snowman-eye left';
-        ballHead.appendChild(eyeLeft);
-
-        const eyeRight = document.createElement('div');
-        eyeRight.className = 'snowman-eye right';
-        ballHead.appendChild(eyeRight);
-
-        // Nariz
-        const nose = document.createElement('div');
-        nose.className = 'snowman-nose';
-        ballHead.appendChild(nose);
-
-        // Sonrisa
-        const smile = document.createElement('div');
-        smile.className = 'snowman-smile';
-        ballHead.appendChild(smile);
-
-        container.appendChild(ballHead);
+        // Cabeza: ojos, nariz y sonrisa
+        const ballHead = part('snowman-ball-head', container);
+        part('snowman-eye left', ballHead);
+        part('snowman-eye right', ballHead);
+        part('snowman-nose', ballHead);
+        part('snowman-smile', ballHead);
 
         // Sombrero
-        const hat = document.createElement('div');
-        hat.className = 'snowman-hat';
-        container.appendChild(hat);
+        part('snowman-hat', container);
 
-        // Agregar al DOM
-        document.body.appendChild(container);
+        this.host.appendChild(container);
 
         // Después de que se arme completamente, agregar clase assembled
-        setTimeout(() => {
-            container.classList.add('assembled');
-        }, 4000);
+        this.timers.push(setTimeout(() => container.classList.add('assembled'), 4000));
 
         // Después de 3 minutos, comenzar a desarmarlo
-        setTimeout(() => {
-            this.removeSnowman(container);
-        }, 180000); // 3 minutos (180 segundos) de permanencia
+        this.timers.push(setTimeout(() => this.removeSnowman(container), 180000));
     }
 
     removeSnowman(container) {
-        console.log('⛄ Despidiendo al muñeco de nieve...');
-
         // Agregar clase leaving para animación de salida
         container.classList.add('leaving');
 
         // Eliminar del DOM después de que termine la animación (3 segundos)
-        setTimeout(() => {
+        this.timers.push(setTimeout(() => {
             if (container && container.parentNode) {
                 container.parentNode.removeChild(container);
             }
             // Liberar el flag después de que el muñeco se haya ido completamente
             this.snowmanActive = false;
-            console.log('⛄ Muñeco de nieve eliminado. Listo para el siguiente.');
-        }, 3000);
+        }, 3000));
     }
 
     createSnowflakes() {
         for (let i = 0; i < this.config.snowflakeCount; i++) {
-            this.createSnowflake();
+            // Repartidos en toda la altura: sin la "franja" de copos al cargar.
+            this.createSnowflake(Math.random() * window.innerHeight);
         }
     }
 
-    createSnowflake() {
+    createSnowflake(startY = -20) {
         const snowflake = {
             element: document.createElement('div'),
             x: Math.random() * window.innerWidth,
-            y: -20,
+            y: startY,
             size: this.randomBetween(this.config.minSize, this.config.maxSize),
             speed: this.randomBetween(this.config.minSpeed, this.config.maxSpeed),
-            drift: this.randomBetween(-0.5, 0.5), // Deriva horizontal
+            drift: this.randomBetween(-15, 15), // Deriva horizontal (px/s)
+            sway: Math.random() * Math.PI * 2,
+            rotation: Math.random() * 360,
+            spin: this.randomBetween(-40, 40), // grados por segundo
             char: this.config.snowflakeChars[Math.floor(Math.random() * this.config.snowflakeChars.length)]
         };
 
-        // Configurar elemento
+        // Configurar elemento (la posición la pone el transform de cada cuadro)
         snowflake.element.className = 'snowflake';
         snowflake.element.textContent = snowflake.char;
-        snowflake.element.style.left = `${snowflake.x}px`;
         snowflake.element.style.fontSize = `${snowflake.size}px`;
-        snowflake.element.style.opacity = this.randomBetween(0.5, 1);
+        snowflake.element.style.opacity = this.randomBetween(0.5, 0.95).toFixed(2);
 
-        // Añadir al DOM
-        document.body.appendChild(snowflake.element);
-
+        this.host.appendChild(snowflake.element);
         this.snowflakes.push(snowflake);
     }
 
-    updateSnowflakes() {
-        this.snowflakes.forEach((snowflake, index) => {
-            // Actualizar posición
-            snowflake.y += snowflake.speed;
-            snowflake.x += snowflake.drift;
+    updateSnowflakes(dt) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        this.snowflakes.forEach((snowflake) => {
+            snowflake.y += snowflake.speed * dt;
+            snowflake.sway += dt * 1.2;
+            snowflake.x += (snowflake.drift + Math.sin(snowflake.sway) * 12) * dt;
+            snowflake.rotation += snowflake.spin * dt;
 
-            // Aplicar transformación
-            snowflake.element.style.transform = `translate(${snowflake.x}px, ${snowflake.y}px)`;
-
-            // Si sale de la pantalla, reiniciar
-            if (snowflake.y > window.innerHeight) {
+            // Si sale de la pantalla, reiniciar arriba
+            if (snowflake.y > h + 20) {
                 this.resetSnowflake(snowflake);
             }
 
-            // Si se sale por los lados, ajustar
+            // Si se sale por los lados, entra por el otro
             if (snowflake.x < -50) {
-                snowflake.x = window.innerWidth + 50;
-            } else if (snowflake.x > window.innerWidth + 50) {
+                snowflake.x = w + 50;
+            } else if (snowflake.x > w + 50) {
                 snowflake.x = -50;
             }
+
+            snowflake.element.style.transform =
+                `translate(${snowflake.x.toFixed(1)}px, ${snowflake.y.toFixed(1)}px) rotate(${snowflake.rotation.toFixed(1)}deg)`;
         });
     }
 
@@ -410,30 +337,46 @@ class ChristmasSnow {
         snowflake.x = Math.random() * window.innerWidth;
         snowflake.y = -20;
         snowflake.speed = this.randomBetween(this.config.minSpeed, this.config.maxSpeed);
-        snowflake.drift = this.randomBetween(-0.5, 0.5);
+        snowflake.drift = this.randomBetween(-15, 15);
     }
 
-    animate() {
+    animate(now) {
         if (!this.isRunning) return;
 
-        this.updateSnowflakes();
-        this.animationFrame = requestAnimationFrame(() => this.animate());
+        // Paso por tiempo real (no por cuadro): igual en 60 y en 144 Hz; tope de
+        // 50 ms para que un tirón no teletransporte los copos.
+        const dt = this.lastTime ? Math.min((now - this.lastTime) / 1000, 0.05) : 0;
+        this.lastTime = now;
+        this.updateSnowflakes(dt);
+        this.animationFrame = requestAnimationFrame((t) => this.animate(t));
+    }
+
+    /** Móvil: la capa de decoraciones solo se ve en la vista home. */
+    layerHidden() {
+        const b = document.querySelector('.mobile-body[data-active-view]');
+        return !!b && b.getAttribute('data-active-view') !== 'home';
     }
 
     start() {
-        if (this.isRunning) return;
+        if (this.isRunning || this.reducedMotion || !this.snowflakes.length) return;
+        if (document.hidden || this.layerHidden()) return;
 
         this.isRunning = true;
-        this.animate();
-        console.log('❄️ Efecto de nieve iniciado');
+        this.lastTime = 0;
+        this.animationFrame = requestAnimationFrame((t) => this.animate(t));
     }
 
-    stop() {
+    /** Detiene el bucle sin quitar nada (pestaña oculta). */
+    pause() {
         this.isRunning = false;
         if (this.animationFrame) {
             cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
         }
-        console.log('❄️ Efecto de nieve detenido');
+    }
+
+    stop() {
+        this.pause();
     }
 
     toggle() {
@@ -446,55 +389,28 @@ class ChristmasSnow {
 
     cleanup() {
         this.stop();
+        this.timers.forEach(clearTimeout);
+        this.timers = [];
+        clearTimeout(this.resizeTimer);
 
-        // Detener el ciclo del muñeco de nieve
-        if (this.snowmanInterval) {
-            clearInterval(this.snowmanInterval);
-        }
-        
         // Cancelar timeout pendiente del muñeco
         if (this.snowmanTimeout) {
             clearTimeout(this.snowmanTimeout);
         }
-
-        // Resetear flag
         this.snowmanActive = false;
 
+        if (this.onVisibility) document.removeEventListener('visibilitychange', this.onVisibility);
+        if (this.viewObserver) { this.viewObserver.disconnect(); this.viewObserver = null; }
+        if (this.onResize) window.removeEventListener('resize', this.onResize);
+
         // Eliminar todos los copos
-        this.snowflakes.forEach(snowflake => {
-            if (snowflake.element && snowflake.element.parentNode) {
-                snowflake.element.parentNode.removeChild(snowflake.element);
-            }
-        });
-
-        // Eliminar luces
-        const lights = document.querySelector('.christmas-lights');
-        if (lights && lights.parentNode) {
-            lights.parentNode.removeChild(lights);
-        }
-
-        // Eliminar cables SVG
-        const cablesSvg = document.querySelector('.christmas-cables-svg');
-        if (cablesSvg && cablesSvg.parentNode) {
-            cablesSvg.parentNode.removeChild(cablesSvg);
-        }
-
-        // Eliminar muñeco de nieve si existe
-        const snowman = document.querySelector('.snowman-container');
-        if (snowman && snowman.parentNode) {
-            snowman.parentNode.removeChild(snowman);
-        }
-
-        // Eliminar goteos de nieve adicionales en los iconos
-        const drips = document.querySelectorAll('.snow-drip-extra');
-        drips.forEach(drip => {
-            if (drip && drip.parentNode) {
-                drip.parentNode.removeChild(drip);
-            }
-        });
-
+        this.snowflakes.forEach(snowflake => snowflake.element.remove());
         this.snowflakes = [];
-        console.log('🎄 Decoraciones navideñas limpiadas');
+
+        // Luces, cables, muñeco y carámbanos extra de los iconos
+        if (this.lightsEl) this.lightsEl.remove();
+        if (this.cablesEl) this.cablesEl.remove();
+        document.querySelectorAll('.snowman-container, .snow-drip-extra').forEach(el => el.remove());
     }
 
     // Utilidades
@@ -504,21 +420,18 @@ class ChristmasSnow {
 
     // Ajustar cantidad de copos dinámicamente
     setSnowflakeCount(count) {
+        if (this.reducedMotion) return;
         const currentCount = this.snowflakes.length;
 
         if (count > currentCount) {
-            // Añadir más copos
             for (let i = 0; i < count - currentCount; i++) {
                 this.createSnowflake();
             }
+            this.start();
         } else if (count < currentCount) {
-            // Eliminar copos
-            const toRemove = currentCount - count;
-            for (let i = 0; i < toRemove; i++) {
+            for (let i = 0; i < currentCount - count; i++) {
                 const snowflake = this.snowflakes.pop();
-                if (snowflake.element && snowflake.element.parentNode) {
-                    snowflake.element.parentNode.removeChild(snowflake.element);
-                }
+                snowflake.element.remove();
             }
         }
 
@@ -540,12 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 snowflakeCount: deco.snowflakes?.count || 30,
                 minSize: 10,
                 maxSize: 20,
-                minSpeed: 1,
-                maxSpeed: 3,
                 enabled: deco.snowflakes?.enabled !== false
             });
-
-            console.log(`🎨 Temática activa: "${window.activeTheme.name}" - Decoraciones habilitadas`);
         }
     } else {
         // Fallback: comportamiento original basado en fechas (por compatibilidad)
@@ -561,12 +470,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 snowflakeCount: 30,
                 minSize: 10,
                 maxSize: 20,
-                minSpeed: 1,
-                maxSpeed: 3,
                 enabled: true
             });
-
-            console.log('🎄 ¡Feliz Navidad! Decoraciones activadas automáticamente (fallback por fechas)');
         }
     }
 });

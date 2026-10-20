@@ -215,9 +215,10 @@ async def update_request_status(
                 program_id=r.program_id,
             )
             db.commit()
-            # NO llamar push_notification aquí: este endpoint es `async def`, así
-            # que NotificationService.broadcast_websocket sí encuentra event loop
-            # y ya agendó el push. Hacerlo otra vez duplicaría el toast.
+            # NO llamar push_notification aquí: `NotificationService.create` deja
+            # el push pendiente en la sesión y sale solo cuando commitea la
+            # transacción raíz (el `db.commit()` de arriba). Hacerlo otra vez
+            # duplicaría el toast.
     except Exception:
         logger.exception("Failed to create/push status-change notification")
 

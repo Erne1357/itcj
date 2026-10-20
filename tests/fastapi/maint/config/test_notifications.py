@@ -676,7 +676,16 @@ class TestEmailHelperSubjectsFallback:
     Los send_* de MaintEmailHelper usan render_notification para el subject.
     Con plantilla ausente → llaman render_notification con el fallback_subject
     hardcoded original. Nunca lanzan.
+
+    Corren con el correo de maint ENCENDIDO: desde 2026-10-07 está apagado por
+    omisión (`MAINT_EMAIL_ENABLED`, ver `test_email_switch.py`), pero el código
+    se conserva para cuando se conecte la cuenta y estas pruebas lo cuidan.
     """
+
+    @pytest.fixture(autouse=True)
+    def _correo_encendido(self, monkeypatch):
+        from itcj2.config import get_settings
+        monkeypatch.setattr(get_settings(), "MAINT_EMAIL_ENABLED", True)
 
     def _fake_ticket_email(self, ticket_number="MANT-2026-010"):
         t = MagicMock()

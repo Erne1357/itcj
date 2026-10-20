@@ -1,0 +1,198 @@
+{# Parte de IMPRESIÓN de la página «Folios» (lotes, «Por imprimir», «Anuladas
+   después de imprimir»). Se incluye desde `certificates_body.html` SOLO con el
+   switch `TITULATEC_CERTIFICATE_PRINTING` encendido (spec folios 2026-10-05
+   §3.5): apagado, `_body_ctx` deja `sections` vacío y esta parte ni siquiera
+   se incluye -ninguna vista menciona la impresión-. Se movió tal cual desde
+   la página de Constancias de la ronda del 2026-10-01/02 (D2: se oculta, no
+   se borra); solo se le sumó `hx-include="#tt-folio-filters"` a «Generar
+   lote» y a la paginación de «Lotes», para que re-pintar `#tt-cert-body`
+   conserve la pestaña, la búsqueda y el estado de la tabla de folios (§18
+   regla 3). TODOS los controles (generar lote, paginación de «Lotes»)
+   apuntan a la raíz `#tt-cert-body` con `hx-swap="outerHTML"`, así que cada
+   handler devuelve el parcial completo. Ids propios (`tt-cert-*`), distintos
+   de los de la tabla de folios (`tt-folio-*`).
+
+   Una SECCIÓN por cada `kind` que este actor puede imprimir (`sections`, ya
+   filtrado y ordenado por `_visible_kinds` -- nunca los dos `CERT_KINDS`
+   fijos): el Centro de Información solo ve «No adeudo de biblioteca», GTV
+   solo «Liberación de encuesta de egresados», un actor con los dos permisos
+   (como `admin`) ve ambas. Sin ningún permiso de tipo -caso límite, D15- no
+   hay secciones (el aviso «Sin tipos asignados» lo pinta
+   `certificates_body.html`).
+
+   «Generar lote» (D7) vive en un `<form>` propio por sección -sin casillas
+   que recoger, a diferencia del lote de Biblioteca-: `hx-confirm` +
+   `data-tt-confirm-ok` van en el `<form>` (no en el botón), con el puente
+   hx-confirm -> modal ya cargado una sola vez por `base.html`
+   (`static/js/shared/titulatec-utils.js:265`). Dos campos ocultos
+   (`page_library_clearance`/`page_survey_release`) reenvían la página actual
+   de «Lotes» de la OTRA sección -crear un lote reinicia a la página 1 SOLO la
+   de su propio tipo, la ruta ya lo resuelve (`pages/certificates_admin.py`).
+
+   Tras crear un lote, `new_batch` trae los DOS enlaces al PDF recién
+   generado -3 y 2 por hoja (`?por_hoja=`, spec §3.1/E4), el de 3 primero por
+   ser el de siempre-, `<a target="_blank">` PLANOS (sin script inline) que
+   lo abren en pestaña nueva; el badge «Por imprimir» de esa misma respuesta
+   ya sale en 0, así que el contador de la página queda al día sin nada más.
+   Cada fila de «Lotes» lleva los MISMOS dos enlaces, con ids
+   `tt-cert-pdf-{id}-3`/`-2` -- el lote recién creado sale TAMBIÉN como
+   primera fila de su tabla en esta misma respuesta, así que la tarjeta usa
+   el prefijo `tt-cert-new-pdf-` para no repetir id dentro de la página.
+
+   Tarea 2 (E6/E7, spec §3.2/§3.5): bajo el encabezado de cada sección, un
+   `<details id="tt-cert-pending-{kind}">` CERRADO por omisión (sin JS, solo
+   `<details>`/`<summary>` nativos; el `<summary>` reusa `.tt-sii-fold`
+   -ya definida en `titulatec.css` para el mismo patrón en
+   `requests_body.html`- en vez de la tipografía/cursor por omisión del
+   navegador) lista QUIÉNES están «Por imprimir» -mismo orden FIFO que
+   tomará el lote (`s.pending_rows`, de `CertificateService.pending`)- y NO
+   se pinta con 0 pendientes. Debajo,
+   `<div id="tt-cert-voided-{kind}">` sale SOLO si `s.voided_rows` (de
+   `CertificateService.voided_after_print`, últimos 30 días) trae algo: una
+   constancia que se anuló DESPUÉS de haberse impreso, para que el área sepa
+   que tiene que retirar ese papel. Filas con ids estables
+   `tt-cert-pending-row-{cert.id}` / `tt-cert-voided-row-{cert.number}` -las
+   anuladas no traen `id` propio en el dict del servicio (contrato fijo,
+   compartido con las bandejas de la Tarea 3), así que la fila usa el folio
+   (`number`), único por constancia igual que un id numérico. #}
+  {% for s in sections %}
+  <div class="tt-card mb-4" id="tt-cert-kind-{{ s.kind }}">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <div>
+        <span class="tt-kicker">{{ s.label }}</span>
+        <h2 class="h5 mb-0">Por imprimir ({{ s.pending_count }})</h2>
+      </div>
+      <form hx-post="/titulatec/admin/constancias/{{ s.kind }}/lote"
+            hx-target="#tt-cert-body" hx-swap="outerHTML" hx-disabled-elt="find button"
+            hx-include="#tt-folio-filters"
+            data-tt-confirm-ok="Generar lote"
+            hx-confirm="Generar lote|¿Generar el lote con {{ 'la' if s.pending_count == 1 else 'las' }} {{ s.pending_count }} constancia{{ 's' if s.pending_count != 1 else '' }} por imprimir de {{ s.label|lower }}?">
+        <input type="hidden" name="page_library_clearance" value="{{ pages.library_clearance }}">
+        <input type="hidden" name="page_survey_release" value="{{ pages.survey_release }}">
+        <button type="submit" id="tt-cert-lote-btn-{{ s.kind }}" class="btn btn-sm tt-btn-ink"
+                {{ 'disabled' if s.pending_count == 0 else '' }}>
+          <i class="bi bi-printer me-1"></i>Generar lote ({{ s.pending_count }})
+        </button>
+      </form>
+    </div>
+
+    {% if s.pending_rows %}
+    <details class="tt-card mb-3 tt-sii-fold" id="tt-cert-pending-{{ s.kind }}">
+      <summary>Ver quiénes ({{ s.pending_rows|length }})</summary>
+      <div class="tt-table-wrap mt-2">
+        <table class="table table-sm align-middle">
+          <thead><tr>
+            <th>Folio</th><th>Egresado</th><th>Control</th><th>Carrera</th><th>Emitida</th>
+          </tr></thead>
+          <tbody>
+          {% for row in s.pending_rows %}
+          <tr id="tt-cert-pending-row-{{ row.id }}">
+            <td class="tt-mono">{{ row.folio }}</td>
+            <td>{{ row.egresado }}</td>
+            <td class="tt-mono">{{ row.control }}</td>
+            <td>{{ row.carrera }}</td>
+            <td>{{ row.emitida.strftime('%d/%m/%Y') if row.emitida else '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {% endif %}
+
+    {% if s.voided_rows %}
+    <div class="tt-card mb-3" id="tt-cert-voided-{{ s.kind }}">
+      <span class="tt-kicker"><i class="bi bi-exclamation-triangle me-1"></i>Anuladas después de imprimir (últimos 30 días)</span>
+      <div class="tt-table-wrap mt-2">
+        <table class="table table-sm align-middle">
+          <thead><tr>
+            <th>Folio</th><th>Egresado</th><th>Control</th><th>Lote</th><th>Anulada el</th><th>Motivo</th>
+          </tr></thead>
+          <tbody>
+          {% for row in s.voided_rows %}
+          <tr id="tt-cert-voided-row-{{ row.number }}">
+            <td class="tt-mono">{{ row.number }}</td>
+            <td>{{ row.student_name }}</td>
+            <td class="tt-mono">{{ row.control_number }}</td>
+            <td class="tt-mono">#{{ row.batch_id }}{% if row.batch_at %} · {{ row.batch_at.strftime('%d/%m/%Y') }}{% endif %}</td>
+            <td>{{ row.voided_at.strftime('%d/%m/%Y') if row.voided_at else '—' }}</td>
+            <td>{{ row.void_reason or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if new_batch and new_batch.kind == s.kind %}
+    <div class="tt-card mb-3" id="tt-cert-new-batch-{{ s.kind }}">
+      <span class="tt-kicker"><i class="bi bi-check2-circle me-1"></i>Lote generado</span>
+      <p class="mb-2">Lote #{{ new_batch.id }} con {{ new_batch.count }}
+         constancia{{ 's' if new_batch.count != 1 else '' }}, listo para imprimir.</p>
+      <div class="d-flex flex-wrap gap-1">
+        <a class="btn btn-sm tt-btn-ink" id="tt-cert-new-pdf-{{ new_batch.id }}-3"
+           href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf?por_hoja=3"
+           target="_blank" rel="noopener">
+          <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 3 por hoja
+        </a>
+        <a class="btn btn-sm tt-btn-ghost" id="tt-cert-new-pdf-{{ new_batch.id }}-2"
+           href="/titulatec/admin/constancias/lotes/{{ new_batch.id }}.pdf?por_hoja=2"
+           target="_blank" rel="noopener">
+          <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 2 por hoja
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="tt-table-wrap">
+      <table class="table table-sm align-middle">
+        <thead><tr>
+          <th>Lote</th><th>Fecha</th><th>Quién</th><th>Cuántas</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% if not s.batches %}
+        <tr><td colspan="5" class="text-center text-muted">Sin lotes todavía.</td></tr>
+        {% endif %}
+        {% for b in s.batches %}
+        <tr id="cert-batch-{{ b.id }}">
+          <td class="tt-mono">#{{ b.id }}</td>
+          <td>{{ b.created_at.strftime('%d/%m/%Y %H:%M') if b.created_at else '—' }}</td>
+          <td>{{ b.created_by or '—' }}</td>
+          <td>{{ b.count }}
+            {%- if b.voided_count %} <span class="tt-pill tt-pill--neutral">{{ b.voided_count }} anulada{{ 's' if b.voided_count != 1 else '' }}</span>{% endif %}</td>
+          <td>
+            <div class="d-flex flex-wrap gap-1">
+              <a class="btn btn-sm tt-btn-ghost" id="tt-cert-pdf-{{ b.id }}-3"
+                 href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf?por_hoja=3"
+                 target="_blank" rel="noopener">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 3 por hoja
+              </a>
+              <a class="btn btn-sm tt-btn-ghost" id="tt-cert-pdf-{{ b.id }}-2"
+                 href="/titulatec/admin/constancias/lotes/{{ b.id }}.pdf?por_hoja=2"
+                 target="_blank" rel="noopener">
+                <i class="bi bi-file-earmark-pdf me-1"></i>PDF · 2 por hoja
+              </a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if s.page > 1 or s.has_more %}
+    <div class="d-flex gap-2 mt-2">
+      {% if s.page > 1 %}
+      <button class="btn btn-sm tt-btn-ghost" type="button"
+              hx-get="{{ s.prev_url }}" hx-target="#tt-cert-body" hx-swap="outerHTML"
+              hx-include="#tt-folio-filters">Anteriores</button>
+      {% endif %}
+      {% if s.has_more %}
+      <button class="btn btn-sm tt-btn-ghost" type="button"
+              hx-get="{{ s.next_url }}" hx-target="#tt-cert-body" hx-swap="outerHTML"
+              hx-include="#tt-folio-filters">Siguientes</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}

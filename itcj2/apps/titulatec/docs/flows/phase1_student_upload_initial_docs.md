@@ -1,24 +1,60 @@
 # El alumno sube sus documentos iniciales (Fase 1)
 
-> **Objetivo:** el alumno carga los 3 documentos iniciales y envía la fase 1 a revisión.
+> **Objetivo:** el alumno carga los documentos iniciales de SU PERFIL (3 en licenciatura, 7 en
+> posgrado); la fase 1 pasa sola a revisión (Tarea 1, 2026-09-28: ya no hay un botón «Enviar a
+> revisión» que tocar).
 
 | | |
 |---|---|
-| **Actor(es)** | 👤 Alumno (`student`) |
-| **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` · `process.api.advance` (enviar) |
-| **Trigger** | El alumno entra a "Documentos" desde el menú del alumno (drawer/rail) o el CTA del detalle de fase |
-| **Precondiciones** | Tiene un `TitulationProcess` activo (creado en [import CSV](phase0_school_services_import_csv.md)); fase 1 `in_progress` |
-| **Estado final** | 3 `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
+| **Actor(es)** | 👤 Alumno (`graduate`) |
+| **Permiso(s)** | `document.api.read.own` (ver) · `...upload.own` · `...delete.own` |
+| **Trigger** | El alumno toca **«Ir a documentos»** en la tarjeta «Tu proceso» del dashboard (el CTA solo existe si la fase 1 es su fase actual, [acordeón de fases](xcut_student_phase_detail.md)), o entra por el menú del alumno (drawer/rail) |
+| **Precondiciones** | Tiene un `TitulationProcess` activo (creado en [import CSV](phase0_school_services_import_csv.md)); **la fase 1 es su `current_phase`** (`in_progress` o `rejected`). **Se valida** en [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) |
+| **Estado final** | 3 (licenciatura) o 7 (posgrado) `Document` subidos (`review_status=pending`) + fase 1 → `in_review` |
 
-Documentos requeridos (`DocumentType.code`): `birth_certificate`, `high_school_cert`, `curp`.
+Documentos requeridos (`DocumentType.code`), **por perfil** (spec
+`2026-09-30-titulatec-posgrado-design.md` §4.4; el perfil sale de
+[`TrackService`](engine_process_track.md), nunca de una comparación propia): licenciatura —
+`birth_certificate`, `high_school_cert`, `curp` (`DocumentService.BASE_INITIAL_DOCS`); posgrado —
+esos 3 **más** `professional_license` (cédula profesional), `degree_title` (título),
+`postgrad_authorization` (oficios de autorización de la DEPI, **un solo PDF**) y `efirma_sat`
+(comprobante de e.firma o cita SAT) — `DocumentService.POSGRADO_EXTRA_DOCS`, con su propia línea de
+ayuda por casilla (`DocumentService.INITIAL_DOC_HINTS`, D6: cédula y título son del **grado
+anterior**). El set completo de un proceso sale SIEMPRE de
+`DocumentService.initial_doc_types_for(db, process)` (`pages/student.py:1039`) — nunca de un `3`
+fijo; con licenciatura el resultado es byte a byte el de siempre (invariante 3).
+
+**Hueco cerrado (spec §4.4, invariante 4):** `POST`/`DELETE
+/titulatec/student/documents/{type_code}` con un `type_code` de fase 1 que NO está en el set del
+perfil del proceso (licenciatura subiendo `professional_license`, o cualquiera subiendo
+`egel_proof`) responde `400` + `X-Tt-Error` («Este documento no aplica a tu proceso.»), **antes**
+de tocar storage o BD — `pages/student.py::_initial_docs_set_guard` (`:407-436`), invocado como
+primer guard tras `_phase_guard` en `document_upload` (`:1110`) y `document_delete` (`:1196`). Sin
+él, licenciatura podía subir los 4 extras de posgrado y cualquier perfil podía subir un tipo de
+fase 1 activo en el catálogo pero fuera de las dos listas de `DocumentService`.
 
 ## Ruta en la app (UI)
 
-1. Dashboard alumno `/titulatec/student/dashboard` → menú del alumno → **Documentos**
-   (o directo `/titulatec/student/documents`). Chrome: ver [integración en el shell](xcut_student_shell_embed.md).
+1. Dashboard alumno `/titulatec/student/dashboard` → **columna A, tarjeta «Tu proceso»** →
+   botón «Ir a documentos». Desde 2026-09-02 **ese es el camino principal**: no hay pantalla
+   intermedia de fase, y el CTA lo pinta **solo** la fase actual ([acordeón](xcut_student_phase_detail.md)).
+   Alternativas: menú del alumno (drawer/rail) → **Documentos**, o directo
+   `/titulatec/student/documents`. Chrome: ver [integración en el shell](xcut_student_shell_embed.md).
 2. Por cada documento: tarjeta dropzone (parcial `partials/document_slot.html`).
    Tocar → seleccionar archivo (cámara/galería/PDF) → sube solo (HTMX `change`).
-3. Cuando los 3 están subidos, se habilita **"Enviar a revisión"**.
+   La casilla dice el tope: «PDF de hasta 2 MB. Si pesa más (hasta 20 MB), lo comprimimos
+   automáticamente.» — texto de `storage.pdf_upload_hint()`, con los números de la config
+   (`TITULATEC_MAX_PDF_SIZE` / `TITULATEC_MAX_PDF_UPLOAD_SIZE`), nunca escritos en la plantilla.
+   El mismo par de números sale en la tarjeta de la fase del acordeón (`_PHASE_INFO` +
+   `_with_pdf_limits`, `pages/student.py`).
+3. Cuando los 3 están subidos, la fase pasa sola a `in_review`
+   (`DocumentService.sync_initial_phase`, Tarea 1 2026-09-28): no hay botón que tocar,
+   ni un segundo paso — el propio `POST` de la 3ª subida ya la deja en revisión.
+4. La pantalla lo dice sin ambigüedad (Tarea 2, 2026-09-28): cada casilla subida trae su
+   propia píldora (`doc_pill_alumno`, `_macros.html` — **distinta** de `estado_pill`, la
+   del personal) y la fecha de la última llegada real; al pie, un aviso
+   (`#tt-docs-status`) resume el conjunto. Ver «UI: píldora, fecha y aviso de estado»
+   más abajo.
 
 ## Secuencia
 
@@ -32,40 +68,295 @@ sequenceDiagram
     participant DB as Postgres
     U->>FE: elige archivo en el dropzone
     FE->>API: POST /titulatec/student/documents/{type_code}  (multipart)
-    API->>SVC: save(db, process, type_code, raw, ...)
-    SVC->>ST: save_document(...) (comprime img / valida PDF)
-    ST-->>SVC: {file_path, mime, size}
+    API->>DB: (hilo 1, `_cuerpo_document_upload`) lecturas y guardas: tipo, proceso, fase, set de documentos, archivo.size > 20 MB → error SIN leer el cuerpo; commit: cierra la transacción
+    API->>API: await archivo.read() (lo único que hace la ruta async en el event loop)
+    API->>DB: (hilo 2) repite las guardas sobre el estado de AHORA
+    API->>ST: prepare_document(raw, control, file_kind) (valida + comprime; en el hilo, sin disco ni BD)
+    ST-->>API: PreparedDocument (bytes a guardar)
+    API->>SVC: save(db, process, type_code, ..., prepared=...) (en el hilo)
+    SVC->>ST: write_document(prepared, ...) (temporal + os.replace; luego borra versiones viejas)
+    ST-->>SVC: {file_path, mime, size (del archivo GUARDADO)}
     SVC->>DB: UPSERT Document (review_status=pending, version++)
+    SVC->>SVC: sync_initial_phase(process) -- ¿los 3 ya están?
+    SVC->>DB: ProcessPhase[1].status = in_review (solo si completó y venía de pending/in_progress/rejected)
     SVC-->>API: doc
-    API-->>FE: parcial document_slot.html (estado actualizado)
-    U->>FE: "Enviar a revisión"
-    FE->>API: POST /titulatec/student/phase/1/submit
-    API->>DB: ProcessPhase[1].status = in_review
-    API-->>FE: 204 (reload)
+    API-->>FE: parcial document_slot.html (estado actualizado; sin botón "Enviar a revisión")
 ```
 
 ## Pasos detallados
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
-| 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | `DocumentService.get_document` ×3 | — | — |
-| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `DocumentService.save` → `storage.save_document` | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, archivo en `instance/.../{period}/{control}/documents/{type}.{ext}`) | — |
-| 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` | borra fila + archivo | — |
-| 4 | 👤 | botón enviar | enviar fase | `POST /student/phase/1/submit` | (inline) valida 3 docs | `ProcessPhase[1].status=in_review` | — |
+| 1 | 👤 | `/student/documents` | ver slots | `GET /student/documents` | set del `track` ya resuelto (`DocumentService.initial_doc_types(track)`) + tipos y documentos en UN lote cada uno (perf 2026-10-07: antes `get_document` y la consulta del tipo POR espacio, y la carrera leída 3 veces; 3 y 7 espacios hacen los mismos SELECT, `test_perf_rutas_lentas.py`) | — | — |
+| 2 | 👤 | dropzone | subir/re-subir | `POST /student/documents/{type_code}` | `storage.prepare_document` (en el threadpool, sin transacción abierta; `pdf_compress.compress_pdf` si pasa de 2 MB) → `DocumentService.save(..., prepared=...)` (en el threadpool) → `storage.write_document` → `DocumentService.sync_initial_phase` (solo si el tipo es de la fase `initial_docs`) | `titulatec_documents` UPSERT (`review_status=pending`, `version`++, `size_bytes` = lo guardado, `original_name` = el nombre que subió el alumno), archivo en `instance/.../{period}/{control}/documents/{control}_{ETIQUETA}.{ext}`; `ProcessPhase[1].status` → `in_review` si con esta suben los 3 (desde `pending`\|`in_progress`\|`rejected`) | `ProcessEvent(document_uploaded)` |
+| 3 | 👤 | botón ✕ | eliminar | `DELETE /student/documents/{type_code}` | `DocumentService.delete` → `DocumentService.sync_initial_phase` (idem) | borra fila + archivo; `ProcessPhase[1].status` → `in_progress` si ya estaba `in_review` y con esto falta alguno | — |
+
+(2026-09-28, Tarea 1: se retiró el paso "botón enviar" — `POST /student/phase/1/submit`
+ya no existe. La fase 1 se sincroniza sola desde las filas 2 y 3 de esta tabla.)
+
+## Tamaño y compresión (desde 2026-09-28)
+
+Dos topes en `itcj2/config.py`, ambos por `.env` (reiniciar los procesos backend):
+
+| Config | Valor | Qué es |
+|---|---|---|
+| `TITULATEC_MAX_PDF_SIZE` | 2 MB | lo que pesa el archivo **guardado** |
+| `TITULATEC_MAX_PDF_UPLOAD_SIZE` | 20 MB | lo máximo que se **recibe** para intentar comprimir |
+
+`storage.prepare_document`, rama `pdf`, en este orden (`save_document` = `prepare_document` +
+`write_document`, para quien no necesite separarlos):
+
+1. extensión `.pdf`;
+2. `> 20 MB` → `StorageError` «Tu PDF pesa {X} MB; el máximo que aceptamos es {N} MB.» (la ruta
+   ya lo comprobó con `UploadFile.size` **antes de leer el cuerpo**; `prepare_document` lo repite
+   sobre los bytes);
+3. número de control alfanumérico (si no, `StorageError`: no se inventa un nombre);
+4. `<= 2 MB` → se guarda **intacto** (mismos bytes);
+5. `> 2 MB` → `utils/pdf_compress.compress_pdf(raw, target_bytes=2 MB)`: pasadas (150 dpi, JPEG
+   q75, tope 1754 px) → (110, q60, 1286 px) → (96, q50, 1123 px) sobre las **imágenes** de cada
+   página (más `compress_content_streams` y compactar objetos), gana la primera que cabe. `None` →
+   «Tu PDF pesa {X} MB y aun comprimido supera {L} MB; escanéalo en menor resolución o en blanco y
+   negro.»; ilegible/cifrado, o un resultado con otro número de páginas → «No pudimos leer tu PDF;
+   vuelve a generarlo o escanéalo de nuevo.».
+
+`{X}` va con un decimal redondeado **hacia arriba** (20 MB + 1 byte = «20.1»): lo que pasa del
+tope nunca se lee igual al tope.
+
+En cada pasada, cada imagen:
+
+- se **reduce** si su lado largo pasa del MENOR de dos límites: lado mayor de la página
+  (pulgadas) × dpi, y el **tope absoluto** de la pasada (≈ lado largo de un A4 a esos dpi). El
+  tope absoluto es por los «foto → PDF» (iPhone «Crear PDF», Vista Previa, img2pdf, apps de
+  escaneo), que hacen la página del tamaño de la foto a 72 dpi (~42×56″): el límite de la
+  página solo nunca los tocaba (revisión 2026-09-28, R1; medido: una foto de 3000×4000 px en
+  un PDF de 5.69 MB queda en 0.19 MB a 1315×1754 px);
+- se **recodifica** en JPEG a la calidad de la pasada aunque ya quepa, salvo que ya sea un JPEG
+  a esa calidad o menor (la calidad se estima de su tabla de cuantización, sin decodificarlo):
+  así bajan los escaneos guardados sin pérdida (Flate) o en JPEG q95. Si el JPEG nuevo no pesa
+  menos que la imagen original, se queda la original;
+- **bitonal** (1 bit, máscaras, CCITT/JBIG2): nunca se toca, en JPEG crecería;
+- **de paleta** (`/ColorSpace` `/Indexed`, también por referencia indirecta): nunca se toca.
+  pypdf 6.19 decodifica NEGRA una `/Indexed` con `/ASCIIHexDecode` (así escribe Pillow el modo
+  P), y como el JPEG negro pesa menos, se aceptaba en silencio (medido: 16.81 → 0.01 MB, todo
+  negro). Si por no tocarla el PDF no cabe, se rechaza con el mensaje de siempre (ronda 2);
+- que se **decodifica de un solo color** (`getextrema` sin variación en ningún canal) con un
+  stream original de más de 4 KB (`UNIFORM_SUSPECT_BYTES`): se deja la original. Una imagen lisa
+  de verdad se comprime a casi nada, así que eso delata una mala lectura (ronda 2);
+- que declara más de 50 MP (`MAX_IMAGE_PIXELS` de `pdf_compress`): se deja como está sin
+  decodificarla. Los JPEG se decodifican ya reducidos (`Image.draft`), no a tamaño completo;
+- que pypdf/Pillow no pueden decodificar: se deja como está, sin abortar el resto.
+
+**Cómo se decodifica (rendimiento, 2026-10-06).** Un JPEG «simple» se decodifica ya reducido
+(`Image.draft`); un **Flate «simple»** (8 bits, gris o RGB —directo, Cal* o ICCBased de 1/3
+componentes—, sin `/Mask`/`/Decode`, con o sin predictor PNG) se lee directo de
+`get_data()` con `Image.frombytes` (`_decode_flat`), con los mismos píxeles que pypdf. Solo lo
+demás (CMYK, máscaras de bits…; JPEG2000 y máscaras suaves desde 2026-10-14, abajo) va por
+`page.images[...]` de pypdf, que es CARO: re-codifica cada
+imagen a PNG y la vuelve a abrir. Medido en prod (2026-10-05/06): las subidas de 1–2.3 s eran
+actas y certificados de escáner en Flate; esa vuelta por PNG costaba ~2.4 s por hoja A4 a 300 dpi
+(con `_decode_flat`, 25 ms; la compresión de una hoja baja de 2.6 s a 0.2 s).
+
+**JPEG2000 y máscaras suaves (rendimiento, 2026-10-14).** La traza de prod `0ed8aba9…`
+(2026-10-13) mostró una subida de 10.7 s: 10.6 s en `titulatec.prepare_document` para un PDF de
+7.4 MB con imágenes **JPEG2000**. pypdf decodifica el JPEG2000, lo vuelve a **codificar** a JPEG2000
+y lo decodifica otra vez al abrirlo (~3.4 s por hoja A4 a 300 dpi); con **máscara suave**
+(`/SMask`, un PNG con transparencia) lo re-codifica a PNG, o a JPEG2000 si la imagen era JPEG
+(~2 s por hoja). Ahora `_decode_direct` despacha todo lo «simple» sin pypdf:
+
+| Ruta (`itcj.img_<ruta>`) | Qué | Cómo |
+|---|---|---|
+| `jpeg` | JPEG gris/RGB | `Image.draft`: ya reducido |
+| `jpx` | JPEG2000 gris/RGB, sin `/SMaskInData`; `/ColorSpace` ausente o del mismo nº de canales | Pillow con `reduce` (descarta niveles de resolución: 1/2, 1/4, 1/8 por lado) hasta la menor medida que no baje del límite de la pasada |
+| `flat` | Flate simple | `_decode_flat` |
+| `smask` | cualquiera de las tres con `/SMask` 8 bits gris (Flate, JPEG o JPEG2000), sin `/Matte` | se aplana sobre blanco con el alfa (`_flatten_smask`): lo mismo que pypdf + `_for_jpeg`; si la imagen se decodificó reducida, la máscara se escala a su medida; lo gris se queda gris |
+| `pypdf` | lo demás (CMYK, `/Decode`, `/Mask`, máscaras de bits, `/Matte`…) | `page.images[...]`, la ruta cara |
+| `error` | no se pudo decodificar | se deja como está |
+
+Mismos píxeles que pypdf (pruebas «oráculo» en `test_pdf_compress.py`, salvo lo reducido, que se
+compara «a la vista»). Medido en dev, 4 hojas A4 a 300 dpi: JPEG2000 12.7 s → 0.77 s; Flate con
+máscara 9.2 s → 0.89 s.
+
+**Log por subida.** Cada subida (segundo salto) deja una línea INFO `documento subido`
+(`logger="itcj2.apps.titulatec.pages.student"`) con `doc_type`, `bytes_in`, `bytes_out`,
+`compress_passes` (0 = se guardó intacto), `compress_images` (`{ruta: n}` de la última pasada,
+tabla de arriba), `pypdf_ms` (lo que costó lo que fue por pypdf), `prepare_ms` (validar +
+comprimir), `save_ms` (escribir + BD + sincronizar fase), `outcome` (`ok`|`error`) y `error_type`.
+Nada del archivo ni su nombre. Se cruza con la línea de acceso por `request_id`. El span
+`titulatec.prepare_document` lleva lo mismo: `itcj.img_<ruta>` y, si hubo, `itcj.pypdf_ms`.
+
+Todo se valida **antes** de crear la carpeta: un error de validación no deja nada en disco ni en
+BD.
+
+La compresión es CPU (segundos en un PDF de 20 MB): `prepare_document` y `DocumentService.save` corren
+en el threadpool. Desde 2026-10-05 (convención de TODAS las rutas, `CLAUDE.md` §1 de la app) lo hace toda la
+ruta: `document_upload` es `async` solo para `await archivo.read()` y delega en `_cuerpo_document_upload`, que
+corre en el hilo en DOS saltos —el primero valida y devuelve la respuesta final o `None`; la ruta lee el archivo;
+el segundo repite las guardas sobre el estado de AHORA, comprime, guarda y renderiza—, a costa de ~6 consultas
+de más por subida. Y lo corre **sin transacción abierta**: antes de
+leer el cuerpo hace `commit()` de la transacción de lectura (no hay nada pendiente), así la
+conexión no queda «idle in transaction» — con PgBouncer transaccional, un backend fijado —
+mientras se comprime; `DocumentService.save(..., prepared=...)` solo escribe el archivo y la fila
+en una transacción corta. (Sigue abierta, si hubo *cache miss* de authz, la sesión propia de
+`require_page_app`/`get_db`, que se cierra al terminar la petición: es del core, no de esta ruta.)
+
+Escritura (`storage.write_document`): a un temporal en la misma carpeta y `os.replace` al nombre
+final (atómico: quien lea ve el archivo anterior completo o el nuevo completo); las versiones
+viejas del mismo tipo se borran **después** de escribir la nueva. Si la escritura falla, lo
+anterior queda en su lugar.
+
+## Nombre en disco (desde 2026-09-28)
+
+`{control}_{ETIQUETA}.{ext}` (`storage.document_filename`): `ACTA` (`birth_certificate`),
+`CERTIFICADO` (`high_school_cert`), `CURP` (`curp`) y, para cualquier otro tipo, el código en
+mayúsculas (`INE`, `ANEXO_III`, `EGEL_PROOF`…). El control viene de `core_users` vía
+`DocumentService._storage_keys` y solo se usa si casa `^[A-Za-z0-9]+$`; el `type_code`, si casa
+`^[a-z0-9_]+$`. El nombre final se une a la carpeta con `safe_join`. Al resubir se borra
+cualquier versión previa del mismo tipo, con el nombre viejo (`{type_code}.*`) o con el nuevo en
+otra extensión — después de escribir la nueva. Los archivos anteriores al cambio se renombran con
+`python -m itcj2.cli.main titulatec rename-documents [--dry-run]`, que nunca pisa un destino
+(`os.link` + `unlink`: uno que aparezca a última hora cuenta como conflicto) y que ante
+cualquier fallo — también Ctrl-C — deshace los renombres del lote sin commitear y sale con 1.
+Cuenta `ya_bien` solo si el archivo con el nombre esperado existe en disco; una fila que ya dice
+el nombre nuevo sin archivo sale en `faltantes` (lo que deja un lote deshecho tras un commit «en
+duda») (ver
+[revisión de documentos](phase1_school_services_review_docs.md) para el nombre de descarga).
 
 ## Estado resultante
 
-- 3 filas en `titulatec_documents` con `review_status=pending`.
-- `ProcessPhase[1].status = in_review` → aparece en la bandeja admin para revisión.
+- 3 (licenciatura) o 7 (posgrado) filas en `titulatec_documents` con `review_status=pending`.
+- `ProcessPhase[1].status = in_review` → aparece en la bandeja admin para revisión —
+  `DocumentService.sync_initial_phase` cuenta contra el set DEL proceso, así que un posgrado con
+  los 3 base pero sin los 4 extras se queda en `in_progress`, no en `in_review`.
+
+## Modo reemplazo en la cita de cotejo (2026-10-15)
+
+Spec `2026-10-15-titulatec-reemplazo-cotejo-design.md` §4.3 y §7.2. Flujo completo:
+[`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md). Si en la cita de cotejo
+Servicios Escolares pide reemplazar un documento de la fase 1, el alumno lo re-sube aquí mismo aunque
+la fase 1 ya esté cerrada — **solo ese documento**.
+
+- **`GET /student/documents`** (`documents`, `pages/student.py:1175`). Antes: fuera de la fase 1 la guarda
+  de página (`_phase_guard_page`) redirige al acordeón. Ahora, si redirigiría pero el proceso tiene
+  reemplazos abiertos y `DocumentService.student_can_replace(db, process, type_code)` aplica a alguno
+  (`:1201-1215`), la página se pinta en **modo reemplazo** (`replace_mode`); si no, el redirect de
+  siempre. En la fase 1 esa rama no consulta nada (mismo presupuesto de consultas, plantilla igual).
+- **Qué ve el alumno.** Encabezado «Reemplazo de documentos» / «Cita de cotejo», tarjeta
+  `#tt-replacement-intro` («Servicios Escolares te pidió volver a subir los documentos marcados…»), los
+  documentos con reemplazo abierto con su zona de subida y **el resto de SOLO LECTURA** («Sin enviar» si
+  no hay fila; sin borrar ni subir — `_slot_ctx(readonly=…, replace_mode=…)`, `pages/student.py:496`;
+  `partials/document_slot.html`). `rejected` muestra «Servicios Escolares pidió reemplazarlo», el motivo y
+  «Subir documento de reemplazo»; `pending` muestra «Reemplazo enviado · en revisión» y «Cambiar archivo»
+  (se puede cambiar mientras nadie lo apruebe). **Nunca hay botón de borrar** en este modo.
+- **Aviso de estado propio** (`_docs_status_ctx(mode="replacement")`, `pages/student.py:546/568`; estados
+  `replacement_rejected`: «Falta que subas el reemplazo de: …» / `replacement_sent`: «Tu reemplazo llegó a
+  Servicios Escolares y está en revisión…»), pegado por OOB como el de la fase 1.
+- **`POST /student/documents/{type_code}`** (`document_upload`, `pages/student.py:1271`). `_phase_guard`
+  sigue siendo lo primero; si niega, la subida se permite **solo** si el tipo es de la fase 1 y
+  `student_can_replace` aplica: proceso `active`, `current_phase` == fase `review_appointment`, fila con
+  reemplazo abierto (`replacement_requested_at` y `review_status != "approved"`, el predicado único `DocumentService.replacement_open`). La guarda de la ruta es `DocumentService.student_can_replace`, que a su vez usa `replacement_open` (`pages/student.py:1353-1362`).
+  Cualquier otra cosa devuelve la respuesta de la guarda (400). La guarda del set del perfil
+  (`_initial_docs_set_guard`) sigue aplicando, y la respuesta del slot conserva el modo reemplazo.
+- **`DELETE /student/documents/{type_code}`** (`document_delete`, `:1436`): **sin excepción**. Borrar sigue negado
+  fuera de la fase 1 (`_phase_guard`), con o sin reemplazo abierto — borraría la fila y el fichero de una
+  fase ya dictaminada.
+- **Efecto del `save()`.** Resubir deja el documento `pending`, limpia nota y revisor (como siempre) y
+  **no toca** `replacement_requested_at`: el reemplazo sigue abierto, «por evaluar», hasta que la jefa o
+  un encargado lo aprueben. `sync_initial_phase` no vuelve a mover la fase 1 (ya está `approved`).
+- **Cómo llega el alumno aquí:** aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED`, correo de dictamen de
+  siempre, y el aviso del tablero / «Mi cita» con botón «Subir reemplazo» → `/titulatec/student/documents`
+  (`partials/student/_replacement_notice.html`).
+
+## La versión continúa tras borrar (2026-10-15, D7)
+
+`Document.version` no vuelve a 1 al borrar y re-subir. `DocumentService.save` actualiza una fila existente
+con `version + 1`; al crear una fila NUEVA usa `DocumentService._next_version`
+(`services/document_service.py:604`, llamado en `:738`): `1 + max(subidas previas de ese (proceso, tipo),
+mayor payload.version)` según los `ProcessEvent(document_uploaded)` (una consulta extra, solo al crear;
+sin bitácora da 1). **Datos existentes:** la migración `tt20261015a`
+(`migrations/versions/tt20261015a_titulatec_doc_replacement.py`, `VERSION_FIX_SQL`) corrige
+`version = GREATEST(version, nº de document_uploaded del (proceso, tipo))`, nunca baja una versión y es
+idempotente; en dev eran 120 documentos `version=1` con un `document_deleted` previo. El downgrade quita
+solo la columna del reemplazo, no revierte esa corrección.
+
+## UI: píldora, fecha de envío y aviso de estado (Tarea 2, 2026-09-28)
+
+Spec `2026-09-28-titulatec-correos-notificaciones-design.md` §4 A3/A4. Sin botón que tocar
+(Tarea 1), la pantalla tiene que decir por sí sola que lo subido YA se envió:
+
+- **Píldora por casilla** (`doc_pill_alumno(doc.review_status)`, `_macros.html`) — habla en
+  voz del ALUMNO, no del personal (`estado_pill`, que sigue usando `documents_body.html`/el
+  expediente, sin cambios): `pending` → «Enviado · en revisión» (ámbar) · `approved` →
+  «Aprobado» (verde) · `rejected` → «Necesita corrección» (rojo).
+- **«Enviado el {día} de {mes} a las {HH:MM}»** bajo el nombre del archivo
+  (`utils/dates_es.dia_mes_hora`) — la ÚLTIMA `ProcessEvent(document_uploaded)` de ese tipo,
+  no `Document.created_at` (no se resetea al resubir): `DocumentService.last_uploads(db,
+  process_ids, codes=None)`, extraída de `pages/documents.py::_last_uploads` (misma
+  semántica — esa función ahora delega ahí, la bandeja admin no cambia). Respaldo
+  `Document.created_at` si no hay evento (fila sembrada o subida antes de `2f43e7e5`).
+- **Aviso al pie** (`#tt-docs-status`, `partials/student/_docs_status.html`,
+  `pages/student.py::_docs_status_ctx`), prioridad rechazados > faltantes > aprobados >
+  enviados (los 4 son mutuamente excluyentes: `DocumentService.initial_docs_summary` reparte
+  los 3 documentos entre exactamente un `status` cada uno):
+  1. Rechazados → «Corrige los documentos marcados. Al subirlos vuelven a revisión solos.»
+  2. Faltan → «Te faltan N: {nombres}.», en singular con uno: «Te falta 1: {nombre}.» (B6,
+     ronda final 2026-09-29).
+  3. Los 3 aprobados → «¡Tus documentos fueron aprobados! Sigue: cita de cotejo» (liga a
+     `/titulatec/student/cita`).
+  4. Los 3 enviados (sin rechazos, no los 3 aprobados) → «Tus 3 documentos llegaron a
+     Servicios Escolares y están en revisión. Te avisaremos a **{correo personal}** y aquí en
+     la app.» — el correo sale de `StudentMail.contact_email(db, process)` (perfil →
+     `EnrollmentRequest` que convirtió el proceso → nada; **nunca** el institucional); sin
+     correo se omite la parte «a {correo}».
+- **Refresco sin recargar**: la respuesta de subir y de borrar un documento
+  (`POST`/`DELETE /student/documents/{type_code}`) solo reemplaza su propio
+  `#slot-{type_code}` — la tarjeta del aviso (`#tt-docs-status-card`) viaja ADEMÁS, pegada con
+  `hx-swap-oob="true"` (`ctx["status_oob"] = _docs_status_ctx(...)`, leído por
+  `document_slot.html`). También en la subida con error (200 + `X-Tt-Error`): el estado del
+  proceso no cambió, pero el aviso vuelve a pintarse igual, sin quedar huérfano de un swap
+  anterior.
+- **Región viva estable** (B7, ronda final 2026-09-29): `#tt-docs-status`
+  (`role="status"` `aria-live="polite"`) es un envoltorio que se pinta una sola vez, en la
+  carga completa, y que ningún swap reemplaza; el OOB cambia solo la tarjeta de adentro. Un
+  lector de pantalla anuncia los cambios DENTRO de una región que ya estaba en el DOM: cuando
+  el OOB reemplazaba la región entera, el cambio no se anunciaba. La tarjeta no lleva `role`
+  (una región viva dentro de otra se anunciaría dos veces). Sin JS: es solo el marcado de
+  `partials/student/_docs_status.html`.
 
 ## Caminos alternos / errores ❗
 
-- Archivo inválido (extensión/tamaño) → `StorageError`; el endpoint devuelve el parcial
-  con `error` + header `X-Tt-Error` → toast rojo (`TitulaTecUtils`). No se guarda.
-- Faltan documentos al enviar → `400` + `X-Tt-Error: "Faltan documentos por subir."`.
-- Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe versión).
+- Archivo inválido (extensión, tamaño, PDF que no baja de 2 MB, PDF ilegible, control con
+  caracteres raros) → `StorageError`; el endpoint responde **200** con el parcial del slot y el
+  `error` pintado dentro de la casilla, más `X-Tt-Error` (percent-codificado con `_hdr`, lo
+  decodifica `student/errors.js`). Es 200 a propósito: htmx 2 no hace swap en un 4xx, y el error
+  vive en el slot. No hay toast (ese canal es de `htmx:responseError`). No se guarda nada.
+- Faltan documentos → nada que hacer: `sync_initial_phase` solo actúa al completar el set DEL
+  PERFIL (3 en licenciatura, 7 en posgrado) (o al perder uno de una fase que ya estaba en
+  revisión). No hay un paso de "enviar" que pueda rechazarse por documentos faltantes.
+- **Tipo fuera del set del perfil** (licenciatura sube `professional_license`, o cualquiera sube
+  `egel_proof`) → `400` + `X-Tt-Error` («Este documento no aplica a tu proceso.»), sin fila
+  `Document` ni archivo en disco — `_initial_docs_set_guard`, detalle arriba y en
+  [el perfil de titulación](engine_process_track.md).
+- Re-subir un doc ya aprobado/rechazado lo vuelve a `pending` (sobreescribe el archivo; `version` suma 1, y tras un borrado continúa la numeración — ver «La versión continúa tras borrar»).
+- **Fuera de la fase 1** ([guarda de fase](engine_student_phase_lock.md)): `GET
+  /student/documents` responde `302` a `/student/dashboard?fase=1` (el acordeón, que sí
+  explica la fase) y los pasos 2-3 devuelven `400` + `X-Tt-Error`. Son los que antes
+  dejaban **borrar un documento aprobado** —fila y fichero— desde la fase 2 (el otro
+  agujero del reporte, **reabrir la fase 1 ya aprobada** vía `POST /phase/1/submit`, ya no
+  aplica: esa ruta no existe).
+- **Excepción (2026-10-15):** si la jefatura pidió el reemplazo de un documento en la cita de cotejo, la
+  subida de ESE documento sí pasa estando en la fase 2 y `GET /student/documents` no redirige
+  (modo reemplazo, sección de arriba). El borrado sigue negado.
+- El paso 2 guarda por el **tipo**, no por la URL: subir un `DocumentType` de otra fase
+  (`anexo_iii`, `ine`, `final_project`…) también da `400`.
+- Fase 1 `rejected` → sigue abierta: es el camino de corrección y reenvío.
 
 ## Flujos relacionados
 
 - ← Previo: [import CSV](phase0_school_services_import_csv.md) (crea el proceso).
+- ⤵ Reabierta en la fase 2 para un documento: [reemplazo de documento en el cotejo](xcut_cotejo_document_replacement.md).
 - ⤵ Siguiente: [revisión admin de docs iniciales](phase1_admin_review_initial_docs.md).
+- ⤵ De dónde sale el set de 3 vs. 7 y el perfil del proceso: [perfil de titulación por nivel de
+  carrera](engine_process_track.md).
+- 🖥️ Entrada y seguimiento: [acordeón de fases del dashboard](xcut_student_phase_detail.md) — de
+  ahí sale el CTA, y ahí se ve el avance documento a documento (aprobado / por corregir / en
+  revisión / sin subir) sin abrir esta pantalla.

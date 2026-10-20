@@ -176,13 +176,17 @@ class TestTitulatecControlNumber:
         "12345",
         "abc",
         "123456789",  # 9 dígitos puros: inválido por diseño
+        "L1234567",   # letra + 7 dígitos: formato viejo de posgrado, retirado
+        "M123456789", # letra + 9 dígitos: formato viejo de posgrado, retirado
+        "B2122152",   # letra + 7 dígitos
+        "BB21221523", # dos letras: inválido
     ])
     def test_invalid_control_numbers_rejected(self, bad):
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 
         assert not CONTROL_NUMBER_RE.fullmatch(bad)
 
-    @pytest.mark.parametrize("good", ["12345678", "L1234567", "M123456789"])
+    @pytest.mark.parametrize("good", ["12345678", "B21221523"])
     def test_valid_control_numbers_accepted(self, good):
         from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
 

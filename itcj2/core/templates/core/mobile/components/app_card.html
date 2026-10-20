@@ -1,18 +1,25 @@
 {# Macro para renderizar una tarjeta de aplicacion mobile #}
 {% macro render_app_card(app) %}
-{# Íconos raster personalizados por app-key (espejo del dashboard desktop). Si
+{# Íconos WebP optimizados (96x96) personalizados por app-key (espejo del dashboard desktop). Si
    la app tiene imagen, se muestra en tile blanco; el resto usa icono bootstrap. #}
 {% set icon_img = {
-     'agendatec':     'agendatec/icon/agendatec.ico',
-     'helpdesk':      'helpdesk/images/help-desk.png',
+     'agendatec':     'core/images/app-icons/agendatec.webp',
+     'helpdesk':      'core/images/app-icons/helpdesk.webp',
+     'directory': 'core/images/app-icons/directory.webp',
+     'maint':     'core/images/app-icons/maint.webp',
+     'titulatec': 'core/images/app-icons/titulatec.webp',
      'prorrogas_tec': 'prorrogas_tec/images/prorrogas.png',
    }.get(app.key) %}
+{# Imágenes que YA traen su propio tile (fondo + borde redondeado): van a sangre,
+   sin el tile blanco de .has-img, o se vería un marco dentro de otro. #}
+{% set own_tile = icon_img and app.key in ('titulatec',) %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
     data-app-key="{{ app.key }}">
-    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
+    <div class="mobile-app-card-icon{% if icon_img %} has-img{% endif %}{% if own_tile %} has-own-tile{% endif %}" style="--app-badge-color: {{ app.color or '#6c757d' }}">
         {% if icon_img %}
-        <img src="{{ url_for('static', filename=icon_img) }}" alt="{{ app.name }}" class="mobile-app-card-img">
+        {# `sv` llega por `import ... with context` (staff/student_dashboard, render() lo inyecta). #}
+        <img src="{{ url_for('static', filename=icon_img) }}?v={{ sv('core', icon_img | replace('core/', '', 1)) }}" alt="{{ app.name }}" class="mobile-app-card-img">
         {% else %}
         <i class="bi {{ app.icon_class or 'bi-app' }}"></i>
         {% endif %}

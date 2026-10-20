@@ -1,0 +1,886 @@
+"""Contrato: todo permiso que el CODIGO exige debe existir en el DML.
+
+Por que existe este test
+------------------------
+En titulatec la autorizacion es 100% `require_page_app("titulatec", perms=[...])`
+y **no hay bypass de admin global** (`itcj2/dependencies.py:104-139`): el gate
+resuelve el codigo contra `core_permissions`. Si una ruta exige un codigo que
+ningun seeder inserta, la pagina devuelve 403 para TODO el mundo, sin error en
+logs y sin forma de arreglarlo desde la UI. Es un fallo silencioso y permanente.
+
+Este es el test que habria atajado el incidente de los seeders borrados: los
+permisos viven en `database/DML/` (gitignored, §3 del CLAUDE.md raiz), asi que
+nada mas los ata al codigo salvo la disciplina de quien edita.
+
+Como se extrae cada lado
+------------------------
+- **Codigo**: AST de `itcj2/apps/titulatec/pages/*.py`. Se leen los `perms=` de
+  cada `require_page_app(...)`, resolviendo las constantes de modulo
+  (`_COHORT_PERMS`, `_VIEW_PERMS`, ...) por nombre; mas los codigos del menu
+  `_ADMIN_NAV` (`pages/nav.py:95-103`), donde un codigo inexistente no da 403:
+  esconde la pestana para siempre, que es peor.
+  Se usa AST y no regex para no confundir codigos de permiso con los `name=`
+  de las rutas, que tienen la misma forma (`titulatec.pages.admin.home`).
+- **DML**: los `('codigo', ...)` de los `INSERT INTO core_permissions` de
+  `database/DML/titulatec/**/*.sql` (02 los declara todos; 07 anade
+  `cohort.api.cotejo_reqs`; 08 anade los tres de `review_window.*`; el delta
+  `survey_2026_09/09_insert_survey_perms.sql` anade los once de la campana de
+  encuesta de egresados: ocho de encuesta/solicitudes mas tres de la
+  liberacion de GTV agregados el 2026-09-15). `_declared_by_dml()` usa
+  `DML_DIR.rglob("*.sql")`,
+  no `glob("*.sql")`, precisamente para alcanzar los archivos dentro de
+  subcarpetas de delta como `survey_2026_09/` — es el patron establecido para
+  no tocar `03_insert_role_permissions.sql` (sus DELETE se re-aplican en cada
+  corrida y revocarian cualquier permiso agregado ahi). Si alguien "simplifica"
+  el `rglob` de vuelta a `glob`, los codigos de cualquier delta futuro en su
+  propia subcarpeta se vuelven invisibles para este contrato sin que nadie lo
+  note: NO LO HAGAS.
+
+`database/` esta gitignored a proposito y NUNCA llega al checkout de CI: si no
+esta, el test hace SKIP con motivo, no falla.
+"""
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+PAGES_DIR = REPO_ROOT / "itcj2" / "apps" / "titulatec" / "pages"
+DML_DIR = REPO_ROOT / "database" / "DML" / "titulatec"
+
+# Codigo de permiso: 'titulatec.' + al menos dos segmentos mas.
+PERM_RE = re.compile(r"^titulatec\.[a-z0-9_]+\.[a-z0-9_.]+$")
+
+# Los 11 codigos del delta de 2026-09 (encuesta de egresados + convocatoria
+# abierta + liberacion de GTV, esta ultima agregada el 2026-09-15). Viven en
+# database/DML/titulatec/survey_2026_09/, NO en el 02/03.
+NUEVOS_2026_09 = (
+    "titulatec.survey.page.list",
+    "titulatec.survey.api.read",
+    "titulatec.survey.api.export",
+    "titulatec.survey.api.manage",
+    "titulatec.enrollment_request.page.list",
+    "titulatec.enrollment_request.api.approve",
+    "titulatec.enrollment_request.api.reject",
+    "titulatec.process.api.requirement.mark",
+    "titulatec.survey_review.page.list",
+    "titulatec.survey_review.api.approve",
+    "titulatec.survey_review.api.reject",
+)
+
+
+def _module_string_lists(tree: ast.Module) -> dict[str, list[str]]:
+    """Constantes de modulo que son listas/tuplas/sets de strings.
+
+    Es lo que permite resolver `perms=_COHORT_PERMS` sin importar el modulo
+    (importarlo arrastraria la app entera y sus efectos de import).
+    """
+    out: dict[str, list[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name):
+            continue
+        if not isinstance(node.value, (ast.List, ast.Tuple, ast.Set)):
+            continue
+        values = [e.value for e in node.value.elts
+                  if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        if values:
+            out[target.id] = values
+    return out
+
+
+def _codes_from_perms_arg(node: ast.AST, consts: dict[str, list[str]]) -> list[str]:
+    """Resuelve el valor pasado a `perms=`: literal, constante por nombre, o suma."""
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return [e.value for e in node.elts
+                if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+    if isinstance(node, ast.Name):
+        return list(consts.get(node.id, []))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return (_codes_from_perms_arg(node.left, consts)
+                + _codes_from_perms_arg(node.right, consts))
+    return []
+
+
+def _required_by_code() -> dict[str, set[str]]:
+    """{codigo de permiso -> {'archivo:linea', ...}} exigidos por pages/."""
+    required: dict[str, set[str]] = {}
+
+    def _add(code: str, where: str) -> None:
+        if PERM_RE.match(code):
+            required.setdefault(code, set()).add(where)
+
+    for path in sorted(PAGES_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        consts = _module_string_lists(tree)
+
+        # 1) perms= de cada require_page_app(...)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if name != "require_page_app":
+                continue
+            for kw in node.keywords:
+                if kw.arg == "perms":
+                    for code in _codes_from_perms_arg(kw.value, consts):
+                        _add(code, f"{path.name}:{node.lineno}")
+
+        # 2) permisos del menu admin (_ADMIN_NAV): un codigo inexistente aqui
+        #    no da 403, esconde la pestana en silencio.
+        for node in tree.body:
+            if not (isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and node.targets[0].id == "_ADMIN_NAV"):
+                continue
+            for sub in ast.walk(node.value):
+                if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                    _add(sub.value, f"{path.name}:_ADMIN_NAV")
+
+    return required
+
+
+def _declared_by_dml() -> dict[str, str]:
+    """{codigo -> archivo.sql} declarado en los INSERT INTO core_permissions."""
+    declared: dict[str, str] = {}
+    insert_re = re.compile(r"INSERT\s+INTO\s+core_permissions", re.IGNORECASE)
+    # Filas de la forma: (v_app_id, 'titulatec.x.y.z', 'Nombre', 'Desc')
+    row_re = re.compile(r"\(\s*v_app_id\s*,\s*'([^']+)'")
+
+    for path in sorted(DML_DIR.rglob("*.sql")):
+        sql = path.read_text(encoding="utf-8")
+        if not insert_re.search(sql):
+            continue
+        for code in row_re.findall(sql):
+            if PERM_RE.match(code):
+                declared.setdefault(code, path.name)
+    return declared
+
+
+requires_dml = pytest.mark.skipif(
+    not DML_DIR.is_dir(),
+    reason=(
+        "database/DML/titulatec/ no esta en el checkout (gitignored a proposito: "
+        "trae PII real y nunca llega a CI). Este contrato solo se puede verificar "
+        "en un entorno con los seeders presentes."
+    ),
+)
+
+
+def test_el_extractor_ast_encuentra_permisos():
+    """Guarda del propio test: si el extractor deja de ver codigos, el contrato
+    pasaria vacio y en verde sin verificar nada."""
+    required = _required_by_code()
+
+    assert len(required) >= 20, f"el extractor solo vio {len(required)} codigos"
+    # Anclas: un permiso de pagina, uno de accion y uno del menu admin.
+    assert "titulatec.document.page.list" in required
+    assert "titulatec.process.api.approve_phase" in required
+    assert "titulatec.ceremony.page.list" in required   # solo vive en _ADMIN_NAV
+
+
+@requires_dml
+def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
+    """Si esto se cae, la ruta senalada devuelve 403 permanente en produccion."""
+    required = _required_by_code()
+    declared = set(_declared_by_dml())
+
+    faltantes = {code: sorted(where) for code, where in required.items()
+                 if code not in declared}
+
+    assert not faltantes, (
+        "Permisos exigidos por el codigo que NINGUN seeder inserta -> 403 "
+        "permanente. Para esta campana van en su propio delta: agregalos a "
+        "database/DML/titulatec/survey_2026_09/09_insert_survey_perms.sql "
+        "y asignalos en survey_2026_09/10_insert_survey_role_permissions.sql "
+        f"(NUNCA en 03_insert_role_permissions.sql, ver docstring del modulo):\n{faltantes}"
+    )
+
+
+@requires_dml
+def test_el_dml_declara_los_103_permisos_conocidos():
+    """Guarda del OTRO lado: detecta un seeder truncado o borrado.
+
+    103 es el numero verificado en BD tras `titulatec init-reemplazo-docs`
+    (o tras `init-titulatec` desde cero).
+
+    2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement (reemplazo en cotejo, reemplazo_2026_10/27).
+    2026-10-14: sube de 101 a 102 por titulatec.reports.page.view (Tablero de la jefa, reportes_2026_10/26).
+    Eran 99 hasta el 2026-10-07, cuando
+    el expediente resumido de Titulacion (spec 2026-10-07-titulatec-liberados-
+    biblioteca-helpdesk, D7) anadio `titulatec.process.page.summary` al 02 y
+    al delta `ajustes_2026_10/01_liberados_permisos.sql`. Eran 98 hasta el 2026-10-06, cuando
+    la pestaña «Correos» (bandeja de salida, solo admin) anadio
+    `titulatec.email_outbox.page.list` en su propio delta
+    `outbox_2026_10/24_insert_email_outbox_perm.sql`. Eran 88 hasta el 2026-10-01, cuando
+    la spec de no adeudo de biblioteca (Biblioteca -> Caja,
+    2026-10-01-titulatec-biblioteca-caja-design.md §4.6) anadio los diez
+    codigos nuevos (`titulatec.library_clearance.*` x5,
+    `titulatec.library_payment.*` x3, `titulatec.survey_review.api.
+    print_certificates` y `titulatec.certificate.page.list`) en su propio
+    delta `biblioteca_2026_10/21_insert_library_cashier_roles_perms.sql`.
+    Antes de eso eran 84 hasta el 2026-09-24, cuando la spec de Accesos de
+    Centro de Computo (NIP en dos pasos) anadio los cuatro codigos de la
+    bandeja nueva (`titulatec.enrollment_access.page.list`,
+    `titulatec.enrollment_access.api.grant`,
+    `titulatec.enrollment_access.api.return` y
+    `titulatec.enrollment_access.api.reject`) a `02_insert_permissions.sql`.
+    Antes de eso eran 82 hasta el 2026-09-21, cuando el Departamento de
+    Titulacion (spec 2026-09-21-titulatec-dpto-titulacion) anadio dos codigos
+    nuevos (`titulatec.handoff.page.list` y `titulatec.handoff.api.export`, la
+    bandeja de liberados a Titulacion) al bloque HANDOFF de
+    `02_insert_permissions.sql`. Antes de eso eran 80 hasta el 2026-09-16,
+    cuando el auto-agendado de citas de cotejo anadio dos codigos nuevos
+    (`titulatec.appointment.api.book.own` y
+    `titulatec.appointment.api.cancel.own`) al bloque de citas de
+    `02_insert_permissions.sql`. Antes de eso eran 77 hasta el 2026-09-15,
+    cuando la liberacion de la encuesta de egresados por Gestion Tecnologica y
+    Vinculacion (GTV) anadio tres codigos `titulatec.survey_review.*` en el
+    mismo delta `survey_2026_09/09_insert_survey_perms.sql`. Antes de eso eran
+    69 hasta el 2026-09-07, cuando esa misma campana anadio los ocho de
+    encuesta/solicitudes (aparte del 03, que lleva DELETE que se re-aplican en
+    cada corrida). Antes de eso eran 66 hasta el 2026-09-03, cuando el
+    rediseno de Citas anadio los tres de `review_window.*` en su propio
+    archivo 08.
+
+    Si baja, alguien recorto un seeder; si sube, este numero se actualiza junto
+    con la doc.
+    """
+    declared = _declared_by_dml()
+
+    assert len(declared) == 103, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 103 "
+        "(2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement, "
+        "el reemplazo en cotejo). Actualiza este numero "
+        f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
+        f"Declarados: {sorted(declared)}"
+    )
+
+
+@requires_dml
+def test_los_permisos_de_espacios_estan_en_su_propio_archivo():
+    """No pueden vivir en el 03.
+
+    `03_insert_role_permissions.sql` lleva DELETE que se re-aplican en CADA
+    corrida de `init-titulatec`. Un permiso concedido ahi puede quedar revocado
+    por una re-siembra, y el sintoma es un 403 que aparece solo despues de
+    sembrar.
+    """
+    ocho = (DML_DIR / "08_insert_review_window_perms.sql")
+    assert ocho.exists(), "falta 08_insert_review_window_perms.sql"
+    cuerpo = ocho.read_text(encoding="utf-8")
+    for codigo in ("titulatec.review_window.page.manage",
+                   "titulatec.review_window.api.manage",
+                   "titulatec.review_window.api.manage.all"):
+        assert codigo in cuerpo, f"{codigo} no esta en el archivo 08"
+
+    tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")
+    assert "review_window" not in tres, (
+        "los permisos de espacios NO pueden vivir en el 03: sus DELETE se "
+        "re-aplican en cada corrida y pueden revocarlos")
+
+
+@requires_dml
+def test_el_delta_de_encuesta_e_inscripcion_vive_en_su_subcarpeta():
+    """Los 8 permisos de 2026-09 van en survey_2026_09/, nunca en el 03.
+
+    `03_insert_role_permissions.sql` lleva DELETE (cuatro desde el 2026-09-15)
+    que se re-aplican en CADA corrida de `titulatec init-titulatec`. Un permiso
+    concedido ahi puede quedar revocado por una re-siembra, y el sintoma es un
+    403 que aparece solo despues de sembrar. Es la misma regla que ya vigila
+    `test_los_permisos_de_espacios_estan_en_su_propio_archivo` para el 08.
+    """
+    delta = DML_DIR / "survey_2026_09"
+    assert delta.is_dir(), (
+        "falta database/DML/titulatec/survey_2026_09/. `database/` esta "
+        "gitignored: recuperala del respaldo o crea el delta."
+    )
+
+    nueve = delta / "09_insert_survey_perms.sql"
+    assert nueve.exists(), "falta 09_insert_survey_perms.sql"
+    cuerpo = nueve.read_text(encoding="utf-8")
+    for codigo in NUEVOS_2026_09:
+        assert codigo in cuerpo, f"{codigo} no esta en 09_insert_survey_perms.sql"
+
+    diez = delta / "10_insert_survey_role_permissions.sql"
+    assert diez.exists(), "falta 10_insert_survey_role_permissions.sql"
+    grants = diez.read_text(encoding="utf-8")
+    assert "titulatec_school_services_head" in grants, (
+        "el 10 no concede nada a la jefatura de Servicios Escolares")
+    assert "titulatec_school_services'" in grants, (
+        "titulatec.process.api.requirement.mark tambien va al rol OPERATIVO "
+        "(spec 5.4): el encargado es quien usa el checklist de cotejo")
+
+    # El 13 siembra el checklist de cotejo en las convocatorias anteriores al
+    # 2026-09-08. Sin el, la guarda de la fase 2 nunca dispara en ninguna de
+    # ellas (B3): `missing_required` devuelve `[]` con cero requisitos.
+    # `tests/fastapi/titulatec/test_cli_survey_delta.py` fija ademas que algun
+    # comando lo corra.
+    for nombre in ("11_seed_survey_form.sql", "12_seed_cotejo_codes.sql",
+                   "13_seed_cotejo_reqs_all_cohorts.sql"):
+        assert (delta / nombre).exists(), f"falta {nombre}"
+
+    tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")
+    for codigo in NUEVOS_2026_09:
+        assert codigo not in tres, (
+            f"{codigo} no puede vivir en el 03: sus DELETE se re-aplican en "
+            "cada corrida de init-titulatec y pueden revocarlo")
+
+
+def _like_to_regex(patron_like: str) -> re.Pattern:
+    """Traduce un patron SQL LIKE (solo `%` y `_`) a una regex anclada.
+
+    Caracter por caracter y no `re.escape(...).replace(r"\\%", ...)`: desde
+    Python 3.7 `re.escape` YA NO escapa `%` ni `_` (no son especiales para
+    regex), asi que ese `.replace` nunca encuentra nada que reemplazar y el
+    patron resultante busca un '%' literal en vez de traducirlo a `.*`.
+    """
+    partes = []
+    for ch in patron_like:
+        if ch == "%":
+            partes.append(".*")
+        elif ch == "_":
+            partes.append(".")
+        else:
+            partes.append(re.escape(ch))
+    return re.compile("^" + "".join(partes) + "$")
+
+
+def _grants_de_rol_in(sql: str, rol: str) -> set[str]:
+    """Codigos de un `WHERE r.name = '<rol>' AND p.code IN (...)`.
+
+    Es el estilo de `survey_2026_09/10_insert_survey_role_permissions.sql`
+    (usa `p.code IN (...)`, no `ARRAY[...]` como el 03 — por eso no se
+    reutiliza `_grants_de_rol`).
+    """
+    patron = (r"WHERE\s+r\.name\s*=\s*'" + re.escape(rol)
+              + r"'\s+AND\s+p\.code\s+IN\s*\(([^)]*)\)")
+    return {c for bloque in re.findall(patron, sql)
+            for c in re.findall(r"'([^']+)'", bloque)}
+
+
+@requires_dml
+def test_el_reparto_de_gtv_libera_encuesta_y_recorta_a_la_jefatura():
+    """Spec 2026-09-15-titulatec-liberacion-gtv, seccion 7.
+
+    GTV (`titulatec_tech_management`, rol nuevo) recibe los 3
+    `survey_review.*` nuevos mas los 4 `survey.*` y los 2 `notifications.*`
+    (9 en total: "Verificacion en BD... con 9 permisos en titulatec"). La
+    jefatura de Servicios Escolares (`titulatec_school_services_head`) pierde
+    `survey.*` -pasa a GTV, spec D12- pero conserva sus otros 4:
+    `enrollment_request.*` y `requirement.mark`.
+    """
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", diez)
+
+    assert _grants_de_rol_in(sin_comentarios, "titulatec_tech_management") == {
+        "titulatec.survey_review.page.list",
+        "titulatec.survey_review.api.approve",
+        "titulatec.survey_review.api.reject",
+        "titulatec.survey.page.list",
+        "titulatec.survey.api.read",
+        "titulatec.survey.api.export",
+        "titulatec.survey.api.manage",
+        "titulatec.notifications.api.read.own",
+        "titulatec.notifications.api.mark_read",
+    }, "GTV (titulatec_tech_management) no tiene exactamente los 9 permisos del reparto"
+
+    conservados = _grants_de_rol_in(sin_comentarios, "titulatec_school_services_head")
+    for codigo in ("titulatec.enrollment_request.page.list",
+                   "titulatec.enrollment_request.api.approve",
+                   "titulatec.enrollment_request.api.reject",
+                   "titulatec.process.api.requirement.mark"):
+        assert codigo in conservados, (
+            f"la jefatura deberia conservar {codigo} (spec D12: solo pierde survey.*)")
+
+    assert re.search(
+        r"DELETE\s+FROM\s+core_role_permissions[^;]*"
+        r"r\.name\s*=\s*'titulatec_school_services_head'[^;]*"
+        r"LIKE\s*'titulatec\.survey\.%'",
+        sin_comentarios,
+    ), ("falta el DELETE que le quita 'titulatec.survey.%' a la jefatura "
+        "(patron acotado como 03_insert_role_permissions.sql:150-155)")
+
+
+@requires_dml
+def test_el_patron_like_de_survey_no_alcanza_a_survey_review():
+    """El DELETE de arriba usa `LIKE 'titulatec.survey.%'`: el punto literal
+    tras "survey" no casa con el `_` de `titulatec.survey_review.*`, asi que
+    GTV no pierde los 3 permisos que acaba de recibir. Si alguien "simplifica"
+    el patron a `titulatec.survey%` (sin el punto), este test lo detecta."""
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+
+    m = re.search(r"LIKE\s*'([^']+)'", diez)
+    assert m, "no se encontro ningun patron LIKE en el archivo 10"
+    patron = _like_to_regex(m.group(1))
+
+    assert patron.match("titulatec.survey.page.list")
+    assert patron.match("titulatec.survey.api.manage")
+    assert not patron.match("titulatec.survey_review.page.list")
+    assert not patron.match("titulatec.survey_review.api.approve")
+    assert not patron.match("titulatec.survey_review.api.reject")
+
+
+@requires_dml
+def test_el_operativo_de_escolares_recibe_solicitudes_por_alcance():
+    """2026-09-21 (spec 2026-09-21-titulatec-dpto-titulacion, "encargados de
+    carrera en la bandeja de Solicitudes"): el rol OPERATIVO
+    (`titulatec_school_services`) deja de tener SOLO `requirement.mark` y gana
+    ADEMAS los mismos 3 `enrollment_request.*` que ya tenia la jefatura -- de
+    aqui cuelgan los encargados de carrera (puestos sinteticos `se_officer_*`
+    que crea `OfficerService`), ademas de la secretaria y el auxiliar del
+    depto.
+
+    El alcance por carrera de esa bandeja YA estaba implementado ANTES de
+    este delta: `scope_service.officer_programs()` +
+    `_load_scoped_request`/`_program_in_scope` en `pages/requests_admin.py`
+    filtran el listado (`program_id IN (scope)`) y devuelven 404 liso en
+    mutaciones fuera de alcance. Este test solo verifica que el DML concede el
+    permiso -- el filtro en si lo ejercitan `test_enrollment_inbox.py` y
+    `test_enrollment_approve.py`.
+
+    OJO: `titulatec.enrollment_request.api.approve` tambien gatea el reenvio
+    de liga desde la bandeja (`requests_admin.py::resend`) -- a proposito:
+    mismo permiso, misma bandeja que aprobar.
+    """
+    diez = (DML_DIR / "survey_2026_09"
+            / "10_insert_survey_role_permissions.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", diez)
+
+    concedidos = _grants_de_rol_in(sin_comentarios, "titulatec_school_services")
+    for codigo in ("titulatec.enrollment_request.page.list",
+                   "titulatec.enrollment_request.api.approve",
+                   "titulatec.enrollment_request.api.reject",
+                   "titulatec.process.api.requirement.mark"):
+        assert codigo in concedidos, (
+            f"el operativo (titulatec_school_services) deberia tener {codigo}")
+
+
+# Los 23 permisos del alumno de titulacion. Los 21 originales colgaban de
+# `student` hasta 2026-09-15, cuando pasaron a `graduate`; los 2 de
+# `appointment.api.{book,cancel}.own` se agregaron el 2026-09-16 para el
+# auto-agendado de citas de cotejo (nunca existieron en `student`).
+PERMISOS_ALUMNO = (
+    "titulatec.dashboard.student",
+    "titulatec.process.page.my", "titulatec.process.api.read.own",
+    "titulatec.process.api.advance",
+    "titulatec.document.api.upload.own", "titulatec.document.api.read.own",
+    "titulatec.document.api.delete.own",
+    "titulatec.format_b.page.fill", "titulatec.format_b.api.save",
+    "titulatec.format_b.api.submit", "titulatec.format_b.api.read.own",
+    "titulatec.chat.page.view", "titulatec.chat.api.read", "titulatec.chat.api.send",
+    "titulatec.chat.api.upload",
+    "titulatec.appointment.page.my", "titulatec.appointment.api.confirm.own",
+    "titulatec.appointment.api.book.own", "titulatec.appointment.api.cancel.own",
+    "titulatec.ceremony.page.my", "titulatec.ceremony.api.upload.own",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+)
+# Lo minimo de la plataforma (app `itcj`) que ya tenia `student`.
+PERMISOS_PLATAFORMA_ALUMNO = ("core.general.read", "core.general.api.read")
+
+
+def _grants_de_rol(sql: str, rol: str) -> set[str]:
+    """Codigos de los `ARRAY[...]) WHERE r.name = '<rol>'` de un DML de grants.
+
+    `[^\\]]*` y no `.*?`: un comodin no-greedy arrancaria en el ARRAY del bloque
+    anterior y se tragaria sus codigos.
+    """
+    patron = (r"ARRAY\[([^\]]*)\]\)\s*WHERE\s+r\.name\s*=\s*'"
+              + re.escape(rol) + "'")
+    return {c for bloque in re.findall(patron, sql)
+            for c in re.findall(r"'([^']+)'", bloque)}
+
+
+# Los 12 permisos de SUPERVISION de la jefatura de la Division
+# (`titulatec_titulaciones`): lectura de todo + la bandeja de liberados. Hasta
+# el 2026-10-07 tambien los tenia completos `titulatec_titulacion`; desde
+# entonces ese rol solo conserva 8 (ver `PANTALLAS_RETIRADAS_TITULACION`).
+PERMISOS_SUPERVISION_TITULACIONES = (
+    "titulatec.dashboard.titulaciones",
+    "titulatec.process.page.list", "titulatec.process.page.detail",
+    "titulatec.process.api.read.all",
+    "titulatec.document.api.read.all",
+    "titulatec.document.page.list",
+    "titulatec.format_b.api.read.all",
+    "titulatec.ceremony.page.list",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+    "titulatec.handoff.page.list", "titulatec.handoff.api.export",
+)
+PERMISOS_DICTAMEN_FASES_3_8 = (
+    "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel", "titulatec.process.api.hold",
+    "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
+    "titulatec.document.api.approve", "titulatec.document.api.reject",
+)
+PERMISOS_CEREMONY_ESCRITURA = (
+    "titulatec.ceremony.api.create", "titulatec.ceremony.api.update",
+)
+# Los 3 de Convocatorias (cohort). Decision explicita del usuario al revertir
+# D6/D7: la jefatura de la Division tambien debe VER Convocatorias, ademas de
+# poder dictaminar. Solo entran en el reparto de `titulatec_titulaciones` --
+# `titulatec_titulacion` (Departamento de Titulacion) NO los tiene.
+PERMISOS_COHORT_TITULACIONES_DIV = (
+    "titulatec.cohort.page.list", "titulatec.cohort.page.detail", "titulatec.cohort.api.read",
+)
+# Los 7 que `titulatec_titulacion` (Departamento de Titulacion) PIERDE el
+# 2026-10-07 (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-design.md,
+# D1 + D8): Bandeja, Procesos, Documentos y Actos protocolarios, y tambien el
+# expediente COMPLETO (`process.page.detail`) con sus lecturas de desglose
+# (`document.api.read.all`, `format_b.api.read.all`): ve el expediente
+# RESUMIDO (`process.page.summary`, D7). Conserva Liberados y el dictamen
+# (fases 3-8, dormidos por el corte a T-soft). `titulatec_titulaciones`
+# (jefatura de la Division) NO cambia.
+RETIRADOS_TITULACION = (
+    "titulatec.dashboard.titulaciones",
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+    "titulatec.document.page.list",
+    "titulatec.document.api.read.all",
+    "titulatec.format_b.api.read.all",
+    "titulatec.ceremony.page.list",
+)
+# Permiso NUEVO (D7): expediente resumido -- solo las fases previas al corte y
+# su dictamen, sin desglose.
+PROCESS_SUMMARY = "titulatec.process.page.summary"
+# Los 16 EXACTOS de `titulatec_titulacion` (22 - 7 + 1): `process.api.read.all`
+# (sin el la bandeja de Liberados sale vacia: sus puestos no tienen carreras),
+# el expediente resumido, los 2 de liberados, los 2 de notificaciones, los 8
+# de dictamen y los 2 de escritura de ceremony.
+PERMISOS_DEPARTAMENTO_TITULACION = tuple(
+    c for c in PERMISOS_SUPERVISION_TITULACIONES if c not in RETIRADOS_TITULACION
+) + (PROCESS_SUMMARY,) + PERMISOS_DICTAMEN_FASES_3_8 + PERMISOS_CEREMONY_ESCRITURA
+# El reparto PLENO de `titulatec_titulaciones` (jefatura de la Division) tras
+# revertir el recorte D6/D7: los 12 de supervision, los 8 de dictamen, los 2
+# de ceremony y los 3 de cohort -- 25 en total. No cambia el 2026-10-07. Queda
+# con MAS que `titulatec_titulacion`: es intencional (el usuario lo pidio
+# explicitamente), no un descuido a corregir.
+PERMISOS_TITULACIONES_PLENA = (
+    PERMISOS_SUPERVISION_TITULACIONES + PERMISOS_DICTAMEN_FASES_3_8
+    + PERMISOS_CEREMONY_ESCRITURA + PERMISOS_COHORT_TITULACIONES_DIV
+)
+LIBERADOS = ("titulatec.handoff.page.list", "titulatec.handoff.api.export")
+ROLES_SERVICIOS_ESCOLARES = ("titulatec_school_services", "titulatec_school_services_head")
+
+
+def _sin_comentarios(sql: str) -> str:
+    return re.sub(r"--[^\n]*", "", sql)
+
+
+def _deletes(sql: str) -> list[str]:
+    """Cada `DELETE FROM core_role_permissions ... ;` de un DML (sin comentarios)."""
+    return re.findall(r"DELETE\s+FROM\s+core_role_permissions[^;]*;", _sin_comentarios(sql))
+
+
+def _codigos_in(stmt: str) -> set[str]:
+    """Codigos de los `p.code IN (...)` / `p.code = ANY(ARRAY[...])` de un statement."""
+    out: set[str] = set()
+    for bloque in re.findall(r"p\.code\s+IN\s*\(([^)]*)\)", stmt):
+        out.update(re.findall(r"'([^']+)'", bloque))
+    for bloque in re.findall(r"p\.code\s*=\s*ANY\s*\(\s*ARRAY\[([^\]]*)\]", stmt):
+        out.update(re.findall(r"'([^']+)'", bloque))
+    out.update(re.findall(r"p\.code\s*=\s*'([^']+)'", stmt))
+    return out
+
+
+def _codigos_not_in(stmt: str) -> set[str]:
+    """Codigos de los `p.code NOT IN (...)` de un statement (los que se CONSERVAN)."""
+    return {c for bloque in re.findall(r"p\.code\s+NOT\s+IN\s*\(([^)]*)\)", stmt)
+            for c in re.findall(r"'([^']+)'", bloque)}
+
+
+@requires_dml
+def test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto():
+    """Spec 2026-09-21-titulatec-dpto-titulacion, D5/D6 + arreglo A3, MAS la
+    reversion del mismo dia: el usuario recorto `titulatec_titulaciones` a
+    solo-supervision (D6/D7, arreglo A3) y despues revirtio ese recorte --
+    quiere que la jefatura de la Division pueda hacer cualquier cosa en
+    TitulaTec, aunque el trabajo diario de dictamen lo siga haciendo el
+    Departamento de Titulacion. Mismo patron que
+    `test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec`
+    (abajo), aplicado a los dos roles de Titulacion:
+
+    - `titulatec_titulaciones` (jefatura de la Division, PLENA de nuevo): el
+      ARRAY de concesion en el DML debe ser EXACTAMENTE los 25 -- los 12 de
+      supervision, los 8 de dictamen, los 2 de ceremony.api.* Y los 3 de
+      cohort. Los DELETE "RED DE SEGURIDAD" que antes revocaban dictamen y
+      ceremony (y el que revocaba cohort) se ELIMINARON del DML: ya no hay
+      nada que los revoque en la misma corrida.
+    - `titulatec_titulacion` (Departamento de Titulacion): ese dia no se
+      tocó (22). El 2026-10-07 (spec 2026-10-07-titulatec-liberados-
+      biblioteca-helpdesk, D1 + D7/D8) pierde 7 -- Bandeja, Procesos,
+      Documentos, Actos protocolarios y el expediente completo con sus
+      lecturas de desglose -- y gana el expediente resumido: 16 EXACTOS.
+      `titulatec_titulaciones` NO cambia.
+    """
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert len(set(PERMISOS_TITULACIONES_PLENA)) == 25
+    assert len(set(PERMISOS_DEPARTAMENTO_TITULACION)) == 16
+    assert PROCESS_SUMMARY not in PERMISOS_TITULACIONES_PLENA
+    assert _grants_de_rol(tres, "titulatec_titulaciones") == set(PERMISOS_TITULACIONES_PLENA), (
+        "titulatec_titulaciones deberia conceder en su ARRAY el reparto PLENO "
+        "(25): los 12 de supervision, los 8 de dictamen "
+        "(approve/reject/cancel/hold x2), los 2 de ceremony.api.* y los 3 de "
+        "cohort -- el usuario revirtio el recorte D6/D7 y el 2026-10-07 no lo toca")
+    assert _grants_de_rol(tres, "titulatec_titulacion") == set(PERMISOS_DEPARTAMENTO_TITULACION), (
+        "titulatec_titulacion (Departamento de Titulacion) deberia tener "
+        "exactamente 16 (2026-10-07, D1 + D8): process.api.read.all, "
+        "process.page.summary, Liberados, notificaciones y los 10 de dictamen "
+        "(8 de fase 3-8 + 2 de ceremony.api.*)")
+
+
+@requires_dml
+def test_el_03_converge_titulacion_al_set_exacto_y_ningun_dml_le_devuelve_nada():
+    """Spec 2026-10-07 D8. Un `INSERT ... ON CONFLICT DO NOTHING` no revoca, y
+    el usuario edito a mano los permisos del rol en la BD: quitar codigos del
+    ARRAY no basta. El 03 lleva un DELETE que le quita a `titulatec_titulacion`
+    TODO permiso de titulatec FUERA de sus 16 (`p.code NOT IN (...)` = el
+    mismo set del ARRAY), re-aplicado en cada corrida -- misma politica que
+    los otros DELETE del 03 --, y ningun otro DML de titulatec puede volver a
+    concederle lo retirado."""
+    tres = (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8")
+
+    deletes_titulacion = [d for d in _deletes(tres) if "'titulatec_titulacion'" in d]
+    assert len(deletes_titulacion) == 1, (
+        "el 03 debe llevar EXACTAMENTE un DELETE que converja a "
+        "titulatec_titulacion a su set")
+    assert _codigos_not_in(deletes_titulacion[0]) == set(PERMISOS_DEPARTAMENTO_TITULACION), (
+        "el NOT IN del DELETE debe ser EXACTAMENTE el set de 16 del ARRAY")
+    assert "p.app_id = v_app_id" in deletes_titulacion[0], (
+        "el DELETE debe acotarse a la app titulatec")
+
+    for path in sorted(DML_DIR.rglob("*.sql")):
+        cuerpo = _sin_comentarios(path.read_text(encoding="utf-8"))
+        for stmt in cuerpo.split(";"):
+            if not re.search(r"INSERT\s+INTO\s+core_role_permissions", stmt):
+                continue
+            if "'titulatec_titulacion'" not in stmt:
+                continue
+            otorgadas = _codigos_in(stmt) - set(PERMISOS_DEPARTAMENTO_TITULACION)
+            assert not otorgadas, (
+                f"{path.relative_to(DML_DIR)} le concede a titulatec_titulacion "
+                f"{sorted(otorgadas)}, fuera de su set (spec 2026-10-07 D8)")
+
+
+@requires_dml
+def test_el_expediente_resumido_se_declara_en_la_base_y_en_el_delta():
+    """D7: `titulatec.process.page.summary` nace en el 02 (instalacion desde
+    cero) y en el delta `ajustes_2026_10/01` (produccion, donde el 02 nunca se
+    re-corre)."""
+    declarados_en = {
+        path.relative_to(DML_DIR).as_posix()
+        for path in DML_DIR.rglob("*.sql")
+        if re.search(r"\(\s*v_app_id\s*,\s*'" + re.escape(PROCESS_SUMMARY) + "'",
+                     _sin_comentarios(path.read_text(encoding="utf-8")))
+    }
+    assert declarados_en == {"02_insert_permissions.sql",
+                             "ajustes_2026_10/01_liberados_permisos.sql"}
+
+
+@requires_dml
+def test_servicios_escolares_ven_liberados_y_ningun_delete_se_los_quita():
+    """Spec 2026-10-07 D2: la jefatura de escolares y los encargados de carrera
+    ven Liberados y exportan el CSV (`handoff.page.list` + `handoff.api.export`;
+    el alcance por carrera ya lo pone la bandeja). Ningun DELETE de un DML de
+    titulatec dirigido a esos roles puede alcanzar los dos codigos -- ni por
+    nombre ni por un patron LIKE --, o la re-siembra los revocaria."""
+    tres = _sin_comentarios(
+        (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+    for rol in ROLES_SERVICIOS_ESCOLARES:
+        assert set(LIBERADOS) <= _grants_de_rol(tres, rol), (
+            f"{rol} deberia conceder en su ARRAY del 03 {LIBERADOS}")
+
+    for path in sorted(DML_DIR.rglob("*.sql")):
+        for stmt in _deletes(path.read_text(encoding="utf-8")):
+            if not any(f"'{rol}'" in stmt for rol in ROLES_SERVICIOS_ESCOLARES):
+                continue
+            assert not (_codigos_in(stmt) & set(LIBERADOS)), (
+                f"{path.relative_to(DML_DIR)}: un DELETE le quita Liberados a SE")
+            for patron in re.findall(r"LIKE\s*'([^']+)'", stmt):
+                for codigo in LIBERADOS:
+                    assert not _like_to_regex(patron).match(codigo), (
+                        f"{path.relative_to(DML_DIR)}: el LIKE '{patron}' de un "
+                        f"DELETE a SE alcanza {codigo}")
+
+
+@requires_dml
+def test_el_alumno_de_titulacion_es_graduate_y_student_ya_no_recibe_nada_de_titulatec():
+    """2026-09-15: el alumno deja de reciclar `student` (el de AgendaTec y el
+    `role_id` de miles de cuentas). El 01 crea `graduate`; el 03 le da lo que tenia
+    `student` en titulatec mas lo minimo de la plataforma, y le REVOCA a `student`
+    todo lo de titulatec con un DELETE que se re-aplica en cada corrida (misma
+    politica que los otros DELETE del 03)."""
+    uno = re.sub(r"--[^\n]*", "",
+                 (DML_DIR / "01_insert_roles.sql").read_text(encoding="utf-8"))
+    assert "('graduate')" in uno, "el 01 no crea el rol graduate"
+
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+    assert _grants_de_rol(tres, "graduate") == (
+        set(PERMISOS_ALUMNO) | set(PERMISOS_PLATAFORMA_ALUMNO))
+    assert _grants_de_rol(tres, "student") == set(), "student ya no recibe permisos en el 03"
+    assert re.search(
+        r"DELETE\s+FROM\s+core_role_permissions[^;]*r\.name\s*=\s*'student'"
+        r"[^;]*p\.app_id\s*=\s*v_app_id\s*;", tres), (
+        "falta el DELETE que revoca a student los permisos de titulatec")
+
+
+# Los 4 codigos de la bandeja de Accesos de Centro de Computo (spec
+# 2026-09-24-titulatec-accesos-centro-computo, seccion 7).
+PERMISOS_ACCESOS_COMPUTO = (
+    "titulatec.enrollment_access.page.list",
+    "titulatec.enrollment_access.api.grant",
+    "titulatec.enrollment_access.api.return",
+    "titulatec.enrollment_access.api.reject",
+)
+
+
+@requires_dml
+def test_computer_center_tiene_el_reparto_exacto():
+    """Spec 2026-09-24-titulatec-accesos-centro-computo, D1-D3 + tabla de la
+    seccion 7: el rol nuevo `titulatec_computer_center` concede en su ARRAY
+    EXACTAMENTE los 4 codigos de la bandeja de Accesos, ni uno mas ni uno
+    menos -- mismo patron que
+    `test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto`."""
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_computer_center") == set(PERMISOS_ACCESOS_COMPUTO), (
+        "titulatec_computer_center deberia conceder en su ARRAY exactamente "
+        "los 4 codigos de la bandeja de Accesos")
+
+
+def _position_codes_for_role(sql: str, rol: str) -> set[str]:
+    """Codigos de puesto mapeados a un rol en `05_insert_position_app_roles.sql`.
+
+    Ese archivo escribe cada mapeo como su propio `INSERT ... SELECT ...
+    WHERE a.key = 'titulatec' AND r.name = '<rol>' AND p.code IN (...)` (o
+    `p.code = '...'` para un solo puesto), un statement por bloque. Partir por
+    `;` aisla cada bloque para no mezclar el rol de un INSERT con el `p.code`
+    de otro.
+    """
+    codigos: set[str] = set()
+    for stmt in sql.split(";"):
+        if f"r.name = '{rol}'" not in stmt:
+            continue
+        m_in = re.search(r"p\.code\s+IN\s*\(([^)]*)\)", stmt)
+        if m_in:
+            codigos.update(re.findall(r"'([^']+)'", m_in.group(1)))
+        m_eq = re.search(r"p\.code\s*=\s*'([^']+)'", stmt)
+        if m_eq:
+            codigos.add(m_eq.group(1))
+    return codigos
+
+
+@requires_dml
+def test_computer_center_mapeo_puesto_rol_y_jefatura_con_admin():
+    """Spec 2026-09-24-titulatec-accesos-centro-computo, D1/D2: `head_comp_center`
+    y `secretary_comp_center` reciben el rol nuevo por puesto; `head_comp_center`
+    ADEMAS recibe el rol `admin` de titulatec (hereda dinamicamente los 4
+    permisos por el SELECT de `15_grant_admin_all_perms.sql`, sin tocar ese
+    archivo). Los auxiliares (`aux_comp_center`) NO se mapean a proposito (el
+    usuario asigna el rol a mano a quien elija).
+
+    Semantica "contiene al menos" (arreglo A7, ver `_verify_titulacion`): no
+    exige conteo exacto de filas del mapeo, solo que estos puestos esten
+    incluidos -- un tercer puesto que un admin mapee despues a mano no debe
+    poner esto en rojo.
+    """
+    cinco = (DML_DIR / "05_insert_position_app_roles.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cinco)
+
+    mapeados = _position_codes_for_role(sin_comentarios, "titulatec_computer_center")
+    for codigo in ("head_comp_center", "secretary_comp_center"):
+        assert codigo in mapeados, (
+            f"{codigo} deberia estar mapeado a titulatec_computer_center "
+            f"(hay {sorted(mapeados)})")
+
+    admin_de = _position_codes_for_role(sin_comentarios, "admin")
+    assert "head_comp_center" in admin_de, (
+        "head_comp_center deberia tener ademas el rol admin en titulatec (D2)")
+
+
+@requires_dml
+def test_computer_center_mapeo_puesto_rol_lo_negativo():
+    """Complemento negativo de la prueba anterior (revision final, MINOR de
+    D1/D2): esa prueba solo afirma "contiene al menos"; esta fija lo que NO
+    debe pasar. `aux_comp_center` (D1) no recibe el rol por puesto -- se
+    asigna a mano -- y `secretary_comp_center` (D2) no recibe ademas `admin`:
+    solo la jefatura opera la app entera."""
+    cinco = (DML_DIR / "05_insert_position_app_roles.sql").read_text(encoding="utf-8")
+    sin_comentarios = re.sub(r"--[^\n]*", "", cinco)
+
+    mapeados = _position_codes_for_role(sin_comentarios, "titulatec_computer_center")
+    assert mapeados == {"head_comp_center", "secretary_comp_center"}, (
+        f"titulatec_computer_center deberia mapear EXACTAMENTE esos dos "
+        f"puestos, ni aux_comp_center ni ningun otro (hay {sorted(mapeados)})")
+
+    admin_de = _position_codes_for_role(sin_comentarios, "admin")
+    comp_center_en_admin = {c for c in admin_de if c.endswith("comp_center")}
+    assert comp_center_en_admin == {"head_comp_center"}, (
+        f"entre los puestos *_comp_center, SOLO head_comp_center deberia "
+        f"estar en el bloque admin (hay {sorted(comp_center_en_admin)})")
+
+
+# Los ARRAY de Servicios Escolares en el 03, EXACTOS. Revocar inscripcion
+# (spec 2026-09-25-titulatec-elegibilidad-sii §3.6) les suma
+# `titulatec.process.api.cancel`, que antes solo tenian los dos roles de
+# Titulacion. El resto de lo que reciben (enrollment_request.*,
+# requirement.mark) llega por el delta `survey_2026_09/10`, no por aqui.
+# 2026-10-07 (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk, D2):
+# los dos suman la bandeja de Liberados (`handoff.page.list` +
+# `handoff.api.export`) -- en produccion llega por el delta
+# `ajustes_2026_10/01_liberados_permisos.sql`.
+PERMISOS_SE_OPERATIVO_03 = (
+    "titulatec.dashboard.school_services",
+    "titulatec.process.page.list", "titulatec.process.page.detail",
+    "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
+    "titulatec.process.api.cancel",
+    "titulatec.document.api.read.all", "titulatec.document.api.approve",
+    "titulatec.document.api.reject",
+    "titulatec.appointment.page.list", "titulatec.appointment.api.create",
+    "titulatec.appointment.api.update",
+    "titulatec.appointment.api.mark_attended", "titulatec.appointment.api.reschedule",
+    "titulatec.document.page.list",
+    "titulatec.notifications.api.read.own", "titulatec.notifications.api.mark_read",
+    "titulatec.handoff.page.list", "titulatec.handoff.api.export",
+)
+PERMISOS_SE_JEFATURA_03 = PERMISOS_SE_OPERATIVO_03 + (
+    "titulatec.process.api.read.all",
+    "titulatec.cohort.page.list", "titulatec.cohort.page.detail", "titulatec.cohort.api.read",
+    "titulatec.cohort.api.create", "titulatec.cohort.api.update",
+    "titulatec.cohort.api.import_csv",
+    "titulatec.officers.page.list", "titulatec.officers.api.manage",
+    "titulatec.cohort.api.review_days",
+)
+
+
+@requires_dml
+def test_servicios_escolares_puede_revocar_inscripciones():
+    """Spec 2026-09-25-titulatec-elegibilidad-sii §3.6: el permiso existente
+    `titulatec.process.api.cancel` se concede ademas a los roles de SE. El
+    operativo queda acotado por carrera en la ruta (`assert_process_in_scope`),
+    igual que el resto de su dictamen. Ningun DELETE del 03 lo revoca."""
+    tres = re.sub(r"--[^\n]*", "",
+                  (DML_DIR / "03_insert_role_permissions.sql").read_text(encoding="utf-8"))
+
+    assert _grants_de_rol(tres, "titulatec_school_services") == set(PERMISOS_SE_OPERATIVO_03)
+    assert _grants_de_rol(tres, "titulatec_school_services_head") == set(PERMISOS_SE_JEFATURA_03)
+    # Ningun DELETE lo revoca: ni por nombre (`p.code IN/=`) ni por un LIKE
+    # dirigido a SE. (El DELETE de convergencia de titulatec_titulacion, 2026-10-07,
+    # lo nombra en su `NOT IN`: ahi es lo que se CONSERVA, no lo que se quita.)
+    for stmt in _deletes(tres):
+        assert "titulatec.process.api.cancel" not in _codigos_in(stmt), stmt
+        if any(f"'{rol}'" in stmt for rol in ROLES_SERVICIOS_ESCOLARES):
+            for patron in re.findall(r"LIKE\s*'([^']+)'", stmt):
+                assert not _like_to_regex(patron).match("titulatec.process.api.cancel"), stmt

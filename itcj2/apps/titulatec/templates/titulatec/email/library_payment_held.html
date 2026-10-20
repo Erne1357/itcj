@@ -1,0 +1,26 @@
+{# Caja cobró una observación CON ADEUDO de Biblioteca y el pago queda
+   RETENIDO (spec 2026-10-07-titulatec-liberados-biblioteca-helpdesk-
+   design.md §2, D3): pagar no libera; la Constancia de no adeudo se libera
+   cuando Biblioteca registre la entrega («Activar»). Se re-valida al enviar
+   (D8): si Biblioteca ya activó (sale el «quedó liberada») o Caja revirtió el
+   pago, no sale (`mail_compose._compose_library_payment_held`). `reason` es
+   lo que Biblioteca pidió entregar (la observación VIGENTE); `receipt`, el
+   recibo de Caja si lo capturó.
+   Contexto: first_name, link, total, receipt, reason. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Caja registró tu pago — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Caja (Recursos Financieros) <strong>registró tu pago de {{ total|e }}</strong> de tu
+  Constancia de no adeudo de biblioteca{% if receipt %} (recibo {{ receipt|e }}){% endif %}.
+</p>
+{% if reason %}{{ m.motivo(reason, "Falta entregar en la Biblioteca") }}{% endif %}
+<p style="margin:0 0 24px;">
+  Tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega. Acude a la
+  Biblioteca (Centro de Información) si aún no entregas lo que se indica; te avisaremos en cuanto
+  quede liberada.
+</p>
+{{ m.boton(link, "Ver mi proceso") }}
+{% endblock %}

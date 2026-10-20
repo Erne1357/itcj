@@ -186,6 +186,10 @@ def create_position(
                 "allows_multiple": position.allows_multiple,
             },
         }
+    except svc.PositionEmailInvalid as e:
+        raise HTTPException(400, detail=str(e))
+    except svc.PositionEmailConflict as e:
+        raise HTTPException(409, detail=str(e))
     except ValueError as e:
         raise HTTPException(409, detail=str(e))
 
@@ -201,6 +205,11 @@ def update_position(
     from itcj2.core.services import positions_service as svc
 
     updates = body.model_dump(exclude_none=True)
+    # `exclude_none` descarta un email enviado explicitamente en null, asi que
+    # desde core era IMPOSIBLE limpiar el correo. Se repone solo ese campo (no se
+    # cambia a exclude_unset: un title en null pasaria y violaria el NOT NULL).
+    if "email" in body.model_fields_set and body.email is None:
+        updates["email"] = None
     try:
         position = svc.update_position(db, position_id, **updates)
         logger.info(f"Puesto {position_id} actualizado por usuario {int(user['sub'])}")
@@ -218,8 +227,14 @@ def update_position(
                 } if position.department else None,
             },
         }
+    except svc.PositionEmailInvalid as e:
+        raise HTTPException(400, detail=str(e))
+    except svc.PositionEmailConflict as e:
+        raise HTTPException(409, detail=str(e))
     except ValueError as e:
-        raise HTTPException(404, detail=str(e))
+        # str(e) == "not_found" solo como red de seguridad del legado, nunca como
+        # discriminador del camino nuevo (eso lo hace el tipo de excepción).
+        raise HTTPException(404 if str(e) == "not_found" else 409, detail=str(e))
 
 
 @router.delete("/{position_id}", status_code=204)

@@ -1,0 +1,85 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Bitácora · TitulaTec{% endblock %}
+{% block admin_view %}audit{% endblock %}
+{% block admin_main %}
+{# Bitácora (`pages/audit_admin.py`). SOLO LECTURA. Los filtros viven FUERA de
+   `#tt-audit-body` (lo único que se repinta): así nadie pierde el foco ni lo
+   tecleado, sin `hx-preserve`. Sin script, sin <form>, sin hx-post. El CSS va
+   con la vista (no en `head_extra`): la navegación morph solo trae
+   `#tt-admin-content` y el <head> no se vuelve a leer. #}
+<link rel="stylesheet" href="/static/titulatec/css/audit-log.css?v={{ sv('css/audit-log.css') }}">
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Auditoría · Administración</span>
+  <h1 class="tt-display h3 fw-medium">Bitácora</h1>
+  <p class="mb-0 small text-body-secondary">Quién hizo qué y cuándo en TitulaTec: cada acción
+     del personal, cada cambio de estado de un expediente y, si lo pides, los cambios de datos
+     campo por campo. Solo lectura; nada de aquí se puede editar ni borrar. Por omisión se
+     muestran los últimos 7 días.</p>
+</div>
+<div class="px-4 pb-4">
+  {% set GET = '/titulatec/admin/bitacora/body' %}
+  <div id="tt-audit-filters" class="tt-audit-filters mb-3">
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Desde</span>
+      <input type="date" id="tt-audit-desde" name="desde" value="{{ f.desde }}" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Hasta</span>
+      <input type="date" id="tt-audit-hasta" name="hasta" value="{{ f.hasta }}" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Módulo</span>
+      <select id="tt-audit-module" name="module" class="tt-field tt-field--xs"
+              hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-audit-filters">
+        <option value="">Todos</option>
+        {% for code, label in modules %}<option value="{{ code }}"{% if f.module == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Acción</span>
+      <select id="tt-audit-action" name="action" class="tt-field tt-field--xs"
+              hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-audit-filters">
+        <option value="">Todas</option>
+        {% for group, items in action_groups %}
+        <optgroup label="{{ group }}">
+          {% for code, label in items %}<option value="{{ code }}"{% if f.action == code %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Quién (nombre o usuario)</span>
+      <input type="search" id="tt-audit-who" name="who" value="{{ f.who }}" maxlength="100" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Alumno (control o nombre)</span>
+      <input type="search" id="tt-audit-student" name="student" value="{{ f.student }}" maxlength="100" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Expediente (id)</span>
+      <input type="search" id="tt-audit-process" name="process_id" value="{{ f.process_id or '' }}" maxlength="10"
+             inputmode="numeric" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f">
+      <span class="small text-body-secondary">Texto en el motivo</span>
+      <input type="search" id="tt-audit-q" name="q" value="{{ f.q }}" maxlength="100" class="tt-field tt-field--xs"
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML"
+             hx-trigger="keyup changed delay:400ms, search" hx-include="#tt-audit-filters">
+    </label>
+    <label class="tt-audit-f tt-audit-f--check form-check mb-0">
+      <input type="checkbox" id="tt-audit-data" name="data" value="1" class="form-check-input"{% if f.data %} checked{% endif %}
+             hx-get="{{ GET }}" hx-target="#tt-audit-body" hx-swap="outerHTML" hx-trigger="change" hx-include="#tt-audit-filters">
+      <span class="form-check-label small">Incluir cambios de datos</span>
+    </label>
+  </div>
+  {% include "titulatec/admin/partials/audit_log_body.html" %}
+</div>
+{% endblock %}

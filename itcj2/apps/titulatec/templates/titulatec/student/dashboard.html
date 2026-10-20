@@ -1,7 +1,20 @@
+{# ===========================================================================
+   dashboard.html — pantalla principal del alumno.
+
+   Desde 2026-09-02 aquí vive TODO el proceso: se eliminó la pantalla intermedia
+   /student/fase/{n} (ahora redirige a `?fase=N`).
+     · Columna A = la fase ACTUAL en grande, con su sub-progreso y su CTA. Es la
+       única fase que acciona.
+     · Columna B = acordeón de las 9. Las anteriores y las siguientes se
+       despliegan; la actual NO (su sitio es la columna A, y en móvil la columna
+       A va ANTES en el DOM, así que "arriba" es literal).
+   Contexto: pages/student.py::_phases_ctx. JS: static/js/student/dashboard.js.
+   =========================================================================== #}
 {% extends "titulatec/student/base_student.html" %}
-{% from "titulatec/_macros.html" import pill %}
+{% from "titulatec/_macros.html" import pill, estado_pill, survey_review_pill, library_clearance_pill %}
 {% block student_title %}Mi proceso · TitulaTec{% endblock %}
 {% block student_active %}home{% endblock %}
+{% block student_page %}student_dashboard{% endblock %}
 {% block student_appbar_title %}Mi proceso{% endblock %}
 
 {# Raíz del alumno: el botón "volver" sale al shell (solo embebido, lo muestra el core). #}
@@ -20,6 +33,8 @@
       <div style="font-size:.8rem;color:#94A3B8">Hola,</div>
       <div class="tt-display" style="font-size:1.6rem;font-weight:600;color:#fff;line-height:1.1">{{ first_name or 'Alumno' }}.</div>
     </div>
+    {# Revocada: sin barra de avance (prometería un proceso vivo). #}
+    {% if not cancelled %}
     <div class="position-relative" style="margin-top:22px">
       <div class="d-flex justify-content-between align-items-baseline mb-2">
         <span class="tt-mono" style="font-size:.6875rem;color:var(--tt-accent);font-weight:600;letter-spacing:1.4px;text-transform:uppercase">
@@ -33,47 +48,353 @@
         {% endfor %}
       </div>
     </div>
+    {% endif %}
   </div>
 
   {# — Contenido: a 2 columnas en desktop, apilado en móvil — #}
   <div class="tt-dash-rise px-3 px-lg-0 position-relative" style="z-index:2">
     <div class="tt-dash-grid">
 
-      {# Col A — fase actual #}
+      {# ================= Col A — la fase ACTUAL, en grande ================= #}
       <div>
-        <div class="tt-card tt-card--hero tt-anim-in">
-          <div class="d-flex justify-content-between align-items-center">
-            <span class="tt-kicker">Tu proceso</span>
-            {{ pill('En construcción', 'amber', 'cone-striped') }}
-          </div>
-          <div class="tt-display mt-2" style="font-size:1.4rem;font-weight:600;line-height:1.1">
-            {{ phase_name or 'Bienvenido a TitulaTec' }}
-          </div>
-          <p class="mt-2 mb-0" style="font-size:.85rem;color:var(--tt-slate)">
-            Aquí llevarás tu titulación de principio a fin. Toca una fase para ver qué necesitas y dónde accionar.
+        {% if cancelled %}
+        {# Inscripción revocada (`ProcessService.cancel`, contexto `cancelled` de
+           `pages/student.py::dashboard`). Sustituye a la tarjeta de la fase
+           actual: esa ofrecería una acción que la guarda de fase ya rechaza. #}
+        <div class="tt-card tt-card--hero tt-card--danger tt-anim-in" id="tt-inscripcion-cancelada"
+             role="status" tabindex="-1">
+          {{ pill('Inscripción revocada', 'danger', 'slash-circle') }}
+          <p class="tt-prose mt-3 mb-0">
+            Tu inscripción fue revocada{% if cancelled.reason %}: <strong>{{ cancelled.reason }}</strong>{% else %}.{% endif %}
+          </p>
+          <p class="tt-prose small text-muted mt-2 mb-0">
+            {% if cancelled.when %}{{ cancelled.when }} · {% endif %}Si crees que es un error,
+            acude a Servicios Escolares. Puedes inscribirte de nuevo en una convocatoria futura.
           </p>
         </div>
+        {% elif current %}
+        <div class="tt-card tt-card--hero tt-anim-in" id="tt-fase-actual" data-tt-now
+             tabindex="-1" style="scroll-margin-top:84px">
+          <div class="d-flex justify-content-between align-items-center gap-2">
+            <span class="tt-kicker">Tu proceso · Fase {{ '%02d'|format(current.number) }}</span>
+            <div class="d-flex align-items-center gap-2">
+              {% if current.survey %}{{ survey_review_pill(current.survey.status) }}{% endif %}
+              {% if current.library %}{{ library_clearance_pill(current.library.status, current.library.via) }}{% endif %}
+              {{ estado_pill(current.status) }}
+            </div>
+          </div>
+
+          <div class="tt-now-head mt-2">
+            <span class="tt-now-icon"><i class="bi {{ current.icon or 'bi-flag' }}"></i></span>
+            <div class="min-w-0">
+              <div class="tt-now-title">{{ current.name }}</div>
+              <div style="font-size:.72rem;color:var(--tt-mute);margin-top:3px">
+                {% if current.responsible == 'student' %}Te toca a ti{% else %}A cargo {{ current.responsible_label_de }}{% endif %}
+              </div>
+            </div>
+          </div>
+
+          {% if current.desc %}
+          <p class="tt-prose mt-3 mb-0" style="font-size:.86rem;color:var(--tt-slate);line-height:1.55">{{ current.desc }}</p>
+          {% endif %}
+
+          {% if current.survey and current.survey.status == 'approved' and current.survey.origin == 'prior' %}
+          {# D9 (spec folios 2026-10-05): en la fase actual el acordeón no se
+             despliega, así que el aviso de la previa va aquí. Ya no pide llevar
+             ni recoger el papel. #}
+          <p class="tt-prose mt-3 mb-0">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
+          {% endif %}
+
+          {% if current.status == 'rejected' and current.rejection_reason %}
+          <div class="mt-3 p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
+            <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Necesita corrección</span>
+            <p class="tt-prose mb-0 mt-2" style="font-size:.83rem;color:#7F1D1D">{{ current.rejection_reason }}</p>
+          </div>
+          {% endif %}
+
+          {% if current.replacements %}
+          {# Reemplazo de documento pedido en la cita de cotejo (2026-10-15): destino
+             real del aviso in-app (`/student/fase/2` redirige aquí). #}
+          {% with replacements = current.replacements %}{% include "titulatec/partials/student/_replacement_notice.html" %}{% endwith %}
+          {% endif %}
+
+          {% if current.progress %}
+          <div class="mt-3">
+            {% with p = current.progress, detail = True %}
+              {% include "titulatec/partials/phase_progress.html" %}
+            {% endwith %}
+          </div>
+          {% endif %}
+
+          {% if current.cta %}
+          <div class="d-grid mt-3">
+            <a class="btn tt-btn-ink tt-now-cta d-inline-flex align-items-center justify-content-center"
+               href="{{ current.cta.url }}" data-tt-cta>
+              <i class="bi bi-{{ current.cta.icon }} me-2"></i>{{ current.cta.label }}
+            </a>
+          </div>
+          {% elif current.status == 'skipped' %}
+          <div class="mt-3">{{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}</div>
+          {% elif current.handoff %}
+          {# Corte a T-soft (Tarea 3, spec 2026-09-21-titulatec-dpto-titulacion): el
+             backend ya bloquea esta fase (PhaseService._handoff_phase); aqui se le
+             explica al alumno en vez de dejarlo frente al boton muerto de arriba.
+
+             `tt-handoff-note` + `tt-handoff-note--hero` (ronda de fix 2, correccion
+             sobre la ronda de fix 1): a 390x844 esta tarjeta media ~117px de holgura
+             frente al FAB y parecia no necesitar colchon, pero esa holgura depende
+             del ALTO del viewport, no del ancho -el FAB es fixed a 80px del fondo-.
+             A 375x667 (iPhone SE), con la fase 3 actual y SIN SCROLLEAR, el parrafo
+             ya solapaba el FAB en -59.5px -- y aqui `padding-bottom` (que si basta
+             en el panel del acordeon, mas abajo) NO alcanza: el alumno no desplaza
+             nada para ver esta tarjeta, sale completa desde la primera pintura, asi
+             que el padding de DESPUES del texto no mueve el texto (que ya esta
+             pintado exactamente donde estaba). Hacia falta clearance ANTES del
+             texto -- `tt-handoff-note--hero` empuja el parrafo hacia abajo lo
+             suficiente para que, sin scroll, quede por completo bajo el FAB en vez
+             de encima. Ver el comentario de ambas clases en titulatec.css. #}
+          <p class="tt-prose mb-0 tt-handoff-note tt-handoff-note--hero" style="font-size:.82rem;color:var(--tt-mute)">
+            <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+          </p>
+          {% else %}
+          <p class="tt-prose mt-3 mb-0" style="font-size:.82rem;color:var(--tt-mute)">
+            <i class="bi bi-hourglass-split me-1"></i>En proceso por {{ current.responsible_label }}.
+            Te avisaremos aquí cuando avance.
+          </p>
+          {% endif %}
+
+          {# El historial de la fase actual no cabe en ningún acordeón (su fila no
+             se despliega), así que vive aquí — debajo del CTA, para no empujar la
+             acción fuera de pantalla en móvil. #}
+          {% if current.events %}
+          <div class="mt-3 pt-3" style="border-top:1px solid var(--tt-line-soft)">
+            <div class="tt-acc-block-title"><i class="bi bi-clock-history"></i>Historial</div>
+            {% for e in current.events %}
+            <div class="tt-timeline-item">
+              <span class="dot"></span>
+              <div class="min-w-0">
+                <div class="label">{{ e.label }}</div>
+                <div class="when">{{ e.when }}</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="tt-card tt-card--hero tt-anim-in" id="tt-fase-actual" tabindex="-1">
+          <div class="tt-empty">
+            <div class="ico"><i class="bi bi-mortarboard"></i></div>
+            <h6>Aún no tienes proceso activo</h6>
+            <p>Servicios Escolares te dará de alta en una convocatoria y tu proceso aparecerá aquí.
+               Mientras tanto puedes desplegar cada fase para ver qué te va a pedir.</p>
+          </div>
+        </div>
+        {% endif %}
       </div>
 
-      {# Col B — lista de las 9 fases #}
+      {# ================= Col B — acordeón de las 9 fases ================= #}
       <div>
         <div class="tt-kicker mt-4 mt-lg-0 mb-2 px-1">El proceso (9 fases)</div>
-        <div class="tt-card p-0 overflow-hidden tt-stagger">
-          {% for ph in phases %}
-          {% set _cur = ph.number == current_phase %}
-          <a href="/titulatec/student/fase/{{ ph.number }}"
-             class="d-flex align-items-center gap-3 p-3 tt-hover-lift text-decoration-none"
-             style="color:inherit;{% if not loop.last %}border-bottom:1px solid var(--tt-line-soft);{% endif %}{% if _cur %}background:var(--tt-mist);{% endif %}">
-            <div class="d-flex align-items-center justify-content-center tt-mono"
-                 style="width:28px;height:28px;border-radius:8px;font-size:.66rem;font-weight:700;border:1px solid var(--tt-line);
-                 {% if _cur %}background:var(--tt-accent);color:#1F1300;border-color:var(--tt-accent){% else %}background:var(--tt-mist);color:var(--tt-mute){% endif %}">
-              {{ '%02d'|format(ph.number) }}
+        <div class="tt-card p-0 overflow-hidden">
+          <div class="tt-acc" data-tt-acc-root>
+            {% for ph in phases %}
+            {# Revocada: ninguna fase es «actual» (ni marca ni ancla a la col. A). #}
+            <div class="tt-acc-item{% if ph.is_current and not cancelled %} is-current{% endif %}{% if ph.is_open %} is-open{% endif %}{% if ph.is_target %} is-target{% endif %}{% if ph.rel == 'past' and ph.status == 'approved' %} is-done{% endif %}"
+                 id="tt-fase-{{ ph.number }}" data-tt-phase="{{ ph.number }}"
+                 style="scroll-margin-top:84px">
+
+              {% if ph.can_expand %}
+              {# — Fases anteriores y siguientes: desplegables — #}
+              <h3 class="tt-acc-h">
+                <button type="button" class="tt-acc-btn" id="tt-acc-btn-{{ ph.number }}"
+                        data-tt-acc="{{ ph.number }}"
+                        aria-expanded="{{ 'true' if ph.is_open else 'false' }}"
+                        aria-controls="tt-acc-panel-{{ ph.number }}">
+                  <span class="tt-acc-num">{{ '%02d'|format(ph.number) }}</span>
+                  <span class="tt-acc-name">{{ ph.name }}
+                    {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
+                  </span>
+                  {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
+                  {% if ph.library %}{{ library_clearance_pill(ph.library.status, ph.library.via) }}{% endif %}
+                  {% if ph.status != 'pending' %}{{ estado_pill(ph.status) }}{% endif %}
+                  <i class="bi bi-chevron-right tt-acc-chev" aria-hidden="true"></i>
+                </button>
+              </h3>
+
+              <div class="tt-acc-panel" id="tt-acc-panel-{{ ph.number }}" role="region"
+                   aria-labelledby="tt-acc-btn-{{ ph.number }}" {% if not ph.is_open %}hidden{% endif %}>
+                <div class="tt-acc-panel-in tt-anim-in">
+
+                  {% if ph.desc %}
+                  <p class="tt-prose mb-0" style="font-size:.82rem;color:var(--tt-slate);line-height:1.55">{{ ph.desc }}</p>
+                  {% endif %}
+
+                  {% if ph.progress %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-activity"></i>Cómo va</div>
+                    {% with p = ph.progress, detail = True %}
+                      {% include "titulatec/partials/phase_progress.html" %}
+                    {% endwith %}
+                  </div>
+                  {% endif %}
+
+                  {% if ph.rejection_reason %}
+                  <div class="p-3" style="border-radius:var(--tt-r);background:var(--tt-danger-soft);border:1px solid rgba(220,38,38,.2)">
+                    <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Observaciones</span>
+                    <p class="tt-prose mb-0 mt-2" style="font-size:.8rem;color:#7F1D1D">{{ ph.rejection_reason }}</p>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.survey %}
+                  {# D3 (spec §6.1): excepción deliberada a "Se habilitará cuando
+                     llegues a esta fase" -- la encuesta de egresados no está
+                     sujeta a la guarda de fase del alumno, así que se pinta con
+                     su estatus real aunque `ph.rel == 'future'`. Aditivo: el
+                     aviso genérico de más abajo sigue saliendo igual. #}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-clipboard-check"></i>Encuesta de egresados</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {{ survey_review_pill(ph.survey.status) }}
+                    </div>
+                    {% if ph.survey.status == 'rejected' and ph.survey.reason %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.survey.reason }}</p>
+                    {% endif %}
+                    {% if ph.survey.status == 'approved' and ph.survey.origin == 'prior' %}
+                    {# D9 (spec folios 2026-10-05): gemelo del no adeudo previo de abajo. #}
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
+                    {% endif %}
+                    {% if ph.survey.status == 'missing' and ph.survey.url %}
+                    <a class="btn btn-sm tt-btn-soft mt-2" href="{{ ph.survey.url }}">
+                      <i class="bi bi-pencil-square me-1"></i>Contestar la encuesta</a>
+                    {% endif %}
+                  </div>
+                  {% endif %}
+
+                  {% if ph.library %}
+                  {# No adeudo de biblioteca (spec 2026-10-01-titulatec-biblioteca-caja-
+                     design.md §4.10): bloque gemelo al de arriba, SOLO si la convocatoria
+                     exige el requisito (`ph.library` es `None` si no -- `_phases_ctx`).
+                     Visible desde que llegues a esta pantalla, igual que la encuesta:
+                     tampoco está sujeto a la guarda de fase del alumno. Los 4 textos son
+                     los de la spec, literales. #}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-journal-bookmark"></i>Constancia de no adeudo de biblioteca</div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      {{ library_clearance_pill(ph.library.status, ph.library.via) }}
+                    </div>
+                    {% if ph.library.status in ('missing', 'pending') %}
+                    <p class="tt-prose mb-0 mt-2">El Centro de Información está revisando tu adeudo.</p>
+                    {% elif ph.library.status == 'awaiting_payment' %}
+                    <p class="tt-prose mb-0 mt-2">
+                      Pasa a Caja (Recursos Financieros) a pagar {{ ph.library.total_fmt }}{% if ph.library.breakdown %} ({{ ph.library.breakdown }}){% endif %},
+                      sin cita, con tu número de control.</p>
+                    {% if ph.library.note %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.note }}</p>
+                    {% endif %}
+                    {% elif ph.library.status == 'observed' and ph.library.observation_kind == 'with_debt' %}
+                    {# Observación CON ADEUDO (spec 2026-10-07 §2): puede pagar en
+                       Caja y entregar en la misma visita; el pago no libera, la
+                       Constancia se libera cuando Biblioteca registre la entrega.
+                       `paid_at` = Caja ya cobró (pago retenido). #}
+                    {% if ph.library.paid_at %}
+                    <p class="tt-prose mb-0 mt-2" data-tt-library-held>Ya pagaste {{ ph.library.total_fmt }} en Caja. Tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega; acude a la Biblioteca (Centro de Información) con lo que se indica abajo.</p>
+                    {% else %}
+                    <p class="tt-prose mb-0 mt-2" data-tt-library-debt>Biblioteca registró una observación con adeudo en tu Constancia de no adeudo. Puedes pagar {{ ph.library.total_fmt }}{% if ph.library.breakdown %} ({{ ph.library.breakdown }}){% endif %} en Caja (Recursos Financieros) y entregar en la Biblioteca (Centro de Información) en la misma visita; tu Constancia de no adeudo se libera cuando Biblioteca registre la entrega.</p>
+                    {% endif %}
+                    {% if ph.library.observation %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
+                    {% endif %}
+                    {% elif ph.library.status == 'observed' %}
+                    {# Spec 2026-10-05 §3.4: igual que la encuesta `rejected` de
+                       arriba -- el aviso y, debajo, el motivo de Biblioteca. #}
+                    <p class="tt-prose mb-0 mt-2">Biblioteca registró observaciones en tu Constancia de no adeudo. Acude a la Biblioteca (Centro de Información) para resolverlas.</p>
+                    {% if ph.library.observation %}
+                    <p class="tt-prose mb-0 mt-2">{{ ph.library.observation }}</p>
+                    {% endif %}
+                    {% elif ph.library.status == 'cleared' and ph.library.via == 'prior' %}
+                    <p class="tt-prose mb-0 mt-2">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
+                    {% elif ph.library.status == 'cleared' %}
+                    <p class="tt-prose mb-0 mt-2">Liberado.</p>
+                    {% endif %}
+                  </div>
+                  {% endif %}
+
+                  {% if ph.rel == 'future' and ph.needs %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-list-check"></i>Qué vas a necesitar</div>
+                    <ul class="tt-needs">
+                      {% for n in ph.needs %}<li>{{ n }}</li>{% endfor %}
+                    </ul>
+                  </div>
+                  {% endif %}
+
+                  {% if ph.events %}
+                  <div>
+                    <div class="tt-acc-block-title"><i class="bi bi-clock-history"></i>Historial</div>
+                    {% for e in ph.events %}
+                    <div class="tt-timeline-item">
+                      <span class="dot"></span>
+                      <div class="min-w-0">
+                        <div class="label">{{ e.label }}</div>
+                        <div class="when">{{ e.when }}</div>
+                      </div>
+                    </div>
+                    {% endfor %}
+                  </div>
+                  {% endif %}
+
+                  {# — Cierre: qué se puede accionar aquí (spoiler: nada) — #}
+                  <div>
+                    {% if ph.status == 'skipped' %}
+                      {{ pill('No aplica a tu modalidad', 'neutral', 'dash-circle') }}
+                    {% elif ph.rel == 'past' %}
+                      {{ pill('Fase cerrada · ya no requiere acción', 'neutral', 'lock') }}
+                    {% elif ph.handoff %}
+                      {# Corte a T-soft (Tarea 3): esta fase nunca se va a "habilitar"
+                         aqui -- el corte se la llevo a T-soft igual que a la actual.
+                         `tt-handoff-note` (ronda de fix 1, Hallazgo 1): el acordeon
+                         puede desplegar esta nota en CUALQUIER punto de la lista, no
+                         solo al final de la pagina, y ahi el FAB flotante se le monta
+                         encima si el alumno se desplaza hasta el borde (medido: el
+                         parrafo quedaba a 16px del fondo del viewport, el FAB empieza
+                         a 80px). La tarjeta grande TAMBIEN la lleva desde la ronda de
+                         fix 2 -- ver su propio comentario, unas lineas arriba. #}
+                      <p class="tt-prose mb-0 tt-handoff-note" style="font-size:.78rem;color:var(--tt-mute)">
+                        <i class="bi bi-signpost-split me-1"></i>{{ handoff_copy }}
+                      </p>
+                    {% else %}
+                      {{ pill('Se habilitará cuando llegues a esta fase', 'neutral', 'hourglass-split') }}
+                      {% if ph.who %}
+                      <p class="tt-prose mb-0 mt-2" style="font-size:.78rem;color:var(--tt-mute)">{{ ph.who }}</p>
+                      {% endif %}
+                    {% endif %}
+                  </div>
+
+                </div>
+              </div>
+
+              {% else %}
+              {# — Fase ACTUAL: no se despliega. Su contenido vive en la columna A. — #}
+              <div class="tt-acc-row">
+                <span class="tt-acc-num">{{ '%02d'|format(ph.number) }}</span>
+                <span class="tt-acc-name">{{ ph.name }}
+                  {% if ph.progress %}<span class="tt-acc-sub">{{ ph.progress.label }}</span>{% endif %}
+                </span>
+                {% if ph.survey %}{{ survey_review_pill(ph.survey.status) }}{% endif %}
+                {% if ph.library %}{{ library_clearance_pill(ph.library.status, ph.library.via) }}{% endif %}
+                {% if not cancelled %}{{ pill('Actual', 'amber') }}{% endif %}
+              </div>
+              {% if not cancelled %}
+              <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>
+                <i class="bi bi-arrow-up-circle"></i> Lo que tienes que hacer está en «Tu proceso»
+              </a>
+              {% endif %}
+              {% endif %}
+
             </div>
-            <div class="flex-grow-1" style="font-size:.875rem;font-weight:{{ '600' if _cur else '500' }}">{{ ph.name }}</div>
-            {% if _cur %}<span class="tt-pill tt-pill--amber" style="font-size:.6rem">Actual</span>{% endif %}
-            <i class="bi bi-chevron-right" style="color:var(--tt-mute);font-size:.8rem"></i>
-          </a>
-          {% endfor %}
+            {% endfor %}
+          </div>
         </div>
       </div>
 

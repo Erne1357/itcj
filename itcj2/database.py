@@ -11,18 +11,23 @@ from .config import get_settings
 # puedan resolverse correctamente.
 import itcj2.models  # noqa: F401
 
-# 2.2 Pool rebalanceado: la app NO debe demandar más conexiones de las que
-# pgbouncer puede entregar. Antes pedía hasta 80 y 55 se encolaban dentro de
-# pgbouncer (falsa capacidad).
+# 2.2 Pool rebalanceado (historia): antes pedía hasta 80 y 55 se encolaban
+# dentro de pgbouncer (falsa capacidad), y se bajó el HTTP a 8+4. Medido el
+# 2026-08-13 (cpus 4.0, 30 concurrentes), 8+4 agotaba el pool antes que los
+# hilos del threadpool (QueuePool timeout = 500): se subió a 10+30 y la espera
+# se deja en pgbouncer (detalle en el compose de prod).
 # 2.1 El pool es POR PROCESO: con uvicorn --workers 4 el techo se multiplica
 # por 4. Por eso el tamaño ya no está hardcodeado — cada servicio lo fija por
-# env (DB_POOL_SIZE / DB_MAX_OVERFLOW en el compose):
-#   backend HTTP (4 workers): 8+4  → 48 conexiones cliente
-#   sockets (1 worker):       5+5  → 10
-#   celery / CLI / dev:      20+20 → 40 (default, comportamiento previo)
+# env (DB_POOL_SIZE / DB_MAX_OVERFLOW en docker/compose/docker-compose.prod.yml):
+#   backend HTTP (4 workers): 10+30 → 40 por worker = los 40 hilos del
+#                             threadpool de anyio (cada ruta `def` ocupa un
+#                             hilo y una conexión); 160 conexiones cliente
+#   sockets (1 worker):       16+16 → 32 (por encima del executor de asyncio)
+#   celery / CLI / dev:      20+20 → 40 (default de config.py)
 # Todas son conexiones a pgbouncer (max_client_conn=500), que en transaction
 # mode las multiplexa sobre 50 backends reales (default_pool_size 40 + 10 de
-# reserva) < max_connections=100 de Postgres.
+# reserva) < max_connections=100 de Postgres; con presión se encola AHÍ
+# (cl_waiting) en vez de reventar en la app con un 500.
 _settings = get_settings()
 
 engine = create_engine(
