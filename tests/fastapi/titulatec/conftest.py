@@ -1117,6 +1117,32 @@ def make_process(db_session, make_cohort, make_library_clearance):
 
 
 @pytest.fixture()
+def make_format_b(db_session):
+    """Fila de `titulatec_format_b` (1-1 con el proceso). Flush, sin commit.
+
+    `fields` es cualquier columna del modelo (project_name, first_name, ...).
+    `modality` acepta el objeto o su id.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    def _make(process, *, status="draft", submitted_at=None, submission_count=0,
+              modality=None, **fields):
+        fb = FormatB(
+            process_id=process.id,
+            status=status,
+            submitted_at=submitted_at,
+            submission_count=submission_count,
+            modality_id=getattr(modality, "id", modality),
+            **fields,
+        )
+        db_session.add(fb)
+        db_session.flush()
+        return fb
+
+    return _make
+
+
+@pytest.fixture()
 def make_document(db_session):
     """Fila de `titulatec_documents` (UNIQUE process+type_code).
 
