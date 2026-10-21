@@ -134,6 +134,13 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "synodal.replaced": ("processes", "Sustituyó a un sinodal de un proceso"),
     "synodal.mail_failed": ("processes", "No salió el correo de aviso a un sinodal"),
 
+    # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
+    # Mismo módulo que `titulatec_program_departments` y
+    # `titulatec_department_settings` en `TABLE_MODULES`. Remapear una carrera
+    # con procesos en fase 4 o 5 mueve quién los opera: el payload lo cuenta.
+    "program_department.changed": ("processes", "Cambió el departamento o el nombre oficial de una carrera"),
+    "department_settings.changed": ("processes", "Cambió los ajustes del oficio de un departamento"),
+
     # --- library: liberaciones previas ----------------------------------------
     "prior_clearance.deferred": ("library", "Dejó pendiente una liberación previa"),
     "prior_clearance.replaced": ("library", "Reemplazó una liberación previa"),
@@ -311,7 +318,9 @@ ENTITY_LABELS: dict[str, str] = {
     "audit_log": "Bitácora",
     "cli_command": "Comando de consola",
     "import_mapping": "Mapeo de columnas de importación",
+    "department": "Departamento",
     "position": "Encargado (puesto)",
+    "program": "Carrera",
     "user": "Cuenta de usuario",
 }
 
