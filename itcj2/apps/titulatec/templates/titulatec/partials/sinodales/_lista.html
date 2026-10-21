@@ -1,0 +1,49 @@
+{# Lista (master) de la pestaña Sinodales. Una fila por proceso con id estable
+   (`tt-sin-row-{id}`) para que el morph de la navegación las empareje.
+
+   «Por asignar» es la cola FIFO (inicio de la fase 4): posición y semáforo de
+   espera en días hábiles (neutro < 3, ámbar >= 3, rojo >= 5; constantes en
+   `SynodalInboxService`). «Asignados»: la fecha en que se registraron. El
+   departamento se pinta solo si el usuario opera más de uno. #}
+{% from "titulatec/_macros.html" import pager %}
+{% set WAIT_TONE = {"ok": "neutral", "warn": "amber", "late": "danger"} %}
+<div class="tt-card tt-sin-list-card">
+  <div id="tt-sin-list" class="tt-sin-list">
+    {% for r in rows %}
+    <button type="button" id="tt-sin-row-{{ r.process_id }}" data-process="{{ r.process_id }}"
+            class="tt-sin-row{% if selected_id == r.process_id %} is-active{% endif %}"
+            aria-current="{{ 'true' if selected_id == r.process_id else 'false' }}"
+            hx-get="/titulatec/admin/sinodales/body"
+            hx-vals='{"selected": {{ r.process_id }}, "page": {{ page.page }}}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">
+      {% if r.position %}
+      <span class="tt-sin-pos tt-mono" title="Lugar {{ r.position }} en la cola">{{ r.position }}</span>
+      {% endif %}
+      <span class="tt-sin-row-main">
+        <span class="tt-sin-row-name">{{ r.student_name }}</span>
+        <span class="tt-sin-row-meta tt-mono">{{ r.control_number or '—' }} · {{ r.program_name or '—' }}</span>
+        {% if departments | length > 1 %}
+        <span class="tt-sin-row-meta">{{ r.department_name }}</span>
+        {% endif %}
+        {% if r.assigned_label %}
+        <span class="tt-sin-row-meta">Asignados el {{ r.assigned_label }}</span>
+        {% endif %}
+      </span>
+      {% if r.waited_days is not none %}
+      <span class="tt-pill tt-pill--{{ WAIT_TONE[r.wait_level] }} tt-sin-wait tt-sin-wait--{{ r.wait_level }}"
+            title="{{ r.waited_days }} {{ 'día hábil' if r.waited_days == 1 else 'días hábiles' }} en espera{% if r.started_label %} · en la fase 4 desde el {{ r.started_label }}{% endif %}">{{ r.waited_days }} d</span>
+      {% endif %}
+    </button>
+    {% else %}
+    {% if q %}
+    <p class="tt-sin-list-empty" id="tt-sin-no-results"><i class="bi bi-search" aria-hidden="true"></i>Sin resultados para "{{ q }}"</p>
+    {% elif tab == 'pending' %}
+    <p class="tt-sin-list-empty">Ningún egresado espera sinodales.</p>
+    {% else %}
+    <p class="tt-sin-list-empty">Todavía no hay sinodales asignados en revisión.</p>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {{ pager(page, '/titulatec/admin/sinodales/body', '#tt-sin-body', include='#tt-sin-filters', swap='innerHTML', prefix='tt-sin') }}
+</div>

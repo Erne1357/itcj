@@ -59,3 +59,7 @@ titulatec_pages_router.include_router(docentes_admin_router)
 # Pestaña Carreras por departamento (spec 2026-10-21 fase 4 §13): mapeo y oficio.
 from .carreras_admin import router as carreras_admin_router  # noqa: E402
 titulatec_pages_router.include_router(carreras_admin_router)
+# Pestaña Sinodales (spec 2026-10-21 fase 4 §9 y §12): bandeja, asignar,
+# sustituir y el oficio en PDF.
+from .sinodales_admin import router as sinodales_admin_router  # noqa: E402
+titulatec_pages_router.include_router(sinodales_admin_router)

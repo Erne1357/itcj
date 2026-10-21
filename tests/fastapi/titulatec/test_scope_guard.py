@@ -653,7 +653,11 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # (`pages/titulacion_admin.py`, §8.4): `POST /admin/titulacion/formato-b/{id}/`
     # `aprobar`, `/observar`, `/viendo`, `/registro` y
     # `GET /admin/titulacion/formato-b/{id}/documento/{tipo}`.
-    assert revisadas == 33, (
+    # 36 desde 2026-10-21: + 3 rutas de la pestaña Sinodales (fase 4 §9 y §12,
+    # `pages/sinodales_admin.py`): `POST /admin/sinodales/{id}/asignar`,
+    # `/sustituir` y `GET /admin/sinodales/{id}/oficio.pdf`. Docentes y
+    # Carreras por departamento (fase 4 §8 y §13) no llevan `{process_id}`.
+    assert revisadas == 36, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

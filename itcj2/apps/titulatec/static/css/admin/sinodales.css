@@ -1,0 +1,148 @@
+/* ===========================================================================
+   sinodales.css — Pestaña «Sinodales» (fase 4) (2026-10-21)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-21-titulatec-fase4-sinodales-design.md
+   §9. Se carga UNA vez en `admin/base_admin.html` (la navegación admin solo
+   morphea #tt-admin-content, nunca el <head>). Todo cuelga de las clases
+   `tt-sin-*` de `admin/sinodales.html` y `partials/sinodales/`.
+
+   Master-detail desktop primero, como la pestaña Titulación: lista (5/12) y
+   detalle (7/12) lado a lado cuando la BANDEJA mide lo suficiente -consulta
+   de contenedor sobre #tt-sin-body, no @media: el ancho útil depende del
+   sidebar, del tope de #tt-admin-content y del zoom-; debajo, una columna (la
+   lista arriba).
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto con
+   --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*. Sin `style=` en
+   las plantillas.
+   =========================================================================== */
+
+/* === 1. Página ============================================================ */
+.tt-sin-page { padding: var(--tt-sp-5); }
+.tt-sin-header { margin-bottom: var(--tt-sp-4); }
+.tt-sin-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-sin-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+
+#tt-sin-body { container: tt-sin / inline-size; }
+
+/* === 2. Filtros =========================================================== */
+.tt-sin-filters {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-2) var(--tt-sp-3); margin-bottom: var(--tt-sp-3);
+}
+.tt-sin-tabs { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); }
+.tt-sin-count { font-variant-numeric: tabular-nums; opacity: .8; }
+.tt-sin-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); min-width: 0; }
+.tt-sin-select { width: auto; max-width: 100%; min-width: 0; }
+
+/* === 3. Master-detail ===================================================== */
+.tt-sin-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3); align-items: start; }
+@container tt-sin (min-width: 760px) {
+  .tt-sin-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+}
+.tt-sin-master, .tt-sin-detail-col { min-width: 0; }
+
+/* Lista: una fila es un <button> a todo lo ancho. */
+.tt-sin-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-sin-row {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); width: 100%;
+  padding: var(--tt-sp-2); text-align: left; cursor: pointer;
+  background: var(--tt-paper); color: var(--tt-text-1);
+  border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease;
+}
+.tt-sin-row:hover { border-color: var(--tt-line); }
+.tt-sin-row:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-sin-row.is-active { background: var(--tt-mist); border-color: var(--tt-line); }
+.tt-sin-pos {
+  flex: 0 0 auto; min-width: 1.6rem; padding-top: 1px; text-align: center;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3);
+}
+.tt-sin-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.tt-sin-row-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-sin-row-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); overflow-wrap: anywhere; }
+.tt-sin-wait { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.tt-sin-list-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-sin-list-empty i { margin-right: var(--tt-sp-1); }
+
+/* === 4. Detalle =========================================================== */
+.tt-sin-detail { display: flex; flex-direction: column; gap: var(--tt-sp-3); }
+.tt-sin-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-sin-head-main { min-width: 0; }
+.tt-sin-head-aside { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); }
+.tt-sin-name { font-size: var(--tt-fs-400); font-weight: 600; margin: 2px 0; overflow-wrap: anywhere; }
+.tt-sin-sub { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+
+/* Datos del trabajo: etiqueta | valor. */
+.tt-sin-facts { display: flex; flex-direction: column; margin: 0; }
+.tt-sin-fact {
+  display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: var(--tt-sp-1) var(--tt-sp-3); padding: var(--tt-sp-2) 0;
+  border-top: 1px solid var(--tt-line-soft);
+}
+.tt-sin-fact:first-child { border-top: 0; padding-top: 0; }
+.tt-sin-fact dt { font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-2); }
+.tt-sin-fact dd { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-sin-project { font-weight: 600; }
+
+.tt-sin-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
+.tt-sin-section-title { margin: 0; }
+
+/* Tabla de los 4. */
+.tt-sin-table { font-size: var(--tt-fs-200); }
+.tt-sin-table th { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); }
+.tt-sin-role { font-weight: 600; }
+.tt-sin-cell-action { text-align: right; }
+
+/* Formularios: asignar y sustituir. `[hidden]` de Bootstrap gana (!important). */
+.tt-sin-help { margin: var(--tt-sp-1) 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-sin-assign-grid, .tt-sin-replace-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--tt-sp-2) var(--tt-sp-3); margin-bottom: var(--tt-sp-2);
+}
+.tt-sin-assign select, .tt-sin-replace select, .tt-sin-replace textarea { width: 100%; }
+.tt-sin-replace {
+  margin-top: var(--tt-sp-3); padding: var(--tt-sp-3);
+  border: 1px solid var(--tt-amber); border-radius: var(--tt-r-sm);
+}
+.tt-sin-replace-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); margin-bottom: var(--tt-sp-2); }
+.tt-sin-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tt-sp-2); margin-top: var(--tt-sp-2); }
+.tt-sin-buttons .btn:disabled { cursor: not-allowed; }
+
+.tt-sin-warn {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+.tt-sin-note { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* Historial de sustituciones. */
+.tt-sin-history-list { list-style: none; margin: var(--tt-sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--tt-sp-2); }
+.tt-sin-history-item {
+  display: flex; flex-direction: column; gap: 2px;
+  padding-top: var(--tt-sp-2); border-top: 1px solid var(--tt-line-soft);
+}
+.tt-sin-history-item:first-child { border-top: 0; padding-top: 0; }
+.tt-sin-history-main { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-sin-history-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-sin-history-reason { font-size: var(--tt-fs-100); color: var(--tt-text-2); white-space: pre-line; overflow-wrap: anywhere; }
+
+/* === 5. Estados vacíos ==================================================== */
+.tt-sin-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--tt-sp-1); padding: var(--tt-sp-6) var(--tt-sp-4); text-align: center;
+}
+.tt-sin-empty > i { font-size: var(--tt-fs-600); color: var(--tt-text-3); }
+.tt-sin-empty-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-sin-empty-text { margin: 0; max-width: 52ch; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* === 6. Angosto =========================================================== */
+@media (max-width: 575.98px) {
+  .tt-sin-page { padding: var(--tt-sp-4); }
+  .tt-sin-search-row, .tt-sin-search-row .tt-search, .tt-sin-select { width: 100%; }
+  .tt-sin-fact { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-sin-row { transition: none; }
+}

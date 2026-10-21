@@ -113,6 +113,14 @@ _TITULACION_ROLE = "titulatec_titulacion"
 _TITULACION_URL = "/titulatec/admin/titulacion"
 _TITULACION_PERM = "titulatec.titulacion.page.list"
 
+# La pestaña Sinodales (spec 2026-10-21 fase 4 §9): el mismo patrón condicional,
+# para la fila de `titulatec_vinculacion` (jefaturas y coordinaciones de
+# vinculación de los departamentos académicos). Sin el permiso, o con
+# `perms=None`, conserva su aterrizaje de siempre.
+_SINODALES_ROLE = "titulatec_vinculacion"
+_SINODALES_URL = "/titulatec/admin/sinodales"
+_SINODALES_PERM = "titulatec.synodal.page.list"
+
 
 def resolve_dashboard_url(
     roles: set[str],
@@ -125,7 +133,9 @@ def resolve_dashboard_url(
     el aterrizaje al Tablero exige además `titulatec.reports.page.view`: entre el
     deploy y `titulatec init-reportes` la jefa cae en la Bandeja en vez de un 403.
     Y el Departamento de Titulación aterriza en su pestaña solo con
-    `titulatec.titulacion.page.list` (si no, Liberados, como antes).
+    `titulatec.titulacion.page.list` (si no, Liberados, como antes); la
+    vinculación de los departamentos académicos, en Sinodales solo con
+    `titulatec.synodal.page.list` (si no, su página de siempre).
     Con `perms=None` solo cuentan los roles (comportamiento anterior: Titulación
     sigue en Liberados, Ruling R5).
     """
@@ -138,6 +148,8 @@ def resolve_dashboard_url(
                 return "/titulatec/admin/"
             if role_name == _TITULACION_ROLE and perms is not None and _TITULACION_PERM in perms:
                 return _TITULACION_URL
+            if role_name == _SINODALES_ROLE and perms is not None and _SINODALES_PERM in perms:
+                return _SINODALES_URL
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"
@@ -173,6 +185,9 @@ _ADMIN_NAV = [
     # Pantalla de trabajo del Departamento de Titulación (spec 2026-10-21 fase 3
     # §8): bandeja FIFO del Formato B; hospedará las fases siguientes.
     ("Titulación",          "bi-journal-check", "/titulatec/admin/titulacion", {"titulatec.titulacion.page.list"}),
+    # Bandeja del departamento académico (spec 2026-10-21 fase 4 §9): asignar
+    # los 4 sinodales (FIFO), sustituir y descargar el oficio.
+    ("Sinodales",           "bi-people",      "/titulatec/admin/sinodales",    {"titulatec.synodal.page.list"}),
     # Catálogo de docentes por departamento académico (spec 2026-10-21 fase 4 §8).
     ("Docentes",            "bi-person-badge", "/titulatec/admin/docentes",    {"titulatec.teacher.page.list"}),
     # Carrera -> departamento académico y ajustes del oficio (fase 4 §13, solo admin).

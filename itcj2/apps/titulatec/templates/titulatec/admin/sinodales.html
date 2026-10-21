@@ -1,0 +1,32 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{# Pestaña «Sinodales» (spec 2026-10-21 fase 4 §9): el departamento académico
+   asigna a los 4 sinodales de cada egresado en orden de llegada, sustituye con
+   motivo y descarga el oficio.
+
+   Sin etiquetas de script ni estilos aquí: el módulo JS y la hoja de esta
+   pestaña se cargan UNA vez desde `base_admin.html` (la navegación del menú
+   solo morphea `#tt-admin-content`). #}
+{% block title %}Sinodales · TitulaTec{% endblock %}
+{% block admin_view %}sinodales{% endblock %}
+{% block admin_main %}
+<div class="tt-sin-page">
+  <header class="tt-sin-header">
+    <span class="tt-kicker">Fase 04 · Departamento académico</span>
+    <h1 class="tt-display tt-sin-title">Sinodales</h1>
+    <p class="tt-sin-lead">Asigna a los 4 sinodales de cada egresado en el orden en que llegaron y descarga el oficio para la División de Estudios Profesionales.</p>
+  </header>
+  <div class="tt-sin-host tt-ind-host">
+    {# Indicador de recarga: overlay (primitiva `tt-ind--overlay`,
+       docs/design/ui_motion.md), fuera del flujo. #}
+    <div id="tt-sin-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+         role="status" aria-live="polite">
+      <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+    </div>
+    {# Swap `innerHTML`: el contenedor no se reemplaza y su `data-tt-view` es
+       constante, así que las recargas de la bandeja no re-animan la entrada. #}
+    <div id="tt-sin-body" data-tt-view="sinodales-body">
+      {% include "titulatec/partials/sinodales/_body.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

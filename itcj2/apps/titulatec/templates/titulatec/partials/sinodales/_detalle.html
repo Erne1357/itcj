@@ -1,0 +1,207 @@
+{# Detalle de la pestaña Sinodales (spec 2026-10-21 fase 4 §9).
+
+   - Encabezado: alumno, control, carrera y departamento; opción
+     (`option_label`), título del trabajo y fecha de aprobación del Formato B.
+   - Sin sinodales y con permiso (`synodal.api.assign` + departamento que el
+     usuario opera): los 4 selects con el catálogo del departamento DE LA
+     CARRERA, solo perfiles completos, y «Registrar sinodales» con
+     confirmación (`hx-confirm` -> `confirmDialog` del puente de
+     `titulatec-utils.js`). `js/admin/sinodales.js` apaga en cada select a
+     quien ya se eligió en otro; el servidor lo vuelve a exigir.
+   - Con sinodales: la tabla de los 4, «Descargar oficio» (`synodal.api.read`)
+     y «Sustituir» por fila (`synodal.api.replace`), que despliega su
+     formulario (`data-tt-sin-toggle`) con motivo obligatorio. Debajo, el
+     historial de sustituciones.
+   Un error del servicio responde 400 + `X-Tt-Error` y el formulario se queda
+   como está (htmx no hace swap en un 4xx). Ids estables en la raíz y en cada
+   fila. #}
+{% from "titulatec/_macros.html" import pill %}
+{% if not detail %}
+<div id="tt-sin-detail-empty" class="tt-card tt-sin-empty">
+  <i class="bi bi-people" aria-hidden="true"></i>
+  <p class="tt-sin-empty-text">{% if rows %}Elige un egresado de la lista para {{ 'asignarle sus sinodales' if tab == 'pending' else 'ver a sus sinodales' }}.{% elif tab == 'pending' %}No queda ningún egresado por asignar.{% else %}Nada que mostrar en esta pestaña.{% endif %}</p>
+</div>
+{% else %}
+{% set d = detail %}
+{% set URL = '/titulatec/admin/sinodales/' ~ d.process_id %}
+<article id="tt-sin-detail" class="tt-sin-detail" data-process="{{ d.process_id }}">
+  <header class="tt-card tt-sin-head">
+    <div class="tt-sin-head-main">
+      <span class="tt-kicker">{{ d.folio }}</span>
+      <h2 class="tt-display tt-sin-name">{{ d.name }}</h2>
+      <p class="tt-sin-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
+      {% if d.department %}<p class="tt-sin-sub">{{ d.department }}</p>{% endif %}
+    </div>
+    <div class="tt-sin-head-aside">
+      {% if d.synodals %}{{ pill("Sinodales asignados", "success", "check-lg") }}
+      {% else %}{{ pill("Por asignar", "amber", "hourglass-split") }}{% endif %}
+    </div>
+  </header>
+
+  <section class="tt-card tt-sin-work" aria-label="Datos del trabajo">
+    <dl class="tt-sin-facts">
+      <div class="tt-sin-fact">
+        <dt>Opción</dt>
+        <dd>{{ d.option }}</dd>
+      </div>
+      <div class="tt-sin-fact">
+        <dt>Título del trabajo</dt>
+        <dd class="tt-sin-project">{{ d.project }}</dd>
+      </div>
+      <div class="tt-sin-fact">
+        <dt>Formato B aprobado</dt>
+        <dd>{{ d.fb_approved_label or '—' }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  {% if d.not_mapped_msg %}
+  <p id="tt-sin-not-mapped" class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.not_mapped_msg }}</p>
+  {% endif %}
+
+  {% if d.synodals %}
+  <section class="tt-card tt-sin-synodals-card" aria-labelledby="tt-sin-synodals-title">
+    <div class="tt-sin-section-head">
+      <h3 id="tt-sin-synodals-title" class="tt-kicker tt-sin-section-title">Sinodales vigentes</h3>
+      {% if d.can_oficio %}
+      <a id="tt-sin-oficio" class="btn btn-sm tt-btn-ink" href="{{ d.oficio_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
+      {% endif %}
+    </div>
+    <div class="tt-table-wrap">
+      <table id="tt-sin-synodals" class="table table-sm align-middle tt-sin-table">
+        <thead>
+          <tr>
+            <th scope="col">Posición</th>
+            <th scope="col">Nombre</th>
+            <th scope="col">Grado académico</th>
+            <th scope="col">Cédula</th>
+            {% if d.can_replace %}<th scope="col"><span class="visually-hidden">Acciones</span></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in d.synodals %}
+          <tr id="tt-sin-syn-{{ s.role }}">
+            <td class="tt-sin-role">{{ s.role_label }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.academic_degree or '—' }}</td>
+            <td class="tt-mono">{{ s.professional_license or '—' }}</td>
+            {% if d.can_replace %}
+            <td class="tt-sin-cell-action">
+              <button type="button" class="btn btn-sm tt-btn-ghost"
+                      data-tt-sin-toggle="tt-sin-replace-{{ s.role }}"
+                      aria-controls="tt-sin-replace-{{ s.role }}" aria-expanded="false">
+                <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Sustituir</button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if d.can_replace %}
+    {% for s in d.synodals %}
+    <form id="tt-sin-replace-{{ s.role }}" class="tt-sin-replace" hidden
+          hx-post="{{ URL }}/sustituir" hx-target="#tt-sin-body" hx-swap="innerHTML"
+          hx-disabled-elt="find button[type='submit']"
+          hx-confirm="Sustituir al {{ s.role_label }}|{{ s.name }} dejará de ser sinodal de {{ d.name }}. Se avisará a los dos docentes y al alumno."
+          data-tt-confirm-ok="Sustituir">
+      <input type="hidden" name="role" value="{{ s.role }}">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+      <input type="hidden" name="depto" value="{{ depto or '' }}">
+      <input type="hidden" name="page" value="{{ page.page }}">
+      <div class="tt-sin-replace-head">
+        <span class="tt-kicker">Sustituir · {{ s.role_label }}</span>
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sin-toggle="tt-sin-replace-{{ s.role }}"
+                aria-label="Cerrar la sustitución"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+      </div>
+      {% if d.replacements %}
+      <div class="tt-sin-replace-grid">
+        <div>
+          <label class="tt-label" for="tt-sin-new-{{ s.role }}">Docente que entra</label>
+          <select id="tt-sin-new-{{ s.role }}" name="new_user_id" class="tt-field" required>
+            <option value="">Elige al docente…</option>
+            {% for t in d.replacements %}
+            <option value="{{ t.user_id }}">{{ t.name }} · {{ t.degree }} · {{ t.assignments_label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="tt-label" for="tt-sin-reason-{{ s.role }}">Motivo de la sustitución</label>
+          <textarea id="tt-sin-reason-{{ s.role }}" name="reason" class="tt-field" rows="2"
+                    maxlength="500" required
+                    placeholder="Por ejemplo: licencia, cambio de adscripción…"></textarea>
+        </div>
+      </div>
+      <div class="tt-sin-buttons">
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sin-toggle="tt-sin-replace-{{ s.role }}">Cancelar</button>
+        <button type="submit" class="btn btn-sm tt-btn-ink"><i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Sustituir</button>
+      </div>
+      {% else %}
+      <p class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>No hay otro docente del departamento con grado y cédula registrados: agrégalo en «Docentes».</p>
+      {% endif %}
+    </form>
+    {% endfor %}
+    {% endif %}
+  </section>
+
+  {% if d.history %}
+  <section id="tt-sin-history" class="tt-card tt-sin-history" aria-labelledby="tt-sin-history-title">
+    <h3 id="tt-sin-history-title" class="tt-kicker tt-sin-section-title">Sustituciones</h3>
+    <ol class="tt-sin-history-list">
+      {% for h in d.history %}
+      <li id="tt-sin-hist-{{ loop.index }}" class="tt-sin-history-item">
+        <span class="tt-sin-history-main">{{ h.role_label }}: {{ h.name }} <i class="bi bi-arrow-right" aria-hidden="true"></i> {{ h.replacement_name or '—' }}</span>
+        <span class="tt-sin-history-meta">{{ h.replaced_label or '' }}{% if h.replaced_by_name %} · por {{ h.replaced_by_name }}{% endif %}</span>
+        {% if h.reason %}<span class="tt-sin-history-reason">{{ h.reason }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% elif d.can_assign %}
+  {% if d.teachers | length >= 4 %}
+  <form id="tt-sin-assign" class="tt-card tt-sin-assign"
+        hx-post="{{ URL }}/asignar" hx-target="#tt-sin-body" hx-swap="innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        hx-confirm="Registrar sinodales|{{ d.name }} pasará a la revisión de sinodales y los 4 docentes recibirán el aviso. Después solo se podrá sustituir a uno, con motivo."
+        data-tt-confirm-ok="Registrar">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+    <input type="hidden" name="depto" value="{{ depto or '' }}">
+    <input type="hidden" name="page" value="{{ page.page }}">
+    <span class="tt-kicker">Asignar sinodales</span>
+    <p class="tt-sin-help">Solo aparecen los docentes del departamento con grado y cédula registrados. Las asignaciones vigentes de cada uno son informativas.</p>
+    <div class="tt-sin-assign-grid">
+      {% for r in d.roles %}
+      <div>
+        <label class="tt-label" for="tt-sin-sel-{{ r.code }}">{{ r.label }}</label>
+        <select id="tt-sin-sel-{{ r.code }}" name="{{ r.code }}_id" class="tt-field tt-sin-pick" required>
+          <option value="">Elige al docente…</option>
+          {% for t in d.teachers %}
+          <option value="{{ t.user_id }}">{{ t.name }} · {{ t.degree }} · {{ t.assignments_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="tt-sin-buttons">
+      <button type="submit" id="tt-sin-assign-submit" class="btn btn-sm tt-btn-ink">
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Registrar sinodales</button>
+    </div>
+  </form>
+  {% else %}
+  <p id="tt-sin-few-teachers" class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>El departamento necesita al menos 4 docentes con grado y cédula registrados para asignar sinodales: agrégalos en «Docentes».</p>
+  {% endif %}
+
+  {% else %}
+  <p id="tt-sin-readonly" class="tt-card tt-sin-note">Este egresado todavía no tiene sinodales asignados.</p>
+  {% endif %}
+</article>
+{% endif %}

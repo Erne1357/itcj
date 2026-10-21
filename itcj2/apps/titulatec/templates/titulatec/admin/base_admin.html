@@ -33,6 +33,8 @@
 <link rel="stylesheet" href="/static/titulatec/css/admin/docentes.css?v={{ sv('css/admin/docentes.css') }}">
 {# Pestaña Carreras por departamento (fase 4): mismo motivo. #}
 <link rel="stylesheet" href="/static/titulatec/css/admin/carreras.css?v={{ sv('css/admin/carreras.css') }}">
+{# Pestaña Sinodales (fase 4): bandeja, asignar, sustituir; mismo motivo. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/sinodales.css?v={{ sv('css/admin/sinodales.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -193,6 +195,10 @@
 {# Pestaña Docentes (fase 4): despliegue de formularios de fila y de alta.
    Mismo contrato: una sola carga y delegación en `document.body`. #}
 <script src="/static/titulatec/js/admin/docentes.js?v={{ sv('js/admin/docentes.js') }}"></script>
+{# Pestaña Sinodales (fase 4): en «Asignar» apaga en cada select a quien ya se
+   eligió en otra posición, y despliega el formulario «Sustituir» de cada fila.
+   Mismo contrato: una sola carga y delegación en `document.body`. #}
+<script src="/static/titulatec/js/admin/sinodales.js?v={{ sv('js/admin/sinodales.js') }}"></script>
 {# Tablero de la jefa de SE: tooltip de las gráficas (hijo de <body>, creado una
    vez), crosshair de las líneas, Imprimir, popovers de filtros y la opacidad de
    recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en

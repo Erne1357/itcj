@@ -1,0 +1,449 @@
+"""Pestaña «Sinodales»: la pantalla del departamento académico (fase 4).
+
+Spec `docs/superpowers/specs/2026-10-21-titulatec-fase4-sinodales-design.md`
+§9 (bandeja), §12 (oficio) y §16b (R-D, R-E, R-G). Bandeja FIFO master-detail
+(mismo patrón que `pages/titulacion_admin.py`): «Por asignar» y «Asignados»,
+asignar a los 4 sinodales (aprueba la fase 4: el proceso pasa a la 5),
+sustituir a uno con motivo y descargar el oficio en PDF.
+
+Reparto: asignar y sustituir viven en `SynodalService` (la ÚNICA puerta de la
+fase 4), la bandeja en `SynodalInboxService`, el PDF en `OficioService`. Aquí
+solo se arma el contexto y se traducen los errores.
+
+Acceso:
+- La página y el parcial exigen `synodal.page.list` (el ítem del menú).
+- Cada ACCIÓN exige su propio permiso en el gate (`synodal.api.assign`,
+  `synodal.api.replace`) y además, en este orden: `assert_process_in_scope`
+  como primera sentencia del `try` (404 uniforme), `_exigir_bandeja` (poder
+  abrir esta pestaña; el permiso de la acción solo no basta), el corte
+  (`SynodalService.operable`, R-G) y `SynodalService.can_operate` (el
+  departamento de la carrera; mide ALCANCE, no permiso: con `read.all` es
+  True para cualquier departamento mapeado, R-D). El servicio vuelve a
+  verificar todo bajo el candado.
+- El oficio exige solo `synodal.api.read` + la guarda de alcance: también lo
+  descargan el expediente y la pestaña Titulación (R-E), así que NO pasa por
+  `_exigir_bandeja` (el Departamento de Titulación no abre Sinodales). Con el
+  corte en la fase 4 o antes responde 404, como los documentos de Titulación.
+"""
+import logging
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
+
+from itcj2.dependencies import require_page_app
+from itcj2.apps.titulatec.pages.nav import render_titulatec
+
+logger = logging.getLogger("itcj2.apps.titulatec.pages.sinodales_admin")
+router = APIRouter(prefix="/admin/sinodales", tags=["titulatec-pages-sinodales"])
+
+# Abrir la pestaña (y el ítem del menú, `nav._ADMIN_NAV`).
+_VIEW_PERMS = ["titulatec.synodal.page.list"]
+_ASSIGN_PERM = "titulatec.synodal.api.assign"
+_REPLACE_PERM = "titulatec.synodal.api.replace"
+_READ_PERM = "titulatec.synodal.api.read"
+
+_BASE_URL = "/titulatec/admin/sinodales"
+_PAGE_TPL = "titulatec/admin/sinodales.html"
+_BODY_TPL = "titulatec/partials/sinodales/_body.html"
+
+# Pestañas en el orden de pantalla (las claves son `SynodalInboxService.TABS`).
+_TABS = (("pending", "Por asignar"), ("assigned", "Asignados"))
+_VACIO = "—"
+
+
+def _hdr(msg: str) -> str:
+    """Percent-encode para que un mensaje acentuado quepa en un header latin-1.
+
+    Gemelo de `pages/titulacion_admin.py::_hdr`; `titulatec-utils.js::
+    decodeHeaderMsg` lo deshace al mostrarlo.
+    """
+    from urllib.parse import quote
+    return quote(msg or "", safe="")
+
+
+def _to_int(raw):
+    try:
+        return int(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _error(msg: str) -> Response:
+    """Guarda o validación del servicio: 400 + `X-Tt-Error` (htmx no hace swap
+    en un 4xx, así que el formulario se queda como está)."""
+    return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+
+
+def _exigir_bandeja(db, user_id: int) -> None:
+    """Las acciones exigen poder ABRIR esta pestaña, no solo el permiso de la
+    acción (patrón `titulacion_admin.py::_exigir_bandeja`). 403 como el gate,
+    ANTES de escribir. Va después de `assert_process_in_scope`."""
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.exceptions import PageForbidden
+
+    if not set(_VIEW_PERMS) <= set(cached_perms(db, user_id, "titulatec")):
+        raise PageForbidden(has_app_access=True)
+
+
+def _operable(db) -> bool:
+    """¿La fase 4 se opera en esta app? (R-G; falla cerrado)."""
+    from itcj2.apps.titulatec.services.synodal_service import SynodalService
+    return SynodalService.operable(db)
+
+
+def _sin_alcance_msg(db, proc) -> str:
+    """Motivo de `can_operate == False`: la carrera sin departamento o un
+    departamento que el usuario no opera (mismos textos que el servicio)."""
+    from itcj2.apps.titulatec.services.scope_service import department_of_program
+    from itcj2.apps.titulatec.services.synodal_service import NOT_MAPPED_MSG, OUT_OF_SCOPE_MSG
+
+    if proc.program_id is None or department_of_program(db, proc.program_id) is None:
+        return NOT_MAPPED_MSG
+    return OUT_OF_SCOPE_MSG
+
+
+def _nombre(user) -> str:
+    """Nombre en orden natural (nombre(s), paterno, materno)."""
+    if user is None:
+        return ""
+    return " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p)
+
+
+def _limpio(raw) -> str:
+    return " ".join(str(raw or "").split())
+
+
+def _asignaciones_label(n: int) -> str:
+    if n <= 0:
+        return "sin asignaciones vigentes"
+    return "1 asignación vigente" if n == 1 else f"{n} asignaciones vigentes"
+
+
+def _docentes(db, department_id) -> list[dict]:
+    """Opciones de los selects: docentes HOY del departamento de la carrera con
+    perfil completo (grado y cédula no vacíos), con su número de asignaciones
+    vigentes como dato informativo (spec §9)."""
+    from itcj2.apps.titulatec.services.teacher_service import TeacherService
+
+    if department_id is None:
+        return []
+    salida = []
+    for d in TeacherService.roster(db, department_id):
+        grado, cedula = _limpio(d["academic_degree"]), _limpio(d["professional_license"])
+        if not (grado and cedula):
+            continue
+        n = int(d["active_assignments"] or 0)
+        salida.append({"user_id": d["user_id"], "name": d["name"], "degree": grado,
+                       "assignments": n, "assignments_label": _asignaciones_label(n)})
+    return salida
+
+
+def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> dict:
+    """El detalle de UN proceso: datos de pantalla, sinodales, historial y qué
+    acciones ofrecer. Todo dict plano (la sesión se cierra antes de pintar)."""
+    from itcj2.apps.titulatec.models import (
+        FormatB, Modality, ProcessPhase, ProgramDepartment, TitulationProcess,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.services.synodal_service import (
+        NOT_MAPPED_MSG, PHASE_CODE, REVIEW_PHASE_CODE, ROLE_LABELS, ROLES, SynodalService,
+    )
+    from itcj2.apps.titulatec.utils.dates_es import dia_largo, dia_mes_hora
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.user import User
+
+    proc = db.get(TitulationProcess, process_id)
+    alumno = db.get(User, proc.student_id)
+    fb = db.get(FormatB, process_id)
+    programa = db.get(Program, proc.program_id) if proc.program_id else None
+    mapeo = db.get(ProgramDepartment, proc.program_id) if proc.program_id else None
+    depto = db.get(Department, mapeo.department_id) if mapeo else None
+    modalidad_id = proc.modality_id or getattr(fb, "modality_id", None)
+    modalidad = db.get(Modality, modalidad_id) if modalidad_id else None
+    opcion = ((modalidad.option_label or modalidad.name) if modalidad
+              else getattr(fb, "titulation_type", None))
+
+    sinodales = SynodalService.active_for_process(db, process_id)
+    historial = SynodalService.history(db, process_id) if sinodales else []
+    for h in historial:
+        h["replaced_label"] = dia_mes_hora(h["replaced_at"]) if h["replaced_at"] else None
+
+    n4 = PhaseService.phase_number_for_code(db, PHASE_CODE)
+    n5 = PhaseService.phase_number_for_code(db, REVIEW_PHASE_CODE)
+    fase5 = (db.query(ProcessPhase.status)
+             .filter(ProcessPhase.process_id == process_id,
+                     ProcessPhase.phase_number == n5).scalar()) if n5 is not None else None
+
+    # `can_operate` mide el ALCANCE (departamento de la carrera); el permiso de
+    # cada acción se exige aparte, igual que en el gate de su ruta.
+    opera = operable and SynodalService.can_operate(db, user_id, proc)
+    activo = proc.status == "active"
+    can_assign = (opera and activo and not sinodales and n4 is not None
+                  and proc.current_phase == n4 and _ASSIGN_PERM in perms)
+    can_replace = (opera and activo and bool(sinodales) and fase5 != "approved"
+                   and _REPLACE_PERM in perms)
+    docentes = _docentes(db, depto.id if depto else None) if (can_assign or can_replace) else []
+    vigentes = {s["user_id"] for s in sinodales}
+
+    return {
+        "process_id": process_id, "folio": proc.folio,
+        "name": _nombre(alumno) or _VACIO,
+        "control": (alumno.control_number if alumno else None) or _VACIO,
+        "program": programa.name if programa else _VACIO,
+        "department": depto.name if depto else None,
+        "option": opcion or _VACIO,
+        "project": (getattr(fb, "project_name", None) or "").strip() or _VACIO,
+        "fb_approved_label": (dia_largo(fb.approved_at)
+                              if fb is not None and fb.approved_at else None),
+        "status": proc.status,
+        "not_mapped_msg": NOT_MAPPED_MSG if depto is None else None,
+        "synodals": sinodales, "history": historial,
+        "roles": [{"code": r, "label": ROLE_LABELS[r]} for r in ROLES],
+        "can_assign": can_assign, "can_replace": can_replace,
+        "can_oficio": bool(sinodales) and _READ_PERM in perms,
+        "teachers": docentes,
+        # Para sustituir: el que entra no puede ser ya sinodal vigente.
+        "replacements": [d for d in docentes if d["user_id"] not in vigentes],
+        "oficio_url": f"{_BASE_URL}/{process_id}/oficio.pdf",
+    }
+
+
+def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
+              per_page: int | None = None) -> dict:
+    """Contexto del parcial `_body.html` (y de la página completa).
+
+    Sin corte operable: solo el estado vacío (cero consultas de bandeja). Sin
+    departamento a cargo: su estado vacío. Una carrera o un departamento que
+    no son del universo del usuario se ignoran (no filtran nada que no vea).
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.apps.titulatec.services.synodal_inbox_service import SynodalInboxService
+    from itcj2.apps.titulatec.utils.dates_es import dia_largo
+    from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, normalize_q
+
+    operable = _operable(db)
+    q = normalize_q(q) or ""
+    tab = tab if tab in SynodalInboxService.TABS else "pending"
+    ctx = {
+        "operable": operable, "tab": tab, "tabs": _TABS, "q": q,
+        "carrera": None, "depto": None, "rows": [],
+        "page": Page(items=[], total=0, page=1, per_page=per_page or PAGE_SIZE),
+        "counts": {t: 0 for t in SynodalInboxService.TABS},
+        "departments": [], "programs": [], "detail": None, "selected_id": None,
+    }
+    if not operable:
+        return ctx
+
+    departamentos = SynodalInboxService.departments(db, user_id)
+    ctx["departments"] = departamentos
+    if not departamentos:
+        return ctx
+    depto_id = _to_int(depto)
+    if depto_id not in {d["id"] for d in departamentos}:
+        depto_id = None
+    carreras = SynodalInboxService.programs(db, user_id, department_id=depto_id)
+    carrera_id = _to_int(carrera)
+    if carrera_id not in {p["id"] for p in carreras}:
+        carrera_id = None
+
+    data = SynodalInboxService.list(db, user_id, tab=tab, q=q, program_id=carrera_id,
+                                    department_id=depto_id, page=page, per_page=per_page)
+    rows = data["rows"]
+    for r in rows:
+        r["started_label"] = dia_largo(r["started_at"]) if r["started_at"] else None
+        r["assigned_label"] = dia_largo(r["assigned_at"]) if r["assigned_at"] else None
+
+    # `?selected=` se resuelve DENTRO de las filas ya acotadas (lista == detalle),
+    # también cuando el proceso cae en otra página.
+    detail_id = None
+    if selected_id and (selected_id in {r["process_id"] for r in rows}
+                        or SynodalInboxService.contains(
+                            db, user_id, selected_id, tab=tab, q=q, program_id=carrera_id,
+                            department_id=depto_id)):
+        detail_id = selected_id
+    detail = None
+    if detail_id:
+        detail = _detail_ctx(db, process_id=detail_id, user_id=user_id,
+                             perms=cached_perms(db, user_id, "titulatec"), operable=operable)
+
+    ctx.update({"rows": rows, "page": data["page"], "counts": data["counts"],
+                "carrera": carrera_id, "depto": depto_id, "programs": carreras,
+                "detail": detail, "selected_id": detail_id})
+    return ctx
+
+
+def _vista(form) -> dict:
+    """La pestaña, búsqueda, carrera, departamento y página desde las que se
+    actuó: la acción re-pinta la MISMA vista (regla 3 de la paginación)."""
+    return {"tab": form.get("tab") or "pending", "q": form.get("q") or "",
+            "carrera": form.get("carrera") or "", "depto": form.get("depto") or "",
+            "page": form.get("page") or ""}
+
+
+def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str):
+    """Re-pinta el cuerpo con `selected_id` y el aviso de éxito (`X-Tt-Notice`)."""
+    ctx = _body_ctx(db, user_id=user_id, selected_id=selected_id, **vista)
+    resp = render_titulatec(request, _BODY_TPL, ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(aviso)
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
+
+
+# ===========================================================================
+# Páginas
+# ===========================================================================
+@router.get("", name="titulatec.pages.sinodales.home")
+def home(request: Request, tab: str = "", q: str = "", carrera: str = "", depto: str = "",
+         page: str = "", selected: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
+    """Página completa. Los parámetros llegan como `str` (htmx los manda vacíos)
+    y se parsean a mano."""
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, carrera=carrera,
+                        depto=depto, page=page, selected_id=_to_int(selected))
+    finally:
+        db.close()
+    return render_titulatec(request, _PAGE_TPL, ctx)
+
+
+@router.get("/body", name="titulatec.pages.sinodales.body")
+def body(request: Request, tab: str = "", q: str = "", carrera: str = "", depto: str = "",
+         page: str = "", selected: str = "",
+         user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
+    """Parcial `#tt-sin-body`: pestañas, búsqueda, filtros, página y detalle."""
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, carrera=carrera,
+                        depto=depto, page=page, selected_id=_to_int(selected))
+    finally:
+        db.close()
+    return render_titulatec(request, _BODY_TPL, ctx)
+
+
+# ===========================================================================
+# Asignar y sustituir
+# ===========================================================================
+@router.post("/{process_id}/asignar", name="titulatec.pages.sinodales.assign")
+async def assign(process_id: int, request: Request,
+                 user: dict = Depends(require_page_app("titulatec", perms=[_ASSIGN_PERM]))):
+    """Registra a los 4 sinodales: aprueba la fase 4 y el proceso pasa a la 5 (§10)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_assign, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_assign(process_id, request, user, form):
+    """Cuerpo síncrono de `assign`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.apps.titulatec.services.synodal_service import INERT_MSG, SynodalService
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
+        if not _operable(db):
+            return _error(INERT_MSG)
+        if not SynodalService.can_operate(db, uid, proc):
+            return _error(_sin_alcance_msg(db, proc))
+        try:
+            resultado = SynodalService.assign(
+                db, proc, uid,
+                president_id=form.get("president_id"),
+                secretary_id=form.get("secretary_id"),
+                vocal_id=form.get("vocal_id"),
+                alternate_id=form.get("alternate_id"))
+        except ValueError as exc:
+            # Faltan, repetidos, no docente, sin perfil, ya asignados…
+            return _error(str(exc))
+        if resultado.get("completed"):
+            aviso = "Sinodales registrados: el proceso quedó completo."
+        else:
+            aviso = ("Sinodales registrados: el proceso pasó a la fase "
+                     f"{int(resultado['next_phase']):02d}. Ya puedes descargar el oficio.")
+        # El proceso sale de «Por asignar»: se abre en «Asignados» (tabla de
+        # los 4 y el oficio), conservando búsqueda, carrera y departamento.
+        vista = dict(_vista(form), tab="assigned", page="")
+        return _repintar(request, db, uid, vista, process_id, aviso)
+    finally:
+        db.close()
+
+
+@router.post("/{process_id}/sustituir", name="titulatec.pages.sinodales.replace")
+async def replace(process_id: int, request: Request,
+                  user: dict = Depends(require_page_app("titulatec", perms=[_REPLACE_PERM]))):
+    """Sustituye al sinodal de una posición, con motivo (D8)."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_replace, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_replace(process_id, request, user, form):
+    """Cuerpo síncrono de `replace`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.apps.titulatec.services.synodal_service import (
+        INERT_MSG, ROLE_LABELS, SynodalService,
+    )
+
+    uid = int(user["sub"])
+    role = form.get("role") or ""
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
+        if not _operable(db):
+            return _error(INERT_MSG)
+        if not SynodalService.can_operate(db, uid, proc):
+            return _error(_sin_alcance_msg(db, proc))
+        try:
+            SynodalService.replace(db, proc, uid, role=role,
+                                   new_user_id=form.get("new_user_id"),
+                                   reason=form.get("reason") or "")
+        except ValueError as exc:
+            # Motivo vacío, misma persona, ya vigente, fase 5 aprobada…
+            return _error(str(exc))
+        return _repintar(request, db, uid, _vista(form), process_id,
+                         f"Se sustituyó al {ROLE_LABELS[role]}.")
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Oficio
+# ===========================================================================
+@router.get("/{process_id}/oficio.pdf", name="titulatec.pages.sinodales.oficio")
+def oficio(process_id: int, request: Request,
+           user: dict = Depends(require_page_app("titulatec", perms=[_READ_PERM]))):
+    """Oficio «Asignación de Sinodales» en PDF, INLINE y generado al vuelo
+    (§12). 404 sin sinodales vigentes, fuera de alcance o con el corte en la
+    fase 4 o antes. Sin `_exigir_bandeja`: lo enlazan también el expediente y
+    la pestaña Titulación (R-E), que no abren Sinodales."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.oficio_service import OficioService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.apps.titulatec.services.synodal_service import SynodalService
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        if not _operable(db) or not SynodalService.active_for_process(db, process_id):
+            return Response(status_code=404)
+        try:
+            pdf = OficioService.render_pdf(db, proc)
+        except ValueError:
+            # Sin sinodales vigentes (`NO_SYNODALS_MSG`): otro los quitó entre
+            # la lectura de arriba y el render.
+            return Response(status_code=404)
+        filename = OficioService.filename(db, proc)
+    finally:
+        db.close()
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{filename}"'})
