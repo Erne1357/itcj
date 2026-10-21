@@ -83,6 +83,9 @@ _ROLE_DASHBOARD = [
     # trabajo es Liberados, una bandeja propia como las de GTV, Computo,
     # Biblioteca y Caja, y por eso va DESPUES de los roles con Bandeja completa
     # (titulaciones, admin y Escolares ganan si alguien tiene ambos).
+    # Desde la fase 3 (spec 2026-10-21 §8.1) aterriza en la pestaña Titulación
+    # SOLO si ya tiene `titulacion.page.list` (`resolve_dashboard_url`): sin el
+    # permiso -producción hasta `init-titulatec-fase-2`- sigue en Liberados.
     ("titulatec_titulacion",      "/titulatec/admin/liberados"),
     ("titulatec_tech_management", "/titulatec/admin/liberaciones"),  # GTV: bandeja de liberaciones (2026-09-15)
     # Centro de Computo (2026-09-24): su bandeja de Accesos. La jefatura trae
@@ -102,6 +105,14 @@ _ROLE_DASHBOARD = [
 _REPORTS_URL = "/titulatec/admin/tablero"
 _REPORTS_PERM = "titulatec.reports.page.view"
 
+# La pestaña Titulación (spec 2026-10-21 §8.1): mismo patrón que el Tablero, pero
+# solo para la fila de `titulatec_titulacion` (la División y `admin` van antes y
+# siguen en la Bandeja). Condicional al permiso para que en producción, donde no
+# existe hasta `init-titulatec-fase-2`, nada cambie.
+_TITULACION_ROLE = "titulatec_titulacion"
+_TITULACION_URL = "/titulatec/admin/titulacion"
+_TITULACION_PERM = "titulatec.titulacion.page.list"
+
 
 def resolve_dashboard_url(
     roles: set[str],
@@ -113,7 +124,10 @@ def resolve_dashboard_url(
     `perms` (opcional) son los permisos efectivos del usuario en la app. Con él,
     el aterrizaje al Tablero exige además `titulatec.reports.page.view`: entre el
     deploy y `titulatec init-reportes` la jefa cae en la Bandeja en vez de un 403.
-    Con `perms=None` solo cuentan los roles (comportamiento anterior).
+    Y el Departamento de Titulación aterriza en su pestaña solo con
+    `titulatec.titulacion.page.list` (si no, Liberados, como antes).
+    Con `perms=None` solo cuentan los roles (comportamiento anterior: Titulación
+    sigue en Liberados, Ruling R5).
     """
     if jwt_role == "admin":
         return "/titulatec/admin/"
@@ -122,6 +136,8 @@ def resolve_dashboard_url(
             if url == _REPORTS_URL and perms is not None and _REPORTS_PERM not in perms:
                 # Sin el permiso: como el resto de Escolares, a la Bandeja.
                 return "/titulatec/admin/"
+            if role_name == _TITULACION_ROLE and perms is not None and _TITULACION_PERM in perms:
+                return _TITULACION_URL
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"
@@ -154,6 +170,9 @@ _ADMIN_NAV = [
     ("Documentos",          "bi-file-earmark-check", "/titulatec/admin/documents",    {"titulatec.document.page.list"}),
     ("Convocatorias",       "bi-award",       "/titulatec/admin/cohorts",      {"titulatec.cohort.page.list"}),
     ("Citas de cotejo",     "bi-calendar",    "/titulatec/admin/appointments", {"titulatec.appointment.page.list"}),
+    # Pantalla de trabajo del Departamento de Titulación (spec 2026-10-21 fase 3
+    # §8): bandeja FIFO del Formato B; hospedará las fases siguientes.
+    ("Titulación",          "bi-journal-check", "/titulatec/admin/titulacion", {"titulatec.titulacion.page.list"}),
     # Bandeja de solo lectura del Departamento de Titulacion (2026-09-21, Tarea
     # 5 del deslinde a T-soft): egresados ya liberados por Servicios Escolares.
     ("Liberados",           "bi-box-arrow-right", "/titulatec/admin/liberados", {"titulatec.handoff.page.list"}),

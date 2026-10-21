@@ -1,0 +1,53 @@
+{# Lista (master) de la pestaña Titulación. Una fila por proceso con id estable
+   (`tt-tit-row-{id}`) para que el morph de la navegación las empareje.
+
+   «Por revisar» es la cola FIFO (`submitted_at`): posición, semáforo de espera
+   en días hábiles (neutro < 3, ámbar ≥ 3, rojo ≥ 5; constantes en
+   `FormatBInboxService`), «Reenvío (ronda N)» y quién más lo tiene abierto
+   (`ReviewPresence`, nunca uno mismo). #}
+{% from "titulatec/_macros.html" import pager %}
+{% set WAIT_TONE = {"ok": "neutral", "warn": "amber", "late": "danger"} %}
+<div class="tt-card tt-tit-list-card">
+  <div id="tt-tit-list" class="tt-tit-list">
+    {% for r in rows %}
+    <button type="button" id="tt-tit-row-{{ r.process_id }}" data-process="{{ r.process_id }}"
+            class="tt-tit-row{% if selected_id == r.process_id %} is-active{% endif %}"
+            aria-current="{{ 'true' if selected_id == r.process_id else 'false' }}"
+            hx-get="/titulatec/admin/titulacion/body"
+            hx-vals='{"selected": {{ r.process_id }}, "page": {{ page.page }}}'
+            hx-include="#tt-tit-filters" hx-target="#tt-tit-body" hx-swap="innerHTML"
+            hx-indicator="#tt-tit-skel">
+      {% if r.position %}
+      <span class="tt-tit-pos tt-mono" title="Lugar {{ r.position }} en la cola">{{ r.position }}</span>
+      {% endif %}
+      <span class="tt-tit-row-main">
+        <span class="tt-tit-row-name">{{ r.student_name }}</span>
+        <span class="tt-tit-row-meta tt-mono">{{ r.control_number or '—' }} · {{ r.program_name or '—' }}</span>
+        {% if r.round >= 2 %}
+        <span class="tt-pill tt-pill--violet tt-tit-resend"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reenvío (ronda {{ r.round }})</span>
+        {% endif %}
+        {% if r.viewers %}
+        <span class="tt-tit-viewing"><i class="bi bi-eye" aria-hidden="true"></i>{{ r.viewers | join(', ') }} {{ 'lo están revisando' if r.viewers | length > 1 else 'lo está revisando' }}</span>
+        {% endif %}
+      </span>
+      {% if r.waited_days is not none %}
+      <span class="tt-pill tt-pill--{{ WAIT_TONE[r.wait_level] }} tt-tit-wait tt-tit-wait--{{ r.wait_level }}"
+            title="{{ r.waited_days }} {{ 'día hábil' if r.waited_days == 1 else 'días hábiles' }} en espera{% if r.submitted_label %} · enviado el {{ r.submitted_label }}{% endif %}">{{ r.waited_days }} d</span>
+      {% endif %}
+    </button>
+    {% else %}
+    {% if q %}
+    <p class="tt-tit-list-empty" id="tt-tit-no-results"><i class="bi bi-search" aria-hidden="true"></i>Sin resultados para "{{ q }}"</p>
+    {% elif tab == 'pending' %}
+    <p class="tt-tit-list-empty">No hay Formatos B por revisar.</p>
+    {% elif tab == 'observed' %}
+    <p class="tt-tit-list-empty">Ningún Formato B espera correcciones del alumno.</p>
+    {% elif tab == 'approved' %}
+    <p class="tt-tit-list-empty">Todavía no hay Formatos B aprobados.</p>
+    {% else %}
+    <p class="tt-tit-list-empty">Ningún alumno en la fase 3 tiene su Formato B sin enviar.</p>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {{ pager(page, '/titulatec/admin/titulacion/body', '#tt-tit-body', include='#tt-tit-filters', swap='innerHTML', prefix='tt-tit') }}
+</div>

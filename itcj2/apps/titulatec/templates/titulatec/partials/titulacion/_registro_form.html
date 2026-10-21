@@ -1,0 +1,60 @@
+{# Corrección de los datos del registro (spec 2026-10-21 fase 3 §8.5, D9):
+   nombre y carrera, solo con el Formato B en revisión. Nace oculto; lo
+   despliega el lápiz «Corregir» de cada bloque (`data-tt-tit-toggle`,
+   `js/admin/titulacion.js`). Solo carreras del MISMO nivel; motivo
+   obligatorio. El nº de control no se corrige aquí (es identidad).
+
+   Validación del servidor (`FormatBService.correct_registry`): un error
+   responde 400 + `X-Tt-Error` y el formulario se queda como está (htmx no
+   hace swap en un 4xx). El `hx-confirm` lo convierte en `confirmDialog` el
+   puente de `titulatec-utils.js`. #}
+{% set d = detail %}
+<form id="tt-tit-registro" class="tt-card tt-tit-registro" hidden
+      hx-post="/titulatec/admin/titulacion/formato-b/{{ d.process_id }}/registro"
+      hx-target="#tt-tit-body" hx-swap="innerHTML"
+      hx-disabled-elt="find button[type='submit']"
+      hx-confirm="Corregir el registro|El nombre o la carrera cambiarán en toda la plataforma y se avisará al alumno. El Formato B sigue en revisión."
+      data-tt-confirm-ok="Guardar corrección">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="q" value="{{ q }}">
+  <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+  <input type="hidden" name="page" value="{{ page.page }}">
+  <div class="tt-tit-registro-head">
+    <span class="tt-kicker">Corregir datos del registro</span>
+    <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-tit-toggle="tt-tit-registro"
+            aria-label="Cerrar la corrección"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+  </div>
+  <p class="tt-tit-help">Corrige el nombre como aparece en el acta o la carrera (solo del mismo nivel). El número de control no se corrige aquí.</p>
+  <div class="tt-tit-registro-grid">
+    <div>
+      <label class="tt-label" for="tt-tit-reg-first">Nombre(s)</label>
+      <input id="tt-tit-reg-first" name="first_name" class="tt-field" required maxlength="120"
+             autocomplete="off" value="{{ d.registry.first_name }}">
+    </div>
+    <div>
+      <label class="tt-label" for="tt-tit-reg-last">Apellido paterno</label>
+      <input id="tt-tit-reg-last" name="last_name" class="tt-field" required maxlength="120"
+             autocomplete="off" value="{{ d.registry.last_name }}">
+    </div>
+    <div>
+      <label class="tt-label" for="tt-tit-reg-middle">Apellido materno <span class="tt-tit-optional">(opcional)</span></label>
+      <input id="tt-tit-reg-middle" name="middle_name" class="tt-field" maxlength="120"
+             autocomplete="off" value="{{ d.registry.middle_name }}">
+    </div>
+    <div>
+      <label class="tt-label" for="tt-tit-reg-program">Carrera</label>
+      <select id="tt-tit-reg-program" name="program_id" class="tt-field">
+        {% for p in d.registry_programs %}
+        <option value="{{ p.id }}"{% if p.id == d.registry.program_id %} selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+  <label class="tt-label" for="tt-tit-reg-reason">Motivo de la corrección</label>
+  <textarea id="tt-tit-reg-reason" name="reason" class="tt-field" rows="2" required maxlength="500"
+            placeholder="Por ejemplo: el acta de nacimiento dice «Ana María»."></textarea>
+  <div class="tt-tit-buttons">
+    <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-tit-toggle="tt-tit-registro">Cancelar</button>
+    <button type="submit" class="btn btn-sm tt-btn-ink"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Guardar corrección</button>
+  </div>
+</form>

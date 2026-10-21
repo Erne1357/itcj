@@ -27,6 +27,8 @@
    Una página admin que redefina `head_extra` debe llamar `{{ super() }}`. #}
 <link rel="stylesheet" href="/static/titulatec/css/admin/reports.css?v={{ sv('css/admin/reports.css') }}">
 <link rel="stylesheet" href="/static/titulatec/css/admin/cashier.css?v={{ sv('css/admin/cashier.css') }}">
+{# Pestaña Titulación (Formato B, fase 3): mismo motivo que las dos de arriba. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/titulacion.css?v={{ sv('css/admin/titulacion.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -178,6 +180,12 @@
    «Expandir» nunca enganchaba. Mismo contrato: una sola carga, delegación y
    re-init en `htmx:afterSettle` tras cada swap de `#docs-body`. #}
 <script src="/static/titulatec/js/admin/doc-viewer.js?v={{ sv('js/admin/doc-viewer.js') }}"></script>
+{# Pestaña Titulación (Formato B, fase 3): banderas ⚑ por campo, conteo de
+   observaciones, «Aprobar» deshabilitado con marcas, form de corrección del
+   registro y apertura del visor de arriba sobre los documentos de la fase 1.
+   VA DESPUÉS de `doc-viewer.js`: reutiliza su modal. Mismo contrato: una sola
+   carga, delegación en `document.body` y re-init en `htmx:afterSettle`. #}
+<script src="/static/titulatec/js/admin/titulacion.js?v={{ sv('js/admin/titulacion.js') }}"></script>
 {# Tablero de la jefa de SE: tooltip de las gráficas (hijo de <body>, creado una
    vez), crosshair de las líneas, Imprimir, popovers de filtros y la opacidad de
    recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en

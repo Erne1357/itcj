@@ -101,3 +101,22 @@ class TrackService:
             p.id: TrackService.for_level(levels_by_program_id.get(p.program_id))
             for p in processes
         }
+
+    @staticmethod
+    def programs_same_level(db: Session, program_id: int | None) -> list:
+        """Carreras del MISMO `level` que `program_id`, por nombre (e id).
+
+        Las opciones del «Corregir carrera» de la pestaña Titulación (spec
+        2026-10-21 fase 3 §8.5): la página no lee `Program.level` (invariante
+        2); el service lo vuelve a exigir con `same_level`. Incluye la propia
+        carrera. Sin carrera o una inexistente -> `[]`. Una sola consulta (el
+        nivel va en una subconsulta escalar).
+        """
+        from itcj2.core.models.program import Program
+
+        if program_id is None:
+            return []
+        nivel = (db.query(Program.level).filter(Program.id == program_id)
+                 .scalar_subquery())
+        return (db.query(Program).filter(Program.level == nivel)
+                .order_by(Program.name, Program.id).all())

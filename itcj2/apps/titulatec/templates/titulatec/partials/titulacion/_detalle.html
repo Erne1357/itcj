@@ -1,0 +1,180 @@
+{# Detalle de la pestaña Titulación (spec 2026-10-21 fase 3 §8.2).
+
+   - Encabezado: nombre, control, carrera, modalidad, ronda y liga al
+     expediente (solo si el usuario puede abrirlo; `?from=` con esta vista).
+   - Documentos de la fase 1 con el visor existente (`TitulaTecDocViewer`,
+     `#tt-doc-review` + `.tt-docpick`): cada botón abre el modal grande del
+     visor (`js/admin/titulacion.js`), para cotejar el nombre con el acta y la
+     CURP. Sin `#tt-doc-stage`: no se descarga ningún PDF hasta pedirlo.
+   - Tres bloques con TODOS los campos (`FormatBService.display_sections`).
+     Los del registro llevan «del registro», no se marcan y se corrigen con el
+     lápiz (§8.5); cada campo editable tiene su ⚑ que despliega su nota.
+   - Latido de presencia (`#tt-tit-beat`, cada 60 s) FUERA del formulario: un
+     POST desde dentro de un <form> arrastraría sus campos.
+   Ids estables en la raíz y en cada campo (`tt-tit-f-{campo}`). #}
+{% from "titulatec/_macros.html" import pill %}
+{% if not detail %}
+<div id="tt-tit-detail-empty" class="tt-card tt-tit-empty">
+  <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+  <p class="tt-tit-empty-text">{% if rows %}Elige un Formato B de la lista para {{ 'revisarlo' if tab == 'pending' else 'verlo' }}.{% elif tab == 'pending' %}No queda ningún Formato B por revisar.{% else %}Nada que mostrar en esta pestaña.{% endif %}</p>
+</div>
+{% else %}
+{% set d = detail %}
+{% set VISTA = 'tab=' ~ tab ~ '&selected=' ~ d.process_id ~ '&page=' ~ page.page
+               ~ (('&q=' ~ (q | urlencode)) if q else '')
+               ~ (('&carrera=' ~ carrera) if carrera else '') %}
+{% set VOLVER = ('/titulatec/admin/titulacion?' ~ VISTA) | urlencode %}
+<article id="tt-tit-detail" class="tt-tit-detail" data-process="{{ d.process_id }}" data-status="{{ d.status }}">
+  <header class="tt-card tt-tit-head">
+    <div class="tt-tit-head-main">
+      <span class="tt-kicker">{{ d.folio }}</span>
+      <h2 class="tt-display tt-tit-name">{{ d.name }}</h2>
+      <p class="tt-tit-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
+      {% set partes = [] %}
+      {% if d.modality != '—' %}{% set _ = partes.append(d.modality) %}{% endif %}
+      {% if d.round %}{% set _ = partes.append('Ronda ' ~ d.round) %}{% endif %}
+      {% if d.submitted_label %}{% set _ = partes.append('Enviado el ' ~ d.submitted_label) %}{% endif %}
+      {% if partes %}<p class="tt-tit-sub">{{ partes | join(' · ') }}</p>{% endif %}
+      {% if d.reviewed_label %}<p class="tt-tit-sub">{{ d.reviewed_label }}</p>{% endif %}
+    </div>
+    <div class="tt-tit-head-aside">
+      {% if d.status == 'submitted' %}{{ pill("Por revisar", "amber", "hourglass-split") }}
+      {% elif d.status == 'rejected' %}{{ pill("Con observaciones", "danger", "arrow-return-left") }}
+      {% elif d.status == 'approved' %}{{ pill("Aprobado", "success", "check-lg") }}
+      {% else %}{{ pill("Sin enviar", "neutral", "dash-circle") }}{% endif %}
+      {% if d.can_open_exp %}
+      <a class="btn btn-sm tt-btn-ghost"
+         href="/titulatec/admin/processes/{{ d.process_id }}?fase={{ d.phase_number }}&from={{ VOLVER }}">
+        <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Expediente</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if d.others %}
+  <p class="tt-tit-presence"><i class="bi bi-eye" aria-hidden="true"></i>{{ d.others | join(', ') }} también {{ 'lo están revisando' if d.others | length > 1 else 'lo está revisando' }}.</p>
+  {% endif %}
+  {% if d.beat %}
+  <span id="tt-tit-beat" hidden
+        hx-post="/titulatec/admin/titulacion/formato-b/{{ d.process_id }}/viendo"
+        hx-trigger="every 60s" hx-swap="none"></span>
+  {% endif %}
+
+  {% if d.docs %}
+  <section id="tt-doc-review" class="tt-card tt-tit-docs" data-process="{{ d.process_id }}"
+           data-phase-closed="0" aria-label="Documentos de la fase 1">
+    <span class="tt-kicker">Documentos de la fase 1 · cotejar el nombre</span>
+    <div class="tt-tit-docpicks">
+      {% for doc in d.docs %}
+      <button type="button" class="btn btn-sm tt-btn-ghost tt-docpick"
+              data-type="{{ doc.type_code }}" data-url="{{ doc.url }}" data-name="{{ doc.name }}"
+              data-mime="{{ doc.mime }}" data-status="{{ doc.status }}">
+        <i class="bi bi-file-earmark-text me-1" aria-hidden="true"></i>{{ doc.name }}</button>
+      {% endfor %}
+      {# Lo «pulsa» `titulacion.js` tras elegir un documento: abre el modal
+         grande de `doc-viewer.js` (su `expand()`), que no expone otra API. #}
+      <button type="button" id="tt-doc-expand" hidden tabindex="-1">Ver documento</button>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if d.can_correct %}
+  {% include "titulatec/partials/titulacion/_registro_form.html" %}
+  {% endif %}
+
+  {% if d.general_prev %}
+  <div class="tt-card tt-tit-prevgeneral">
+    <span class="tt-kicker">Nota general {{ 'de la ronda anterior' if d.status == 'submitted' else 'enviada al alumno' }}</span>
+    <p class="tt-tit-prevgeneral-text">{{ d.general_prev }}</p>
+  </div>
+  {% endif %}
+
+  {% if d.can_review %}<form id="tt-tit-review" class="tt-tit-review">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="q" value="{{ q }}">
+  <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+  <input type="hidden" name="page" value="{{ page.page }}">
+  {% else %}<div id="tt-tit-review" class="tt-tit-review">{% endif %}
+  {% for s in d.sections %}
+  <section class="tt-card tt-tit-section" aria-labelledby="tt-tit-sec-{{ s.key }}">
+    <div class="tt-tit-section-head">
+      <h3 id="tt-tit-sec-{{ s.key }}" class="tt-kicker tt-tit-section-title">{{ s.label }}</h3>
+      {% if d.can_correct and (s.rows | selectattr('correctable') | list) %}
+      <button type="button" class="btn btn-sm tt-btn-ghost tt-tit-pencil"
+              data-tt-tit-toggle="tt-tit-registro" aria-controls="tt-tit-registro" aria-expanded="false">
+        <i class="bi bi-pencil me-1" aria-hidden="true"></i>Corregir</button>
+      {% endif %}
+    </div>
+    <div class="tt-tit-fields">
+      {% for row in s.rows %}
+      <div id="tt-tit-f-{{ row.field }}" class="tt-tit-field{% if d.show_obs and row.observation %} has-obs{% endif %}"
+           data-field="{{ row.field }}" data-registry="{{ '1' if row.registry else '0' }}">
+        <div class="tt-tit-label">{{ row.label }}{% if row.registry %} <span class="tt-tit-tag">del registro</span>{% endif %}</div>
+        <div class="tt-tit-val">
+          <span class="tt-tit-value">{{ row.value }}</span>
+          {% if d.show_obs and row.observation %}
+          <div class="tt-tit-prev">
+            <span class="tt-tit-prev-note"><i class="bi bi-chat-left-text" aria-hidden="true"></i>{{ row.observation.note }}</span>
+            {% if row.changed %}
+            <span class="tt-tit-diff">antes <span class="tt-tit-before">{{ row.observation.value_at_review }}</span> <i class="bi bi-arrow-right" aria-hidden="true"></i> ahora <span class="tt-tit-after">{{ row.value }}</span></span>
+            {% else %}
+            <span class="tt-tit-diff is-same">Sin cambio</span>
+            {% endif %}
+          </div>
+          {% endif %}
+          {% if d.can_reject and row.editable %}
+          <div class="tt-tit-note" id="tt-tit-note-{{ row.field }}" hidden>
+            <label class="visually-hidden" for="tt-tit-note-input-{{ row.field }}">Observación sobre {{ row.label }}</label>
+            <textarea id="tt-tit-note-input-{{ row.field }}" name="note__{{ row.field }}" class="tt-field"
+                      rows="2" maxlength="1000" disabled
+                      placeholder="Qué debe corregir el alumno en «{{ row.label }}»…"></textarea>
+          </div>
+          {% endif %}
+        </div>
+        {% if d.can_reject and row.editable %}
+        <button type="button" class="tt-tit-flag" data-field="{{ row.field }}" aria-pressed="false"
+                aria-controls="tt-tit-note-{{ row.field }}" title="Marcar «{{ row.label }}» con una observación">
+          <i class="bi bi-flag" aria-hidden="true"></i><span class="visually-hidden">Marcar {{ row.label }}</span></button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+
+  {% if d.can_review %}
+  <div class="tt-card tt-tit-actions">
+    {% if d.can_reject %}
+    <label class="tt-label" for="tt-tit-general">Nota general <span class="tt-tit-optional">(opcional si marcaste campos)</span></label>
+    <textarea id="tt-tit-general" name="general_note" class="tt-field" rows="2" maxlength="1000"
+              placeholder="Indicaciones generales para el alumno…"></textarea>
+    {% endif %}
+    {% if d.no_modality_msg %}
+    <p id="tt-tit-no-modality" class="tt-tit-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.no_modality_msg }}</p>
+    {% endif %}
+    <div class="tt-tit-buttons">
+      {% if d.can_reject %}
+      <button type="button" id="tt-tit-observe" class="btn btn-sm tt-btn-danger-soft"
+              hx-post="/titulatec/admin/titulacion/formato-b/{{ d.process_id }}/observar"
+              hx-target="#tt-tit-body" hx-swap="innerHTML"
+              hx-disabled-elt="#tt-tit-observe, #tt-tit-approve"
+              hx-confirm="Regresar con observaciones|El alumno recibirá tus observaciones por aviso y correo, y podrá corregir y reenviar su Formato B."
+              data-tt-confirm-ok="Regresar al alumno">
+        <i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i>Regresar con observaciones<span id="tt-tit-obs-count"></span></button>
+      {% endif %}
+      {% if d.can_approve %}
+      <button type="button" id="tt-tit-approve" class="btn btn-sm tt-btn-ink"
+              hx-post="/titulatec/admin/titulacion/formato-b/{{ d.process_id }}/aprobar"
+              hx-target="#tt-tit-body" hx-swap="innerHTML"
+              hx-disabled-elt="#tt-tit-observe, #tt-tit-approve"
+              hx-confirm="Aprobar el Formato B|{{ d.name }} pasará a la siguiente fase y recibirá el aviso. El dictamen ya no se podrá cambiar."
+              data-tt-confirm-ok="Aprobar">
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar</button>
+      {% endif %}
+    </div>
+  </div>
+  </form>
+  {% else %}
+  </div>
+  {% endif %}
+</article>
+{% endif %}
