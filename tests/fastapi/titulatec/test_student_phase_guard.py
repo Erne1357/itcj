@@ -522,7 +522,8 @@ class TestFaseRechazada:
         propia cobertura vive en test_handoff_phase_cut.py.
 
         Desde la fase 3 (2026-10-21) cada paso se VALIDA antes de guardarse y el
-        envio re-valida todo: el alumno manda los tres pasos completos.
+        envio re-valida todo: el alumno guarda los tres pasos completos y
+        el paso 3 ya no envia: el envio es `POST /formato-b/enviar`.
         """
         monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=3, phase_overrides={3: "rejected"})
@@ -539,9 +540,8 @@ class TestFaseRechazada:
         pagina = client_as(esc.student).get("/titulatec/student/formato-b",
                                             follow_redirects=False)
         guardados = [client_as(esc.student).post(f"/titulatec/student/formato-b/step/{n}",
-                                                 data=pasos[n]) for n in (1, 2)]
-        envio = client_as(esc.student).post("/titulatec/student/formato-b/step/3",
-                                            data=pasos[3])
+                                                 data=pasos[n]) for n in (1, 2, 3)]
+        envio = client_as(esc.student).post("/titulatec/student/formato-b/enviar")
 
         assert pagina.status_code == 200, pagina.text[:300]
         for guardado in guardados:
@@ -697,6 +697,8 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
 
     # 14 desde la Tarea 1 (2026-09-28): se retiro `POST /phase/1/submit`
     # (eran 15). La fase 1 se sincroniza sola, `DocumentService.sync_initial_phase`.
-    assert revisadas == 14, "cambio el inventario de rutas del alumno: " + str(revisadas)
+    # 16 desde la fase 3 (2026-10-21): +`GET /formato-b/revision` y
+    # +`POST /formato-b/enviar`, las dos con `_phase_guard`.
+    assert revisadas == 16, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))

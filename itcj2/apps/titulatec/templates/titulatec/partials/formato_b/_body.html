@@ -1,0 +1,36 @@
+{# ===========================================================================
+   partials/formato_b/_body.html — cuerpo del Formato B (swap HTMX completo).
+   Raíz #formato-b-body: hx-swap="outerHTML" repinta también el stepper.
+   `view`: step (pasos 1-3) | review («Revisa y envía») | readonly (enviado/aprobado).
+   Contexto: view · step · datos · errors · first_error · registro · modalities ·
+   requires_project · obs · banner · observed · general_note · reviewed_txt ·
+   secciones · no_cambio · fbv · just_submitted.
+   =========================================================================== #}
+<div id="formato-b-body" data-fb-view="{{ view }}">
+
+  {% if view == 'step' or view == 'review' %}
+  {% set actual = 4 if view == 'review' else step %}
+  <div class="tt-paper px-3 pt-2 pb-3" style="border-bottom:1px solid var(--tt-line)" id="fb-stepper">
+    <div class="d-flex gap-2">
+      {% for i in range(1, 5) %}
+      <div style="flex:1;height:5px;border-radius:3px;background:{{ 'var(--tt-accent)' if i <= actual else 'var(--tt-line)' }}"></div>
+      {% endfor %}
+    </div>
+    <div class="d-flex justify-content-between mt-2" style="font-size:.6875rem;color:var(--tt-mute)">
+      {% for i, rotulo in ((1, 'Personal'), (2, 'Escolar'), (3, 'Proyecto'), (4, 'Revisión')) %}
+      <span style="{{ 'color:var(--tt-success);font-weight:600' if actual > i else ('color:var(--tt-ink);font-weight:600' if actual == i else '') }}">
+        {% if actual > i %}<i class="bi bi-check-lg"></i> {% endif %}{{ rotulo }}</span>
+      {% endfor %}
+    </div>
+  </div>
+  {% if banner %}{% include "titulatec/partials/formato_b/_observaciones.html" %}{% endif %}
+  {% endif %}
+
+  {% if view == 'readonly' %}{% include "titulatec/partials/formato_b/_solo_lectura.html" %}
+  {% elif view == 'review' %}{% include "titulatec/partials/formato_b/_revision.html" %}
+  {% elif step == 1 %}{% include "titulatec/partials/formato_b/_paso_1.html" %}
+  {% elif step == 2 %}{% include "titulatec/partials/formato_b/_paso_2.html" %}
+  {% else %}{% include "titulatec/partials/formato_b/_paso_3.html" %}
+  {% endif %}
+
+</div>

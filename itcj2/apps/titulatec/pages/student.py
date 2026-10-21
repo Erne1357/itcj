@@ -71,13 +71,15 @@ _PHASE_INFO = {
     },
     "format_b": {
         "desc": "Llena el Formato B en tres pasos: datos personales, datos escolares y "
-                "proyecto. Se guarda al pasar de paso, así que puedes ir y volver.",
+                "proyecto. Cada paso se valida y se guarda al continuar, así que puedes ir y "
+                "volver; al final revisas todo y lo envías.",
         "needs": [
-            "Personales: nombre completo, sexo, edad, celular, teléfono y domicilio "
-            "(CP, colonia, calle, número exterior e interior).",
-            "Escolares: plan de estudios, mes de ingreso y mes de egreso.",
-            "Proyecto: el nombre de tu proyecto.",
-            "Tu número de control, tu carrera y tu modalidad ya vienen precargados.",
+            "Personales: sexo, edad, celular, teléfono (opcional) y domicilio "
+            "(CP, colonia, calle, número exterior e interior). Tu nombre viene de tu registro "
+            "y no se edita aquí.",
+            "Escolares: plan de estudios, tipo de titulación, mes de ingreso y mes de egreso.",
+            "Proyecto: el nombre de tu proyecto (según el tipo de titulación que elijas).",
+            "Tu número de control y tu carrera ya vienen de tu registro.",
         ],
         "who": "Tú lo llenas y lo envías; el Depto. de Titulación lo aprueba o te lo "
                "regresa con observaciones.",
@@ -1488,9 +1490,72 @@ def document_delete(
         db.close()
 
 
-def _programs(db):
-    from itcj2.core.models.program import Program
-    return [{"id": p.id, "name": p.name} for p in db.query(Program).order_by(Program.name).all()]
+_FB_BODY = "titulatec/partials/formato_b/_body.html"
+
+
+def _modalities(db) -> list[dict]:
+    """Modalidades activas para el selector «Tipo de titulación» (catálogo, §5.7)."""
+    from itcj2.apps.titulatec.models import Modality
+    filas = db.query(Modality).filter(Modality.is_active.is_(True)).order_by(
+        Modality.name, Modality.id).all()
+    return [{"id": m.id, "name": m.name} for m in filas]
+
+
+def _fb_ctx(db, process, fb, *, view="step", step=1, errors=None, form=None,
+            just_submitted=False) -> dict:
+    """Contexto del cuerpo del Formato B del alumno (todo en tipos planos: la
+    plantilla se pinta después del `db.close()` de la ruta).
+
+    `view`: `step` (formulario del paso `step`), `review` («Revisa y envía») o
+    `readonly` (enviado/aprobado). Con el Formato B enviado o aprobado la vista
+    SIEMPRE es `readonly`, pida lo que pida la ruta. `errors` = `{campo: msg}` del
+    paso que se re-pinta; `form` = lo que el alumno escribió (se re-pinta tal cual).
+    """
+    from itcj2.apps.titulatec.services.format_b_service import (
+        OBSERVABLE_FIELDS, REGISTRY_FIELDS, STEP_FIELDS, FormatBService,
+    )
+    from itcj2.apps.titulatec.services.format_b_validation import FIELD_LABELS
+    from itcj2.apps.titulatec.utils.dates_es import dia_mes
+
+    if fb.status in ("submitted", "approved"):
+        view = "readonly"
+    secciones = FormatBService.display_sections(db, fb, process)
+    filas = {r["field"]: r for s in secciones for r in s["rows"]}
+    rechazado = fb.status == "rejected"
+
+    # Observaciones del revisor: solo mientras el Formato B sigue `rejected`.
+    obs = {c: {"note": r["observation"]["note"], "changed": r["changed"]}
+           for c, r in filas.items() if rechazado and r["observation"]}
+    paso_de = {c: n for n, campos in STEP_FIELDS.items() for c in campos}
+    observados = [{"field": c, "label": FIELD_LABELS.get(c, c), "step": paso_de[c],
+                   "note": obs[c]["note"], "changed": obs[c]["changed"]}
+                  for c in OBSERVABLE_FIELDS if c in obs]
+    crudo = fb.review_observations if isinstance(fb.review_observations, dict) else {}
+
+    datos = FormatBService.to_ctx(fb)
+    if form and view == "step":
+        for campo in STEP_FIELDS.get(step, []):
+            if isinstance(form.get(campo), str):
+                datos[campo] = form[campo]
+    errors = errors or None
+    primer_error = next((c for c in STEP_FIELDS.get(step, []) if errors and c in errors), None)
+
+    return {
+        "view": view, "step": step, "datos": datos, "errors": errors,
+        "first_error": primer_error,
+        "registro": {c: filas[c]["value"] for c in REGISTRY_FIELDS},
+        "modalities": _modalities(db) if view == "step" and step == 2 else [],
+        "requires_project": FormatBService.validation_ctx(db, fb).requires_project is not False,
+        "obs": obs, "banner": rechazado, "observed": observados,
+        "general_note": crudo.get("general") or fb.rejection_reason,
+        "reviewed_txt": dia_mes(fb.reviewed_at) if rechazado and fb.reviewed_at else None,
+        "secciones": secciones,
+        "no_cambio": [o["label"] for o in observados if not o["changed"]],
+        "fbv": {"status": fb.status,
+                "submitted_txt": dia_mes(fb.submitted_at) if fb.submitted_at else None,
+                "approved_txt": dia_mes(fb.approved_at) if fb.approved_at else None},
+        "just_submitted": just_submitted,
+    }
 
 
 @router.get("/formato-b", name="titulatec.pages.student.formato_b")
@@ -1498,23 +1563,32 @@ def formato_b(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
 ):
-    """Shell del Formato B multi-step (arranca en el paso 1)."""
+    """Shell del Formato B: formulario (borrador/rechazado) o solo lectura
+    (enviado/aprobado).
+
+    **Excepción a la guarda de fase (spec §5.5):** con el Formato B `approved` la
+    vista de solo lectura se sirve aunque `current_phase` ya sea 4+; toda acción
+    sigue bloqueada por `_phase_guard`.
+    """
     from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import FormatB
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
 
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
-        # ANTES de `get_or_create`, que hace `db.commit()`: sin la guarda, el mero
-        # GET desde otra fase ya creaba la fila `titulatec_format_b`.
-        fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "format_b"))
-        if fuera_de_fase:
-            return fuera_de_fase
         ctx = {"process": process.to_dict() if process else None}
         if process:
-            fb = FormatBService.get_or_create(db, process)
-            ctx.update({"step": 1, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)})
+            existente = db.get(FormatB, process.id)
+            if not (existente is not None and existente.status == "approved"):
+                # ANTES de `get_or_create`, que hace `db.commit()`: sin la guarda, el
+                # mero GET desde otra fase ya creaba la fila `titulatec_format_b`.
+                fuera_de_fase = _phase_guard_page(db, process, _phase_of(db, "format_b"))
+                if fuera_de_fase:
+                    return fuera_de_fase
+            fb = existente or FormatBService.get_or_create(db, process)
+            ctx.update(_fb_ctx(db, process, fb))
     finally:
         db.close()
     return render_titulatec(request, "titulatec/student/formato_b.html", ctx)
@@ -1526,7 +1600,7 @@ def formato_b_step(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
 ):
-    """Devuelve el parcial de un paso (navegación atrás, HTMX)."""
+    """Devuelve el parcial de un paso (navegación atrás / «Editar», HTMX)."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
@@ -1545,10 +1619,37 @@ def formato_b_step(
         if fuera_de_fase:
             return fuera_de_fase
         fb = FormatBService.get_or_create(db, process)
-        ctx = {"step": n, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
+        ctx = _fb_ctx(db, process, fb, step=n)
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/partials/formato_b_step.html", ctx)
+    return render_titulatec(request, _FB_BODY, ctx)
+
+
+@router.get("/formato-b/revision", name="titulatec.pages.student.formato_b_revision")
+def formato_b_revision(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.page.fill"])),
+):
+    """Parcial «Revisa y envía» (spec §5.3). Con el Formato B ya enviado cae a la
+    vista de solo lectura."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from fastapi.responses import Response
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        if not process:
+            return Response(status_code=409)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "format_b"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        fb = FormatBService.get_or_create(db, process)
+        ctx = _fb_ctx(db, process, fb, view="review")
+    finally:
+        db.close()
+    return render_titulatec(request, _FB_BODY, ctx)
 
 
 @router.post("/formato-b/step/{n}", name="titulatec.pages.student.formato_b_save")
@@ -1557,7 +1658,8 @@ async def formato_b_save(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.api.save"])),
 ):
-    """Guarda el paso n y devuelve el parcial del siguiente (o 'done' al enviar)."""
+    """Valida y guarda el paso n; devuelve el siguiente (el 3 lleva a la revisión,
+    ya NO envía)."""
     if n not in (1, 2, 3):
         return Response(status_code=404)
 
@@ -1569,10 +1671,9 @@ async def formato_b_save(
 def _cuerpo_formato_b_save(n, request, user, form):
     """Cuerpo síncrono de `formato_b_save`: corre en el threadpool, no en el event loop.
 
-    Adaptación MÍNIMA al motor validado (Ruling R8, hasta que la ola 3 reescriba
-    estas rutas): un paso inválido (o un envío con un paso inválido) re-pinta
-    ese paso con 200 y los errores; un `ValueError` del motor (ya enviado, fuera
-    de fase) responde 400 + `X-Tt-Error`.
+    Un paso inválido re-pinta ese paso con **200** y los errores (htmx no hace
+    swap en un 4xx); un `ValueError` del motor (ya enviado, fuera de fase) es la
+    guarda y responde 400 + `X-Tt-Error`.
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -1591,22 +1692,51 @@ def _cuerpo_formato_b_save(n, request, user, form):
         fb = FormatBService.get_or_create(db, process)
         try:
             FormatBService.save_step(db, fb, n, form)
-            if n < 3:
-                ctx = {"step": n + 1, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
-            else:
-                FormatBService.submit(db, fb, process)
-                ctx = {"step": "done", "datos": FormatBService.to_ctx(fb), "programs": []}
         except FormatBValidationError as err:
-            datos = FormatBService.to_ctx(fb)
-            if err.step == n:
-                datos.update({k: v for k, v in form.items() if isinstance(v, str)})
-            ctx = {"step": err.step, "datos": datos, "programs": _programs(db),
-                   "errors": err.errors}
+            ctx = _fb_ctx(db, process, fb, step=err.step, errors=err.errors, form=form)
         except ValueError as exc:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        else:
+            ctx = (_fb_ctx(db, process, fb, step=n + 1) if n < 3
+                   else _fb_ctx(db, process, fb, view="review"))
     finally:
         db.close()
-    return render_titulatec(request, "titulatec/partials/formato_b_step.html", ctx)
+    return render_titulatec(request, _FB_BODY, ctx)
+
+
+@router.post("/formato-b/enviar", name="titulatec.pages.student.formato_b_submit")
+def formato_b_submit(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.api.submit"])),
+):
+    """Envía el Formato B a revisión (spec §5.3). `submit` RE-VALIDA todo: con un
+    borrador viejo inválido responde **200** con el primer paso con errores."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from itcj2.apps.titulatec.services.format_b_validation import FormatBValidationError
+    from fastapi.responses import Response
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        if not process:
+            return Response(status_code=409)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "format_b"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        fb = FormatBService.get_or_create(db, process)
+        try:
+            FormatBService.submit(db, fb, process)
+        except FormatBValidationError as err:
+            ctx = _fb_ctx(db, process, fb, step=err.step, errors=err.errors)
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
+        else:
+            ctx = _fb_ctx(db, process, fb, just_submitted=True)
+    finally:
+        db.close()
+    return render_titulatec(request, _FB_BODY, ctx)
 
 
 # ===========================================================================

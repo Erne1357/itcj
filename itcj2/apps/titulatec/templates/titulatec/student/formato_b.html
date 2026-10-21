@@ -3,7 +3,7 @@
 {% block student_active %}home{% endblock %}
 {% block student_page %}student_formato_b{% endblock %}
 {% block student_appbar_title %}Formato B{% endblock %}
-{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Personal · Escolar · Proyecto</div>{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Personal · Escolar · Proyecto · Revisión</div>{% endblock %}
 {% block student_appbar_left %}
   <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
 {% endblock %}
@@ -18,8 +18,12 @@
       </div>
     </div>
   {% else %}
-    <div class="p-3 p-lg-4">
-      {% include "titulatec/partials/formato_b_step.html" %}
+    <div class="p-3 p-lg-4 tt-fb">
+      {% include "titulatec/partials/formato_b/_body.html" %}
     </div>
   {% endif %}
+{% endblock %}
+
+{% block student_scripts %}
+  <script src="/static/titulatec/js/student/formato-b.js?v={{ sv('js/student/formato-b.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,37 @@
+{# ===========================================================================
+   partials/formato_b/_macros.html — piezas comunes de los pasos del Formato B.
+   Se importan SIN contexto: todo llega por argumentos.
+   `errors` = {campo: mensaje} | None · `obs` = {campo: {note, changed, ...}} | None
+   =========================================================================== #}
+
+{# Clases de un control: error del servidor, observado (ámbar) o ya corregido. #}
+{% macro cls(errors, obs, f) -%}
+  {%- if errors and errors.get(f) %} is-invalid{% endif -%}
+  {%- if obs and obs.get(f) %}{% if obs[f].changed %} is-corrected{% else %} is-observed{% endif %}{% endif -%}
+{%- endmacro %}
+
+{# Mensaje de error y nota del revisor bajo un campo. #}
+{% macro notes(errors, obs, f) -%}
+  {%- if errors and errors.get(f) %}
+  <div class="invalid-feedback d-block" id="fb-err-{{ f }}">{{ errors[f] }}</div>
+  {%- endif %}
+  {%- if obs and obs.get(f) %}
+    {%- if obs[f].changed %}
+  <div class="tt-fb-obs tt-fb-obs--ok" id="fb-obs-{{ f }}"><i class="bi bi-check-circle-fill"></i> Corregido ✓
+    <span class="tt-fb-obs-was">Observación de Titulación: {{ obs[f].note }}</span></div>
+    {%- else %}
+  <div class="tt-fb-obs" id="fb-obs-{{ f }}"><i class="bi bi-exclamation-triangle-fill"></i>
+    Observación de Titulación: {{ obs[f].note }}</div>
+    {%- endif %}
+  {%- endif %}
+{%- endmacro %}
+
+{# Resumen de errores arriba del formulario. #}
+{% macro summary(errors) -%}
+  {%- if errors %}
+  <div class="alert alert-danger tt-fb-summary mb-0" role="alert" id="fb-error-summary">
+    <i class="bi bi-exclamation-octagon"></i>
+    Revisa {{ errors|length }} {{ 'campo' if errors|length == 1 else 'campos' }}
+  </div>
+  {%- endif %}
+{%- endmacro %}
