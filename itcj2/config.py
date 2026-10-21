@@ -602,6 +602,13 @@ class Settings(BaseSettings):
     # 9:00). 0 = sin recordatorio de cita.
     TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
 
+    # Fase 4 (sinodales, spec 2026-10-21 §8): dominios del correo INSTITUCIONAL con
+    # que el departamento da de alta a un docente nuevo. Lista separada por comas
+    # (sin distinguir mayúsculas); el usuario de la cuenta es la parte local del
+    # correo. Vacía = no se puede crear ninguna cuenta (falla cerrado). Se lee
+    # SOLO por `TeacherService.allowed_email_domains()`.
+    TITULATEC_TEACHER_EMAIL_DOMAINS: str = "cdjuarez.tecnm.mx"
+
     # `hide_input_in_errors`: el ValidationError de un validador (p. ej. la llave
     # Fernet mal formada) no debe imprimir el dict de entrada, que lleva secretos.
     model_config = {"env_file": ".env", "extra": "ignore", "hide_input_in_errors": True}

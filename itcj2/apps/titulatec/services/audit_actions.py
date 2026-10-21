@@ -117,6 +117,16 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # --- processes: promedio oficial (`process.*` es de la escucha, por eso `average.*`)
     "average.final_set": ("processes", "Fijó el promedio final de un proceso"),
 
+    # --- processes: catálogo de docentes (fase 4, `TeacherService`) -----------
+    # Mismo módulo que `titulatec_teacher_profiles` en `TABLE_MODULES`: la acción
+    # y la fila de la red ORM del perfil caen juntas en el filtro. Nunca la
+    # contraseña: el payload solo dice si se restableció (`credential_reset`).
+    "teacher.created": ("processes", "Creó la cuenta de un docente y lo agregó al departamento"),
+    "teacher.added": ("processes", "Agregó a un docente al departamento"),
+    "teacher.profile_updated": ("processes", "Editó el grado o la cédula de un docente"),
+    "teacher.removed": ("processes", "Quitó a un docente del departamento"),
+    "teacher.access_reset": ("processes", "Restableció el acceso de un docente"),
+
     # --- library: liberaciones previas ----------------------------------------
     "prior_clearance.deferred": ("library", "Dejó pendiente una liberación previa"),
     "prior_clearance.replaced": ("library", "Reemplazó una liberación previa"),

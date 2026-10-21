@@ -1,0 +1,39 @@
+{% extends "titulatec/email/_base_email.html" %}
+{# Acceso de un DOCENTE (fase 4, spec 2026-10-21 §8): cuenta nueva, cuenta
+   reutilizada que se restableció o «Reenviar acceso». Lleva la contraseña
+   temporal de la plataforma: es el ÚNICO lugar por donde viaja (nunca log,
+   bitácora, evento, header ni HTML de la app). Lo manda
+   `TeacherService.send_access_email` después del commit. #}
+{% block titulo %}Tu acceso como docente — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ nombre|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Tu departamento académico te registró como docente en TitulaTec, la plataforma
+  de titulación del ITCJ. Ahí recibirás los procesos de titulación en los que
+  participes como sinodal. Estos son tus datos para entrar a la Plataforma
+  Digital del ITCJ:
+</p>
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border:1px solid #CFD8DC;border-radius:6px;margin-bottom:24px;">
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;width:150px;">Usuario</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:16px;font-weight:700;">{{ usuario|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">
+      Contraseña temporal</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:16px;font-weight:700;letter-spacing:2px;border-top:1px solid #ECEFF1;">
+      {{ contrasena|e }}</td>
+  </tr>
+</table>
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ login_url|e }}"
+     style="display:inline-block;background-color:#1F3D7A;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:6px;font-weight:700;">
+    Entrar a la plataforma</a>
+</p>
+<p style="margin:0 0 16px;">
+  Al entrar por primera vez la plataforma te pedirá cambiar esta contraseña
+  temporal por una propia.
+</p>
+<p style="margin:0;color:#B71C1C;font-size:13px;">No compartas este correo con nadie.</p>
+{% endblock %}
