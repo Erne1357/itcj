@@ -902,7 +902,9 @@ def test_roster_estados_y_asignaciones_vigentes(db_session, depto, actor, make_u
     assert filas[inactivo]["account_status"] == "inactive"
     assert filas[pendiente.id]["active_assignments"] == 0
     fila = filas[activo.id]
-    assert fila["name"] == activo.full_name and fila["email"] == activo.email
+    # Orden natural (nombre(s), paterno, materno), como Sinodales, el
+    # expediente y el oficio (hallazgo 16); la LISTA sigue ordenada por apellido.
+    assert fila["name"] == f"ACTIVO {apellido}" and fila["email"] == activo.email
     assert (fila["academic_degree"], fila["professional_license"]) == ("Maestro", "5550013")
     assert TeacherService.active_assignment_counts(db_session, [activo.id, pendiente.id]) == {
         activo.id: 2, pendiente.id: 0}

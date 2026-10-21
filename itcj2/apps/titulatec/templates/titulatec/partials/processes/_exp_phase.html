@@ -381,7 +381,8 @@
     <span class="tt-kicker">Sinodales vigentes</span>
     {% if can_read_synodal %}
     <a class="btn btn-sm tt-btn-ghost" data-tt-oficio
-       href="/titulatec/admin/sinodales/{{ process.id }}/oficio.pdf">
+       href="/titulatec/admin/sinodales/{{ process.id }}/oficio.pdf"
+       target="_blank" rel="noopener">
       <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
     {% endif %}
   </div>
@@ -393,7 +394,7 @@
     {% endfor %}
   </dl>
   {% else %}
-  <p class="tt-exp-vacio">Todavía no se asignan los sinodales de este alumno.</p>
+  <p class="tt-exp-vacio">{{ sinodales.empty_label }}</p>
   {% endif %}
   {% if sinodales.historial %}
   <div class="tt-kicker mt-3 mb-1">Historial de sustituciones</div>

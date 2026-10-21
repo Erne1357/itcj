@@ -13,10 +13,10 @@
 
 ## Ruta en la app (UI)
 
-1. `/titulatec/admin/docentes` (selector de departamento si opera varios). Lista del departamento: nombre, correo, grado, cédula, estado de la cuenta («Activa», «Sin primer acceso» = `last_login IS NULL`, «Desactivada») y asignaciones vigentes.
-2. Buscador de cuentas (por correo institucional sin distinguir mayúsculas, usuario o nombre) que muestra candidatos; cada uno indica si es alumno, está inactivo, ya entró o ya es docente del departamento.
+1. `/titulatec/admin/docentes` (selector de departamento si opera varios). Lista del departamento, ordenada por apellido: nombre en orden natural («Nombre(s) Paterno Materno», el mismo de Sinodales, el expediente y el oficio), correo, grado, cédula, estado de la cuenta («Activa», «Sin primer acceso» = `last_login IS NULL`, «Desactivada») y asignaciones vigentes.
+2. Buscador de cuentas (por correo institucional sin distinguir mayúsculas, usuario o nombre) que muestra candidatos; cada uno indica si es alumno, está inactivo, ya entró o ya es docente del departamento. Un candidato de **alumno** (puede aparecer como dueño de un correo al crear) muestra solo su nombre y «Cuenta de alumno»: ni su correo ni su usuario. La búsqueda exige `teacher.api.manage` también cuando llega como `?q=` de la página (quien solo ve no busca). Tras un swap de candidatos la vista no salta a un error viejo: el scroll al `#tt-doc-error` solo ocurre cuando se re-pintó `#tt-doc-body` entero.
 3. Elegir un candidato → «Agregar» (grado + cédula, y correo institucional si la cuenta no tiene). O «Crear nuevo» (nombres, apellido paterno, materno opcional, correo institucional, grado, cédula; casilla «Es otra persona» si solo coincide el nombre).
-4. Por fila: «Editar» (grado y cédula), «Quitar del departamento» y «Reenviar acceso» (solo si la cuenta está activa, sin privilegios y nunca ha entrado).
+4. Por fila: «Editar» (grado y cédula), «Quitar del departamento» y «Reenviar acceso» (solo si la cuenta está activa, sin privilegios y nunca ha entrado). `has_privileges` (varias consultas) solo se pregunta para las filas «Sin primer acceso» y para quien puede gestionar: antes corría por cada fila (N+1).
 
 ## Secuencia
 

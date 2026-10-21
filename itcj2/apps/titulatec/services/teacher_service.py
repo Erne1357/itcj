@@ -155,6 +155,13 @@ def _collapse(raw) -> str:
     return " ".join(str(raw or "").split())
 
 
+def _display_name(user) -> str:
+    """Nombre en orden natural (nombre(s), paterno, materno), como Sinodales,
+    el expediente y el oficio (hallazgo 16). Las LISTAS siguen ordenadas por
+    apellido en SQL; `User.full_name` (apellidos primero) queda para la bitacora."""
+    return " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p)
+
+
 def _clean_degree(raw) -> str:
     s = _collapse(raw)
     if not _DEGREE_MIN <= len(s) <= _DEGREE_MAX:
@@ -440,10 +447,12 @@ class TeacherService:
 
     @staticmethod
     def roster(db: Session, department_id: int) -> list[dict]:
-        """Docentes HOY del departamento, por nombre. Sin el puesto sembrado,
-        `[]` (la pantalla pinta su estado vacío; agregar sí dice por qué falla).
+        """Docentes HOY del departamento, ordenados por apellido. Sin el puesto
+        sembrado, `[]` (la pantalla pinta su estado vacío; agregar sí dice por
+        qué falla).
 
-        Cada fila: `user_id, name, username, email, academic_degree,
+        Cada fila: `user_id, name` (orden natural: nombre(s), paterno,
+        materno), `username, email, academic_degree,
         professional_license` (None sin perfil), `account_status`
         (`active` | `pending_first_login` = `last_login IS NULL` | `inactive`) y
         `active_assignments` (cuántas asignaciones de sinodal vigentes tiene,
@@ -469,7 +478,7 @@ class TeacherService:
         cuentas = TeacherService.active_assignment_counts(db, vistos)
         return [{
             "user_id": user.id,
-            "name": user.full_name,
+            "name": _display_name(user),
             "username": user.username,
             "email": user.email,
             "academic_degree": prof.academic_degree if prof else None,
@@ -495,7 +504,7 @@ class TeacherService:
             prof = perfiles.get(u.id)
             out.append({
                 "user_id": u.id,
-                "name": u.full_name,
+                "name": _display_name(u),
                 "username": u.username,
                 "email": u.email,
                 # Cuenta de alumno: la UI no debe ofrecer «agregar» (el servicio

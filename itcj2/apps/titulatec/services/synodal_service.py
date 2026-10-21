@@ -84,6 +84,8 @@ REPEATED_MSG = "Los 4 sinodales deben ser personas distintas."
 NOT_TEACHER_MSG = "{posicion}: {nombre} no es docente vigente del departamento de la carrera."
 NO_PROFILE_MSG = ("{posicion}: {nombre} no tiene grado académico y cédula registrados; "
                   "complétalos en «Docentes».")
+INACTIVE_TEACHER_MSG = ("{posicion}: la cuenta de {nombre} está desactivada; elige a otra "
+                        "persona o pide a un administrador que la reactive.")
 ALREADY_ASSIGNED_MSG = "Este proceso ya tiene sinodales asignados."
 ROLE_MSG = "Posición de sinodal no reconocida."
 NEW_USER_MSG = "Elige al docente que entra."
@@ -97,6 +99,13 @@ IN_OTHER_ROLE_MSG = "{nombre} ya es sinodal de este proceso como {posicion}."
 CONFLICT_MSG = ("Alguien más cambió a los sinodales de este proceso al mismo tiempo. "
                 "Intenta de nuevo.")
 _SOMEONE = "la persona elegida"
+
+# Qué decir cuando un proceso no tiene sinodales vigentes (expediente y pestaña
+# Titulación, hallazgo 8): «no aplica» si la modalidad salta la fase 4 (EGEL),
+# «no está en la app» con el corte a T-soft en ella o antes, y si no, pendiente.
+NOT_APPLICABLE_LABEL = "No aplica para esta modalidad."
+NOT_IN_APP_LABEL = "Esta fase todavía no está en la app."
+PENDING_LABEL = "Todavía no se asignan los sinodales."
 
 
 def _name(user) -> str:
@@ -250,14 +259,24 @@ class SynodalService:
     @staticmethod
     def _assert_teachers(db: Session, elegidos: dict, dept: int, users: dict, *,
                          locked: bool) -> None:
-        """Cada `{posición: user_id}` es docente vigente del departamento y tiene
+        """Cada `{posición: user_id}` es docente vigente del departamento, con la
+        cuenta ACTIVA (un sinodal entra a la app en la fase 5; hallazgo 3) y
         perfil completo (grado y cédula no vacíos)."""
         from itcj2.apps.titulatec.models import TeacherProfile
         from itcj2.apps.titulatec.services.teacher_service import TeacherService
+        from itcj2.core.models.user import User
 
         for role, uid in elegidos.items():
             if not TeacherService.is_teacher_of(db, uid, dept, lock=locked):
                 raise ValueError(NOT_TEACHER_MSG.format(
+                    posicion=ROLE_LABELS[role], nombre=_name(users.get(uid)) or _SOMEONE))
+        # Columnas, no entidades: siempre lo que hay en la BD (bajo el candado
+        # también), aunque la identidad cargada traiga un `is_active` viejo.
+        activos = {uid for (uid,) in db.query(User.id).filter(
+            User.id.in_(list(elegidos.values())), User.is_active.is_(True)).all()}
+        for role, uid in elegidos.items():
+            if uid not in activos:
+                raise ValueError(INACTIVE_TEACHER_MSG.format(
                     posicion=ROLE_LABELS[role], nombre=_name(users.get(uid)) or _SOMEONE))
         q = db.query(TeacherProfile).filter(TeacherProfile.user_id.in_(list(elegidos.values())))
         if locked:
@@ -484,6 +503,34 @@ class SynodalService:
     # ------------------------------------------------------------------
     # Lecturas (bandeja, oficio, expediente, alumno)
     # ------------------------------------------------------------------
+    @staticmethod
+    def empty_label(db: Session, process) -> str:
+        """Leyenda para un proceso SIN sinodales vigentes (hallazgo 8).
+
+        - La modalidad salta la fase 4 (`skips_phases`, p. ej. EGEL) o su
+          `ProcessPhase` ya está `skipped` → `NOT_APPLICABLE_LABEL`. Gana sobre
+          el corte: es un hecho de la modalidad.
+        - La fase 4 no se opera en esta app (corte a T-soft en ella o antes, o
+          sin la fase en el catálogo) → `NOT_IN_APP_LABEL`.
+        - Si no, `PENDING_LABEL`.
+        Dos consultas a lo más (número de fase y estado de su `ProcessPhase`).
+        """
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, PHASE_CODE)
+        if n is not None and process is not None:
+            if n in PhaseService._skips(process):
+                return NOT_APPLICABLE_LABEL
+            estado = (db.query(ProcessPhase.status)
+                      .filter(ProcessPhase.process_id == process.id,
+                              ProcessPhase.phase_number == n).scalar())
+            if estado == "skipped":
+                return NOT_APPLICABLE_LABEL
+        if n is None or PhaseService._handoff_phase() <= n:
+            return NOT_IN_APP_LABEL
+        return PENDING_LABEL
+
     @staticmethod
     def active_for_process(db: Session, process_id: int) -> list[dict]:
         """Los sinodales vigentes en el orden Presidente, Secretario, Vocal y

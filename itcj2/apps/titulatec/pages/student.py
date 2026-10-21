@@ -86,14 +86,13 @@ _PHASE_INFO = {
     },
     "synodal_assignment": {
         "desc": "Tu departamento académico asigna a tus 4 sinodales (presidente, secretario, "
-                "vocal y vocal suplente) y abre el chat de titulación de tu proceso. Aquí no "
-                "tienes nada que entregar.",
+                "vocal y vocal suplente). Aquí no tienes nada que entregar.",
         "needs": [
             "Tener tu Formato B aprobado: es lo único que detona esta fase.",
             "Esperar el aviso; el plazo de referencia son 5 días hábiles (informativo).",
             "Ir preparando tu trabajo en PDF: lo vas a compartir en la fase siguiente.",
         ],
-        "who": "Tu departamento académico asigna a los sinodales y abre el chat; tú esperas el aviso.",
+        "who": "Tu departamento académico asigna a los sinodales; tú esperas el aviso.",
     },
     "synodal_review": {
         "desc": "Tus 4 sinodales revisan tu trabajo en el chat de titulación de la app. Ahí te "

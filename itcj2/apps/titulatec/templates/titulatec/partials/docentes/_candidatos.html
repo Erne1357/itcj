@@ -9,7 +9,12 @@
   <li id="tt-doc-cand-{{ c.user_id }}" class="tt-doc-cand">
     <div class="tt-doc-item-main">
       <span class="tt-doc-name">{{ c.name }}</span>
+      {# Cuenta de alumno: solo el nombre; ni su correo ni su usuario (hallazgo 7). #}
+      {% if c.is_student %}
+      <span class="tt-doc-meta">Cuenta de alumno</span>
+      {% else %}
       <span class="tt-doc-meta">{{ c.email or 'Sin correo' }} · {{ c.username or 'Sin usuario' }}</span>
+      {% endif %}
     </div>
     {% if c.is_student %}
     <p class="tt-doc-cand-note"><i class="bi bi-mortarboard" aria-hidden="true"></i> Es una cuenta de alumno: no se puede agregar como docente.</p>

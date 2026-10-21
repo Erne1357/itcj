@@ -94,6 +94,40 @@
 .tt-sin-role { font-weight: 600; }
 .tt-sin-cell-action { text-align: right; }
 
+/* Angosto: la tabla de los 4 se apila en tarjetas (hallazgo 15 del navegador).
+   A 360 px la tabla con scroll dejaba fuera Grado y Cédula y la columna
+   anclada de `.tt-table-wrap` (position: sticky) encimaba «Sustituir» sobre
+   el nombre. Consulta de CONTENEDOR sobre la columna del detalle, no @media:
+   el ancho útil depende del master-detail y del sidebar. Cada celda trae su
+   `data-label`. Los selectores repiten la forma de la regla anclada de
+   titulatec.css (`.tt-table-wrap > table > tbody > tr > td:last-child`) para
+   ganarle en especificidad. */
+.tt-sin-detail-col { container: tt-sin-detail / inline-size; }
+@container tt-sin-detail (max-width: 559.98px) {
+  .tt-table-wrap > table.tt-sin-table--stack,
+  .tt-table-wrap > table.tt-sin-table--stack > tbody,
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr { display: block; width: 100%; white-space: normal; }
+  .tt-table-wrap > table.tt-sin-table--stack > thead { display: none; }
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr {
+    padding: var(--tt-sp-2) 0; border-bottom: 1px solid var(--tt-line-soft);
+  }
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr:last-child { border-bottom: 0; }
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr > td,
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr > td:last-child {
+    display: grid; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+    gap: var(--tt-sp-2); padding: var(--tt-sp-1) var(--tt-sp-2);
+    border: 0; white-space: normal; overflow-wrap: anywhere;
+    position: static; background: transparent; box-shadow: none;
+  }
+  .tt-sin-table--stack td::before {
+    content: attr(data-label); font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-2);
+  }
+  .tt-table-wrap > table.tt-sin-table--stack > tbody > tr > td.tt-sin-cell-action {
+    display: flex; justify-content: flex-end;
+  }
+  .tt-sin-table--stack td.tt-sin-cell-action::before { content: none; }
+}
+
 /* Formularios: asignar y sustituir. `[hidden]` de Bootstrap gana (!important). */
 .tt-sin-help { margin: var(--tt-sp-1) 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
 .tt-sin-assign-grid, .tt-sin-replace-grid {

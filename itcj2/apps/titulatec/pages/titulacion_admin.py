@@ -255,14 +255,17 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
     # R-E (spec fase 4 §16b): un Formato B aprobado muestra los sinodales
     # asignados y, con `synodal.api.read`, el oficio -- así `titulatec_titulacion`
     # lo ve sin necesitar el expediente completo.
-    sinodales, can_oficio = [], False
+    sinodales, can_oficio, sinodales_vacio = [], False, None
     if status == "approved":
         from itcj2.apps.titulatec.services.synodal_service import SynodalService
         sinodales = SynodalService.active_for_process(db, process_id)
         can_oficio = bool(sinodales) and "titulatec.synodal.api.read" in perms
+        # Sin vigentes, el porqué (hallazgo 8): no aplica, no está en la app o pendiente.
+        if not sinodales:
+            sinodales_vacio = SynodalService.empty_label(db, proc)
 
     return {
-        "sinodales": sinodales, "can_oficio": can_oficio,
+        "sinodales": sinodales, "can_oficio": can_oficio, "sinodales_empty": sinodales_vacio,
         "process_id": process_id, "folio": proc.folio, "status": status,
         "round": int(getattr(fb, "submission_count", 0) or 0),
         "name": nombre or _VACIO,

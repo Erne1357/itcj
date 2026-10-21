@@ -171,6 +171,26 @@ class PhaseService:
         return int(row[0]) if row else None
 
     @staticmethod
+    def operable_codes(db: Session, codes) -> set[str]:
+        """De `codes` (códigos de fase del catálogo), los que se operan en esta
+        app: el corte a T-soft cae DESPUÉS de su número.
+
+        Una sola consulta para todos (el menú admin y el landing preguntan por
+        varias pantallas a la vez). Falla cerrado: un código que no está en el
+        catálogo no sale. Mismo criterio que los `operable()` de cada servicio
+        (`SynodalService`, `TeacherService`, `titulacion_admin._operable`).
+        """
+        from itcj2.apps.titulatec.models import PhaseDefinition
+
+        pedidos = {c for c in (codes or ()) if c}
+        if not pedidos:
+            return set()
+        corte = PhaseService._handoff_phase()
+        filas = (db.query(PhaseDefinition.code, PhaseDefinition.number)
+                 .filter(PhaseDefinition.code.in_(sorted(pedidos))).all())
+        return {code for code, number in filas if number is not None and corte > int(number)}
+
+    @staticmethod
     def _student_action_error(db: Session, process, phase_number) -> str | None:
         """Motivo por el que el alumno NO puede actuar en esa fase, o None.
 

@@ -103,3 +103,10 @@ def test_option_label_y_settings(db_session, make_department):
     db_session.add(s)
     db_session.flush()
     assert s.attn_position_code is None
+    # Títulos personalizados del oficio (migración `tt20261022b`): NULL = el del puesto.
+    assert s.addressee_title is None and s.attn_title is None
+    s.addressee_title = "J" * 200
+    s.attn_title = "C" * 200
+    db_session.flush()
+    db_session.expire(s)
+    assert len(s.addressee_title) == 200 and len(s.attn_title) == 200

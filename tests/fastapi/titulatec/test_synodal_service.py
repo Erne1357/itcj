@@ -32,7 +32,8 @@ from sqlalchemy.orm.attributes import set_committed_value
 from itcj2.apps.titulatec.services import email_helper
 from itcj2.apps.titulatec.services.phase_service import PhaseService
 from itcj2.apps.titulatec.services.synodal_service import (
-    ALREADY_ASSIGNED_MSG, IN_OTHER_ROLE_MSG, INERT_MSG, MISSING_MSG, NEW_USER_MSG,
+    ALREADY_ASSIGNED_MSG, IN_OTHER_ROLE_MSG, INACTIVE_TEACHER_MSG, INERT_MSG, MISSING_MSG,
+    NEW_USER_MSG, NOT_APPLICABLE_LABEL, NOT_IN_APP_LABEL, PENDING_LABEL,
     NO_HOLDER_MSG, NO_PROFILE_MSG, NOT_ACTIVE_MSG, NOT_MAPPED_MSG, NOT_TEACHER_MSG,
     OUT_OF_SCOPE_MSG, REASON_MSG, REPEATED_MSG, REPLACE_WINDOW_MSG, ROLE_LABELS,
     ROLE_MSG, ROLES, SAME_PERSON_MSG, SynodalService,
@@ -297,6 +298,21 @@ class TestAsignar:
 
         assert str(exc.value) == NO_PROFILE_MSG.format(posicion="Vocal",
                                                        nombre=_nombre(e.docentes[2]))
+        _sin_escribir(db_session, e)
+
+    def test_docente_con_la_cuenta_desactivada(self, db_session, esc, rollbacks):
+        """Hallazgo 3 de la revisión de rama: el puesto docente sigue vigente
+        pero la cuenta está desactivada (no podría entrar a la fase 5)."""
+        e = esc()
+        e.docentes[1].is_active = False
+        db_session.flush()
+
+        with pytest.raises(ValueError) as exc:
+            _asignar(db_session, e)
+
+        assert str(exc.value) == INACTIVE_TEACHER_MSG.format(
+            posicion="Secretario", nombre=_nombre(e.docentes[1]))
+        assert rollbacks == [], "falla sin candado: no hay nada que deshacer"
         _sin_escribir(db_session, e)
 
     def test_en_otra_fase_lo_niega_el_motor(self, db_session, esc):
@@ -723,6 +739,21 @@ class TestSustituir:
         assert str(exc.value) == NO_PROFILE_MSG.format(posicion="Vocal",
                                                        nombre=_nombre(e.docentes[4]))
 
+    def test_el_nuevo_no_puede_tener_la_cuenta_desactivada(self, db_session, esc):
+        e = esc()
+        _asignar(db_session, e)
+        e.docentes[4].is_active = False
+        db_session.flush()
+
+        with pytest.raises(ValueError) as exc:
+            SynodalService.replace(db_session, e.proc, e.jefe.id, role="vocal",
+                                   new_user_id=e.docentes[4].id, reason="Licencia")
+
+        assert str(exc.value) == INACTIVE_TEACHER_MSG.format(
+            posicion="Vocal", nombre=_nombre(e.docentes[4]))
+        db_session.expire_all()
+        assert _vigentes(db_session, e.proc.id)["vocal"] == e.docentes[2].id
+
     def test_fuera_de_alcance(self, db_session, esc, otro_depto):
         e = esc()
         _asignar(db_session, e)
@@ -763,6 +794,41 @@ class TestSustituir:
 # ---------------------------------------------------------------------------
 # Lecturas
 # ---------------------------------------------------------------------------
+class TestLeyendaSinSinodales:
+    """Hallazgo 8: «Todavía no se asignan» solo cuando de verdad falta
+    asignarlos; EGEL salta la fase y con el corte la fase no está en la app."""
+
+    def test_por_asignar(self, db_session, esc):
+        e = esc()
+        assert SynodalService.empty_label(db_session, e.proc) == PENDING_LABEL
+
+    def test_la_modalidad_salta_la_fase_4(self, db_session, esc, make_modality, corte):
+        e = esc()
+        egel = make_modality(name="EGEL de prueba", requires_synodals=False,
+                             skips_phases=[4, 5])
+        e.proc.modality_id = egel.id
+        db_session.flush()
+        db_session.expire(e.proc)
+        assert SynodalService.empty_label(db_session, e.proc) == NOT_APPLICABLE_LABEL
+        corte(3)   # «no aplica» gana: es un hecho de la modalidad, no del corte
+        assert SynodalService.empty_label(db_session, e.proc) == NOT_APPLICABLE_LABEL
+
+    def test_la_fase_ya_marcada_como_saltada(self, db_session, esc):
+        from itcj2.apps.titulatec.models import ProcessPhase
+        e = esc(current_phase=6)
+        (db_session.query(ProcessPhase).filter_by(process_id=e.proc.id, phase_number=4)
+         .one()).status = "skipped"
+        db_session.flush()
+        assert SynodalService.empty_label(db_session, e.proc) == NOT_APPLICABLE_LABEL
+
+    def test_con_el_corte_la_fase_no_esta_en_la_app(self, db_session, esc, corte):
+        e = esc()
+        corte(3)
+        assert SynodalService.empty_label(db_session, e.proc) == NOT_IN_APP_LABEL
+        corte(4)
+        assert SynodalService.empty_label(db_session, e.proc) == NOT_IN_APP_LABEL
+
+
 class TestLecturas:
     def test_active_for_process_en_orden_con_grado_y_cedula(self, db_session, esc):
         from itcj2.apps.titulatec.models import TeacherProfile

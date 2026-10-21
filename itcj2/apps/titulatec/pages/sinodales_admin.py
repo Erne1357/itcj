@@ -122,14 +122,17 @@ def _asignaciones_label(n: int) -> str:
 
 def _docentes(db, department_id) -> list[dict]:
     """Opciones de los selects: docentes HOY del departamento de la carrera con
-    perfil completo (grado y cédula no vacíos), con su número de asignaciones
-    vigentes como dato informativo (spec §9)."""
+    la cuenta activa (hallazgo 3: el servicio lo vuelve a exigir) y perfil
+    completo (grado y cédula no vacíos), con su número de asignaciones vigentes
+    como dato informativo (spec §9)."""
     from itcj2.apps.titulatec.services.teacher_service import TeacherService
 
     if department_id is None:
         return []
     salida = []
     for d in TeacherService.roster(db, department_id):
+        if d["account_status"] == "inactive":
+            continue
         grado, cedula = _limpio(d["academic_degree"]), _limpio(d["professional_license"])
         if not (grado and cedula):
             continue

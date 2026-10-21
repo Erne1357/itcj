@@ -704,3 +704,15 @@ def test_sin_sinodales_no_hay_panel(
     make_process(student, current_phase=4)
     html = client_as(student).get("/titulatec/student/dashboard").text
     assert "data-tt-student-sinodales" not in html
+
+
+def test_la_fase_4_no_promete_el_chat():
+    """Hallazgo 14: abrir el chat de titulación es de la fase 5 (revisión de
+    sinodales); la fase 4 solo asigna a los 4."""
+    from itcj2.apps.titulatec.pages.student import _PHASE_INFO
+
+    info = _PHASE_INFO["synodal_assignment"]
+    texto = " ".join([info["desc"], info["who"], *info["needs"]]).lower()
+    assert "chat" not in texto
+    assert "4 sinodales" in info["desc"] and "vocal suplente" in info["desc"]
+    assert "chat" in _PHASE_INFO["synodal_review"]["desc"].lower()

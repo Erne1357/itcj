@@ -68,6 +68,52 @@ def test_contexto_trae_todas_las_piezas(db_session, caso, make_user, make_positi
     assert ctx["synodals"][0]["license"] and ctx["synodals"][0]["academic_degree"]
 
 
+def test_el_titulo_personalizado_gana_al_del_puesto(db_session, caso, make_user, make_position,
+                                                   assign_position):
+    """Hallazgo 17: el organigrama usa títulos neutros («Jefe(a) del
+    Departamento de Titulación»); el oficio real dice otra cosa. Los ajustes
+    del departamento pueden fijar el título; vacío = el del puesto."""
+    n = caso["n"]
+    _ocupante(make_user, make_position, assign_position, f"tt_ofi_dest_{n}",
+              "Jefe(a) de la División", "YADIRA", "DOZAL")
+    _ocupante(make_user, make_position, assign_position, f"tt_ofi_atn_{n}",
+              "Jefe(a) del Departamento de Titulación", "TANIA", "RUIZ")
+    ajustes = db_session.get(DepartmentSettings, caso["depto"].id)
+    ajustes.addressee_title = "JEFA DE LA DIVISIÓN DE ESTUDIOS PROFESIONALES"
+    db_session.flush()
+
+    ctx = OficioService.context(db_session, caso["proceso"])
+
+    assert ctx["addressee"] == {"name": "YADIRA DOZAL",
+                                "title": "JEFA DE LA DIVISIÓN DE ESTUDIOS PROFESIONALES"}
+    # Sin título personalizado del «Atn.»: el del puesto.
+    assert ctx["attn"] == {"name": "TANIA RUIZ", "title": "Jefe(a) del Departamento de Titulación"}
+
+    ajustes.attn_title = "Coordinadora de Apoyo a Titulación"
+    db_session.flush()
+    html = _html(db_session, caso["proceso"])
+    assert "Coordinadora de Apoyo a Titulación" in html
+    assert "Jefe(a) del Departamento de Titulación" not in html
+
+
+def test_con_titulo_personalizado_un_puesto_vacante_sigue_en_blanco(db_session, caso):
+    ajustes = db_session.get(DepartmentSettings, caso["depto"].id)
+    ajustes.addressee_title = "JEFA DE LA DIVISIÓN DE ESTUDIOS PROFESIONALES"
+    ajustes.attn_title = "Coordinadora de Apoyo a Titulación"
+    db_session.flush()
+    ctx = OficioService.context(db_session, caso["proceso"])
+    assert ctx["addressee"] is None and ctx["attn"] is None
+
+
+def test_el_pie_usa_el_dominio_institucional():
+    """Hallazgo 4 / ruling R7: `cdjuarez.tecnm.mx` (sin `.edu`), y sin copiar la
+    errata «cdjurez» del oficio real."""
+    from itcj2.apps.titulatec.services.oficio_service import FOOTER_CONTACT
+
+    assert FOOTER_CONTACT.endswith("direccion@cdjuarez.tecnm.mx - www.cdjuarez.tecnm.mx")
+    assert "tecnm.edu.mx" not in FOOTER_CONTACT and "cdjurez" not in FOOTER_CONTACT
+
+
 def test_puesto_vacante_deja_la_linea_en_blanco(db_session, caso):
     ctx = OficioService.context(db_session, caso["proceso"])
     assert ctx["addressee"] is None and ctx["attn"] is None

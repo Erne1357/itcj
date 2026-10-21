@@ -122,10 +122,20 @@ _SINODALES_URL = "/titulatec/admin/sinodales"
 _SINODALES_PERM = "titulatec.synodal.page.list"
 
 
+# Aterrizajes condicionales: rol -> (URL de la pestaña, permiso que la abre).
+# Además de permiso, la pantalla debe OPERARSE con el corte vigente: su fase
+# mínima sale de `_NAV_PHASE_GATE` (misma tabla que el menú, una sola fuente).
+_CONDITIONAL_LANDING = {
+    _TITULACION_ROLE: (_TITULACION_URL, _TITULACION_PERM),
+    _SINODALES_ROLE: (_SINODALES_URL, _SINODALES_PERM),
+}
+
+
 def resolve_dashboard_url(
     roles: set[str],
     jwt_role: str | None = None,
     perms: set[str] | None = None,
+    operable: set[str] | None = None,
 ) -> str:
     """Devuelve la URL de dashboard según los roles del usuario en la app.
 
@@ -136,8 +146,15 @@ def resolve_dashboard_url(
     `titulatec.titulacion.page.list` (si no, Liberados, como antes); la
     vinculación de los departamentos académicos, en Sinodales solo con
     `titulatec.synodal.page.list` (si no, su página de siempre).
+
+    `operable` (ruling R5 de la fase 4) son los CÓDIGOS de fase del catálogo
+    que hoy se operan en esta app (`PhaseService.operable_codes`). Esos dos
+    aterrizajes exigen además que la fase de su pantalla (`_NAV_PHASE_GATE`)
+    esté en el conjunto: con el corte en 3 (producción) el DML base ya da
+    `synodal.page.list` a la vinculación, y sin esta guarda aterrizaría en una
+    pestaña inerte. `operable=None` falla CERRADO: el aterrizaje de siempre.
     Con `perms=None` solo cuentan los roles (comportamiento anterior: Titulación
-    sigue en Liberados, Ruling R5).
+    sigue en Liberados, Ruling R5 de la fase 3).
     """
     if jwt_role == "admin":
         return "/titulatec/admin/"
@@ -146,10 +163,12 @@ def resolve_dashboard_url(
             if url == _REPORTS_URL and perms is not None and _REPORTS_PERM not in perms:
                 # Sin el permiso: como el resto de Escolares, a la Bandeja.
                 return "/titulatec/admin/"
-            if role_name == _TITULACION_ROLE and perms is not None and _TITULACION_PERM in perms:
-                return _TITULACION_URL
-            if role_name == _SINODALES_ROLE and perms is not None and _SINODALES_PERM in perms:
-                return _SINODALES_URL
+            condicional = _CONDITIONAL_LANDING.get(role_name)
+            if condicional is not None and perms is not None:
+                destino, permiso = condicional
+                fase = _NAV_PHASE_GATE.get(destino)
+                if permiso in perms and (fase is None or fase in (operable or ())):
+                    return destino
             return url
     # Sin rol de la app → de vuelta al dashboard core
     return "/itcj/dashboard"
@@ -219,6 +238,48 @@ _ADMIN_NAV = [
     ("Actos protocolarios", "bi-mortarboard", "#",                             {"titulatec.ceremony.page.list"}),
 ]
 
+# Fase MÍNIMA de cada pantalla, por CÓDIGO del catálogo (ruling R5 de la
+# revisión de la fase 4): el ítem solo se ve si esa fase se opera en esta app
+# (`PhaseService._handoff_phase() > número de la fase`). Con el corte en 3
+# (producción) el DML base ya da `synodal.page.list` a la vinculación y
+# `init-titulatec-fase-2` da los de fase 2 a `admin`: sin esta guarda verían
+# pestañas que solo dicen «se opera en T-soft». Sin la fase en el catálogo, el
+# ítem se oculta (falla cerrado). Llave = URL de la fila de `_ADMIN_NAV` (la
+# tabla conserva sus 4 columnas: varias pruebas la desempacan así); una pantalla
+# nueva de fase entra aquí también.
+_NAV_PHASE_GATE: dict[str, str] = {
+    "/titulatec/admin/titulacion": "format_b",
+    "/titulatec/admin/sinodales": "synodal_assignment",
+    "/titulatec/admin/docentes": "synodal_assignment",
+    "/titulatec/admin/carreras-deptos": "synodal_assignment",
+}
+
+
+def _nav_items(db, user_id: int) -> list[dict]:
+    """Los ítems con permiso, menos los de una fase que hoy no se opera.
+
+    Permisos de `cached_perms`; el catálogo de fases se consulta UNA vez y solo
+    si el usuario tiene algún ítem con fase (`PhaseService.operable_codes`). Si
+    esa lectura falla, se ocultan solo los ítems con fase (falla cerrado) y el
+    resto del menú sigue.
+    """
+    from itcj2.core.services.authz_cache import cached_perms
+
+    perms = cached_perms(db, user_id, "titulatec")
+    visibles = [fila for fila in _ADMIN_NAV if perms & fila[3]]
+    codigos = {_NAV_PHASE_GATE[url] for _l, _i, url, _n in visibles if url in _NAV_PHASE_GATE}
+    operables: set[str] = set()
+    if codigos:
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        try:
+            operables = PhaseService.operable_codes(db, codigos)
+        except Exception as exc:
+            logger.warning("Error leyendo el catálogo de fases para admin_nav (user %s): %s",
+                           user_id, exc)
+    return [{"label": label, "icon": icon, "url": url}
+            for label, icon, url, _need in visibles
+            if url not in _NAV_PHASE_GATE or _NAV_PHASE_GATE[url] in operables]
+
 
 def admin_nav_items(user_id: int, db=None) -> list[dict]:
     """Items del menú admin visibles según los permisos del usuario en titulatec.
@@ -228,24 +289,18 @@ def admin_nav_items(user_id: int, db=None) -> list[dict]:
     usa esa sesión; sin ella abre la suya (`SessionLocal` no toma conexión del
     pool hasta la primera consulta, así que con la caché tibia ni eso cuesta) —
     `render_titulatec` no tiene la sesión de la ruta (cada ruta la cierra antes
-    de renderizar) y no hay que abrir una tercera.
+    de renderizar) y no hay que abrir una tercera. Las pantallas de una fase que
+    el corte a T-soft no deja operar se ocultan (`_NAV_PHASE_GATE`, ruling R5).
     """
-    from itcj2.core.services.authz_cache import cached_perms
     try:
         if db is not None:
-            perms = cached_perms(db, user_id, "titulatec")
-        else:
-            from itcj2.database import SessionLocal
-            with SessionLocal() as _db:
-                perms = cached_perms(_db, user_id, "titulatec")
+            return _nav_items(db, user_id)
+        from itcj2.database import SessionLocal
+        with SessionLocal() as _db:
+            return _nav_items(_db, user_id)
     except Exception as exc:
         logger.warning("Error obteniendo permisos titulatec para admin_nav (user %s): %s", user_id, exc)
         return []
-    out = []
-    for label, icon, url, need in _ADMIN_NAV:
-        if perms & need:
-            out.append({"label": label, "icon": icon, "url": url})
-    return out
 
 
 # ---------------------------------------------------------------------------

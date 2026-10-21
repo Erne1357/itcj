@@ -24,6 +24,12 @@ class DepartmentSettings(Base):
     oficio_header = Column(String(200), nullable=False)
     addressee_position_code = Column(String(60), nullable=False)
     attn_position_code = Column(String(60), nullable=True)
+    # Título con que el oficio nombra al destinatario y al «At'n.» (migración
+    # `tt20261022b`). NULL = el título del puesto en el organigrama, que usa
+    # nombres neutros («Jefe(a) del Departamento de Titulación») y no siempre
+    # coincide con el documento oficial.
+    addressee_title = Column(String(200), nullable=True)
+    attn_title = Column(String(200), nullable=True)
     updated_at = Column(DateTime, nullable=True)
     updated_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
 

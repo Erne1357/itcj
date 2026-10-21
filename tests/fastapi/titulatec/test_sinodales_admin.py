@@ -249,16 +249,22 @@ def test_el_item_sinodales_del_menu_no_anida_el_contenedor(esc, client_as):
 
 
 def test_aterrizaje_de_vinculacion_condicional_al_permiso():
+    """Permiso Y fase operable (ruling R5): sin `operable` falla cerrado."""
     from itcj2.apps.titulatec.pages.nav import resolve_dashboard_url
 
-    assert resolve_dashboard_url({"titulatec_vinculacion"}, perms={PAGE_PERM}) == URL
-    assert resolve_dashboard_url({"titulatec_vinculacion"}, perms=set()) == VINCULACION
+    fase = {"synodal_assignment"}
+    assert resolve_dashboard_url({"titulatec_vinculacion"}, perms={PAGE_PERM},
+                                 operable=fase) == URL
+    assert resolve_dashboard_url({"titulatec_vinculacion"}, perms=set(),
+                                 operable=fase) == VINCULACION
+    assert resolve_dashboard_url({"titulatec_vinculacion"}, perms={PAGE_PERM}) == VINCULACION
     # `perms=None` (otros llamadores): el aterrizaje de siempre.
     assert resolve_dashboard_url({"titulatec_vinculacion"}) == VINCULACION
     # Los roles que van antes no cambian aunque tengan el permiso.
     assert resolve_dashboard_url({"titulatec_titulaciones", "titulatec_vinculacion"},
-                                 perms={PAGE_PERM}) == "/titulatec/admin/"
-    assert resolve_dashboard_url({"titulatec_sinodal"}, perms={PAGE_PERM}) == "/titulatec/sinodal/"
+                                 perms={PAGE_PERM}, operable=fase) == "/titulatec/admin/"
+    assert resolve_dashboard_url({"titulatec_sinodal"}, perms={PAGE_PERM},
+                                 operable=fase) == "/titulatec/sinodal/"
 
 
 def _rol_vinculacion_real(db_session, make_role, *, con_permiso):
@@ -281,7 +287,11 @@ def _rol_vinculacion_real(db_session, make_role, *, con_permiso):
 
 @pytest.mark.parametrize("con_permiso,destino", [(True, URL), (False, VINCULACION)])
 def test_el_landing_de_vinculacion_depende_del_permiso(
-        con_permiso, destino, db_session, client_as, make_user, make_role, grant_user_role):
+        con_permiso, destino, db_session, client_as, make_user, make_role, grant_user_role,
+        corte, seed_phase_defs):
+    # Con la fase 4 operable; con el corte en 3 lo cubre `test_nav_phase_gate.py`.
+    corte(9)
+    seed_phase_defs()
     rol = _rol_vinculacion_real(db_session, make_role, con_permiso=con_permiso)
     user = make_user(first_name="COORD", last_name="VINCULACION")
     grant_user_role(user, rol)
@@ -343,6 +353,45 @@ def test_el_detalle_muestra_datos_y_selects_con_perfiles_completos(esc, client_a
     form = _html(resp).xpath('//form[@id="tt-sin-assign"]')[0]
     assert form.get("hx-post") == f"{URL}/{p.id}/asignar"
     assert form.get("hx-confirm") and form.get("data-tt-confirm-ok")
+
+
+def test_un_docente_con_la_cuenta_desactivada_no_se_ofrece(esc, client_as, db_session):
+    """Hallazgo 3: ni para asignar ni para sustituir (el servicio lo vuelve a
+    exigir: `INACTIVE_TEACHER_MSG`)."""
+    e = esc()
+    e.docentes[4].is_active = False
+    db_session.flush()
+    p = e.proceso("ANA")
+    asignado = e.proceso("BETO", phase=5, synodals=True)
+
+    resp = client_as(e.jefe).get(BODY, params={"tab": "pending", "selected": p.id})
+    sel = _html(resp).xpath('//*[@id="tt-sin-sel-president"]')[0]
+    valores = {o.get("value") for o in sel.xpath(".//option") if o.get("value")}
+    assert valores == {str(d.id) for d in e.docentes[:4]}
+
+    resp = client_as(e.jefe).get(BODY, params={"tab": "assigned", "selected": asignado.id})
+    assert not _html(resp).xpath('//*[@id="tt-sin-new-vocal"]//option[@value="%s"]'
+                                 % e.docentes[4].id)
+
+
+def test_la_tabla_de_vigentes_se_apila_en_tarjetas_con_etiquetas(esc, client_as):
+    """Hallazgo 15 (navegador, 360 px): la tabla de los 4 recortaba Grado y
+    Cédula y encimaba «Sustituir». Cada celda lleva su `data-label` y la hoja
+    apila las filas como tarjetas cuando el detalle es angosto."""
+    e = esc()
+    p = e.proceso("ANA", phase=5, synodals=True)
+
+    resp = client_as(e.jefe).get(BODY, params={"tab": "assigned", "selected": p.id})
+
+    tabla = _html(resp).xpath('//table[@id="tt-sin-synodals"]')[0]
+    assert "tt-sin-table--stack" in tabla.get("class")
+    for fila in tabla.xpath(".//tbody/tr"):
+        etiquetas = [td.get("data-label") for td in fila.xpath("./td")]
+        assert etiquetas[:4] == ["Posición", "Nombre", "Grado académico", "Cédula"]
+    css = re.sub(r"/\*.*?\*/", "", CSS.read_text(encoding="utf-8"), flags=re.S)
+    assert re.search(r"@container\s+tt-sin-detail\s*\(max-width:", css)
+    assert "attr(data-label)" in css
+    assert re.search(r"\.tt-sin-detail-col\s*\{[^}]*container:\s*tt-sin-detail", css)
 
 
 def test_otro_departamento_no_ve_el_proceso_ni_su_detalle(esc, client_as):

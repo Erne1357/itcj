@@ -10,21 +10,30 @@
 {% else %}
 <section class="tt-carr-block" aria-labelledby="tt-carr-h-map">
   <h2 id="tt-carr-h-map" class="tt-carr-h">Carreras</h2>
-  <p class="tt-carr-help">El nombre oficial es el que se imprime en el oficio; vacío usa el nombre de la carrera.</p>
+  <p class="tt-carr-help">Solo aparecen los departamentos con puesto de docente: de ellos salen los sinodales. El nombre oficial es el que se imprime en el oficio; vacío usa el nombre de la carrera.</p>
+  {% if unassignable %}
+  <p id="tt-carr-unassignable" class="tt-carr-warn" role="status">
+    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+    <span>{{ unassignable }} {{ 'proceso activo' if unassignable == 1 else 'procesos activos' }} en la fase 4 o 5 de carreras sin departamento con docentes: nadie puede asignar ni sustituir a sus sinodales hasta que elijas uno aquí.</span>
+  </p>
+  {% endif %}
   <div class="tt-carr-list">
     {% for m in mapping %}
+    {% set fuera = m.department_id is not none and m.department_id not in operable_ids %}
     <form id="tt-carr-row-{{ m.program_id }}" class="tt-card tt-carr-row"
           hx-post="/titulatec/admin/carreras-deptos/programa/{{ m.program_id }}"
           hx-target="#tt-carr-body" hx-swap="innerHTML" hx-disabled-elt="find button">
       <div class="tt-carr-name">
         <strong>{{ m.name }}</strong>
-        {% if m.level and m.level != 'licenciatura' %}<span class="tt-carr-level">{{ m.level }}</span>{% endif %}
-        {% if m.department_id is none %}<span class="tt-pill tt-pill--danger">Sin departamento</span>{% endif %}
+        {% if m.profile_label %}<span class="tt-carr-level">{{ m.profile_label }}</span>{% endif %}
+        {% if m.department_id is none %}<span class="tt-pill tt-pill--danger">Sin departamento</span>
+        {% elif fuera %}<span class="tt-pill tt-pill--danger">Departamento sin docentes</span>{% endif %}
       </div>
       <label class="tt-carr-field">
         <span class="tt-carr-label">Departamento</span>
         <select name="department_id" class="tt-field" {% if not can_manage %}disabled{% endif %}>
           {% if m.department_id is none %}<option value="" selected>Elige un departamento</option>{% endif %}
+          {% if fuera %}<option value="{{ m.department_id }}" selected disabled>{{ m.department_name }} (sin docentes)</option>{% endif %}
           {% for d in departments %}
           <option value="{{ d.id }}"{% if d.id == m.department_id %} selected{% endif %}>{{ d.name }}</option>
           {% endfor %}
@@ -48,7 +57,7 @@
 
 <section class="tt-carr-block" aria-labelledby="tt-carr-h-set">
   <h2 id="tt-carr-h-set" class="tt-carr-h">Oficio por departamento</h2>
-  <p class="tt-carr-help">Encabezado del oficio y códigos de puesto de quien lo recibe y del «Atn.».</p>
+  <p class="tt-carr-help">Encabezado del oficio, códigos de puesto de quien lo recibe y del «Atn.» y, si el oficio los nombra distinto que el organigrama, sus títulos (vacío usa el título del puesto).</p>
   <div class="tt-carr-list">
     {% for s in settings %}
     <form id="tt-carr-dept-{{ s.department_id }}" class="tt-card tt-carr-row tt-carr-row--dept"
@@ -63,16 +72,32 @@
         <input type="text" name="oficio_header" class="tt-field" maxlength="200" required
                value="{{ s.oficio_header }}" {% if not can_manage %}disabled{% endif %}>
       </label>
-      <label class="tt-carr-field">
-        <span class="tt-carr-label">Puesto destinatario</span>
-        <input type="text" name="addressee_position_code" class="tt-field tt-mono" maxlength="60" required
-               value="{{ s.addressee_position_code }}" {% if not can_manage %}disabled{% endif %}>
-      </label>
-      <label class="tt-carr-field">
-        <span class="tt-carr-label">Puesto «Atn.»</span>
-        <input type="text" name="attn_position_code" class="tt-field tt-mono" maxlength="60"
-               value="{{ s.attn_position_code }}" {% if not can_manage %}disabled{% endif %}>
-      </label>
+      <div class="tt-carr-pair">
+        <label class="tt-carr-field">
+          <span class="tt-carr-label">Puesto destinatario</span>
+          <input type="text" name="addressee_position_code" class="tt-field tt-mono" maxlength="60" required
+                 value="{{ s.addressee_position_code }}" {% if not can_manage %}disabled{% endif %}>
+        </label>
+        <label class="tt-carr-field">
+          <span class="tt-carr-label">Título del destinatario</span>
+          <input type="text" name="addressee_title" class="tt-field" maxlength="200"
+                 value="{{ s.addressee_title }}" placeholder="El del puesto"
+                 {% if not can_manage %}disabled{% endif %}>
+        </label>
+      </div>
+      <div class="tt-carr-pair">
+        <label class="tt-carr-field">
+          <span class="tt-carr-label">Puesto «Atn.»</span>
+          <input type="text" name="attn_position_code" class="tt-field tt-mono" maxlength="60"
+                 value="{{ s.attn_position_code }}" {% if not can_manage %}disabled{% endif %}>
+        </label>
+        <label class="tt-carr-field">
+          <span class="tt-carr-label">Título del «Atn.»</span>
+          <input type="text" name="attn_title" class="tt-field" maxlength="200"
+                 value="{{ s.attn_title }}" placeholder="El del puesto"
+                 {% if not can_manage %}disabled{% endif %}>
+        </label>
+      </div>
       {% if can_manage %}
       <button type="submit" class="btn btn-sm tt-btn-ink tt-carr-save"><i class="bi bi-check-lg me-1" aria-hidden="true"></i>Guardar</button>
       {% endif %}

@@ -1780,6 +1780,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                  "historial": [{**h, "replaced_label": _fecha_larga(h["replaced_at"])
                                 if h.get("replaced_at") else None}
                                for h in SynodalService.history(db, proc.id)]}
+    # Sin vigentes, el porqué (hallazgo 8): no aplica (EGEL), no está en la app
+    # (corte) o todavía no se asignan.
+    sinodales["empty_label"] = (None if sinodales["vigentes"]
+                                else SynodalService.empty_label(db, proc))
 
     # ---- requisitos de cotejo de la fase 2 (§5.4) ----
     #

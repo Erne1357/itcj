@@ -444,6 +444,116 @@ def test_reenviar_se_oculta_en_una_cuenta_con_privilegios(client_as, esc, make_t
     assert not html.xpath(f"//li[@id='tt-doc-row-{jefa.id}']//form[@hx-post='{URL}/reenviar']")
 
 
+@pytest.fixture()
+def espia_privilegios(monkeypatch):
+    """Registra con qué cuentas se llama a `has_privileges` (y lo deja ocurrir)."""
+    llamadas = []
+    original = TeacherService.has_privileges
+
+    def _espia(db, user_id):
+        llamadas.append(user_id)
+        return original(db, user_id)
+
+    monkeypatch.setattr(TeacherService, "has_privileges", staticmethod(_espia))
+    return llamadas
+
+
+def test_los_privilegios_solo_se_calculan_para_cuentas_sin_primer_acceso(
+        client_as, esc, make_teacher, make_user, db_session, espia_privilegios):
+    """Hallazgo 5: `has_privileges` cuesta varias consultas; por fila era un
+    N+1. Solo importa para decidir «Reenviar acceso», que exige una cuenta
+    sin primer acceso."""
+    dept, _ajeno, jefe = esc()
+    pendiente = make_teacher(dept, user=make_user(first_name="PENDIENTE", last_name="N1"))
+    activos = [make_teacher(dept, user=make_user(first_name=f"ACTIVO{i}", last_name="N1"))
+               for i in range(3)]
+    inactivo = make_teacher(dept, user=make_user(first_name="INACTIVO", last_name="N1",
+                                                 is_active=False))
+    for u in activos + [inactivo]:
+        u.last_login = db_now()
+    db_session.flush()
+
+    html = _html(client_as(jefe).get(URL))
+
+    assert html.xpath(f"//li[@id='tt-doc-row-{activos[0].id}']")
+    assert espia_privilegios == [pendiente.id]
+    assert html.xpath(f"//li[@id='tt-doc-row-{pendiente.id}']//form[@hx-post='{URL}/reenviar']")
+
+
+def test_quien_solo_ve_no_calcula_privilegios_ni_busca(
+        client_as, esc, make_teacher, make_user, make_role, make_position,
+        bind_position_role, assign_position, espia_privilegios, monkeypatch):
+    """Hallazgo 7: la búsqueda de cuentas (nombres y correos) exige
+    `teacher.api.manage` también cuando llega como `?q=` de la página."""
+    dept, _ajeno, _jefe = esc()
+    make_teacher(dept, user=make_user(first_name="PENDIENTE", last_name="LECTOR"))
+    buscadas = []
+    monkeypatch.setattr(TeacherService, "search_candidates",
+                        staticmethod(lambda db, q, **kw: buscadas.append(q) or []))
+    rol = make_role(f"tt_test_docentes_lector_{_n()}", (PAGE_PERM,))
+    pos = make_position(code=f"coord_vinculacion_{dept.code}", title="Coordinación",
+                        department=dept)
+    bind_position_role(pos, rol)
+    lector = make_user(first_name="LECTOR", last_name="DOCENTES")
+    assign_position(lector, pos)
+
+    resp = client_as(lector).get(URL, params={"q": "pendiente"})
+
+    assert resp.status_code == 200
+    assert buscadas == []
+    assert espia_privilegios == []
+    assert not _html(resp).xpath("//*[@id='tt-doc-no-results']")
+
+
+def test_un_candidato_alumno_no_expone_correo_ni_usuario(client_as, esc, correos, make_user):
+    """Hallazgo 7: el dueño del correo puede ser un alumno; se muestra solo su
+    nombre y «cuenta de alumno»."""
+    dept, _ajeno, jefe = esc()
+    n = _n()
+    correo = f"alumno.ui{n}@{DOMINIO}"
+    alumno = make_user(first_name="ALUMNA", last_name=f"DUENA{n}", email=correo,
+                       control_number=f"99{n:06d}"[-8:], username=f"alu{n}")
+
+    resp = client_as(jefe).post(URL + "/crear", data=_alta(dept, email=correo))
+
+    assert resp.status_code == 200
+    (fila,) = _html(resp).xpath(f"//li[@id='tt-doc-cand-{alumno.id}']")
+    texto = fila.text_content()
+    assert "ALUMNA" in texto and "cuenta de alumno" in texto.lower()
+    assert correo not in texto and f"alu{n}" not in texto
+    assert not fila.xpath(".//form")
+
+
+def test_la_lista_muestra_el_nombre_en_orden_natural_y_ordena_por_apellido(
+        client_as, esc, make_teacher, make_user):
+    """Hallazgo 16: como Sinodales, el expediente y el oficio: «Nombre(s)
+    Paterno Materno». El orden de la lista sigue siendo por apellido."""
+    dept, _ajeno, jefe = esc()
+    n = _n()
+    zapata = make_teacher(dept, user=make_user(first_name="ANA", last_name=f"ZZAPATA{n}",
+                                               middle_name="RUIZ"))
+    alvarez = make_teacher(dept, user=make_user(first_name="ZOE MARIA",
+                                                last_name=f"AALVAREZ{n}"))
+    doc = _html(client_as(jefe).get(URL))
+
+    def nombre(u):
+        return " ".join(doc.xpath(f"string(//li[@id='tt-doc-row-{u.id}']"
+                                  f"//*[@class='tt-doc-name'])").split())
+
+    assert nombre(zapata) == f"ANA ZZAPATA{n} RUIZ"
+    assert nombre(alvarez) == f"ZOE MARIA AALVAREZ{n}"
+    ids = [li.get("id") for li in doc.xpath("//ul[@id='tt-doc-list']/li")]
+    assert ids.index(f"tt-doc-row-{alvarez.id}") < ids.index(f"tt-doc-row-{zapata.id}")
+
+
+def test_el_js_solo_lleva_al_error_cuando_se_repinta_el_cuerpo():
+    """Hallazgo 7: un swap de candidatos (dentro del cuerpo) no debe arrastrar
+    la vista a un `#tt-doc-error` viejo."""
+    js = (APP / "static" / "js" / "admin" / "docentes.js").read_text(encoding="utf-8")
+    assert "closest('#tt-doc-body')" not in js and 'closest("#tt-doc-body")' not in js
+    assert "t.id === 'tt-doc-body'" in js
+
+
 # ---------------------------------------------------------------------------
 # Corte (R-G) y convenciones
 # ---------------------------------------------------------------------------

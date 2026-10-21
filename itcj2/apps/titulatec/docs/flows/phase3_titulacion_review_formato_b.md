@@ -20,8 +20,11 @@ Estados y glosario: [máquina de estados](00_state_machine.md#estado-del-formato
 
 1. Menú admin **Titulación** (`bi-journal-check`, después de «Citas de cotejo»;
    `/titulatec/admin/titulacion`). El Departamento de Titulación **aterriza aquí** si tiene
-   `titulacion.page.list`; sin el permiso aterriza en Liberados como siempre (la División y `admin`
-   siguen aterrizando en la Bandeja).
+   `titulacion.page.list` **y** la fase del Formato B se opera en la app; si no, aterriza en
+   Liberados como siempre (la División y `admin` siguen aterrizando en la Bandeja). Desde la
+   revisión de la fase 4 (ruling R5) el ítem del menú también se oculta con el corte en la fase
+   `format_b` o antes (`nav._NAV_PHASE_GATE`): con el corte en 3 (producción) no se ve aunque el
+   permiso esté sembrado.
 2. Pestañas: **Por revisar** (default, FIFO), **Con observaciones**, **Aprobados**, **Sin enviar**,
    con contador, búsqueda (control/nombre/folio), filtro por carrera y paginación de 50.
 3. Master-detail: la lista a la izquierda (posición en la cola, semáforo de espera, «Reenvío

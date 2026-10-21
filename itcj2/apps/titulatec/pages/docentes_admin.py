@@ -111,17 +111,19 @@ def _body_ctx(db, uid: int, dept_raw, *, q: str = "", form_error: str | None = N
 
     rows = TeacherService.roster(db, depto["id"])
     for r in rows:
-        privilegiada = TeacherService.has_privileges(db, r["user_id"])
-        r["privileged"] = privilegiada
         # «Reenviar acceso» solo donde el servicio lo aceptaría: cuenta activa,
-        # sin privilegios y sin primer acceso.
-        r["can_resend"] = (r["account_status"] == "pending_first_login"
-                           and not privilegiada)
+        # sin privilegios y sin primer acceso. `has_privileges` cuesta varias
+        # consultas: solo se pregunta (corto circuito) para quien puede
+        # gestionar y una cuenta sin primer acceso (hallazgo 5, antes N+1).
+        r["can_resend"] = (can_manage and r["account_status"] == "pending_first_login"
+                           and not TeacherService.has_privileges(db, r["user_id"]))
     ctx["rows"] = rows
     if candidates is not None:
         ctx["candidates"] = candidates
         ctx["searched"] = True
-    elif ctx["q"]:
+    elif ctx["q"] and can_manage:
+        # La búsqueda expone nombres y correos de cuentas: solo con
+        # `teacher.api.manage`, también cuando llega como `?q=` (hallazgo 7).
         ctx["candidates"] = TeacherService.search_candidates(db, ctx["q"])
         ctx["searched"] = True
     return ctx

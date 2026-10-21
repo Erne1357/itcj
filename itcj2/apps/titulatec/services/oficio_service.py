@@ -13,11 +13,13 @@ from itcj2.core.utils.timezone import db_now
 
 NO_SYNODALS_MSG = "Este proceso todavía no tiene sinodales asignados."
 
-# Pie del oficio (constantes del instituto).
+# Pie del oficio (constantes del instituto). Dominio institucional
+# `cdjuarez.tecnm.mx` (ruling R7): el oficio real trae la errata «cdjurez», que
+# no se copia a un documento oficial.
 FOOTER_ADDRESS = ("Av. Tecnológico #1340 Fracc. El Crucero C.P. 32500 "
                   "Ciudad Juárez, Chihuahua.")
-FOOTER_CONTACT = ("Tel. 656-688-2500 ext. 2001 direccion@cdjuarez.tecnm.edu.mx - "
-                  "www.cdjuarez.tecnm.edu.mx")
+FOOTER_CONTACT = ("Tel. 656-688-2500 ext. 2001 direccion@cdjuarez.tecnm.mx - "
+                  "www.cdjuarez.tecnm.mx")
 
 DEFAULT_ADDRESSEE_CODE = "head_prof_studies_div"
 DEFAULT_ATTN_CODE = "head_titulacion"
@@ -37,9 +39,17 @@ def _date_label(d) -> str:
 class OficioService:
 
     @staticmethod
-    def holder(db: Session, position_code: str | None) -> dict | None:
+    def holder(db: Session, position_code: str | None,
+               title: str | None = None) -> dict | None:
         """Ocupante VIGENTE del puesto: `{"name", "title"}`, o None si el
-        puesto no existe o está vacante (la línea del oficio va en blanco)."""
+        puesto no existe o está vacante (la línea del oficio va en blanco,
+        aunque haya título personalizado).
+
+        `title` (hallazgo 17): el título que fija el departamento en sus
+        ajustes del oficio; vacío o None = el título del puesto en el
+        organigrama (que usa nombres neutros como «Jefe(a) del
+        Departamento de …» y no siempre coincide con el oficio real).
+        """
         if not position_code:
             return None
         from itcj2.core.models.position import Position, UserPosition
@@ -54,8 +64,9 @@ class OficioService:
                 .first())
         if fila is None:
             return None
-        user, title = fila
-        return {"name": _full_name(user), "title": title}
+        user, titulo_puesto = fila
+        propio = " ".join(str(title or "").split())
+        return {"name": _full_name(user), "title": propio or titulo_puesto}
 
     @staticmethod
     def context(db: Session, process) -> dict:
@@ -77,9 +88,11 @@ class OficioService:
         encabezado = (ajustes.oficio_header if ajustes and ajustes.oficio_header
                       else (f"Departamento de {depto.name}" if depto else ""))
         destinatario = OficioService.holder(
-            db, ajustes.addressee_position_code if ajustes else DEFAULT_ADDRESSEE_CODE)
+            db, ajustes.addressee_position_code if ajustes else DEFAULT_ADDRESSEE_CODE,
+            title=ajustes.addressee_title if ajustes else None)
         atencion = OficioService.holder(
-            db, ajustes.attn_position_code if ajustes else DEFAULT_ATTN_CODE)
+            db, ajustes.attn_position_code if ajustes else DEFAULT_ATTN_CODE,
+            title=ajustes.attn_title if ajustes else None)
         firmante = OficioService.holder(db, f"head_{depto.code}") if depto else None
 
         fecha = SynodalService.last_change_at(db, process.id) or db_now()

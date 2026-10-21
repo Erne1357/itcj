@@ -69,13 +69,16 @@
         <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
       {% endif %}
     </div>
+    {# Angosto (detalle < ~560 px, p. ej. un teléfono): cada fila se apila como
+       tarjeta con su etiqueta (`data-label`); ver `.tt-sin-table--stack` en
+       sinodales.css (hallazgo 15). #}
     <div class="tt-table-wrap">
-      <table id="tt-sin-synodals" class="table table-sm align-middle tt-sin-table">
+      <table id="tt-sin-synodals" class="table table-sm align-middle tt-sin-table tt-sin-table--stack">
         <thead>
           <tr>
             <th scope="col">Posición</th>
-            <th scope="col">Nombre</th>
-            <th scope="col">Grado académico</th>
+            <th scope="col" class="tt-td-wrap">Nombre</th>
+            <th scope="col" class="tt-td-wrap">Grado académico</th>
             <th scope="col">Cédula</th>
             {% if d.can_replace %}<th scope="col"><span class="visually-hidden">Acciones</span></th>{% endif %}
           </tr>
@@ -83,10 +86,10 @@
         <tbody>
           {% for s in d.synodals %}
           <tr id="tt-sin-syn-{{ s.role }}">
-            <td class="tt-sin-role">{{ s.role_label }}</td>
-            <td>{{ s.name }}</td>
-            <td>{{ s.academic_degree or '—' }}</td>
-            <td class="tt-mono">{{ s.professional_license or '—' }}</td>
+            <td class="tt-sin-role" data-label="Posición">{{ s.role_label }}</td>
+            <td class="tt-td-wrap" data-label="Nombre">{{ s.name }}</td>
+            <td class="tt-td-wrap" data-label="Grado académico">{{ s.academic_degree or '—' }}</td>
+            <td class="tt-mono" data-label="Cédula">{{ s.professional_license or '—' }}</td>
             {% if d.can_replace %}
             <td class="tt-sin-cell-action">
               <button type="button" class="btn btn-sm tt-btn-ghost"

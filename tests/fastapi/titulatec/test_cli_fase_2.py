@@ -6,8 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from click.testing import CliRunner
 
+from tests.fastapi.titulatec.conftest import _n
 from tests.fastapi.titulatec.test_permissions_contract import requires_dml
 
 ARCHIVO = "fase_2/01_titulacion_formato_b.sql"
@@ -62,7 +64,8 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
     with patch("itcj2.cli.core.execute_sql_file",
                side_effect=lambda ruta, **kw: ejecutados.append((Path(ruta).name, kw))), \
             patch("itcj2.core.services.authz_cache.invalidate_app") as inv, \
-            patch.object(cli, "_verify_fase_2", return_value=[]) as verificar:
+            patch.object(cli, "_verify_fase_2", return_value=[]) as verificar, \
+            patch.object(cli, "_avisos_fase_2", return_value=[]) as avisos:
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
 
     assert res.exit_code == 0, res.output
@@ -70,6 +73,25 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
                           ("02_sinodales.sql", {"invalidate_authz": False})]
     inv.assert_called_once_with("titulatec")
     verificar.assert_called_once_with()
+    avisos.assert_called_once_with()
+    assert "OK" in res.output
+
+
+def test_los_avisos_se_imprimen_y_no_abortan(tmp_path, monkeypatch):
+    """Una carrera corregida en «Carreras por departamento» ya no coincide con
+    la siembra: es un AVISO (echo), nunca un problema que aborte."""
+    from itcj2.cli.titulatec import fase2 as cli
+
+    monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
+    aviso = "la carrera 'Ing. Tics' esta mapeada a ead (la siembra dice sys_computing)"
+    with patch("itcj2.cli.core.execute_sql_file"), \
+            patch("itcj2.core.services.authz_cache.invalidate_app"), \
+            patch.object(cli, "_verify_fase_2", return_value=[]), \
+            patch.object(cli, "_avisos_fase_2", return_value=[aviso]):
+        res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
+
+    assert res.exit_code == 0, res.output
+    assert aviso in res.output and "AVISO" in res.output
     assert "OK" in res.output
 
 
@@ -170,6 +192,116 @@ def test_verify_fase_2_detecta_cada_faltante_del_organigrama_y_los_datos(
         assert fragmento in texto, (fragmento, texto)
 
 
+@pytest.fixture()
+def remapeo(db_session, make_department, make_program, make_program_department,
+            make_position, monkeypatch):
+    """Una carrera «sembrada» en `seed` y mapeada HOY a `destino` (con o sin
+    puesto `docente_*`). El verificador solo mira las carreras y deptos que se
+    le dan: la base de dev puede traer los reales."""
+    from itcj2.cli.titulatec import fase2 as cli
+
+    def _build(*, destino_con_docentes: bool, destino_en_la_lista: bool = False):
+        n = _n()
+        seed = make_department(code=f"zz_seed_{n}", name=f"Depto sembrado {n}")
+        destino = make_department(code=f"zz_dest_{n}", name=f"Depto destino {n}")
+        if destino_con_docentes:
+            make_position(code=f"docente_{destino.code}", title="Docente", department=destino)
+        carrera = make_program(f"Carrera Remapeada {n}")
+        make_program_department(carrera, destino)
+        monkeypatch.setattr(cli, "_FASE_2_PROGRAM_DEPARTMENTS", {carrera.name: seed.code})
+        lista = (seed.code, destino.code) if destino_en_la_lista else (seed.code,)
+        monkeypatch.setattr(cli, "_FASE_2_DEPARTMENTS", lista)
+        return carrera, seed, destino
+    return _build
+
+
+def _de_la_carrera(textos, carrera):
+    return [t for t in textos if f"'{carrera.name}'" in t]
+
+
+def test_verify_fase_2_acepta_una_carrera_remapeada_a_otro_depto_con_docentes(
+        remapeo, patched_session_local):
+    """Hallazgo 2 de la revisión de rama: tras una corrección legítima en la
+    pantalla, el comando ya no aborta para siempre. La diferencia con la
+    siembra queda como aviso."""
+    from itcj2.cli.titulatec import fase2 as cli
+
+    carrera, seed, destino = remapeo(destino_con_docentes=True)
+
+    assert _de_la_carrera(cli._verify_fase_2(), carrera) == []
+    avisos = _de_la_carrera(cli._avisos_fase_2(), carrera)
+    assert len(avisos) == 1 and destino.code in avisos[0] and seed.code in avisos[0]
+
+
+def test_verify_fase_2_acepta_un_depto_de_la_lista_aunque_le_falte_el_puesto(
+        remapeo, patched_session_local):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    carrera, _seed, _destino = remapeo(destino_con_docentes=False, destino_en_la_lista=True)
+
+    assert _de_la_carrera(cli._verify_fase_2(), carrera) == []
+
+
+def test_verify_fase_2_rechaza_un_depto_sin_docentes_fuera_de_la_lista(
+        remapeo, patched_session_local):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    carrera, _seed, destino = remapeo(destino_con_docentes=False)
+
+    problemas = _de_la_carrera(cli._verify_fase_2(), carrera)
+    assert len(problemas) == 1 and destino.code in problemas[0]
+    assert "docente_" in problemas[0]
+
+
+def test_sin_remapeo_no_hay_aviso(db_session, make_department, make_program,
+                                  make_program_department, make_position,
+                                  patched_session_local, monkeypatch):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    n = _n()
+    dept = make_department(code=f"zz_igual_{n}", name=f"Depto igual {n}")
+    make_position(code=f"docente_{dept.code}", title="Docente", department=dept)
+    carrera = make_program(f"Carrera Sin Remapeo {n}")
+    make_program_department(carrera, dept)
+    monkeypatch.setattr(cli, "_FASE_2_PROGRAM_DEPARTMENTS", {carrera.name: dept.code})
+
+    assert _de_la_carrera(cli._verify_fase_2(), carrera) == []
+    assert _de_la_carrera(cli._avisos_fase_2(), carrera) == []
+
+
+def test_verify_fase_2_exige_los_titulos_del_oficio(db_session, make_department,
+                                                   patched_session_local, monkeypatch):
+    """Hallazgo 17: el 02 siembra los títulos del oficio real; tras correrlo,
+    un ajuste sin ellos es que el UPDATE no aterrizó."""
+    from itcj2.apps.titulatec.models import DepartmentSettings
+    from itcj2.cli.titulatec import fase2 as cli
+
+    n = _n()
+    dept = make_department(code=f"zz_tit_{n}", name=f"Depto titulos {n}")
+    db_session.add(DepartmentSettings(department_id=dept.id, oficio_header="Depto",
+                                      addressee_position_code="head_prof_studies_div",
+                                      attn_position_code="head_titulacion"))
+    db_session.flush()
+    monkeypatch.setattr(cli, "_FASE_2_DEPARTMENTS", (dept.code,))
+
+    texto = " | ".join(cli._verify_fase_2())
+    assert f"el ajuste del oficio de {dept.code} no tiene el titulo del destinatario" in texto
+    assert f"el ajuste del oficio de {dept.code} no tiene el titulo del Atn." in texto
+
+    s = db_session.get(DepartmentSettings, dept.id)
+    s.addressee_title, s.attn_title = cli._FASE_2_ADDRESSEE_TITLE, cli._FASE_2_ATTN_TITLE
+    db_session.flush()
+    texto = " | ".join(cli._verify_fase_2())
+    assert f"oficio de {dept.code} no tiene" not in texto
+
+
+def test_los_titulos_sembrados_son_los_del_oficio_real():
+    from itcj2.cli.titulatec import fase2 as cli
+
+    assert cli._FASE_2_ADDRESSEE_TITLE == "JEFA DE LA DIVISIÓN DE ESTUDIOS PROFESIONALES"
+    assert cli._FASE_2_ATTN_TITLE == "Coordinadora de Apoyo a Titulación"
+
+
 def test_verify_fase_2_detecta_read_all_en_sinodal(db_session, make_role, patched_session_local):
     from itcj2.cli.titulatec import fase2 as cli
 
@@ -193,3 +325,8 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
     assert "ON CONFLICT (program_id) DO NOTHING" in cuerpo
     assert "LIKE '%.read.all'" in cuerpo
     assert "permission_id" not in cuerpo
+    # Títulos del oficio real (hallazgo 17): solo donde la columna sigue NULL,
+    # para no pisar lo que se edite en la pantalla.
+    assert f"addressee_title = '{cli._FASE_2_ADDRESSEE_TITLE}'" in cuerpo
+    assert f"attn_title = '{cli._FASE_2_ATTN_TITLE}'" in cuerpo
+    assert "addressee_title IS NULL" in cuerpo and "attn_title IS NULL" in cuerpo

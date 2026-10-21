@@ -183,7 +183,8 @@
       <h3 class="tt-kicker tt-tit-section-title">Sinodales asignados</h3>
       {% if d.can_oficio %}
       <a class="btn btn-sm tt-btn-ghost" data-tt-oficio
-         href="/titulatec/admin/sinodales/{{ d.process_id }}/oficio.pdf">
+         href="/titulatec/admin/sinodales/{{ d.process_id }}/oficio.pdf"
+         target="_blank" rel="noopener">
         <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
       {% endif %}
     </div>
@@ -197,7 +198,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="tt-tit-sub">Todavía no se asignan los sinodales.</p>
+    <p class="tt-tit-sub">{{ d.sinodales_empty }}</p>
     {% endif %}
   </section>
   {% endif %}

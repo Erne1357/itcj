@@ -6,7 +6,8 @@
 
      - botones `data-tt-doc-toggle="<id>"`: despliegan/pliegan el formulario
        (`data-tt-doc-panel`) de una fila o el de «Crear nuevo»;
-     - tras cada swap de `#tt-doc-body`, el mensaje de validación
+     - tras cada swap CUYO DESTINO es `#tt-doc-body` (no los de la lista de
+       candidatos, que viven dentro), el mensaje de validación
        (`#tt-doc-error`) se trae a la vista.
 
    Las confirmaciones son `hx-confirm` + `data-tt-confirm-ok`: el puente de
@@ -41,9 +42,12 @@
     if (err && err.scrollIntoView) err.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
+  // Solo cuando se re-pintó el cuerpo entero: un swap de la búsqueda de
+  // candidatos (destino dentro del cuerpo) no debe arrastrar la vista a un
+  // `#tt-doc-error` que quedó de antes.
   function onSettle(e) {
     var t = e && e.target;
-    if (t && (t.id === 'tt-doc-body' || (t.closest && t.closest('#tt-doc-body')))) revealError();
+    if (t && t.id === 'tt-doc-body') revealError();
   }
 
   function init() {

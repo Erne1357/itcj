@@ -97,6 +97,48 @@ _FASE_2_PROGRAM_DEPARTMENTS: dict[str, str] = {
 _FASE_2_MODALITIES: tuple[str, ...] = (
     "integral_residencias", "thesis", "research_project", "egel")
 
+# Titulos con que el oficio REAL nombra al destinatario y al «At'n.» (hallazgo 17
+# de la revision de rama, migracion `tt20261022b`); el 02 los siembra donde la
+# columna sigue NULL y el verificador exige que esten.
+_FASE_2_ADDRESSEE_TITLE = "JEFA DE LA DIVISIÓN DE ESTUDIOS PROFESIONALES"
+_FASE_2_ATTN_TITLE = "Coordinadora de Apoyo a Titulación"
+
+
+def _program_mapping_rows(db) -> list[tuple]:
+    """`(nombre, depto sembrado, depto actual o None, existe en core_programs,
+    el depto actual tiene puesto docente_*)` de cada carrera de la siembra."""
+    from sqlalchemy import text
+
+    filas = []
+    for nombre, sembrado in _FASE_2_PROGRAM_DEPARTMENTS.items():
+        fila = db.execute(
+            text("SELECT d.code, EXISTS (SELECT 1 FROM core_positions p "
+                 "WHERE p.code = 'docente_' || d.code AND p.is_active) "
+                 "FROM core_programs pr "
+                 "LEFT JOIN titulatec_program_departments pd ON pd.program_id = pr.id "
+                 "LEFT JOIN core_departments d ON d.id = pd.department_id "
+                 "WHERE pr.name = :n"), {"n": nombre}).first()
+        if fila is None:
+            filas.append((nombre, sembrado, None, False, False))
+        else:
+            filas.append((nombre, sembrado, fila[0], True, bool(fila[1])))
+    return filas
+
+
+def _avisos_fase_2() -> list[str]:
+    """Diferencias con la siembra que NO son un problema (hallazgo 2): una carrera
+    corregida en «Carreras por departamento» ya no esta en el depto sembrado.
+    El comando las imprime y sigue. Sesion propia, solo lectura."""
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return [f"la carrera '{nombre}' esta mapeada a {actual} (la siembra dice {sembrado})"
+                for nombre, sembrado, actual, existe, _docentes in _program_mapping_rows(db)
+                if existe and actual is not None and actual != sembrado]
+    finally:
+        db.close()
+
 
 def _verify_fase_2() -> list[str]:
     """Comprueba grants, permisos, organigrama y datos sembrados de fase 2. Devuelve problemas
@@ -158,27 +200,33 @@ def _verify_fase_2() -> list[str]:
                         {"c": codigo, "rol": rol}).first() is None:
                     problemas.append(f"{codigo} no tiene el rol {rol}")
 
-        # Carreras mapeadas al departamento esperado.
-        for nombre, depto in _FASE_2_PROGRAM_DEPARTMENTS.items():
-            fila = db.execute(
-                text("SELECT d.code FROM core_programs pr "
-                     "LEFT JOIN titulatec_program_departments pd ON pd.program_id = pr.id "
-                     "LEFT JOIN core_departments d ON d.id = pd.department_id "
-                     "WHERE pr.name = :n"), {"n": nombre}).first()
-            if fila is None:
+        # Carreras mapeadas a un departamento que opera sinodales (hallazgo 2):
+        # uno con puesto docente_* activo o de los 8 sembrados. Que difiera de
+        # la siembra (correccion legitima en la pantalla) es solo un aviso
+        # (`_avisos_fase_2`), nunca un problema: el comando no debe abortar
+        # para siempre tras una correccion.
+        for nombre, _sembrado, actual, existe, con_docentes in _program_mapping_rows(db):
+            if not existe:
                 problemas.append(f"la carrera '{nombre}' no existe en core_programs")
-            elif fila[0] is None:
+            elif actual is None:
                 problemas.append(f"la carrera '{nombre}' no esta mapeada")
-            elif fila[0] != depto:
-                problemas.append(f"la carrera '{nombre}' esta mapeada a {fila[0]}, no a {depto}")
+            elif not con_docentes and actual not in _FASE_2_DEPARTMENTS:
+                problemas.append(f"la carrera '{nombre}' esta mapeada a {actual}, "
+                                 f"que no tiene puesto docente_{actual}")
 
-        # Ajustes del oficio por departamento.
+        # Ajustes del oficio por departamento, con los titulos del oficio real.
         for depto in _FASE_2_DEPARTMENTS:
-            if db.execute(
-                    text("SELECT 1 FROM titulatec_department_settings s "
-                         "JOIN core_departments d ON d.id = s.department_id WHERE d.code = :c"),
-                    {"c": depto}).first() is None:
+            fila = db.execute(
+                text("SELECT s.addressee_title, s.attn_title FROM titulatec_department_settings s "
+                     "JOIN core_departments d ON d.id = s.department_id WHERE d.code = :c"),
+                {"c": depto}).first()
+            if fila is None:
                 problemas.append(f"falta el ajuste del oficio de {depto}")
+                continue
+            if not fila[0]:
+                problemas.append(f"el ajuste del oficio de {depto} no tiene el titulo del destinatario")
+            if not fila[1]:
+                problemas.append(f"el ajuste del oficio de {depto} no tiene el titulo del Atn.")
 
         # option_label de las 4 modalidades.
         for codigo in _FASE_2_MODALITIES:
@@ -208,7 +256,9 @@ def init_titulatec_fase_2_command(dry_run):
     Corre SOLO `database/DML/titulatec/fase_2/*.sql` (en el orden de
     `_DML_FASE_2_FILES`): NO re-ejecuta el 15 ni el resto de `SEED_FILES`.
     Idempotente (ON CONFLICT). Invalida el cache de authz solo de titulatec y
-    VERIFICA con `_verify_fase_2()`; aborta si algo no aterrizo.
+    VERIFICA con `_verify_fase_2()`; aborta si algo no aterrizo. Una carrera
+    corregida en «Carreras por departamento» (otro depto con docentes) sale
+    como AVISO (`_avisos_fase_2()`), sin abortar.
 
     IMPORTANTE: tras cualquier `init-titulatec` o `init-ajustes-2026-10` hay
     que volver a correr este comando (sus DELETE de convergencia quitan los
@@ -249,6 +299,11 @@ def init_titulatec_fase_2_command(dry_run):
     problemas = _verify_fase_2()
     if problemas:
         _abortar_con(problemas)
+
+    # Diferencias con la siembra que no son problema (correcciones hechas en
+    # «Carreras por departamento»): se informan y el comando sigue.
+    for aviso in _avisos_fase_2():
+        click.echo(click.style(f"AVISO: {aviso}", fg="yellow"))
 
     click.echo(click.style(
         "OK: permisos de fase 2 concedidos a "

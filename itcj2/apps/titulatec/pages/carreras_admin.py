@@ -3,8 +3,10 @@
 Solo `admin`: abrir exige `program_department.page.list` y guardar
 `program_department.api.manage`. Dos bloques en la misma pantalla: el mapeo de
 cada carrera a su departamento académico (con el nombre oficial que usa el
-oficio) y los ajustes del oficio por departamento (encabezado, destinatario y
-«Atn.»). La lógica vive en `ProgramDepartmentService`; aquí solo se arma el
+oficio; solo se ofrecen los departamentos con puesto docente, y un aviso cuenta
+los procesos en fase 4/5 de carreras sin departamento operable) y los ajustes
+del oficio por departamento (encabezado, destinatario y «Atn.», con sus títulos
+opcionales). La lógica vive en `ProgramDepartmentService`; aquí solo se arma el
 contexto y se traducen los errores (400 + `X-Tt-Error`, éxito = parcial
 re-pintado + `X-Tt-Notice`).
 
@@ -52,11 +54,16 @@ def _body_ctx(db, user_id: int) -> dict:
     operable = ProgramDepartmentService.operable(db)
     can_manage = set(_MANAGE_PERMS) <= set(cached_perms(db, user_id, "titulatec"))
     ctx = {"operable": operable, "can_manage": can_manage,
-           "mapping": [], "departments": [], "settings": []}
+           "mapping": [], "departments": [], "settings": [], "unassignable": 0}
     if operable:
+        # El catálogo (solo departamentos con puesto docente) se consulta una
+        # vez y lo comparten el select, los ajustes y el aviso (hallazgo 11).
+        catalogo = ProgramDepartmentService.academic_departments_catalog(db)
         ctx["mapping"] = ProgramDepartmentService.list_mapping(db)
-        ctx["departments"] = ProgramDepartmentService.academic_departments_catalog(db)
-        ctx["settings"] = ProgramDepartmentService.list_settings(db)
+        ctx["departments"] = catalogo
+        ctx["operable_ids"] = {d["id"] for d in catalogo}
+        ctx["settings"] = ProgramDepartmentService.list_settings(db, catalog=catalogo)
+        ctx["unassignable"] = ProgramDepartmentService.unassignable_in_flight(db, catalog=catalogo)
     return ctx
 
 
@@ -141,7 +148,9 @@ def _cuerpo_update_settings(department_id, request, user, form):
                 db, uid, department_id,
                 oficio_header=form.get("oficio_header"),
                 addressee_position_code=form.get("addressee_position_code"),
-                attn_position_code=form.get("attn_position_code"))
+                attn_position_code=form.get("attn_position_code"),
+                addressee_title=form.get("addressee_title"),
+                attn_title=form.get("attn_title"))
         except ValueError as exc:
             # El servicio valida ANTES de escribir: no hay nada que deshacer.
             return _error(str(exc))

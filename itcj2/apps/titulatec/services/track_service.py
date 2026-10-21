@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 TRACK_LICENCIATURA = "licenciatura"
 TRACK_POSGRADO = "posgrado"
 
+# Etiqueta de pantalla de cada nivel de POSGRADO (licenciatura no se rotula).
+PROFILE_LABELS = {"maestria": "Maestría", "doctorado": "Doctorado"}
+
 
 class TrackService:
     @staticmethod
@@ -101,6 +104,22 @@ class TrackService:
             p.id: TrackService.for_level(levels_by_program_id.get(p.program_id))
             for p in processes
         }
+
+    @staticmethod
+    def profile_labels(db: Session, program_ids: Iterable[int]) -> dict[int, str]:
+        """`{program_id: «Maestría» | «Doctorado»}` de las carreras de posgrado.
+
+        Para pantallas que rotulan el nivel (Carreras por departamento, fase 4
+        hallazgo 10): la licenciatura no sale en el mapa. Una consulta; sin ids,
+        ninguna.
+        """
+        from itcj2.core.models.program import Program
+
+        ids = {int(i) for i in program_ids if i is not None}
+        if not ids:
+            return {}
+        filas = db.query(Program.id, Program.level).filter(Program.id.in_(ids)).all()
+        return {pid: PROFILE_LABELS[nivel] for pid, nivel in filas if nivel in PROFILE_LABELS}
 
     @staticmethod
     def programs_same_level(db: Session, program_id: int | None) -> list:

@@ -956,6 +956,10 @@ def test_fase_4_muestra_vigentes_con_grado_cedula_e_historial_sin_mover_de_fase(
     assert "Maestra en Software Libre" in bloque and "10837613" in bloque
     assert "Historial de sustituciones" in bloque and "Licencia medica T10" in bloque
     assert f"/titulatec/admin/sinodales/{esc['proc'].id}/oficio.pdf" in html
+    # El PDF abre en otra pestaña: no se pierde el expediente (hallazgo 6).
+    import lxml.html
+    (liga,) = lxml.html.fromstring(html).xpath('//a[@data-tt-oficio]')
+    assert liga.get("target") == "_blank" and liga.get("rel") == "noopener"
     # La fase 4 no se mueve desde el expediente: el motor la rechaza (SYNODAL_ONLY_MSG).
     assert "data-tt-aprobar" not in html and "data-tt-rechazar" not in html
 
@@ -971,3 +975,33 @@ def test_fase_4_sin_synodal_read_no_hay_oficio(
     html = client_as(sin).get(f"{URL}/{esc['proc'].id}?fase=4").text
 
     assert "data-tt-exp-sinodales" in html and "oficio.pdf" not in html
+
+
+# Hallazgo 8: «Todavía no se asignan» solo cuando de verdad falta asignarlos.
+@pytest.mark.parametrize("caso,esperado", [
+    ("por_asignar", "Todavía no se asignan los sinodales"),
+    ("egel", "No aplica para esta modalidad"),
+    ("corte", "Esta fase todavía no está en la app"),
+])
+def test_fase_4_sin_sinodales_dice_por_que(caso, esperado, expediente, client_as, db_session,
+                                           make_officer, make_modality, monkeypatch):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase",
+                        staticmethod(lambda: 3 if caso == "corte" else 9))
+    esc = expediente(current_phase=4 if caso != "egel" else 6)
+    if caso == "egel":
+        egel = make_modality(name="EGEL expediente", requires_synodals=False,
+                             skips_phases=[4, 5])
+        esc["proc"].modality_id = egel.id
+        db_session.flush()
+    lector = _oficial(make_officer, esc, True)
+
+    html = client_as(lector).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    bloque = " ".join(html.split("data-tt-exp-sinodales")[1].split("</div>")[0].split())
+    assert esperado in bloque, bloque[:400]
+    for frase in ("Todavía no se asignan", "No aplica para esta modalidad",
+                  "Esta fase todavía no está en la app"):
+        if frase not in esperado:
+            assert frase not in bloque, (frase, bloque[:400])

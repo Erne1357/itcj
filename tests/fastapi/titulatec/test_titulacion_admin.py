@@ -257,17 +257,25 @@ def test_el_item_titulacion_del_menu_no_anida_el_contenedor(
 
 
 def test_aterrizaje_de_titulacion_condicional_al_permiso():
+    """Permiso Y fase del Formato B operable (ruling R5 de la fase 4)."""
     from itcj2.apps.titulatec.pages.nav import resolve_dashboard_url
 
-    assert resolve_dashboard_url({"titulatec_titulacion"}, perms={PAGE_PERM}) == URL
-    assert resolve_dashboard_url({"titulatec_titulacion"}, perms=set()) == LIBERADOS
+    fase = {"format_b"}
+    assert resolve_dashboard_url({"titulatec_titulacion"}, perms={PAGE_PERM},
+                                 operable=fase) == URL
+    assert resolve_dashboard_url({"titulatec_titulacion"}, perms=set(),
+                                 operable=fase) == LIBERADOS
+    # Sin `operable` (o con la fase fuera de la app): Liberados, falla cerrado.
+    assert resolve_dashboard_url({"titulatec_titulacion"}, perms={PAGE_PERM}) == LIBERADOS
     # R5: sin `perms` (otros llamadores) conserva Liberados.
     assert resolve_dashboard_url({"titulatec_titulacion"}) == LIBERADOS
     # La División y admin siguen en la Bandeja aunque tengan el permiso.
-    assert resolve_dashboard_url({"titulatec_titulaciones"}, perms={PAGE_PERM}) == "/titulatec/admin/"
+    assert resolve_dashboard_url({"titulatec_titulaciones"}, perms={PAGE_PERM},
+                                 operable=fase) == "/titulatec/admin/"
     assert resolve_dashboard_url({"titulatec_titulaciones", "titulatec_titulacion"},
-                                 perms={PAGE_PERM}) == "/titulatec/admin/"
-    assert resolve_dashboard_url({"admin"}, perms={PAGE_PERM}) == "/titulatec/admin/"
+                                 perms={PAGE_PERM}, operable=fase) == "/titulatec/admin/"
+    assert resolve_dashboard_url({"admin"}, perms={PAGE_PERM},
+                                 operable=fase) == "/titulatec/admin/"
 
 
 def _rol_titulacion_real(db_session, make_role, *, con_permiso):
@@ -291,7 +299,11 @@ def _rol_titulacion_real(db_session, make_role, *, con_permiso):
 
 @pytest.mark.parametrize("con_permiso,destino", [(True, URL), (False, LIBERADOS)])
 def test_el_landing_de_titulacion_depende_del_permiso(
-        con_permiso, destino, db_session, client_as, make_user, make_role, grant_user_role):
+        con_permiso, destino, db_session, client_as, make_user, make_role, grant_user_role,
+        corte, seed_phase_defs):
+    # Con el Formato B operable; con el corte en 3 lo cubre `test_nav_phase_gate.py`.
+    corte(9)
+    seed_phase_defs()
     rol = _rol_titulacion_real(db_session, make_role, con_permiso=con_permiso)
     user = make_user(first_name="AUX", last_name="TITULACION")
     grant_user_role(user, rol)
@@ -827,6 +839,30 @@ def test_formato_b_aprobado_muestra_sinodales_y_oficio_solo_con_el_permiso(
     resp2 = client_as(user).get(BODY, params={"tab": "approved", "selected": p.id})
     ligas = _detalle(resp2).xpath('.//a[@data-tt-oficio]')
     assert [l.get("href") for l in ligas] == [f"/titulatec/admin/sinodales/{p.id}/oficio.pdf"]
+    # El PDF abre en otra pestaña: no se pierde la bandeja (hallazgo 6).
+    assert ligas[0].get("target") == "_blank" and ligas[0].get("rel") == "noopener"
+
+
+@pytest.mark.parametrize("caso,esperado", [
+    ("por_asignar", "Todavía no se asignan los sinodales."),
+    ("egel", "No aplica para esta modalidad."),
+    ("corte_4", "Esta fase todavía no está en la app."),
+])
+def test_formato_b_aprobado_sin_sinodales_dice_por_que(caso, esperado, esc, client_as,
+                                                       db_session, make_modality):
+    """Hallazgo 8: «Todavía no se asignan» solo si de verdad falta asignarlos."""
+    e = esc(cut=4 if caso == "corte_4" else 9)
+    p = e.enviado("RAUL", status="approved", phase=4 if caso != "egel" else 6)
+    if caso == "egel":
+        p.modality_id = make_modality(name="EGEL titulacion", requires_synodals=False,
+                                      skips_phases=[4, 5]).id
+        db_session.flush()
+    a = e.revisor("LUISA")
+
+    det = _detalle(client_as(a).get(BODY, params={"tab": "approved", "selected": p.id}))
+
+    bloque = " ".join(det.xpath('.//*[@id="tt-tit-sinodales"]')[0].text_content().split())
+    assert esperado in bloque, bloque
 
 
 def test_formato_b_pendiente_no_muestra_el_bloque_de_sinodales(esc, client_as):

@@ -33,6 +33,21 @@ def add_business_days(d: date, n: int) -> date:
     return d
 
 
+def business_days_between(start: date, end: date) -> int:
+    """Días hábiles ESTRICTAMENTE posteriores a `start` hasta `end` (inclusive).
+
+    El semáforo de espera de las bandejas FIFO (Formato B y Sinodales): lo
+    enviado hoy lleva 0; viernes -> lunes, 1. Un `end` anterior a `start`
+    (reloj desfasado) da 0, nunca un número negativo.
+    """
+    n, d = 0, start
+    while d < end:
+        d += timedelta(days=1)
+        if is_business_day(d):
+            n += 1
+    return n
+
+
 def last_business_days(today: date, n: int) -> list[date]:
     """Los `n` dias habiles que terminan en `today` (o en el habil anterior si
     `today` es fin de semana), en orden ascendente."""

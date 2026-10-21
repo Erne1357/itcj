@@ -26,11 +26,11 @@ paginado y un número FIJO de consultas por página.
 from __future__ import annotations
 
 import dataclasses
-from datetime import date, timedelta
 
 from sqlalchemy import and_, exists, false, func
 from sqlalchemy.orm import Session, aliased
 
+from itcj2.apps.titulatec.utils.business_days import business_days_between
 from itcj2.core.utils.timezone import db_now
 
 PHASE_CODE = "synodal_assignment"        # fase 4: la que se asigna aquí
@@ -47,17 +47,6 @@ class SynodalInboxService:
     # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
-    @staticmethod
-    def _business_days_since(start: date, today: date) -> int:
-        """Días hábiles (lun-vie) ESTRICTAMENTE posteriores a `start` hasta
-        `today` (misma regla que la bandeja del Formato B)."""
-        n, d = 0, start
-        while d < today:
-            d += timedelta(days=1)
-            if d.weekday() < 5:
-                n += 1
-        return n
-
     @staticmethod
     def _wait_level(days: int) -> str:
         if days >= SynodalInboxService.WAIT_LATE_DAYS:
@@ -226,7 +215,7 @@ class SynodalInboxService:
             if tab == "pending":
                 pos = first + i + 1
                 if r.started_at is not None:
-                    days = cls._business_days_since(r.started_at.date(), hoy)
+                    days = business_days_between(r.started_at.date(), hoy)
                     level = cls._wait_level(days)
             rows.append({
                 "process_id": r.process_id, "folio": r.folio,
