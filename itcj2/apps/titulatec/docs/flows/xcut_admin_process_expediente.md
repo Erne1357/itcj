@@ -62,7 +62,7 @@ Guardas (`pages/admin.py:48-60`, 2026-10-07):
 | 0 · Convocatoria | convocatoria, carrera, modalidad, folio, enlace a la convocatoria (solo con `cohort.page.list`) |
 | 1 · Documentos | los 3 documentos **de solo lectura** + visor (`?doc=`) + «Dictaminar en la bandeja» (solo si puede abrir Documentos) |
 | 2 · Cita de cotejo | cita actual, solicitud de cambio del alumno, enlace a Citas (solo si puede abrir Citas) |
-| 3 · Formato B | bloque trasladado **literal** del detalle anterior |
+| 3 · Formato B | **solo lectura completa** (desde 2026-10-21): todos los campos por bloque, estado, ronda, observaciones vigentes y «Abrir en Titulación» (solo con `titulacion.page.list`); sin botones de dictamen. Ver [revisión del Formato B](phase3_titulacion_review_formato_b.md) |
 | 4–8 | dicen que la fase todavía no está en la app |
 
 Debajo de cada una, su **Historial**: los `ProcessEvent` de esa fase con actor,
@@ -165,7 +165,7 @@ Titulación, D8):
 | Ruta | Guarda | Resultado |
 |---|---|---|
 | `GET /processes/{id}` | vista completa ∪ resumen | 200 resumido |
-| `POST /processes/{id}/phase/{n}/approve` · `/reject` · `/format-b/review` · `/cancelar` | su permiso + `_exigir_vista_completa` | 403 (antes 200: aprobaba la fase 2) |
+| `POST /processes/{id}/phase/{n}/approve` · `/reject` · `/cancelar` (la ruta `/format-b/review` se retiró el 2026-10-21) | su permiso + `_exigir_vista_completa` | 403 (antes 200: aprobaba la fase 2) |
 | `POST /processes/{id}/requisitos/{rid}` · `/no-adeudo-previo` · `/deshacer` | su permiso (no lo tiene) + `_exigir_vista_completa` | 403 |
 | `GET /documents/{id}/document/{code}` · `GET /appointments/{id}/document/{code}` | `document.api.read.all` (ya no lo tiene) | 403 |
 | resto de `POST /appointments/{id}/...` (agendar, atender, requisitos, previa…) | `appointment.*` / `requirement.mark` / `library_clearance.api.prior` | 403 |

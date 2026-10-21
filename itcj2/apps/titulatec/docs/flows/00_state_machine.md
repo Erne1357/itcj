@@ -34,7 +34,7 @@ stateDiagram-v2
     pending --> skipped: modalidad salta la fase (ej. EGEL salta 4 y 5)
 ```
 
-> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `services/document_service.py::DocumentService.sync_initial_phase` (desde 2026-09-28, Tarea 1 -- se llama sola en `save()`/`delete()` al completar los 3 documentos iniciales; ya **no** es `pages/student.py:1622`, ese endpoint se retiró) y fase 3 en `services/format_b_service.py:91` (`FormatBService.submit()`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
+> **Ojo:** una fase `rejected` **no** regresa a `in_progress` cuando el alumno corrige. El reenvío la manda directo a `in_review`: fase 1 en `services/document_service.py::DocumentService.sync_initial_phase` (desde 2026-09-28, Tarea 1 -- se llama sola en `save()`/`delete()` al completar los 3 documentos iniciales; ya **no** es `pages/student.py:1622`, ese endpoint se retiró) y fase 3 en `FormatBService.submit()` (`services/format_b_service.py`). El único código que escribe `in_progress` sobre una fase `rejected` es `services/phase_service.py:92-93`, y solo cuando esa fase resulta ser la **siguiente aplicable** al aprobarse otra (regla de abajo), no como «reapertura» de la fase rechazada.
 
 **Reglas (las implementa [`PhaseService`](engine_approve_advance_phase.md)):**
 - Aprobar fase N → `N.status=approved` → activa la **siguiente aplicable** (`in_progress`,
@@ -80,7 +80,7 @@ superficie que dictamina o ejecuta una fase, no solo en el botón obvio.
 |---|---|---|---|---|
 | 🏛️🎓 **admin — dictamen de la fase del proceso** | `approve_phase` / `reject_phase` | [`PhaseService.assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` |
 | 👤 **alumno — ejecución** | subir, borrar, llenar, enviar, confirmar | [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
-| 🎓 **admin — dictamen de Formato B** (desde 2026-09-21) | `FormatBService.review` (aprobar/rechazar) | la MISMA `assert_can_transition` de arriba, con `n` = fase `format_b` del catálogo | Sí — mismas reglas que la fila 1 | `400` + `X-Tt-Error` |
+| 🎓 **admin — dictamen de Formato B** (desde 2026-09-21; desde 2026-10-21 en la pestaña Titulación) | `FormatBService.approve` / `.reject` / `.correct_registry` (antes `review`) | la MISMA `assert_can_transition` de arriba, con `n` = fase `format_b` del catálogo | Sí — mismas reglas que la fila 1 | `400` + `X-Tt-Error` |
 | 🏛️🎓 **admin — dictamen de un documento** (desde 2026-09-21) | `DocumentService.review` (aprobar/rechazar) | chequeo propio dentro del service — **no** reusa `assert_can_transition` | **No**, a propósito (ver abajo) | `400` + `X-Tt-Error` |
 
 Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
@@ -127,7 +127,7 @@ dictamen siempre es sobre la fase EN CURSO (`format_b`): la regla "solo la fase 
 aplica tal cual — y de paso hereda las otras dos reglas de esa guarda
 (`process.status == 'active'`, `n == current_phase`), que **no dependen de la variable del
 corte**: un dictamen tardío de Formato B o sobre un proceso `on_hold` da 400 aunque el
-corte esté en `9`. Antes de esta feature `FormatBService.review` no comprobaba ninguna de
+corte esté en `9`. Antes de esta feature el dictamen de Formato B (`FormatBService.review`, hoy `approve`/`reject`) no comprobaba ninguna de
 las dos; es un cambio de comportamiento permanente, no algo que la reversión deshaga. El
 de documentos **no puede** exigir lo mismo: dictaminar HOY un documento de una fase que el
 proceso ya dejó atrás — el dictamen tardío — es el uso NORMAL de la bandeja de Documentos,
@@ -356,7 +356,25 @@ auto-agendado vino a cerrar. Lleva comentario en el código y test dedicado
 
 ## Estado del Formato B (`FormatB.status`) — Fase 3
 
-`draft` → (alumno envía) → `submitted` → 🎓 `approved` | `rejected` → (corrige) → `submitted`.
+Detalle: [el alumno llena y envía](phase3_student_formato_b.md) ·
+[Titulación lo revisa](phase3_titulacion_review_formato_b.md). Invariante: Formato B `approved` <=>
+`ProcessPhase` de la fase 3 `approved`, escritos en **una sola transacción**.
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft: 👤 abre el Formato B (get_or_create)
+    draft --> submitted: 👤 Enviar (valida todo, congela el registro, ronda + 1)
+    rejected --> submitted: 👤 Reenviar (va al FINAL de la cola FIFO)
+    submitted --> approved: 🎓 Titulación aprueba (+ fase 3 approved, modalidad al proceso)
+    submitted --> rejected: 🎓 Titulación regresa con observaciones (+ fase 3 rejected)
+    submitted --> submitted: 🎓 corrige nombre/carrera del registro (no regresa)
+    rejected --> rejected: 👤 guarda pasos (conserva estado y observaciones)
+```
+
+> `submitted`/`approved` son de solo lectura para el alumno (editar o reenviar = 400). El `rejected`
+> se conserva hasta el reenvío: la fase 3 sigue `rejected` y el alumno puede actuar. La fase 3 sigue
+> la misma pareja: `in_progress` → (envío) `in_review` → `approved` | `rejected` → (reenvío)
+> `in_review`.
 
 ## Estado de una solicitud de liberación de GTV para la encuesta de egresados (`SurveyReview.status`) — Fase 2
 

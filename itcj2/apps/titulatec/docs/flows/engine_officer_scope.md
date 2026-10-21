@@ -219,7 +219,7 @@ La regla 3 es deliberada: `read.all` lo tienen **dos** roles (jefe y titulacione
 |---|---|---|---|
 | `pages/admin.py:737` | `GET /titulatec/admin/processes/{process_id}` | `_PROCESS_VIEW_PERMS` | el guard sustituyó al `Response(404)` de `_detail_ctx` |
 | `pages/admin.py:761` | `POST /admin/processes/{process_id}/documents/{type_code}/review` | `document.api.approve` / `.reject` | |
-| `pages/admin.py:787` | `POST /admin/processes/{process_id}/format-b/review` | `format_b.api.approve` / `.reject` | |
+| ~~`pages/admin.py:787`~~ | ~~`POST /admin/processes/{process_id}/format-b/review`~~ | n/a | **retirada 2026-10-21**: el dictamen vive en la pestaña Titulación (`pages/titulacion_admin.py`: `.../formato-b/{process_id}/aprobar`, `/observar`, `/registro`, `/viendo` y `/documento/{type_code}`; las 5 con el guard como primera sentencia del `try`, más `_exigir_bandeja`) |
 | `pages/admin.py:814` | `POST /admin/processes/{process_id}/phase/{n}/approve` | `process.api.approve_phase` | usa el proceso que devuelve el guard (ya no hay `db.get`) |
 | `pages/admin.py:839` | `POST /admin/processes/{process_id}/phase/{n}/reject` | `process.api.reject_phase` | ídem |
 | `pages/appointments.py:501` | `POST /admin/appointments/{process_id}/schedule` | `appointment.api.create` | ídem (lo usa para `ReviewDayService.is_allowed`) |

@@ -95,7 +95,7 @@ dispara `PHASE_APPROVED` (vía el motor). Llegan al tab **Avisos** del shell. Ve
 - Rechazar la fase (input motivo + "Rechazar fase") → fase 1 `rejected` con `rejection_reason`, el
   alumno corrige; `reject_phase` fija `current_phase = n` (`services/phase_service.py:200-218`), y `n` solo puede ser la fase en curso.
 - El detalle y las dos rutas de dictamen **sí** están acotados por carrera: `process_detail`
-  (`pages/admin.py:737`), `doc_review` (`:761`) y `fb_review` (`:787`) arrancan con
+  (`pages/admin.py:737`), `doc_review` (`:761`) y (hasta 2026-10-21, cuando se retiró) `fb_review` (`:787`) arrancan con
   `assert_process_in_scope`, que responde **404** si el proceso no cae en el alcance del usuario
   (mismo predicado que filtra la bandeja/kanban). Ver [alcance por carrera](engine_officer_scope.md).
 

@@ -33,7 +33,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 |---|---|
 | 👤 | Acción del **alumno** (rol `graduate` desde 2026-09-15; antes `student`), mobile |
 | 🏛️ | Acción de **Servicios Escolares** (`titulatec_school_services`) |
-| 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) o del **Departamento de Titulación** (`titulatec_titulacion`; desde 2026-10-07 solo Liberados + expediente resumido) |
+| 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) o del **Departamento de Titulación** (`titulatec_titulacion`; desde 2026-10-07 Liberados + expediente resumido; desde 2026-10-21 también la pestaña Titulación, solo tras `init-titulatec-fase-2`) |
 | 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
 | 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 💻 | Acción de **Centro de Cómputo** (`titulatec_computer_center` — desde 2026-09-24) |
@@ -69,8 +69,8 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 - [No adeudo de biblioteca: Biblioteca → Caja](phase2_library_clearance.md) 📚💰🏛️👤 (2026-10-01) — Biblioteca revisa en FIFO a todo inscrito y registra si debe; el egresado paga adeudo + donación voluntaria de libro en Caja, sin cita; donde la convocatoria lo exige, ni agenda ni es agendado sin el no adeudo liberado (`ClearanceGate`, candado único junto con la encuesta).
 
 ### Fase 3 — Formato B
-- [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤
-- *(revisión de Formato B → ver flujo de revisión, pendiente de documentar)*
+- [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤 (2026-10-21) → [Titulación lo revisa](phase3_titulacion_review_formato_b.md) — 3 pasos con validación en línea (servidor = autoridad), pantalla «Revisa y envía» con casilla de confirmación exigida en servidor, «Tipo de titulación» elegido por el alumno, observaciones por campo con «Corregido ✓» y reenvío al final de la cola.
+- [Titulación revisa el Formato B (pestaña «Titulación», FIFO)](phase3_titulacion_review_formato_b.md) 🎓 ⤵ engine (2026-10-21) — 4 pestañas (Por revisar · Con observaciones · Aprobados · Sin enviar), dictamen con observaciones por campo, presencia «quién lo está revisando» (Redis, fail-open), corrección de nombre/carrera del registro, una sola puerta de dictamen (marca `FORMAT_B_VERDICT_KEY`), inerte con el corte en 3 y despliegue por `init-titulatec-fase-2`.
 
 ### Transversales (building blocks)
 - [Perfil de titulación por nivel de carrera (licenciatura | posgrado)](engine_process_track.md) 🤖
