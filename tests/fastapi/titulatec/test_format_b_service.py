@@ -546,11 +546,35 @@ class TestObservar:
         (ev,) = _eventos(db_session, e.proc.id, "phase_rejected")
         assert ev.payload["reason"] == ("Revisa tu domicilio. "
                                         "Campos a corregir: Código postal, Calle.")
-        assert ev.payload["format_b"] == {"round": 1, "fields": ["postal_code", "street"]}
+        assert ev.payload["format_b"] == {
+            "round": 1, "fields": ["postal_code", "street"],
+            "general": "Revisa tu domicilio",
+            "notes": {"postal_code": "No coincide con la colonia",
+                      "street": "Falta el número de calle"}}
         fila = _acciones(db_session, "format_b.reviewed")[0]
         assert fila.payload == {"status": "rejected", "round": 1,
                                 "fields": ["postal_code", "street"]}
         assert fila.reason == "Revisa tu domicilio"
+
+    def test_dos_rondas_conservan_sus_notas_en_los_eventos(self, db_session, esc, revisor):
+        """`review_observations` se reemplaza en cada ronda: el historial vive en
+        el payload de cada `phase_rejected` (spec §6/§7)."""
+        e = esc()
+        fb = _enviado(db_session, e)
+        FormatBService.reject(db_session, e.proc, revisor.id, general_note="Ronda uno",
+                              field_notes={"street": "Falta la calle"})
+        FormatBService.submit(db_session, fb, e.proc)
+        FormatBService.reject(db_session, e.proc, revisor.id, general_note=None,
+                              field_notes={"postal_code": "Sigue mal el C.P."})
+
+        uno, dos = _eventos(db_session, e.proc.id, "phase_rejected")
+
+        assert uno.payload["format_b"]["round"] == 1
+        assert uno.payload["format_b"]["notes"] == {"street": "Falta la calle"}
+        assert uno.payload["format_b"]["general"] == "Ronda uno"
+        assert dos.payload["format_b"]["round"] == 2
+        assert dos.payload["format_b"]["notes"] == {"postal_code": "Sigue mal el C.P."}
+        assert fb.review_observations["fields"].keys() == {"postal_code"}
 
     def test_solo_nota_general(self, db_session, esc, revisor):
         e = esc()

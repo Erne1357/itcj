@@ -69,7 +69,7 @@ class FormatBInboxService:
 
     @staticmethod
     def _base(db: Session, user_id: int, *, q, program_id):
-        """`(query, scope_vacio)`: procesos en alcance + búsqueda + carrera.
+        """Query de procesos en alcance + búsqueda + carrera, o `None`.
 
         `program_id IS NULL` queda fuera siempre. Devuelve `None` si el alcance
         no deja ver nada.
@@ -185,17 +185,36 @@ class FormatBInboxService:
                 "counts": counts, "tab": tab}
 
     @staticmethod
+    def contains(db: Session, user_id: int, process_id: int, *, tab: str,
+                 q: str = "", program_id: int | None = None) -> bool:
+        """¿`process_id` está en la pestaña, con la búsqueda, carrera y alcance
+        dados? Mismo `_base` y mismo predicado que la lista; una consulta."""
+        from itcj2.apps.titulatec.models import TitulationProcess as TP
+        from itcj2.apps.titulatec.utils.paging import normalize_q
+
+        cls = FormatBInboxService
+        base = cls._base(db, user_id, q=normalize_q(q), program_id=program_id)
+        if base is None or tab not in cls.TABS:
+            return False
+        preds, _n = cls._tab_predicates(db)
+        return (base.filter(preds[tab], TP.id == int(process_id))
+                .with_entities(TP.id).first()) is not None
+
+    @staticmethod
     def next_pending(db: Session, user_id: int, *,
-                     exclude_ids: Iterable[int] = ()) -> int | None:
+                     exclude_ids: Iterable[int] = (), q: str = "",
+                     program_id: int | None = None) -> int | None:
         """`process_id` del siguiente «Por revisar» en la cola FIFO, o None.
 
         Salta `exclude_ids` (p. ej. el recién dictaminado y los que otra
-        persona tiene abierto). Mismo alcance y orden que la pestaña.
+        persona tiene abierto). Mismo alcance y orden que la pestaña; con `q` y
+        `program_id` es el siguiente del conjunto FILTRADO.
         """
         from itcj2.apps.titulatec.models import FormatB, TitulationProcess as TP
+        from itcj2.apps.titulatec.utils.paging import normalize_q
 
         cls = FormatBInboxService
-        base = cls._base(db, user_id, q=None, program_id=None)
+        base = cls._base(db, user_id, q=normalize_q(q), program_id=program_id)
         if base is None:
             return None
         excl = [int(i) for i in exclude_ids]

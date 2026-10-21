@@ -731,3 +731,55 @@ def test_css_comentarios_cerrados_y_llaves_balanceadas():
     assert "*/" not in sin_comentarios and "/*" not in sin_comentarios
     assert sin_comentarios.count("{") == sin_comentarios.count("}")
     assert "#tt-tit-body" in css
+
+
+# ---------------------------------------------------------------------------
+# 7. Ronda final: documento con corte, siguiente filtrado
+# ---------------------------------------------------------------------------
+def test_con_el_corte_en_3_el_documento_no_se_sirve(esc, client_as, make_document,
+                                                     tmp_path, monkeypatch):
+    """Producción (corte 3): ni el acta ni la CURP salen por URL directa."""
+    monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+    e = esc(cut=3)
+    a = e.revisor("LUISA")
+    p = e.enviado("ANA")
+    doc = make_document(p, type_code="curp", phase_number=1)
+    dest = tmp_path / doc.file_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"%PDF-1.4 documento de prueba")
+
+    resp = client_as(a).get(f"{URL}/formato-b/{p.id}/documento/curp")
+
+    assert resp.status_code == 404
+
+
+def test_el_siguiente_respeta_el_filtro_de_carrera(esc, client_as, db_session):
+    """Con un filtro de carrera activo el siguiente es de ESA carrera: antes era
+    de toda la cola y el detalle salía vacío."""
+    e = esc()
+    a = e.revisor("LUISA", programas=[e.programa, e.hermana])
+    p1 = e.enviado("UNO", dias=9)
+    otra = e.enviado("OTRA", dias=7, programa_=e.hermana)
+    p3 = e.enviado("TRES", dias=3)
+
+    resp = client_as(a).post(f"{URL}/formato-b/{p1.id}/aprobar", data={
+        "tab": "pending", "carrera": str(e.programa.id), "q": "", "page": ""})
+
+    assert resp.status_code == 200, resp.text[:500]
+    det = _detalle(resp)
+    assert det is not None and int(det.get("data-process")) == p3.id
+    assert otra.id != p3.id
+
+
+def test_el_siguiente_respeta_la_busqueda(esc, client_as):
+    e = esc()
+    a = e.revisor("LUISA")
+    p1 = e.enviado("UNO", dias=9)
+    e.enviado("DOS", dias=7)
+    p3 = e.enviado("TRES", dias=3)
+
+    resp = client_as(a).post(f"{URL}/formato-b/{p1.id}/aprobar", data={
+        "tab": "pending", "q": "TRES", "carrera": "", "page": ""})
+
+    assert resp.status_code == 200, resp.text[:500]
+    assert int(_detalle(resp).get("data-process")) == p3.id

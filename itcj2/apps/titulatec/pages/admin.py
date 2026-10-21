@@ -1410,6 +1410,7 @@ _BACK_LABELS = (
     ("/titulatec/admin/documents", "Documentos"),
     ("/titulatec/admin/appointments", "Citas de cotejo"),
     ("/titulatec/admin/cohorts", "Convocatoria"),
+    ("/titulatec/admin/titulacion", "Titulación"),
     ("/titulatec/admin/processes", "Procesos"),
     ("/titulatec/admin/correos", "Correos"),
     ("/titulatec/admin/liberados", "Liberados"),
@@ -1562,6 +1563,14 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
                   "self_service": "por el alumno"}.get(
                       p.get("source") or p.get("source_previo"))
         return " · ".join([x for x in (etiqueta, origen) if x]) or None
+    fb = p.get("format_b")
+    if ev.event_type == "phase_rejected" and isinstance(fb, dict) and fb.get("notes"):
+        from itcj2.apps.titulatec.services.format_b_validation import FIELD_LABELS
+        trozos = "; ".join(f"{FIELD_LABELS.get(c, c)} — {n}"
+                           for c, n in fb["notes"].items())
+        general = fb.get("general")
+        texto = f"Campos a corregir: {trozos}"
+        return f"{general} · {texto}" if general else texto
     partes = []
     code = p.get("type_code")
     if code:
@@ -1743,11 +1752,19 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     if fb_row and fb_row.status != "draft":
         # Solo lectura COMPLETA (spec fase 3 §9): las tres secciones del motor,
         # con observaciones vigentes. El dictamen vive en la pestaña Titulación.
+        secciones_fb = FormatBService.display_sections(db, fb_row, proc)
+        if fb_row.status not in ("submitted", "rejected"):
+            # Un aprobado conserva las observaciones en la BD, pero ya no dicen
+            # nada (mismo criterio que la pestaña Titulación).
+            for sec in secciones_fb:
+                for r in sec["rows"]:
+                    r["observation"] = None
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
                      "program_name": program.name if program else None,
                      "round": fb_row.submission_count or 0,
-                     "rejection_reason": fb_row.rejection_reason,
-                     "sections": FormatBService.display_sections(db, fb_row, proc)}
+                     "rejection_reason": (fb_row.rejection_reason
+                                          if fb_row.status == "rejected" else None),
+                     "sections": secciones_fb}
     from itcj2.apps.titulatec.services.phase_service import PhaseService as _PS
     format_b_phase = _PS.phase_number_for_code(db, "format_b")
 

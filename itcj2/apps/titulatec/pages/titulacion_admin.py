@@ -139,30 +139,29 @@ def _en_universo(db, user_id: int, process_id: int, *, tab: str, q, carrera) -> 
     también cuando el proceso cae en otra página: el mismo `_base` y el mismo
     predicado de pestaña que la lista, más el id. Una consulta.
     """
-    from itcj2.apps.titulatec.models import TitulationProcess as TP
     from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService
 
-    base = FormatBInboxService._base(db, user_id, q=q, program_id=carrera)
-    if base is None:
-        return False
-    preds, _n = FormatBInboxService._tab_predicates(db)
-    return (base.filter(preds[tab], TP.id == process_id)
-            .with_entities(TP.id).first()) is not None
+    return FormatBInboxService.contains(db, user_id, process_id, tab=tab, q=q or "",
+                                        program_id=carrera)
 
 
-def _next_free(db, user_id: int, done_id: int):
+def _next_free(db, user_id: int, done_id: int, vista: dict | None = None):
     """El siguiente «Por revisar» de la cola FIFO que nadie más tenga abierto.
 
     Salta el recién dictaminado y, uno por uno, los que otra persona tiene
     abiertos (§8.2); con Redis caído `viewers` devuelve vacío y gana la cabeza
-    de la cola. None si no queda ninguno libre (detalle vacío).
+    de la cola. Respeta la búsqueda y la carrera de la vista (`vista`): el
+    siguiente es del conjunto FILTRADO. None si no queda ninguno libre.
     """
     from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService
     from itcj2.apps.titulatec.services.review_presence import ReviewPresence
 
+    vista = vista or {}
+    q, carrera = vista.get("q") or "", _to_int(vista.get("carrera"))
     excluir = {done_id}
     for _ in range(_NEXT_TRIES):
-        pid = FormatBInboxService.next_pending(db, user_id, exclude_ids=excluir)
+        pid = FormatBInboxService.next_pending(
+            db, user_id, exclude_ids=excluir, q=q, program_id=carrera)
         if pid is None:
             return None
         if not ReviewPresence.viewers(_PRESENCE_KIND, [pid], exclude_user_id=user_id):
@@ -430,7 +429,7 @@ def _cuerpo_approve(process_id, request, user, form):
             # «Ya fue dictaminado por X el …» (otro llegó antes), proceso pausado…
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         ReviewPresence.clear(_PRESENCE_KIND, process_id, uid)
-        siguiente = _next_free(db, uid, process_id)
+        siguiente = _next_free(db, uid, process_id, _vista(form))
         if resultado.get("completed"):
             aviso = "Formato B aprobado: el proceso quedó completo."
         else:
@@ -477,7 +476,7 @@ def _cuerpo_observe(process_id, request, user, form):
             # formulario se queda como está (htmx no hace swap en un 4xx).
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         ReviewPresence.clear(_PRESENCE_KIND, process_id, uid)
-        siguiente = _next_free(db, uid, process_id)
+        siguiente = _next_free(db, uid, process_id, _vista(form))
         return _repintar(request, db, uid, _vista(form), siguiente,
                          "Formato B regresado al alumno con observaciones.")
     finally:
@@ -574,6 +573,8 @@ def document_file(process_id: int, type_code: str, request: Request,
         # Antes de tocar disco: aquí viaja el acta de nacimiento / la CURP.
         proc = assert_process_in_scope(db, uid, process_id)
         _exigir_bandeja(db, uid)
+        if not _operable(db):
+            return Response(status_code=404)
         fase_1 = PhaseService.phase_number_for_code(db, "initial_docs")
         fase_tipo = (db.query(DocumentType.phase_number)
                      .filter(DocumentType.code == type_code).scalar())

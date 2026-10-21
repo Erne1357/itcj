@@ -20,6 +20,7 @@
 {% macro estado_pill(estado) %}
   {% if estado == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
   {% elif estado == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
+  {% elif estado == "submitted" %}{{ pill("En revisión", "amber", "clock") }}
   {% elif estado == "rejected" %}{{ pill("Rechazado", "danger", "exclamation-triangle") }}
   {% elif estado == "in_progress" %}{{ pill("En curso", "amber", "clock") }}
   {% elif estado == "pending" %}{{ pill("Pendiente", "neutral", "hourglass-split") }}

@@ -410,6 +410,68 @@ def test_tarjeta_de_formato_b_es_de_solo_lectura_completa(expediente, client_as,
     assert "format-b/review" not in html
 
 
+def test_formato_b_enviado_dice_en_revision_en_espanol(expediente, client_as, db_session):
+    """El estado crudo «submitted» no se pinta: la tarjeta de la fase 3 lo dice
+    como el resto de la app."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "En revisión" in html
+    assert "submitted" not in html
+
+
+def test_formato_b_aprobado_no_pinta_observaciones_vigentes(expediente, client_as,
+                                                           db_session):
+    """Un aprobado conserva `review_observations` en la BD (§6) pero la tarjeta ya
+    no las muestra; un rechazado sí."""
+    esc = expediente(current_phase=4)
+    fb = _fb_enviado(db_session, esc["proc"])
+    fb.review_observations = {
+        "general": "Nota general vieja",
+        "fields": {"postal_code": {"note": "El C.P. no existe", "value": "3200"}},
+        "reviewer_id": 1, "at": "2026-10-20T10:00:00"}
+    fb.rejection_reason = "Nota general vieja"
+    fb.status = "approved"
+    db_session.flush()
+    cli = client_as(esc["officer"])
+
+    aprobado = cli.get(f"{URL}/{esc['proc'].id}").text
+
+    assert "El C.P. no existe" not in aprobado
+    assert "Nota general vieja" not in aprobado
+    assert "Aprobado" in aprobado
+
+    fb.status = "rejected"
+    db_session.flush()
+    rechazado = cli.get(f"{URL}/{esc['proc'].id}").text
+    assert "El C.P. no existe" in rechazado
+    assert "Nota general vieja" in rechazado
+
+
+def test_el_timeline_conserva_las_notas_de_cada_ronda_de_rechazo(expediente, client_as,
+                                                                db_session):
+    """Cada `phase_rejected` del Formato B lista «Campos a corregir» con sus
+    notas aunque la ronda siguiente reemplace `review_observations`."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    esc = expediente(current_phase=3)
+    for ronda, nota in ((1, "El C.P. de la ronda uno"), (2, "La calle de la ronda dos")):
+        campo = "postal_code" if ronda == 1 else "street"
+        db_session.add(ProcessEvent(
+            process_id=esc["proc"].id, event_type="phase_rejected", phase_number=3,
+            actor_id=esc["officer"].id,
+            payload={"reason": f"Campos a corregir: x{ronda}.",
+                     "format_b": {"round": ronda, "fields": [campo], "general": "",
+                                  "notes": {campo: nota}}}))
+    db_session.flush()
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "Campos a corregir: Código postal — El C.P. de la ronda uno" in html
+    assert "Campos a corregir: Calle — La calle de la ronda dos" in html
+
+
 def test_en_la_fase_de_formato_b_no_hay_aprobar_rechazar_generico(
     expediente, client_as, db_session,
 ):
@@ -613,6 +675,8 @@ def test_el_acordeon_recuerda_lo_desplegado():
     # Revisión final de la bitácora (M5): antes decía «Procesos».
     ("/titulatec/admin/bitacora?desde=2026-09-01&module=documents&student=ana&page=2",
      "Bitácora"),
+    # Revisión final de la fase 3 (M3): antes decía «Procesos».
+    ("/titulatec/admin/titulacion?tab=pending&q=ana", "Titulación"),
 ])
 def test_regresar_vuelve_al_origen_con_sus_filtros(expediente, client_as, origen, etiqueta):
     """El `href` se compara DESESCAPADO: Jinja escribe `&amp;` en los atributos,

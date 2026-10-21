@@ -526,7 +526,9 @@ class FormatBService:
             db.info[PhaseService.FORMAT_B_VERDICT_KEY] = (process.id, "rejected")
             PhaseService.reject_phase(
                 db, process, n, reviewer_id, motivo,
-                event_payload={"format_b": {"round": ronda, "fields": observados}})
+                event_payload={"format_b": {"round": ronda, "fields": observados,
+                                            "general": general,
+                                            "notes": {c: notas[c] for c in observados}}})
         except Exception:
             db.rollback()
             raise

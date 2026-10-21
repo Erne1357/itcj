@@ -234,3 +234,44 @@ def test_la_lista_cuesta_lo_mismo_con_2_que_con_8_filas(inbox):
     with _Contador(inbox.db.get_bind()) as c8:
         assert len(inbox.lista()["rows"]) == 8
     assert len(c2) == len(c8), "\n".join(c8.sentencias)
+
+
+def test_next_pending_respeta_la_carrera_y_la_busqueda(inbox):
+    """El siguiente es del conjunto FILTRADO, no de toda la cola."""
+    from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService as S
+    ajeno = inbox.nuevo(submitted_at=T0, program=inbox.otra, first="BETO")
+    propio = inbox.nuevo(submitted_at=T0 + timedelta(days=1), first="CARLA")
+    n = lambda **kw: S.next_pending(inbox.db, inbox.user.id, **kw)
+
+    assert n() == ajeno.id
+    assert n(program_id=inbox.prog.id) == propio.id
+    assert n(program_id=inbox.otra.id) == ajeno.id
+    assert n(q="CARLA") == propio.id
+    assert n(q="BETO", program_id=inbox.prog.id) is None
+
+
+def test_contains_aplica_pestana_busqueda_y_carrera(inbox):
+    from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService as S
+    enviado = inbox.nuevo(first="CARLA")
+    aprobado = inbox.nuevo(fb="approved", approved_at=T0)
+    c = lambda pid, **kw: S.contains(inbox.db, inbox.user.id, pid, **kw)
+
+    assert c(enviado.id, tab="pending")
+    assert not c(enviado.id, tab="approved")
+    assert c(aprobado.id, tab="approved")
+    assert c(enviado.id, tab="pending", q="CARLA", program_id=inbox.prog.id)
+    assert not c(enviado.id, tab="pending", program_id=inbox.otra.id)
+    assert not c(enviado.id, tab="pending", q="NADIE")
+    assert not c(enviado.id, tab="zzz")
+
+
+def test_seleccionado_en_pagina_2_sigue_en_el_universo(inbox):
+    """Con `per_page=1` el segundo cae en la página 2 y `contains` lo ve igual."""
+    from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService as S
+    uno = inbox.nuevo(submitted_at=T0)
+    dos = inbox.nuevo(submitted_at=T0 + timedelta(days=1))
+
+    pagina_1 = inbox.lista(per_page=1)
+
+    assert _ids(pagina_1) == [uno.id]
+    assert S.contains(inbox.db, inbox.user.id, dos.id, tab="pending")
