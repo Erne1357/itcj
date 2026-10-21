@@ -29,6 +29,10 @@
 <link rel="stylesheet" href="/static/titulatec/css/admin/cashier.css?v={{ sv('css/admin/cashier.css') }}">
 {# Pestaña Titulación (Formato B, fase 3): mismo motivo que las dos de arriba. #}
 <link rel="stylesheet" href="/static/titulatec/css/admin/titulacion.css?v={{ sv('css/admin/titulacion.css') }}">
+{# Pestaña Docentes (fase 4): catálogo por departamento; mismo motivo. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/docentes.css?v={{ sv('css/admin/docentes.css') }}">
+{# Pestaña Carreras por departamento (fase 4): mismo motivo. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/carreras.css?v={{ sv('css/admin/carreras.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -186,6 +190,9 @@
    VA DESPUÉS de `doc-viewer.js`: reutiliza su modal. Mismo contrato: una sola
    carga, delegación en `document.body` y re-init en `htmx:afterSettle`. #}
 <script src="/static/titulatec/js/admin/titulacion.js?v={{ sv('js/admin/titulacion.js') }}"></script>
+{# Pestaña Docentes (fase 4): despliegue de formularios de fila y de alta.
+   Mismo contrato: una sola carga y delegación en `document.body`. #}
+<script src="/static/titulatec/js/admin/docentes.js?v={{ sv('js/admin/docentes.js') }}"></script>
 {# Tablero de la jefa de SE: tooltip de las gráficas (hijo de <body>, creado una
    vez), crosshair de las líneas, Imprimir, popovers de filtros y la opacidad de
    recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en

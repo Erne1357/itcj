@@ -1,0 +1,157 @@
+{# Cuerpo de la pestaña Docentes. Re-render en #tt-doc-body (innerHTML) con
+   cada acción (`pages/docentes_admin.py::_body_ctx`). El mensaje de validación
+   de cualquier formulario sale UNA vez, en #tt-doc-error. Nada de aquí imprime
+   credenciales: la contraseña temporal solo viaja por correo. #}
+{% if not operable %}
+<div id="tt-doc-inert" class="tt-card tt-doc-empty">
+  <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+  <p class="tt-doc-empty-title">La asignación de sinodales aún no se opera aquí</p>
+  <p class="tt-doc-empty-text">El catálogo de docentes se abre junto con la fase de sinodales. Esta pestaña no tiene acciones mientras tanto.</p>
+</div>
+{% elif not dept %}
+<div id="tt-doc-no-dept" class="tt-card tt-doc-empty">
+  <i class="bi bi-diagram-3" aria-hidden="true"></i>
+  <p class="tt-doc-empty-title">Sin departamento a tu cargo</p>
+  <p class="tt-doc-empty-text">Tu puesto no administra ningún departamento académico con carreras asignadas.</p>
+</div>
+{% else %}
+<div class="tt-doc-toolbar">
+  {% if departments | length > 1 %}
+  <label class="tt-doc-dept">
+    <span class="tt-label">Departamento</span>
+    <select id="tt-doc-dept" name="dept" class="tt-field"
+            hx-get="/titulatec/admin/docentes/body" hx-trigger="change"
+            hx-target="#tt-doc-body" hx-swap="innerHTML" hx-indicator="#tt-doc-skel">
+      {% for d in departments %}
+      <option value="{{ d.id }}"{% if d.id == dept.id %} selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% else %}
+  <p class="tt-doc-dept-name"><i class="bi bi-building" aria-hidden="true"></i>{{ dept.name }}</p>
+  {% endif %}
+</div>
+
+{% if form_error %}
+<div id="tt-doc-error" class="tt-doc-alert" role="alert">
+  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+  <span>{{ form_error }}</span>
+</div>
+{% endif %}
+
+<section class="tt-card tt-doc-roster" aria-label="Docentes del departamento">
+  <h2 class="tt-doc-h">Docentes del departamento <span class="tt-doc-count">({{ rows | length }})</span></h2>
+  <ul id="tt-doc-list" class="tt-doc-list">
+    {% for r in rows %}
+    <li id="tt-doc-row-{{ r.user_id }}" class="tt-doc-item">
+      <div class="tt-doc-item-main">
+        <span class="tt-doc-name">{{ r.name }}</span>
+        <span class="tt-doc-meta">{{ r.email or 'Sin correo' }}</span>
+        <span class="tt-doc-meta">{{ r.academic_degree or 'Sin grado' }} · Cédula {{ r.professional_license or '—' }}</span>
+      </div>
+      <div class="tt-doc-item-state">
+        {% if r.account_status == 'active' %}
+        <span class="tt-pill tt-pill--success">Activa</span>
+        {% elif r.account_status == 'pending_first_login' %}
+        <span class="tt-pill tt-pill--amber">Sin primer acceso</span>
+        {% else %}
+        <span class="tt-pill tt-pill--neutral">Desactivada</span>
+        {% endif %}
+        <span class="tt-doc-meta">{{ r.active_assignments }} {{ 'asignación vigente' if r.active_assignments == 1 else 'asignaciones vigentes' }}</span>
+      </div>
+      {% if can_manage %}
+      <div class="tt-doc-item-actions">
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-doc-toggle="tt-doc-edit-{{ r.user_id }}">
+          <i class="bi bi-pencil" aria-hidden="true"></i><span class="d-none d-sm-inline"> Editar</span></button>
+        {% if r.can_resend %}
+        <form hx-post="/titulatec/admin/docentes/reenviar" hx-target="#tt-doc-body" hx-swap="innerHTML"
+              hx-indicator="#tt-doc-skel"
+              hx-confirm="Reenviar acceso|Se restablecerá la contraseña temporal de {{ r.name }} y se le enviará de nuevo su acceso por correo."
+              data-tt-confirm-ok="Reenviar">
+          <input type="hidden" name="dept" value="{{ dept.id }}">
+          <input type="hidden" name="user_id" value="{{ r.user_id }}">
+          <button type="submit" class="btn btn-sm tt-btn-soft"><i class="bi bi-envelope" aria-hidden="true"></i><span class="d-none d-sm-inline"> Reenviar acceso</span></button>
+        </form>
+        {% endif %}
+        <form hx-post="/titulatec/admin/docentes/quitar" hx-target="#tt-doc-body" hx-swap="innerHTML"
+              hx-indicator="#tt-doc-skel"
+              hx-confirm="Quitar del departamento|{{ r.name }} dejará de ser docente de este departamento. Su cuenta seguirá activa."
+              data-tt-confirm-ok="Quitar">
+          <input type="hidden" name="dept" value="{{ dept.id }}">
+          <input type="hidden" name="user_id" value="{{ r.user_id }}">
+          <button type="submit" class="btn btn-sm tt-btn-danger-soft"><i class="bi bi-person-dash" aria-hidden="true"></i><span class="d-none d-sm-inline"> Quitar</span></button>
+        </form>
+      </div>
+      <form id="tt-doc-edit-{{ r.user_id }}" class="tt-doc-edit" data-tt-doc-panel
+            hx-post="/titulatec/admin/docentes/editar" hx-target="#tt-doc-body" hx-swap="innerHTML"
+            hx-indicator="#tt-doc-skel"{% if not (form.edit and form.target_id == r.user_id) %} hidden{% endif %}>
+        <input type="hidden" name="dept" value="{{ dept.id }}">
+        <input type="hidden" name="user_id" value="{{ r.user_id }}">
+        <label class="tt-doc-field"><span class="tt-label">Grado académico</span>
+          <input type="text" name="academic_degree" class="tt-field" maxlength="150" required
+                 value="{{ r.academic_degree or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Cédula profesional</span>
+          <input type="text" name="professional_license" class="tt-field" inputmode="numeric" maxlength="12" required
+                 value="{{ r.professional_license or '' }}"></label>
+        <p class="tt-doc-hint">El perfil es único: el cambio se ve en todos sus departamentos.</p>
+        <button type="submit" class="btn btn-sm tt-btn-ink">Guardar</button>
+      </form>
+      {% endif %}
+    </li>
+    {% else %}
+    <li class="tt-doc-none" id="tt-doc-empty-list">Este departamento todavía no tiene docentes. Agrega al primero abajo.</li>
+    {% endfor %}
+  </ul>
+</section>
+
+{% if can_manage %}
+<section id="tt-doc-add" class="tt-card tt-doc-add" aria-label="Agregar docente">
+  <h2 class="tt-doc-h">Agregar docente</h2>
+  <p class="tt-doc-hint">Busca primero por correo institucional, usuario o nombre: si la persona ya tiene cuenta, se reutiliza.</p>
+  <div class="tt-search tt-doc-search">
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <input type="search" id="tt-doc-q" name="q" value="{{ q }}" maxlength="100"
+           placeholder="Correo, usuario o nombre" aria-label="Buscar cuenta para agregar como docente"
+           hx-get="/titulatec/admin/docentes/buscar" hx-vals='{"dept": "{{ dept.id }}"}'
+           hx-trigger="keyup changed delay:400ms, search"
+           hx-target="#tt-doc-candidates" hx-swap="innerHTML" hx-indicator="#tt-doc-skel">
+  </div>
+  <div id="tt-doc-candidates" class="tt-doc-candidates">
+    {% include "titulatec/partials/docentes/_candidatos.html" %}
+  </div>
+
+  <div class="tt-doc-create-box">
+    <button type="button" class="btn btn-sm tt-btn-soft" data-tt-doc-toggle="tt-doc-create"
+            aria-controls="tt-doc-create">
+      <i class="bi bi-person-plus" aria-hidden="true"></i> Crear nuevo</button>
+    <form id="tt-doc-create" class="tt-doc-create" data-tt-doc-panel
+          hx-post="/titulatec/admin/docentes/crear" hx-target="#tt-doc-body" hx-swap="innerHTML"
+          hx-indicator="#tt-doc-skel"{% if not ('first_name' in form) %} hidden{% endif %}>
+      <input type="hidden" name="dept" value="{{ dept.id }}">
+      <p class="tt-doc-hint">Solo si la persona no apareció en la búsqueda. Se le enviará su acceso al correo institucional.</p>
+      <div class="tt-doc-grid">
+        <label class="tt-doc-field"><span class="tt-label">Nombre(s)</span>
+          <input type="text" name="first_name" class="tt-field" maxlength="100" required value="{{ form.first_name or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Apellido paterno</span>
+          <input type="text" name="last_name" class="tt-field" maxlength="100" required value="{{ form.last_name or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Apellido materno (opcional)</span>
+          <input type="text" name="middle_name" class="tt-field" maxlength="100" value="{{ form.middle_name or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Correo institucional</span>
+          <input type="email" name="email" class="tt-field" maxlength="150" required value="{{ form.email or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Grado académico</span>
+          <input type="text" name="academic_degree" class="tt-field" maxlength="150" required value="{{ form.academic_degree or '' }}"></label>
+        <label class="tt-doc-field"><span class="tt-label">Cédula profesional</span>
+          <input type="text" name="professional_license" class="tt-field" inputmode="numeric" maxlength="12" required value="{{ form.professional_license or '' }}"></label>
+      </div>
+      {% if name_match %}
+      <label class="tt-doc-confirm">
+        <input type="checkbox" name="confirm_other_person" value="1"{% if form.confirm_other_person %} checked{% endif %}>
+        <span>Es otra persona: ninguna de las cuentas con ese nombre es ella.</span>
+      </label>
+      {% endif %}
+      <button type="submit" class="btn btn-sm tt-btn-ink"><i class="bi bi-check-lg" aria-hidden="true"></i> Crear y agregar</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+{% endif %}

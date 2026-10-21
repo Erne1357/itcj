@@ -173,6 +173,10 @@ _ADMIN_NAV = [
     # Pantalla de trabajo del Departamento de Titulación (spec 2026-10-21 fase 3
     # §8): bandeja FIFO del Formato B; hospedará las fases siguientes.
     ("Titulación",          "bi-journal-check", "/titulatec/admin/titulacion", {"titulatec.titulacion.page.list"}),
+    # Catálogo de docentes por departamento académico (spec 2026-10-21 fase 4 §8).
+    ("Docentes",            "bi-person-badge", "/titulatec/admin/docentes",    {"titulatec.teacher.page.list"}),
+    # Carrera -> departamento académico y ajustes del oficio (fase 4 §13, solo admin).
+    ("Carreras por depto",  "bi-diagram-3",   "/titulatec/admin/carreras-deptos", {"titulatec.program_department.page.list"}),
     # Bandeja de solo lectura del Departamento de Titulacion (2026-09-21, Tarea
     # 5 del deslinde a T-soft): egresados ya liberados por Servicios Escolares.
     ("Liberados",           "bi-box-arrow-right", "/titulatec/admin/liberados", {"titulatec.handoff.page.list"}),

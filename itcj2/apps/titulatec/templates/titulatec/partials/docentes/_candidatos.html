@@ -1,0 +1,43 @@
+{# Candidatos de «Agregar docente» (búsqueda o cuentas que ya existen según el
+   servicio). Alumno, desactivada y ya-del-departamento no se agregan; el resto
+   lleva su formulario con grado y cédula (y el correo institucional si la
+   cuenta no tiene). #}
+{% if candidates_title and candidates %}<p class="tt-doc-subh">{{ candidates_title }}</p>{% endif %}
+{% if candidates %}
+<ul class="tt-doc-cands">
+  {% for c in candidates %}
+  <li id="tt-doc-cand-{{ c.user_id }}" class="tt-doc-cand">
+    <div class="tt-doc-item-main">
+      <span class="tt-doc-name">{{ c.name }}</span>
+      <span class="tt-doc-meta">{{ c.email or 'Sin correo' }} · {{ c.username or 'Sin usuario' }}</span>
+    </div>
+    {% if c.is_student %}
+    <p class="tt-doc-cand-note"><i class="bi bi-mortarboard" aria-hidden="true"></i> Es una cuenta de alumno: no se puede agregar como docente.</p>
+    {% elif dept.id in c.already_in %}
+    <p class="tt-doc-cand-note"><i class="bi bi-check2-circle" aria-hidden="true"></i> Ya es docente de este departamento.</p>
+    {% elif not c.is_active %}
+    <p class="tt-doc-cand-note"><i class="bi bi-slash-circle" aria-hidden="true"></i> La cuenta está desactivada: pide a un administrador que la reactive.</p>
+    {% elif can_manage %}
+    <form class="tt-doc-cand-form" hx-post="/titulatec/admin/docentes/agregar" hx-target="#tt-doc-body"
+          hx-swap="innerHTML" hx-indicator="#tt-doc-skel">
+      <input type="hidden" name="dept" value="{{ dept.id }}">
+      <input type="hidden" name="user_id" value="{{ c.user_id }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      {% if c.already_in %}<p class="tt-doc-hint">Ya es docente de otro departamento: su perfil es único.</p>{% endif %}
+      <label class="tt-doc-field"><span class="tt-label">Grado académico</span>
+        <input type="text" name="academic_degree" class="tt-field" maxlength="150" required value="{{ c.academic_degree or '' }}"></label>
+      <label class="tt-doc-field"><span class="tt-label">Cédula profesional</span>
+        <input type="text" name="professional_license" class="tt-field" inputmode="numeric" maxlength="12" required value="{{ c.professional_license or '' }}"></label>
+      {% if not c.email %}
+      <label class="tt-doc-field"><span class="tt-label">Correo institucional</span>
+        <input type="email" name="institutional_email" class="tt-field" maxlength="150" required></label>
+      {% endif %}
+      <button type="submit" class="btn btn-sm tt-btn-ink"><i class="bi bi-person-plus" aria-hidden="true"></i> Agregar</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% elif searched %}
+<p class="tt-doc-none" id="tt-doc-no-results">Sin cuentas para "{{ q }}". Si la persona no existe, usa «Crear nuevo».</p>
+{% endif %}

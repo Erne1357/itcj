@@ -1,0 +1,85 @@
+/* ===========================================================================
+   docentes.css — Pestaña «Docentes» (fase 4, 2026-10-21)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-21-titulatec-fase4-sinodales-design.md
+   §8. Se carga UNA vez en `admin/base_admin.html`. Todo cuelga de las clases
+   `tt-doc-*` de `admin/docentes.html` y `partials/docentes/`. Tokens --tt-*,
+   escala --tt-fs-*, espaciado --tt-sp-*; sin `style=` en las plantillas.
+   =========================================================================== */
+
+/* === 1. Página ============================================================ */
+.tt-doc-page { padding: var(--tt-sp-5); }
+.tt-doc-header { margin-bottom: var(--tt-sp-4); }
+.tt-doc-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-doc-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+.tt-doc-host { display: flex; flex-direction: column; gap: var(--tt-sp-4); }
+#tt-doc-body { display: flex; flex-direction: column; gap: var(--tt-sp-4); min-width: 0; }
+
+.tt-doc-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: var(--tt-sp-3); }
+.tt-doc-dept { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: min(100%, 22rem); }
+.tt-doc-dept-name { margin: 0; display: inline-flex; align-items: center; gap: var(--tt-sp-2);
+  font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+
+/* === 2. Mensajes ========================================================== */
+.tt-doc-alert {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2);
+  padding: var(--tt-sp-3) var(--tt-sp-4); border-radius: var(--tt-r-md, 10px);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink);
+  border: 1px solid rgba(245,158,11,.3); font-size: var(--tt-fs-200);
+}
+.tt-doc-hint { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-doc-subh { margin: var(--tt-sp-3) 0 var(--tt-sp-1); font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-doc-none { list-style: none; padding: var(--tt-sp-3) 0; font-size: var(--tt-fs-200); color: var(--tt-text-2); }
+
+/* === 3. Lista de docentes ================================================= */
+.tt-doc-roster, .tt-doc-add { padding: var(--tt-sp-4); }
+.tt-doc-h { margin: 0 0 var(--tt-sp-3); font-size: var(--tt-fs-400); font-weight: 600; color: var(--tt-text-1); }
+.tt-doc-count { font-weight: 400; color: var(--tt-text-3); }
+.tt-doc-list, .tt-doc-cands { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tt-doc-item, .tt-doc-cand {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  gap: var(--tt-sp-2) var(--tt-sp-4); padding: var(--tt-sp-3) 0; border-top: 1px solid var(--tt-line);
+}
+.tt-doc-item:first-child, .tt-doc-cand:first-child { border-top: 0; }
+.tt-doc-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.tt-doc-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-doc-meta { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-doc-item-state { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tt-sp-1); }
+.tt-doc-item-actions { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); justify-content: flex-end; }
+
+/* Formularios plegables de fila: ocupan toda la fila bajo los datos. */
+.tt-doc-edit, .tt-doc-cand-form {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: end; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-3); border-radius: var(--tt-r-md, 10px); background: var(--tt-mist);
+}
+.tt-doc-edit[hidden], .tt-doc-create[hidden] { display: none; }
+.tt-doc-cand-note { grid-column: 2 / -1; margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-doc-cand-form .tt-doc-hint { flex: 1 0 100%; }
+
+.tt-doc-field { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: min(100%, 12rem); flex: 1 1 12rem; }
+
+/* === 4. Alta ============================================================== */
+.tt-doc-search { margin: var(--tt-sp-2) 0 var(--tt-sp-3); max-width: 32rem; }
+.tt-doc-create-box { margin-top: var(--tt-sp-4); padding-top: var(--tt-sp-4); border-top: 1px solid var(--tt-line); }
+.tt-doc-create { margin-top: var(--tt-sp-3); display: flex; flex-direction: column; gap: var(--tt-sp-3); }
+.tt-doc-grid { display: flex; flex-wrap: wrap; gap: var(--tt-sp-3); }
+.tt-doc-confirm { display: flex; align-items: flex-start; gap: var(--tt-sp-2); font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+.tt-doc-confirm input { margin-top: .2rem; }
+.tt-doc-create > .btn { align-self: flex-start; }
+
+/* === 5. Estado vacío ====================================================== */
+.tt-doc-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--tt-sp-1); padding: var(--tt-sp-6) var(--tt-sp-4); text-align: center;
+}
+.tt-doc-empty > i { font-size: var(--tt-fs-600); color: var(--tt-text-3); }
+.tt-doc-empty-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-doc-empty-text { margin: 0; max-width: 52ch; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* === 6. Angosto =========================================================== */
+@media (max-width: 767.98px) {
+  .tt-doc-page { padding: var(--tt-sp-4); }
+  .tt-doc-item, .tt-doc-cand { grid-template-columns: minmax(0, 1fr); }
+  .tt-doc-item-actions { justify-content: flex-start; }
+  .tt-doc-cand-note { grid-column: 1; }
+}

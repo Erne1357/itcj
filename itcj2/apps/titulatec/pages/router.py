@@ -53,3 +53,9 @@ titulatec_pages_router.include_router(audit_admin_router)
 titulatec_pages_router.include_router(reports_admin_router)
 # Pestaña Titulación (spec 2026-10-21 fase 3 §8): bandeja del Formato B.
 titulatec_pages_router.include_router(titulacion_admin_router)
+# Pestaña Docentes (spec 2026-10-21 fase 4 §8): catálogo por departamento.
+from .docentes_admin import router as docentes_admin_router  # noqa: E402
+titulatec_pages_router.include_router(docentes_admin_router)
+# Pestaña Carreras por departamento (spec 2026-10-21 fase 4 §13): mapeo y oficio.
+from .carreras_admin import router as carreras_admin_router  # noqa: E402
+titulatec_pages_router.include_router(carreras_admin_router)
