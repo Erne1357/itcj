@@ -16,13 +16,21 @@ Reglas que este servicio garantiza (las rutas solo deciden quién y qué depto):
   cuenta de un egresado desde un departamento (mismo criterio que el core,
   `users_admin.reset_user_password`).
 - **Contraseña temporal = `DEFAULT_PASSWORD`, con cambio obligatorio.** Solo se
-  escribe en una cuenta nueva, en una reutilizada inactiva o sin primer acceso
-  (`last_login IS NULL`, patrón de `OfficerService.activate_users`) y en
-  «Reenviar acceso» (solo sin primer acceso). Una cuenta que ya entró no se
-  toca. Restablecer revoca las sesiones vivas en la MISMA transacción
-  (`session_service.bump_version(db=db)`). La contraseña JAMÁS va a log,
-  bitácora, evento ni respuesta: solo viaja en el correo de acceso
+  escribe en una cuenta nueva y en una reutilizada (o en «Reenviar acceso») que
+  esté ACTIVA, SIN PRIVILEGIOS (`has_privileges`) y sin primer acceso
+  (`last_login IS NULL`). Enmienda de seguridad de R-B (spec §16b): el
+  departamento nunca reactiva una cuenta inactiva ni toca la credencial de una
+  cuenta con privilegios (rol global distinto de NULL/`staff`, otro rol de app
+  que no sea `itcj`/`staff`, un puesto activo que no sea `docente_*` o algún
+  permiso directo de usuario o de puesto): sin
+  esto, un jefe de departamento podía dejar con la contraseña conocida de la
+  plataforma la cuenta de un administrador que aún no entraba. Una cuenta que ya
+  entró no se toca. Restablecer revoca las sesiones vivas en la MISMA
+  transacción (`session_service.bump_version(db=db)`). La contraseña JAMÁS va a
+  log, bitácora, evento ni respuesta: solo viaja en el correo de acceso
   (`send_access_email`, después del commit, best-effort).
+- **Correo sin índice único**: `core_users.email` no es UNIQUE, así que buscar
+  dueños del correo y escribirlo van bajo `pg_advisory_xact_lock` por correo.
 - **Una transacción por acción.** `authz_service.grant_role` y
   `positions_service.assign_user_to_position` commitean por dentro, así que
   aquí NO se usan: la fila del rol `staff` en `itcj` y la del puesto se insertan
@@ -101,12 +109,19 @@ EMAIL_TAKEN_MSG = ("Ya existe una cuenta con ese correo. "
                    "Búscala y agrégala en lugar de crear otra.")
 USERNAME_TAKEN_MSG = ("El usuario «{usuario}» ya pertenece a otra cuenta. Si es la misma "
                       "persona, búscala y agrégala; si no, avisa a un administrador.")
+USERNAME_CONTROL_LIKE_MSG = ("El correo da el usuario «{usuario}», que tiene forma de número de "
+                             "control: el inicio de sesión lo tomaría como alumno y el docente "
+                             "nunca podría entrar. Usa un correo institucional cuya parte antes "
+                             "de la @ no sea un número de control.")
 NAME_MATCH_MSG = ("Ya hay una cuenta con ese nombre. Si es la misma persona, agrégala "
                   "desde la búsqueda; si no, marca «Es otra persona».")
 ALREADY_TEACHER_MSG = "Esa persona ya es docente del departamento."
 NOT_TEACHER_MSG = "Esa persona no es docente del departamento."
-NOT_TEACHER_ANY_MSG = "Esa cuenta no es docente de ningún departamento."
 NO_PROFILE_MSG = "Esa persona no tiene perfil docente."
+INACTIVE_ACCOUNT_MSG = ("La cuenta está desactivada: pide a un administrador que la reactive "
+                        "y después agrégala como docente.")
+PRIVILEGED_RESET_MSG = ("Esa cuenta tiene otros accesos en la plataforma: su contraseña solo "
+                        "la restablece un administrador.")
 HAS_ASSIGNMENTS_MSG = ("Tiene asignaciones vigentes como sinodal en procesos de este "
                        "departamento: primero sustitúyelo.")
 RESET_NOT_ALLOWED_MSG = ("Solo se puede reenviar el acceso a una cuenta que nunca ha "
@@ -187,10 +202,22 @@ def _writing(db: Session):
         yield
     except IntegrityError:
         db.rollback()
-        raise ValueError(CONFLICT_MSG)
+        # `from None`: el IntegrityError trae la sentencia y sus parámetros
+        # (hash, correo); no deben viajar encadenados en el ValueError.
+        raise ValueError(CONFLICT_MSG) from None
     except Exception:
         db.rollback()
         raise
+
+
+def _lock_email(db: Session, email: str) -> None:
+    """Candado de transacción por correo (`core_users.email` no es UNIQUE): dos
+    altas o reutilizaciones con el mismo correo se serializan antes de buscar
+    sus dueños, y la segunda ve la cuenta de la primera."""
+    from sqlalchemy import text
+
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext('tt:teacher-email:' || lower(:e)))"),
+               {"e": email})
 
 
 def _vigente_today(link) -> bool:
@@ -292,6 +319,67 @@ class TeacherService:
         if lock:
             q = q.with_for_update(read=True, of=UserPosition)
         return q.first() is not None
+
+    @staticmethod
+    def has_privileges(db: Session, user_id: int) -> bool:
+        """¿La cuenta tiene accesos más allá de «docente»? (enmienda de seguridad
+        de R-B, spec §16b). Si sí, el departamento NUNCA toca su credencial.
+
+        Privilegios = cualquiera de: rol global (`core_users.role_id`) distinto
+        de NULL o `staff`; algún `UserAppRole` distinto de (`itcj`, `staff`);
+        algún puesto que ocupe con `is_active` cuyo código no empiece con
+        `docente_`; algún permiso DIRECTO en cualquier app, de usuario
+        (`core_user_app_perms`) o de puesto (`core_position_app_perms` en
+        cualquier puesto que ocupe con `is_active`, también un `docente_*`).
+        Falla cerrado en las dos reglas de puesto: cuenta `UserPosition.is_active`
+        SIN la ventana de fechas (un puesto que empieza mañana ya cuenta; uno
+        cerrado no), y un permiso directo cuenta aunque sea `allow = false`.
+        Una cuenta inexistente o un rol global que no se puede leer también
+        cuentan como privilegiadas. A lo más cuatro consultas, y se corta en la
+        primera que encuentre algo.
+        """
+        from sqlalchemy import exists
+
+        from itcj2.core.models.app import App
+        from itcj2.core.models.position import Position, PositionAppPerm, UserPosition
+        from itcj2.core.models.role import Role
+        from itcj2.core.models.user import User
+        from itcj2.core.models.user_app_perm import UserAppPerm
+        from itcj2.core.models.user_app_role import UserAppRole
+
+        user = db.get(User, user_id)
+        if user is None:
+            return True
+        if user.role_id is not None:
+            rol = db.get(Role, user.role_id)
+            if rol is None or rol.name != STAFF_ROLE:
+                return True
+        otro_rol = (db.query(UserAppRole.user_id)
+                    .join(App, App.id == UserAppRole.app_id)
+                    .join(Role, Role.id == UserAppRole.role_id)
+                    .filter(UserAppRole.user_id == user_id,
+                            ~and_(App.key == STAFF_APP_KEY, Role.name == STAFF_ROLE))
+                    .first())
+        if otro_rol is not None:
+            return True
+        permiso_directo = db.query(or_(
+            exists().where(UserAppPerm.user_id == user_id),
+            exists().where(and_(PositionAppPerm.position_id == UserPosition.position_id,
+                                UserPosition.user_id == user_id,
+                                UserPosition.is_active.is_(True))),
+        )).scalar()
+        if permiso_directo:
+            return True
+        # `is_active` sin ventana de fechas (falla cerrado, igual que los
+        # permisos de puesto): un puesto no docente que empieza mañana ya hace
+        # privilegiada la cuenta; uno cerrado no.
+        otro_puesto = (db.query(UserPosition.id)
+                       .join(Position, Position.id == UserPosition.position_id)
+                       .filter(UserPosition.user_id == user_id,
+                               UserPosition.is_active.is_(True),
+                               ~Position.code.startswith(POSITION_PREFIX, autoescape=True))
+                       .first())
+        return otro_puesto is not None
 
     @staticmethod
     def _teacher_departments(db: Session, user_ids) -> dict[int, list[int]]:
@@ -410,6 +498,9 @@ class TeacherService:
                 "name": u.full_name,
                 "username": u.username,
                 "email": u.email,
+                # Cuenta de alumno: la UI no debe ofrecer «agregar» (el servicio
+                # la rechaza). Puede llegar aquí como dueña de un correo.
+                "is_student": bool(u.control_number),
                 "is_active": bool(u.is_active),
                 "has_logged_in": u.last_login is not None,
                 "already_in": deptos.get(u.id, []),
@@ -425,9 +516,11 @@ class TeacherService:
         Busca por correo (exacto o parcial), usuario (parcial) y nombre (todas
         las palabras, en cualquier orden, sin acentos ni mayúsculas). El correo
         exacto va primero; luego por nombre. Excluye cuentas de alumno
-        (`control_number`); incluye las inactivas (se reactivan al agregarlas).
-        Cada fila: `user_id, name, username, email, is_active, has_logged_in,
-        already_in` (deptos donde ya es docente) y el perfil si lo tiene.
+        (`control_number`); incluye las inactivas, para que la pantalla diga
+        «pide a un administrador que la reactive» en vez de invitar a crear un
+        duplicado (el departamento no las reactiva). Cada fila: `user_id, name,
+        username, email, is_student, is_active, has_logged_in, already_in`
+        (deptos donde ya es docente) y el perfil si lo tiene.
         """
         from itcj2.apps.titulatec.utils.paging import like_pattern, normalize_q
         from itcj2.core.models.user import User
@@ -532,10 +625,13 @@ class TeacherService:
 
     @staticmethod
     def _locked_user(db: Session, user_id: int):
+        """La cuenta con `FOR NO KEY UPDATE` (convención de
+        `ProcessService.cancel`): serializa a quien cambie su credencial sin
+        bloquear las llaves foráneas que apuntan a ella."""
         from itcj2.core.models.user import User
 
         return (db.query(User).filter(User.id == user_id)
-                .populate_existing().with_for_update().first())
+                .populate_existing().with_for_update(key_share=True).first())
 
     @staticmethod
     def _reset_credentials(db: Session, user) -> None:
@@ -599,14 +695,20 @@ class TeacherService:
     def add_existing(db: Session, actor_id: int, department_id: int, user_id: int, *,
                      academic_degree, professional_license,
                      institutional_email=None) -> dict:
-        """Hace docente del departamento a una cuenta que YA existe (R-B).
+        """Hace docente del departamento a una cuenta que YA existe (R-B y su
+        enmienda de seguridad, spec §16b).
 
-        - Inactiva o sin primer acceso (`last_login IS NULL`): se reactiva y se
-          restablece `DEFAULT_PASSWORD` con cambio obligatorio (patrón de
-          `OfficerService.activate_users`); hay que mandarle el correo de acceso.
-        - Ya entró alguna vez y está activa: su contraseña no se toca.
+        - Inactiva: NO se reactiva (`INACTIVE_ACCOUNT_MSG`, «pide a un
+          administrador que la reactive»), tenga o no privilegios.
+        - Activa CON privilegios (`has_privileges`): se agrega sin tocar su
+          credencial (`access_email_needed = False`).
+        - Activa SIN privilegios que nunca entró (`last_login IS NULL`): se
+          restablece `DEFAULT_PASSWORD` con cambio obligatorio y sesiones
+          revocadas; hay que mandarle el correo de acceso.
+        - Ya entró alguna vez: su contraseña no se toca.
         - Sin correo: se le escribe `institutional_email` (obligatorio en ese
-          caso, con dominio permitido y sin dueño). Con otro correo: no se pisa.
+          caso, con dominio permitido y sin dueño, bajo el candado del correo).
+          Con otro correo: no se pisa.
         - Rol `staff` en `itcj` si le falta; puesto `docente_{depto}`; perfil
           creado o actualizado (es uno solo para todos sus departamentos).
 
@@ -624,6 +726,8 @@ class TeacherService:
             raise ValueError(USER_NOT_FOUND_MSG)
         if user.control_number:
             raise ValueError(STUDENT_ACCOUNT_MSG)
+        if not user.is_active:
+            raise ValueError(INACTIVE_ACCOUNT_MSG)
         if not (user.username or "").strip():
             raise ValueError(NO_USERNAME_MSG)
         nuevo_correo = None
@@ -631,6 +735,7 @@ class TeacherService:
             if not str(institutional_email or "").strip():
                 raise ValueError(EMAIL_REQUIRED_MSG)
             nuevo_correo = TeacherService._clean_email(institutional_email)
+            _lock_email(db, nuevo_correo)
             duenos = TeacherService._email_owners(db, nuevo_correo, exclude_id=user.id)
             if duenos:
                 raise EmailTakenError(EMAIL_TAKEN_MSG,
@@ -638,14 +743,12 @@ class TeacherService:
         links = TeacherService._locked_links(db, user.id, pos.id)
         if any(_vigente_today(link) for link in links):
             raise ValueError(ALREADY_TEACHER_MSG)
+        privilegiada = TeacherService.has_privileges(db, user.id)
 
         # --- desde aquí, solo escrituras (nada que valide puede lanzar) ---
         uid = user.id
-        reactivada = not user.is_active
-        restablecer = reactivada or user.last_login is None
+        restablecer = user.last_login is None and not privilegiada
         with _writing(db):
-            if reactivada:
-                user.is_active = True
             if restablecer:
                 TeacherService._reset_credentials(db, user)
             if nuevo_correo:
@@ -661,7 +764,7 @@ class TeacherService:
                 payload={
                     "department_id": department_id,
                     "position_id": pos.id,
-                    "account_reactivated": reactivada,
+                    "privileged_account": privilegiada,
                     "credential_reset": restablecer,
                     "forced_change_on_login": restablecer,
                     "email_written": bool(nuevo_correo),
@@ -673,8 +776,8 @@ class TeacherService:
             db.commit()
         TeacherService._after_commit(uid, credentials_reset=restablecer)
         logger.info("Docentes: actor %s agregó al usuario %s al departamento %s "
-                    "(reactivada=%s, restablecida=%s)",
-                    actor_id, uid, department_id, reactivada, restablecer)
+                    "(con privilegios=%s, restablecida=%s)",
+                    actor_id, uid, department_id, privilegiada, restablecer)
         return {"user_id": uid, "access_email_needed": restablecer}
 
     @staticmethod
@@ -684,7 +787,10 @@ class TeacherService:
         """Crea la cuenta de un docente que NO existe y lo hace docente del depto.
 
         Correo institucional obligatorio con dominio permitido; si ya es de otra
-        cuenta -> `EmailTakenError` (D3). `username` = parte local del correo; si
+        cuenta -> `EmailTakenError` (D3; la búsqueda va bajo el candado del
+        correo). `username` = parte local del correo: si tiene forma de número
+        de control (`CONTROL_NUMBER_RE`, 8 dígitos o letra + 8) -> `ValueError`,
+        porque el login la trataría como alumno y el docente nunca entraría; si
         ya existe (sin distinguir mayúsculas) -> `ValueError` claro, sin
         inventar sufijos. Si hay cuentas de personal con el mismo nombre y
         apellido paterno y no se confirmó «Es otra persona» -> `NameMatchError`
@@ -692,6 +798,7 @@ class TeacherService:
         cambio obligatorio, rol `staff` (global y en `itcj`), puesto y perfil.
         Devuelve `{"user_id", "access_email_needed": True}`.
         """
+        from itcj2.apps.titulatec.services.import_service import CONTROL_NUMBER_RE
         from itcj2.core.models.user import User
         from itcj2.core.utils.security import DEFAULT_PASSWORD, hash_nip
 
@@ -700,15 +807,18 @@ class TeacherService:
         paterno = _clean_name(last_name, LAST_NAME_MSG, required=True)
         materno = _clean_name(middle_name, MIDDLE_NAME_MSG, required=False)
         correo = TeacherService._clean_email(email)
+        usuario = correo.split("@", 1)[0]
+        if CONTROL_NUMBER_RE.fullmatch(usuario):
+            raise ValueError(USERNAME_CONTROL_LIKE_MSG.format(usuario=usuario))
         degree = _clean_degree(academic_degree)
         license_ = _clean_license(professional_license)
         pos = TeacherService.position_for(db, department_id)
         app_id, role_id = TeacherService._staff_ids(db)
 
+        _lock_email(db, correo)
         duenos = TeacherService._email_owners(db, correo)
         if duenos:
             raise EmailTakenError(EMAIL_TAKEN_MSG, TeacherService._candidate_dicts(db, duenos))
-        usuario = correo.split("@", 1)[0]
         if (db.query(User.id).filter(func.lower(User.username) == usuario).first()
                 is not None):
             raise ValueError(USERNAME_TAKEN_MSG.format(usuario=usuario))
@@ -730,7 +840,7 @@ class TeacherService:
             db.flush()          # el id; el mismo usuario dado de alta a la vez truena aquí
         except IntegrityError:
             db.rollback()
-            raise ValueError(USERNAME_TAKEN_MSG.format(usuario=usuario))
+            raise ValueError(USERNAME_TAKEN_MSG.format(usuario=usuario)) from None
         uid = user.id
         with _writing(db):
             TeacherService._ensure_staff_role(db, uid, app_id, role_id)
@@ -759,22 +869,29 @@ class TeacherService:
         return {"user_id": uid, "access_email_needed": True}
 
     @staticmethod
-    def update_profile(db: Session, actor_id: int, user_id: int, *, academic_degree,
-                       professional_license) -> None:
-        """Corrige grado y cédula del perfil ÚNICO (se ve en todos sus deptos).
-        Sin cambios, no escribe nada."""
+    def update_profile(db: Session, actor_id: int, department_id: int, user_id: int, *,
+                       academic_degree, professional_license) -> None:
+        """Corrige grado y cédula del perfil ÚNICO (se ve en todos sus deptos),
+        operando desde `department_id`: la persona tiene que ser docente HOY de
+        ese departamento (`NOT_TEACHER_MSG`). Sin cambios no escribe nada, pero
+        igual cierra la transacción (suelta el `FOR UPDATE` del perfil)."""
         from itcj2.apps.titulatec.models import TeacherProfile
         from itcj2.core.models.user import User
 
         TeacherService._assert_operable(db)
         degree = _clean_degree(academic_degree)
         license_ = _clean_license(professional_license)
+        if not TeacherService.is_teacher_of(db, user_id, department_id):
+            raise ValueError(NOT_TEACHER_MSG)
         if db.get(TeacherProfile, user_id) is None:
             raise ValueError(NO_PROFILE_MSG)
         with _writing(db):
             _, before, after = TeacherService._upsert_profile(
                 db, user_id, actor_id, degree, license_)
             if not after:
+                # Nada que guardar: `commit` (no `rollback`) para soltar el
+                # candado sin descartar lo que el llamador ya tuviera hecho.
+                db.commit()
                 return
             user = db.get(User, user_id)
             AuditService.record(
@@ -840,24 +957,29 @@ class TeacherService:
                     actor_id, user_id, department_id)
 
     @staticmethod
-    def reset_access(db: Session, actor_id: int, user_id: int) -> None:
-        """«Reenviar acceso»: SOLO a una cuenta activa que nunca ha iniciado
-        sesión y que es docente de algún departamento. Restablece
-        `DEFAULT_PASSWORD` con cambio obligatorio (no reactiva: una cuenta
-        desactivada la reactiva un administrador). El correo lo manda quien
-        llama con `send_access_email`, después de este commit."""
+    def reset_access(db: Session, actor_id: int, department_id: int, user_id: int) -> None:
+        """«Reenviar acceso», con las reglas de la enmienda de seguridad de R-B:
+        SOLO a una cuenta activa (no reactiva: `RESET_INACTIVE_MSG`), sin
+        privilegios (`PRIVILEGED_RESET_MSG`), que nunca ha iniciado sesión
+        (`RESET_NOT_ALLOWED_MSG`) y que es docente HOY de `department_id`, el
+        departamento desde el que se opera (`NOT_TEACHER_MSG`). Restablece
+        `DEFAULT_PASSWORD` con cambio obligatorio y sesiones revocadas. El
+        correo lo manda quien llama con `send_access_email`, después de este
+        commit."""
         TeacherService._assert_operable(db)
         user = TeacherService._locked_user(db, user_id)
         if user is None:
             raise ValueError(USER_NOT_FOUND_MSG)
         if user.control_number:
             raise ValueError(STUDENT_ACCOUNT_MSG)
+        if not TeacherService.is_teacher_of(db, user.id, department_id):
+            raise ValueError(NOT_TEACHER_MSG)
         if not user.is_active:
             raise ValueError(RESET_INACTIVE_MSG)
+        if TeacherService.has_privileges(db, user.id):
+            raise ValueError(PRIVILEGED_RESET_MSG)
         if user.last_login is not None:
             raise ValueError(RESET_NOT_ALLOWED_MSG)
-        if not TeacherService._teacher_departments(db, [user.id])[user.id]:
-            raise ValueError(NOT_TEACHER_ANY_MSG)
         uid = user.id
         with _writing(db):
             TeacherService._reset_credentials(db, user)
@@ -880,12 +1002,14 @@ class TeacherService:
         la cuenta. Abre su PROPIA sesión: se llama DESPUÉS del commit del alta o
         del restablecimiento. Best-effort: nunca lanza ni deshace nada.
 
-        Solo sale si la cuenta está activa y su contraseña SIGUE siendo la
-        temporal con cambio obligatorio (si la persona ya la cambió, el correo
-        mentiría). `(True, None)` si salió; si no, `(False, motivo)`: los de
-        `email_helper.deliver_detailed` o `inerte`, `sin_cuenta`,
-        `cuenta_inactiva`, `sin_usuario`, `sin_credencial_temporal`, `error`.
-        La contraseña solo viaja en el cuerpo del correo: nunca al log.
+        Solo sale si la cuenta está activa, no es de alumno ni tiene privilegios
+        (las mismas que el departamento no puede restablecer) y su contraseña
+        SIGUE siendo la temporal con cambio obligatorio (si la persona ya la
+        cambió, el correo mentiría). `(True, None)` si salió; si no,
+        `(False, motivo)`: los de `email_helper.deliver_detailed` o `inerte`,
+        `sin_cuenta`, `cuenta_de_alumno`, `cuenta_inactiva`,
+        `cuenta_con_privilegios`, `sin_usuario`, `sin_credencial_temporal`,
+        `error`. La contraseña solo viaja en el cuerpo del correo: nunca al log.
         """
         from itcj2.apps.titulatec.services import email_helper
 
@@ -901,8 +1025,12 @@ class TeacherService:
                 user = db.get(User, user_id)
                 if user is None:
                     return False, "sin_cuenta"
+                if user.control_number:
+                    return False, "cuenta_de_alumno"
                 if not user.is_active:
                     return False, "cuenta_inactiva"
+                if TeacherService.has_privileges(db, user.id):
+                    return False, "cuenta_con_privilegios"
                 if not (user.username or "").strip():
                     return False, "sin_usuario"
                 if not (user.must_change_password and user.password_hash

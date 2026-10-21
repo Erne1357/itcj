@@ -30,11 +30,11 @@ import pytest
 from itcj2.apps.titulatec.models import TeacherProfile
 from itcj2.apps.titulatec.services import email_helper
 from itcj2.apps.titulatec.services.teacher_service import (
-    ALREADY_TEACHER_MSG, DEGREE_MSG, EMAIL_REQUIRED_MSG, EMAIL_TAKEN_MSG, FIRST_NAME_MSG,
-    HAS_ASSIGNMENTS_MSG, INERT_MSG, LAST_NAME_MSG, LICENSE_MSG, NAME_MATCH_MSG,
-    NO_POSITION_MSG, NOT_TEACHER_MSG, POSITION_PREFIX, RESET_INACTIVE_MSG,
-    RESET_NOT_ALLOWED_MSG, STUDENT_ACCOUNT_MSG, EmailTakenError, NameMatchError,
-    TeacherService,
+    ALREADY_TEACHER_MSG, CONFLICT_MSG, DEGREE_MSG, EMAIL_REQUIRED_MSG, EMAIL_TAKEN_MSG,
+    FIRST_NAME_MSG, HAS_ASSIGNMENTS_MSG, INACTIVE_ACCOUNT_MSG, INERT_MSG, LAST_NAME_MSG,
+    LICENSE_MSG, NAME_MATCH_MSG, NO_POSITION_MSG, NOT_TEACHER_MSG, POSITION_PREFIX,
+    PRIVILEGED_RESET_MSG, RESET_INACTIVE_MSG, RESET_NOT_ALLOWED_MSG, STUDENT_ACCOUNT_MSG,
+    EmailTakenError, NameMatchError, TeacherService,
 )
 from itcj2.core.models.position import Position, UserPosition
 from itcj2.core.models.user import User
@@ -123,6 +123,41 @@ def _staff_en_itcj(db, user_id, staff_itcj) -> bool:
         user_id=user_id, app_id=app.id, role_id=role.id).first() is not None
 
 
+def _rol_en_app(db, user, app_key, role_name):
+    """`UserAppRole` directo (crea el rol dentro de la transacción si falta)."""
+    from itcj2.core.models.app import App
+    from itcj2.core.models.role import Role
+
+    app = db.query(App).filter_by(key=app_key).one()
+    role = db.query(Role).filter_by(name=role_name).first()
+    if role is None:
+        role = Role(name=role_name)
+        db.add(role)
+        db.flush()
+    db.add(UserAppRole(user_id=user.id, app_id=app.id, role_id=role.id))
+    db.flush()
+
+
+def _candado_de_correo_tomado(db, correo) -> bool:
+    """¿Esta transacción tiene el candado del correo? Lo pregunta OTRA conexión
+    con `pg_try_advisory_xact_lock` (no espera) y suelta lo que haya tomado."""
+    from sqlalchemy import text
+
+    with db.get_bind().engine.connect() as otra:
+        libre = otra.execute(text(
+            "SELECT pg_try_advisory_xact_lock(hashtext('tt:teacher-email:' || lower(:e)))"),
+            {"e": correo}).scalar()
+        otra.rollback()
+    return not libre
+
+
+def _hash_y_epoca(db, user):
+    """Credencial y estado TAL COMO están en la BD (la época la sube un UPDATE crudo)."""
+    db.flush()
+    db.refresh(user)
+    return user.password_hash, user.must_change_password, user.session_epoch, user.is_active
+
+
 def _puestos_vigentes(db, user_id) -> set[str]:
     from itcj2.core.services.authz_service import _active_position_filter
     return {code for (code,) in db.query(Position.code)
@@ -180,6 +215,53 @@ def test_crear_con_correo_existente_se_bloquea_sin_distinguir_mayusculas(
     assert isinstance(err.value, ValueError)
     assert [c["user_id"] for c in err.value.candidates] == [previo.id]
     assert db_session.query(User).filter(User.username == correo.split("@")[0]).count() == 0
+
+
+def test_crear_busca_dueños_del_correo_bajo_su_candado(db_session, depto, actor):
+    """`core_users.email` no es UNIQUE: dos altas con el mismo correo se
+    serializan con `pg_advisory_xact_lock` antes de buscar dueños."""
+    dept = depto()
+    correo = _correo()
+    assert not _candado_de_correo_tomado(db_session, correo)
+    _crear(db_session, actor, dept, email=correo.upper())
+    assert _candado_de_correo_tomado(db_session, correo)
+
+
+def test_el_correo_que_choca_con_un_alumno_lo_marca_como_alumno(db_session, depto, actor,
+                                                               make_student):
+    dept = depto()
+    correo = _correo()
+    alumno = make_student()
+    alumno.email = correo
+    db_session.flush()
+    with pytest.raises(EmailTakenError) as err:
+        _crear(db_session, actor, dept, email=correo)
+    (cand,) = err.value.candidates
+    assert cand["user_id"] == alumno.id and cand["is_student"] is True
+
+
+@pytest.mark.parametrize("local", ["20111234", "l20111234", "C99112233"])
+def test_crear_rechaza_un_usuario_con_forma_de_numero_de_control(db_session, depto, actor, local):
+    """El login manda 8 dígitos (o letra + 8) al camino de alumnos: con ese
+    usuario el docente nunca podría entrar."""
+    dept = depto()
+    with pytest.raises(ValueError) as err:
+        _crear(db_session, actor, dept, email=f"{local}@{DOMINIO}")
+    assert local.lower() in str(err.value) and "número de control" in str(err.value)
+    assert db_session.query(User).filter(User.email == f"{local.lower()}@{DOMINIO}").count() == 0
+
+
+@pytest.mark.parametrize("forma", [
+    lambda n: f"9{n:08d}",          # 9 dígitos
+    lambda n: f"doc{n:08d}",        # letras + 8 dígitos
+    lambda n: f"{n:08d}x",          # 8 dígitos + letra al final
+])
+def test_usuarios_parecidos_a_un_control_que_no_lo_son_se_aceptan(db_session, depto, actor,
+                                                                  forma):
+    dept = depto()
+    local = forma(_n())                # único por corrida: nunca choca con otra prueba
+    res = _crear(db_session, actor, dept, email=f"{local}@{DOMINIO}")
+    assert db_session.get(User, res["user_id"]).username == local
 
 
 def test_crear_con_usuario_ocupado_se_rechaza_con_mensaje_claro(db_session, depto, actor, make_user):
@@ -314,38 +396,226 @@ def test_la_misma_persona_en_dos_departamentos_es_un_usuario_con_dos_puestos(
     assert cand[0]["user_id"] == uid and cand[0]["already_in"] == sorted([a.id, b.id])
 
 
-def test_reutilizar_una_cuenta_inactiva_la_reactiva_y_restablece(
-        db_session, depto, actor, make_user, staff_itcj):
+@pytest.mark.parametrize("ya_entro", [False, True])
+def test_una_cuenta_inactiva_sin_privilegios_no_se_reactiva(
+        db_session, depto, actor, make_user, staff_itcj, ya_entro):
+    """Enmienda de seguridad de R-B: el departamento nunca reactiva."""
     dept = depto()
     u = make_user(first_name=f"INACTIVA{_n()}", last_name="FICTICIA", is_active=False)
     u.password_hash = hash_nip("clave-propia-123")
-    u.last_login = datetime(2025, 1, 15, 9, 0)
-    db_session.flush()
-    epoca = u.session_epoch
+    u.last_login = datetime(2025, 1, 15, 9, 0) if ya_entro else None
+    antes = _hash_y_epoca(db_session, u)
+
+    with pytest.raises(ValueError) as err:
+        TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                    academic_degree="Ingeniero", professional_license="5550001")
+    assert str(err.value) == INACTIVE_ACCOUNT_MSG
+    assert "administrador" in str(err.value)
+    assert _hash_y_epoca(db_session, u) == antes          # hash, cambio, época, inactiva
+    assert not TeacherService.is_teacher_of(db_session, u.id, dept.id)
+    assert not _staff_en_itcj(db_session, u.id, staff_itcj)
+    assert not audit_query(db_session).filter_by(action="teacher.added").count()
+
+
+# --- Cuentas con privilegios: el departamento nunca toca su credencial -------
+@pytest.fixture()
+def cuenta_admin_itcj(db_session, make_user, staff_itcj):
+    """Activa, nunca entró, con `admin` en `itcj` (p. ej. alguien de Cómputo)."""
+    u = make_user(first_name=f"ADMINISTRA{_n()}", last_name="FICTICIA")
+    u.password_hash = hash_nip("clave-del-admin-1")
+    _rol_en_app(db_session, u, "itcj", "admin")
+    return u
+
+
+def test_cuenta_con_admin_en_itcj_se_agrega_sin_tocar_la_credencial(
+        db_session, depto, actor, cuenta_admin_itcj, staff_itcj):
+    dept = depto()
+    u = cuenta_admin_itcj
+    antes = _hash_y_epoca(db_session, u)
+    assert TeacherService.has_privileges(db_session, u.id)
 
     res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
-                                      academic_degree="Ingeniero", professional_license="5550001")
-    assert res == {"user_id": u.id, "access_email_needed": True}
-    db_session.refresh(u)
-    assert u.is_active is True and u.must_change_password is True
-    assert verify_nip(DEFAULT_PASSWORD, u.password_hash)
-    assert u.session_epoch == epoca + 1           # revoca sesiones vivas
-    assert _staff_en_itcj(db_session, u.id, staff_itcj)
+                                      academic_degree="Ingeniero", professional_license="5550021")
+    assert res == {"user_id": u.id, "access_email_needed": False}
+    assert _hash_y_epoca(db_session, u) == antes
+    assert not verify_nip(DEFAULT_PASSWORD, u.password_hash)
     assert TeacherService.is_teacher_of(db_session, u.id, dept.id)
+    assert _staff_en_itcj(db_session, u.id, staff_itcj)
     fila = audit_query(db_session).filter_by(action="teacher.added").one()
-    assert fila.payload["account_reactivated"] is True
-    assert fila.payload["credential_reset"] is True
+    assert fila.payload["privileged_account"] is True
+    assert fila.payload["credential_reset"] is False
 
 
-def test_reutilizar_una_cuenta_sin_primer_acceso_restablece(db_session, depto, actor, make_user):
+def test_la_misma_cuenta_privilegiada_inactiva_se_rechaza(
+        db_session, depto, actor, cuenta_admin_itcj):
+    dept = depto()
+    u = cuenta_admin_itcj
+    u.is_active = False
+    antes = _hash_y_epoca(db_session, u)
+    with pytest.raises(ValueError) as err:
+        TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                    academic_degree="Ingeniero", professional_license="5550022")
+    assert str(err.value) == INACTIVE_ACCOUNT_MSG
+    assert _hash_y_epoca(db_session, u) == antes
+    assert not TeacherService.is_teacher_of(db_session, u.id, dept.id)
+
+
+def test_cuenta_con_puesto_vigente_no_docente_no_toca_la_credencial(
+        db_session, depto, actor, make_user, make_position, assign_position):
+    dept = depto()
+    u = make_user(first_name=f"JEFATURA{_n()}", last_name="FICTICIA")
+    u.password_hash = hash_nip("clave-de-jefatura-1")
+    assign_position(u, make_position(title="Jefatura ajena de prueba"),
+                    start_date=db_now().date() - timedelta(days=1))
+    antes = _hash_y_epoca(db_session, u)
+
+    res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                      academic_degree="Ingeniero", professional_license="5550023")
+    assert res["access_email_needed"] is False
+    assert _hash_y_epoca(db_session, u) == antes
+    assert TeacherService.is_teacher_of(db_session, u.id, dept.id)
+
+
+def test_cuenta_con_rol_global_distinto_de_staff_no_toca_la_credencial(
+        db_session, depto, actor, make_user):
+    dept = depto()
+    u = make_user(first_name=f"GLOBAL{_n()}", last_name="FICTICIA", global_role="admin")
+    antes = _hash_y_epoca(db_session, u)
+    res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                      academic_degree="Ingeniero", professional_license="5550024")
+    assert res["access_email_needed"] is False
+    assert _hash_y_epoca(db_session, u) == antes
+
+
+def test_que_cuenta_como_privilegio(db_session, depto, actor, make_user, make_position,
+                                    assign_position, staff_itcj, titulatec_app):
+    """La definición de la enmienda: rol global no-staff, otro rol de app, un
+    puesto ACTIVO que no sea `docente_*` (sin ventana de fechas: falla cerrado)
+    o un permiso directo (pruebas propias abajo)."""
+    hoy = db_now().date()
+    limpia = make_user(global_role="staff")
+    _rol_en_app(db_session, limpia, "itcj", "staff")
+    otro_depto = depto(name="Depto privilegios")
+    TeacherService.add_existing(db_session, actor.id, otro_depto.id, limpia.id,
+                                academic_degree="Maestro", professional_license="5550025")
+    cerrado = make_user()
+    assign_position(cerrado, make_position(), start_date=hoy - timedelta(days=30),
+                    end_date=hoy - timedelta(days=2), is_active=False)
+    for u in (limpia, cerrado, make_user()):
+        assert TeacherService.has_privileges(db_session, u.id) is False, u.id
+
+    en_titulatec = make_user()
+    _rol_en_app(db_session, en_titulatec, "titulatec", f"tt_test_rol_{_n()}")
+    con_puesto = make_user()
+    assign_position(con_puesto, make_position(), start_date=hoy - timedelta(days=1))
+    # `is_active` con la fecha de fin ya pasada (nadie lo cerró): también cuenta.
+    vencido_sin_cerrar = make_user()
+    assign_position(vencido_sin_cerrar, make_position(), start_date=hoy - timedelta(days=30),
+                    end_date=hoy - timedelta(days=2))
+    for u in (en_titulatec, con_puesto, vencido_sin_cerrar, make_user(global_role="admin")):
+        assert TeacherService.has_privileges(db_session, u.id) is True, u.id
+    assert TeacherService.has_privileges(db_session, 9_999_999_999) is True   # falla cerrado
+
+
+def test_un_puesto_no_docente_con_inicio_futuro_ya_cuenta_como_privilegio(
+        db_session, depto, actor, make_user, make_position, assign_position):
+    """Falla cerrado: la jefatura asignada que empieza la semana próxima ya hace
+    privilegiada la cuenta, así que el departamento no le deja hoy la contraseña
+    conocida de la plataforma."""
+    dept = depto()
+    u = make_user(first_name=f"FUTURA{_n()}", last_name="JEFATURA")
+    u.password_hash = hash_nip("clave-de-la-futura-1")
+    assign_position(u, make_position(title="Jefatura que empieza después"),
+                    start_date=db_now().date() + timedelta(days=7))
+    antes = _hash_y_epoca(db_session, u)
+    assert TeacherService.has_privileges(db_session, u.id) is True
+
+    res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                      academic_degree="Ingeniera", professional_license="5550030")
+    assert res["access_email_needed"] is False
+    assert _hash_y_epoca(db_session, u) == antes
+    with pytest.raises(ValueError) as err:
+        TeacherService.reset_access(db_session, actor.id, dept.id, u.id)
+    assert str(err.value) == PRIVILEGED_RESET_MSG
+
+
+@pytest.mark.parametrize("allow", [True, False])
+def test_un_permiso_directo_de_usuario_cuenta_como_privilegio(
+        db_session, depto, actor, make_user, make_perms, titulatec_app, allow):
+    """`core_user_app_perms` en cualquier app; también una fila `allow = false`
+    (falla cerrado: quien tiene permisos a mano lo administra alguien más)."""
+    from itcj2.core.models.user_app_perm import UserAppPerm
+
+    dept = depto()
+    u = make_user(first_name=f"PERMISO{_n()}", last_name="FICTICIA")
+    u.password_hash = hash_nip("clave-con-permiso-1")
+    perm = make_perms(["titulatec.process.page.list"])["titulatec.process.page.list"]
+    db_session.add(UserAppPerm(user_id=u.id, app_id=titulatec_app.id, perm_id=perm.id,
+                               allow=allow))
+    antes = _hash_y_epoca(db_session, u)
+    assert TeacherService.has_privileges(db_session, u.id) is True
+
+    res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                      academic_degree="Ingeniero", professional_license="5550028")
+    assert res["access_email_needed"] is False
+    assert _hash_y_epoca(db_session, u) == antes
+    assert TeacherService.is_teacher_of(db_session, u.id, dept.id)
+
+
+def test_un_permiso_directo_en_el_puesto_docente_cuenta_como_privilegio(
+        db_session, depto, actor, make_user, make_perms, titulatec_app, assign_position):
+    """`core_position_app_perms` en un puesto que la persona ocupa, aunque sea
+    su propio `docente_*` (el modelo lo permite): ya no se le toca la credencial
+    ni desde ese depto ni desde otro."""
+    from itcj2.core.models.position import PositionAppPerm
+
+    dept, otro = depto(name="Depto con permiso de puesto"), depto(name="Depto sin permiso")
+    uid = _crear(db_session, actor, dept)["user_id"]
+    assert TeacherService.has_privileges(db_session, uid) is False
+    pos = TeacherService.position_for(db_session, dept.id)
+    perm = make_perms(["titulatec.process.page.list"])["titulatec.process.page.list"]
+    db_session.add(PositionAppPerm(position_id=pos.id, app_id=titulatec_app.id,
+                                   perm_id=perm.id, allow=True))
+    db_session.flush()
+    assert TeacherService.has_privileges(db_session, uid) is True
+
+    u = db_session.get(User, uid)
+    antes = _hash_y_epoca(db_session, u)
+    with pytest.raises(ValueError) as err:
+        TeacherService.reset_access(db_session, actor.id, dept.id, uid)
+    assert str(err.value) == PRIVILEGED_RESET_MSG
+    res = TeacherService.add_existing(db_session, actor.id, otro.id, uid,
+                                      academic_degree="Maestro", professional_license="5550029")
+    assert res["access_email_needed"] is False
+    assert _hash_y_epoca(db_session, u) == antes
+
+    # Solo cuentan los puestos que ocupa con `is_active`; con fecha futura sí
+    # cuenta (falla cerrado), cerrado no.
+    hoy = db_now().date()
+    futuro, cerrado = make_user(), make_user()
+    assign_position(futuro, pos, start_date=hoy + timedelta(days=5))
+    assign_position(cerrado, pos, start_date=hoy - timedelta(days=30), is_active=False)
+    assert TeacherService.has_privileges(db_session, futuro.id) is True
+    assert TeacherService.has_privileges(db_session, cerrado.id) is False
+
+
+def test_reutilizar_una_cuenta_sin_privilegios_ni_primer_acceso_restablece(
+        db_session, depto, actor, make_user, staff_itcj):
+    """El caso feliz de R-B sigue igual: activa, sin privilegios, nunca entró."""
     dept = depto()
     u = make_user(first_name=f"SINACCESO{_n()}", last_name="FICTICIA")
     u.password_hash = hash_nip("clave-de-alta-1")
-    db_session.flush()
+    _, _, epoca, _ = _hash_y_epoca(db_session, u)
     res = TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
                                       academic_degree="Ingeniera", professional_license="5550002")
-    assert res["access_email_needed"] is True
-    assert verify_nip(DEFAULT_PASSWORD, u.password_hash) and u.must_change_password is True
+    assert res == {"user_id": u.id, "access_email_needed": True}
+    hash_, cambio, epoca_nueva, activa = _hash_y_epoca(db_session, u)
+    assert verify_nip(DEFAULT_PASSWORD, hash_) and cambio is True and activa is True
+    assert epoca_nueva == epoca + 1                     # revoca sesiones vivas
+    assert _staff_en_itcj(db_session, u.id, staff_itcj)
+    fila = audit_query(db_session).filter_by(action="teacher.added").one()
+    assert fila.payload["privileged_account"] is False
+    assert fila.payload["credential_reset"] is True
 
 
 def test_reutilizar_una_cuenta_con_acceso_previo_no_toca_la_contrasena(
@@ -404,6 +674,9 @@ def test_cuenta_sin_correo_recibe_el_institucional(db_session, depto, actor, mak
     assert db_session.get(User, u.id).email == correo
     assert audit_query(db_session).filter_by(action="teacher.added").one() \
         .payload["email_written"] is True
+    # Escribir el correo fue bajo el candado del correo (no hay índice único).
+    assert _candado_de_correo_tomado(db_session, correo)
+    assert not _candado_de_correo_tomado(db_session, _correo())
 
 
 def test_cuenta_sin_correo_no_toma_uno_ajeno(db_session, depto, actor, make_user):
@@ -457,9 +730,8 @@ def test_un_choque_de_unicidad_concurrente_sale_como_conflicto(db_session, depto
                                                               monkeypatch):
     """Dos altas a la vez: la segunda no vio la fila de la primera al validar y
     choca con `uq_active_user_position_new`. Sale un `ValueError` legible, no
-    un `IntegrityError` crudo, y no queda nada a medias."""
-    from itcj2.apps.titulatec.services.teacher_service import CONFLICT_MSG
-
+    un `IntegrityError` crudo, y no queda nada a medias. Tampoco lo encadena:
+    su sentencia y parámetros (hash, correo) no viajan en el error."""
     dept = depto()
     uid = _crear(db_session, actor, dept)["user_id"]
     db_session.commit()        # checkpoint: el rollback del servicio no se lleva el alta
@@ -468,7 +740,30 @@ def test_un_choque_de_unicidad_concurrente_sale_como_conflicto(db_session, depto
         TeacherService.add_existing(db_session, actor.id, dept.id, uid,
                                     academic_degree="Maestro", professional_license="5550020")
     assert str(err.value) == CONFLICT_MSG
+    assert err.value.__cause__ is None and err.value.__suppress_context__ is True
     assert not audit_query(db_session).filter_by(action="teacher.added").count()
+
+
+def test_la_cuenta_se_bloquea_con_for_no_key_update(db_session, depto, actor, make_user):
+    """Convención de `ProcessService.cancel`: no bloquear las llaves foráneas."""
+    from sqlalchemy import event
+
+    dept = depto()
+    u = make_user()
+    sentencias = []
+
+    def _anota(conn, cursor, statement, *args):
+        sentencias.append(statement)
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _anota)
+    try:
+        TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                    academic_degree="Maestro", professional_license="5550026")
+    finally:
+        event.remove(conn, "before_cursor_execute", _anota)
+    de_la_cuenta = [s for s in sentencias if "FROM core_users" in s and "FOR " in s]
+    assert de_la_cuenta and all("FOR NO KEY UPDATE" in s for s in de_la_cuenta)
 
 
 def test_cuenta_inexistente(db_session, depto, actor):
@@ -630,6 +925,7 @@ def test_busqueda_por_correo_usuario_y_nombre(db_session, depto, actor, make_use
     assert exacto[0]["user_id"] == u.id
     assert exacto[0]["already_in"] == [dept.id]
     assert exacto[0]["has_logged_in"] is False and exacto[0]["is_active"] is True
+    assert exacto[0]["is_student"] is False
     assert exacto[0]["academic_degree"] == "Maestra"
     assert [c["user_id"] for c in TeacherService.search_candidates(db_session, u.username)] == [u.id]
     # Por palabras, en cualquier orden y sin acentos.
@@ -664,10 +960,11 @@ def test_busqueda_escapa_comodines(db_session):
 # ---------------------------------------------------------------------------
 # Editar perfil
 # ---------------------------------------------------------------------------
-def test_editar_grado_y_cedula_con_bitacora(db_session, depto, actor):
+def test_editar_grado_y_cedula_con_bitacora(db_session, depto, actor, monkeypatch):
     dept = depto()
     uid = _crear(db_session, actor, dept)["user_id"]
-    TeacherService.update_profile(db_session, actor.id, uid, academic_degree="Doctor en Física",
+    TeacherService.update_profile(db_session, actor.id, dept.id, uid,
+                                  academic_degree="Doctor en Física",
                                   professional_license="99887766")
     prof = db_session.get(TeacherProfile, uid)
     assert (prof.academic_degree, prof.professional_license) == ("Doctor en Física", "99887766")
@@ -678,18 +975,43 @@ def test_editar_grado_y_cedula_con_bitacora(db_session, depto, actor):
     assert fila.after == {"academic_degree": "Doctor en Física",
                           "professional_license": "99887766"}
 
-    # Sin cambios, sin fila nueva.
-    TeacherService.update_profile(db_session, actor.id, uid, academic_degree="Doctor en Física",
+    # Sin cambios: sin fila nueva, pero la transacción se cierra (suelta el
+    # FOR UPDATE del perfil) con un commit, no queda abierta.
+    real, commits = db_session.commit, []
+    monkeypatch.setattr(db_session, "commit", lambda: (commits.append(1), real())[1])
+    TeacherService.update_profile(db_session, actor.id, dept.id, uid,
+                                  academic_degree="Doctor en Física",
                                   professional_license="99887766")
+    assert commits == [1]
     assert audit_query(db_session).filter_by(action="teacher.profile_updated").count() == 1
     with pytest.raises(ValueError):
-        TeacherService.update_profile(db_session, actor.id, uid, academic_degree="D",
+        TeacherService.update_profile(db_session, actor.id, dept.id, uid, academic_degree="D",
                                       professional_license="99887766")
 
 
-def test_editar_perfil_de_quien_no_tiene(db_session, actor, make_user):
+def test_editar_perfil_desde_un_depto_donde_no_es_docente(db_session, depto, actor):
+    dept, otro = depto(name="Depto del docente"), depto(name="Depto ajeno al docente")
+    uid = _crear(db_session, actor, dept)["user_id"]
+    with pytest.raises(ValueError) as err:
+        TeacherService.update_profile(db_session, actor.id, otro.id, uid,
+                                      academic_degree="Doctor", professional_license="12345")
+    assert str(err.value) == NOT_TEACHER_MSG
+    assert db_session.get(TeacherProfile, uid).academic_degree == "Maestra en Ciencias"
+
+
+def test_editar_perfil_de_quien_no_tiene(db_session, depto, actor, make_user, make_position,
+                                         assign_position):
+    dept = depto()
+    u = make_user()
+    with pytest.raises(ValueError) as err:
+        TeacherService.update_profile(db_session, actor.id, dept.id, u.id,
+                                      academic_degree="Maestro", professional_license="12345")
+    assert str(err.value) == NOT_TEACHER_MSG
+    # Docente vigente pero sin perfil (puesto dado a mano): tampoco.
+    assign_position(u, make_position(code=f"{POSITION_PREFIX}{dept.code}"),
+                    start_date=db_now().date() - timedelta(days=1))
     with pytest.raises(ValueError):
-        TeacherService.update_profile(db_session, actor.id, make_user().id,
+        TeacherService.update_profile(db_session, actor.id, dept.id, u.id,
                                       academic_degree="Maestro", professional_license="12345")
 
 
@@ -704,32 +1026,63 @@ def test_reenviar_acceso_solo_sin_primer_acceso(db_session, depto, actor):
     u.must_change_password = False
     db_session.flush()
 
-    TeacherService.reset_access(db_session, actor.id, uid)
+    TeacherService.reset_access(db_session, actor.id, dept.id, uid)
     assert verify_nip(DEFAULT_PASSWORD, u.password_hash) and u.must_change_password is True
     assert audit_query(db_session).filter_by(action="teacher.access_reset").one().entity_id == uid
 
     u.last_login = datetime(2026, 10, 1, 8, 0)
     db_session.flush()
     with pytest.raises(ValueError) as err:
-        TeacherService.reset_access(db_session, actor.id, uid)
+        TeacherService.reset_access(db_session, actor.id, dept.id, uid)
     assert str(err.value) == RESET_NOT_ALLOWED_MSG
 
 
 def test_reenviar_acceso_a_cuenta_inactiva_o_ajena_se_rechaza(db_session, depto, actor, make_user,
                                                               make_student):
-    dept = depto()
+    dept, otro = depto(name="Depto reenvio"), depto(name="Depto reenvio ajeno")
     uid = _crear(db_session, actor, dept)["user_id"]
+    # Desde un departamento donde no es docente: no.
+    with pytest.raises(ValueError) as err:
+        TeacherService.reset_access(db_session, actor.id, otro.id, uid)
+    assert str(err.value) == NOT_TEACHER_MSG
     db_session.get(User, uid).is_active = False
     db_session.flush()
     with pytest.raises(ValueError) as err:
-        TeacherService.reset_access(db_session, actor.id, uid)
+        TeacherService.reset_access(db_session, actor.id, dept.id, uid)
     assert str(err.value) == RESET_INACTIVE_MSG
-    # Una cuenta que no es docente en ningún departamento: nada que restablecer aquí.
-    with pytest.raises(ValueError):
-        TeacherService.reset_access(db_session, actor.id, make_user().id)
+    # Una cuenta que no es docente del departamento: nada que restablecer aquí.
     with pytest.raises(ValueError) as err:
-        TeacherService.reset_access(db_session, actor.id, make_student().id)
+        TeacherService.reset_access(db_session, actor.id, dept.id, make_user().id)
+    assert str(err.value) == NOT_TEACHER_MSG
+    with pytest.raises(ValueError) as err:
+        TeacherService.reset_access(db_session, actor.id, dept.id, make_student().id)
     assert str(err.value) == STUDENT_ACCOUNT_MSG
+
+
+def test_reenviar_acceso_a_una_cuenta_con_privilegios_se_rechaza(
+        db_session, depto, actor, cuenta_admin_itcj, patched_session_local, monkeypatch):
+    """Misma regla que al agregar: la credencial de una cuenta con privilegios
+    no la toca el departamento, ni aunque nunca haya entrado. Y el correo no
+    le manda la contraseña temporal aunque su hash ya fuera el de omisión."""
+    dept = depto()
+    u = cuenta_admin_itcj
+    TeacherService.add_existing(db_session, actor.id, dept.id, u.id,
+                                academic_degree="Ingeniero", professional_license="5550027")
+    antes = _hash_y_epoca(db_session, u)
+    with pytest.raises(ValueError) as err:
+        TeacherService.reset_access(db_session, actor.id, dept.id, u.id)
+    assert str(err.value) == PRIVILEGED_RESET_MSG
+    assert _hash_y_epoca(db_session, u) == antes
+    assert not audit_query(db_session).filter_by(action="teacher.access_reset").count()
+
+    llamadas = []
+    monkeypatch.setattr(email_helper, "deliver_detailed",
+                        lambda **kw: llamadas.append(kw) or (True, None))
+    u.password_hash = hash_nip(DEFAULT_PASSWORD)
+    u.must_change_password = True
+    db_session.flush()
+    assert TeacherService.send_access_email(u.id) == (False, "cuenta_con_privilegios")
+    assert llamadas == []
 
 
 # ---------------------------------------------------------------------------
@@ -772,7 +1125,7 @@ def test_correo_falla_y_el_alta_persiste(db_session, depto, actor, patched_sessi
     assert u is not None and u.is_active
     assert TeacherService.is_teacher_of(db_session, uid, dept.id)
     # «Reenviar acceso» sigue disponible.
-    TeacherService.reset_access(db_session, actor.id, uid)
+    TeacherService.reset_access(db_session, actor.id, dept.id, uid)
     assert TeacherService.send_access_email(uid) == (False, "envio")
 
 
@@ -803,11 +1156,11 @@ def test_la_contrasena_no_aparece_en_bitacora_eventos_ni_log(
     uid = _crear(db_session, actor, a)["user_id"]
     TeacherService.add_existing(db_session, actor.id, b.id, uid,
                                 academic_degree="Maestro", professional_license="5550015")
-    inactiva = make_user(is_active=False)
-    TeacherService.add_existing(db_session, actor.id, a.id, inactiva.id,
+    sin_acceso = make_user()           # activa, sin privilegios, nunca entró: se restablece
+    TeacherService.add_existing(db_session, actor.id, a.id, sin_acceso.id,
                                 academic_degree="Maestro", professional_license="5550016")
-    TeacherService.reset_access(db_session, actor.id, uid)
-    TeacherService.update_profile(db_session, actor.id, uid, academic_degree="Doctor",
+    TeacherService.reset_access(db_session, actor.id, a.id, uid)
+    TeacherService.update_profile(db_session, actor.id, a.id, uid, academic_degree="Doctor",
                                   professional_license="5550017")
     TeacherService.send_access_email(uid)
     db_session.flush()
@@ -842,11 +1195,11 @@ def test_con_el_corte_en_3_ninguna_accion_escribe(db_session, depto, actor, make
         lambda: TeacherService.add_existing(db_session, actor.id, dept.id, otro.id,
                                             academic_degree="Maestro",
                                             professional_license="5550018"),
-        lambda: TeacherService.update_profile(db_session, actor.id, uid,
+        lambda: TeacherService.update_profile(db_session, actor.id, dept.id, uid,
                                               academic_degree="Doctor",
                                               professional_license="5550019"),
         lambda: TeacherService.remove_from_department(db_session, actor.id, dept.id, uid),
-        lambda: TeacherService.reset_access(db_session, actor.id, uid),
+        lambda: TeacherService.reset_access(db_session, actor.id, dept.id, uid),
     ]
     for accion in acciones:
         with pytest.raises(ValueError) as err:
