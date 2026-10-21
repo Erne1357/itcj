@@ -13,7 +13,7 @@
 | 1 | `initial_docs` | Documentos iniciales | 👤 Alumno → 🏛️/🎓 revisa |
 | 2 | `review_appointment` | Cita de cotejo | 🏛️ Servicios Escolares |
 | 3 | `format_b` | Formato B | 👤 Alumno → 🎓 Titulaciones |
-| 4 | `synodal_assignment` | Asignación de sinodales | 🔗 Vinculación |
+| 4 | `synodal_assignment` | Asignación de sinodales | 🔗 Departamento académico de la carrera (jefe o coordinador de vinculación; desde 2026-10-21 el catálogo `responsible` es `academic_department`) |
 | 5 | `synodal_review` | Revisión de sinodales | 🧑‍⚖️ Sinodales |
 | 6 | `anexo_iii` | Anexo III | 🎓 + 👤 |
 | 7 | `final_docs` | Entrega final | 👤 → 🎓 |
@@ -81,6 +81,7 @@ superficie que dictamina o ejecuta una fase, no solo en el botón obvio.
 | 🏛️🎓 **admin — dictamen de la fase del proceso** | `approve_phase` / `reject_phase` | [`PhaseService.assert_can_transition`](engine_approve_advance_phase.md#guarda-de-transición-desde-2026-09) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` |
 | 👤 **alumno — ejecución** | subir, borrar, llenar, enviar, confirmar | [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
 | 🎓 **admin — dictamen de Formato B** (desde 2026-09-21; desde 2026-10-21 en la pestaña Titulación) | `FormatBService.approve` / `.reject` / `.correct_registry` (antes `review`) | la MISMA `assert_can_transition` de arriba, con `n` = fase `format_b` del catálogo | Sí — mismas reglas que la fila 1 | `400` + `X-Tt-Error` |
+| 🔗 **departamento académico — asignar sinodales** (desde 2026-10-21, pestaña Sinodales) | `SynodalService.assign` (aprueba la fase 4) / `.replace` (solo con la fase 4 aprobada y la 5 sin aprobar) | la MISMA `assert_can_transition` con `n` = fase `synodal_assignment` (bajo el candado `_lock_process_row`), más alcance de departamento (`can_operate`) y la puerta única `PhaseService.open_door`/`_door_guard` | Sí — mismas reglas que la fila 1; la fase 4 **no tiene rechazo** y por la vía genérica da `SYNODAL_ONLY_MSG` | `400` + `X-Tt-Error` |
 | 🏛️🎓 **admin — dictamen de un documento** (desde 2026-09-21) | `DocumentService.review` (aprobar/rechazar) | chequeo propio dentro del service — **no** reusa `assert_can_transition` | **No**, a propósito (ver abajo) | `400` + `X-Tt-Error` |
 
 Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
@@ -375,6 +376,24 @@ stateDiagram-v2
 > se conserva hasta el reenvío: la fase 3 sigue `rejected` y el alumno puede actuar. La fase 3 sigue
 > la misma pareja: `in_progress` → (envío) `in_review` → `approved` | `rejected` → (reenvío)
 > `in_review`.
+
+## Sinodales de un proceso (`SynodalAssignment.is_active`) — Fase 4 (2026-10-21)
+
+Detalle: [el departamento asigna a los 4 sinodales](phase4_department_assign_synodals.md). No hay columna
+`status`: el estado es `is_active` y el historial son las filas con `is_active = false`. Invariantes (índices
+únicos parciales): a lo más UNA fila vigente por `(process_id, role)` y por `(process_id, user_id)`. La fase 4
+solo se aprueba (no tiene rechazo) y solo por la puerta de `SynodalService.assign`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> sin_sinodales: el proceso llega a la fase 4 (in_progress)
+    sin_sinodales --> vigentes: 🔗 assign (4 filas is_active + fase 4 approved + fase 5 in_progress, UNA transacción)
+    vigentes --> vigentes: 🔗 replace (fila vigente is_active=false con motivo + fila nueva vigente)
+    vigentes --> [*]: la fase 5 se aprueba (ya no se sustituye)
+```
+
+> `replace` exige fase 4 `approved`, fase 5 sin aprobar y proceso `active`; el motivo es obligatorio. Un sinodal
+> sustituido conserva su fila (`replaced_at`, `replaced_by_id`, `replacement_reason`) como historial.
 
 ## Estado de una solicitud de liberación de GTV para la encuesta de egresados (`SurveyReview.status`) — Fase 2
 

@@ -166,13 +166,18 @@ y de nuevo bajo el bloqueo del proceso). El hueco que cerró la versión de 2026
 cerrado por el mismo mecanismo: subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envío a
 `submitted` y volver a bajarlo a 3 no deja ese Formato B dictaminable pese al corte.
 
-**Una sola puerta para la fase 3 (2026-10-21).** `approve_phase` y `reject_phase` llaman a
-`_format_b_guard` cuando `n` es la fase `format_b`: exigen la marca de sesión
-`PhaseService.FORMAT_B_VERDICT_KEY` (`db.info`, `(process_id, "approved"|"rejected")`), que solo
-`FormatBService.approve`/`.reject` ponen justo antes de llamar al motor, **y** el Formato B ya en
-ese estado. Se consume en cada dictamen. Sin ella: `FORMAT_B_ONLY_MSG` («El Formato B se
-dictamina desde la pestaña Titulación.»); los botones genéricos `phase/{n}/approve|reject` del
-expediente ya no pueden mover la fase 3. Invariante: Formato B `approved` <=> fase 3 `approved`,
+**Fases con una sola puerta (fase 3 el 2026-10-21; generalizada a la fase 4 el mismo día).**
+`approve_phase` y `reject_phase` llaman a `_door_guard` cuando `n` es una fase del registro
+`PhaseService._DOOR_PHASES` (`format_b` y `synodal_assignment`): exigen la marca de sesión
+`PhaseService.DOOR_KEY` (`db.info`, `(código de fase, process_id, "approved"|"rejected")`), que el
+servicio dueño de la fase pone con `PhaseService.open_door` justo antes de llamar al motor
+(`FormatBService.approve`/`.reject` para la 3; `SynodalService.assign` para la 4, que solo aprueba) y
+quita con `close_door` en su `finally`, **y** el estado que la respalda (`_door_state_ok`: el Formato B
+en ese estado; los 4 sinodales vigentes ya escritos). Se consume en cada dictamen. Sin ella:
+`FORMAT_B_ONLY_MSG` («El Formato B se dictamina desde la pestaña Titulación.») o `SYNODAL_ONLY_MSG`
+(«Los sinodales se registran desde la pestaña Sinodales.»); los botones genéricos
+`phase/{n}/approve|reject` del expediente ya no pueden mover la fase 3 ni la 4. Una fase sin puerta
+cuesta una consulta (su código); ver [asignación de sinodales](phase4_department_assign_synodals.md). Invariante: Formato B `approved` <=> fase 3 `approved`,
 en una sola transacción. Ambos métodos pasan `event_payload` (ronda y campos observados) al
 evento `phase_approved`/`phase_rejected`: un solo evento por dictamen, sin duplicados. Flujo
 completo: [revisión del Formato B en Titulación](phase3_titulacion_review_formato_b.md).

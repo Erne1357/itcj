@@ -60,14 +60,14 @@ sequenceDiagram
         FE->>API: POST /formato-b/{id}/aprobar
         API->>SVC: approve(db, proc, uid)
         SVC->>DB: bloquea proceso, FormatB approved, process.modality_id
-        SVC->>PS: approve_phase (marca FORMAT_B_VERDICT_KEY)
+        SVC->>PS: open_door + approve_phase (marca PhaseService.DOOR_KEY)
         PS->>DB: fase 3 approved, siguiente in_progress, evento, aviso, correo
     else observar
         T->>FE: Regresar con observaciones
         FE->>API: POST /formato-b/{id}/observar (note__campo, general_note)
         API->>SVC: reject(db, proc, uid, general_note, field_notes)
         SVC->>DB: FormatB rejected + review_observations
-        SVC->>PS: reject_phase (marca FORMAT_B_VERDICT_KEY)
+        SVC->>PS: open_door + reject_phase (marca PhaseService.DOOR_KEY)
         PS->>DB: fase 3 rejected, evento, aviso, correo
     end
     API->>PRE: clear
@@ -116,9 +116,11 @@ Notas de cada paso:
 
 ### Una sola puerta de dictamen
 
-`FormatBService.approve` / `.reject` ponen la marca `PhaseService.FORMAT_B_VERDICT_KEY` en
-`db.info` justo antes de llamar a `approve_phase` / `reject_phase`; el motor (`_format_b_guard`)
-la exige y la consume. Sin ella, cualquier intento de aprobar o rechazar la fase 3 (los botones
+`FormatBService.approve` / `.reject` abren la puerta con `PhaseService.open_door(db, "format_b", ...)`
+(marca `PhaseService.DOOR_KEY` en `db.info`) justo antes de llamar a `approve_phase` / `reject_phase`
+y la cierran con `close_door` en el `finally`; el motor (`_door_guard`) la exige y la consume. Desde
+la fase 4 el mecanismo es un registro de fases con puerta (`format_b` y `synodal_assignment`; ver
+[asignación de sinodales](phase4_department_assign_synodals.md)). Sin ella, cualquier intento de aprobar o rechazar la fase 3 (los botones
 genéricos «Aprobar/Rechazar fase» del expediente, o un POST forzado a `phase/{n}/approve`) responde
 `FORMAT_B_ONLY_MSG`. Invariante: Formato B `approved` ⇔ fase 3 `approved`, en una sola
 transacción. La ruta vieja `POST /admin/processes/{id}/format-b/review` y `FormatBService.review`

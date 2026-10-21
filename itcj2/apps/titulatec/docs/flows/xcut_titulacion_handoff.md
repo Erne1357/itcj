@@ -113,7 +113,7 @@ sequenceDiagram
 
 ## Dictamen de Formato B y de documentos: dos guardas más, con una asimetría a propósito
 
-> **Nota 2026-10-21:** `FormatBService.review` y su ruta se retiraron; en todo este apartado «`FormatBService.review`» se lee hoy como `FormatBService.approve` / `.reject` / `.correct_registry` (pestaña Titulación), que aplican la MISMA guarda y además la puerta única de la fase 3 (`PhaseService.FORMAT_B_VERDICT_KEY`). Ver [revisión del Formato B](phase3_titulacion_review_formato_b.md). El texto de abajo se conserva como historia.
+> **Nota 2026-10-21:** `FormatBService.review` y su ruta se retiraron; en todo este apartado «`FormatBService.review`» se lee hoy como `FormatBService.approve` / `.reject` / `.correct_registry` (pestaña Titulación), que aplican la MISMA guarda y además la puerta única de la fase 3 (`PhaseService.DOOR_KEY`, `open_door`/`_door_guard`). Ver [revisión del Formato B](phase3_titulacion_review_formato_b.md). El texto de abajo se conserva como historia.
 
 Hasta el 2026-09-21 (ronda de fix 2/3 de esta misma tarea), **ninguno de los dos dictámenes
 pasaba por guarda alguna del corte** — dos huecos reales, no hipotéticos, cada uno cerrado en

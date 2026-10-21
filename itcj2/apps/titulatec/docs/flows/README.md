@@ -35,7 +35,7 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 | 🏛️ | Acción de **Servicios Escolares** (`titulatec_school_services`) |
 | 🎓 | Acción de **Titulaciones / DEP** (`titulatec_titulaciones`) o del **Departamento de Titulación** (`titulatec_titulacion`; desde 2026-10-07 Liberados + expediente resumido; desde 2026-10-21 también la pestaña Titulación, solo tras `init-titulatec-fase-2`) |
 | 🛠️ | Acción de **Gestión Tecnológica y Vinculación** (`titulatec_tech_management`, GTV — desde 2026-09-15) |
-| 🔗 | Jefe de **Vinculación** (`titulatec_vinculacion`) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
+| 🔗 | Jefe de **departamento académico** o coordinador de **Vinculación** (`titulatec_vinculacion`; desde 2026-10-21 asigna sinodales y gestiona los docentes de su departamento) · 🧑‍⚖️ **Sinodal** (`titulatec_sinodal`) |
 | 💻 | Acción de **Centro de Cómputo** (`titulatec_computer_center` — desde 2026-09-24) |
 | 📚 | Acción de **Biblioteca** (`titulatec_library`, puesto «Biblioteca · No adeudo» — desde 2026-10-01) |
 | 💰 | Acción de **Caja** (`titulatec_cashier`, puesto «Caja» — desde 2026-10-01) |
@@ -70,7 +70,12 @@ termina invocando el [motor de avance de fase](engine_approve_advance_phase.md))
 
 ### Fase 3 — Formato B
 - [El alumno llena y envía el Formato B](phase3_student_formato_b.md) 👤 (2026-10-21) → [Titulación lo revisa](phase3_titulacion_review_formato_b.md) — 3 pasos con validación en línea (servidor = autoridad), pantalla «Revisa y envía» con casilla de confirmación exigida en servidor, «Tipo de titulación» elegido por el alumno, observaciones por campo con «Corregido ✓» y reenvío al final de la cola.
-- [Titulación revisa el Formato B (pestaña «Titulación», FIFO)](phase3_titulacion_review_formato_b.md) 🎓 ⤵ engine (2026-10-21) — 4 pestañas (Por revisar · Con observaciones · Aprobados · Sin enviar), dictamen con observaciones por campo, presencia «quién lo está revisando» (Redis, fail-open), corrección de nombre/carrera del registro, una sola puerta de dictamen (marca `FORMAT_B_VERDICT_KEY`), inerte con el corte en 3 y despliegue por `init-titulatec-fase-2`.
+- [Titulación revisa el Formato B (pestaña «Titulación», FIFO)](phase3_titulacion_review_formato_b.md) 🎓 ⤵ engine (2026-10-21) — 4 pestañas (Por revisar · Con observaciones · Aprobados · Sin enviar), dictamen con observaciones por campo, presencia «quién lo está revisando» (Redis, fail-open), corrección de nombre/carrera del registro, una sola puerta de dictamen (marca `PhaseService.DOOR_KEY`, `open_door`/`_door_guard`), inerte con el corte en 3 y despliegue por `init-titulatec-fase-2`.
+
+### Fase 4 — Asignación de sinodales
+- [El departamento académico asigna a los 4 sinodales (pestaña «Sinodales»)](phase4_department_assign_synodals.md) 🔗 ⤵ engine (2026-10-21) — 2 pestañas (Por asignar · Asignados, FIFO con semáforo), 4 selects con los docentes del departamento de la carrera, registro en UNA transacción que aprueba la fase 4 y pasa a la 5 (una sola puerta: `PhaseService.open_door`, la fase 4 no tiene rechazo), sustitución con motivo mientras la fase 5 no termine, oficio PDF al vuelo, avisos best-effort a los sinodales, alcance por departamento (jefe/coordinador; `admin` y la jefatura de la DEP operan todos), inerte con el corte en 3 y despliegue por `init-titulatec-fase-2`.
+- [Catálogo de docentes por departamento (pestaña «Docentes»)](xcut_teacher_catalog.md) 🔗 ⤵ alimenta la anterior (2026-10-21) — una cuenta por persona (busca por correo, usuario y nombre; nunca duplica), puesto `docente_{depto}`, perfil único de grado y cédula, contraseña temporal por correo con cambio obligatorio; enmienda de seguridad: el departamento nunca toca credenciales de cuentas con privilegios ni reactiva inactivas; quitar se bloquea con asignaciones vigentes.
+- [Carreras por departamento y ajustes del oficio](xcut_program_departments.md) 🛠️ (2026-10-21) — solo `admin`: mapeo carrera → departamento (editable, con nombre oficial) y encabezado/destinatarios del oficio por departamento; el despliegue del DML de la fase 4 (`init-titulatec-fase-2` con 2 archivos, verificaciones y la trampa R-A).
 
 ### Transversales (building blocks)
 - [Perfil de titulación por nivel de carrera (licenciatura | posgrado)](engine_process_track.md) 🤖
