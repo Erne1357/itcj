@@ -22,8 +22,8 @@ parte de su función) con DOS detectores:
    / `SurveyReview`. Sin este detector, las entradas de la lista blanca que no
    escriben ningún evento del catálogo (`SlotService._open_new_attempt`,
    `PhaseService._auto_close_cotejo_appointment`...) serían letra muerta.
-   Límite conocido: un `.status = <parámetro>` no se ve (así escriben
-   `FormatBService.review` o `RequirementService`, fuera del catálogo).
+   Límite conocido: un `.status = <parámetro>` no se ve (así escribe
+   `RequirementService`, fuera del catálogo).
 
 El registro (`MAPEO` + `LISTA_BLANCA`) es EXACTO en los dos sentidos: una
 función NUEVA que escriba y no esté registrada falla, y una entrada que ya no
@@ -154,6 +154,15 @@ LISTA_BLANCA = {
         "`titulatec fix-control-l` (2026-10-09): rechaza la solicitud DUPLICADA "
         "que entró con la «L» cuando la persona ya tiene la correcta; no es un "
         "dictamen y a propósito no se avisa (la vigente sigue su camino).",
+    # Dictamen del Formato B (spec 2026-10-21 fase 3 §7/§10): marcan el Formato
+    # B y delegan la fase 3 en el motor en la MISMA transacción; el correo es el
+    # de la fase, sin plomería nueva.
+    "FormatBService.approve":
+        "aprueba el Formato B y delega en PhaseService.approve_phase, que encola "
+        "phase_approved en la misma transacción.",
+    "FormatBService.reject":
+        "regresa el Formato B con observaciones y delega en PhaseService."
+        "reject_phase, que encola phase_rejected con el motivo y los campos.",
 }
 
 # Ramas SIN correo dentro de funciones mapeadas: el detector solo ve que la

@@ -158,34 +158,41 @@ class TestCorteDelAdmin:
         assert process.current_phase == 3
 
 
-# ──────────────── guarda del ADMIN en FormatBService.review ───────────────
-# Ronda de fix 2 (2026-09-21): `review` no pasaba por NINGUNA guarda -ni la
-# generica del admin-, solo por permiso y alcance por carrera. El hueco es
-# real por el mecanismo de REVERSION que esta misma feature documenta: subir
-# `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envio a `submitted`, y volver
-# a bajarlo a 3 dejaba ese Formato B aprobable/rechazable para siempre pese
-# al corte -el corte dejaba de ser cierto justo por el camino que
-# documentamos para desactivarlo-.
+# ──────────── guarda del ADMIN en el dictamen del Formato B ──────────────
+# Ronda de fix 2 (2026-09-21): el dictamen del Formato B no pasaba por NINGUNA
+# guarda -ni la generica del admin-, solo por permiso y alcance por carrera.
+# El hueco es real por el mecanismo de REVERSION que esta misma feature
+# documenta: subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envio a
+# `submitted`, y volver a bajarlo a 3 dejaba ese Formato B aprobable/rechazable
+# para siempre pese al corte -el corte dejaba de ser cierto justo por el camino
+# que documentamos para desactivarlo-.
+#
+# Fase 3 (2026-10-21): `FormatBService.review` se retiro; las dos puertas son
+# `approve` y `reject`, que aplican la guarda del motor antes de escribir.
 
-class TestCorteEnFormatBReview:
+class TestCorteEnElDictamenDelFormatoB:
     @staticmethod
     def _fb_submitted(db, process):
         from itcj2.apps.titulatec.models import FormatB
-        fb = FormatB(process_id=process.id, status="submitted")
+        fb = FormatB(process_id=process.id, status="submitted", submission_count=1)
         db.add(fb)
         db.flush()
         return fb
 
+    @pytest.mark.parametrize("dictamen", ["approve", "reject"])
     def test_el_admin_no_puede_dictaminar_el_formato_b_con_el_corte_puesto(
-        self, db_session, seed_phase_defs, make_student, make_process, revisor,
+        self, db_session, seed_phase_defs, make_student, make_process, revisor, dictamen,
     ):
         seed_phase_defs()
         process = make_process(make_student(), current_phase=3)
         fb = self._fb_submitted(db_session, process)
 
         with pytest.raises(ValueError) as exc:
-            FormatBService.review(db_session, fb, process, status="approved",
-                                  note=None, reviewer_id=revisor.id)
+            if dictamen == "approve":
+                FormatBService.approve(db_session, process, revisor.id)
+            else:
+                FormatBService.reject(db_session, process, revisor.id,
+                                      general_note="Revisa tus datos", field_notes={})
 
         assert str(exc.value) == PhaseService.HANDOFF_MSG
         assert fb.status == "submitted", "el corte debe bloquear ANTES de escribir"
@@ -199,15 +206,15 @@ class TestCorteEnFormatBReview:
         process = make_process(make_student(), current_phase=3)
         fb = self._fb_submitted(db_session, process)
 
-        FormatBService.review(db_session, fb, process, status="approved",
-                              note=None, reviewer_id=revisor.id)
+        FormatBService.approve(db_session, process, revisor.id)
 
         assert fb.status == "approved"
         assert fb.approved_by_id == revisor.id
+        assert process.current_phase == 4
 
 
 # ────────────── guarda ANGOSTA en DocumentService.review ──────────────────
-# Ronda de fix 3 (2026-09-21): mismo hueco que `FormatBService.review` tenia
+# Ronda de fix 3 (2026-09-21): mismo hueco que el dictamen del Formato B tenia
 # (cero guarda; `pages/documents.py::review` solo validaba permiso y alcance
 # por carrera), pero el arreglo NO es la misma guarda. `assert_can_transition`
 # exige `phase_number == process.current_phase`, y en documentos eso
@@ -255,8 +262,8 @@ class TestCorteEnDocumentServiceReview:
         que seguir sirviendo sin condicion, con el corte puesto o no.
 
         Si alguien mas adelante "endurece" esta guarda para que tambien exija
-        `phase_number == process.current_phase` (como
-        `FormatBService.review`), ESTE test se pone en rojo y avisa: seria
+        `phase_number == process.current_phase` (como el dictamen del Formato
+        B), ESTE test se pone en rojo y avisa: seria
         romper el dictamen tardio, no una mejora de seguridad.
         """
         seed_phase_defs()

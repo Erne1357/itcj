@@ -360,7 +360,7 @@ def test_la_vista_completa_es_el_set_pactado():
 @pytest.mark.parametrize("ruta,form", [
     ("/phase/2/approve", {}),
     ("/phase/2/reject", {"reason": "prueba"}),
-    ("/format-b/review", {"action": "approve"}),
+    # `/format-b/review` se retiró el 2026-10-21 (fase 3 §7): ya no hay ruta.
     ("/cancelar", {"reason": "prueba"}),
     ("/requisitos/1", {"action": "mark"}),
     ("/no-adeudo-previo", {"issued_on": "2026-01-01"}),

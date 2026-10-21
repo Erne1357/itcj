@@ -548,11 +548,19 @@ def _compose_phase_approved(db: Session, rows: list, process, user) -> Composed 
     """#2, fase aprobada (cualquiera salvo `initial_docs`, que va en el grupo
     `docs:`): «¡Proceso completado!» si no hay siguiente; «Concluiste tu trámite
     con Servicios Escolares» si la siguiente ya la opera T-soft (`handoff`); si
-    no, «Avanzaste a {siguiente}». Lleva al tablero en la fase que sigue."""
+    no, «Avanzaste a {siguiente}». Lleva al tablero en la fase que sigue.
+
+    En `advanced`, si la fase siguiente REAL es la de código
+    `synodal_assignment` del catálogo, la plantilla promete el plazo de los
+    sinodales (spec 2026-10-21 fase 3 §10); si la modalidad la salta (EGEL →
+    Anexo III), queda el texto genérico de la fase siguiente."""
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
     datos = _datos(rows[-1])
     fase = _entero(datos.get("phase_number"))
     siguiente = _entero(datos.get("next_phase"))
     siguiente_nombre = None
+    sinodales = False
     if datos.get("completed") or siguiente is None:
         variante, asunto = "completed", "¡Proceso completado!"
     elif datos.get("handoff"):
@@ -560,10 +568,11 @@ def _compose_phase_approved(db: Session, rows: list, process, user) -> Composed 
     else:
         siguiente_nombre = _nombre_fase(datos.get("next_name"), siguiente)
         variante, asunto = "advanced", f"Avanzaste a {siguiente_nombre}"
+        sinodales = siguiente == PhaseService.phase_number_for_code(db, "synodal_assignment")
     return _correo(user, asunto, "phase_approved.html",
                    _tablero(siguiente if siguiente is not None else fase),
                    variant=variante, phase_name=_nombre_fase(datos.get("phase_name"), fase),
-                   next_name=siguiente_nombre)
+                   next_name=siguiente_nombre, synodals_next=sinodales)
 
 
 def _compose_phase_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:

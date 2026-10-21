@@ -1328,6 +1328,10 @@ _EVENT_UI = {
     "document_replacement_requested": ("Reemplazo de documento solicitado", "arrow-repeat", "amber"),
     "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
     "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
+    # Formato B (spec 2026-10-21 fase 3): cada envío (la ronda va en el payload)
+    # y la corrección del registro de Titulación (el motivo, en `reason`).
+    "format_b_submitted":           ("Envió el Formato B",        "send",                   "neutral"),
+    "format_b_registry_corrected":  ("Titulación corrigió el registro", "pencil-square",    "amber"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),
@@ -2367,42 +2371,10 @@ def _render_detail_body(request, db, process_id, user_id: int | None = None):
     return render_titulatec(request, "titulatec/partials/processes/_exp_shell.html", ctx)
 
 
-@router.post("/processes/{process_id}/format-b/review", name="titulatec.pages.admin.fb_review")
-async def fb_review(
-    process_id: int,
-    request: Request,
-    user: dict = Depends(require_page_app("titulatec", perms=[
-        "titulatec.format_b.api.approve", "titulatec.format_b.api.reject"])),
-):
-    form = dict(await request.form())
-    return await run_in_threadpool(
-        _cuerpo_fb_review, process_id=process_id, request=request, user=user, form=form)
-
-
-def _cuerpo_fb_review(process_id, request, user, form):
-    """Cuerpo síncrono de `fb_review`: corre en el threadpool, no en el event loop."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import FormatB
-    from itcj2.apps.titulatec.services.format_b_service import FormatBService
-    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
-
-    action = form.get("action")
-    note = form.get("note")
-    status = "approved" if action == "approve" else "rejected"
-    db = SessionLocal()
-    try:
-        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
-        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
-        fb = db.get(FormatB, process_id)
-        if fb:
-            try:
-                FormatBService.review(db, fb, proc, status=status, note=note,
-                                      reviewer_id=int(user["sub"]))
-            except ValueError as exc:
-                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id, int(user["sub"]))
-    finally:
-        db.close()
+# El dictamen del Formato B (`POST /processes/{id}/format-b/review`) se RETIRÓ
+# el 2026-10-21 (spec fase 3 §7): una sola puerta, la pestaña «Titulación»
+# (`FormatBService.approve`/`.reject`). El motor rechaza además aprobar o
+# rechazar la fase `format_b` por `phase/{n}/...` (`FORMAT_B_ONLY_MSG`).
 
 
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")

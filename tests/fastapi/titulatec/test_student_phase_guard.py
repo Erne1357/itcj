@@ -514,24 +514,38 @@ class TestFaseRechazada:
         assert _phases(db_session, esc.process.id)[1] == "in_review"
 
     def test_corrige_y_reenvia_el_formato_b_rechazado(self, escenario, client_as,
-                                                      db_session, monkeypatch):
+                                                      db_session, make_modality,
+                                                      monkeypatch):
         """Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
         una fase RECHAZADA se corrige y reenvia (docstring de la clase), no el
         corte -que en produccion bloquea justo la fase 3, que es Formato B-. Su
         propia cobertura vive en test_handoff_phase_cut.py.
+
+        Desde la fase 3 (2026-10-21) cada paso se VALIDA antes de guardarse y el
+        envio re-valida todo: el alumno manda los tres pasos completos.
         """
         monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=3, phase_overrides={3: "rejected"})
+        modalidad = make_modality()
+        pasos = {
+            1: {"gender": "female", "age": "24", "mobile_phone": "6561234567",
+                "postal_code": "32000", "neighborhood": "Centro", "street": "Calle Uno",
+                "ext_number": "10"},
+            2: {"modality_id": str(modalidad.id), "study_plan": "ISIC-2010-224",
+                "admission_date": "2018-08", "graduation_date": "2023-06"},
+            3: {"project_name": "Proyecto corregido"},
+        }
 
         pagina = client_as(esc.student).get("/titulatec/student/formato-b",
                                             follow_redirects=False)
-        guardado = client_as(esc.student).post("/titulatec/student/formato-b/step/1",
-                                               data={"first_name": "CORREGIDO"})
+        guardados = [client_as(esc.student).post(f"/titulatec/student/formato-b/step/{n}",
+                                                 data=pasos[n]) for n in (1, 2)]
         envio = client_as(esc.student).post("/titulatec/student/formato-b/step/3",
-                                            data={"project_name": "Proyecto corregido"})
+                                            data=pasos[3])
 
         assert pagina.status_code == 200, pagina.text[:300]
-        assert guardado.status_code == 200, guardado.text[:300]
+        for guardado in guardados:
+            assert guardado.status_code == 200, guardado.text[:300]
         assert envio.status_code == 200, envio.text[:300]
         assert _phases(db_session, esc.process.id)[3] == "in_review"
         assert _format_b(db_session, esc.process.id).status == "submitted"

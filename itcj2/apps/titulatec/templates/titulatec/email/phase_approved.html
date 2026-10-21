@@ -4,7 +4,9 @@
    texto del corte es la misma idea que `_HANDOFF_COPY` de `pages/student.py`,
    escrito aquí a propósito: un service no importa `pages/`. La fase
    `initial_docs` NO usa esta plantilla: su avance sale en `docs_review.html`.
-   Contexto: first_name, link, variant, phase_name, next_name. #}
+   `synodals_next` (solo en advanced): la fase siguiente real es la de
+   asignación de sinodales del catálogo (spec 2026-10-21 fase 3 §10).
+   Contexto: first_name, link, variant, phase_name, next_name, synodals_next. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
 {% block titulo %}{% if variant == "completed" %}¡Proceso completado!{% elif variant == "handoff" %}Concluiste tu trámite con Servicios Escolares{% else %}Avanzaste de fase{% endif %} — TitulaTec ITCJ{% endblock %}
@@ -25,6 +27,11 @@
   Se aprobó tu {{ phase_name|e }}. <strong>Avanzaste a {{ next_name|e }}</strong>:
   entra a la plataforma para ver qué sigue.
 </p>
+{% if synodals_next %}
+<p style="margin:0 0 24px;">
+  Tu Formato B fue aprobado. En máximo 5 días hábiles se asignan tus sinodales.
+</p>
+{% endif %}
 {% endif %}
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

@@ -70,8 +70,8 @@ _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 ROUTES = [
     ("process_detail", "GET",
      "/titulatec/admin/processes/{pid}", None),
-    ("admin_fb_review", "POST",
-     "/titulatec/admin/processes/{pid}/format-b/review", {"action": "approve"}),
+    # `POST .../format-b/review` se retiró el 2026-10-21 (fase 3 §7): el
+    # Formato B se dictamina solo desde la pestaña Titulación.
     ("phase_approve", "POST",
      "/titulatec/admin/processes/{pid}/phase/1/approve", {}),
     ("phase_reject", "POST",
@@ -647,7 +647,9 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # `POST /admin/appointments/{id}/documents/{tipo}/reemplazo` y `/aprobar`
     # (panel de atender) y `POST /admin/processes/{id}/documents/{tipo}/reemplazo`
     # (expediente).
-    assert revisadas == 29, (
+    # 28 desde 2026-10-21: − `POST /admin/processes/{id}/format-b/review` (fase 3
+    # §7: una sola puerta para el dictamen del Formato B, la pestaña Titulación).
+    assert revisadas == 28, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

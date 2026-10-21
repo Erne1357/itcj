@@ -259,6 +259,30 @@ class PhaseService:
     # aprobar ya está `approved`. ASCII por lo mismo que `_transition_error`.
     PHASE_ALREADY_APPROVED_MSG = "Esa fase ya fue aprobada."
 
+    # Una sola puerta para la fase 3 (spec 2026-10-21 fase 3 §7): la fase de
+    # código `format_b` solo se dictamina desde `FormatBService.approve`/
+    # `.reject`, que dejan el Formato B dictaminado en la sesión antes de
+    # llamar al motor. Con acentos: las rutas que lo pueden recibir (`phase/
+    # {n}/approve|reject` del expediente) lo pasan por `_hdr()`.
+    FORMAT_B_ONLY_MSG = "El Formato B se dictamina desde la pestaña Titulación."
+
+    @staticmethod
+    def _format_b_guard(db: Session, process, phase_number: int, required: str) -> None:
+        """Si `phase_number` es la fase `format_b` del catálogo, exige que el
+        Formato B del proceso ya esté en `required` (`approved` para aprobar,
+        `rejected` para rechazar) en ESTA sesión; si no, `FORMAT_B_ONLY_MSG`.
+
+        Así el botón genérico «Aprobar/Rechazar fase» (o cualquier llamador
+        nuevo) no puede mover la fase 3 sin el dictamen del Formato B en la
+        misma transacción: Formato B `approved` ⇔ fase 3 `approved` (§7).
+        """
+        if phase_number != PhaseService.phase_number_for_code(db, "format_b"):
+            return
+        from itcj2.apps.titulatec.models import FormatB
+        fb = db.get(FormatB, process.id)
+        if fb is None or fb.status != required:
+            raise ValueError(PhaseService.FORMAT_B_ONLY_MSG)
+
     @staticmethod
     def _lock_process_row(db: Session, process) -> None:
         """Bloquea la fila del proceso y la relee sobre `process` (Ruling R14).
@@ -440,7 +464,8 @@ class PhaseService:
                           PhaseService.PHASE_COTEJO, {"auto": True, "via": via})
 
     @staticmethod
-    def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
+    def approve_phase(db: Session, process, phase_number: int, reviewer_id: int,
+                      event_payload: dict | None = None) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso).
 
         Solo la fase ACTUAL de un proceso ACTIVO. Lanza `ValueError` si no
@@ -459,9 +484,15 @@ class PhaseService:
         esa fase ya está `approved`: defensa ante un dato incoherente, sin
         consulta extra (la fila la lee `_ensure_phase` de todas formas) y antes
         de escribir nada.
+
+        La fase `format_b` solo pasa con el Formato B ya `approved` en la
+        sesión (`_format_b_guard`, una sola puerta). `event_payload` se fusiona
+        en el payload del evento `phase_approved` (así viaja la ronda del
+        Formato B al timeline sin un evento duplicado).
         """
         PhaseService._lock_process_row(db, process)
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
+        PhaseService._format_b_guard(db, process, phase_number, "approved")
 
         # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
         # el dictamen de la fase 2. El alumno sí puede agendar y presentarse; lo
@@ -512,7 +543,8 @@ class PhaseService:
                 nph.started_at = db_now()
             process.current_phase = nxt
 
-        PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number)
+        PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number,
+                          dict(event_payload) if event_payload else None)
 
         from itcj2.apps.titulatec.services.notify import notify_student
         if nxt is None:
@@ -542,7 +574,8 @@ class PhaseService:
         return {"next_phase": nxt, "completed": nxt is None}
 
     @staticmethod
-    def reject_phase(db: Session, process, phase_number: int, reviewer_id: int, reason: str) -> None:
+    def reject_phase(db: Session, process, phase_number: int, reviewer_id: int, reason: str,
+                     event_payload: dict | None = None) -> None:
         """Rechaza una fase: la deja en 'rejected' con motivo y fija current_phase en ella.
 
         El alumno corrige y reenvía; ese reenvío la pasa a 'in_review', no a 'in_progress'.
@@ -552,9 +585,14 @@ class PhaseService:
         Y el mismo bloqueo previo (`_lock_process_row`, Ruling R14): sin él, un
         rechazo concurrente con la aprobación de la misma fase validaba sobre
         el `current_phase` viejo y regresaba el proceso a una fase ya liberada.
+
+        La fase `format_b` solo pasa con el Formato B ya `rejected` en la sesión
+        (`_format_b_guard`). `event_payload` se fusiona en el payload del evento
+        `phase_rejected`, junto al `reason`.
         """
         PhaseService._lock_process_row(db, process)
         PhaseService.assert_can_transition(db, process, phase_number)
+        PhaseService._format_b_guard(db, process, phase_number, "rejected")
 
         # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
         # tambien es un dictamen, y si la cita vigente quedo `in_progress` queda
@@ -568,7 +606,8 @@ class PhaseService:
         ph.reviewed_by_id = reviewer_id
         ph.rejection_reason = reason or None
         process.current_phase = phase_number
-        PhaseService._log(db, process.id, reviewer_id, "phase_rejected", phase_number, {"reason": reason})
+        PhaseService._log(db, process.id, reviewer_id, "phase_rejected", phase_number,
+                          {**(event_payload or {}), "reason": reason})
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="PHASE_REJECTED",
@@ -585,3 +624,8 @@ class PhaseService:
             reason=reason or None)
 
         db.commit()
+
+
+# Alias de módulo (como los mensajes de `format_b_service`): quien solo necesita
+# el texto lo importa sin la clase.
+FORMAT_B_ONLY_MSG = PhaseService.FORMAT_B_ONLY_MSG

@@ -534,6 +534,33 @@ def test_fase_aprobada(db_session, proceso, pago, asunto, fase_liga, frase):
     assert frase in _html(c)
 
 
+_PLAZO_SINODALES = "En máximo 5 días hábiles se asignan tus sinodales."
+
+
+@pytest.mark.parametrize("siguiente, nombre, promete", [
+    (4, "Fase 04 · Asignación de sinodales", True),
+    # EGEL salta 4 y 5 (catálogo, `skips_phases`): la siguiente real es la 6 y
+    # el correo NO promete sinodales (spec 2026-10-21 fase 3 §10).
+    (6, "Fase 06 · Anexo III", False),
+], ids=["a-sinodales", "egel-salta-sinodales"])
+def test_formato_b_aprobado_promete_sinodales_solo_si_siguen(db_session, proceso,
+                                                             siguiente, nombre, promete):
+    from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+    proc = proceso(fase=3)
+    StudentMail.phase_approved(db_session, proc, phase_number=3,
+                               phase_name="Fase 03 · Formato B", next_phase=siguiente,
+                               next_name=nombre, handoff=False)
+
+    c = _componer(db_session, proc)
+
+    assert c.subject == f"[TitulaTec ITCJ] Avanzaste a {nombre}"
+    html = _html(c, estricto=True)
+    assert f"Avanzaste a {nombre}" in html
+    assert (_PLAZO_SINODALES in html) is promete
+    assert ("Tu Formato B fue aprobado" in html) is promete
+
+
 def test_fase_rechazada_con_motivo_y_que_hacer(db_session, proceso):
     from itcj2.apps.titulatec.services.student_mail import StudentMail
 

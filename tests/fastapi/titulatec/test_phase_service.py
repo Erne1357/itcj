@@ -100,7 +100,7 @@ class TestApprovePhase:
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_salta_las_fases_de_la_modalidad(self, mock_notify, db_session, seed_phase_defs,
                                              make_student, make_process, make_modality,
-                                             revisor, monkeypatch):
+                                             make_format_b, revisor, monkeypatch):
         """EGEL salta 4 y 5: aprobar la 3 lleva a la 6 y deja las saltadas en 'skipped'."""
         from itcj2.apps.titulatec.models import ProcessPhase
 
@@ -112,6 +112,9 @@ class TestApprovePhase:
         seed_phase_defs()
         modality = make_modality(name="Modalidad que salta", skips_phases=[4, 5])
         process = make_process(make_student(), modality=modality, current_phase=3)
+        # La fase 3 es la del Formato B: el motor solo la aprueba con el Formato
+        # B ya aprobado en la sesion (lo que deja `FormatBService.approve`).
+        make_format_b(process, status="approved", modality=modality)
 
         result = PhaseService.approve_phase(db_session, process, 3, reviewer_id=revisor.id)
 

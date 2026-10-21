@@ -74,6 +74,8 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "format_b.step_saved": ("format_b", "Guardó un paso del Formato B"),
     "format_b.submitted": ("format_b", "Envió el Formato B"),
     "format_b.reviewed": ("format_b", "Dictaminó el Formato B"),
+    # Titulación corrigió nombre o carrera del registro al revisar (D9, §8.5).
+    "format_b.registry_corrected": ("format_b", "Corrigió el registro del alumno en el Formato B"),
 
     # --- enrollment: solicitudes de inscripción ------------------------------
     "enrollment.request_created": ("enrollment", "Envió una solicitud de inscripción"),
@@ -153,8 +155,10 @@ DATA_ACTIONS: dict[str, str] = {
 # Módulo del espejo por prefijo del `event_type`. El orden importa
 # (`library_payment_` antes que `library_`) y es el MISMO `CASE` del backfill de
 # la migración `tt20261007b`: el historial copiado y el espejo en vivo caen en
-# el mismo módulo.
+# el mismo módulo. `format_b_` es posterior (fase 3, 2026-10-21) y no está en
+# ese `CASE`, sin desfase: ningún evento `format_b_*` existía al hacer el backfill.
 _EVENT_PREFIX_MODULES: tuple[tuple[str, str], ...] = (
+    ("format_b_", "format_b"),
     ("document_", "documents"),
     ("appointment_", "appointments"),
     ("library_payment_", "cashier"),

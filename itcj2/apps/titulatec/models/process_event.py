@@ -40,6 +40,11 @@ EVENT_TYPES = frozenset({
     # Fases
     "phase_approved",
     "phase_rejected",
+    # Formato B (spec 2026-10-21 fase 3 §7/§8.5): cada envío (payload: ronda)
+    # y la corrección del registro que hace Titulación (campos + motivo). Su
+    # dictamen NO tiene evento propio: viaja en `phase_approved`/`_rejected`.
+    "format_b_submitted",
+    "format_b_registry_corrected",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",

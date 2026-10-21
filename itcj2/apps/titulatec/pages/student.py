@@ -294,6 +294,10 @@ _EVENT_LABELS = {
     # ---- Fases ----------------------------------------------------------
     "phase_approved":              "Fase aprobada",
     "phase_rejected":              "Fase rechazada",
+    # ---- Formato B (fase 3) ----------------------------------------------
+    "format_b_submitted":          "Enviaste tu Formato B",
+    # `FormatBService.correct_registry`: nombre o carrera corregidos al revisar.
+    "format_b_registry_corrected": "Titulación corrigió tu registro",
     # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",
@@ -1563,10 +1567,17 @@ async def formato_b_save(
 
 
 def _cuerpo_formato_b_save(n, request, user, form):
-    """Cuerpo síncrono de `formato_b_save`: corre en el threadpool, no en el event loop."""
+    """Cuerpo síncrono de `formato_b_save`: corre en el threadpool, no en el event loop.
+
+    Adaptación MÍNIMA al motor validado (Ruling R8, hasta que la ola 3 reescriba
+    estas rutas): un paso inválido (o un envío con un paso inválido) re-pinta
+    ese paso con 200 y los errores; un `ValueError` del motor (ya enviado, fuera
+    de fase) responde 400 + `X-Tt-Error`.
+    """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
+    from itcj2.apps.titulatec.services.format_b_validation import FormatBValidationError
     from fastapi.responses import Response
 
     db = SessionLocal()
@@ -1578,13 +1589,21 @@ def _cuerpo_formato_b_save(n, request, user, form):
         if fuera_de_fase:
             return fuera_de_fase
         fb = FormatBService.get_or_create(db, process)
-        FormatBService.save_step(db, fb, n, form)
-
-        if n < 3:
-            ctx = {"step": n + 1, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
-        else:
-            FormatBService.submit(db, fb, process)
-            ctx = {"step": "done", "datos": FormatBService.to_ctx(fb), "programs": []}
+        try:
+            FormatBService.save_step(db, fb, n, form)
+            if n < 3:
+                ctx = {"step": n + 1, "datos": FormatBService.to_ctx(fb), "programs": _programs(db)}
+            else:
+                FormatBService.submit(db, fb, process)
+                ctx = {"step": "done", "datos": FormatBService.to_ctx(fb), "programs": []}
+        except FormatBValidationError as err:
+            datos = FormatBService.to_ctx(fb)
+            if err.step == n:
+                datos.update({k: v for k, v in form.items() if isinstance(v, str)})
+            ctx = {"step": err.step, "datos": datos, "programs": _programs(db),
+                   "errors": err.errors}
+        except ValueError as exc:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
     finally:
         db.close()
     return render_titulatec(request, "titulatec/partials/formato_b_step.html", ctx)
