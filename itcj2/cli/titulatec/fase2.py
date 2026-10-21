@@ -10,7 +10,7 @@ from itcj2.cli.titulatec._common import DML_TITULATEC, _abortar_con, titulatec_c
 
 _DML_FASE_2_DIR = "fase_2"
 # Debe listar TODOS los .sql de `database/DML/titulatec/fase_2/`.
-_DML_FASE_2_FILES = ["01_titulacion_formato_b.sql"]
+_DML_FASE_2_FILES = ["01_titulacion_formato_b.sql", "02_sinodales.sql"]
 
 # rol -> permisos que DEBEN tener tras correr el comando.
 _FASE_2_EXPECTED: dict[str, set[str]] = {
@@ -18,20 +18,88 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.titulacion.page.list",
         "titulatec.format_b.api.read.all",
         "titulatec.format_b.api.correct_registry",
+        "titulatec.synodal.api.read",
     },
     "titulatec_titulaciones": {
         "titulatec.titulacion.page.list",
         "titulatec.format_b.api.correct_registry",
+        "titulatec.synodal.api.read",
+        "titulatec.synodal.page.list",
+        "titulatec.synodal.api.assign",
+        "titulatec.synodal.api.replace",
+        "titulatec.teacher.page.list",
+        "titulatec.teacher.api.manage",
+    },
+    "titulatec_vinculacion": {
+        "titulatec.teacher.page.list",
+        "titulatec.teacher.api.manage",
+        "titulatec.synodal.api.replace",
     },
     "admin": {
         "titulatec.titulacion.page.list",
         "titulatec.format_b.api.correct_registry",
+        "titulatec.teacher.page.list",
+        "titulatec.teacher.api.manage",
+        "titulatec.synodal.api.replace",
+        "titulatec.program_department.page.list",
+        "titulatec.program_department.api.manage",
     },
 }
 
+# Permisos que nacen en `02_sinodales.sql` (deben existir en core_permissions).
+_FASE_2_NEW_PERMISSIONS: set[str] = {
+    "titulatec.teacher.page.list",
+    "titulatec.teacher.api.manage",
+    "titulatec.synodal.api.replace",
+    "titulatec.program_department.page.list",
+    "titulatec.program_department.api.manage",
+}
+
+# Los 8 departamentos con sinodales propios (spec fase 4 §5.1).
+_FASE_2_DEPARTMENTS: tuple[str, ...] = (
+    "sys_computing", "industrial_eng", "eco_admin_sci", "elec_electronics",
+    "metal_mechanics", "coord_campus_2", "ead", "postgrad_research",
+)
+
+# Carrera (core_programs.name en dev) -> departamento (core_departments.code).
+_FASE_2_PROGRAM_DEPARTMENTS: dict[str, str] = {
+    "Ing. Sistemas computacionales": "sys_computing",
+    "Ing. Tics": "sys_computing",
+    "Ciberseguridad": "sys_computing",
+    "Ing. Industrial": "industrial_eng",
+    "Ing. Logistica": "industrial_eng",
+    "Contador publico": "eco_admin_sci",
+    "Ing. Gestión Empresarial": "eco_admin_sci",
+    "Lic. Administracion": "eco_admin_sci",
+    "Eléctrica": "elec_electronics",
+    "Electrónica": "elec_electronics",
+    "Semiconductores": "elec_electronics",
+    "Mecatrónica": "elec_electronics",
+    "Electromecánica": "metal_mechanics",
+    "Mecánica": "metal_mechanics",
+    "Ing. Sistemas computacionales CAMPUS II": "coord_campus_2",
+    "Ing. Industrial CAMPUS II": "coord_campus_2",
+    "Ing. Logistica CAMPUS II": "coord_campus_2",
+    "Mecatrónica CAMPUS II": "coord_campus_2",
+    "Ing. Gestión Empresarial CAMPUS II": "coord_campus_2",
+    "Contador Público CAMPUS II": "coord_campus_2",
+    "Lic. Administración CAMPUS II": "coord_campus_2",
+    "Ing. Sistemas computacionales EAD": "ead",
+    "Ing. Gestión Empresarial EAD": "ead",
+    "Lic. Administración EAD": "ead",
+    "Ing. Industrial EAD": "ead",
+    "Maestría en Ingeniería Industrial": "postgrad_research",
+    "Maestría en Administración de Negocios Internacionales": "postgrad_research",
+    "Maestría en Ingeniería Administrativa": "postgrad_research",
+    "Doctorado en Ciencias de la Ingeniería": "postgrad_research",
+}
+
+_FASE_2_MODALITIES: tuple[str, ...] = (
+    "integral_residencias", "thesis", "research_project", "egel")
+
 
 def _verify_fase_2() -> list[str]:
-    """Comprueba que cada rol tenga sus grants de fase 2. Devuelve problemas
+    """Comprueba grants, permisos, organigrama y datos sembrados de fase 2. Devuelve problemas
     (lista vacia = todo bien). Sesion propia, solo lectura."""
     from sqlalchemy import text
 
@@ -52,6 +120,80 @@ def _verify_fase_2() -> list[str]:
                 ).first()
                 if concedido is None:
                     problemas.append(f"el rol {rol} no tiene {codigo}")
+
+        # --- 02_sinodales: permisos nuevos ---
+        existentes = {r[0] for r in db.execute(
+            text("SELECT p.code FROM core_permissions p JOIN core_apps a ON a.id = p.app_id "
+                 "WHERE a.key = 'titulatec' AND p.code = ANY(:c)"),
+            {"c": sorted(_FASE_2_NEW_PERMISSIONS)})}
+        for codigo in sorted(_FASE_2_NEW_PERMISSIONS - existentes):
+            problemas.append(f"el permiso {codigo} no existe")
+
+        # R-A: el sinodal no conserva ningun `*.read.all`.
+        for (codigo,) in db.execute(
+                text("SELECT p.code FROM core_role_permissions rp "
+                     "JOIN core_roles r ON r.id = rp.role_id "
+                     "JOIN core_permissions p ON p.id = rp.perm_id "
+                     "JOIN core_apps a ON a.id = p.app_id "
+                     "WHERE a.key = 'titulatec' AND r.name = 'titulatec_sinodal' "
+                     "AND p.code LIKE '%.read.all' ORDER BY p.code")):
+            problemas.append(f"el rol titulatec_sinodal conserva {codigo}")
+
+        # Puestos docente_* -> titulatec_sinodal; head_* -> titulatec_vinculacion.
+        for depto in _FASE_2_DEPARTMENTS:
+            for prefijo, rol in (("docente_", "titulatec_sinodal"),
+                                 ("head_", "titulatec_vinculacion")):
+                codigo = f"{prefijo}{depto}"
+                existe = db.execute(text("SELECT 1 FROM core_positions WHERE code = :c"),
+                                    {"c": codigo}).first()
+                if existe is None:
+                    problemas.append(f"el puesto {codigo} no existe")
+                    continue
+                if db.execute(
+                        text("SELECT 1 FROM core_position_app_roles par "
+                             "JOIN core_positions p ON p.id = par.position_id "
+                             "JOIN core_roles r ON r.id = par.role_id "
+                             "JOIN core_apps a ON a.id = par.app_id "
+                             "WHERE a.key = 'titulatec' AND p.code = :c AND r.name = :rol"),
+                        {"c": codigo, "rol": rol}).first() is None:
+                    problemas.append(f"{codigo} no tiene el rol {rol}")
+
+        # Carreras mapeadas al departamento esperado.
+        for nombre, depto in _FASE_2_PROGRAM_DEPARTMENTS.items():
+            fila = db.execute(
+                text("SELECT d.code FROM core_programs pr "
+                     "LEFT JOIN titulatec_program_departments pd ON pd.program_id = pr.id "
+                     "LEFT JOIN core_departments d ON d.id = pd.department_id "
+                     "WHERE pr.name = :n"), {"n": nombre}).first()
+            if fila is None:
+                problemas.append(f"la carrera '{nombre}' no existe en core_programs")
+            elif fila[0] is None:
+                problemas.append(f"la carrera '{nombre}' no esta mapeada")
+            elif fila[0] != depto:
+                problemas.append(f"la carrera '{nombre}' esta mapeada a {fila[0]}, no a {depto}")
+
+        # Ajustes del oficio por departamento.
+        for depto in _FASE_2_DEPARTMENTS:
+            if db.execute(
+                    text("SELECT 1 FROM titulatec_department_settings s "
+                         "JOIN core_departments d ON d.id = s.department_id WHERE d.code = :c"),
+                    {"c": depto}).first() is None:
+                problemas.append(f"falta el ajuste del oficio de {depto}")
+
+        # option_label de las 4 modalidades.
+        for codigo in _FASE_2_MODALITIES:
+            fila = db.execute(
+                text("SELECT option_label FROM titulatec_modalities WHERE code = :c"),
+                {"c": codigo}).first()
+            if fila is None or not fila[0]:
+                problemas.append(f"la modalidad {codigo} no tiene option_label")
+
+        # Fase 4 del catalogo: responsable = departamento academico.
+        fila = db.execute(
+            text("SELECT responsible FROM titulatec_phase_definitions "
+                 "WHERE code = 'synodal_assignment'")).first()
+        if fila is None or fila[0] != "academic_department":
+            problemas.append("la fase synodal_assignment no tiene responsible=academic_department")
     finally:
         db.close()
     return problemas
