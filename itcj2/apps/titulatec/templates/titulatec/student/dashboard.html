@@ -118,6 +118,10 @@
           {% with replacements = current.replacements %}{% include "titulatec/partials/student/_replacement_notice.html" %}{% endwith %}
           {% endif %}
 
+          {% if current.synodals %}
+          <div class="mt-3">{% with synodals = current.synodals %}{% include "titulatec/partials/student/_synodals_panel.html" %}{% endwith %}</div>
+          {% endif %}
+
           {% if current.progress %}
           <div class="mt-3">
             {% with p = current.progress, detail = True %}
@@ -244,6 +248,10 @@
                     <span class="tt-pill tt-pill--danger"><i class="bi bi-exclamation-triangle"></i> Observaciones</span>
                     <p class="tt-prose mb-0 mt-2" style="font-size:.8rem;color:#7F1D1D">{{ ph.rejection_reason }}</p>
                   </div>
+                  {% endif %}
+
+                  {% if ph.synodals %}
+                  {% with synodals = ph.synodals %}{% include "titulatec/partials/student/_synodals_panel.html" %}{% endwith %}
                   {% endif %}
 
                   {% if ph.survey %}

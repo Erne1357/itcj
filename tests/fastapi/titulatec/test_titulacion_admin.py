@@ -783,3 +783,55 @@ def test_el_siguiente_respeta_la_busqueda(esc, client_as):
 
     assert resp.status_code == 200, resp.text[:500]
     assert int(_detalle(resp).get("data-process")) == p3.id
+
+
+# ---------------------------------------------------------------------------
+# R-E (spec fase 4 §16b): sinodales asignados y oficio en el detalle aprobado
+# ---------------------------------------------------------------------------
+def _aprobado_con_sinodales(e, db_session, make_department, make_teacher, make_synodals,
+                            con_sinodales=True):
+    p = e.enviado("RAUL", status="approved", phase=4)
+    if con_sinodales:
+        dept = make_department(name="Depto Titulacion T10")
+        docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+        make_synodals(p, docs, e.revisor("ASIGNA"))
+    return p
+
+
+def test_formato_b_aprobado_muestra_sinodales_y_oficio_solo_con_el_permiso(
+    esc, client_as, db_session, make_role, make_user, make_position, bind_position_role,
+    link_programs, assign_position, make_department, make_teacher, make_synodals,
+):
+    e = esc()
+    p = _aprobado_con_sinodales(e, db_session, make_department, make_teacher, make_synodals)
+    a = e.revisor("LUISA")
+
+    resp = client_as(a).get(BODY, params={"tab": "approved", "selected": p.id})
+    det = _detalle(resp)
+    assert det is not None
+    bloque = det.xpath('.//*[@id="tt-tit-sinodales"]')
+    assert bloque, "falta el bloque «Sinodales asignados»"
+    texto = " ".join(bloque[0].text_content().split())
+    for rol in ("Presidente", "Secretario", "Vocal", "Vocal Suplente"):
+        assert rol in texto, rol
+    assert not det.xpath('.//a[@data-tt-oficio]'), "sin synodal.api.read no hay oficio"
+
+    # Con el permiso: el mismo revisor + synodal.api.read.
+    rol = make_role(f"{ROLE_DEPTO}_oficio", DEPTO_PERMS + ("titulatec.synodal.api.read",))
+    user = make_user(first_name="OFICIAL", last_name="TITULACION")
+    pos = make_position(title="Titulacion con oficio T10")
+    bind_position_role(pos, rol)
+    link_programs(pos, [e.programa])
+    assign_position(user, pos)
+
+    resp2 = client_as(user).get(BODY, params={"tab": "approved", "selected": p.id})
+    ligas = _detalle(resp2).xpath('.//a[@data-tt-oficio]')
+    assert [l.get("href") for l in ligas] == [f"/titulatec/admin/sinodales/{p.id}/oficio.pdf"]
+
+
+def test_formato_b_pendiente_no_muestra_el_bloque_de_sinodales(esc, client_as):
+    e = esc()
+    a = e.revisor("LUISA")
+    p = e.enviado("ANA")
+    det = _detalle(client_as(a).get(BODY, params={"tab": "pending", "selected": p.id}))
+    assert det is not None and not det.xpath('.//*[@id="tt-tit-sinodales"]')

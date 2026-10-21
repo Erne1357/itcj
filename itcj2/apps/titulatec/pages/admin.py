@@ -1771,6 +1771,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                      "sections": secciones_fb}
     from itcj2.apps.titulatec.services.phase_service import PhaseService as _PS
     format_b_phase = _PS.phase_number_for_code(db, "format_b")
+    # Fase de sinodales (spec fase 4 §14): el motor ya no admite aprobarla ni
+    # rechazarla por la vía genérica (`SYNODAL_ONLY_MSG`), así que el expediente
+    # no ofrece «Mover de fase» ahí y pinta los vigentes y su historial.
+    from itcj2.apps.titulatec.services.synodal_service import PHASE_CODE, SynodalService
+    synodal_phase = _PS.phase_number_for_code(db, PHASE_CODE)
+    sinodales = {"vigentes": SynodalService.active_for_process(db, proc.id),
+                 "historial": [{**h, "replaced_label": _fecha_larga(h["replaced_at"])
+                                if h.get("replaced_at") else None}
+                               for h in SynodalService.history(db, proc.id)]}
 
     # ---- requisitos de cotejo de la fase 2 (§5.4) ----
     #
@@ -1836,6 +1845,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
     can_dictaminar_fase = False
     can_open_titulacion = False
+    can_read_synodal = False
     can_revoke = False
     can_register_prior = False
     can_request_replacement = False
@@ -1855,6 +1865,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
         })
         can_open_titulacion = "titulatec.titulacion.page.list" in _user_perms
+        # «Descargar oficio» de la fase 4 (spec fase 4 §14): lo da `synodal.api.read`.
+        can_read_synodal = "titulatec.synodal.api.read" in _user_perms
         # «Revocar inscripción»: mismo permiso que exige `process_cancel`, y
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
@@ -1974,6 +1986,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_dictaminar_fase": can_dictaminar_fase,
         "can_open_titulacion": can_open_titulacion,
         "format_b_phase": format_b_phase,
+        "synodal_phase": synodal_phase,
+        "sinodales": sinodales,
+        "can_read_synodal": can_read_synodal,
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,

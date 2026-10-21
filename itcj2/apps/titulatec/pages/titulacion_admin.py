@@ -252,7 +252,17 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
         carreras = [{"id": p.id, "name": p.name}
                     for p in TrackService.programs_same_level(db, proc.program_id)]
 
+    # R-E (spec fase 4 §16b): un Formato B aprobado muestra los sinodales
+    # asignados y, con `synodal.api.read`, el oficio -- así `titulatec_titulacion`
+    # lo ve sin necesitar el expediente completo.
+    sinodales, can_oficio = [], False
+    if status == "approved":
+        from itcj2.apps.titulatec.services.synodal_service import SynodalService
+        sinodales = SynodalService.active_for_process(db, process_id)
+        can_oficio = bool(sinodales) and "titulatec.synodal.api.read" in perms
+
     return {
+        "sinodales": sinodales, "can_oficio": can_oficio,
         "process_id": process_id, "folio": proc.folio, "status": status,
         "round": int(getattr(fb, "submission_count", 0) or 0),
         "name": nombre or _VACIO,

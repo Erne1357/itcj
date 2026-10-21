@@ -85,17 +85,18 @@ _PHASE_INFO = {
                "regresa con observaciones.",
     },
     "synodal_assignment": {
-        "desc": "Vinculación asigna a tus sinodales (presidente, secretario y vocal) y abre "
-                "el chat de titulación de tu proceso. Aquí no tienes nada que entregar.",
+        "desc": "Tu departamento académico asigna a tus 4 sinodales (presidente, secretario, "
+                "vocal y vocal suplente) y abre el chat de titulación de tu proceso. Aquí no "
+                "tienes nada que entregar.",
         "needs": [
             "Tener tu Formato B aprobado: es lo único que detona esta fase.",
             "Esperar el aviso; el plazo de referencia son 5 días hábiles (informativo).",
             "Ir preparando tu trabajo en PDF: lo vas a compartir en la fase siguiente.",
         ],
-        "who": "Vinculación asigna a los sinodales y abre el chat; tú esperas el aviso.",
+        "who": "Tu departamento académico asigna a los sinodales y abre el chat; tú esperas el aviso.",
     },
     "synodal_review": {
-        "desc": "Tus sinodales revisan tu trabajo en el chat de titulación de la app. Ahí te "
+        "desc": "Tus 4 sinodales revisan tu trabajo en el chat de titulación de la app. Ahí te "
                 "piden cambios y ahí subes las versiones corregidas.",
         "needs": [
             "Tu trabajo en PDF (informe de residencia, tesis o proyecto) para subirlo al chat.",
@@ -234,6 +235,7 @@ _RESPONSIBLE_LABEL = {
     "titulaciones":    "el Depto. de Titulación",
     "vinculacion":     "Vinculación",
     "synodals":        "tus sinodales",
+    "academic_department": "tu departamento académico",
     "student":         "ti",
 }
 
@@ -902,6 +904,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "survey": None,
             "library": None,
             "replacements": None,
+            "synodals": None,
         }
         card.update(over)
         return card
@@ -981,6 +984,12 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         "format_b": _format_b_progress(db.get(FormatB, process.id)),
     }
 
+    # «Tus sinodales» (spec fase 4 §14): posición y nombre de los vigentes,
+    # SIN cédula ni grado. Una consulta, y solo si hay una fase de revisión.
+    from itcj2.apps.titulatec.services.synodal_service import SynodalService
+    sinodales = [{"role_label": x["role_label"], "name": x["name"]}
+                 for x in SynodalService.active_for_process(db, process.id)]
+
     cards = []
     for pd in pdefs:
         ph = ph_by_number.get(pd.number)
@@ -1015,6 +1024,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             progress=progress,
             survey=(survey if pd.code == "review_appointment" else None),
             library=(library if pd.code == "review_appointment" else None),
+            synodals=((sinodales or None) if pd.code == "synodal_review" else None),
             # Reemplazos abiertos en la cita de cotejo (2026-10-15): UNA consulta
             # y SOLO para la tarjeta de la fase de cotejo cuando es la actual;
             # en cualquier otra fase el tablero no paga nada extra.

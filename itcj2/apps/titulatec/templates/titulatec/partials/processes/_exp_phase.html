@@ -370,10 +370,49 @@
   <p class="tt-exp-vacio">El alumno todavía no envía su Formato B.</p>
   {% endif %}
 
-{# ------------------------------------------- 04..08 · aún no existen ----- #}
+{# ------------------------------------------------- 04 · sinodales ------- #}
+{# Solo lectura (spec fase 4 §14): los 4 vigentes con grado y cédula, el oficio
+   y el historial de sustituciones. La fase no se mueve desde aquí: el motor
+   solo la cierra el registro de los 4 sinodales (`SYNODAL_ONLY_MSG`). #}
+{% elif f.number == synodal_phase %}
+  <div data-tt-exp-sinodales>
+  {% if sinodales.vigentes %}
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="tt-kicker">Sinodales vigentes</span>
+    {% if can_read_synodal %}
+    <a class="btn btn-sm tt-btn-ghost" data-tt-oficio
+       href="/titulatec/admin/sinodales/{{ process.id }}/oficio.pdf">
+      <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
+    {% endif %}
+  </div>
+  <dl class="tt-exp-datos">
+    {% for s in sinodales.vigentes %}
+    <div data-tt-sinodal-rol="{{ s.role }}"><dt>{{ s.role_label }}</dt>
+      <dd>{{ s.name }}
+        <span class="tt-exp-vacio d-block">{{ s.academic_degree or 'Sin grado' }} · Cédula {{ s.professional_license or 'sin registrar' }}</span></dd></div>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="tt-exp-vacio">Todavía no se asignan los sinodales de este alumno.</p>
+  {% endif %}
+  {% if sinodales.historial %}
+  <div class="tt-kicker mt-3 mb-1">Historial de sustituciones</div>
+  <ul class="tt-exp-vacio mb-0" data-tt-sinodal-historial>
+    {% for h in sinodales.historial %}
+    <li>{{ h.role_label }}: {{ h.name }} fue sustituido
+      {%- if h.replacement_name %} por {{ h.replacement_name }}{% endif %}
+      {%- if h.replaced_by_name %}, a cargo de {{ h.replaced_by_name }}{% endif %}
+      {%- if h.replaced_label %}, el {{ h.replaced_label }}{% endif %}
+      {%- if h.reason %}. Motivo: {{ h.reason }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  </div>
+
+{# ------------------------------------------------ 05..08 · aún no existen -- #}
 {% else %}
   <p class="tt-exp-vacio">
-    Esta fase todavía no está en la app: sinodales, anexo, entrega final y acto
+    Esta fase todavía no está en la app: revisión, anexo, entrega final y acto
     protocolario tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es
     su estado, no su contenido.</p>
 {% endif %}

@@ -909,3 +909,65 @@ def test_el_expediente_no_hace_una_consulta_por_documento(expediente, client_as,
 
     assert con_tres <= con_uno, (
         f"la pagina crece con los documentos: {con_uno} -> {con_tres} consultas")
+
+
+# ===========================================================================
+# Fase 4 (sinodales): tarjeta de solo lectura, oficio e historial
+# ===========================================================================
+def _con_sinodales(db_session, esc, make_department, make_teacher, make_synodals,
+                   *, con_historial=False):
+    """Los 4 vigentes de `esc["proc"]` (y, opcional, una sustitución previa)."""
+    from itcj2.apps.titulatec.models import SynodalAssignment
+    from itcj2.core.utils.timezone import db_now
+    dept = make_department(name="Depto Sinodales T10")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(esc["proc"], docs, esc["officer"])
+    if con_historial:
+        saliente = make_teacher(dept)
+        db_session.add(SynodalAssignment(
+            process_id=esc["proc"].id, user_id=saliente.id, role="vocal", is_active=False,
+            assigned_by_id=esc["officer"].id, replaced_at=db_now(),
+            replaced_by_id=esc["officer"].id, replacement_reason="Licencia medica T10"))
+        db_session.flush()
+    return docs, saliente if con_historial else None
+
+
+def _oficial(make_officer, esc, con_lectura):
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS  # noqa: F401
+    perms = tuple(EXPEDIENTE_PERMS) + (("titulatec.synodal.api.read",) if con_lectura else ())
+    user, _ = make_officer([esc["program"]], perm_codes=perms)
+    return user
+
+
+def test_fase_4_muestra_vigentes_con_grado_cedula_e_historial_sin_mover_de_fase(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer,
+):
+    esc = expediente(current_phase=4)
+    docs, saliente = _con_sinodales(db_session, esc, make_department, make_teacher,
+                                    make_synodals, con_historial=True)
+    lector = _oficial(make_officer, esc, True)
+
+    html = client_as(lector).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    bloque = html.split("data-tt-exp-sinodales")[1]
+    for rol in ("Presidente", "Secretario", "Vocal", "Vocal Suplente"):
+        assert rol in bloque, rol
+    assert "Maestra en Software Libre" in bloque and "10837613" in bloque
+    assert "Historial de sustituciones" in bloque and "Licencia medica T10" in bloque
+    assert f"/titulatec/admin/sinodales/{esc['proc'].id}/oficio.pdf" in html
+    # La fase 4 no se mueve desde el expediente: el motor la rechaza (SYNODAL_ONLY_MSG).
+    assert "data-tt-aprobar" not in html and "data-tt-rechazar" not in html
+
+
+def test_fase_4_sin_synodal_read_no_hay_oficio(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer,
+):
+    esc = expediente(current_phase=4)
+    _con_sinodales(db_session, esc, make_department, make_teacher, make_synodals)
+    sin = _oficial(make_officer, esc, False)
+
+    html = client_as(sin).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    assert "data-tt-exp-sinodales" in html and "oficio.pdf" not in html

@@ -176,5 +176,30 @@
   {% else %}
   </div>
   {% endif %}
+
+  {% if d.status == 'approved' %}
+  <section id="tt-tit-sinodales" class="tt-card tt-tit-section" aria-label="Sinodales asignados">
+    <div class="tt-tit-section-head">
+      <h3 class="tt-kicker tt-tit-section-title">Sinodales asignados</h3>
+      {% if d.can_oficio %}
+      <a class="btn btn-sm tt-btn-ghost" data-tt-oficio
+         href="/titulatec/admin/sinodales/{{ d.process_id }}/oficio.pdf">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
+      {% endif %}
+    </div>
+    {% if d.sinodales %}
+    <div class="tt-tit-fields">
+      {% for s in d.sinodales %}
+      <div class="tt-tit-field" data-tt-sinodal-rol="{{ s.role }}">
+        <div class="tt-tit-label">{{ s.role_label }}</div>
+        <div class="tt-tit-val"><span class="tt-tit-value">{{ s.name }}</span></div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="tt-tit-sub">Todavía no se asignan los sinodales.</p>
+    {% endif %}
+  </section>
+  {% endif %}
 </article>
 {% endif %}

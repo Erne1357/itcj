@@ -368,6 +368,13 @@ def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
     """
     seed_phase_defs()
     seed_document_types()
+    # Fase 4: el DML de la fase 4 pasa su responsable a `academic_department`;
+    # el arnés (base vacía en CI) la siembra con `vinculacion`. Se fija aquí para
+    # que el resultado no dependa de qué base corre la prueba.
+    from itcj2.apps.titulatec.models import PhaseDefinition
+    db_session.query(PhaseDefinition).filter_by(number=4).update(
+        {"responsible": "academic_department"})
+    db_session.flush()
 
     ctx = _phases_ctx(db_session, None)
 
@@ -376,7 +383,7 @@ def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
         1: "de ti",                     # initial_docs -> student
         2: "de Servicios Escolares",    # review_appointment -> school_services
         3: "del Depto. de Titulación",  # format_b -> titulaciones
-        4: "de Vinculación",            # synodal_assignment -> vinculacion
+        4: "de tu departamento académico",  # synodal_assignment -> academic_department
         5: "de tus sinodales",          # synodal_review -> synodals
         6: "del Depto. de Titulación",  # anexo_iii -> titulaciones
         7: "de ti",                     # final_docs -> student
@@ -661,3 +668,39 @@ def test_el_contexto_no_hace_una_consulta_por_fase(
     # Presupuesto: fases + process_phases + events + documents + document_types
     # + cita + formato B = 7. El margen absorbe algun lazy load, no un N+1.
     assert len(selects) <= 10, "\n".join(selects)
+
+
+def test_fase_5_pinta_tus_sinodales_sin_cedula(
+    db_session, seed_phase_defs, seed_document_types, make_student, make_process,
+    make_department, make_teacher, make_synodals, client_as,
+):
+    """Spec fase 4 §14: posición y nombre de los 4, nunca grado ni cédula."""
+    import lxml.html
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    proc = make_process(student, current_phase=5)
+    dept = make_department(name="Depto Alumno T10")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(proc, docs, student)
+
+    html = client_as(student).get("/titulatec/student/dashboard").text
+
+    panel = lxml.html.fromstring(html).xpath('//*[@data-tt-student-sinodales]')
+    assert len(panel) == 1
+    texto = " ".join(panel[0].text_content().split())
+    for rol in ("Presidente", "Secretario", "Vocal", "Vocal Suplente"):
+        assert rol in texto, rol
+    assert texto.count("DOCENTE FICTICIO") == 4
+    assert "10837613" not in html and "Maestra en Software Libre" not in html
+
+
+def test_sin_sinodales_no_hay_panel(
+    db_session, seed_phase_defs, seed_document_types, make_student, make_process, client_as,
+):
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=4)
+    html = client_as(student).get("/titulatec/student/dashboard").text
+    assert "data-tt-student-sinodales" not in html
