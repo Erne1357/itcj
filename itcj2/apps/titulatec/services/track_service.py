@@ -30,6 +30,27 @@ class TrackService:
         return TRACK_POSGRADO if level in POSTGRADUATE_LEVELS else TRACK_LICENCIATURA
 
     @staticmethod
+    def same_level(db: Session, program_id_a: int, program_id_b: int) -> bool:
+        """¿Las dos carreras son del MISMO `level` (licenciatura|maestria|doctorado)?
+
+        Lo usa la corrección del registro del Formato B (spec 2026-10-21 fase 3
+        §8.5): la carrera nueva debe ser del mismo nivel que la actual, porque
+        cambiar de nivel cambiaría el perfil de titulación a media marcha. Es
+        más estricto que comparar perfiles (maestría ↔ doctorado también
+        cambia de nivel). Vive aquí porque este módulo es el único que lee
+        `Program.level` (invariante 2). Una carrera inexistente -> False. Una
+        sola consulta.
+        """
+        from itcj2.core.models.program import Program
+
+        ids = {program_id_a, program_id_b}
+        if None in ids:
+            return False
+        levels = dict(db.query(Program.id, Program.level).filter(Program.id.in_(ids)).all())
+        return (program_id_a in levels and program_id_b in levels
+                and levels[program_id_a] == levels[program_id_b])
+
+    @staticmethod
     def for_process(db: Session, process) -> str:
         """Perfil de UN proceso. Sin carrera (`program_id` `None`) -> licenciatura."""
         from itcj2.core.models.program import Program

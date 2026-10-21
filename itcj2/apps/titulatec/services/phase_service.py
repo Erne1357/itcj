@@ -266,21 +266,32 @@ class PhaseService:
     # {n}/approve|reject` del expediente) lo pasan por `_hdr()`.
     FORMAT_B_ONLY_MSG = "El Formato B se dictamina desde la pestaña Titulación."
 
+    # Marca en `db.info` con la que `FormatBService.approve`/`.reject` abren la
+    # puerta del motor: `(process_id, veredicto)`. La pone justo antes de
+    # llamar a `approve_phase`/`reject_phase` y la quita al terminar (éxito,
+    # error o rollback); `_format_b_guard` la exige y la CONSUME.
+    FORMAT_B_VERDICT_KEY = "titulatec.format_b_verdict"
+
     @staticmethod
     def _format_b_guard(db: Session, process, phase_number: int, required: str) -> None:
-        """Si `phase_number` es la fase `format_b` del catálogo, exige que el
-        Formato B del proceso ya esté en `required` (`approved` para aprobar,
-        `rejected` para rechazar) en ESTA sesión; si no, `FORMAT_B_ONLY_MSG`.
+        """Si `phase_number` es la fase `format_b` del catálogo, exige el dictamen
+        del Formato B EN CURSO en esta sesión; si no, `FORMAT_B_ONLY_MSG`.
 
-        Así el botón genérico «Aprobar/Rechazar fase» (o cualquier llamador
-        nuevo) no puede mover la fase 3 sin el dictamen del Formato B en la
-        misma transacción: Formato B `approved` ⇔ fase 3 `approved` (§7).
+        «En curso» = la marca `FORMAT_B_VERDICT_KEY` de `db.info` con este
+        proceso y este veredicto (`approved` para aprobar, `rejected` para
+        rechazar) **y** el Formato B en ese estado. Mirar solo el estado
+        guardado no basta: un Formato B `rejected` sigue así mientras el alumno
+        corrige (P9), y el botón genérico «Rechazar fase» volvía a rechazar la
+        fase 3 por otra puerta (evento sin observaciones, aviso y correo de
+        más). La marca se consume aquí: cada dictamen abre la puerta una vez.
+        Formato B `approved` ⇔ fase 3 `approved`, en una transacción (§7).
         """
         if phase_number != PhaseService.phase_number_for_code(db, "format_b"):
             return
         from itcj2.apps.titulatec.models import FormatB
+        marca = db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
         fb = db.get(FormatB, process.id)
-        if fb is None or fb.status != required:
+        if marca != (process.id, required) or fb is None or fb.status != required:
             raise ValueError(PhaseService.FORMAT_B_ONLY_MSG)
 
     @staticmethod

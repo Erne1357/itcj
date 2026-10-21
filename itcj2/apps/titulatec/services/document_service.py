@@ -762,8 +762,9 @@ class DocumentService:
                reviewer_id: int, expected_version: int | None = None) -> bool:
         """Aprueba o rechaza un documento (status 'approved'|'rejected').
 
-        **Guarda angosta a propósito -- NO es la gemela de
-        `FormatBService.review`.** Esa usa `PhaseService.assert_can_transition`,
+        **Guarda angosta a propósito -- NO es la gemela del dictamen del
+        Formato B (`FormatBService.approve`/`.reject`).** Ese usa
+        `PhaseService.assert_can_transition`,
         que exige `phase_number == process.current_phase`: aquí eso ROMPERÍA un
         flujo legítimo que hoy funciona y es el uso normal de esta ruta, no una
         excepción -- el dictamen TARDÍO. Revisar hoy un acta de la fase 1 con el

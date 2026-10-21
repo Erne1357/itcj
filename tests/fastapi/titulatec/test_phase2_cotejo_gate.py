@@ -145,19 +145,21 @@ class TestSoloLaFase2:
 
     @patch("itcj2.apps.titulatec.services.notify.notify_student")
     def test_la_fase_3_no_mira_el_checklist(self, _n, db_session, esc, revisor,
-                                            make_format_b, monkeypatch):
+                                            make_format_b, make_modality, monkeypatch):
         # Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
         # el checklist de cotejo es EXCLUSIVO de la fase 2 (no la 3), no el corte
         # -que en produccion bloquea justo la fase 3-. Su propia cobertura vive
         # en test_handoff_phase_cut.py.
+        from itcj2.apps.titulatec.services.format_b_service import FormatBService
         monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         cohort, process = esc(current_phase=3)
         _req(db_session, cohort, label="Requisito pendiente")
         # La fase 3 solo la mueve el dictamen del Formato B (una sola puerta):
-        # el Formato B ya aprobado en la sesion es lo que deja `FormatBService.approve`.
-        make_format_b(process, status="approved")
+        # `FormatBService.approve` la abre y devuelve lo mismo que `approve_phase`.
+        make_format_b(process, status="submitted", submission_count=1,
+                      modality=make_modality())
 
-        result = PhaseService.approve_phase(db_session, process, 3, reviewer_id=revisor.id)
+        result = FormatBService.approve(db_session, process, revisor.id)
 
         assert result == {"next_phase": 4, "completed": False}
 

@@ -172,9 +172,10 @@ class TestCorteDelAdmin:
 
 class TestCorteEnElDictamenDelFormatoB:
     @staticmethod
-    def _fb_submitted(db, process):
+    def _fb_submitted(db, process, modality=None):
         from itcj2.apps.titulatec.models import FormatB
-        fb = FormatB(process_id=process.id, status="submitted", submission_count=1)
+        fb = FormatB(process_id=process.id, status="submitted", submission_count=1,
+                     modality_id=getattr(modality, "id", None))
         db.add(fb)
         db.flush()
         return fb
@@ -198,13 +199,14 @@ class TestCorteEnElDictamenDelFormatoB:
         assert fb.status == "submitted", "el corte debe bloquear ANTES de escribir"
 
     def test_con_el_corte_en_9_el_dictamen_del_formato_b_si_pasa(
-        self, db_session, seed_phase_defs, make_student, make_process, revisor,
-        monkeypatch,
+        self, db_session, seed_phase_defs, make_student, make_process, make_modality,
+        revisor, monkeypatch,
     ):
         monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         seed_phase_defs()
         process = make_process(make_student(), current_phase=3)
-        fb = self._fb_submitted(db_session, process)
+        # Aprobar exige el tipo de titulación elegido (fix round 1 de la Task 3).
+        fb = self._fb_submitted(db_session, process, modality=make_modality())
 
         FormatBService.approve(db_session, process, revisor.id)
 

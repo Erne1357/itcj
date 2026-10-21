@@ -74,9 +74,11 @@ EDIT_LOCKED_MSG = "Tu Formato B ya fue enviado: ya no se puede editar."
 ALREADY_SUBMITTED_MSG = "Tu Formato B ya fue enviado; no se puede enviar de nuevo."
 NOT_IN_REVIEW_MSG = "Este Formato B no está en revisión: el alumno aún no lo envía."
 NEED_OBSERVATION_MSG = "Escribe al menos una observación: la nota general o la de algún campo."
-NOT_OBSERVABLE_MSG = ("Solo se observan los datos que llena el alumno; nombre y carrera "
-                      "se corrigen en el registro ({campos}).")
+NOT_OBSERVABLE_MSG = ("Solo se observan los datos que llena el alumno (nombre y carrera "
+                      "se corrigen en el registro). No se puede observar: {campos}.")
 NOTE_TOO_LONG_MSG = "Cada observación admite hasta 1000 caracteres."
+NO_MODALITY_MSG = ("El Formato B no tiene tipo de titulación: obsérvalo para que el "
+                   "alumno lo elija.")
 REGISTRY_NOT_IN_REVIEW_MSG = ("El registro solo se corrige mientras el Formato B "
                               "está en revisión.")
 REGISTRY_NAME_MSG = "El nombre y el apellido paterno son obligatorios."
@@ -226,6 +228,13 @@ class FormatBService:
         KEY UPDATE`, que también relee `process`): serializa guardado, envío,
         dictamen y corrección del registro entre sí y contra el dictamen de
         fase. `process` tiene que ser un objeto de ESTA sesión.
+
+        Patrón de todos los que lo toman: las verificaciones van PRIMERO sin
+        bloqueo (lo común —datos inválidos, ya dictaminado, fuera de fase— falla
+        sin tomar candado ni deshacer nada) y se REPITEN bajo el bloqueo sobre lo
+        releído (lo que cambió otra petición mientras tanto). Desde `_lock` hasta
+        el commit, cualquier excepción hace `db.rollback()` antes de re-lanzar:
+        el candado nunca se queda tomado esperando a que el llamador cierre.
         """
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         PhaseService._lock_process_row(db, process)
@@ -243,6 +252,9 @@ class FormatBService:
           campos que sí eran válidos: el alumno ve todo lo que escribió).
         - `rejected` se CONSERVA hasta el reenvío (corrige P9): el alumno sigue
           viendo las observaciones mientras corrige.
+
+        Validación SIN bloqueo; bloqueo + relectura + re-verificación solo para
+        escribir, con `rollback` ante cualquier error ya bajo el bloqueo (ver `_lock`).
         """
         from itcj2.apps.titulatec.services.audit_service import AuditService
 
@@ -252,25 +264,29 @@ class FormatBService:
         if errores:
             raise FormatBValidationError(errores, step)
 
-        fb = FormatBService._lock(db, fb.process)
-        if fb is None or fb.status in ("submitted", "approved"):
-            raise ValueError(EDIT_LOCKED_MSG)
-        campos = STEP_FIELDS.get(step, [])
-        antes = AuditService.snapshot(fb, campos)
-        for campo, valor in valores.items():
-            setattr(fb, campo, valor)
-        # Solo los NOMBRES de los campos que cambiaron: los valores (domicilio,
-        # teléfonos) ya los guarda la red ORM como `data.*` y no se duplican aquí.
-        cambiados, _ = AuditService.changes(antes, AuditService.snapshot(fb, campos))
-        if cambiados:
-            AuditService.record(
-                db, "format_b.step_saved",
-                entity_type="format_b", entity_id=fb.process_id,
-                process_id=fb.process_id, subject=fb.control_number,
-                payload={"step": step, "label": STEP_LABELS.get(step),
-                         "changed_fields": sorted(cambiados)},
-            )
-        db.commit()
+        try:
+            fb = FormatBService._lock(db, fb.process)
+            if fb is None or fb.status in ("submitted", "approved"):
+                raise ValueError(EDIT_LOCKED_MSG)
+            campos = STEP_FIELDS.get(step, [])
+            antes = AuditService.snapshot(fb, campos)
+            for campo, valor in valores.items():
+                setattr(fb, campo, valor)
+            # Solo los NOMBRES de los campos que cambiaron: los valores (domicilio,
+            # teléfonos) ya los guarda la red ORM como `data.*` y no se duplican aquí.
+            cambiados, _ = AuditService.changes(antes, AuditService.snapshot(fb, campos))
+            if cambiados:
+                AuditService.record(
+                    db, "format_b.step_saved",
+                    entity_type="format_b", entity_id=fb.process_id,
+                    process_id=fb.process_id, subject=fb.control_number,
+                    payload={"step": step, "label": STEP_LABELS.get(step),
+                             "changed_fields": sorted(cambiados)},
+                )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     @staticmethod
     def submit(db: Session, fb, process) -> None:
@@ -295,106 +311,135 @@ class FormatBService:
         from itcj2.core.models.user import User
 
         n = PhaseService.phase_number_for_code(db, "format_b")
-        PhaseService._lock_process_row(db, process)
-        PhaseService.assert_student_can_act(db, process, n)
-        fb = FormatBService._reload(db, process.id) or fb
-        if fb.status not in ("draft", "rejected"):
-            raise ValueError(ALREADY_SUBMITTED_MSG)
 
-        ctx = FormatBService.validation_ctx(db, fb)
-        validate_all({c: getattr(fb, c) for c in OBSERVABLE_FIELDS}, ctx)
+        def _verificar(formato):
+            """Fase, estado y validación total; devuelve el contexto validado."""
+            PhaseService.assert_student_can_act(db, process, n)
+            if formato.status not in ("draft", "rejected"):
+                raise ValueError(ALREADY_SUBMITTED_MSG)
+            contexto = FormatBService.validation_ctx(db, formato)
+            validate_all({c: getattr(formato, c) for c in OBSERVABLE_FIELDS}, contexto)
+            return contexto
 
-        user = db.get(User, process.student_id)
-        fb.first_name = user.first_name if user else None
-        fb.last_name = user.last_name if user else None
-        fb.middle_name = user.middle_name if user else None
-        fb.control_number = user.control_number if user else None
-        fb.program_id = process.program_id
-        modalidad = _modality_of(db, fb)
-        fb.titulation_type = modalidad.name if modalidad else None
-        if ctx.requires_project is False:
-            fb.project_name = None
-        fb.status = "submitted"
-        fb.submitted_at = db_now()
-        fb.submission_count = (fb.submission_count or 0) + 1
-        ronda = fb.submission_count
+        _verificar(fb)                                   # sin bloqueo (ver `_lock`)
+        try:
+            PhaseService._lock_process_row(db, process)
+            fb = FormatBService._reload(db, process.id) or fb
+            ctx = _verificar(fb)                         # sobre lo releído
 
-        phase = db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n).first()
-        if not phase:
-            phase = ProcessPhase(process_id=process.id, phase_number=n)
-            db.add(phase)
-        phase.status = "in_review"
-        PhaseService._log(db, process.id, process.student_id, "format_b_submitted", n,
-                          {"round": ronda})
-        AuditService.record(
-            db, "format_b.submitted",
-            entity_type="format_b", entity_id=fb.process_id,
-            process_id=fb.process_id, subject=fb.control_number,
-            payload={"phase_number": n, "round": ronda},
-        )
-        db.commit()
+            user = db.get(User, process.student_id)
+            fb.first_name = user.first_name if user else None
+            fb.last_name = user.last_name if user else None
+            fb.middle_name = user.middle_name if user else None
+            fb.control_number = user.control_number if user else None
+            fb.program_id = process.program_id
+            modalidad = _modality_of(db, fb)
+            fb.titulation_type = modalidad.name if modalidad else None
+            if ctx.requires_project is False:
+                fb.project_name = None
+            fb.status = "submitted"
+            fb.submitted_at = db_now()
+            fb.submission_count = (fb.submission_count or 0) + 1
+            ronda = fb.submission_count
+
+            phase = (db.query(ProcessPhase)
+                     .filter_by(process_id=process.id, phase_number=n).first())
+            if not phase:
+                phase = ProcessPhase(process_id=process.id, phase_number=n)
+                db.add(phase)
+            phase.status = "in_review"
+            PhaseService._log(db, process.id, process.student_id, "format_b_submitted", n,
+                              {"round": ronda})
+            AuditService.record(
+                db, "format_b.submitted",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                payload={"phase_number": n, "round": ronda},
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     # ------------------------------------------------------------------
     # Titulación: dictamen
     # ------------------------------------------------------------------
     @staticmethod
-    def _locked_in_review(db: Session, process, n: int):
-        """Bloqueo + «sigue en revisión» + guarda del motor, ANTES de escribir.
+    def _assert_in_review(db: Session, process, fb, n: int, *, not_in_review: str | None = None,
+                          require_modality: bool = False) -> None:
+        """«Sigue en revisión» + guarda del motor (+ modalidad), sin escribir.
 
-        Común a aprobar, observar y corregir el registro. Verifica el estado del
-        Formato B DESPUÉS del bloqueo (si otro dictaminó primero: «ya fue
-        dictaminado por X el …», RF2) y aplica la guarda del motor
-        (`assert_can_transition`) también antes de escribir: proceso pausado o
-        revocado y corte a T-soft fallan con el mensaje del motor sin dejar nada
-        a medias (RF4).
+        Común a aprobar, observar y corregir el registro, y se corre DOS veces
+        (ver `_lock`): sin bloqueo sobre lo cargado y bajo el bloqueo sobre lo
+        releído. Si otro dictaminó primero: «ya fue dictaminado por X el …»
+        (RF2). La guarda del motor (`assert_can_transition`) va aquí, antes de
+        escribir: proceso pausado o revocado y corte a T-soft fallan con el
+        mensaje del motor sin dejar nada a medias (RF4). Aprobar exige además la
+        modalidad elegida (un Formato B enviado antes de la columna no la tiene:
+        se observa para que el alumno la elija).
         """
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
-        fb = FormatBService._lock(db, process)
         if fb is None or fb.status != "submitted":
-            raise ValueError(already_reviewed_msg(fb))
+            raise ValueError(not_in_review or already_reviewed_msg(fb))
         PhaseService.assert_can_transition(db, process, n)
-        return fb
+        if require_modality and not fb.modality_id:
+            raise ValueError(NO_MODALITY_MSG)
+
+    @staticmethod
+    def _current(db: Session, process):
+        """El Formato B del proceso tal como está en la sesión (sin releer)."""
+        from itcj2.apps.titulatec.models import FormatB
+        return db.get(FormatB, process.id)
 
     @staticmethod
     def approve(db: Session, process, reviewer_id: int) -> dict:
         """Aprueba el Formato B y, en la MISMA transacción, la fase 3.
 
-        Graba `process.modality_id = fb.modality_id` (D8) ANTES de aprobar la
-        fase: `_next_applicable` lee los saltos del catálogo de esa modalidad
+        Exige la modalidad elegida (`NO_MODALITY_MSG`) y graba
+        `process.modality_id = fb.modality_id` (D8) ANTES de aprobar la fase:
+        `_next_applicable` lee los saltos del catálogo de esa modalidad
         (residencias → 4, EGEL → 6). El flush va antes del motor porque
         `approve_phase` relee el proceso con `populate_existing`, que pisaría un
-        cambio sin flush. Si el motor truena, `rollback` y se re-lanza: nada
-        queda a medias. Devuelve lo que devuelve `approve_phase`.
+        cambio sin flush. La puerta del motor se abre con la marca
+        `PhaseService.FORMAT_B_VERDICT_KEY` (se quita al terminar, pase lo que
+        pase). Cualquier error bajo el bloqueo: `rollback` y se re-lanza.
+        Devuelve lo que devuelve `approve_phase`.
         """
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
         n = PhaseService.phase_number_for_code(db, "format_b")
-        fb = FormatBService._locked_in_review(db, process, n)
-        ahora = db_now()
-        fb.status = "approved"
-        fb.approved_by_id = reviewer_id
-        fb.approved_at = ahora
-        fb.reviewed_by_id = reviewer_id
-        fb.reviewed_at = ahora
-        fb.rejection_reason = None
-        process.modality_id = fb.modality_id
-        ronda = fb.submission_count or 0
-        AuditService.record(
-            db, "format_b.reviewed",
-            entity_type="format_b", entity_id=fb.process_id,
-            process_id=fb.process_id, subject=fb.control_number,
-            payload={"status": "approved", "round": ronda},
-            actor_id=reviewer_id,
-        )
+        FormatBService._assert_in_review(db, process, FormatBService._current(db, process), n,
+                                         require_modality=True)
         try:
+            fb = FormatBService._lock(db, process)
+            FormatBService._assert_in_review(db, process, fb, n, require_modality=True)
+            ahora = db_now()
+            fb.status = "approved"
+            fb.approved_by_id = reviewer_id
+            fb.approved_at = ahora
+            fb.reviewed_by_id = reviewer_id
+            fb.reviewed_at = ahora
+            fb.rejection_reason = None
+            process.modality_id = fb.modality_id
+            ronda = fb.submission_count or 0
+            AuditService.record(
+                db, "format_b.reviewed",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                payload={"status": "approved", "round": ronda},
+                actor_id=reviewer_id,
+            )
             db.flush()
+            db.info[PhaseService.FORMAT_B_VERDICT_KEY] = (process.id, "approved")
             return PhaseService.approve_phase(db, process, n, reviewer_id,
                                               event_payload={"format_b": {"round": ronda}})
         except Exception:
             db.rollback()
             raise
+        finally:
+            db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
 
     @staticmethod
     def reject(db: Session, process, reviewer_id: int, *, general_note: str | None,
@@ -403,9 +448,12 @@ class FormatBService:
 
         `field_notes` = `{campo: nota}`; un campo cuenta como observado si su
         nota no queda en blanco (la pestaña puede mandar las notas de todos los
-        campos). Exige al menos una observación (general o de campo) y solo
-        campos que llena el alumno (`EDITABLE_FIELDS`, incluida la modalidad):
-        nombre, control y carrera se corrigen en el registro (§8.5).
+        campos, y una nota en blanco nunca es error). Exige al menos una
+        observación (general o de campo) y solo campos que llena el alumno
+        (`EDITABLE_FIELDS`, incluida la modalidad; el proyecto no, si la
+        modalidad elegida no lo pide): nombre, control y carrera se corrigen en
+        el registro (§8.5). La puerta del motor se abre con la marca
+        `PhaseService.FORMAT_B_VERDICT_KEY`; error bajo el bloqueo → `rollback`.
 
         `review_observations` guarda, por campo, la nota y el valor que tenía
         («Corregido ✓» y «antes → ahora»); sobrevive al reenvío y un nuevo
@@ -417,33 +465,29 @@ class FormatBService:
         from itcj2.apps.titulatec.services.phase_service import PhaseService
 
         general = _clean(general_note) or None
-        notas = {str(campo): _clean(nota) for campo, nota in (field_notes or {}).items()}
-        ajenos = sorted(c for c in notas if c not in OBSERVABLE_FIELDS)
+        # Una nota en blanco = campo no observado, sea cual sea el campo.
+        notas = {str(campo): texto for campo, nota in (field_notes or {}).items()
+                 if (texto := _clean(nota))}
+
+        n = PhaseService.phase_number_for_code(db, "format_b")
+        actual = FormatBService._current(db, process)
+        FormatBService._assert_in_review(db, process, actual, n)
+        # Observables: lo que llena el alumno, menos el proyecto si la modalidad
+        # elegida no lo pide (catálogo, §5.7): ese campo ni se le muestra.
+        modalidad = _modality_of(db, actual)
+        sin_proyecto = modalidad is not None and not modalidad.requires_synodals
+        observables = [c for c in OBSERVABLE_FIELDS
+                       if not (c == "project_name" and sin_proyecto)]
+        ajenos = sorted(c for c in notas if c not in observables)
         if ajenos:
             raise ValueError(NOT_OBSERVABLE_MSG.format(
                 campos=", ".join(FIELD_LABELS.get(c, c) for c in ajenos)))
-        observados = [c for c in OBSERVABLE_FIELDS if notas.get(c)]
+        observados = [c for c in observables if c in notas]
         if not general and not observados:
             raise ValueError(NEED_OBSERVATION_MSG)
         if (general and len(general) > _MAX_NOTE) or any(
                 len(notas[c]) > _MAX_NOTE for c in observados):
             raise ValueError(NOTE_TOO_LONG_MSG)
-
-        n = PhaseService.phase_number_for_code(db, "format_b")
-        fb = FormatBService._locked_in_review(db, process, n)
-        ahora = db_now()
-        fb.status = "rejected"
-        fb.reviewed_by_id = reviewer_id
-        fb.reviewed_at = ahora
-        fb.rejection_reason = general
-        fb.review_observations = {
-            "general": general,
-            "fields": {c: {"note": notas[c], "value": _canon(getattr(fb, c, None))}
-                       for c in observados},
-            "reviewer_id": reviewer_id,
-            "at": ahora.isoformat(),
-        }
-        ronda = fb.submission_count or 0
 
         # Motivo legible del aviso y del correo: la nota general tal cual y, si
         # hay campos, «Campos a corregir: …» con sus etiquetas de pantalla.
@@ -454,22 +498,40 @@ class FormatBService:
             motivo = (f"{general if general[-1] in '.!?' else general + '.'} {lista}"
                       if general else lista)
 
-        AuditService.record(
-            db, "format_b.reviewed",
-            entity_type="format_b", entity_id=fb.process_id,
-            process_id=fb.process_id, subject=fb.control_number,
-            reason=general,
-            payload={"status": "rejected", "round": ronda, "fields": observados},
-            actor_id=reviewer_id,
-        )
         try:
+            fb = FormatBService._lock(db, process)
+            FormatBService._assert_in_review(db, process, fb, n)
+            ahora = db_now()
+            fb.status = "rejected"
+            fb.reviewed_by_id = reviewer_id
+            fb.reviewed_at = ahora
+            fb.rejection_reason = general
+            fb.review_observations = {
+                "general": general,
+                "fields": {c: {"note": notas[c], "value": _canon(getattr(fb, c, None))}
+                           for c in observados},
+                "reviewer_id": reviewer_id,
+                "at": ahora.isoformat(),
+            }
+            ronda = fb.submission_count or 0
+            AuditService.record(
+                db, "format_b.reviewed",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                reason=general,
+                payload={"status": "rejected", "round": ronda, "fields": observados},
+                actor_id=reviewer_id,
+            )
             db.flush()
+            db.info[PhaseService.FORMAT_B_VERDICT_KEY] = (process.id, "rejected")
             PhaseService.reject_phase(
                 db, process, n, reviewer_id, motivo,
                 event_payload={"format_b": {"round": ronda, "fields": observados}})
         except Exception:
             db.rollback()
             raise
+        finally:
+            db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
 
     @staticmethod
     def correct_registry(db: Session, process, reviewer_id: int, *, first_name: str,
@@ -489,10 +551,16 @@ class FormatBService:
         regresarlo. Bitácora `format_b.registry_corrected` con antes/después y
         motivo, evento `format_b_registry_corrected` y aviso al alumno.
         Devuelve `{campo: (antes, después)}` solo de lo que cambió.
+
+        El nivel lo compara `TrackService.same_level` (único lector de
+        `Program.level`, invariante 2). Verificaciones primero sin bloqueo y
+        repetidas bajo el bloqueo; cualquier error bajo el bloqueo —incluso
+        tras escribir— hace `rollback` (ver `_lock`).
         """
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.notify import notify_student
         from itcj2.apps.titulatec.services.phase_service import PhaseService
+        from itcj2.apps.titulatec.services.track_service import TrackService
         from itcj2.core.models.program import Program
         from itcj2.core.models.user import User
 
@@ -505,60 +573,67 @@ class FormatBService:
             raise ValueError(REGISTRY_NAME_LONG_MSG)
         if not motivo or len(motivo) > _MAX_REASON:
             raise ValueError(REGISTRY_REASON_MSG)
-
-        n = PhaseService.phase_number_for_code(db, "format_b")
-        fb = FormatBService._lock(db, process)
-        if fb is None or fb.status != "submitted":
-            raise ValueError(REGISTRY_NOT_IN_REVIEW_MSG)
-        PhaseService.assert_can_transition(db, process, n)
-
         try:
             nuevo_id = int(program_id)
         except (TypeError, ValueError):
             raise ValueError(REGISTRY_PROGRAM_MSG) from None
-        if process.program_id is None:
-            raise ValueError(REGISTRY_NO_PROGRAM_MSG)
-        niveles = dict(db.query(Program.id, Program.level)
-                       .filter(Program.id.in_({nuevo_id, process.program_id})).all())
-        if nuevo_id not in niveles:
-            raise ValueError(REGISTRY_PROGRAM_MSG)
-        nivel_actual, nivel_nuevo = niveles.get(process.program_id), niveles[nuevo_id]
-        if nivel_nuevo != nivel_actual:
-            raise ValueError(REGISTRY_LEVEL_MSG)
 
-        user = db.get(User, process.student_id)
-        antes = {"first_name": user.first_name, "last_name": user.last_name,
-                 "middle_name": user.middle_name, "program_id": process.program_id}
-        despues = {"first_name": nombre, "last_name": paterno,
-                   "middle_name": materno, "program_id": nuevo_id}
-        before, after = AuditService.changes(antes, despues)
-        if not after:
-            raise ValueError(REGISTRY_NO_CHANGES_MSG)
-        campos = [c for c in CORRECTABLE_FIELDS if c in after]
+        n = PhaseService.phase_number_for_code(db, "format_b")
 
-        user.first_name, user.last_name, user.middle_name = nombre, paterno, materno
-        process.program_id = nuevo_id
-        fb.first_name, fb.last_name, fb.middle_name = nombre, paterno, materno
-        fb.program_id = nuevo_id
+        def _plan(formato):
+            """En revisión + guarda del motor + carrera + cambios: `(user, antes,
+            después, before, after)`. Sin escribir nada."""
+            FormatBService._assert_in_review(db, process, formato, n,
+                                             not_in_review=REGISTRY_NOT_IN_REVIEW_MSG)
+            if db.get(Program, nuevo_id) is None:
+                raise ValueError(REGISTRY_PROGRAM_MSG)
+            if process.program_id is None:
+                raise ValueError(REGISTRY_NO_PROGRAM_MSG)
+            if not TrackService.same_level(db, process.program_id, nuevo_id):
+                raise ValueError(REGISTRY_LEVEL_MSG)
+            user = (db.query(User).filter_by(id=process.student_id)
+                    .populate_existing().first())
+            antes = {"first_name": user.first_name, "last_name": user.last_name,
+                     "middle_name": user.middle_name, "program_id": process.program_id}
+            despues = {"first_name": nombre, "last_name": paterno,
+                       "middle_name": materno, "program_id": nuevo_id}
+            before, after = AuditService.changes(antes, despues)
+            if not after:
+                raise ValueError(REGISTRY_NO_CHANGES_MSG)
+            return user, antes, despues, before, after
 
-        AuditService.record(
-            db, "format_b.registry_corrected",
-            entity_type="format_b", entity_id=fb.process_id,
-            process_id=fb.process_id, subject=fb.control_number,
-            reason=motivo, before=before, after=after,
-            payload={"fields": campos},
-            actor_id=reviewer_id,
-        )
-        PhaseService._log(db, process.id, reviewer_id, "format_b_registry_corrected", n,
-                          {"fields": campos, "reason": motivo})
-        corregido = " y ".join(x for x, hay in (
-            ("nombre", any(c != "program_id" for c in campos)),
-            ("carrera", "program_id" in campos)) if hay)
-        notify_student(db, process.student_id, type="REGISTRY_CORRECTED",
-                       title="Titulación corrigió tu registro",
-                       body=f"Titulación corrigió tu {corregido} en tu registro.",
-                       process_id=process.id, phase_number=n)
-        db.commit()
+        _plan(FormatBService._current(db, process))      # sin bloqueo
+        try:
+            fb = FormatBService._lock(db, process)
+            user, antes, despues, before, after = _plan(fb)   # sobre lo releído
+            campos = [c for c in CORRECTABLE_FIELDS if c in after]
+
+            user.first_name, user.last_name, user.middle_name = nombre, paterno, materno
+            process.program_id = nuevo_id
+            fb.first_name, fb.last_name, fb.middle_name = nombre, paterno, materno
+            fb.program_id = nuevo_id
+
+            AuditService.record(
+                db, "format_b.registry_corrected",
+                entity_type="format_b", entity_id=fb.process_id,
+                process_id=fb.process_id, subject=fb.control_number,
+                reason=motivo, before=before, after=after,
+                payload={"fields": campos},
+                actor_id=reviewer_id,
+            )
+            PhaseService._log(db, process.id, reviewer_id, "format_b_registry_corrected", n,
+                              {"fields": campos, "reason": motivo})
+            corregido = " y ".join(x for x, hay in (
+                ("nombre", any(c != "program_id" for c in campos)),
+                ("carrera", "program_id" in campos)) if hay)
+            notify_student(db, process.student_id, type="REGISTRY_CORRECTED",
+                           title="Titulación corrigió tu registro",
+                           body=f"Titulación corrigió tu {corregido} en tu registro.",
+                           process_id=process.id, phase_number=n)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         return {c: (antes[c], despues[c]) for c in campos}
 
     # ------------------------------------------------------------------

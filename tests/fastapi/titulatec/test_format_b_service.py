@@ -15,9 +15,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.orm.attributes import set_committed_value
 
 from itcj2.apps.titulatec.services.format_b_service import (
-    ALREADY_SUBMITTED_MSG, EDIT_LOCKED_MSG, NEED_OBSERVATION_MSG, FormatBService,
+    ALREADY_SUBMITTED_MSG, EDIT_LOCKED_MSG, NEED_OBSERVATION_MSG, NO_MODALITY_MSG,
+    REGISTRY_LEVEL_MSG, REGISTRY_NAME_MSG, REGISTRY_NO_CHANGES_MSG, REGISTRY_NOT_IN_REVIEW_MSG,
+    REGISTRY_PROGRAM_MSG, REGISTRY_REASON_MSG, FormatBService,
 )
 from itcj2.apps.titulatec.services.format_b_validation import FormatBValidationError
 from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -114,6 +117,23 @@ def _acciones(db, action):
     db.flush()
     return (audit_query(db).filter_by(source="action", action=action)
             .order_by(TitulatecAuditLog.id).all())
+
+
+@pytest.fixture()
+def rollbacks(db_session, monkeypatch):
+    """Cuenta los `db.rollback()` del servicio (y los deja ocurrir).
+
+    Lo que se mide: un error ANTES del bloqueo no deshace nada (no hay
+    candado que soltar); un error BAJO el bloqueo sí, antes de re-lanzar.
+    """
+    llamadas = []
+    original = db_session.rollback
+
+    def _contado():
+        llamadas.append(1)
+        return original()
+    monkeypatch.setattr(db_session, "rollback", _contado)
+    return llamadas
 
 
 # ---------------------------------------------------------------------------
@@ -295,9 +315,9 @@ class TestEnviar:
         assert len(_eventos(db_session, e.proc.id, "format_b_submitted")) == 1
 
     def test_borrador_viejo_invalido_lleva_al_primer_paso_con_errores(self, db_session, esc,
-                                                                    make_format_b):
+                                                                    make_format_b, rollbacks):
         """RF3: datos guardados antes de las validaciones (edad vacía, teléfono
-        de 8 dígitos) no se envían."""
+        de 8 dígitos) no se envían. Falla ANTES del bloqueo: nada que deshacer."""
         e = esc()
         fb = make_format_b(e.proc, gender="male", age=None, mobile_phone="65612345",
                            modality=e.residencias, study_plan="ISIC-2010-224",
@@ -311,6 +331,7 @@ class TestEnviar:
         assert fb.status == "draft" and fb.submission_count == 0
         assert _fases(db_session, e.proc.id)[3] == "in_progress"
         assert _eventos(db_session, e.proc.id, "format_b_submitted") == []
+        assert rollbacks == []
 
     def test_el_error_del_paso_2_lleva_al_paso_2(self, db_session, esc, make_format_b):
         e = esc()
@@ -428,10 +449,40 @@ class TestAprobar:
         assert "ya fue dictaminado" in str(exc.value)
 
     def test_un_borrador_no_se_dictamina(self, db_session, esc, make_format_b, revisor):
+        from itcj2.apps.titulatec.services.format_b_service import NOT_IN_REVIEW_MSG
         e = esc()
         make_format_b(e.proc)
+        with pytest.raises(ValueError) as exc:
+            FormatBService.approve(db_session, e.proc, revisor.id)
+        assert str(exc.value) == NOT_IN_REVIEW_MSG
+
+    def test_sin_tipo_de_titulacion_no_se_aprueba_y_no_escribe(self, db_session, esc,
+                                                               make_format_b, revisor,
+                                                               rollbacks):
+        """Un Formato B enviado antes de la columna `modality_id` no la tiene:
+        aprobarlo dejaría `process.modality_id` en NULL. Se observa."""
+        e = esc(modality=None)
+        fb = make_format_b(e.proc, status="submitted", submission_count=1, modality=None)
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.approve(db_session, e.proc, revisor.id)
+
+        assert str(exc.value) == NO_MODALITY_MSG
+        assert fb.status == "submitted" and fb.approved_by_id is None
+        assert e.proc.current_phase == 3 and e.proc.modality_id is None
+        assert _eventos(db_session, e.proc.id, "phase_approved") == []
+        assert _acciones(db_session, "format_b.reviewed") == []
+        assert rollbacks == [], "falla antes del bloqueo"
+
+    def test_un_proceso_con_modalidad_no_la_pierde_con_un_fb_sin_ella(
+            self, db_session, esc, make_format_b, revisor):
+        e = esc(modality=None)
+        e.proc.modality_id = e.residencias.id
+        make_format_b(e.proc, status="submitted", submission_count=1, modality=None)
+
         with pytest.raises(ValueError):
             FormatBService.approve(db_session, e.proc, revisor.id)
+        assert e.proc.modality_id == e.residencias.id
 
     def test_proceso_pausado_falla_con_el_motor_y_no_escribe(self, db_session, esc, revisor):
         """RF4: el mensaje es el del motor y no queda nada a medias."""
@@ -534,13 +585,50 @@ class TestObservar:
     @pytest.mark.parametrize("campo", ["first_name", "control_number", "program_id",
                                        "titulation_type", "status"])
     def test_campos_del_registro_no_se_observan(self, db_session, esc, revisor, campo):
+        from itcj2.apps.titulatec.services.format_b_service import NOT_OBSERVABLE_MSG
         e = esc()
         fb = _enviado(db_session, e)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError) as exc:
             FormatBService.reject(db_session, e.proc, revisor.id, general_note="Mal",
                                   field_notes={campo: "Está mal"})
+        assert str(exc.value).startswith(NOT_OBSERVABLE_MSG.split("{")[0])
         assert fb.status == "submitted"
         assert _eventos(db_session, e.proc.id, "phase_rejected") == []
+
+    def test_una_nota_en_blanco_de_un_campo_no_observable_no_es_error(self, db_session,
+                                                                      esc, revisor):
+        """La pestaña puede mandar la nota de todos los campos: en blanco = no
+        observado, también para los que no se pueden observar."""
+        e = esc()
+        fb = _enviado(db_session, e)
+
+        FormatBService.reject(db_session, e.proc, revisor.id, general_note=None,
+                              field_notes={"first_name": "   ", "control_number": "",
+                                           "street": "Incompleta"})
+
+        assert fb.status == "rejected"
+        assert list(fb.review_observations["fields"]) == ["street"]
+
+    def test_sin_proyecto_requerido_el_proyecto_no_se_observa(self, db_session, esc,
+                                                              revisor):
+        from itcj2.apps.titulatec.services.format_b_service import NOT_OBSERVABLE_MSG
+        e = esc()
+        fb = _enviado(db_session, e, modalidad=e.egel)
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.reject(db_session, e.proc, revisor.id, general_note=None,
+                                  field_notes={"project_name": "Falta el proyecto"})
+
+        assert str(exc.value) == NOT_OBSERVABLE_MSG.format(campos="Nombre del proyecto")
+        assert fb.status == "submitted"
+
+    def test_con_proyecto_requerido_el_proyecto_si_se_observa(self, db_session, esc,
+                                                              revisor):
+        e = esc()
+        fb = _enviado(db_session, e)
+        FormatBService.reject(db_session, e.proc, revisor.id, general_note=None,
+                              field_notes={"project_name": "Muy general"})
+        assert list(fb.review_observations["fields"]) == ["project_name"]
 
 
 # ---------------------------------------------------------------------------
@@ -574,6 +662,116 @@ class TestUnaSolaPuerta:
         with pytest.raises(ValueError) as exc:
             PhaseService.approve_phase(db_session, e.proc, 3, reviewer_id=revisor.id)
         assert str(exc.value) == PhaseService.FORMAT_B_ONLY_MSG
+
+    def test_con_fb_rechazado_el_rechazo_generico_no_pasa(self, db_session, esc, revisor):
+        """P9 conserva `rejected` mientras el alumno corrige: el botón genérico
+        «Rechazar fase» ya no puede re-rechazar la fase 3 por otra puerta."""
+        e = esc()
+        fb = _enviado(db_session, e)
+        FormatBService.reject(db_session, e.proc, revisor.id, general_note="Revisa",
+                              field_notes={})
+        assert fb.status == "rejected"
+
+        with pytest.raises(ValueError) as exc:
+            PhaseService.reject_phase(db_session, e.proc, 3, reviewer_id=revisor.id,
+                                      reason="otra vez, por el expediente")
+
+        assert str(exc.value) == PhaseService.FORMAT_B_ONLY_MSG
+        assert len(_eventos(db_session, e.proc.id, "phase_rejected")) == 1
+
+    def test_con_fb_aprobado_la_aprobacion_generica_no_pasa(self, db_session, esc,
+                                                            make_format_b, revisor):
+        e = esc()
+        make_format_b(e.proc, status="approved", modality=e.residencias, submission_count=1)
+
+        with pytest.raises(ValueError) as exc:
+            PhaseService.approve_phase(db_session, e.proc, 3, reviewer_id=revisor.id)
+
+        assert str(exc.value) == PhaseService.FORMAT_B_ONLY_MSG
+        assert e.proc.current_phase == 3
+
+    def test_la_marca_de_otro_proceso_o_veredicto_no_abre_la_puerta(self, db_session, esc,
+                                                                    make_format_b, revisor):
+        e = esc()
+        make_format_b(e.proc, status="approved", modality=e.residencias)
+        for marca in ((e.proc.id + 1, "approved"), (e.proc.id, "rejected")):
+            db_session.info[PhaseService.FORMAT_B_VERDICT_KEY] = marca
+            with pytest.raises(ValueError) as exc:
+                PhaseService.approve_phase(db_session, e.proc, 3, reviewer_id=revisor.id)
+            assert str(exc.value) == PhaseService.FORMAT_B_ONLY_MSG
+            assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info, "se consume"
+
+    def test_la_marca_no_sobrevive_al_dictamen(self, db_session, esc, revisor, monkeypatch):
+        e = esc()
+        _enviado(db_session, e)
+        FormatBService.approve(db_session, e.proc, revisor.id)
+        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+
+        # Si el motor truena antes de la guarda, la marca tampoco se queda.
+        e2 = esc()
+        _enviado(db_session, e2)
+
+        def _truena(*_a, **_k):
+            raise RuntimeError("el motor no llegó a la guarda")
+        monkeypatch.setattr(PhaseService, "reject_phase", staticmethod(_truena))
+        with pytest.raises(RuntimeError):
+            FormatBService.reject(db_session, e2.proc, revisor.id, general_note="Revisa",
+                                  field_notes={})
+        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+
+
+# ---------------------------------------------------------------------------
+# Relectura bajo el bloqueo (carreras deterministas, técnica de
+# `test_phase_verdict_lock.py`): el perdedor ve en memoria lo que leyó ANTES de
+# que el ganador hiciera commit. Sin `populate_existing` en `_reload`, su
+# verificación correría sobre ese dato viejo y pasaría.
+# ---------------------------------------------------------------------------
+class TestRelecturaBajoElBloqueo:
+    def test_aprobar_y_observar_a_la_vez_el_perdedor_ve_el_dictamen(
+            self, db_session, esc, revisor, make_user, rollbacks):
+        e = esc()
+        fb = _enviado(db_session, e)
+        FormatBService.approve(db_session, e.proc, revisor.id)       # A gana
+        set_committed_value(fb, "status", "submitted")               # lo que leyó B
+        set_committed_value(e.proc, "current_phase", 3)
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.reject(db_session, e.proc, make_user().id,
+                                  general_note="Revisa tu domicilio", field_notes={})
+
+        assert "ya fue dictaminado por LUISA REVISORA" in str(exc.value)
+        assert rollbacks == [1], "falla bajo el bloqueo: deshace antes de re-lanzar"
+        db_session.expire_all()
+        assert fb.status == "approved" and e.proc.current_phase == 4
+        assert _eventos(db_session, e.proc.id, "phase_rejected") == []
+        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+
+    def test_doble_envio_desde_dos_pestanas(self, db_session, esc, rollbacks):
+        e = esc()
+        fb = _enviado(db_session, e)                                  # pestaña 1
+        set_committed_value(fb, "status", "draft")                   # lo que vio la 2
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.submit(db_session, fb, e.proc)
+
+        assert str(exc.value) == ALREADY_SUBMITTED_MSG
+        assert rollbacks == [1]
+        db_session.expire_all()
+        assert fb.status == "submitted" and fb.submission_count == 1
+        assert len(_eventos(db_session, e.proc.id, "format_b_submitted")) == 1
+
+    def test_guardar_un_paso_cuando_otra_pestana_ya_envio(self, db_session, esc, rollbacks):
+        e = esc()
+        fb = _enviado(db_session, e)
+        set_committed_value(fb, "status", "draft")
+
+        with pytest.raises(ValueError) as exc:
+            FormatBService.save_step(db_session, fb, 1, _paso1(street="Otra calle"))
+
+        assert str(exc.value) == EDIT_LOCKED_MSG
+        assert rollbacks == [1]
+        db_session.expire_all()
+        assert fb.street == "Av. Juarez" and fb.status == "submitted"
 
     def test_las_demas_fases_no_cambian(self, db_session, esc, revisor):
         e = esc(current_phase=4)
@@ -627,50 +825,75 @@ class TestCorteEnTres:
 # correct_registry (D9, §8.5)
 # ---------------------------------------------------------------------------
 class TestCorregirRegistro:
-    def test_en_borrador_no_se_corrige(self, db_session, esc, revisor):
+    @staticmethod
+    def _corregir(db, e, revisor, **cambios):
+        datos = {"first_name": "ANNA", "last_name": "PEREZ", "middle_name": None,
+                 "program_id": e.programa.id, "reason": "Acta de nacimiento"}
+        datos.update(cambios)
+        return FormatBService.correct_registry(db, e.proc, revisor.id, **datos)
+
+    @pytest.mark.parametrize("estado", ["draft", "approved", "rejected"])
+    def test_fuera_de_revision_no_se_corrige(self, db_session, esc, revisor, make_format_b,
+                                             estado, rollbacks):
         e = esc()
-        FormatBService.get_or_create(db_session, e.proc)
-        with pytest.raises(ValueError):
-            FormatBService.correct_registry(db_session, e.proc, revisor.id,
-                                            first_name="ANNA", last_name="PEREZ",
-                                            middle_name=None, program_id=e.programa.id,
-                                            reason="Acta de nacimiento")
+        make_format_b(e.proc, status=estado, modality=e.residencias, submission_count=1)
+
+        with pytest.raises(ValueError) as exc:
+            self._corregir(db_session, e, revisor)
+
+        assert str(exc.value) == REGISTRY_NOT_IN_REVIEW_MSG
         assert e.alumno.first_name == "ANA"
+        assert rollbacks == []
 
     def test_cambiar_de_nivel_no_se_permite(self, db_session, esc, revisor, make_program):
         e = esc()
         _enviado(db_session, e)
         maestria = make_program("Maestria Ficticia Formato B", level="maestria")
 
-        with pytest.raises(ValueError):
-            FormatBService.correct_registry(db_session, e.proc, revisor.id,
-                                            first_name="ANA", last_name="PEREZ",
-                                            middle_name=None, program_id=maestria.id,
-                                            reason="Se equivocó de carrera")
+        with pytest.raises(ValueError) as exc:
+            self._corregir(db_session, e, revisor, first_name="ANA",
+                           program_id=maestria.id, reason="Se equivocó de carrera")
+        assert str(exc.value) == REGISTRY_LEVEL_MSG
         assert e.proc.program_id == e.programa.id
 
-    @pytest.mark.parametrize("cambios", [
-        {"first_name": "   "}, {"last_name": ""}, {"reason": "  "},
-        {"program_id": 987654321},
+    @pytest.mark.parametrize("cambios, mensaje", [
+        ({"first_name": "   "}, REGISTRY_NAME_MSG),
+        ({"last_name": ""}, REGISTRY_NAME_MSG),
+        ({"reason": "  "}, REGISTRY_REASON_MSG),
+        ({"reason": "x" * 501}, REGISTRY_REASON_MSG),
+        ({"program_id": 987654321}, REGISTRY_PROGRAM_MSG),
+        ({"program_id": "abc"}, REGISTRY_PROGRAM_MSG),
     ])
-    def test_datos_obligatorios(self, db_session, esc, revisor, cambios):
+    def test_datos_obligatorios(self, db_session, esc, revisor, cambios, mensaje):
         e = esc()
         _enviado(db_session, e)
-        datos = {"first_name": "ANNA", "last_name": "PEREZ", "middle_name": None,
-                 "program_id": e.programa.id, "reason": "Acta de nacimiento"}
-        datos.update(cambios)
-        with pytest.raises(ValueError):
-            FormatBService.correct_registry(db_session, e.proc, revisor.id, **datos)
+        with pytest.raises(ValueError) as exc:
+            self._corregir(db_session, e, revisor, **cambios)
+        assert str(exc.value) == mensaje
         assert e.alumno.first_name == "ANA"
 
     def test_sin_cambios_no_hay_nada_que_corregir(self, db_session, esc, revisor):
         e = esc()
         _enviado(db_session, e)
-        with pytest.raises(ValueError):
-            FormatBService.correct_registry(db_session, e.proc, revisor.id,
-                                            first_name="ANA", last_name="PEREZ",
-                                            middle_name=None, program_id=e.programa.id,
-                                            reason="Revisión")
+        with pytest.raises(ValueError) as exc:
+            self._corregir(db_session, e, revisor, first_name="ANA", reason="Revisión")
+        assert str(exc.value) == REGISTRY_NO_CHANGES_MSG
+
+    def test_si_algo_truena_tras_escribir_se_revierte_todo(self, db_session, esc, revisor,
+                                                           monkeypatch, rollbacks):
+        e = esc()
+        fb = _enviado(db_session, e)
+
+        def _truena(*_a, **_k):
+            raise RuntimeError("falla al escribir el evento")
+        monkeypatch.setattr(PhaseService, "_log", staticmethod(_truena))
+
+        with pytest.raises(RuntimeError):
+            self._corregir(db_session, e, revisor)
+
+        assert rollbacks == [1]
+        assert e.alumno.first_name == "ANA" and fb.first_name == "ANA"
+        assert _acciones(db_session, "format_b.registry_corrected") == []
 
     def test_correccion_feliz(self, db_session, esc, revisor, make_program):
         from itcj2.core.models.notification import Notification
@@ -704,6 +927,25 @@ class TestCorregirRegistro:
         aviso = (db_session.query(Notification)
                  .filter_by(user_id=e.alumno.id, type="REGISTRY_CORRECTED").one())
         assert "nombre y carrera" in aviso.body
+
+
+class TestMismoNivel:
+    """`TrackService.same_level`: el único lector de `Program.level` decide."""
+
+    def test_mismo_y_distinto_nivel(self, db_session, make_program):
+        from itcj2.apps.titulatec.services.track_service import TrackService
+        lic_a = make_program("Ingenieria Ficticia Nivel A")
+        lic_b = make_program("Ingenieria Ficticia Nivel B")
+        mae = make_program("Maestria Ficticia Nivel", level="maestria")
+        doc = make_program("Doctorado Ficticio Nivel", level="doctorado")
+
+        assert TrackService.same_level(db_session, lic_a.id, lic_b.id) is True
+        assert TrackService.same_level(db_session, lic_a.id, lic_a.id) is True
+        assert TrackService.same_level(db_session, lic_a.id, mae.id) is False
+        assert TrackService.same_level(db_session, mae.id, doc.id) is False, \
+            "mismo perfil (posgrado) pero distinto nivel"
+        assert TrackService.same_level(db_session, lic_a.id, 987654321) is False
+        assert TrackService.same_level(db_session, None, lic_a.id) is False
 
 
 # ---------------------------------------------------------------------------
