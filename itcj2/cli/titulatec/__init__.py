@@ -20,6 +20,8 @@ La lista de comandos con sus opciones está en el docstring de `_common.py`.
     nips            exportar-sin-cuenta, cargar-nips, purgar-nips
     promedios       exportar-controles, cargar-promedios
     documentos      init-reemplazo-docs
+    fase2           init-titulatec-fase-2 (DML de la fase 2 del desarrollo, fases 3-8;
+                    tras init-titulatec o init-ajustes-2026-10 hay que re-correrlo)
 
 Cada submódulo registra sus comandos en `titulatec_cli` al importarse: por eso
 este archivo los importa TODOS. Los submódulos de comandos solo dependen de
@@ -52,6 +54,7 @@ from itcj2.cli.titulatec import (  # noqa: F401
     nips,
     promedios,
     documentos,
+    fase2,
 )
 # isort: on
 

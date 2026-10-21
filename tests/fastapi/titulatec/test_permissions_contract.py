@@ -205,12 +205,15 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_103_permisos_conocidos():
+def test_el_dml_declara_los_105_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    103 es el numero verificado en BD tras `titulatec init-reemplazo-docs`
-    (o tras `init-titulatec` desde cero).
+    105 es el numero verificado en BD tras `titulatec init-titulatec-fase-2`
+    (o tras `init-titulatec` + `init-titulatec-fase-2` desde cero).
 
+    2026-10-21: sube de 103 a 105 por `titulatec.titulacion.page.list` y
+    `titulatec.format_b.api.correct_registry` (fase 3, Formato B en Titulacion,
+    fase_2/01_titulacion_formato_b.sql).
     2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement (reemplazo en cotejo, reemplazo_2026_10/27).
     2026-10-14: sube de 101 a 102 por titulatec.reports.page.view (Tablero de la jefa, reportes_2026_10/26).
     Eran 99 hasta el 2026-10-07, cuando
@@ -255,10 +258,10 @@ def test_el_dml_declara_los_103_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 103, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 103 "
-        "(2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement, "
-        "el reemplazo en cotejo). Actualiza este numero "
+    assert len(declared) == 105, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 105 "
+        "(2026-10-21: sube de 103 a 105 por los dos permisos de fase_2/01, "
+        "Formato B en Titulacion). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )
@@ -660,6 +663,11 @@ def test_el_03_converge_titulacion_al_set_exacto_y_ningun_dml_le_devuelve_nada()
         "el DELETE debe acotarse a la app titulatec")
 
     for path in sorted(DML_DIR.rglob("*.sql")):
+        # `fase_2/` (init-titulatec-fase-2) es el camino SANCIONADO de la fase 2
+        # del desarrollo (fases 3-8): amplia a titulatec_titulacion a proposito,
+        # y se re-corre despues de cualquier init-titulatec.
+        if path.relative_to(DML_DIR).parts[0] == "fase_2":
+            continue
         cuerpo = _sin_comentarios(path.read_text(encoding="utf-8"))
         for stmt in cuerpo.split(";"):
             if not re.search(r"INSERT\s+INTO\s+core_role_permissions", stmt):
