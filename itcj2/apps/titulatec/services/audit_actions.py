@@ -226,6 +226,9 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_survey_responses": "surveys",
     "titulatec_survey_reviews": "surveys",
     "titulatec_synodal_assignments": "processes",
+    "titulatec_teacher_profiles": "processes",
+    "titulatec_program_departments": "processes",
+    "titulatec_department_settings": "processes",
 }
 
 TABLE_LABELS: dict[str, str] = {
@@ -264,6 +267,9 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_survey_responses": "Encuesta respondida",
     "titulatec_survey_reviews": "Liberación de encuesta",
     "titulatec_synodal_assignments": "Sinodal asignado",
+    "titulatec_teacher_profiles": "Perfil docente",
+    "titulatec_program_departments": "Carrera por departamento",
+    "titulatec_department_settings": "Ajustes de oficio del departamento",
 }
 
 # `entity_type` CORTO de las acciones explícitas (`AuditService.record(...,

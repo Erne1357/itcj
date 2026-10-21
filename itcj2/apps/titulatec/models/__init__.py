@@ -37,6 +37,10 @@ from itcj2.apps.titulatec.models.prior_clearance import PriorClearance  # noqa: 
 from itcj2.apps.titulatec.models.audit_log import TitulatecAuditLog  # noqa: F401
 from itcj2.apps.titulatec.models.nip_stash import NipStash  # noqa: F401
 from itcj2.apps.titulatec.models.official_average import OfficialAverage  # noqa: F401
+from itcj2.apps.titulatec.models.teacher_profile import TeacherProfile  # noqa: F401
+from itcj2.apps.titulatec.models.program_department import (  # noqa: F401
+    ProgramDepartment, DepartmentSettings,
+)
 
 # Alias de comodidad (spec: «AuditLog»). La clase real se llama distinto porque
 # agendatec ya registra una `AuditLog` en el mismo `Base`. Fuera de `__all__`.
@@ -78,6 +82,9 @@ __all__ = [
     "NipStash",
     "OfficialAverage",
     "TitulatecAuditLog",
+    "TeacherProfile",
+    "ProgramDepartment",
+    "DepartmentSettings",
 ]
 
 # Bitácora (spec 2026-10-07 §4.4): la escucha `after_flush` se instala AQUÍ, al

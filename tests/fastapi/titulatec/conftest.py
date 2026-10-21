@@ -786,6 +786,98 @@ def make_officer(make_user, make_role, make_position, assign_position,
     return _make
 
 
+# ---------------------------------------------------------------------------
+# Fase 4 (sinodales): carrera -> depto, docentes, jefes académicos, sinodales
+# ---------------------------------------------------------------------------
+ROLE_ACADEMIC = f"tt_test_academic_{_RUN}"
+ACADEMIC_PERMS = (
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+)
+
+
+@pytest.fixture()
+def make_program_department(db_session):
+    """`ProgramDepartment`: carrera -> departamento académico (idempotente por carrera)."""
+    from itcj2.apps.titulatec.models import ProgramDepartment
+
+    def _make(program, department, official_name=None):
+        row = db_session.get(ProgramDepartment, program.id)
+        if row is None:
+            row = ProgramDepartment(program_id=program.id, department_id=department.id,
+                                    official_name=official_name)
+            db_session.add(row)
+        else:
+            row.department_id = department.id
+            row.official_name = official_name
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_teacher(db_session, make_user, make_position, assign_position):
+    """Docente de un departamento: puesto `docente_{code}`, `UserPosition` vigente y perfil."""
+    from itcj2.apps.titulatec.models import TeacherProfile
+
+    def _make(department, *, user=None, academic_degree="Maestra en Software Libre",
+              professional_license="10837613"):
+        user = user or make_user(first_name="DOCENTE", last_name="FICTICIO")
+        pos = make_position(code=f"docente_{department.code}",
+                            title="Docente de prueba", department=department)
+        assign_position(user, pos)
+        if db_session.get(TeacherProfile, user.id) is None:
+            db_session.add(TeacherProfile(user_id=user.id, academic_degree=academic_degree,
+                                          professional_license=professional_license))
+            db_session.flush()
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_academic_head(db_session, make_user, make_role, make_position, assign_position,
+                       bind_position_role):
+    """Jefe de depto (`head_{code}`) o coordinador de vinculación (`coord_vinculacion_{code}`).
+
+    El puesto queda ligado a un rol de prueba con `perms` (patrón de `make_head`).
+    """
+    def _make(department, *, kind="head", perms=ACADEMIC_PERMS):
+        if kind not in ("head", "coord"):
+            raise ValueError("kind debe ser 'head' o 'coord'")
+        code = (f"head_{department.code}" if kind == "head"
+                else f"coord_vinculacion_{department.code}")
+        user = make_user(first_name="JEFE" if kind == "head" else "COORD",
+                         last_name="ACADEMICO")
+        role = make_role(ROLE_ACADEMIC, perms)
+        pos = make_position(code=code, title="Puesto academico de prueba",
+                            department=department)
+        bind_position_role(pos, role)
+        assign_position(user, pos)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_synodals(db_session):
+    """Las asignaciones activas de un proceso: `teachers` = {rol: User} (president|secretary|vocal|alternate)."""
+    from itcj2.apps.titulatec.models import SynodalAssignment
+
+    def _make(process, teachers, assigned_by):
+        rows = []
+        for role, teacher in teachers.items():
+            row = SynodalAssignment(process_id=process.id, user_id=teacher.id, role=role,
+                                    assigned_by_id=assigned_by.id)
+            db_session.add(row)
+            rows.append(row)
+        db_session.flush()
+        return rows
+
+    return _make
+
+
 @pytest.fixture()
 def make_student(make_user, make_role, grant_user_role):
     """Alumno sintetico con rol DIRECTO en la app (como lo deja el importador)."""
