@@ -1741,8 +1741,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     fb_row = db.get(FormatB, process_id)
     formato_b = None
     if fb_row and fb_row.status != "draft":
+        # Solo lectura COMPLETA (spec fase 3 §9): las tres secciones del motor,
+        # con observaciones vigentes. El dictamen vive en la pestaña Titulación.
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
-                     "program_name": program.name if program else None}
+                     "program_name": program.name if program else None,
+                     "round": fb_row.submission_count or 0,
+                     "rejection_reason": fb_row.rejection_reason,
+                     "sections": FormatBService.display_sections(db, fb_row, proc)}
+    from itcj2.apps.titulatec.services.phase_service import PhaseService as _PS
+    format_b_phase = _PS.phase_number_for_code(db, "format_b")
 
     # ---- requisitos de cotejo de la fase 2 (§5.4) ----
     #
@@ -1807,7 +1814,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # botones «Aprobar fase»/«Rechazar fase» del mismo `#exp-modal-fase`): con
     # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
     can_dictaminar_fase = False
-    can_dictaminar_fb = False
+    can_open_titulacion = False
     can_revoke = False
     can_register_prior = False
     can_request_replacement = False
@@ -1826,9 +1833,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         can_dictaminar_fase = bool(_user_perms & {
             "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
         })
-        can_dictaminar_fb = bool(_user_perms & {
-            "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
-        })
+        can_open_titulacion = "titulatec.titulacion.page.list" in _user_perms
         # «Revocar inscripción»: mismo permiso que exige `process_cancel`, y
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
@@ -1946,7 +1951,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
         "can_dictaminar_fase": can_dictaminar_fase,
-        "can_dictaminar_fb": can_dictaminar_fb,
+        "can_open_titulacion": can_open_titulacion,
+        "format_b_phase": format_b_phase,
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,

@@ -380,49 +380,94 @@ def test_sin_permiso_de_dictamen_no_se_pinta_mover_de_fase(
     assert 'id="exp-acciones"' not in html
 
 
-# Los 2 permisos de dictamen del Formato B (fase 3): ninguno vive en
-# `EXPEDIENTE_PERMS` (arriba), que solo trae los de mover de fase.
-FORMAT_B_REVIEW_PERMS = ("titulatec.format_b.api.approve", "titulatec.format_b.api.reject")
+TITULACION_LIST = "titulatec.titulacion.page.list"
 
 
-def test_sin_permiso_de_dictamen_no_se_pintan_los_botones_de_formato_b(
-    expediente, client_as, db_session,
-):
-    """`expediente()` da `EXPEDIENTE_PERMS` (approve/reject_phase de CUALQUIER
-    fase) pero nunca `format_b.api.approve/.reject`: exactamente el actor que
-    el spec §10 paso 4 quiere sin estos botones (arreglo A2)."""
+def _fb_enviado(db_session, proc):
+    """Formato B enviado con domicilio, genero y materno (lo que la tarjeta
+    vieja no mostraba)."""
     from itcj2.apps.titulatec.models import FormatB
-    esc = expediente(current_phase=3)
-    db_session.add(FormatB(process_id=esc["proc"].id, status="submitted"))
+    fb = FormatB(process_id=proc.id, status="submitted", first_name="Ana",
+                 last_name="Lopez", middle_name="Maternez", gender="female",
+                 street="Calle Zarco", neighborhood="Colonia Centro",
+                 postal_code="32000", submission_count=1)
+    db_session.add(fb)
     db_session.flush()
+    return fb
+
+
+def test_tarjeta_de_formato_b_es_de_solo_lectura_completa(expediente, client_as, db_session):
+    """Domicilio, genero y materno visibles; ningun boton de dictamen."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
 
     html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
 
+    assert "Calle Zarco" in html and "Colonia Centro" in html
+    assert "Maternez" in html
+    assert "Femenino" in html or "Mujer" in html
     assert "Aprobar Formato B" not in html
     assert "format-b/review" not in html
 
 
-def test_con_permiso_de_dictamen_si_se_pintan_los_botones_de_formato_b(
+def test_en_la_fase_de_formato_b_no_hay_aprobar_rechazar_generico(
+    expediente, client_as, db_session,
+):
+    """Con `current_phase` = fase de `format_b` el boton «Mover de fase» (que
+    lleva data-tt-aprobar/rechazar) no se pinta."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "data-tt-aprobar" not in html and "data-tt-rechazar" not in html
+
+
+def test_en_otra_fase_si_hay_mover_de_fase(expediente, client_as):
+    """Positivo de la misma guarda: fuera de la fase de Formato B sigue."""
+    esc = expediente(current_phase=1)
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+    assert "data-tt-aprobar" in html
+
+
+def _expediente_con(perms, make_program, make_cohort, make_officer, make_student,
+                    make_process, seed_phase_defs, seed_document_types, db_session):
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria Abrir Titulacion")
+    officer, _ = make_officer([prog], perm_codes=perms)
+    proc = make_process(make_student(), cohort=make_cohort(), program=prog, current_phase=3)
+    _fb_enviado(db_session, proc)
+    return officer, proc
+
+
+def test_sin_permiso_no_hay_abrir_en_titulacion(
     seed_phase_defs, seed_document_types, make_program, make_cohort,
     make_officer, make_student, make_process, client_as, db_session,
 ):
-    """Positivo de la MISMA ruta: la guarda de permiso no puede ser un 'no'
-    universal (regla de oro heredada de `test_student_phase_guard.py`)."""
-    from itcj2.apps.titulatec.models import FormatB
-    seed_phase_defs()
-    seed_document_types()
-    prog = make_program("Ingenieria Con Dictamen de Formato B")
-    cohort = make_cohort()
-    officer, _pos = make_officer([prog], perm_codes=EXPEDIENTE_PERMS + FORMAT_B_REVIEW_PERMS)
-    student = make_student()
-    proc = make_process(student, cohort=cohort, program=prog, current_phase=3)
-    db_session.add(FormatB(process_id=proc.id, status="submitted"))
-    db_session.flush()
+    officer, proc = _expediente_con(
+        EXPEDIENTE_PERMS, make_program, make_cohort, make_officer, make_student,
+        make_process, seed_phase_defs, seed_document_types, db_session)
+    assert "Abrir en Titulación" not in client_as(officer).get(f"{URL}/{proc.id}").text
 
+
+def test_con_permiso_si_hay_abrir_en_titulacion(
+    seed_phase_defs, seed_document_types, make_program, make_cohort,
+    make_officer, make_student, make_process, client_as, db_session,
+):
+    officer, proc = _expediente_con(
+        EXPEDIENTE_PERMS + (TITULACION_LIST,), make_program, make_cohort, make_officer,
+        make_student, make_process, seed_phase_defs, seed_document_types, db_session)
     html = client_as(officer).get(f"{URL}/{proc.id}").text
+    assert "Abrir en Titulación" in html
+    assert f"/titulatec/admin/titulacion?selected={proc.id}" in html
 
-    assert "Aprobar Formato B" in html
-    assert "format-b/review" in html
+
+def test_la_ruta_de_dictamen_del_formato_b_ya_no_existe(expediente, client_as):
+    esc = expediente(current_phase=3)
+    r = client_as(esc["officer"]).post(
+        f"{URL}/{esc['proc'].id}/format-b/review", data={"action": "approve"})
+    assert r.status_code in (404, 405)
 
 
 def test_mover_de_fase_no_usa_confirm_nativo(expediente, client_as):

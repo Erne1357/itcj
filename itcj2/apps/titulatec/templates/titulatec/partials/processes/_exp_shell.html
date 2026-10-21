@@ -38,7 +38,7 @@
               data-bs-toggle="modal" data-bs-target="#exp-modal-revocar">
         <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Revocar inscripción</button>
       {% endif %}
-      {% if process.status == 'active' and can_dictaminar_fase %}
+      {% if process.status == 'active' and can_dictaminar_fase and current_phase != format_b_phase %}
       {# Discreto y siempre en el mismo sitio: mover de fase es lo raro, no lo
          que se viene a hacer aquí.
 
