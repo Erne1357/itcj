@@ -718,18 +718,22 @@ class TestUnaSolaPuerta:
                                                                     make_format_b, revisor):
         e = esc()
         make_format_b(e.proc, status="approved", modality=e.residencias)
-        for marca in ((e.proc.id + 1, "approved"), (e.proc.id, "rejected")):
-            db_session.info[PhaseService.FORMAT_B_VERDICT_KEY] = marca
+        # Desde la fase 4 la marca es de un registro de puertas (`open_door`): la
+        # de otra fase con puerta tampoco abre la del Formato B.
+        for fase, pid, veredicto in (("format_b", e.proc.id + 1, "approved"),
+                                     ("format_b", e.proc.id, "rejected"),
+                                     ("synodal_assignment", e.proc.id, "approved")):
+            PhaseService.open_door(db_session, fase, pid, veredicto)
             with pytest.raises(ValueError) as exc:
                 PhaseService.approve_phase(db_session, e.proc, 3, reviewer_id=revisor.id)
             assert str(exc.value) == PhaseService.FORMAT_B_ONLY_MSG
-            assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info, "se consume"
+            assert PhaseService.DOOR_KEY not in db_session.info, "se consume"
 
     def test_la_marca_no_sobrevive_al_dictamen(self, db_session, esc, revisor, monkeypatch):
         e = esc()
         _enviado(db_session, e)
         FormatBService.approve(db_session, e.proc, revisor.id)
-        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+        assert PhaseService.DOOR_KEY not in db_session.info
 
         # Si el motor truena antes de la guarda, la marca tampoco se queda.
         e2 = esc()
@@ -741,7 +745,7 @@ class TestUnaSolaPuerta:
         with pytest.raises(RuntimeError):
             FormatBService.reject(db_session, e2.proc, revisor.id, general_note="Revisa",
                                   field_notes={})
-        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+        assert PhaseService.DOOR_KEY not in db_session.info
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +772,7 @@ class TestRelecturaBajoElBloqueo:
         db_session.expire_all()
         assert fb.status == "approved" and e.proc.current_phase == 4
         assert _eventos(db_session, e.proc.id, "phase_rejected") == []
-        assert PhaseService.FORMAT_B_VERDICT_KEY not in db_session.info
+        assert PhaseService.DOOR_KEY not in db_session.info
 
     def test_doble_envio_desde_dos_pestanas(self, db_session, esc, rollbacks):
         e = esc()
@@ -798,9 +802,11 @@ class TestRelecturaBajoElBloqueo:
         assert fb.street == "Av. Juarez" and fb.status == "submitted"
 
     def test_las_demas_fases_no_cambian(self, db_session, esc, revisor):
-        e = esc(current_phase=4)
-        out = PhaseService.approve_phase(db_session, e.proc, 4, reviewer_id=revisor.id)
-        assert out["next_phase"] == 5
+        # La fase 6 y no la 4: desde la fase 4 (sinodales) la 4 también tiene su
+        # propia puerta (`SYNODAL_ONLY_MSG`, `test_synodal_service.py`).
+        e = esc(current_phase=6)
+        out = PhaseService.approve_phase(db_session, e.proc, 6, reviewer_id=revisor.id)
+        assert out["next_phase"] == 7
 
 
 # ---------------------------------------------------------------------------

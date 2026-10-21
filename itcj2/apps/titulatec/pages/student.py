@@ -300,6 +300,9 @@ _EVENT_LABELS = {
     "format_b_submitted":          "Enviaste tu Formato B",
     # `FormatBService.correct_registry`: nombre o carrera corregidos al revisar.
     "format_b_registry_corrected": "Titulación corrigió tu registro",
+    # ---- Sinodales (fase 4): `SynodalService.assign` / `.replace` ---------
+    "synodals_assigned":           "Tu departamento académico asignó a tus sinodales",
+    "synodal_replaced":            "Tu departamento académico sustituyó a uno de tus sinodales",
     # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",

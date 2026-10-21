@@ -17,8 +17,8 @@ from itcj2.models.base import Base
 # mapas, o el test falla.** Ese es todo el punto: que el próximo no se entere
 # el usuario por una captura de pantalla.
 #
-# `synodal_voted` NO está: la fase 4 tiene tablas y permisos pero ninguna ruta
-# que escriba el evento (CLAUDE.md de la app, §10). Entra cuando se escriba.
+# `synodal_voted` NO está: el voto es de la fase 5 y nada lo escribe todavía.
+# Entra cuando se escriba.
 EVENT_TYPES = frozenset({
     # Proceso
     "process_created",
@@ -45,6 +45,13 @@ EVENT_TYPES = frozenset({
     # dictamen NO tiene evento propio: viaja en `phase_approved`/`_rejected`.
     "format_b_submitted",
     "format_b_registry_corrected",
+    # Sinodales (spec 2026-10-21 fase 4 §10): el departamento académico registró
+    # a los 4 (payload `{"synodals": [{"role", "user_id"}]}`: la posición va como
+    # valor, porque la bitácora enmascara la llave «secretary»; el avance a la
+    # fase 5 viaja en el `phase_approved` de siempre) o sustituyó a uno
+    # (posición, saliente, entrante y motivo). Los escribe `SynodalService`.
+    "synodals_assigned",
+    "synodal_replaced",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",

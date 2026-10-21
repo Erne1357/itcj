@@ -1332,6 +1332,10 @@ _EVENT_UI = {
     # y la corrección del registro de Titulación (el motivo, en `reason`).
     "format_b_submitted":           ("Envió el Formato B",        "send",                   "neutral"),
     "format_b_registry_corrected":  ("Titulación corrigió el registro", "pencil-square",    "amber"),
+    # Sinodales (spec 2026-10-21 fase 4 §10): `SynodalService`. El motivo de la
+    # sustitución viaja en `reason` y `_evento_detalle` ya lo pinta.
+    "synodals_assigned":            ("Sinodales asignados",       "people",                 "success"),
+    "synodal_replaced":             ("Sinodal sustituido",        "arrow-left-right",       "amber"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),

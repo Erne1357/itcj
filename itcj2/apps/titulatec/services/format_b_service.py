@@ -401,9 +401,9 @@ class FormatBService:
         `_next_applicable` lee los saltos del catálogo de esa modalidad
         (residencias → 4, EGEL → 6). El flush va antes del motor porque
         `approve_phase` relee el proceso con `populate_existing`, que pisaría un
-        cambio sin flush. La puerta del motor se abre con la marca
-        `PhaseService.FORMAT_B_VERDICT_KEY` (se quita al terminar, pase lo que
-        pase). Cualquier error bajo el bloqueo: `rollback` y se re-lanza.
+        cambio sin flush. La puerta del motor se abre con
+        `PhaseService.open_door` (y se cierra al terminar, pase lo que pase).
+        Cualquier error bajo el bloqueo: `rollback` y se re-lanza.
         Devuelve lo que devuelve `approve_phase`.
         """
         from itcj2.apps.titulatec.services.audit_service import AuditService
@@ -432,14 +432,14 @@ class FormatBService:
                 actor_id=reviewer_id,
             )
             db.flush()
-            db.info[PhaseService.FORMAT_B_VERDICT_KEY] = (process.id, "approved")
+            PhaseService.open_door(db, "format_b", process.id, "approved")
             return PhaseService.approve_phase(db, process, n, reviewer_id,
                                               event_payload={"format_b": {"round": ronda}})
         except Exception:
             db.rollback()
             raise
         finally:
-            db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
+            PhaseService.close_door(db)
 
     @staticmethod
     def reject(db: Session, process, reviewer_id: int, *, general_note: str | None,
@@ -452,8 +452,8 @@ class FormatBService:
         observación (general o de campo) y solo campos que llena el alumno
         (`EDITABLE_FIELDS`, incluida la modalidad; el proyecto no, si la
         modalidad elegida no lo pide): nombre, control y carrera se corrigen en
-        el registro (§8.5). La puerta del motor se abre con la marca
-        `PhaseService.FORMAT_B_VERDICT_KEY`; error bajo el bloqueo → `rollback`.
+        el registro (§8.5). La puerta del motor se abre con
+        `PhaseService.open_door`; error bajo el bloqueo → `rollback`.
 
         `review_observations` guarda, por campo, la nota y el valor que tenía
         («Corregido ✓» y «antes → ahora»); sobrevive al reenvío y un nuevo
@@ -523,7 +523,7 @@ class FormatBService:
                 actor_id=reviewer_id,
             )
             db.flush()
-            db.info[PhaseService.FORMAT_B_VERDICT_KEY] = (process.id, "rejected")
+            PhaseService.open_door(db, "format_b", process.id, "rejected")
             PhaseService.reject_phase(
                 db, process, n, reviewer_id, motivo,
                 event_payload={"format_b": {"round": ronda, "fields": observados,
@@ -533,7 +533,7 @@ class FormatBService:
             db.rollback()
             raise
         finally:
-            db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
+            PhaseService.close_door(db)
 
     @staticmethod
     def correct_registry(db: Session, process, reviewer_id: int, *, first_name: str,

@@ -127,6 +127,13 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "teacher.removed": ("processes", "Quitó a un docente del departamento"),
     "teacher.access_reset": ("processes", "Restableció el acceso de un docente"),
 
+    # --- processes: sinodales (fase 4, `SynodalService`) ----------------------
+    # Mismo módulo que `titulatec_synodal_assignments` en `TABLE_MODULES`. El
+    # correo de aviso es best-effort tras el commit: si no sale, queda aquí (§11).
+    "synodal.assigned": ("processes", "Asignó los sinodales de un proceso"),
+    "synodal.replaced": ("processes", "Sustituyó a un sinodal de un proceso"),
+    "synodal.mail_failed": ("processes", "No salió el correo de aviso a un sinodal"),
+
     # --- library: liberaciones previas ----------------------------------------
     "prior_clearance.deferred": ("library", "Dejó pendiente una liberación previa"),
     "prior_clearance.replaced": ("library", "Reemplazó una liberación previa"),

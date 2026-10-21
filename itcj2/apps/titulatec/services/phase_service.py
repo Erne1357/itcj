@@ -259,40 +259,106 @@ class PhaseService:
     # aprobar ya está `approved`. ASCII por lo mismo que `_transition_error`.
     PHASE_ALREADY_APPROVED_MSG = "Esa fase ya fue aprobada."
 
-    # Una sola puerta para la fase 3 (spec 2026-10-21 fase 3 §7): la fase de
-    # código `format_b` solo se dictamina desde `FormatBService.approve`/
-    # `.reject`, que dejan el Formato B dictaminado en la sesión antes de
-    # llamar al motor. Con acentos: las rutas que lo pueden recibir (`phase/
-    # {n}/approve|reject` del expediente) lo pasan por `_hdr()`.
+    # ------------------------------------------------------------------
+    # Fases con UNA sola puerta (spec fase 3 §7, generalizada en la fase 4 §10)
+    # ------------------------------------------------------------------
+    # Una fase de este registro solo se dictamina desde el servicio que la
+    # posee: `format_b` desde `FormatBService.approve`/`.reject` y
+    # `synodal_assignment` desde `SynodalService.assign` (la fase 4 no tiene
+    # rechazo). El servicio deja su dictamen en la sesión y abre el motor con
+    # `open_door` justo antes de llamar a `approve_phase`/`reject_phase`;
+    # `_door_guard` exige la marca y la CONSUME. Cualquier otra puerta -los
+    # botones genéricos «Aprobar/Rechazar fase» del expediente, un script-
+    # recibe el mensaje de la fase. Con acentos: las rutas que lo pueden
+    # recibir (`phase/{n}/approve|reject` del expediente) lo pasan por `_hdr()`.
     FORMAT_B_ONLY_MSG = "El Formato B se dictamina desde la pestaña Titulación."
+    SYNODAL_ONLY_MSG = "Los sinodales se registran desde la pestaña Sinodales."
+    _DOOR_PHASES = {
+        "format_b": FORMAT_B_ONLY_MSG,
+        "synodal_assignment": SYNODAL_ONLY_MSG,
+    }
+    _DOOR_VERDICTS = ("approved", "rejected")
 
-    # Marca en `db.info` con la que `FormatBService.approve`/`.reject` abren la
-    # puerta del motor: `(process_id, veredicto)`. La pone justo antes de
-    # llamar a `approve_phase`/`reject_phase` y la quita al terminar (éxito,
-    # error o rollback); `_format_b_guard` la exige y la CONSUME.
-    FORMAT_B_VERDICT_KEY = "titulatec.format_b_verdict"
+    # Marca en `db.info`: `(código de fase, process_id, veredicto)`. La pone
+    # `open_door` y la quita `close_door` en el `finally` del servicio (éxito,
+    # error o rollback), si no la consumió antes la guarda.
+    DOOR_KEY = "titulatec.phase_door"
 
     @staticmethod
-    def _format_b_guard(db: Session, process, phase_number: int, required: str) -> None:
-        """Si `phase_number` es la fase `format_b` del catálogo, exige el dictamen
-        del Formato B EN CURSO en esta sesión; si no, `FORMAT_B_ONLY_MSG`.
+    def open_door(db: Session, phase_code: str, process_id: int, verdict: str) -> None:
+        """Abre la puerta del motor para UN dictamen de una fase con puerta.
 
-        «En curso» = la marca `FORMAT_B_VERDICT_KEY` de `db.info` con este
-        proceso y este veredicto (`approved` para aprobar, `rejected` para
-        rechazar) **y** el Formato B en ese estado. Mirar solo el estado
-        guardado no basta: un Formato B `rejected` sigue así mientras el alumno
-        corrige (P9), y el botón genérico «Rechazar fase» volvía a rechazar la
-        fase 3 por otra puerta (evento sin observaciones, aviso y correo de
-        más). La marca se consume aquí: cada dictamen abre la puerta una vez.
-        Formato B `approved` ⇔ fase 3 `approved`, en una transacción (§7).
+        La llama el servicio dueño de la fase justo antes de `approve_phase`
+        (`verdict="approved"`) o `reject_phase` (`"rejected"`), después de
+        dejar su dictamen en la sesión. Una fase sin puerta o un veredicto
+        desconocido es un error de programación (`ValueError`), no un permiso.
         """
-        if phase_number != PhaseService.phase_number_for_code(db, "format_b"):
+        if phase_code not in PhaseService._DOOR_PHASES:
+            raise ValueError(f"La fase {phase_code!r} no tiene puerta propia en el motor.")
+        if verdict not in PhaseService._DOOR_VERDICTS:
+            raise ValueError(f"Veredicto de fase no reconocido: {verdict!r}.")
+        db.info[PhaseService.DOOR_KEY] = (phase_code, process_id, verdict)
+
+    @staticmethod
+    def close_door(db: Session) -> None:
+        """Quita la marca, la haya consumido el motor o no (va en el `finally`)."""
+        db.info.pop(PhaseService.DOOR_KEY, None)
+
+    @staticmethod
+    def _phase_code(db: Session, phase_number) -> str | None:
+        """Código del catálogo de la fase `phase_number`, o None."""
+        from itcj2.apps.titulatec.models import PhaseDefinition
+        row = (db.query(PhaseDefinition.code)
+               .filter(PhaseDefinition.number == phase_number).first())
+        return row[0] if row else None
+
+    @staticmethod
+    def _door_state_ok(db: Session, phase_code: str, process, verdict: str) -> bool:
+        """¿El dictamen que anuncia la marca está de verdad en la sesión?
+
+        - `format_b`: el Formato B en ese estado. Mirar solo el estado no
+          bastaría (un `rejected` sigue así mientras el alumno corrige, P9) y
+          solo la marca tampoco: van las dos.
+        - `synodal_assignment`: solo se aprueba, y con los 4 sinodales
+          vigentes ya escritos (`SynodalService.ROLES`). No tiene rechazo.
+        """
+        if phase_code == "format_b":
+            from itcj2.apps.titulatec.models import FormatB
+            fb = db.get(FormatB, process.id)
+            return fb is not None and fb.status == verdict
+        if phase_code == "synodal_assignment":
+            if verdict != "approved":
+                return False
+            from sqlalchemy import func
+
+            from itcj2.apps.titulatec.models import SynodalAssignment
+            from itcj2.apps.titulatec.services.synodal_service import ROLES
+            vigentes = (db.query(func.count(SynodalAssignment.id))
+                        .filter(SynodalAssignment.process_id == process.id,
+                                SynodalAssignment.is_active.is_(True))
+                        .scalar())
+            return vigentes == len(ROLES)
+        return False
+
+    @staticmethod
+    def _door_guard(db: Session, process, phase_number: int, required: str) -> None:
+        """Si `phase_number` es una fase con puerta, exige el dictamen de su
+        servicio EN CURSO en esta sesión; si no, el mensaje de esa fase.
+
+        «En curso» = la marca `DOOR_KEY` con esta fase, este proceso y este
+        veredicto (`approved` para aprobar, `rejected` para rechazar) **y** el
+        estado que la respalda (`_door_state_ok`). La marca se consume aquí:
+        cada dictamen abre la puerta una vez. Una consulta (el código de la
+        fase) para las fases sin puerta, como antes la del Formato B.
+        """
+        code = PhaseService._phase_code(db, phase_number)
+        mensaje = PhaseService._DOOR_PHASES.get(code)
+        if mensaje is None:
             return
-        from itcj2.apps.titulatec.models import FormatB
-        marca = db.info.pop(PhaseService.FORMAT_B_VERDICT_KEY, None)
-        fb = db.get(FormatB, process.id)
-        if marca != (process.id, required) or fb is None or fb.status != required:
-            raise ValueError(PhaseService.FORMAT_B_ONLY_MSG)
+        marca = db.info.pop(PhaseService.DOOR_KEY, None)
+        if (marca != (code, process.id, required)
+                or not PhaseService._door_state_ok(db, code, process, required)):
+            raise ValueError(mensaje)
 
     @staticmethod
     def _lock_process_row(db: Session, process) -> None:
@@ -496,14 +562,15 @@ class PhaseService:
         consulta extra (la fila la lee `_ensure_phase` de todas formas) y antes
         de escribir nada.
 
-        La fase `format_b` solo pasa con el Formato B ya `approved` en la
-        sesión (`_format_b_guard`, una sola puerta). `event_payload` se fusiona
-        en el payload del evento `phase_approved` (así viaja la ronda del
-        Formato B al timeline sin un evento duplicado).
+        Las fases con puerta solo pasan con el dictamen de su servicio en la
+        sesión (`_door_guard`): `format_b` con el Formato B ya `approved`,
+        `synodal_assignment` con los 4 sinodales ya registrados.
+        `event_payload` se fusiona en el payload del evento `phase_approved`
+        (así viaja la ronda del Formato B al timeline sin un evento duplicado).
         """
         PhaseService._lock_process_row(db, process)
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
-        PhaseService._format_b_guard(db, process, phase_number, "approved")
+        PhaseService._door_guard(db, process, phase_number, "approved")
 
         # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
         # el dictamen de la fase 2. El alumno sí puede agendar y presentarse; lo
@@ -597,13 +664,14 @@ class PhaseService:
         rechazo concurrente con la aprobación de la misma fase validaba sobre
         el `current_phase` viejo y regresaba el proceso a una fase ya liberada.
 
-        La fase `format_b` solo pasa con el Formato B ya `rejected` en la sesión
-        (`_format_b_guard`). `event_payload` se fusiona en el payload del evento
-        `phase_rejected`, junto al `reason`.
+        Las fases con puerta solo pasan con el dictamen de su servicio en la
+        sesión (`_door_guard`): `format_b` con el Formato B ya `rejected`;
+        `synodal_assignment` nunca (no tiene rechazo). `event_payload` se
+        fusiona en el payload del evento `phase_rejected`, junto al `reason`.
         """
         PhaseService._lock_process_row(db, process)
         PhaseService.assert_can_transition(db, process, phase_number)
-        PhaseService._format_b_guard(db, process, phase_number, "rejected")
+        PhaseService._door_guard(db, process, phase_number, "rejected")
 
         # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
         # tambien es un dictamen, y si la cita vigente quedo `in_progress` queda
@@ -640,3 +708,4 @@ class PhaseService:
 # Alias de módulo (como los mensajes de `format_b_service`): quien solo necesita
 # el texto lo importa sin la clase.
 FORMAT_B_ONLY_MSG = PhaseService.FORMAT_B_ONLY_MSG
+SYNODAL_ONLY_MSG = PhaseService.SYNODAL_ONLY_MSG
