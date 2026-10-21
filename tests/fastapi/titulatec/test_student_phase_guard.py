@@ -541,7 +541,8 @@ class TestFaseRechazada:
                                             follow_redirects=False)
         guardados = [client_as(esc.student).post(f"/titulatec/student/formato-b/step/{n}",
                                                  data=pasos[n]) for n in (1, 2, 3)]
-        envio = client_as(esc.student).post("/titulatec/student/formato-b/enviar")
+        envio = client_as(esc.student).post("/titulatec/student/formato-b/enviar",
+                                            data={"confirm": "1"})
 
         assert pagina.status_code == 200, pagina.text[:300]
         for guardado in guardados:

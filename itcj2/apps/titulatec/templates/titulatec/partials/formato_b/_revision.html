@@ -32,9 +32,10 @@
         hx-post="/titulatec/student/formato-b/enviar" hx-target="#formato-b-body"
         hx-swap="outerHTML show:window:top">
     <label class="form-check d-flex gap-2 align-items-start tt-fb-confirm" for="fb-confirm">
-      <input class="form-check-input mt-1" type="checkbox" id="fb-confirm" data-fb-confirm>
+      <input class="form-check-input mt-1{{ ' is-invalid' if confirm_error }}" type="checkbox" id="fb-confirm" name="confirm" value="1" data-fb-confirm>
       <span class="form-check-label">Confirmo que mis datos son correctos</span>
     </label>
+    {% if confirm_error %}<div class="invalid-feedback d-block" id="fb-err-confirm" role="alert">{{ confirm_error }}</div>{% endif %}
     <div class="d-flex gap-2">
       <button type="button" class="btn tt-btn-ghost" aria-label="Volver al paso 3"
               hx-get="/titulatec/student/formato-b/step/3" hx-target="#formato-b-body"

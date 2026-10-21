@@ -1502,7 +1502,7 @@ def _modalities(db) -> list[dict]:
 
 
 def _fb_ctx(db, process, fb, *, view="step", step=1, errors=None, form=None,
-            just_submitted=False) -> dict:
+            just_submitted=False, confirm_error=None) -> dict:
     """Contexto del cuerpo del Formato B del alumno (todo en tipos planos: la
     plantilla se pinta después del `db.close()` de la ruta).
 
@@ -1555,6 +1555,7 @@ def _fb_ctx(db, process, fb, *, view="step", step=1, errors=None, form=None,
                 "submitted_txt": dia_mes(fb.submitted_at) if fb.submitted_at else None,
                 "approved_txt": dia_mes(fb.approved_at) if fb.approved_at else None},
         "just_submitted": just_submitted,
+        "confirm_error": confirm_error,
     }
 
 
@@ -1704,13 +1705,25 @@ def _cuerpo_formato_b_save(n, request, user, form):
     return render_titulatec(request, _FB_BODY, ctx)
 
 
+_FB_CONFIRM_MSG = "Marca la casilla para confirmar que tus datos son correctos."
+
+
 @router.post("/formato-b/enviar", name="titulatec.pages.student.formato_b_submit")
-def formato_b_submit(
+async def formato_b_submit(
     request: Request,
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.format_b.api.submit"])),
 ):
-    """Envía el Formato B a revisión (spec §5.3). `submit` RE-VALIDA todo: con un
-    borrador viejo inválido responde **200** con el primer paso con errores."""
+    """Envía el Formato B a revisión (spec §5.3). Lee el form solo para la casilla."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_formato_b_submit, request=request, user=user, form=form)
+
+
+def _cuerpo_formato_b_submit(request, user, form):
+    """Cuerpo síncrono de `formato_b_submit`. El SERVIDOR exige la casilla
+    `confirm=1` (spec §5.3): sin ella re-pinta la revisión con el error (200).
+    `submit` RE-VALIDA todo: con un borrador viejo inválido responde **200** con
+    el primer paso con errores."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import FormatBService
@@ -1726,6 +1739,9 @@ def formato_b_submit(
         if fuera_de_fase:
             return fuera_de_fase
         fb = FormatBService.get_or_create(db, process)
+        if str(form.get("confirm", "")).strip() != "1" and fb.status in ("draft", "rejected"):
+            ctx = _fb_ctx(db, process, fb, view="review", confirm_error=_FB_CONFIRM_MSG)
+            return render_titulatec(request, _FB_BODY, ctx)
         try:
             FormatBService.submit(db, fb, process)
         except FormatBValidationError as err:

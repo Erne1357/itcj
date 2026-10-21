@@ -22,6 +22,7 @@ PERMS = (
 )
 BASE = "/titulatec/student/formato-b"
 
+CONFIRM = {"confirm": "1"}
 PASO_1 = {"gender": "female", "age": "24", "mobile_phone": "6561234567",
           "postal_code": "32000", "neighborhood": "Centro", "street": "Calle Uno",
           "ext_number": "10"}
@@ -150,13 +151,26 @@ class TestEnviar:
     ):
         student, proc, _m, _fb_ = escenario(fb_status="draft")
 
-        resp = client_as(student).post(f"{BASE}/enviar")
+        resp = client_as(student).post(f"{BASE}/enviar", data=CONFIRM)
 
         assert resp.status_code == 200, resp.text[:300]
         assert "Formato B enviado. Titulación lo revisa en orden de llegada." in resp.text
         assert "sinodales" not in resp.text
         assert _fb(db_session, proc.id).status == "submitted"
         assert _fase3(db_session, proc.id) == "in_review"
+
+    def test_sin_la_casilla_el_servidor_no_envia_y_pinta_el_error_con_200(
+        self, escenario, client_as, db_session, corte_9,
+    ):
+        student, proc, _m, _fb_ = escenario(fb_status="draft")
+
+        resp = client_as(student).post(f"{BASE}/enviar", data={})
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "Marca la casilla para confirmar que tus datos son correctos." in resp.text
+        assert 'id="fb-submit"' in resp.text, "se re-pinta la revision"
+        assert _fb(db_session, proc.id).status == "draft"
+        assert _fase3(db_session, proc.id) != "in_review"
 
     def test_borrador_viejo_invalido_lleva_al_paso_del_error_con_200(
         self, escenario, client_as, db_session, corte_9,
@@ -165,7 +179,7 @@ class TestEnviar:
         la cola, vuelve al paso 1 con los errores pintados."""
         student, proc, _m, _fb_ = escenario(fb_status="draft", age=None)
 
-        resp = client_as(student).post(f"{BASE}/enviar")
+        resp = client_as(student).post(f"{BASE}/enviar", data=CONFIRM)
 
         assert resp.status_code == 200, resp.text[:300]
         assert "La edad es obligatoria" in resp.text
@@ -178,7 +192,7 @@ class TestEnviar:
     ):
         student, proc, _m, _fb_ = escenario(fb_status="submitted", submission_count=1)
 
-        resp = client_as(student).post(f"{BASE}/enviar")
+        resp = client_as(student).post(f"{BASE}/enviar", data=CONFIRM)
 
         assert resp.status_code == 400, resp.text[:300]
         assert resp.headers.get("X-Tt-Error")
@@ -187,7 +201,7 @@ class TestEnviar:
     def test_con_el_corte_en_3_no_envia(self, escenario, client_as, db_session):
         student, proc, _m, _fb_ = escenario(fb_status="draft")
 
-        resp = client_as(student).post(f"{BASE}/enviar")
+        resp = client_as(student).post(f"{BASE}/enviar", data=CONFIRM)
 
         assert resp.status_code == 400, resp.text[:300]
         assert resp.headers.get("X-Tt-Error") == PhaseService.HANDOFF_MSG
@@ -301,12 +315,20 @@ class TestPagina:
         assert "Aprobado" in resp.text
         assert "<form" not in resp.text
 
+    def test_aprobado_se_sirve_en_solo_lectura_aun_con_el_corte_en_3(
+        self, escenario, client_as,
+    ):
+        """Inalcanzable en produccion; se fija: la lectura se sirve, las acciones no."""
+        student, _p, _m, _fb_ = escenario(current_phase=4, fb_status="approved")
+
+        assert client_as(student).get(BASE, follow_redirects=False).status_code == 200
+
     def test_aprobado_no_abre_ninguna_accion(self, escenario, client_as, db_session, corte_9):
         """Excepcion solo de lectura: toda accion sigue bloqueada."""
         student, proc, _m, _fb_ = escenario(current_phase=4, fb_status="approved")
 
         paso = client_as(student).post(f"{BASE}/step/1", data=PASO_1)
-        envio = client_as(student).post(f"{BASE}/enviar")
+        envio = client_as(student).post(f"{BASE}/enviar", data=CONFIRM)
 
         assert paso.status_code == 400 and envio.status_code == 400
         assert _fb(db_session, proc.id).status == "approved"
