@@ -1,7 +1,7 @@
 """Anexo III (fase 6): folio del documento y su contador por semestre.
 
 Spec 2026-10-22-titulatec-fase6-anexo-iii §4-§5. Un proceso tiene a lo mas UN
-anexo; su folio (`ANX-2026B-0001`) se consume una sola vez y no se reutiliza.
+anexo; su folio (`AIII-2026B-0001`) se consume una sola vez y no se reutiliza.
 """
 from sqlalchemy import (
     BigInteger, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint,

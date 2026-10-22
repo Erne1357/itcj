@@ -14,9 +14,9 @@
 ## Ruta en la app (UI)
 
 1. **Alumno** (shell móvil): tablero → tarjeta de la fase 6 con el CTA hacia `/titulatec/student/anexo`. Ahí: estado de la fase (en curso, por revisar, con observaciones y motivo, aprobada), folio, **Descargar Anexo III**, «Quién firma» (`AnexoService.signers_text`: el jefe del departamento más el Presidente, o más los 4 sinodales según la regla de firma de la modalidad), slot de subida del escaneo y la ayuda de formato.
-2. **Titulación** (`/titulatec/admin/titulacion`): selector de vista «Formato B» · «Anexo III» (solo si `anexo_iii` es operable y el actor tiene el permiso de revisar) → `/titulatec/admin/titulacion/anexo`. Pestañas **Por revisar** (fase 6 `in_review`) · **Observados** (`rejected` sin resubir) · **Aprobados** · **Sin enviar** (`in_progress` sin escaneo); FIFO con semáforo en días hábiles, búsqueda, filtro de carrera y paginado. El detalle trae datos del alumno, modalidad, folio, fecha de liberación, sinodales vigentes, firmas requeridas, visor del escaneo, liga al Anexo generado y **Aprobar** / **Observar** (motivo obligatorio).
-3. **Departamento académico** (`/titulatec/admin/sinodales`): pestaña **«En Anexo III»** (procesos en la fase 6) y, en el detalle, el botón «Anexo III (PDF)» junto al del oficio → `GET /titulatec/admin/sinodales/{id}/anexo.pdf`. Es el MISMO documento y el mismo folio que baja el alumno.
-4. **Expediente** (`/titulatec/admin/processes/{id}`): la tarjeta de la fase 6 muestra estado, folio, fecha de liberación y, según permisos, «Anexo III (PDF)», «Ver escaneo» y «Abrir en Titulación». Sin estado dice el porqué (`AnexoService.empty_label`, ver «Estado sin pantalla»).
+2. **Titulación** (`/titulatec/admin/titulacion`): selector de vista «Formato B» · «Anexo III» (solo si `anexo_iii` es operable y el actor tiene el permiso de revisar) → `/titulatec/admin/titulacion/anexo`. Pestañas **Por revisar** (fase 6 `in_review`) · **Observados** (`rejected` sin resubir) · **Aprobados** · **Sin enviar** (`in_progress` sin escaneo); FIFO con semáforo en días hábiles, búsqueda, filtro de carrera y paginado. El detalle trae datos del alumno, modalidad, folio, fecha de liberación, «Escaneo subido el …» (última llegada según `DocumentService.last_uploads`, la misma fuente que ve el alumno; la lista usa la misma), «Aprobado el …» (`completed_at` de la fase 6) u «Observado el …» (el último `phase_rejected` de la fase 6), sinodales vigentes, firmas requeridas, visor del escaneo, liga al Anexo generado, **«Observación anterior»** tras una resubida (versión > 1, sin dictamen: el `rejection_reason` que sigue en la fase 6) y **Aprobar** / **Observar** (motivo obligatorio). El kicker de la página dice la fase de cada vista desde el catálogo (`format_b` u `anexo_iii`, `%02d`).
+3. **Departamento académico** (`/titulatec/admin/sinodales`): pestaña **«En Anexo III»** (procesos en la fase 6, FIFO por `started_at` de la fase 6 con el semáforo de días hábiles de «Por asignar») y, en el detalle, el botón «Anexo III (PDF)» junto al del oficio → `GET /titulatec/admin/sinodales/{id}/anexo.pdf`. Es el MISMO documento y el mismo folio que baja el alumno.
+4. **Expediente** (`/titulatec/admin/processes/{id}`): la tarjeta de la fase 6 muestra estado, folio, fecha de liberación y, según permisos, «Anexo III (PDF)» (solo si `AnexoService.reached`: con el proceso revocado la ruta daría 400), «Ver escaneo» y «Abrir en Titulación» (solo con el proceso no revocado). Sin estado dice el porqué (`AnexoService.empty_label`, ver «Estado sin pantalla»).
 
 ## Secuencia
 
@@ -30,8 +30,10 @@ sequenceDiagram
     participant DB as Postgres
     A->>FE: Descargar Anexo III
     FE->>API: GET /student/anexo/pdf
-    API->>SVC: AnexoService.render_pdf (ensure_folio bajo _lock_process_row)
+    API->>SVC: AnexoService.prepare_pdf (ensure_folio bajo _lock_process_row + context, una vez)
     SVC->>DB: INSERT titulatec_anexos (folio AIII-AAAAS-NNNN) + ProcessEvent anexo_iii_issued
+    API->>DB: COMMIT (suelta el bloqueo del proceso y del contador)
+    API->>API: AnexoService.render(ctx) con WeasyPrint, fuera de la transacción
     API-->>FE: PDF inline
     A->>FE: Sube el escaneo firmado
     FE->>API: POST /student/anexo/escaneo
@@ -48,7 +50,7 @@ sequenceDiagram
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
 | 1 | 🤖 | (cierre de la fase 5) | `ReviewService.vote` cierra y libera | `POST /admin/revisiones/{id}/voto` | `approve_phase` (fase 5) → `AnexoService.notify_release` | fase 6 `in_progress` | campana `ANEXO_READY` a vinculación (best-effort, tras el commit) |
-| 2 | 👤 / 🧑‍💼 | `/student/anexo` · Sinodales | Descargar el PDF | `GET /student/anexo/pdf` · `GET /admin/sinodales/{id}/anexo.pdf` | `AnexoService.render_pdf` → `ensure_folio` | `titulatec_anexos` (una fila por proceso), `titulatec_anexo_counters` | `anexo_iii_issued` (solo la primera vez), bitácora `anexo_iii.issued` |
+| 2 | 👤 / 🧑‍💼 | `/student/anexo` · Sinodales | Descargar el PDF | `GET /student/anexo/pdf` · `GET /admin/sinodales/{id}/anexo.pdf` | `AnexoService.prepare_pdf` (→ `ensure_folio` + `context`) · commit · `AnexoService.render` | `titulatec_anexos` (una fila por proceso), `titulatec_anexo_counters` | `anexo_iii_issued` (solo la primera vez), bitácora `anexo_iii.issued` |
 | 3 | 👤 | `/student/anexo` | Subir el escaneo (PDF, imagen) | `POST /student/anexo/escaneo` | `DocumentService.save` → `AnexoService.sync_phase` | `titulatec_documents` tipo `anexo_iii`; fase 6 → `in_review`, `updated_at` = ahora (clave FIFO) | `document_uploaded` |
 | 4 | 🎓 | `/admin/titulacion/anexo` | Aprobar | `POST /admin/titulacion/anexo/{id}/aprobar` | `AnexoService.approve` | escaneo `approved`; `approve_phase` (fase 7 `in_progress`) | `phase_approved` con `{"anexo_iii": {folio, round}}`, bitácora `anexo_iii.reviewed`, correo del motor |
 | 4b | 🎓 | `/admin/titulacion/anexo` | Observar (motivo ≤ 500) | `POST /admin/titulacion/anexo/{id}/observar` | `AnexoService.observe` | escaneo `rejected` + `review_note`; `reject_phase` | `phase_rejected`, bitácora, correo del motor |
@@ -64,13 +66,17 @@ sequenceDiagram
 
 `AIII-{AAAAS}-{NNNN}` (p. ej. `AIII-2026B-0001`; semestre A = ene-jun, B = jul-dic) con contador atómico por semestre (`titulatec_anexo_counters`, `INSERT … ON CONFLICT … RETURNING`). `ensure_folio` valida el contexto (4 sinodales, departamento, modalidad con producto) ANTES de numerar y trabaja bajo `PhaseService._lock_process_row`: a lo más un folio por proceso (UNIQUE de `process_id`), dos descargas simultáneas dan el mismo. La fecha del documento es la de liberación (fin de la fase 5), congelada en `released_at`. Solo se emite con la fase 6 alcanzada y operable; **leer el expediente nunca emite folio**.
 
+**Descarga en dos pasos** (revisión final): `AnexoService.prepare_pdf(db, process, actor_id) -> dict` emite el folio si hace falta y arma `context` una sola vez (en la primera emisión reutiliza el contexto con que validó, ya con el folio y la fecha congelada); la ruta hace `commit` —suelta el bloqueo del proceso y, en la primera emisión, el del contador— y solo después `AnexoService.render(ctx) -> bytes` pinta con WeasyPrint, sin sesión. Las tres rutas (alumno, Titulación, Sinodales) siguen ese orden; `render_pdf` ya no existe. Un fallo de WeasyPrint después del commit deja el folio ya emitido, ligado al proceso (se reutiliza en la siguiente descarga): nunca se quema por datos inválidos, porque la validación sigue antes de numerar.
+
 ### Puerta única
 
 `anexo_iii` está en `PhaseService._DOOR_PHASES` con `ANEXO_ONLY_MSG`: la fase 6 solo se aprueba u observa por `AnexoService.approve`/`observe`, que bloquean el proceso, re-verifican (fase 6 `in_review`, escaneo presente y `pending`) y escriben escaneo + fase en una transacción. `expected_version` es la versión del escaneo que Titulación tenía en pantalla: si cambió, `AnexoVersionChanged` y la ruta re-pinta con aviso warning sin escribir. Invariante: fase 6 `approved` ⇔ escaneo `approved`.
 
 ### Sincronía del escaneo (C6)
 
-`DocumentService.save`/`delete`/`review` llaman `AnexoService.sync_phase` (bajo el bloqueo del proceso): escaneo presente → fase 6 `in_review`; ausente → `in_progress`; nunca toca `approved`, `skipped` ni `pending`. Cada subida manda el escaneo al final de la cola.
+`DocumentService.save`/`delete` llaman `AnexoService.sync_phase` (bajo el bloqueo del proceso): escaneo presente → fase 6 `in_review`; ausente → `in_progress`; nunca toca `approved`, `skipped` ni `pending`. Cada subida manda el escaneo al final de la cola. `DocumentService.review` NO la llama: rechaza el tipo `anexo_iii` (`ANEXO_REVIEW_MSG`, el dictamen es solo de `AnexoService`).
+
+**Borrar el escaneo** solo mientras espera dictamen: `DocumentService.delete` lo verifica para el tipo `anexo_iii` con el proceso y el documento bloqueados y releídos (`REPLACEMENT_CLOSED_MSG` si la fase ya pasó; `ANEXO_SCAN_REVIEWED_MSG` si no está `pending`), así que vale igual para `DELETE /student/anexo/escaneo` y para la ruta genérica `DELETE /student/documents/anexo_iii`. Un escaneo observado se reemplaza subiendo otro.
 
 ### Estado sin pantalla (expediente)
 
@@ -78,7 +84,7 @@ sequenceDiagram
 
 ### Aviso de liberación a vinculación (C5)
 
-Al cerrarse la fase 5, `AnexoService.notify_release` crea la campana `ANEXO_READY` («Proyecto liberado: Anexo III») para los ocupantes vigentes de `coord_vinculacion_{depto}` o, si está vacante, de `head_{depto}`, con liga a `/titulatec/admin/sinodales?tab=anexo&selected={id}`. Se llama DESPUÉS del commit del voto, abre su propia sesión, es best-effort y no manda correo. Inerte si el Anexo no es operable.
+Al cerrarse la fase 5, `AnexoService.notify_release` crea la campana `ANEXO_READY` («Proyecto liberado: Anexo III») para los ocupantes vigentes de `coord_vinculacion_{depto}` o, si está vacante, de `head_{depto}`, con liga a `/titulatec/admin/sinodales?tab=anexo&selected={id}`. El cuerpo es «nombre · control» con el nombre armado por `pages/_titulacion_shared.nombre` (orden natural: nombre(s), paterno, materno), la MISMA función que usan las dos vistas de Titulación. Se llama DESPUÉS del commit del voto, abre su propia sesión, es best-effort y no manda correo. Inerte si el Anexo no es operable.
 
 ### EGEL (D5, C10)
 
@@ -88,7 +94,7 @@ Al cerrarse la fase 5, `AnexoService.notify_release` crea la campana `ANEXO_READ
 
 - Rutas del alumno: `_phase_guard` con la fase por código `anexo_iii` (fuera de fase → 302 al tablero en páginas, 400 + `X-Tt-Error` en mutaciones); los GET sin fase están en `RUTAS_SIN_FASE`.
 - Rutas con `{process_id}` (Titulación, Sinodales): `assert_process_in_scope` primera sentencia del `try`, luego la guarda de la vista (`titulacion.page.list` + `anexo_iii.api.review`, o `anexo_iii.api.generate` + `synodal.api.read`).
-- Validación → 200 con el parcial re-pintado; guardas → 400 + `X-Tt-Error` (`_hdr`, sin acentos); éxito → `X-Tt-Notice`. La ruta genérica `DELETE /student/documents/{type_code}` y `DELETE /student/anexo/escaneo` atrapan el `ValueError` del servicio (carrera borrar-vs-aprobar) → 400.
+- Validación → 200 con el parcial re-pintado; guardas → 400 + `X-Tt-Error` (`_hdr`, sin acentos); éxito → `X-Tt-Notice`. La ruta genérica `DELETE /student/documents/{type_code}` y `DELETE /student/anexo/escaneo` atrapan el `ValueError` del servicio (carrera borrar-vs-aprobar, escaneo ya dictaminado) → 400. Sin modalidad o con una regla de firma desconocida, «Quién firma» del alumno pinta `SIGNERS_FALLBACK_TEXT` (nunca 500); la subida exitosa responde `X-Tt-Notice-Kind: success`.
 - **Inerte con el corte ≤ 6**: vista, pestaña, botones, avisos y folio no existen; toda ruta responde 400/redirect.
 
 ## Eventos y bitácora
@@ -109,6 +115,7 @@ Migración `tt20261022d` (a mano, `down_revision = tt20261022c`): `titulatec_ane
 - Datos incompletos (sin 4 sinodales, sin departamento, sin modalidad con producto) → el PDF responde 400 + `X-Tt-Error` y no se numera nada.
 - Aprobar u observar algo que no está «Por revisar» → 400 + `NOT_IN_REVIEW_MSG`.
 - Observar sin motivo o con más de 500 caracteres → 200 con el error en el formulario; nada escrito.
+- Quitar un escaneo ya dictaminado (observado o aprobado), por cualquiera de las dos rutas → 400 + `X-Tt-Error`; nada borrado.
 - El alumno cambió el escaneo mientras Titulación revisaba → 200 re-pintado + aviso warning; nada escrito.
 - Corte ≤ 6, proceso que no llega a la fase 6 o EGEL → 400 + `X-Tt-Error` (y en el expediente, la leyenda del porqué).
 - Otro alumno o fuera de alcance → 404 sin header.
