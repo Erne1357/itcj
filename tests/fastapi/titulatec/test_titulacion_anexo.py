@@ -8,13 +8,14 @@ presencia. Corte explícito en cada prueba: `corte(9)` opera la fase 6;
 from __future__ import annotations
 
 import os
+from datetime import datetime
 from types import SimpleNamespace
 from urllib.parse import unquote
 
 import lxml.html
 import pytest
 
-from itcj2.apps.titulatec.models import Document, ProcessPhase
+from itcj2.apps.titulatec.models import Document, ProcessEvent, ProcessPhase
 from itcj2.apps.titulatec.services.anexo_service import AnexoService
 from itcj2.apps.titulatec.services.document_service import DocumentService
 from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -353,3 +354,76 @@ def test_el_boton_observar_exige_el_motivo_antes_del_confirm():
     js = (Path(pkg.__file__).resolve().parent / "static" / "js" / "admin" / "titulacion.js")
     texto = js.read_text(encoding="utf-8")
     assert "#tt-anx-observe" in texto and "tt-anx-reason" in texto
+
+
+# ---------------------------------------------------------------------------
+# Revision final, punto 1: fechas del detalle (enviado y dictamen)
+# ---------------------------------------------------------------------------
+def _fechar(db, c, event_type, *cuando, phase_number=None):
+    """Fija `created_at` de los eventos `event_type` del proceso, en orden de id
+    (en el arnes todo `NOW()` es la misma hora de la transaccion)."""
+    q = db.query(ProcessEvent).filter_by(process_id=c.process.id, event_type=event_type)
+    if phase_number is not None:
+        q = q.filter_by(phase_number=phase_number)
+    eventos = q.order_by(ProcessEvent.id).all()
+    assert len(eventos) == len(cuando), [e.id for e in eventos]
+    for ev, t in zip(eventos, cuando):
+        ev.created_at = t
+    db.commit()
+
+
+def _texto(resp):
+    assert resp.status_code == 200, resp.text[:400]
+    return " ".join(_html(resp).text_content().split())
+
+
+def _resubir(db, c):
+    DocumentService.save(db, c.process, TIPO, raw=PDF, original_name="anexo-v2.pdf",
+                         content_type="application/pdf", uploaded_by_id=c.student.id)
+    db.commit()
+
+
+def test_observado_fecha_la_ultima_subida_y_la_observacion(esc, db_session):
+    c = esc.caso()
+    _resubir(db_session, c)
+    _fechar(db_session, c, "document_uploaded",
+            datetime(2026, 10, 1, 9, 15), datetime(2026, 10, 2, 16, 40))
+    rev = esc.revisor(c)
+    AnexoService.observe(db_session, c.process, rev.id, reason="Falta una firma")
+    db_session.commit()
+    _fechar(db_session, c, "phase_rejected", datetime(2026, 10, 3, 11, 5),
+            phase_number=c.anexo_phase)
+
+    texto = _texto(esc.client_as(rev).get(
+        ANX + "/body", params={"tab": "observed", "selected": c.process.id}))
+    assert "Escaneo subido el 2 de octubre a las 16:40 (versión 2)" in texto
+    assert "Observado el 3 de octubre a las 11:05" in texto
+
+
+def test_aprobado_fecha_la_aprobacion_de_la_fase(esc, db_session):
+    c = esc.caso()
+    _resubir(db_session, c)
+    _fechar(db_session, c, "document_uploaded",
+            datetime(2026, 10, 1, 9, 15), datetime(2026, 10, 2, 16, 40))
+    rev = esc.revisor(c)
+    AnexoService.approve(db_session, c.process, rev.id)
+    db_session.commit()
+    fase = _fase(db_session, c)
+    fase.completed_at = datetime(2026, 10, 4, 13, 20)
+    db_session.commit()
+
+    texto = _texto(esc.client_as(rev).get(
+        ANX + "/body", params={"tab": "approved", "selected": c.process.id}))
+    assert "Escaneo subido el 2 de octubre a las 16:40 (versión 2)" in texto
+    assert "Aprobado el 4 de octubre a las 13:20" in texto
+
+
+def test_la_lista_fecha_la_subida_con_la_misma_fuente(esc, db_session):
+    c = esc.caso()
+    _resubir(db_session, c)
+    _fechar(db_session, c, "document_uploaded",
+            datetime(2026, 10, 1, 9, 15), datetime(2026, 10, 2, 16, 40))
+    resp = esc.client_as(esc.revisor(c)).get(ANX + "/body", params={"tab": "pending"})
+    (pill,) = _html(resp).xpath('//*[@id="tt-anx-row-%d"]//*[contains(@class,"tt-tit-wait")]'
+                                % c.process.id)
+    assert "subido el 2 de octubre a las 16:40" in pill.get("title")

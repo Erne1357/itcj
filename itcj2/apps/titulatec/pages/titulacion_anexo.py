@@ -120,10 +120,11 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
                 error: str | None = None, reason: str = "") -> dict:
     """El detalle de UN proceso (dict plano; la sesión se cierra antes de pintar)."""
     from itcj2.apps.titulatec.models import (
-        Document, Modality, ProcessPhase, TitulationProcess,
+        Document, Modality, ProcessEvent, ProcessPhase, TitulationProcess,
     )
     from itcj2.apps.titulatec.pages.admin import _PROCESS_VIEW_PERMS
     from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE, AnexoService
+    from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.synodal_service import SynodalService
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
     from itcj2.core.models.program import Program
@@ -134,11 +135,33 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
     programa = db.get(Program, proc.program_id) if proc.program_id else None
     modalidad = db.get(Modality, proc.modality_id) if proc.modality_id else None
     n = AnexoService.phase_number(db)
-    fase = (db.query(ProcessPhase.status)
-            .filter(ProcessPhase.process_id == process_id,
-                    ProcessPhase.phase_number == n).scalar()) if n is not None else None
+    fase, fase_fin = (db.query(ProcessPhase.status, ProcessPhase.completed_at)
+                      .filter(ProcessPhase.process_id == process_id,
+                              ProcessPhase.phase_number == n)
+                      .first() or (None, None)) if n is not None else (None, None)
     doc = (db.query(Document).filter_by(process_id=process_id, type_code=DOC_TYPE).first())
     anexo = AnexoService.get(db, process_id)
+
+    # Fechas (revisión final, punto 1): `Document.updated_at` no lo reescribe
+    # nadie (es la creación de la fila). Enviado = última llegada según la
+    # bitácora, la MISMA fuente que ve el alumno; dictamen = fin de la fase 6
+    # (aprobado) o el último `phase_rejected` de la fase 6 (observado).
+    enviado = None
+    if doc is not None:
+        enviado = (DocumentService.last_uploads(db, [process_id], codes=[DOC_TYPE])
+                   .get((process_id, DOC_TYPE)) or doc.created_at)
+    revisado = None
+    if doc is not None and doc.review_status in ("approved", "rejected"):
+        if doc.review_status == "approved":
+            etiqueta, cuando = "Aprobado", fase_fin
+        else:
+            etiqueta = "Observado"
+            cuando = (db.query(ProcessEvent.created_at)
+                      .filter(ProcessEvent.process_id == process_id,
+                              ProcessEvent.event_type == "phase_rejected",
+                              ProcessEvent.phase_number == n)
+                      .order_by(ProcessEvent.id.desc()).limit(1).scalar())
+        revisado = etiqueta + (f" el {dia_mes_hora(cuando)}" if cuando else "")
 
     en_revision = (operable and proc.status == "active" and fase == "in_review"
                    and doc is not None and doc.review_status == "pending")
@@ -149,10 +172,6 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
     sinodales = SynodalService.active_for_process(db, process_id)
     nombre = " ".join(p for p in (alumno.first_name, alumno.last_name, alumno.middle_name)
                       if p) if alumno else ""
-    revisado = None
-    if doc is not None and doc.review_status in ("approved", "rejected") and doc.updated_at:
-        revisado = ("Aprobado" if doc.review_status == "approved" else "Observado") \
-            + f" el {dia_mes_hora(doc.updated_at)}"
     return {
         "process_id": process_id, "folio": proc.folio, "status": fase or "pending",
         "name": nombre or _VACIO,
@@ -161,7 +180,7 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
         "modality": modalidad.name if modalidad else _VACIO,
         "anexo_folio": anexo.folio if anexo else None,
         "released_label": dia_mes_hora(anexo.released_at) if anexo and anexo.released_at else None,
-        "sent_label": dia_mes_hora(doc.updated_at) if doc is not None and doc.updated_at else None,
+        "sent_label": dia_mes_hora(enviado) if enviado else None,
         "signers": firmas, "sinodales": sinodales,
         "scan": ({"version": doc.version, "mime": doc.mime_type or "application/pdf",
                   "status": doc.review_status, "note": doc.review_note,
@@ -184,6 +203,8 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
     """Contexto del parcial `_body.html` (y de la página completa)."""
     from itcj2.core.services.authz_cache import cached_perms
     from itcj2.apps.titulatec.services.anexo_inbox_service import AnexoInboxService
+    from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE
+    from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.review_presence import ReviewPresence
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
     from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, Page, normalize_q
@@ -217,9 +238,14 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
     viewers = ReviewPresence.viewers(
         _PRESENCE_KIND, ids + ([detail_id] if detail_id and detail_id not in ids else []),
         exclude_user_id=user_id)
+    # «subido el …» de la lista: la misma fuente que el detalle y el alumno (la
+    # bitácora de subidas, una consulta por página); `sent_at` sigue siendo la
+    # clave FIFO y la base del semáforo.
+    subidas = DocumentService.last_uploads(db, ids, codes=[DOC_TYPE])
     for r in rows:
         r["viewers"] = viewers.get(r["process_id"], [])
-        r["sent_label"] = dia_mes_hora(r["sent_at"]) if r["sent_at"] else None
+        enviado = subidas.get((r["process_id"], DOC_TYPE)) or r["sent_at"]
+        r["sent_label"] = dia_mes_hora(enviado) if enviado else None
 
     detail = None
     if detail_id:
