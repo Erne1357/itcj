@@ -25,13 +25,18 @@ P_TEACHER_LIST = "titulatec.teacher.page.list"
 P_TEACHER_MANAGE = "titulatec.teacher.api.manage"
 P_PD_LIST = "titulatec.program_department.page.list"
 P_PD_MANAGE = "titulatec.program_department.api.manage"
+P_NWD_LIST = "titulatec.non_working_day.page.list"
+P_NWD_MANAGE = "titulatec.non_working_day.api.manage"
+SINODAL_GRANTS = {"titulatec.synodal.page.my_reviews", "titulatec.synodal.api.vote",
+                  "titulatec.chat.page.view", "titulatec.chat.api.read",
+                  "titulatec.chat.api.send", "titulatec.chat.api.upload"}
 
 
 def _dml_en_tmp(tmp_path):
     """Stub del 01 en un directorio temporal: el test no depende de database/ (gitignored)."""
     carpeta = tmp_path / "fase_2"
     carpeta.mkdir(parents=True)
-    for nombre in ("01_titulacion_formato_b.sql", "02_sinodales.sql"):
+    for nombre in ("01_titulacion_formato_b.sql", "02_sinodales.sql", "03_revision_sinodales.sql"):
         (carpeta / nombre).write_text("-- stub", encoding="utf-8")
     return tmp_path
 
@@ -40,17 +45,20 @@ def test_expected_son_exactamente_los_grants_del_spec():
     from itcj2.cli.titulatec import fase2
 
     assert fase2._FASE_2_EXPECTED == {
-        "titulatec_titulacion": {P_LIST, P_READ_ALL, P_CORRECT, P_SYN_READ},
+        "titulatec_titulacion": {P_LIST, P_READ_ALL, P_CORRECT, P_SYN_READ, P_NWD_LIST, P_NWD_MANAGE},
         "titulatec_titulaciones": {P_LIST, P_CORRECT, P_SYN_READ, P_SYN_LIST, P_SYN_ASSIGN,
-                                   P_SYN_REPLACE, P_TEACHER_LIST, P_TEACHER_MANAGE},
+                                   P_SYN_REPLACE, P_TEACHER_LIST, P_TEACHER_MANAGE,
+                                   P_NWD_LIST, P_NWD_MANAGE},
         "titulatec_vinculacion": {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE},
         "admin": {P_LIST, P_CORRECT, P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
-                  P_PD_LIST, P_PD_MANAGE},
+                  P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE},
+        "titulatec_sinodal": SINODAL_GRANTS,
     }
     assert fase2._DML_FASE_2_DIR == "fase_2"
-    assert fase2._DML_FASE_2_FILES == ["01_titulacion_formato_b.sql", "02_sinodales.sql"]
+    assert fase2._DML_FASE_2_FILES == ["01_titulacion_formato_b.sql", "02_sinodales.sql",
+                                       "03_revision_sinodales.sql"]
     assert fase2._FASE_2_NEW_PERMISSIONS == {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
-                                             P_PD_LIST, P_PD_MANAGE}
+                                             P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE}
     assert len(fase2._FASE_2_PROGRAM_DEPARTMENTS) == 29
     assert set(fase2._FASE_2_PROGRAM_DEPARTMENTS.values()) == set(fase2._FASE_2_DEPARTMENTS)
     assert len(fase2._FASE_2_DEPARTMENTS) == 8
@@ -70,7 +78,8 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
 
     assert res.exit_code == 0, res.output
     assert ejecutados == [("01_titulacion_formato_b.sql", {"invalidate_authz": False}),
-                          ("02_sinodales.sql", {"invalidate_authz": False})]
+                          ("02_sinodales.sql", {"invalidate_authz": False}),
+                          ("03_revision_sinodales.sql", {"invalidate_authz": False})]
     inv.assert_called_once_with("titulatec")
     verificar.assert_called_once_with()
     avisos.assert_called_once_with()
@@ -124,13 +133,78 @@ def test_dry_run_lista_el_archivo_y_no_ejecuta(tmp_path, monkeypatch):
     from itcj2.cli.titulatec import fase2 as cli
 
     monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
-    with patch("itcj2.cli.core.execute_sql_file") as correr:
+    with patch("itcj2.cli.core.execute_sql_file") as correr,             patch.object(cli, "_procesos_d12", return_value=7):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
     correr.assert_not_called()
     assert ARCHIVO in res.output
     assert "fase_2/02_sinodales.sql" in res.output
+    assert "fase_2/03_revision_sinodales.sql" in res.output
+    assert "se reactivarian 7 proceso(s)" in res.output
+
+
+def test_contar_d12_es_solo_lectura_y_cuenta_los_en_pausa_con_cotejo_aprobado(
+        db_session, make_user, make_process, patched_session_local):
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.cli.titulatec import fase2 as cli
+
+    num = db_session.execute(text(
+        "SELECT number FROM titulatec_phase_definitions WHERE code = 'review_appointment'")).scalar()
+    antes = cli._contar_d12(db_session)
+    proc = make_process(make_user())
+    proc.status = "on_hold"
+    fase = db_session.query(ProcessPhase).filter_by(process_id=proc.id, phase_number=num).first()
+    if fase is None:
+        fase = ProcessPhase(process_id=proc.id, phase_number=num)
+        db_session.add(fase)
+    fase.status = "approved"
+    db_session.flush()
+
+    assert cli._contar_d12(db_session) == antes + 1
+    assert cli._procesos_d12() == antes + 1
+    assert db_session.get(type(proc), proc.id).status == "on_hold"  # nada se escribio
+
+
+def test_verify_fase_2_exige_la_tarea_periodica_y_el_responsable(
+        db_session, patched_session_local, monkeypatch):
+    from sqlalchemy import text
+
+    from itcj2.cli.titulatec import fase2 as cli
+
+    monkeypatch.setattr(cli, "_FASE_2_PERIODIC_TASK", "titulatec.zz_inexistente")
+    db_session.execute(text("UPDATE titulatec_phase_definitions SET responsible = 'vinculacion' "
+                            "WHERE code = 'synodal_review'"))
+    db_session.flush()
+    texto = " | ".join(cli._verify_fase_2())
+    assert "la fase synodal_review no tiene responsible=synodals" in texto
+    assert "falta la tarea periodica titulatec.zz_inexistente" in texto
+
+    db_session.execute(text(
+        "INSERT INTO core_task_definitions (task_name, display_name, app_name, category, "
+        "default_args, is_active) VALUES ('titulatec.zz_inexistente', 'zz', 'titulatec', "
+        "'notification', '{}', TRUE)"))
+    db_session.execute(text(
+        "INSERT INTO core_periodic_tasks (name, task_name, cron_expression, kwargs_json, is_active) "
+        "VALUES ('zz test', 'titulatec.zz_inexistente', '15 9 * * *', '{}', FALSE)"))
+    db_session.flush()
+    assert "esta inactiva" in " | ".join(cli._verify_fase_2())
+
+
+@requires_dml
+def test_el_03_siembra_lo_que_el_verificador_espera():
+    sql = (DML / "fase_2/03_revision_sinodales.sql").read_text(encoding="utf-8")
+    cuerpo = sql.split("DO $$", 1)[1]
+    for codigo in (P_NWD_LIST, P_NWD_MANAGE, *SINODAL_GRANTS):
+        assert f"'{codigo}'" in cuerpo
+    assert "'titulatec.review_reminders'" in cuerpo and "'15 9 * * *'" in cuerpo
+    assert "responsible = 'synodals'" in cuerpo and "'synodal_review'" in cuerpo
+    assert "pd.code = 'review_appointment'" in cuerpo and "status = 'active'" in cuerpo
+    assert "ON CONFLICT (app_id, code) DO UPDATE SET description = EXCLUDED.description" in cuerpo
+    assert "read.all" not in cuerpo
+    assert "permission_id" not in cuerpo
 
 
 def test_verify_fase_2_reporta_un_grant_faltante(db_session, make_role, patched_session_local):
@@ -317,7 +391,7 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
     cuerpo = sql.split("DO $$", 1)[1]
     from itcj2.cli.titulatec import fase2 as cli
 
-    for codigo in cli._FASE_2_NEW_PERMISSIONS:
+    for codigo in cli._FASE_2_NEW_PERMISSIONS - {P_NWD_LIST, P_NWD_MANAGE}:  # nacen en el 03
         assert f"'{codigo}'" in cuerpo
     for nombre in cli._FASE_2_PROGRAM_DEPARTMENTS:
         assert f"'{nombre}'" in cuerpo, nombre

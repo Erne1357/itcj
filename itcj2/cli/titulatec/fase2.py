@@ -10,7 +10,8 @@ from itcj2.cli.titulatec._common import DML_TITULATEC, _abortar_con, titulatec_c
 
 _DML_FASE_2_DIR = "fase_2"
 # Debe listar TODOS los .sql de `database/DML/titulatec/fase_2/`.
-_DML_FASE_2_FILES = ["01_titulacion_formato_b.sql", "02_sinodales.sql"]
+_DML_FASE_2_FILES = ["01_titulacion_formato_b.sql", "02_sinodales.sql",
+                     "03_revision_sinodales.sql"]
 
 # rol -> permisos que DEBEN tener tras correr el comando.
 _FASE_2_EXPECTED: dict[str, set[str]] = {
@@ -19,6 +20,8 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.format_b.api.read.all",
         "titulatec.format_b.api.correct_registry",
         "titulatec.synodal.api.read",
+        "titulatec.non_working_day.page.list",
+        "titulatec.non_working_day.api.manage",
     },
     "titulatec_titulaciones": {
         "titulatec.titulacion.page.list",
@@ -29,6 +32,8 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.synodal.api.replace",
         "titulatec.teacher.page.list",
         "titulatec.teacher.api.manage",
+        "titulatec.non_working_day.page.list",
+        "titulatec.non_working_day.api.manage",
     },
     "titulatec_vinculacion": {
         "titulatec.teacher.page.list",
@@ -43,6 +48,16 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.synodal.api.replace",
         "titulatec.program_department.page.list",
         "titulatec.program_department.api.manage",
+        "titulatec.non_working_day.page.list",
+        "titulatec.non_working_day.api.manage",
+    },
+    "titulatec_sinodal": {
+        "titulatec.synodal.page.my_reviews",
+        "titulatec.synodal.api.vote",
+        "titulatec.chat.page.view",
+        "titulatec.chat.api.read",
+        "titulatec.chat.api.send",
+        "titulatec.chat.api.upload",
     },
 }
 
@@ -53,7 +68,13 @@ _FASE_2_NEW_PERMISSIONS: set[str] = {
     "titulatec.synodal.api.replace",
     "titulatec.program_department.page.list",
     "titulatec.program_department.api.manage",
+    "titulatec.non_working_day.page.list",
+    "titulatec.non_working_day.api.manage",
 }
+
+# Tarea periodica sembrada por `03_revision_sinodales.sql` (cron diario 9:15).
+_FASE_2_PERIODIC_TASK = "titulatec.review_reminders"
+_FASE_2_PERIODIC_CRON = "15 9 * * *"
 
 # Los 8 departamentos con sinodales propios (spec fase 4 §5.1).
 _FASE_2_DEPARTMENTS: tuple[str, ...] = (
@@ -136,6 +157,30 @@ def _avisos_fase_2() -> list[str]:
         return [f"la carrera '{nombre}' esta mapeada a {actual} (la siembra dice {sembrado})"
                 for nombre, sembrado, actual, existe, _docentes in _program_mapping_rows(db)
                 if existe and actual is not None and actual != sembrado]
+    finally:
+        db.close()
+
+
+def _contar_d12(db) -> int:
+    """Procesos 'on_hold' cuya fase `review_appointment` ya esta aprobada (D12).
+    Solo lectura: es lo que el 03 reactivaria."""
+    from sqlalchemy import text
+
+    return db.execute(text(
+        "SELECT COUNT(*) FROM titulatec_processes pr WHERE pr.status = 'on_hold' "
+        "AND EXISTS (SELECT 1 FROM titulatec_process_phases pp "
+        "JOIN titulatec_phase_definitions pd ON pd.number = pp.phase_number "
+        "WHERE pp.process_id = pr.id AND pp.status = 'approved' "
+        "AND pd.code = 'review_appointment')")).scalar() or 0
+
+
+def _procesos_d12() -> int:
+    """Sesion propia, solo lectura (para el --dry-run)."""
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return _contar_d12(db)
     finally:
         db.close()
 
@@ -242,6 +287,20 @@ def _verify_fase_2() -> list[str]:
                  "WHERE code = 'synodal_assignment'")).first()
         if fila is None or fila[0] != "academic_department":
             problemas.append("la fase synodal_assignment no tiene responsible=academic_department")
+
+        # 03_revision_sinodales: responsable de la fase de revision y tarea periodica.
+        fila = db.execute(
+            text("SELECT responsible FROM titulatec_phase_definitions "
+                 "WHERE code = 'synodal_review'")).first()
+        if fila is None or fila[0] != "synodals":
+            problemas.append("la fase synodal_review no tiene responsible=synodals")
+        tarea = db.execute(
+            text("SELECT is_active, cron_expression FROM core_periodic_tasks "
+                 "WHERE task_name = :t"), {"t": _FASE_2_PERIODIC_TASK}).first()
+        if tarea is None:
+            problemas.append(f"falta la tarea periodica {_FASE_2_PERIODIC_TASK}")
+        elif not tarea[0]:
+            problemas.append(f"la tarea periodica {_FASE_2_PERIODIC_TASK} esta inactiva")
     finally:
         db.close()
     return problemas
@@ -275,6 +334,12 @@ def init_titulatec_fase_2_command(dry_run):
             click.echo("Archivos en disco: OK. Se ejecutarian:")
             for nombre in archivos:
                 click.echo(f"  {nombre}")
+        if not faltan:
+            try:
+                n = _procesos_d12()
+                click.echo(f"D12: se reactivarian {n} proceso(s) en pausa con el cotejo aprobado.")
+            except Exception as exc:  # solo informativo; nunca escribe
+                click.echo(click.style(f"D12: no se pudo contar ({exc})", fg="yellow"))
         click.echo("Dry-run: no se ejecuto nada.")
         if faltan:
             raise click.Abort()
