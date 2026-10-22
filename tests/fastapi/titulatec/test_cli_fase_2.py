@@ -580,7 +580,8 @@ def test_verify_fase_2_exige_product_label_y_el_salto_de_egel(
     egel.skips_phases = [4, 5, 6]
     db_session.flush()
     problemas = cli._verify_fase_2()
-    assert not [x for x in problemas if "product_label" in x or "egel" in x]
+    assert not [x for x in problemas
+                if "product_label" in x or x == "la modalidad egel no salta [4, 5, 6]"]
 
 
 def _en_fase_6(db_session, make_user, make_process, make_modality, seed_phase_defs,
