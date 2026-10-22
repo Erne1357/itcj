@@ -69,18 +69,13 @@ class OficioService:
         return {"name": _full_name(user), "title": propio or titulo_puesto}
 
     @staticmethod
-    def context(db: Session, process) -> dict:
-        """Todas las piezas del oficio (spec §12). `ValueError(NO_SYNODALS_MSG)`
-        sin sinodales vigentes."""
+    def department_frame(db: Session, process) -> dict:
+        """Marco institucional compartido por el oficio y el Anexo III: `department`
+        (None sin carrera mapeada), `settings`, `header`, `addressee`, `attn` y
+        `signer` (jefe `head_{depto}`)."""
         from itcj2.apps.titulatec.models import DepartmentSettings, ProgramDepartment
-        from itcj2.apps.titulatec.services.synodal_service import SynodalService
         from itcj2.core.models.department import Department
 
-        sinodales = SynodalService.active_for_process(db, process.id)
-        if not sinodales:
-            raise ValueError(NO_SYNODALS_MSG)
-
-        base = SynodalService._notice_base(db, process)
         mapeo = db.get(ProgramDepartment, process.program_id) if process.program_id else None
         depto = db.get(Department, mapeo.department_id) if mapeo else None
         ajustes = db.get(DepartmentSettings, depto.id) if depto else None
@@ -94,6 +89,25 @@ class OficioService:
             db, ajustes.attn_position_code if ajustes else DEFAULT_ATTN_CODE,
             title=ajustes.attn_title if ajustes else None)
         firmante = OficioService.holder(db, f"head_{depto.code}") if depto else None
+        return {"department": depto, "settings": ajustes, "header": encabezado,
+                "addressee": destinatario, "attn": atencion, "signer": firmante}
+
+    @staticmethod
+    def context(db: Session, process) -> dict:
+        """Todas las piezas del oficio (spec §12). `ValueError(NO_SYNODALS_MSG)`
+        sin sinodales vigentes."""
+        from itcj2.apps.titulatec.services.synodal_service import SynodalService
+
+        sinodales = SynodalService.active_for_process(db, process.id)
+        if not sinodales:
+            raise ValueError(NO_SYNODALS_MSG)
+
+        base = SynodalService._notice_base(db, process)
+        marco = OficioService.department_frame(db, process)
+        encabezado = marco["header"]
+        destinatario = marco["addressee"]
+        atencion = marco["attn"]
+        firmante = marco["signer"]
 
         fecha = SynodalService.last_change_at(db, process.id) or db_now()
         alumno = base["alumno"] or ""

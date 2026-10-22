@@ -15,6 +15,17 @@ def corte_9(monkeypatch):
     monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
 
 
+def _contador(db):
+    from itcj2.apps.titulatec.models import AnexoCounter
+    return {c.semester: c.last_value for c in db.query(AnexoCounter).all()}
+
+
+def _sin_folio(db, c, antes):
+    assert AnexoService.get(db, c.process.id) is None
+    assert _contador(db) == antes
+    assert _eventos(db, c.process.id) == 0
+
+
 def _eventos(db, pid):
     return db.query(ProcessEvent).filter_by(process_id=pid, event_type="anexo_iii_issued").count()
 
@@ -112,29 +123,57 @@ def test_pdf_empieza_con_pdf(corte_9, db_session, make_anexo_case):
 def test_falla_cerrado_sin_cuatro_sinodales(corte_9, db_session, make_anexo_case):
     from itcj2.apps.titulatec.models import SynodalAssignment
     c = make_anexo_case()
+    antes = _contador(db_session)
     fila = db_session.query(SynodalAssignment).filter_by(
         process_id=c.process.id, role="alternate", is_active=True).one()
     fila.is_active = False
     db_session.flush()
     with pytest.raises(ValueError, match="sinodales"):
         AnexoService.render_pdf(db_session, c.process, None)
-    assert AnexoService.get(db_session, c.process.id) is None
+    _sin_folio(db_session, c, antes)
 
 
 def test_falla_cerrado_sin_depto(corte_9, db_session, make_anexo_case):
     c = make_anexo_case()
+    antes = _contador(db_session)
     c.process.program_id = None
     db_session.flush()
     with pytest.raises(ValueError, match="departamento"):
-        AnexoService.context(db_session, c.process)
+        AnexoService.render_pdf(db_session, c.process, None)
+    _sin_folio(db_session, c, antes)
 
 
 def test_falla_cerrado_sin_modalidad(corte_9, db_session, make_anexo_case):
     c = make_anexo_case()
+    antes = _contador(db_session)
     c.modality.product_label = None
     db_session.flush()
     with pytest.raises(ValueError, match="modalidad"):
-        AnexoService.context(db_session, c.process)
+        AnexoService.render_pdf(db_session, c.process, None)
+    _sin_folio(db_session, c, antes)
+
+
+def test_ensure_folio_valida_solo_antes_de_numerar(corte_9, db_session, make_anexo_case):
+    c = make_anexo_case()
+    antes = _contador(db_session)
+    c.modality.product_label = None
+    db_session.flush()
+    with pytest.raises(ValueError, match="modalidad"):
+        AnexoService.ensure_folio(db_session, c.process, None)
+    _sin_folio(db_session, c, antes)
+
+
+def test_released_at_ultimo_recurso_db_now(corte_9, db_session, make_anexo_case, monkeypatch):
+    from itcj2.apps.titulatec.services import anexo_service as mod
+    c = make_anexo_case()
+    fase = db_session.query(ProcessPhase).filter_by(
+        process_id=c.process.id, phase_number=c.review_phase).one()
+    fase.completed_at = None
+    db_session.flush()
+    fijo = datetime(2026, 9, 1, 12, 0)
+    monkeypatch.setattr(mod, "db_now", lambda: fijo)
+    a = AnexoService.ensure_folio(db_session, c.process, None)
+    assert a.released_at == fijo
 
 
 def test_no_operable_con_corte_3(db_session, monkeypatch, make_anexo_case):

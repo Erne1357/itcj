@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.oficio_service import (
-    DEFAULT_ADDRESSEE_CODE, FOOTER_ADDRESS, FOOTER_CONTACT, NO_SYNODALS_MSG,
+    FOOTER_ADDRESS, FOOTER_CONTACT, NO_SYNODALS_MSG,
     OficioService, _date_label,
 )
 from itcj2.core.utils.timezone import db_now
@@ -140,7 +140,10 @@ class AnexoService:
     @staticmethod
     def ensure_folio(db: Session, process, actor_id: int | None):
         """El `Anexo` del proceso; lo crea (folio + fecha congelada) la primera
-        vez. Sin commit. `ValueError` si la fase no se opera o no se alcanzo."""
+        vez. Sin commit. `ValueError` si la fase no se opera, no se alcanzo o los
+        datos del documento estan incompletos: ANTES de numerar valida con
+        `context` (4 sinodales, departamento, modalidad con producto), asi que
+        un folio nunca se quema por datos invalidos sin importar el llamador."""
         from itcj2.apps.titulatec.models import Anexo
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.certificate_service import semester_key
@@ -155,6 +158,7 @@ class AnexoService:
         if existente is not None:
             return existente
 
+        AnexoService.context(db, process)           # falla cerrado antes de numerar
         ahora = db_now()
         semestre = semester_key(ahora)
         liberado = AnexoService._released_at(db, process)
@@ -190,15 +194,14 @@ class AnexoService:
     def context(db: Session, process) -> dict:
         """Todas las piezas del Anexo (spec §7). `ValueError` sin los 4
         sinodales vigentes, sin departamento o sin modalidad/producto."""
-        from itcj2.apps.titulatec.models import DepartmentSettings, Modality, ProgramDepartment
+        from itcj2.apps.titulatec.models import Modality
         from itcj2.apps.titulatec.services.synodal_service import SynodalService
-        from itcj2.core.models.department import Department
 
         sinodales = SynodalService.active_for_process(db, process.id)
         if len(sinodales) != SYNODALS_REQUIRED:
             raise ValueError(NO_SYNODALS_MSG)
-        mapeo = db.get(ProgramDepartment, process.program_id) if process.program_id else None
-        depto = db.get(Department, mapeo.department_id) if mapeo else None
+        marco = OficioService.department_frame(db, process)
+        depto = marco["department"]
         if depto is None:
             raise ValueError(NO_DEPARTMENT_MSG)
         modalidad = db.get(Modality, process.modality_id) if process.modality_id else None
@@ -207,14 +210,6 @@ class AnexoService:
             raise ValueError(NO_MODALITY_MSG)
 
         base = SynodalService._notice_base(db, process)
-        ajustes = db.get(DepartmentSettings, depto.id)
-        encabezado = (ajustes.oficio_header if ajustes and ajustes.oficio_header
-                      else f"Departamento de {depto.name}")
-        destinatario = OficioService.holder(
-            db, ajustes.addressee_position_code if ajustes else DEFAULT_ADDRESSEE_CODE,
-            title=ajustes.addressee_title if ajustes else None)
-        firmante = OficioService.holder(db, f"head_{depto.code}")
-
         anexo = AnexoService.get(db, process.id)
         liberado = anexo.released_at if anexo else AnexoService._released_at(db, process)
         egresado = (base["alumno"] or "").title()
@@ -222,11 +217,11 @@ class AnexoService:
         control = base["control"] or ""
         proyecto = (base["titulo"] or "").upper()
         return {
-            "header": encabezado,
+            "header": marco["header"],
             "folio": anexo.folio if anexo else None,
             "date_label": _date_label(liberado),
-            "addressee": destinatario,
-            "signer": firmante,
+            "addressee": marco["addressee"],
+            "signer": marco["signer"],
             "student_name": egresado,
             "control_number": control,
             "program_name": carrera,
@@ -251,14 +246,12 @@ class AnexoService:
 
     @staticmethod
     def render_pdf(db: Session, process, actor_id: int | None) -> bytes:
-        """PDF del Anexo. Valida primero (no quema folio si los datos estan
-        incompletos), luego emite/relee el folio y pinta. Sin commit."""
+        """PDF del Anexo. `ensure_folio` valida antes de numerar; luego pinta. Sin commit."""
         from weasyprint import HTML
 
         from itcj2.apps.titulatec.pages.nav import titulatec_templates
         from itcj2.apps.titulatec.utils.certificate_pdf import CORE_STATIC_DIR
 
-        AnexoService.context(db, process)           # falla cerrado antes del folio
         AnexoService.ensure_folio(db, process, actor_id)
         ctx = AnexoService.context(db, process)
         html = titulatec_templates.get_template(_TEMPLATE_NAME).render(**ctx)
