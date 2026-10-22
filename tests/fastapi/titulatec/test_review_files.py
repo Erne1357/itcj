@@ -82,9 +82,26 @@ def test_extension_no_permitida():
 
 
 def test_supera_limite(monkeypatch):
-    monkeypatch.setattr(rf, "max_bytes", lambda: 10)
-    with pytest.raises(rf.ReviewFileError, match=r"El archivo supera \d+ MB\."):
-        rf.validate(PDF, "t.pdf")
+    monkeypatch.setattr(rf, "max_bytes", lambda: 1024 * 1024)
+    raw = b"%PDF-" + b"0" * (1024 * 1024 - 4)  # 1 MB + 1 byte
+    assert len(raw) == 1024 * 1024 + 1
+    with pytest.raises(rf.ReviewFileError) as ei:
+        rf.validate(raw, "t.pdf")
+    assert str(ei.value) == "El archivo supera 1 MB."
+
+
+def test_docx_con_basura_al_inicio_falla():
+    with pytest.raises(rf.ReviewFileError) as ei:
+        rf.validate(b"junk" + DOCX, "t.docx")
+    assert str(ei.value) == "El archivo no es un PDF o Word válido."
+
+
+def test_write_rechaza_periodo_o_control_vacio(base):
+    for period, control in (("", "1"), ("  ", "1"), ("p", ""), ("p", "  ")):
+        with pytest.raises(rf.ReviewFileError):
+            rf.write(PDF, period_code=period, control_number=control,
+                     filename="v1_1.pdf")
+    assert not list(base.iterdir())
 
 
 def test_max_bytes_lee_settings_en_cada_llamada(monkeypatch):

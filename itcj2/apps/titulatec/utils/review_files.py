@@ -56,6 +56,8 @@ def _ext_of(name: str) -> str:
 
 
 def _is_docx(raw: bytes) -> bool:
+    if not raw.startswith(b"PK\x03\x04"):
+        return False
     try:
         with zipfile.ZipFile(io.BytesIO(raw)) as z:
             return any(n.startswith("word/") for n in z.namelist())
@@ -72,7 +74,7 @@ def validate(raw: bytes, original_name: str) -> tuple[str, str]:
         raise ReviewFileError(_MSG_EXT)
     limit = max_bytes()
     if len(raw) > limit:
-        raise ReviewFileError(f"El archivo supera {limit // _MB} MB.")
+        raise ReviewFileError(f"El archivo supera {max(1, limit // _MB)} MB.")
     if ext == "pdf":
         ok = raw.startswith(_PDF_MAGIC)
     elif ext == "doc":
@@ -116,6 +118,8 @@ def write(raw: bytes, *, period_code: str, control_number: str, filename: str) -
 
     if not _FILENAME_RE.fullmatch(str(filename or "")) or ".." in filename:
         raise ReviewFileError("Nombre de archivo no válido.")
+    if not str(period_code or "").strip() or not str(control_number or "").strip():
+        raise ReviewFileError("Faltan el periodo o el número de control.")
     base = storage._base()
     try:
         folder = safe_join(base, str(period_code), str(control_number), "revision")
