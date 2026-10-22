@@ -611,8 +611,12 @@ def test_saltar_egel_fase6_avanza_a_la_siguiente_y_es_idempotente(
                          seed_phase_defs, skips=[4, 5, 6], status="on_hold")
     eventos_antes = db_session.query(ProcessEvent).filter_by(process_id=egel.id).count()
 
-    assert cli._procesos_egel_fase6(db_session) >= 1
-    assert cli._saltar_egel_fase6() >= 1
+    # Conteo exacto del catalogo: los de este test que saltan la fase 6 (activos)
+    # mas los que ya hubiera en la base de dev.
+    previo = cli._procesos_egel_fase6(db_session)
+    assert previo >= 1
+    assert cli._saltar_egel_fase6() == previo
+    assert cli._procesos_egel_fase6(db_session) == 0
     db_session.expire_all()
 
     assert egel.current_phase == 7
@@ -642,4 +646,17 @@ def test_el_dry_run_no_corrige_nada(tmp_path, monkeypatch):
     assert res.exit_code == 0, res.output
     saltar.assert_not_called()
     assert "fase_2/04_anexo_iii.sql" in res.output
-    assert "se saltarian la fase 6 4 proceso(s)" in res.output
+    assert "se saltarian la fase 6 4 proceso(s) segun el catalogo actual" in res.output
+
+
+def test_dry_run_un_fallo_del_conteo_egel_no_se_atribuye_a_d12(tmp_path, monkeypatch):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
+    with patch("itcj2.cli.core.execute_sql_file"),             patch.object(cli, "_procesos_d12", return_value=1),             patch.object(cli, "_procesos_egel_fase6", side_effect=RuntimeError("boom")):
+        res = CliRunner().invoke(cli.init_titulatec_fase_2_command, ["--dry-run"])
+
+    assert res.exit_code == 0, res.output
+    assert "D12: se reactivarian 1 proceso(s)" in res.output
+    assert "EGEL: no se pudo contar (boom)" in res.output
+    assert "D12: no se pudo contar" not in res.output

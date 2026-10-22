@@ -283,13 +283,9 @@ def _procesos_egel_fase6(db=None) -> int:
     q, num = _query_egel_fase6(db)
     if q is None:
         return 0
-    # Antes del 04 EGEL aun no salta la fase 6 en el catalogo; el dry-run corre
-    # antes de sembrar, asi que cuenta tambien a quien el 04 va a hacer saltarla
-    # (`skips_phases` de `egel`). Solo este conteo informativo; la correccion real
-    # lee siempre el catalogo.
-    return sum(1 for p in q.all()
-               if num in PhaseService._skips(p)
-               or (p.modality is not None and p.modality.code == "egel"))
+    # Solo el catalogo actual (`skips_phases`): antes de la primera corrida real
+    # del 04 EGEL aun no salta la fase 6 y esto cuenta 0.
+    return sum(1 for p in q.all() if num in PhaseService._skips(p))
 
 
 def _saltar_egel_fase6() -> int:
@@ -505,10 +501,14 @@ def init_titulatec_fase_2_command(dry_run):
             try:
                 n = _procesos_d12()
                 click.echo(f"D12: se reactivarian {n} proceso(s) en pausa con el cotejo aprobado.")
-                n = _procesos_egel_fase6()
-                click.echo(f"EGEL: se saltarian la fase 6 {n} proceso(s).")
             except Exception as exc:  # solo informativo; nunca escribe
                 click.echo(click.style(f"D12: no se pudo contar ({exc})", fg="yellow"))
+            try:
+                n = _procesos_egel_fase6()
+                click.echo(f"EGEL: se saltarian la fase 6 {n} proceso(s) "
+                           "segun el catalogo actual (0 si el 04 aun no se corre).")
+            except Exception as exc:  # solo informativo; nunca escribe
+                click.echo(click.style(f"EGEL: no se pudo contar ({exc})", fg="yellow"))
         click.echo("Dry-run: no se ejecuto nada.")
         if faltan:
             raise click.Abort()
