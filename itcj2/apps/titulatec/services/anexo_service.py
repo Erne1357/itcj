@@ -498,7 +498,8 @@ class AnexoService:
         DESPUES del commit del voto); sin correo. Inerte si el Anexo no se opera
         o la carrera no tiene departamento. Los errores los maneja el llamador
         (best-effort)."""
-        from itcj2.apps.titulatec.models import ProgramDepartment, TitulationProcess
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.scope_service import department_of_program
         from itcj2.core.models.department import Department
         from itcj2.core.models.position import Position, UserPosition
         from itcj2.core.models.user import User
@@ -513,8 +514,8 @@ class AnexoService:
             proceso = db.get(TitulationProcess, process_id)
             if proceso is None or proceso.program_id is None:
                 return
-            mapeo = db.get(ProgramDepartment, proceso.program_id)
-            depto = db.get(Department, mapeo.department_id) if mapeo else None
+            depto_id = department_of_program(db, proceso.program_id)
+            depto = db.get(Department, depto_id) if depto_id is not None else None
             if depto is None:
                 return
 

@@ -151,6 +151,59 @@ def test_pdf_sin_leer_sinodales_403(esc, db_session, make_academic_head, client_
     assert client_as(solo).get(f"{URL}/{c.process.id}/anexo.pdf").status_code == 403
 
 
+def _texto_pdf(raw: bytes) -> str:
+    import io
+    from pypdf import PdfReader
+    return " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(raw)).pages)
+
+
+@pytest.mark.parametrize("alumno_primero", [True, False])
+def test_mismo_folio_para_el_alumno_y_vinculacion(esc, db_session, make_role,
+                                                  alumno_primero, patched_session_local):
+    import re
+    from tests.fastapi.titulatec.test_student_anexo import ANEXO_PERMS, ROLE_STUDENT
+
+    c = esc.caso()
+    make_role(ROLE_STUDENT, ANEXO_PERMS)
+    db_session.commit()
+    # `client_as` devuelve el MISMO cliente: se cambia de actor justo antes de pedir.
+    urls = [(c.student, "/titulatec/student/anexo/pdf"),
+            (c.head, f"{URL}/{c.process.id}/anexo.pdf")]
+    if not alumno_primero:
+        urls.reverse()
+
+    textos = []
+    for actor, url in urls:
+        resp = esc.client_as(actor).get(url)
+        assert resp.status_code == 200, (url, resp.text[:300])
+        textos.append(_texto_pdf(resp.content))
+
+    db_session.expire_all()
+    filas = db_session.query(Anexo).filter_by(process_id=c.process.id).all()
+    assert len(filas) == 1
+    folio = filas[0].folio
+    assert all(folio in re.sub(r"\s+", "", t) for t in textos), (folio, textos)
+
+
+def test_pdf_corte_3_es_400_y_no_numera(esc, corte, db_session):
+    c = esc.caso()
+    cli = esc.client_as(c.head)
+    corte(3)
+    resp = cli.get(f"{URL}/{c.process.id}/anexo.pdf")
+    assert resp.status_code == 400 and resp.headers.get("X-Tt-Error")
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 0
+
+
+def test_corte_3_sin_pestana_ni_filas(esc, corte):
+    c = esc.caso()
+    cli = esc.client_as(c.head)
+    corte(3)
+    resp = cli.get(BODY, params={"tab": "anexo"})
+    assert resp.status_code == 200
+    assert not _html(resp).xpath('//*[@id="tt-sin-tab-anexo"]')
+    assert c.process.id not in _filas(resp)
+
+
 def test_pdf_corte_6_es_400(esc, corte):
     c = esc.caso()
     cli = esc.client_as(c.head)
@@ -225,6 +278,13 @@ def test_corte_6_no_hay_aviso(liberacion, db_session, corte):
     corte(9)
     AnexoService.notify_release(c.process.id)
     assert len(_avisos(db_session, c.coord)) == 1
+
+
+def test_corte_3_notify_release_no_escribe(liberacion, db_session, corte):
+    c = liberacion.build()
+    corte(3)
+    AnexoService.notify_release(c.process.id)
+    assert _avisos(db_session, c.coord) == [] and _avisos(db_session, c.head) == []
 
 
 def test_un_fallo_del_aviso_no_rompe_el_voto(liberacion, db_session, monkeypatch):
