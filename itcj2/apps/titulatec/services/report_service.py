@@ -788,8 +788,9 @@ def _projection(queue: int, per_day: float, today: date, *, unit: str, verb: str
     - `ok`: «Se vacía el jue 23 oct (7 días hábiles)»;
     - `over`: como `ok` pero `days` > `threshold` (solo si se pasa umbral).
 
-    La frase «a este ritmo, sin feriados ni nuevas entradas» va aparte
-    (`projection_note` de cada pestaña): es la misma para todas.
+    La frase «a este ritmo, sin feriados ni nuevas entradas» (o, con días
+    inhábiles registrados, «descontando los días inhábiles registrados…») va
+    aparte (`projection_note` de cada pestaña): es la misma para todas.
     """
     dias = flow.clear_days(queue, per_day)
     per_day = float(per_day)
@@ -982,7 +983,9 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
         - `pace`: `{per_day (float), text, window (10), pending, forecast (date|
           None), forecast_text ("jue 9 oct" | "sin ritmo medible" | "sin
           pendientes"), note}` — `note` es la frase obligatoria «a este ritmo,
-          sin contar feriados ni nuevas solicitudes».
+          sin contar feriados ni nuevas solicitudes» con el calendario de días
+          inhábiles vacío; con días registrados dice «a este ritmo,
+          descontando los días inhábiles registrados y sin nuevas solicitudes».
         - `requests`: `{pending, oldest_days (int|None), url, body_url}`
           (solicitudes por revisar, la anterior incluida).
         - `stuck`: `{crit, warn, total, url, body_url, crit_url,
@@ -1027,7 +1030,9 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
       hábiles)» | «Sin ritmo medible»)}`. El alumno nunca lleva proyección.
     - `motive_note` («Cada pendiente cuenta una sola vez por área, en su
       primer motivo…»), `projection_note` («a este ritmo, sin feriados ni
-      nuevas entradas», obligatoria junto a cada proyección),
+      nuevas entradas» con el calendario vacío; con días inhábiles
+      registrados, «…descontando los días inhábiles registrados…»;
+      obligatoria junto a cada proyección),
       `projection_window` (10 días hábiles).
     """
     pend = d.pending
@@ -1603,7 +1608,8 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
       ("pendientes"), per_day, per_day_text, verb ("liberados"), rate_text,
       days, date, date_text, status ("clear" | "ok" | "no_pace"),
       over_threshold (False), text}`; independiente del rango.
-    - `projection_note` («a este ritmo, sin feriados ni nuevas entradas»),
+    - `projection_note` («a este ritmo, sin feriados ni nuevas entradas» con el
+      calendario vacío; con días registrados, la variante que los descuenta),
       `projection_window` (10).
     """
     por_carrera = _officer_names_by_program(d, d.officer_list(db))

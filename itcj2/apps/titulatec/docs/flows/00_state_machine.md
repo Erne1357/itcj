@@ -14,7 +14,7 @@
 | 2 | `review_appointment` | Cita de cotejo | 🏛️ Servicios Escolares |
 | 3 | `format_b` | Formato B | 👤 Alumno → 🎓 Titulaciones |
 | 4 | `synodal_assignment` | Asignación de sinodales | 🔗 Departamento académico de la carrera (jefe o coordinador de vinculación; desde 2026-10-21 el catálogo `responsible` es `academic_department`) |
-| 5 | `synodal_review` | Revisión de sinodales | 🧑‍⚖️ Sinodales |
+| 5 | `synodal_review` | Revisión de sinodales | 🧑‍⚖️ Sinodales (desde 2026-10-22 el catálogo `responsible` es `synodals`; la fase se mueve sola con el voto que cumple la regla de firma, ver «Revisión de sinodales» abajo) |
 | 6 | `anexo_iii` | Anexo III | 🎓 + 👤 |
 | 7 | `final_docs` | Entrega final | 👤 → 🎓 |
 | 8 | `ceremony` | Acto protocolario | 🎓 |
@@ -47,7 +47,7 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
     [*] --> active: import_rows (CSV, alta manual, bandeja, liga)
-    active --> on_hold: 🏛️ la convocatoria pasa a closed (CohortService.set_window)
+    active --> on_hold: 🏛️ la convocatoria pasa a closed (CohortService.set_window), solo si el proceso NO pasó el primer checkpoint (D12)
     on_hold --> active: 🏛️ otra convocatoria pasa a open (reanuda las de convocatorias cerradas)
     active --> completed: 🤖 se aprueba la última fase aplicable
     active --> cancelled: 🏛️ revocar inscripción (motivo obligatorio)
@@ -55,6 +55,15 @@ stateDiagram-v2
     completed --> [*]
     cancelled --> [*]
 ```
+
+**Regla de pausa (D12, 2026-10-22).** Cerrar una convocatoria **solo pausa a quien aún no llegó a su primer
+*checkpoint***: la fase 2 (`review_appointment`) sin `approved`. Quien ya pasó el cotejo (el pago en Caja durante
+la cita, = «liberado») sigue `active`: Servicios Escolares y Titulación llevan tiempos distintos y Titulación
+atiende semanas después del cierre, o el semestre siguiente, a los del semestre pasado. El 2.º *checkpoint* (cotejo
+de expediente de Titulación, fase 7) se agrega en su spec. Un solo predicado,
+`ProcessService.first_checkpoint_clause` / `passed_first_checkpoint` (por código de fase, falla cerrado); reabrir
+sigue reanudando todo `on_hold` de convocatoria cerrada. Con esto un proceso en la fase 5 nunca queda en pausa por una
+convocatoria. Detalle: [Detalle de convocatoria](phase0_school_services_cohort_detail.md).
 
 **`cancelled` se escribe desde 2026-09-25** y tiene un solo escritor: `ProcessService.cancel`
 (revocables = `REVOCABLE_STATUSES` = `active`/`on_hold`; `completed` no; una ya revocada responde
@@ -82,6 +91,7 @@ superficie que dictamina o ejecuta una fase, no solo en el botón obvio.
 | 👤 **alumno — ejecución** | subir, borrar, llenar, enviar, confirmar | [`PhaseService.assert_student_can_act`](engine_student_phase_lock.md) | Sí — exige `n == current_phase` | `400` + `X-Tt-Error` (acciones) · `302` al acordeón (páginas) |
 | 🎓 **admin — dictamen de Formato B** (desde 2026-09-21; desde 2026-10-21 en la pestaña Titulación) | `FormatBService.approve` / `.reject` / `.correct_registry` (antes `review`) | la MISMA `assert_can_transition` de arriba, con `n` = fase `format_b` del catálogo | Sí — mismas reglas que la fila 1 | `400` + `X-Tt-Error` |
 | 🔗 **departamento académico — asignar sinodales** (desde 2026-10-21, pestaña Sinodales) | `SynodalService.assign` (aprueba la fase 4) / `.replace` (solo con la fase 4 aprobada y la 5 sin aprobar) | la MISMA `assert_can_transition` con `n` = fase `synodal_assignment` (bajo el candado `_lock_process_row`), más alcance de departamento (`can_operate`) y la puerta única `PhaseService.open_door`/`_door_guard` | Sí — mismas reglas que la fila 1; la fase 4 **no tiene rechazo** y por la vía genérica da `SYNODAL_ONLY_MSG` | `400` + `X-Tt-Error` |
+| 🧑‍⚖️ **sinodales — voto que libera la fase 5** (desde 2026-10-22, «Mis revisiones») | `ReviewService.vote` (única puerta; la fase 5 no tiene rechazo) | `_door_state_ok("synodal_review")` = `ReviewService.rule_satisfied` bajo `_lock_process_row`, más `assert_participant` y `ReviewService.operable`; por la vía genérica da `REVIEW_ONLY_MSG` | Sí — la fase 5 debe estar `in_progress` y el proceso `active` | `400` + `X-Tt-Error` |
 | 🏛️🎓 **admin — dictamen de un documento** (desde 2026-09-21) | `DocumentService.review` (aprobar/rechazar) | chequeo propio dentro del service — **no** reusa `assert_can_transition` | **No**, a propósito (ver abajo) | `400` + `X-Tt-Error` |
 
 Para el alumno eso significa: las fases **siguientes** son informativas (las lee en el
@@ -394,6 +404,37 @@ stateDiagram-v2
 
 > `replace` exige fase 4 `approved`, fase 5 sin aprobar y proceso `active`; el motivo es obligatorio. Un sinodal
 > sustituido conserva su fila (`replaced_at`, `replaced_by_id`, `replacement_reason`) como historial.
+
+## Revisión de sinodales (`ProcessChat` y `ReviewVersion`/`ReviewVote`) — Fase 5 (2026-10-22)
+
+Detalle: [revisión de sinodales](phase5_synodal_review.md). La fase 5 sigue el ciclo de fase normal
+(`in_progress` → `approved`), pero **no** pasa por `in_review` ni tiene rechazo: se mueve **solo** por la puerta de
+`ReviewService.vote` (la regla de firma se cumple en la versión vigente y el voto que cierra viene reconfirmado). La
+conversación de un proceso (`titulatec_chats`, una fila por proceso) vive mientras la fase está en curso y se cierra
+con `closed_at` al liberarse. Estado de la **versión**: la vigente es la de mayor `number`; los votos de versiones
+anteriores no cuentan (D4).
+
+```mermaid
+stateDiagram-v2
+    [*] --> sin_conversacion: fase 5 in_progress sin chat (respaldo chat_for create)
+    [*] --> abierta: 🤖 SynodalService.assign abre la conversación (mensaje system)
+    sin_conversacion --> abierta: 🤖 ReviewService.chat_for(create=True)
+    abierta --> abierta: 👤 sube la versión N (los votos previos dejan de contar)
+    abierta --> abierta: 🧑‍⚖️ voto que no cumple la regla (o la versión cambió: nada se escribe)
+    abierta --> reconfirmacion: 🧑‍⚖️ voto que cumpliría la regla, sin confirm (nada escrito)
+    reconfirmacion --> cerrada: 🧑‍⚖️ confirm=1: closed_at, fase 5 approved, fase 6 in_progress (UNA transacción)
+    reconfirmacion --> abierta: 🧑‍⚖️ cancela
+    abierta --> solo_lectura: proceso no active (revocado/pausado) o fase 5 no in_progress
+    cerrada --> [*]
+```
+
+> `reconfirmacion` no es un estado guardado: es la respuesta 200 con el panel de D6 (`ReviewNeedsConfirmation`), sin
+> escribir nada. **Abierta** = `closed_at` nulo, proceso `active` y fase 5 `in_progress` (`ReviewService.is_open`);
+> fuera de eso la conversación queda de solo lectura (`CLOSED_MSG`). Quién cuenta lo decide
+> `ReviewService.counting_roles(signature_rule)`: `president_only` = solo el Presidente, `all_synodals` = los 4
+> (suplente incluido). Una regla desconocida falla cerrado: la revisión no puede cerrarse. Sustituir a un sinodal
+> (fase 4) durante la revisión no cierra nada: el voto de la asignación desactivada deja de contar. El plazo
+> (10 días hábiles por versión) no es un estado: se calcula con el [calendario de días inhábiles](xcut_non_working_days.md).
 
 ## Estado de una solicitud de liberación de GTV para la encuesta de egresados (`SurveyReview.status`) — Fase 2
 

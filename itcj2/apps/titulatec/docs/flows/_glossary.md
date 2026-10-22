@@ -45,12 +45,17 @@ una clase por tabla en `itcj2/apps/titulatec/models/` (el prefijo `titulatec_` v
 | `CertificateCounter` | `titulatec_certificate_counters` | Contador atómico de folio por tipo y SEMESTRE (2026-10-01; por semestre desde `tt20261005c`, 2026-10-05, antes por año); PK compuesta | `kind` (PK), `semester` (PK, `String(5)`: `2026A`/`2026B`, `SEMESTER_RE`; antes `year` Integer), `last_value` |
 | `PriorClearance` | `titulatec_prior_clearances` | Constancia previa DIFERIDA (D9, 2026-10-01): liberación de encuesta o no adeudo de ANTES de este sistema sin proceso abierto que la reciba, pendiente de aplicarse o ya aplicada; una MÁS NUEVA reemplaza a la ya aplicada y vuelve a quedar pendiente (Ruling R28) | `kind` (`survey`/`library`), `control_number` (UNIQUE con `kind`), `issued_on` (Date, NULLABLE en el esquema; el servicio siempre la exige), `note`, `source`, `applied_process_id`/`applied_at` (NULL hasta que se aplica) |
 | `ProcessEvent` | `titulatec_process_events` | Auditoría / timeline | `event_type`, `phase_number`, `actor_id`, `payload` (JSON) |
-| `SynodalAssignment` | `titulatec_synodal_assignments` | Sinodales de un proceso (fase 4; historial incluido, 2026-10-21) | `user_id`, `role` (`president`/`secretary`/`vocal`/`alternate`), `is_active` (la fila vigente; índices únicos parciales por `(process_id, role)` y `(process_id, user_id)` donde `is_active`), `replaced_at`/`replaced_by_id`/`replacement_reason` (una fila sustituida queda inactiva = historial), `assigned_by_id` (jefe o coordinador del departamento), `vote`/`vote_at`/`vote_note` (fase 5, aún sin escribir) |
+| `SynodalAssignment` | `titulatec_synodal_assignments` | Sinodales de un proceso (fase 4; historial incluido, 2026-10-21) | `user_id`, `role` (`president`/`secretary`/`vocal`/`alternate`), `is_active` (la fila vigente; índices únicos parciales por `(process_id, role)` y `(process_id, user_id)` donde `is_active`), `replaced_at`/`replaced_by_id`/`replacement_reason` (una fila sustituida queda inactiva = historial), `assigned_by_id` (jefe o coordinador del departamento), `vote`/`vote_at`/`vote_note` (**legado sin uso**: los votos de la fase 5 viven en `titulatec_review_votes`, por versión) |
 | `TeacherProfile` (NUEVO 2026-10-21) | `titulatec_teacher_profiles` | Perfil docente único por persona, compartido por todos sus departamentos (grado y cédula que salen en el oficio) | `user_id` (PK), `academic_degree` (2–150), `professional_license` (5–12 dígitos), `updated_by_id` |
 | `ProgramDepartment` (NUEVO 2026-10-21) | `titulatec_program_departments` | A qué departamento académico pertenece cada carrera (de ahí sale el alcance de Sinodales y Docentes) | `program_id` (PK), `department_id`, `official_name` (nombre del oficio; NULL = `Program.name`), `updated_by_id` |
 | `DepartmentSettings` (NUEVO 2026-10-21) | `titulatec_department_settings` | Encabezado y destinatarios del oficio por departamento (R-F) | `department_id` (PK), `oficio_header`, `addressee_position_code`, `attn_position_code` |
-| `ProcessChat` | `titulatec_chats` | Chat de titulación, 1 por proceso (`process_id` único) | `pinned_document_id` |
-| `ChatMessage` | `titulatec_chat_messages` | Mensaje del chat | `chat_id`, `author_id`, `body`, `attachment_path`, `parent_id` (reply) |
+| `ProcessChat` | `titulatec_chats` | Conversación de la revisión de sinodales (fase 5), 1 por proceso (`process_id` único); la abre `ReviewService.open_chat` al registrar a los 4 sinodales (2026-10-22) | `closed_at` (cierre = liberación; NULL = abierta), `pinned_document_id` (**legado sin uso**) |
+| `ChatMessage` | `titulatec_chat_messages` | Mensaje de la conversación; **inmutable** (sin edición ni borrado) | `chat_id`, `author_id` (NULL = mensaje del sistema), `kind` (`message`/`system`/`version`/`vote`), `version_id`, `body`, `attachment_path`/`_name`/`_mime`/`_size`, `parent_id` (sin uso); índice `(chat_id, id)` para el refresco incremental |
+| `ReviewVersion` (NUEVO 2026-10-22) | `titulatec_review_versions` | Una versión del proyecto subida por el alumno; la **vigente** es la de mayor `number`; el vencimiento NO se guarda (se calcula con el calendario) | `process_id`, `number` (`UNIQUE(process_id, number)`), `file_path`, `original_name`, `mime_type`, `size_bytes`, `uploaded_by_id`, `uploaded_at` |
+| `ReviewVote` (NUEVO 2026-10-22) | `titulatec_review_votes` | El voto de una asignación sobre una versión | `version_id`, `assignment_id`, `user_id`, `verdict` (`approved`/`changes_requested`), `comment`; `UNIQUE(version_id, assignment_id)` |
+| `ReviewReminder` (NUEVO 2026-10-22) | `titulatec_review_reminders` | Dedupe de recordatorios de plazo | PK `(version_id, assignment_id, kind)`, `kind` = `due_soon`/`due_today` |
+| `ChatRead` (NUEVO 2026-10-22) | `titulatec_chat_reads` | Último mensaje leído por usuario (los «N nuevos») | PK `(chat_id, user_id)`, `last_read_message_id` |
+| `NonWorkingDay` (NUEVO 2026-10-22) | `titulatec_non_working_days` | Calendario único de días inhábiles de TitulaTec (de ahí salen todos los conteos de días hábiles) | `day` (único), `description`, `created_by_id` |
 | `Ceremony` | `titulatec_ceremonies` | Acto protocolario (fase 8) | `cohort_id`, `scheduled_at`, `room`, `whatsapp_group_url`, `status` (`pending`/`scheduled`/`done`) |
 | `CeremonyProcess` | `titulatec_ceremony_processes` | Alumnos dentro de un acto (M2M) | `ceremony_id`, `process_id`, `final_project_path`, `presentation_path` |
 
@@ -147,7 +152,7 @@ exigidos existen en BD.
 |---|---|---|
 | `appointment` (7) | `page.list`, `page.my`, `api.create`, `api.update`, `api.reschedule`, `api.mark_attended`, `api.confirm.own` | **los 7** |
 | `ceremony` (5) | `page.list`, `page.my`, `api.create`, `api.update`, `api.upload.own` | `page.list` (solo como ítem de menú, `pages/nav.py:102`, con URL `#`) |
-| `chat` (5) | `page.view`, `api.read`, `api.send`, `api.upload`, `api.pin_document` | — |
+| `chat` (5) | `page.view`, `api.read`, `api.send`, `api.upload`, `api.pin_document` | **desde 2026-10-22** `page.view`, `api.read`, `api.send`, `api.upload` — `pages/student.py` (conversación del alumno) y `pages/revisiones_admin.py` (sinodal); falta `api.pin_document` (las versiones sustituyen al documento fijado) |
 | `cohort` (8) | `page.list`, `page.detail`, `api.read`, `api.create`, `api.update`, `api.import_csv`, `api.review_days`, `api.cotejo_reqs` | `page.list`, `api.create`, `api.import_csv`, `api.review_days` |
 | `dashboard` (6) | `student`, `school_services`, `titulaciones`, `sinodal`, `vinculacion`, `admin` | **los 6** |
 | `document` (7) | `page.list`, `api.upload.own`, `api.read.own`, `api.read.all`, `api.delete.own`, `api.approve`, `api.reject` | **los 7** |
@@ -157,12 +162,13 @@ exigidos existen en BD.
 | `officers` (2) | `page.list`, `api.manage` | **los 2** |
 | `process` (11) | `page.my`, `page.list`, `page.detail`, `api.read.own`, `api.read.all`, `api.read.department`, `api.advance`, `api.approve_phase`, `api.reject_phase`, `api.cancel`, `api.hold` | `page.my`, `page.list`, `page.detail`, `api.read.own`, `api.read.all`, `api.advance`, `api.approve_phase`, `api.reject_phase` |
 | `survey_review` (4, +1 el 2026-10-01) | `page.list`, `api.approve`, `api.reject`, `api.print_certificates` | **los 4** (`pages/survey_reviews_admin.py` + `pages/certificates_admin.py`) |
-| `synodal` (7, +1 el 2026-10-21) | `page.list`, `page.my_reviews`, `api.assign`, `api.read`, `api.release`, `api.vote`, `api.replace` | `page.list` (abrir Sinodales), `api.assign`, `api.replace`, `api.read` (oficio PDF) — `pages/sinodales_admin.py`; faltan `page.my_reviews`, `api.release`, `api.vote` (fase 5) |
+| `synodal` (7, +1 el 2026-10-21) | `page.list`, `page.my_reviews`, `api.assign`, `api.read`, `api.release`, `api.vote`, `api.replace` | `page.list` (abrir Sinodales), `api.assign`, `api.replace`, `api.read` (oficio PDF) — `pages/sinodales_admin.py`; **desde 2026-10-22** `page.my_reviews` y `api.vote` — `pages/revisiones_admin.py`; falta `api.release` (la liberación es automática, declarado sin uso a propósito) |
 | `teacher` (2, NUEVO 2026-10-21) | `page.list`, `api.manage` | **los 2** (`pages/docentes_admin.py`; solo `init-titulatec-fase-2`) |
 | `program_department` (2, NUEVO 2026-10-21) | `page.list`, `api.manage` | **los 2** (`pages/carreras_admin.py`; solo `admin`; solo `init-titulatec-fase-2`) |
 | `library_clearance` (5, NUEVO 2026-10-01) | `page.list`, `api.register`, `api.prior`, `api.revert`, `api.print_certificates` | **los 5** (`pages/library_admin.py` + respaldo D9 en `pages/admin.py`/`pages/appointments.py` + `pages/certificates_admin.py`) |
 | `library_payment` (3, NUEVO 2026-10-01) | `page.list`, `api.register`, `api.revert` | **los 3** (`pages/cashier_admin.py`) |
 | `certificate` (1, NUEVO 2026-10-01) | `page.list` | **el 1** (`pages/certificates_admin.py`, las 4 rutas) |
+| `non_working_day` (2, NUEVO 2026-10-22) | `page.list`, `api.manage` | **los 2** (`pages/dias_inhabiles_admin.py`; grants explícitos a `admin`, `titulatec_titulacion` y `titulatec_titulaciones`; solo `init-titulatec-fase-2`; total declarado 112) |
 
 Definidos y todavía sin exigir (el conteo de 27 es anterior al 2026-10-21; desde entonces `synodal.{page.list, api.assign, api.read, api.replace}` y los 4 de `teacher.*`/`program_department.*` SÍ se exigen): todo `chat.*`, `synodal.{page.my_reviews, api.release, api.vote}`, todo `notifications.*`,
 `ceremony.{page.my, api.create, api.update, api.upload.own}`,
@@ -229,6 +235,11 @@ detalle en sus propios flujos.
 | `OficioService` (NUEVO 2026-10-21) | `services/oficio_service.py` | Oficio «Asignación de Sinodales» en PDF al vuelo (WeasyPrint): `holder`, `context`, `render_pdf`, `filename` |
 | `ProgramDepartmentService` (NUEVO 2026-10-21) | `services/program_department_service.py` | Mapeo carrera → departamento y ajustes del oficio: `list_mapping`, `set_department`, `list_settings`, `update_settings`. Detalle: [carreras por departamento](xcut_program_departments.md) |
 | `scope_service` (alcance académico, 2026-10-21) | `services/scope_service.py` | `academic_departments`, `academic_programs`, `department_of_program`, `manageable_departments`; `officer_programs` pasó a ser la unión con `academic_programs` |
+| `ReviewService` (NUEVO 2026-10-22) | `services/review_service.py` | ÚNICA puerta de la fase 5: `operable`, `counting_roles` (único traductor de `signature_rule`), `open_chat`/`chat_for`, `upload_version`, `post_message`, `vote`, `rule_satisfied`, `would_close`, `status_for_process`, `messages`/`mark_read`/`unread_counts`, `attachment_for`, `assert_participant`, `due_date`/`semaphore`, `on_replaced`. Ver [revisión de sinodales](phase5_synodal_review.md) |
+| `ReviewNotices` (NUEVO 2026-10-22) | `services/review_notices.py` | Avisos de campana y correos de la revisión: `on_message`, `on_vote`, `send_version_notices` (correo al sinodal, después del commit, best-effort), `deliver` |
+| `ReviewReminders` (NUEVO 2026-10-22) | `services/review_reminders.py` | Barrido diario `run(db)` de la tarea `titulatec.review_reminders` (dedupe en `titulatec_review_reminders`) |
+| `ReviewInboxService` (NUEVO 2026-10-22) | `services/review_inbox_service.py` | Bandeja «Mis revisiones» del docente (`list`: Por revisar / En curso / Completados) |
+| `NonWorkingDayService` (NUEVO 2026-10-22) | `services/non_working_day_service.py` | Calendario de días inhábiles: `holidays` (una consulta), `list_year`, `add_range`, `remove_range`. Ver [días inhábiles](xcut_non_working_days.md) |
 | `FormatBInboxService` (NUEVO 2026-10-21) | `services/format_b_inbox_service.py` | Bandeja del Formato B, solo lectura: `TABS`, `list` (4 pestañas, FIFO, contadores en una consulta, semáforo de espera en días hábiles `WAIT_WARN_DAYS=3` / `WAIT_LATE_DAYS=5`), `next_pending` |
 | `ReviewPresence` (NUEVO 2026-10-21) | `services/review_presence.py` | «Quién lo está revisando»: hash Redis por (tipo, proceso), cosmético y fail-open; `touch` / `clear` / `viewers` |
 | `format_b_validation` (NUEVO 2026-10-21) | `services/format_b_validation.py` | Reglas puras por campo y paso: `validate_step`, `validate_all`, `ValidationCtx`, `FormatBValidationError`, `EDITABLE_FIELDS`, `FIELD_LABELS` |
@@ -246,6 +257,24 @@ detalle en sus propios flujos.
 | `scope_service` (módulo, no clase) | `services/scope_service.py` | `officer_programs(db, user_id)` → `"ALL"` si tiene `titulatec.process.api.read.all`, si no el set de `program_id` ligados a sus puestos |
 | `notify` (módulo, no clase) | `services/notify.py` | `notify_student(...)`: enruta los avisos in-app por el `NotificationService` del core (tab **Avisos** del shell mobile + FAB por-app) |
 | `CohortService.set_book_donation` (NUEVO 2026-10-01) | `services/cohort_service.py` | Única escritura de `Cohort.book_donation_amount` (D5); devuelve cuántos `LibraryClearance` ya tienen monto congelado (Review Focus #2) |
+
+### Términos de la fase 5 (2026-10-22)
+
+- **Versión**: cada archivo del proyecto (PDF o Word) que sube el alumno a la revisión; se numera 1, 2, … y la
+  **vigente** es la de mayor número (`ReviewService.current_version`). Subir una versión nueva reinicia los votos (D4).
+- **Voto que cuenta**: el de un sinodal vigente cuyo rol está en `ReviewService.counting_roles(signature_rule)`:
+  solo el Presidente con `president_only` (titulación integral); los 4, suplente incluido, con `all_synodals`
+  (tesis, proyecto de investigación). Los demás solo comentan y adjuntan.
+- **Reconfirmación** (D6): aviso que se le pide a quien emite el voto que cerraría la revisión («la conversación
+  quedará solo para consulta y ya no habrá más cambios»); sin `confirm=1` el servidor no escribe nada
+  (`ReviewNeedsConfirmation`).
+- **Participante**: el alumno dueño del proceso o un sinodal con asignación **vigente** (`is_active`); es lo único
+  que da acceso a la conversación y sus archivos (`ReviewService.assert_participant`, 404 sin header).
+- **Día inhábil**: fecha registrada en `titulatec_non_working_days` que no cuenta como día hábil (los sábados y
+  domingos nunca se guardan: ya no lo son). Un día hábil es lunes a viernes fuera del calendario.
+- **Checkpoint** (D12): hito de pago desde el que un proceso se retoma aunque cierre la convocatoria. El 1.º es la
+  cita de cotejo (fase 2 `approved`, «liberado»; `ProcessService.first_checkpoint_clause`); el 2.º (cotejo de
+  expediente de Titulación, fase 7) llegará con su spec. Cerrar una convocatoria solo pausa a quien no pasó el 1.º.
 
 > Patrón: métodos `@staticmethod`, primer arg `db: Session`, **commit dentro del service**.
 > `scope_service` y `notify` son funciones de módulo, no clases.

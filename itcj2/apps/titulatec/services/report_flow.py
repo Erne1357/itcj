@@ -5,7 +5,8 @@ Solo lectura. `daily_counts` agrupa por dia en SQL (tres consultas) y
 R4c); el resto son funciones puras sobre series de `(fecha, conteo)`
 (`pace`, `clear_days`, `forecast`, `liberated_by_day`,
 `liberated_by_program`). El ritmo se mide en dias habiles (lun-vie, sin
-feriados) con `utils/business_days`.
+feriados, salvo los dias inhabiles registrados en el calendario unico, que
+se pasan como `holidays=`) con `utils/business_days`.
 """
 from __future__ import annotations
 
@@ -135,8 +136,9 @@ def clear_days(queue: int, per_day: float) -> int | None:
 
 def forecast(pending: int, pace: float, today: date, *,
              holidays: frozenset[date] = frozenset()) -> date | None:
-    """Fecha estimada en que se vacian los pendientes, sin contar feriados:
-    `add_business_days(today, clear_days(pending, pace))`.
+    """Fecha estimada en que se vacian los pendientes, sin contar feriados
+    salvo los dias inhabiles de `holidays` (calendario vacio = solo fines de
+    semana): `add_business_days(today, clear_days(pending, pace), holidays=)`.
 
     `None` si el ritmo no es positivo; sin pendientes, `today`.
     """

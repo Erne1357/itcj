@@ -9,7 +9,7 @@
 | **Trigger** | el proceso llega a la fase 4 (`synodal_assignment`) al aprobarse el Formato B ([fase 3](phase3_titulacion_review_formato_b.md)) |
 | **Precondiciones** | corte `TITULATEC_HANDOFF_PHASE` > fase 4 (en producción vale 3: todo inerte, R-G) · la carrera mapeada a un departamento ([carreras por depto](xcut_program_departments.md)) · el departamento con docentes de perfil completo ([catálogo](xcut_teacher_catalog.md)) |
 | **Sub-flujos** | ⤵ [motor de avance](engine_approve_advance_phase.md) (`approve_phase` con la puerta de la fase 4) · ⤵ [alcance](engine_officer_scope.md) (`assert_process_in_scope`) |
-| **Estado final** | 4 filas vigentes en `titulatec_synodal_assignments`; fase 4 `approved`, fase 5 `in_progress`, `current_phase` = 5 |
+| **Estado final** | 4 filas vigentes en `titulatec_synodal_assignments`; fase 4 `approved`, fase 5 `in_progress`, `current_phase` = 5; si la fase 5 es operable (corte > 5), la conversación de revisión abierta con su mensaje de sistema ([fase 5](phase5_synodal_review.md)) |
 
 ## Ruta en la app (UI)
 
@@ -38,6 +38,7 @@ sequenceDiagram
     SVC->>PS: _lock_process_row (candado del proceso)
     SVC->>SVC: _check_assign otra vez, sobre lo releído
     SVC->>DB: 4 SynodalAssignment is_active, ProcessEvent synodals_assigned, AuditLog synodal.assigned
+    SVC->>DB: ReviewService.open_chat (si la fase 5 es operable): titulatec_chats + mensaje system
     SVC->>PS: open_door(synodal_assignment, approved) + approve_phase
     PS->>DB: fase 4 approved, fase 5 in_progress, aviso y correo al alumno, commit
     SVC-->>SVC: send_assignment_notices (tras el commit, best-effort)
@@ -51,6 +52,7 @@ sequenceDiagram
 | 1 | 🔗 | Sinodales | Abre la bandeja | `GET /titulatec/admin/sinodales` y `/body` | `SynodalInboxService.list/contains`, `scope_service.manageable_departments` | — | — |
 | 2 | 🔗 | Detalle | Registra a los 4 | `POST /titulatec/admin/sinodales/{id}/asignar` | `SynodalService.assign` | 4 × `titulatec_synodal_assignments` (`is_active`) | `ProcessEvent synodals_assigned` (payload `[{role, user_id}]`), bitácora `synodal.assigned` |
 | 3 | 🤖 | motor | Aprueba la fase 4 y activa la 5 | (dentro de 2) | `PhaseService.open_door` + `approve_phase` | `ProcessPhase` 4 `approved`, 5 `in_progress`; `process.current_phase` = 5 | `phase_approved`, aviso in-app y correo «Avanzaste a …» al alumno |
+| 3b | 🤖 | motor (antes de aprobar) | Abre la conversación de la revisión | (dentro de 2) | `ReviewService.open_chat(db, process)`, solo si `ReviewService.operable(db)` | `titulatec_chats` + `titulatec_chat_messages` `kind=system` «Tus sinodales quedaron asignados. Sube la primera versión de tu proyecto para empezar la revisión.» | — (misma transacción: si la aprobación falla, se revierte todo) |
 | 4 | 🤖 | tras el commit | Avisa a cada sinodal | (dentro de 2) | `SynodalService.send_assignment_notices(kind="assigned")` | — | `NotificationService` `SYNODAL_ASSIGNED` + correo `email/synodal_assigned.html` (`deliver_detailed`, sin outbox); una falla queda en el log y en `synodal.mail_failed` |
 | 5 | 🔗🎓 | Asignados / expediente / pestaña Titulación | Descarga el oficio | `GET /titulatec/admin/sinodales/{id}/oficio.pdf` | `OficioService.render_pdf` | — (se genera al vuelo, no se guarda) | — |
 | 6 | 🔗 | Asignados | Sustituye a uno, con motivo | `POST /titulatec/admin/sinodales/{id}/sustituir` | `SynodalService.replace` | fila vigente → `is_active=false` + `replaced_at/by/reason`; fila nueva vigente | `ProcessEvent synodal_replaced`, bitácora `synodal.replaced`, aviso in-app al alumno (`SYNODAL_REPLACED`); tras el commit avisa al entrante (`replaced_in`) y al saliente (`replaced_out`, `SYNODAL_RELEASED`) |
@@ -68,9 +70,13 @@ sequenceDiagram
 
 `PhaseService._DOOR_PHASES` es el registro de fases con puerta: `format_b` → `FormatBService`, `synodal_assignment` → `SynodalService`. `SynodalService.assign` deja los 4 sinodales en la sesión, llama `PhaseService.open_door(db, "synodal_assignment", process.id, "approved")` y, en el `finally`, `close_door`. `approve_phase` llama a `_door_guard`, que exige la marca `PhaseService.DOOR_KEY` **y** que `_door_state_ok` vea los 4 sinodales vigentes ya escritos. La fase 4 **no tiene rechazo**. Aprobarla o rechazarla por la vía genérica (los botones del expediente, un POST forzado) da `PhaseService.SYNODAL_ONLY_MSG`: «Los sinodales se registran desde la pestaña Sinodales.»; el expediente no ofrece botones de dictamen para la fase 4. Detalle del mecanismo: [motor](engine_approve_advance_phase.md).
 
+### La conversación de la fase 5 se abre al registrar (2026-10-22)
+
+`SynodalService.assign` llama `ReviewService.open_chat(db, process)` después del `flush` de las 4 filas y **antes** de `open_door` / `approve_phase` (que hace el commit): crea el `ProcessChat` y su mensaje `system`, en la misma transacción. Solo ocurre si `ReviewService.operable(db)` (corte > fase 5; con el corte en 5 la revisión es de T-soft y no se abre conversación). Los procesos que ya estaban en la fase 5 sin conversación (p. ej. el demo de dev) la reciben por el respaldo idempotente `ReviewService.chat_for(db, process, create=True)`. El correo de la fase 4 (`email/synodal_assigned.html`) invita a «Mis revisiones» cuando la fase 5 es operable. Todo el flujo posterior (versiones, votos, liberación) está en [`phase5_synodal_review.md`](phase5_synodal_review.md).
+
 ### Sustituir (D8)
 
-Solo con la fase 4 aprobada, la fase 5 **sin** aprobar y el proceso `active` (`REPLACE_WINDOW_MSG`). El motivo es obligatorio (hasta 500 caracteres). El docente entrante debe cumplir lo mismo que al asignar y no puede ser ya sinodal vigente en otra posición ni la misma persona de esa posición. Bajo el candado se desactiva la fila vigente y se hace `flush` **antes** de insertar la nueva (libera los índices únicos parciales `uq_titulatec_synodal_active_role` y `uq_titulatec_synodal_active_user`). La fila sustituida queda como historial (`SynodalService.history`, visible en el expediente: quién, cuándo, motivo).
+Solo con la fase 4 aprobada, la fase 5 **sin** aprobar y el proceso `active` (`REPLACE_WINDOW_MSG`). El motivo es obligatorio (hasta 500 caracteres). El docente entrante debe cumplir lo mismo que al asignar y no puede ser ya sinodal vigente en otra posición ni la misma persona de esa posición. Bajo el candado se desactiva la fila vigente y se hace `flush` **antes** de insertar la nueva (libera los índices únicos parciales `uq_titulatec_synodal_active_role` y `uq_titulatec_synodal_active_user`). La fila sustituida queda como historial (`SynodalService.history`, visible en el expediente: quién, cuándo, motivo). **Efecto en la revisión (2026-10-22):** en la misma transacción `SynodalService.replace` llama `ReviewService.on_replaced`, que deja en la conversación un mensaje `system` «X sustituye a Y como Secretario.»; el **voto de la asignación desactivada deja de contar** (solo cuentan asignaciones vigentes en la versión vigente), el entrante ve todo el historial y vota sobre la versión vigente, el sustituido pierde el acceso (`ReviewService.assert_participant` → 404) y sustituir **nunca cierra** la revisión.
 
 ## El oficio PDF
 
@@ -80,7 +86,7 @@ Solo con la fase 4 aprobada, la fase 5 **sin** aprobar y el proceso `active` (`R
 
 ## Lo que ven los demás
 
-- **Alumno**: `_PHASE_INFO["synodal_assignment"]` dice que su departamento académico asigna a los 4 (sin mencionar el chat: eso es de la fase 5); en la fase 5 el panel «Tus sinodales» muestra posición y nombre (sin cédula) vía `SynodalService.active_for_process`; el timeline usa las etiquetas de `synodals_assigned` y `synodal_replaced`.
+- **Alumno**: `_PHASE_INFO["synodal_assignment"]` dice que su departamento académico asigna a los 4 (sin mencionar el chat: eso es de la fase 5); en la fase 5 el panel «Tus sinodales» muestra posición y nombre (sin cédula) vía `SynodalService.active_for_process`, y la tarjeta suma el CTA a la conversación ([fase 5](phase5_synodal_review.md)); el timeline usa las etiquetas de `synodals_assigned` y `synodal_replaced`.
 - **Expediente** (tarjeta de la fase 4): los 4 vigentes con grado y cédula, «Descargar oficio» (pestaña nueva) si el usuario tiene `synodal.api.read` y el historial de sustituciones. Sin botones de dictamen.
 - **Pestaña «Titulación»** (R-E): en el detalle de un Formato B aprobado, «Sinodales asignados» y «Descargar oficio» (pestaña nueva).
 - **Sin sinodales vigentes**, el expediente y la pestaña Titulación dicen por qué (`SynodalService.empty_label`): «No aplica para esta modalidad.» si la modalidad salta la fase 4 (EGEL; gana sobre el corte), «Esta fase todavía no está en la app.» con el corte ≤ fase 4, y si no «Todavía no se asignan los sinodales.».
@@ -89,7 +95,7 @@ Solo con la fase 4 aprobada, la fase 5 **sin** aprobar y el proceso `active` (`R
 ## Estado resultante
 
 - `titulatec_synodal_assignments`: 4 filas con `is_active = true` (una por posición), `assigned_by_id` = quien capturó (jefe o coordinador).
-- Fase 4 `approved` → fase 5 (`synodal_review`) `in_progress`; `process.current_phase` = 5. No se puede sustituir desde que la fase 5 se apruebe.
+- Fase 4 `approved` → fase 5 (`synodal_review`) `in_progress`; `process.current_phase` = 5; con la fase 5 operable, la conversación abierta. No se puede sustituir desde que la fase 5 se apruebe.
 - Con el corte en 3 nada de esto es alcanzable y no sale ningún aviso.
 
 ## Caminos alternos / errores ❗
@@ -105,4 +111,4 @@ Solo con la fase 4 aprobada, la fase 5 **sin** aprobar y el proceso `active` (`R
 - ← [Titulación revisa el Formato B](phase3_titulacion_review_formato_b.md)
 - ⤵ [Catálogo de docentes](xcut_teacher_catalog.md) · [Carreras por departamento](xcut_program_departments.md)
 - ⤵ [Motor de avance de fase](engine_approve_advance_phase.md) · [Máquina de estados](00_state_machine.md) · [Glosario](_glossary.md)
-- → Fase 5 (revisión de sinodales): spec propio, aún sin construir.
+- → [Fase 5 · Revisión de sinodales](phase5_synodal_review.md) (conversación, versiones, votos y liberación) · [Días inhábiles](xcut_non_working_days.md)
