@@ -35,7 +35,10 @@
   .sign .space { height: 0.6in; }
   .sign p { margin: 0; text-transform: uppercase; }
   table.syn { width: 100%; border-collapse: collapse; margin-top: 0.1in; font-size: 9pt; }
-  table.syn td { width: 25%; text-align: center; vertical-align: bottom; padding: 0 4pt; }
+  /* Las 4 lineas de firma a la MISMA altura: la celda se alinea arriba y la
+     linea es su primer hijo, de alto fijo; un nombre largo crece hacia abajo
+     sin mover su linea (con `bottom`, la celda alta la subia). */
+  table.syn td { width: 25%; text-align: center; vertical-align: top; padding: 0 4pt; }
   table.syn .space { height: 0.6in; border-bottom: 0.8pt solid #333; }
   table.syn .pos { font-weight: bold; margin-top: 2pt; }
   table.syn .nm { margin-top: 1pt; }

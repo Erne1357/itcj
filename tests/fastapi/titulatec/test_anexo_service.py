@@ -232,3 +232,42 @@ def test_reached(corte_9, db_session, make_anexo_case):
     fase.status = "in_progress"
     c.process.status = "cancelled"
     assert AnexoService.reached(db_session, c.process) is False
+
+
+# --- Revision final, punto 2: las 4 lineas de firma a la misma altura ---------
+def _fondos_de_las_lineas(ctx) -> list[float]:
+    """Borde inferior (la linea de firma) de cada `.space` de la tabla de
+    sinodales, medido en el layout de WeasyPrint."""
+    from weasyprint import HTML
+
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    from itcj2.apps.titulatec.services.anexo_service import _TEMPLATE_NAME
+    from itcj2.apps.titulatec.utils.certificate_pdf import CORE_STATIC_DIR
+
+    html = titulatec_templates.get_template(_TEMPLATE_NAME).render(**ctx)
+    doc = HTML(string=html, base_url=str(CORE_STATIC_DIR)).render()
+
+    def recorrer(box, en_td=False):
+        yield box, en_td
+        dentro = en_td or getattr(box, "element_tag", None) == "td"
+        for hijo in getattr(box, "children", None) or []:
+            yield from recorrer(hijo, dentro)
+
+    fondos = []
+    for pagina in doc.pages:
+        for box, en_td in recorrer(pagina._page_box):
+            el = getattr(box, "element", None)
+            if (en_td and getattr(box, "element_tag", None) == "div" and el is not None
+                    and "space" in (el.get("class") or "").split()):
+                fondos.append(round(box.border_box_y() + box.border_height(), 2))
+    return fondos
+
+
+def test_un_nombre_largo_no_mueve_su_linea_de_firma(corte_9, db_session, make_anexo_case):
+    c = make_anexo_case("thesis")
+    ctx = AnexoService.prepare_pdf(db_session, c.process, None)
+    ctx["synodals"][1]["name"] = ("MARIA DE LOS ANGELES GUADALUPE FERNANDEZ DE LA TORRE "
+                                  "Y ALCANTARA")
+    fondos = _fondos_de_las_lineas(ctx)
+    assert len(fondos) == 4
+    assert len(set(fondos)) == 1, fondos
