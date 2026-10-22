@@ -21,7 +21,7 @@
       {% if anexo.state == "approved" %}El Depto. de Titulación aprobó tu Anexo III. Ya puedes seguir con la siguiente fase.
       {% elif anexo.state == "observed" %}El Depto. de Titulación te pidió una corrección. Revisa el motivo y vuelve a subir el escaneo.
       {% elif anexo.state == "in_review" %}Tu escaneo está en revisión en el Depto. de Titulación. Mientras no lo dictaminen puedes cambiarlo.
-      {% else %}Descarga el Anexo III, júntale las firmas y súbelo escaneado.{% endif %}
+      {% else %}Descarga el Anexo III, junta las firmas y súbelo escaneado.{% endif %}
     </p>
     {% if anexo.state == "observed" and anexo.note %}
       <div class="tt-anx-note" role="note">

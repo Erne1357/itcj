@@ -168,6 +168,27 @@ class TestPagina:
         assert resp.status_code == 302 and resp.headers["location"].startswith(DASH)
         assert _folios(db_session, c) == 0
 
+    def test_la_instruccion_dice_junta_las_firmas(self, caso, client_as):
+        # Revision final, punto 5.
+        html = client_as(caso().student).get(BASE).text
+        assert "Descarga el Anexo III, junta las firmas y súbelo escaneado." in html
+        assert "júntale" not in html
+
+    @pytest.mark.parametrize("dano", ["regla_desconocida", "sin_modalidad"])
+    def test_sin_regla_de_firma_pinta_texto_neutro(self, caso, client_as, db_session, dano):
+        # Revision final, punto 12: `signers_text` sin regla daba 500.
+        from itcj2.apps.titulatec.services.anexo_service import SIGNERS_FALLBACK_TEXT
+        c = caso()
+        if dano == "regla_desconocida":
+            c.modality.signature_rule = "rara"
+        else:
+            c.process.modality = None       # el arnes no expira al commitear
+        db_session.commit()
+        resp = client_as(c.student).get(BASE, follow_redirects=False)
+        assert resp.status_code == 200, resp.text[:300]
+        assert SIGNERS_FALLBACK_TEXT in resp.text
+        assert "Presidente" not in resp.text
+
 
 class TestPdf:
     def test_descarga_y_deja_un_folio(self, caso, client_as, db_session):
@@ -211,6 +232,9 @@ class TestSubida:
         resp = _subir(client_as(c.student))
         assert resp.status_code == 200, resp.text[:300]
         assert "En revisión" in resp.text
+        # Revision final, punto 3: el aviso de exito sale con tono de exito.
+        assert unquote(resp.headers["X-Tt-Notice"]).startswith("Escaneo enviado")
+        assert resp.headers["X-Tt-Notice-Kind"] == "success"
         assert _doc(db_session, c).review_status == "pending"
         assert "En revisión" in client_as(c.student).get(BASE).text
 

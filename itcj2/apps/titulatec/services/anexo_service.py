@@ -51,6 +51,11 @@ REASON_REQUIRED_MSG = "Escribe el motivo de la observacion."
 REASON_TOO_LONG_MSG = "El motivo de la observacion admite hasta 500 caracteres."
 
 DEPARTMENT_HEAD_LABEL = "Jefe(a) del departamento académico"
+# Quién firma cuando la regla de firma no se puede leer (proceso sin modalidad
+# o regla desconocida): texto neutro en vez de un 500 (revisión final, punto 12).
+SIGNERS_FALLBACK_TEXT = ("Firman el jefe del departamento académico y los sinodales que "
+                         "indique tu modalidad. La firma del jefe del departamento la "
+                         "gestiona tu jefe de proyecto de vinculación.")
 VERSION_CHANGED_MSG = "El alumno subio otro escaneo; revisalo de nuevo."
 
 

@@ -2976,12 +2976,20 @@ def _anexo_read_guard(db, process, *, page: bool = False) -> Response | None:
 def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
     """Contexto (tipos planos: la plantilla se pinta después del `db.close()`)."""
     from itcj2.apps.titulatec.models import Document, DocumentType, ProcessPhase
-    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from itcj2.apps.titulatec.services.anexo_service import (
+        SIGNERS_FALLBACK_TEXT, AnexoService,
+    )
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
     from itcj2.apps.titulatec.utils.storage import pdf_limits_mb
 
+    try:
+        firmas = AnexoService.signers_text(process)
+    except ValueError:
+        # Sin modalidad o con una regla de firma desconocida: texto neutro,
+        # nunca un 500 (Titulación pinta su propio aviso, punto 12).
+        firmas = SIGNERS_FALLBACK_TEXT
     n6 = AnexoService.phase_number(db)
     fase = (db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n6).first()
             if n6 is not None else None)
@@ -3009,7 +3017,7 @@ def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
     return {
         "state": state,
         "folio": anexo.folio if anexo else None,
-        "signers_text": AnexoService.signers_text(process),
+        "signers_text": firmas,
         "doc": ({
             "original_name": doc.original_name,
             "size_kb": int(round((doc.size_bytes or 0) / 1024)),
@@ -3187,6 +3195,8 @@ def _cuerpo_anexo_scan_upload(request, archivo, user, raw=None):
         resp = _anexo_body(request, db, process, error=error)
         if not error:
             resp.headers["X-Tt-Notice"] = _hdr("Escaneo enviado al Depto. de Titulación.")
+            # Sin el tono, el toast sale con el ícono de advertencia.
+            resp.headers["X-Tt-Notice-Kind"] = "success"
         return resp
     finally:
         db.close()
