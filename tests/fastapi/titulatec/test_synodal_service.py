@@ -456,22 +456,25 @@ class TestUnaSolaPuerta:
 
     def test_open_door_solo_conoce_las_fases_con_puerta(self, db_session):
         with pytest.raises(ValueError):
-            PhaseService.open_door(db_session, "anexo_iii", 1, "approved")
+            PhaseService.open_door(db_session, "final_docs", 1, "approved")
         with pytest.raises(ValueError):
             PhaseService.open_door(db_session, "synodal_assignment", 1, "aprobado")
         assert PhaseService.DOOR_KEY not in db_session.info
         # Fase 5 (spec 2026-10-22 §6.4): la revisión de sinodales también
         # tiene puerta (`ReviewService.vote`); su caso vive en test_review_service.py.
+        # Fase 6 (spec fase 6 §10): el Anexo III (`AnexoService`), en test_anexo_door.py.
         assert set(PhaseService._DOOR_PHASES) == {"format_b", "synodal_assignment",
-                                                  "synodal_review"}
+                                                  "synodal_review", "anexo_iii"}
         assert PhaseService._DOOR_PHASES["synodal_review"] == PhaseService.REVIEW_ONLY_MSG
+        assert PhaseService._DOOR_PHASES["anexo_iii"] == PhaseService.ANEXO_ONLY_MSG
         assert PhaseService._DOOR_PHASES["synodal_assignment"] == (
             "Los sinodales se registran desde la pestaña Sinodales.")
 
     def test_las_fases_sin_puerta_no_cambian(self, db_session, esc):
-        e = esc(current_phase=6)
-        out = PhaseService.approve_phase(db_session, e.proc, 6, reviewer_id=e.jefe.id)
-        assert out["next_phase"] == 7
+        # La 7 y no la 6: desde la fase 6 el Anexo III tiene su propia puerta.
+        e = esc(current_phase=7)
+        out = PhaseService.approve_phase(db_session, e.proc, 7, reviewer_id=e.jefe.id)
+        assert out["next_phase"] == 8
 
 
 # ---------------------------------------------------------------------------

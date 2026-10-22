@@ -163,6 +163,12 @@ LISTA_BLANCA = {
     "FormatBService.reject":
         "regresa el Formato B con observaciones y delega en PhaseService."
         "reject_phase, que encola phase_rejected con el motivo y los campos.",
+    # Dictamen del Anexo III (spec 2026-10-22 fase 6 §10): mismo molde que el
+    # Formato B, un solo método para aprobar y observar.
+    "AnexoService._dictaminar":
+        "marca el escaneo del Anexo III (approved|rejected) y delega en "
+        "PhaseService.approve_phase/reject_phase, que encolan phase_approved/"
+        "phase_rejected en la misma transacción.",
 }
 
 # Ramas SIN correo dentro de funciones mapeadas: el detector solo ve que la

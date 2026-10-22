@@ -802,11 +802,12 @@ class TestRelecturaBajoElBloqueo:
         assert fb.street == "Av. Juarez" and fb.status == "submitted"
 
     def test_las_demas_fases_no_cambian(self, db_session, esc, revisor):
-        # La fase 6 y no la 4: desde la fase 4 (sinodales) la 4 también tiene su
-        # propia puerta (`SYNODAL_ONLY_MSG`, `test_synodal_service.py`).
-        e = esc(current_phase=6)
-        out = PhaseService.approve_phase(db_session, e.proc, 6, reviewer_id=revisor.id)
-        assert out["next_phase"] == 7
+        # La fase 7 y no la 4 ni la 6: las 4, 5 y 6 también tienen su propia
+        # puerta (sinodales, revisión y Anexo III; `test_synodal_service.py`,
+        # `test_review_service.py`, `test_anexo_door.py`).
+        e = esc(current_phase=7)
+        out = PhaseService.approve_phase(db_session, e.proc, 7, reviewer_id=revisor.id)
+        assert out["next_phase"] == 8
 
 
 # ---------------------------------------------------------------------------

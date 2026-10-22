@@ -151,6 +151,9 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # --- anexo: Anexo III (fase 6, `AnexoService`) ------------------------------
     # Mismo módulo que `titulatec_anexos`/`_anexo_counters` en `TABLE_MODULES`.
     "anexo_iii.issued": ("anexo", "Emitió el folio del Anexo III"),
+    # Dictamen de Titulación sobre el escaneo firmado (`approve`/`observe`):
+    # veredicto y ronda (= versión del documento); el motivo va en `reason`.
+    "anexo_iii.reviewed": ("anexo", "Dictaminó el Anexo III"),
 
     # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
     # Mismo módulo que `titulatec_program_departments` y

@@ -285,8 +285,9 @@ class PhaseService:
     # Una fase de este registro solo se dictamina desde el servicio que la
     # posee: `format_b` desde `FormatBService.approve`/`.reject`,
     # `synodal_assignment` desde `SynodalService.assign` (la fase 4 no tiene
-    # rechazo) y `synodal_review` desde `ReviewService.vote`, con el voto que
-    # cumple la regla de firma (la fase 5 tampoco tiene rechazo). El servicio
+    # rechazo), `synodal_review` desde `ReviewService.vote`, con el voto que
+    # cumple la regla de firma (la fase 5 tampoco tiene rechazo), y
+    # `anexo_iii` desde `AnexoService.approve`/`.observe`. El servicio
     # deja su dictamen en la sesión y abre el motor con
     # `open_door` justo antes de llamar a `approve_phase`/`reject_phase`;
     # `_door_guard` exige la marca y la CONSUME. Cualquier otra puerta -los
@@ -297,10 +298,12 @@ class PhaseService:
     SYNODAL_ONLY_MSG = "Los sinodales se registran desde la pestaña Sinodales."
     REVIEW_ONLY_MSG = ("La revisión de sinodales se libera sola cuando votan los sinodales "
                        "que firman, desde su conversación.")
+    ANEXO_ONLY_MSG = "El Anexo III se dictamina desde la pestaña Titulación."
     _DOOR_PHASES = {
         "format_b": FORMAT_B_ONLY_MSG,
         "synodal_assignment": SYNODAL_ONLY_MSG,
         "synodal_review": REVIEW_ONLY_MSG,
+        "anexo_iii": ANEXO_ONLY_MSG,
     }
     _DOOR_VERDICTS = ("approved", "rejected")
 
@@ -350,6 +353,10 @@ class PhaseService:
           en la versión vigente por asignaciones vigentes
           (`ReviewService.rule_satisfied`, ya con el voto que cierra escrito).
           No tiene rechazo.
+        - `anexo_iii`: el escaneo firmado (`Document` de tipo
+          `AnexoService.DOC_TYPE`) ya en ese estado: `approved` para aprobar,
+          `rejected` para observar. Sin escaneo, ninguna de las dos (invariante:
+          fase 6 `approved` <=> documento `approved`).
         """
         if phase_code == "format_b":
             from itcj2.apps.titulatec.models import FormatB
@@ -372,6 +379,14 @@ class PhaseService:
                 return False
             from itcj2.apps.titulatec.services.review_service import ReviewService
             return ReviewService.rule_satisfied(db, process)
+        if phase_code == "anexo_iii":
+            from itcj2.apps.titulatec.models import Document
+            from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE
+            estado = (db.query(Document.review_status)
+                      .filter(Document.process_id == process.id,
+                              Document.type_code == DOC_TYPE)
+                      .scalar())
+            return estado is not None and estado == verdict
         return False
 
     @staticmethod
@@ -598,8 +613,9 @@ class PhaseService:
 
         Las fases con puerta solo pasan con el dictamen de su servicio en la
         sesión (`_door_guard`): `format_b` con el Formato B ya `approved`,
-        `synodal_assignment` con los 4 sinodales ya registrados y
-        `synodal_review` con la regla de firma cumplida (`ReviewService.vote`).
+        `synodal_assignment` con los 4 sinodales ya registrados,
+        `synodal_review` con la regla de firma cumplida (`ReviewService.vote`)
+        y `anexo_iii` con el escaneo ya `approved` (`AnexoService.approve`).
         `event_payload` se fusiona en el payload del evento `phase_approved`
         (así viaja la ronda del Formato B al timeline sin un evento duplicado).
         """
@@ -701,8 +717,10 @@ class PhaseService:
 
         Las fases con puerta solo pasan con el dictamen de su servicio en la
         sesión (`_door_guard`): `format_b` con el Formato B ya `rejected`;
-        `synodal_assignment` nunca (no tiene rechazo). `event_payload` se
-        fusiona en el payload del evento `phase_rejected`, junto al `reason`.
+        `anexo_iii` con el escaneo ya `rejected` (`AnexoService.observe`);
+        `synodal_assignment` y `synodal_review` nunca (no tienen rechazo).
+        `event_payload` se fusiona en el payload del evento `phase_rejected`,
+        junto al `reason`.
         """
         PhaseService._lock_process_row(db, process)
         PhaseService.assert_can_transition(db, process, phase_number)
@@ -745,3 +763,4 @@ class PhaseService:
 FORMAT_B_ONLY_MSG = PhaseService.FORMAT_B_ONLY_MSG
 SYNODAL_ONLY_MSG = PhaseService.SYNODAL_ONLY_MSG
 REVIEW_ONLY_MSG = PhaseService.REVIEW_ONLY_MSG
+ANEXO_ONLY_MSG = PhaseService.ANEXO_ONLY_MSG
