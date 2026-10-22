@@ -9,6 +9,9 @@ Solo LECTURA: arma las pestañas, sus contadores y el universo de
   posición y semáforo de días hábiles (ámbar >= 3, rojo >= 5).
 - **En Anexo III** (`anexo`, fase 6 de la spec 2026-10-22): procesos `active`
   con `current_phase` en la fase `anexo_iii`; vacia si el Anexo no se opera.
+  FIFO por `ProcessPhase.started_at` de la fase 6 (el mas antiguo primero,
+  desempate por `process_id`) con el mismo semaforo de dias habiles que «Por
+  asignar» (revision final de la fase 6, punto 8).
 - **Asignados** (`assigned`): procesos no revocados con sinodales vigentes y
   la fase 5 (`synodal_review`) sin aprobar: es la ventana en la que se
   sustituye y se descarga el oficio.
@@ -164,11 +167,12 @@ class SynodalInboxService:
         """Una página de la bandeja + contadores de las 2 pestañas.
 
         Filas: `process_id, folio, student_name, control_number, program_name,
-        department_name, waited_days, wait_level, position` (los tres últimos
-        solo en «Por asignar»; None en «Asignados») y `assigned_at` (aprobación
-        de la fase 4, solo en «Asignados»). `counts` respeta búsqueda, carrera y
-        departamento (no la pestaña ni la página). Una pestaña desconocida cae
-        en `pending`.
+        department_name, started_at, waited_days, wait_level, position`
+        (`waited_days`/`wait_level` en «Por asignar», desde el inicio de la fase
+        4, y en «En Anexo III», desde el de la fase 6; `position` solo en «Por
+        asignar»; None en «Asignados») y `assigned_at` (aprobación de la fase 4,
+        solo en «Asignados»). `counts` respeta búsqueda, carrera y departamento
+        (no la pestaña ni la página). Una pestaña desconocida cae en `pending`.
         """
         from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess as TP
         from itcj2.apps.titulatec.models import ProgramDepartment
@@ -191,14 +195,18 @@ class SynodalInboxService:
         if base is None:
             return vacio
         n4, n5 = cls._phase_numbers(db)
-        preds = cls._tab_predicates(n4, n5, cls._anexo_number(db))
+        n6 = cls._anexo_number(db)
+        preds = cls._tab_predicates(n4, n5, n6)
 
         # Contadores: UNA consulta con un COUNT FILTER por pestaña.
         agregados = [func.count(TP.id).filter(preds[t]) for t in cls.TABS]
         fila = base.order_by(None).with_entities(*agregados).one()
         counts = {t: int(c or 0) for t, c in zip(cls.TABS, fila)}
 
+        # La fase cuya espera se mide: la 4 en «Por asignar» (y su fin en
+        # «Asignados»), la 6 en «En Anexo III».
         fase4 = aliased(ProcessPhase)
+        espera = fase4
         cols = (
             TP.id.label("process_id"), TP.folio, User.first_name, User.middle_name,
             User.last_name, User.control_number, Program.name.label("program_name"),
@@ -212,32 +220,41 @@ class SynodalInboxService:
             .outerjoin(fase4, and_(fase4.process_id == TP.id, fase4.phase_number == n4))
             .filter(preds[tab])
         )
+        if tab == "anexo":
+            espera = aliased(ProcessPhase)
+            lista = (lista.outerjoin(espera, and_(espera.process_id == TP.id,
+                                                  espera.phase_number == n6))
+                     .add_columns(espera.started_at.label("waiting_since")))
         if tab == "pending":
             lista = lista.order_by(fase4.started_at.asc().nulls_last(), TP.id.asc())
+        elif tab == "anexo":
+            lista = lista.order_by(espera.started_at.asc().nulls_last(), TP.id.asc())
         else:
             lista = lista.order_by(fase4.completed_at.desc().nulls_last(), TP.id.desc())
 
         pg = paginate_query(lista, page_n, per_page)
         hoy = db_now().date()
-        feriados = (NonWorkingDayService.holidays(db) if tab == "pending"
+        con_semaforo = tab in ("pending", "anexo")
+        feriados = (NonWorkingDayService.holidays(db) if con_semaforo
                     else frozenset())
         first = (pg.page - 1) * pg.per_page
         rows = []
         for i, r in enumerate(pg.items):
             nombre = " ".join(p for p in (r.last_name, r.middle_name) if p)
             nombre = f"{nombre}, {r.first_name}" if r.first_name else nombre
+            desde = r.waiting_since if tab == "anexo" else r.started_at
             days = level = pos = None
             if tab == "pending":
                 pos = first + i + 1
-                if r.started_at is not None:
-                    days = business_days_between(r.started_at.date(), hoy,
-                                                 holidays=feriados)
-                    level = cls._wait_level(days)
+            if con_semaforo and desde is not None:
+                days = business_days_between(desde.date(), hoy, holidays=feriados)
+                level = cls._wait_level(days)
             rows.append({
                 "process_id": r.process_id, "folio": r.folio,
                 "student_name": nombre, "control_number": r.control_number,
                 "program_name": r.program_name, "department_name": r.department_name,
-                "started_at": r.started_at,
+                # Inicio de la espera que mide el semáforo (fase 4, o la 6 en «En Anexo III»).
+                "started_at": desde,
                 "assigned_at": r.completed_at if tab == "assigned" else None,
                 "waited_days": days, "wait_level": level, "position": pos,
             })

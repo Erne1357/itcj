@@ -3,7 +3,8 @@
 
    «Por asignar» es la cola FIFO (inicio de la fase 4): posición y semáforo de
    espera en días hábiles (neutro < 3, ámbar >= 3, rojo >= 5; constantes en
-   `SynodalInboxService`). «Asignados»: la fecha en que se registraron. El
+   `SynodalInboxService`). «En Anexo III»: FIFO por inicio de la fase 6, con el
+   mismo semáforo. «Asignados»: la fecha en que se registraron. El
    departamento se pinta solo si el usuario opera más de uno. #}
 {% from "titulatec/_macros.html" import pager %}
 {% set WAIT_TONE = {"ok": "neutral", "warn": "amber", "late": "danger"} %}
@@ -32,7 +33,7 @@
       </span>
       {% if r.waited_days is not none %}
       <span class="tt-pill tt-pill--{{ WAIT_TONE[r.wait_level] }} tt-sin-wait tt-sin-wait--{{ r.wait_level }}"
-            title="{{ r.waited_days }} {{ 'día hábil' if r.waited_days == 1 else 'días hábiles' }} en espera{% if r.started_label %} · en la fase 4 desde el {{ r.started_label }}{% endif %}">{{ r.waited_days }} d</span>
+            title="{{ r.waited_days }} {{ 'día hábil' if r.waited_days == 1 else 'días hábiles' }} en espera{% if r.started_label %} · {{ 'en el Anexo III' if tab == 'anexo' else 'en la fase 4' }} desde el {{ r.started_label }}{% endif %}">{{ r.waited_days }} d</span>
       {% endif %}
     </button>
     {% else %}

@@ -139,6 +139,53 @@ def test_corte_6_sin_pestana_y_sin_filas(esc, corte):
     assert not _html(resp).xpath('//a[@id="tt-sin-anexo"]')
 
 
+def test_en_anexo_iii_es_fifo_por_inicio_de_la_fase_6_con_semaforo(esc, db_session,
+                                                                  monkeypatch):
+    """Revision final, punto 8: «En Anexo III» ordena por `started_at` de la
+    fase 6 (mas antiguo primero) y trae el nivel de espera en dias habiles con
+    el calendario de dias inhabiles, como «Por asignar»."""
+    from datetime import date, datetime
+
+    from itcj2.apps.titulatec.models import ProcessPhase, ProgramDepartment
+    from itcj2.apps.titulatec.services import synodal_inbox_service as mod
+    from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+    from itcj2.apps.titulatec.utils.business_days import business_days_between
+
+    a = esc.caso()
+    b = esc.caso()
+    db_session.get(ProgramDepartment, b.process.program_id).department_id = a.department.id
+
+    def fase(c, n):
+        return (db_session.query(ProcessPhase)
+                .filter_by(process_id=c.process.id, phase_number=n).one())
+
+    n4 = PhaseService.phase_number_for_code(db_session, "synodal_assignment")
+    # Orden viejo (fin de la fase 4, el mas reciente primero) daria [a, b].
+    fase(a, n4).completed_at = datetime(2026, 10, 1, 9, 0)
+    fase(b, n4).completed_at = datetime(2026, 9, 1, 9, 0)
+    fase(a, a.anexo_phase).started_at = datetime(2026, 10, 5, 9, 0)
+    fase(b, b.anexo_phase).started_at = datetime(2026, 9, 28, 9, 0)    # el mas antiguo
+    db_session.commit()
+
+    feriados = frozenset({date(2026, 10, 6)})
+    monkeypatch.setattr(mod, "db_now", lambda: datetime(2026, 10, 9, 12, 0))
+    monkeypatch.setattr(NonWorkingDayService, "holidays", staticmethod(lambda db: feriados))
+
+    datos = mod.SynodalInboxService.list(db_session, a.head.id, tab="anexo")
+    filas = [r for r in datos["rows"] if r["process_id"] in (a.process.id, b.process.id)]
+    assert [r["process_id"] for r in filas] == [b.process.id, a.process.id]
+    for r, inicio in zip(filas, (date(2026, 9, 28), date(2026, 10, 5))):
+        dias = business_days_between(inicio, date(2026, 10, 9), holidays=feriados)
+        assert dias != business_days_between(inicio, date(2026, 10, 9), holidays=frozenset())
+        assert r["waited_days"] == dias
+        assert r["wait_level"] == mod.SynodalInboxService._wait_level(dias)
+
+    # La pestana pinta el semaforo.
+    resp = esc.client_as(a.head).get(BODY, params={"tab": "anexo"})
+    assert _html(resp).xpath('//*[@id="tt-sin-row-%d"]//*[contains(@class,"tt-sin-wait")]'
+                             % b.process.id)
+
+
 # ---------------------------------------------------------------------------
 # PDF
 # ---------------------------------------------------------------------------
