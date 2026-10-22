@@ -11,7 +11,7 @@ from itcj2.cli.titulatec._common import DML_TITULATEC, _abortar_con, titulatec_c
 _DML_FASE_2_DIR = "fase_2"
 # Debe listar TODOS los .sql de `database/DML/titulatec/fase_2/`.
 _DML_FASE_2_FILES = ["01_titulacion_formato_b.sql", "02_sinodales.sql",
-                     "03_revision_sinodales.sql"]
+                     "03_revision_sinodales.sql", "04_anexo_iii.sql"]
 
 # rol -> permisos que DEBEN tener tras correr el comando.
 _FASE_2_EXPECTED: dict[str, set[str]] = {
@@ -22,6 +22,8 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.synodal.api.read",
         "titulatec.non_working_day.page.list",
         "titulatec.non_working_day.api.manage",
+        "titulatec.anexo_iii.api.generate",
+        "titulatec.anexo_iii.api.review",
     },
     "titulatec_titulaciones": {
         "titulatec.titulacion.page.list",
@@ -34,11 +36,14 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.teacher.api.manage",
         "titulatec.non_working_day.page.list",
         "titulatec.non_working_day.api.manage",
+        "titulatec.anexo_iii.api.generate",
+        "titulatec.anexo_iii.api.review",
     },
     "titulatec_vinculacion": {
         "titulatec.teacher.page.list",
         "titulatec.teacher.api.manage",
         "titulatec.synodal.api.replace",
+        "titulatec.anexo_iii.api.generate",
     },
     "admin": {
         "titulatec.titulacion.page.list",
@@ -50,6 +55,11 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.program_department.api.manage",
         "titulatec.non_working_day.page.list",
         "titulatec.non_working_day.api.manage",
+        "titulatec.anexo_iii.api.generate",
+        "titulatec.anexo_iii.api.review",
+    },
+    "graduate": {
+        "titulatec.anexo_iii.api.generate.own",
     },
     "titulatec_sinodal": {
         "titulatec.synodal.page.my_reviews",
@@ -70,6 +80,9 @@ _FASE_2_NEW_PERMISSIONS: set[str] = {
     "titulatec.program_department.api.manage",
     "titulatec.non_working_day.page.list",
     "titulatec.non_working_day.api.manage",
+    "titulatec.anexo_iii.api.generate.own",
+    "titulatec.anexo_iii.api.generate",
+    "titulatec.anexo_iii.api.review",
 }
 
 # Tarea periodica sembrada por `03_revision_sinodales.sql` (cron diario 9:15).
@@ -79,6 +92,11 @@ _FASE_2_PERIODIC_TASK = "titulatec.review_reminders"
 
 # D12 (spec fase 5 §6.5): payload del `process_resumed` de la reactivacion.
 _D12_PAYLOAD = {"reason": "checkpoint", "source": "init-titulatec-fase-2"}
+
+# Producto final por modalidad (04_anexo_iii.sql): el verificador lo exige en las
+# 3 modalidades con sinodales.
+_FASE_2_PRODUCT_MODALITIES: tuple[str, ...] = (
+    "integral_residencias", "thesis", "research_project")
 
 # Los 8 departamentos con sinodales propios (spec fase 4 §5.1).
 _FASE_2_DEPARTMENTS: tuple[str, ...] = (
@@ -234,6 +252,91 @@ def _reactivar_d12() -> int:
         db.close()
 
 
+def _query_egel_fase6(db):
+    """Procesos 'active' parados en la fase `anexo_iii` cuya modalidad ya salta
+    esa fase (EGEL tras el 04). Devuelve `(consulta, numero_de_fase)`; sin la fase
+    en el catalogo, `(None, None)`."""
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.models import TitulationProcess
+
+    num = db.execute(text(
+        "SELECT number FROM titulatec_phase_definitions WHERE code = 'anexo_iii'")).scalar()
+    if num is None:
+        return None, None
+    q = db.query(TitulationProcess).filter(
+        TitulationProcess.status == "active", TitulationProcess.current_phase == num)
+    return q, num
+
+
+def _procesos_egel_fase6(db=None) -> int:
+    """Cuantos saltaria la correccion C10. Solo lectura; sin `db`, sesion propia."""
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if db is None:
+        from itcj2.database import SessionLocal
+        db = SessionLocal()
+        try:
+            return _procesos_egel_fase6(db)
+        finally:
+            db.close()
+    q, num = _query_egel_fase6(db)
+    if q is None:
+        return 0
+    # Antes del 04 EGEL aun no salta la fase 6 en el catalogo; el dry-run corre
+    # antes de sembrar, asi que cuenta tambien a quien el 04 va a hacer saltarla
+    # (`skips_phases` de `egel`). Solo este conteo informativo; la correccion real
+    # lee siempre el catalogo.
+    return sum(1 for p in q.all()
+               if num in PhaseService._skips(p)
+               or (p.modality is not None and p.modality.code == "egel"))
+
+
+def _saltar_egel_fase6() -> int:
+    """C10 (spec fase 6 §5): los procesos 'active' que estan en la fase 6 y cuya
+    modalidad la salta (EGEL, tras el 04) pasan a la siguiente fase aplicable:
+    la 6 queda `skipped`, la siguiente `in_progress` con `started_at`, y
+    `current_phase` avanza. R1: NO crea `event_type` nuevo; la red ORM de la
+    bitacora espeja los cambios de `ProcessPhase`/proceso (canal `cli`).
+    Filas con `FOR NO KEY UPDATE`. Idempotente. Devuelve cuantos movio. Sesion
+    propia, un commit."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.database import SessionLocal
+    from itcj2.core.utils.timezone import db_now
+
+    db = SessionLocal()
+    try:
+        q, num = _query_egel_fase6(db)
+        if q is None:
+            return 0
+        ultima = max(PhaseService.phase_numbers(db))
+        movidos = 0
+        for proc in (q.order_by(TitulationProcess.id)
+                     .with_for_update(key_share=True).all()):
+            if num not in PhaseService._skips(proc):
+                continue
+            nxt = PhaseService._next_applicable(proc, num, ultima)
+            if nxt is None:
+                continue
+            ph = PhaseService._ensure_phase(db, proc.id, num)
+            if ph.status != "approved":
+                ph.status = "skipped"
+            sig = PhaseService._ensure_phase(db, proc.id, nxt)
+            if sig.status in ("pending", "rejected"):
+                sig.status = "in_progress"
+                sig.started_at = db_now()
+            proc.current_phase = nxt
+            movidos += 1
+        db.commit()
+        return movidos
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def _verify_fase_2() -> list[str]:
     """Comprueba grants, permisos, organigrama y datos sembrados de fase 2. Devuelve problemas
     (lista vacia = todo bien). Sesion propia, solo lectura."""
@@ -350,6 +453,18 @@ def _verify_fase_2() -> list[str]:
             {"t": _FASE_2_PERIODIC_TASK}).first()
         if tarea is None:
             problemas.append(f"falta la tarea periodica {_FASE_2_PERIODIC_TASK}")
+
+        # 04_anexo_iii: producto final por modalidad y EGEL salta la fase 6.
+        for codigo in _FASE_2_PRODUCT_MODALITIES:
+            fila = db.execute(
+                text("SELECT product_label FROM titulatec_modalities WHERE code = :c"),
+                {"c": codigo}).first()
+            if fila is None or not fila[0]:
+                problemas.append(f"la modalidad {codigo} no tiene product_label")
+        fila = db.execute(
+            text("SELECT skips_phases FROM titulatec_modalities WHERE code = 'egel'")).first()
+        if fila is None or [int(x) for x in (fila[0] or [])] != [4, 5, 6]:
+            problemas.append("la modalidad egel no salta [4, 5, 6]")
     finally:
         db.close()
     return problemas
@@ -390,6 +505,8 @@ def init_titulatec_fase_2_command(dry_run):
             try:
                 n = _procesos_d12()
                 click.echo(f"D12: se reactivarian {n} proceso(s) en pausa con el cotejo aprobado.")
+                n = _procesos_egel_fase6()
+                click.echo(f"EGEL: se saltarian la fase 6 {n} proceso(s).")
             except Exception as exc:  # solo informativo; nunca escribe
                 click.echo(click.style(f"D12: no se pudo contar ({exc})", fg="yellow"))
         click.echo("Dry-run: no se ejecuto nada.")
@@ -412,6 +529,10 @@ def init_titulatec_fase_2_command(dry_run):
     # bitacora) y el conteo se vea en la corrida real, no en un RAISE NOTICE.
     reactivados = _reactivar_d12()
     click.echo(f"D12: {reactivados} proceso(s) reactivado(s).")
+
+    # C10 (spec fase 6): despues del 04, que es quien hace saltar la fase 6 a EGEL.
+    saltados = _saltar_egel_fase6()
+    click.echo(f"EGEL: {saltados} proceso(s) saltaron la fase 6.")
 
     # Tras el commit y ANTES de verificar; best-effort (Redis caido = TTL de 5 min).
     from itcj2.core.services.authz_cache import invalidate_app

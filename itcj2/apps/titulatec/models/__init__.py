@@ -45,6 +45,7 @@ from itcj2.apps.titulatec.models.review import (  # noqa: F401
     ReviewVersion, ReviewVote, ReviewReminder,
 )
 from itcj2.apps.titulatec.models.non_working_day import NonWorkingDay  # noqa: F401
+from itcj2.apps.titulatec.models.anexo import Anexo, AnexoCounter  # noqa: F401
 
 # Alias de comodidad (spec: «AuditLog»). La clase real se llama distinto porque
 # agendatec ya registra una `AuditLog` en el mismo `Base`. Fuera de `__all__`.
@@ -80,6 +81,8 @@ __all__ = [
     "EligibilityCheck",
     "EmailOutbox",
     "LibraryClearance",
+    "Anexo",
+    "AnexoCounter",
     "Certificate",
     "CertificateBatch",
     "CertificateCounter",

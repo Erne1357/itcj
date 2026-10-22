@@ -55,7 +55,7 @@ def _declared_models() -> dict[str, str]:
     return found
 
 
-def test_hay_43_modelos_declarados():
+def test_hay_45_modelos_declarados():
     """Guarda del propio test: si el AST deja de ver clases, lo de abajo pasaria
     en verde sin verificar nada.
 
@@ -79,13 +79,15 @@ def test_hay_43_modelos_declarados():
     `tt20261022c`): `ChatRead` (chat.py), `ReviewVersion`, `ReviewVote` y
     `ReviewReminder` (review.py) y `NonWorkingDay`.
 
+    45 desde la fase 6 (2026-10-22): `Anexo` y `AnexoCounter` (anexo.py).
+
     El spec dice «23» en §3.9 porque ahi cuenta cinco tablas de titulatec; §3.2
     a §3.7 definen seis. El numero bueno es el que ve el AST.
     """
     declared = _declared_models()
 
-    assert len(declared) == 43, (
-        f"se esperaban 43 modelos titulatec, el AST vio {len(declared)}: "
+    assert len(declared) == 45, (
+        f"se esperaban 45 modelos titulatec, el AST vio {len(declared)}: "
         f"{sorted(declared)}"
     )
 

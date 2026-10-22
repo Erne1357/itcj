@@ -27,6 +27,9 @@ P_PD_LIST = "titulatec.program_department.page.list"
 P_PD_MANAGE = "titulatec.program_department.api.manage"
 P_NWD_LIST = "titulatec.non_working_day.page.list"
 P_NWD_MANAGE = "titulatec.non_working_day.api.manage"
+P_ANX_OWN = "titulatec.anexo_iii.api.generate.own"
+P_ANX_GEN = "titulatec.anexo_iii.api.generate"
+P_ANX_REV = "titulatec.anexo_iii.api.review"
 SINODAL_GRANTS = {"titulatec.synodal.page.my_reviews", "titulatec.synodal.api.vote",
                   "titulatec.chat.page.view", "titulatec.chat.api.read",
                   "titulatec.chat.api.send", "titulatec.chat.api.upload"}
@@ -36,7 +39,8 @@ def _dml_en_tmp(tmp_path):
     """Stub del 01 en un directorio temporal: el test no depende de database/ (gitignored)."""
     carpeta = tmp_path / "fase_2"
     carpeta.mkdir(parents=True)
-    for nombre in ("01_titulacion_formato_b.sql", "02_sinodales.sql", "03_revision_sinodales.sql"):
+    for nombre in ("01_titulacion_formato_b.sql", "02_sinodales.sql", "03_revision_sinodales.sql",
+                   "04_anexo_iii.sql"):
         (carpeta / nombre).write_text("-- stub", encoding="utf-8")
     return tmp_path
 
@@ -45,20 +49,23 @@ def test_expected_son_exactamente_los_grants_del_spec():
     from itcj2.cli.titulatec import fase2
 
     assert fase2._FASE_2_EXPECTED == {
-        "titulatec_titulacion": {P_LIST, P_READ_ALL, P_CORRECT, P_SYN_READ, P_NWD_LIST, P_NWD_MANAGE},
+        "titulatec_titulacion": {P_LIST, P_READ_ALL, P_CORRECT, P_SYN_READ, P_NWD_LIST, P_NWD_MANAGE,
+                                 P_ANX_GEN, P_ANX_REV},
         "titulatec_titulaciones": {P_LIST, P_CORRECT, P_SYN_READ, P_SYN_LIST, P_SYN_ASSIGN,
                                    P_SYN_REPLACE, P_TEACHER_LIST, P_TEACHER_MANAGE,
-                                   P_NWD_LIST, P_NWD_MANAGE},
-        "titulatec_vinculacion": {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE},
+                                   P_NWD_LIST, P_NWD_MANAGE, P_ANX_GEN, P_ANX_REV},
+        "titulatec_vinculacion": {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE, P_ANX_GEN},
         "admin": {P_LIST, P_CORRECT, P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
-                  P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE},
+                  P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE, P_ANX_GEN, P_ANX_REV},
+        "graduate": {P_ANX_OWN},
         "titulatec_sinodal": SINODAL_GRANTS,
     }
     assert fase2._DML_FASE_2_DIR == "fase_2"
     assert fase2._DML_FASE_2_FILES == ["01_titulacion_formato_b.sql", "02_sinodales.sql",
-                                       "03_revision_sinodales.sql"]
+                                       "03_revision_sinodales.sql", "04_anexo_iii.sql"]
     assert fase2._FASE_2_NEW_PERMISSIONS == {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
-                                             P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE}
+                                             P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE,
+                                             P_ANX_OWN, P_ANX_GEN, P_ANX_REV}
     assert len(fase2._FASE_2_PROGRAM_DEPARTMENTS) == 29
     assert set(fase2._FASE_2_PROGRAM_DEPARTMENTS.values()) == set(fase2._FASE_2_DEPARTMENTS)
     assert len(fase2._FASE_2_DEPARTMENTS) == 8
@@ -73,6 +80,7 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
                side_effect=lambda ruta, **kw: ejecutados.append((Path(ruta).name, kw))), \
             patch("itcj2.core.services.authz_cache.invalidate_app") as inv, \
             patch.object(cli, "_reactivar_d12", return_value=3) as d12, \
+            patch.object(cli, "_saltar_egel_fase6", return_value=2) as egel, \
             patch.object(cli, "_verify_fase_2", return_value=[]) as verificar, \
             patch.object(cli, "_avisos_fase_2", return_value=[]) as avisos:
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
@@ -80,14 +88,19 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
     assert res.exit_code == 0, res.output
     assert ejecutados == [("01_titulacion_formato_b.sql", {"invalidate_authz": False}),
                           ("02_sinodales.sql", {"invalidate_authz": False}),
-                          ("03_revision_sinodales.sql", {"invalidate_authz": False})]
+                          ("03_revision_sinodales.sql", {"invalidate_authz": False}),
+                          ("04_anexo_iii.sql", {"invalidate_authz": False})]
     inv.assert_called_once_with("titulatec")
     d12.assert_called_once_with()
+    egel.assert_called_once_with()
     verificar.assert_called_once_with()
     avisos.assert_called_once_with()
     # I3: la corrida REAL reporta D12 (antes solo un RAISE NOTICE que nadie leía).
     assert "D12: 3 proceso(s) reactivado(s)." in res.output
-    assert res.output.index("Completado: fase_2/03") < res.output.index("D12: 3")
+    assert res.output.index("Completado: fase_2/04") < res.output.index("D12: 3")
+    # C10: la correccion EGEL va DESPUES del 04 y se reporta con su conteo.
+    assert "EGEL: 2 proceso(s) saltaron la fase 6." in res.output
+    assert res.output.index("D12: 3") < res.output.index("EGEL: 2")
     assert "OK" in res.output
 
 
@@ -101,6 +114,7 @@ def test_los_avisos_se_imprimen_y_no_abortan(tmp_path, monkeypatch):
     with patch("itcj2.cli.core.execute_sql_file"), \
             patch("itcj2.core.services.authz_cache.invalidate_app"), \
             patch.object(cli, "_reactivar_d12", return_value=0), \
+            patch.object(cli, "_saltar_egel_fase6", return_value=0), \
             patch.object(cli, "_verify_fase_2", return_value=[]), \
             patch.object(cli, "_avisos_fase_2", return_value=[aviso]):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
@@ -117,6 +131,7 @@ def test_el_comando_aborta_si_no_aterrizo(tmp_path, monkeypatch):
     with patch("itcj2.cli.core.execute_sql_file"), \
             patch("itcj2.core.services.authz_cache.invalidate_app"), \
             patch.object(cli, "_reactivar_d12", return_value=0), \
+            patch.object(cli, "_saltar_egel_fase6", return_value=0), \
             patch.object(cli, "_verify_fase_2", return_value=["el rol admin no tiene x"]):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
 
@@ -499,7 +514,8 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
     cuerpo = sql.split("DO $$", 1)[1]
     from itcj2.cli.titulatec import fase2 as cli
 
-    for codigo in cli._FASE_2_NEW_PERMISSIONS - {P_NWD_LIST, P_NWD_MANAGE}:  # nacen en el 03
+    for codigo in cli._FASE_2_NEW_PERMISSIONS - {P_NWD_LIST, P_NWD_MANAGE,
+                                                  P_ANX_OWN, P_ANX_GEN, P_ANX_REV}:  # nacen en el 03 / 04
         assert f"'{codigo}'" in cuerpo
     for nombre in cli._FASE_2_PROGRAM_DEPARTMENTS:
         assert f"'{nombre}'" in cuerpo, nombre
@@ -512,3 +528,118 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
     assert f"addressee_title = '{cli._FASE_2_ADDRESSEE_TITLE}'" in cuerpo
     assert f"attn_title = '{cli._FASE_2_ATTN_TITLE}'" in cuerpo
     assert "addressee_title IS NULL" in cuerpo and "attn_title IS NULL" in cuerpo
+
+
+# ---------------------------------------------------------------------------
+# 04_anexo_iii (fase 6)
+# ---------------------------------------------------------------------------
+@requires_dml
+def test_el_04_siembra_lo_que_el_verificador_espera():
+    sql = (DML / "fase_2/04_anexo_iii.sql").read_text(encoding="utf-8")
+    cuerpo = sql.split("DO $$", 1)[1]
+    for codigo in (P_ANX_OWN, P_ANX_GEN, P_ANX_REV):
+        assert codigo in cuerpo
+    assert "ON CONFLICT (app_id, code) DO NOTHING" in cuerpo
+    assert "ON CONFLICT DO NOTHING" in cuerpo
+    assert "permission_id" not in cuerpo
+    assert "Informe técnico de residencia profesional" in cuerpo
+    assert "Informe de proyecto de investigación" in cuerpo
+    assert "product_label IS NULL" in cuerpo
+    assert "'[4, 5, 6]'" in cuerpo
+
+
+def test_verify_fase_2_exige_product_label_y_el_salto_de_egel(
+        db_session, patched_session_local):
+    from sqlalchemy import text
+
+    from itcj2.apps.titulatec.models import Modality
+    from itcj2.cli.titulatec import fase2 as cli
+
+    for codigo in cli._FASE_2_PRODUCT_MODALITIES:
+        if db_session.query(Modality).filter_by(code=codigo).first() is None:
+            db_session.add(Modality(code=codigo, name=codigo))
+    egel = db_session.query(Modality).filter_by(code="egel").first()
+    if egel is None:
+        egel = Modality(code="egel", name="EGEL")
+        db_session.add(egel)
+    db_session.flush()
+    db_session.execute(text(
+        "UPDATE titulatec_modalities SET product_label = NULL WHERE code = ANY(:c)"),
+        {"c": list(cli._FASE_2_PRODUCT_MODALITIES)})
+    egel.skips_phases = [4, 5]
+    db_session.flush()
+
+    problemas = cli._verify_fase_2()
+    for codigo in cli._FASE_2_PRODUCT_MODALITIES:
+        assert f"la modalidad {codigo} no tiene product_label" in problemas
+    assert "la modalidad egel no salta [4, 5, 6]" in problemas
+
+    db_session.execute(text(
+        "UPDATE titulatec_modalities SET product_label = 'X' WHERE code = ANY(:c)"),
+        {"c": list(cli._FASE_2_PRODUCT_MODALITIES)})
+    egel.skips_phases = [4, 5, 6]
+    db_session.flush()
+    problemas = cli._verify_fase_2()
+    assert not [x for x in problemas if "product_label" in x or "egel" in x]
+
+
+def _en_fase_6(db_session, make_user, make_process, make_modality, seed_phase_defs,
+               *, skips, status="active"):
+    from itcj2.apps.titulatec.models import ProcessPhase
+
+    seed_phase_defs()
+    mod = make_modality(skips_phases=skips)
+    proc = make_process(make_user(), modality=mod, current_phase=6, status=status)
+    ph6 = db_session.query(ProcessPhase).filter_by(process_id=proc.id, phase_number=6).one()
+    ph6.status = "in_progress"
+    db_session.flush()
+    db_session.commit()
+    return proc
+
+
+def test_saltar_egel_fase6_avanza_a_la_siguiente_y_es_idempotente(
+        db_session, make_user, make_process, make_modality, seed_phase_defs,
+        patched_session_local):
+    from itcj2.apps.titulatec.models import ProcessEvent, ProcessPhase
+    from itcj2.cli.titulatec import fase2 as cli
+
+    egel = _en_fase_6(db_session, make_user, make_process, make_modality,
+                      seed_phase_defs, skips=[4, 5, 6])
+    normal = _en_fase_6(db_session, make_user, make_process, make_modality,
+                        seed_phase_defs, skips=[4, 5])
+    pausado = _en_fase_6(db_session, make_user, make_process, make_modality,
+                         seed_phase_defs, skips=[4, 5, 6], status="on_hold")
+    eventos_antes = db_session.query(ProcessEvent).filter_by(process_id=egel.id).count()
+
+    assert cli._procesos_egel_fase6(db_session) >= 1
+    assert cli._saltar_egel_fase6() >= 1
+    db_session.expire_all()
+
+    assert egel.current_phase == 7
+    fases = {f.phase_number: f
+             for f in db_session.query(ProcessPhase).filter_by(process_id=egel.id)}
+    assert fases[6].status == "skipped"
+    assert fases[7].status == "in_progress" and fases[7].started_at is not None
+    # R1: la correccion no crea ni escribe ningun evento del expediente.
+    assert db_session.query(ProcessEvent).filter_by(process_id=egel.id).count() == eventos_antes
+    # Lo que no salta la fase 6 o no esta activo no se toca.
+    assert normal.current_phase == 6 and pausado.current_phase == 6
+
+    assert cli._saltar_egel_fase6() == 0
+    assert egel.current_phase == 7
+
+
+def test_el_dry_run_no_corrige_nada(tmp_path, monkeypatch):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
+    with patch("itcj2.cli.core.execute_sql_file"), \
+            patch.object(cli, "_procesos_d12", return_value=0), \
+            patch.object(cli, "_procesos_egel_fase6", return_value=4), \
+            patch.object(cli, "_saltar_egel_fase6") as saltar:
+        res = CliRunner().invoke(cli.init_titulatec_fase_2_command, ["--dry-run"])
+
+    assert res.exit_code == 0, res.output
+    saltar.assert_not_called()
+    assert "fase_2/04_anexo_iii.sql" in res.output
+    assert "se saltarian la fase 6 4 proceso(s)" in res.output

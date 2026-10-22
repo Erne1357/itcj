@@ -42,6 +42,7 @@ AUDIT_MODULES: dict[str, str] = {
     "cashier": "Caja",
     "certificates": "Folios",
     "review": "Revisión de sinodales",
+    "anexo": "Anexo III",
     "calendar": "Días inhábiles",
     "surveys": "Encuestas",
     "mail": "Correos",
@@ -224,6 +225,8 @@ def process_event_module(event_type: str) -> str:
 # El contrato exige que TODA tabla `titulatec_*` de `Base.metadata` esté aquí o
 # en `NET_EXCLUDED_TABLES`: una tabla nueva obliga a decidir su módulo.
 TABLE_MODULES: dict[str, str] = {
+    "titulatec_anexo_counters": "anexo",
+    "titulatec_anexos": "anexo",
     "titulatec_audit_log": "system",
     "titulatec_ceremonies": "processes",
     "titulatec_ceremony_processes": "processes",
@@ -275,6 +278,8 @@ TABLE_MODULES: dict[str, str] = {
 }
 
 TABLE_LABELS: dict[str, str] = {
+    "titulatec_anexo_counters": "Contador de folios del Anexo III",
+    "titulatec_anexos": "Anexo III",
     "titulatec_audit_log": "Bitácora",
     "titulatec_ceremonies": "Acto protocolario",
     "titulatec_ceremony_processes": "Egresado en acto protocolario",
@@ -325,6 +330,7 @@ TABLE_LABELS: dict[str, str] = {
 # `TABLE_LABELS`, así una misma entidad se lee igual en `action` y en `data`
 # (revisión final M8). Solo para MOSTRAR: el valor guardado no cambia.
 ENTITY_TABLES: dict[str, str] = {
+    "anexo": "titulatec_anexos",
     "certificate": "titulatec_certificates",
     "certificate_batch": "titulatec_certificate_batches",
     "cohort": "titulatec_cohorts",

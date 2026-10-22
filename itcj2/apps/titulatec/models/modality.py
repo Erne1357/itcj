@@ -16,6 +16,7 @@ class Modality(Base):
     signature_rule = Column(String(20), nullable=False, server_default=text("'president_only'"))  # 'president_only' | 'all_synodals'
     skips_phases = Column(JSON, nullable=True)                       # [4, 5] para EGEL
     option_label = Column(String(150), nullable=True)                # nombre oficial de la opción (oficio)
+    product_label = Column(String(150), nullable=True)               # nombre del producto final (Anexo III)
     is_active = Column(Boolean, nullable=False, server_default=text("TRUE"), index=True)
 
     def __repr__(self) -> str:
@@ -30,5 +31,6 @@ class Modality(Base):
             "signature_rule": self.signature_rule,
             "skips_phases": self.skips_phases or [],
             "option_label": self.option_label,
+            "product_label": self.product_label,
             "is_active": self.is_active,
         }

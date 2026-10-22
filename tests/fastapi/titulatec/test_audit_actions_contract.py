@@ -56,6 +56,7 @@ _MODULOS_SPEC = {
     "certificates": "Folios",
     "review": "Revisión de sinodales",      # fase 5 (2026-10-22)
     "calendar": "Días inhábiles",           # fase 5 (2026-10-22)
+    "anexo": "Anexo III",                   # fase 6 (2026-10-22)
     "surveys": "Encuestas",
     "mail": "Correos",
     "sii": "SII",
@@ -300,7 +301,7 @@ def test_toda_accion_que_el_codigo_registra_esta_en_el_vocabulario():
 # ---------------------------------------------------------------------------
 # (c) Módulos, etiquetas y forma de los códigos
 # ---------------------------------------------------------------------------
-def test_los_modulos_son_los_20_de_la_spec():
+def test_los_modulos_son_los_21_de_la_spec():
     assert _vocab().AUDIT_MODULES == _MODULOS_SPEC
 
 
