@@ -82,9 +82,16 @@ def _operable(db) -> bool:
 
 
 def views_ctx(db, perms) -> dict:
-    """Lo que la página de Titulación necesita para pintar sus vistas hermanas."""
+    """Lo que la página de Titulación necesita para pintar sus vistas hermanas:
+    la liga «Anexo III» y el número de fase de cada vista para el kicker (del
+    catálogo, por código; nunca un número escrito en la plantilla)."""
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
     return {"anexo_operable": bool(_operable(db)),
-            "can_review_anexo": _puede_ver_anexo(perms)}
+            "can_review_anexo": _puede_ver_anexo(perms),
+            "view_phases": {"format_b": PhaseService.phase_number_for_code(db, "format_b"),
+                            "anexo": AnexoService.phase_number(db)}}
 
 
 _viewer_name = _shared.viewer_name

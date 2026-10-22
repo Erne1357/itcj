@@ -490,3 +490,27 @@ def test_el_detalle_usa_el_nombre_compartido(esc, db_session):
     (h2,) = _html(resp).xpath('//*[@id="tt-anx-detail"]//h2')
     assert " ".join(h2.text_content().split()) == nombre(c.student)
     assert nombre(c.student).endswith("MATERNO")
+
+
+# ---------------------------------------------------------------------------
+# Revision final, punto 4: el kicker de la pagina sale del catalogo
+# ---------------------------------------------------------------------------
+def _kicker(resp):
+    assert resp.status_code == 200, resp.text[:400]
+    (k,) = _html(resp).xpath('//header[contains(@class,"tt-tit-header")]'
+                             '/span[contains(@class,"tt-kicker")]')
+    return " ".join(k.text_content().split())
+
+
+def test_el_kicker_de_cada_vista_es_su_fase_del_catalogo(esc, db_session):
+    from pathlib import Path
+    import itcj2.apps.titulatec as pkg
+
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    n3 = PhaseService.phase_number_for_code(db_session, "format_b")
+    assert _kicker(cli.get(URL)) == f"Fase {n3:02d} · Departamento de Titulación"
+    assert _kicker(cli.get(ANX)) == f"Fase {c.anexo_phase:02d} · Departamento de Titulación"
+    plantilla = (Path(pkg.__file__).resolve().parent / "templates" / "titulatec" / "admin"
+                 / "titulacion.html").read_text(encoding="utf-8")
+    assert "Fase 03" not in plantilla
