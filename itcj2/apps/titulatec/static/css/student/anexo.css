@@ -23,7 +23,7 @@
 /* === 2. Observación ======================================================= */
 .tt-anx-note { background: var(--tt-danger-soft); border-radius: 8px; padding: var(--tt-sp-2) var(--tt-sp-3); }
 .tt-anx-note .tt-kicker { color: var(--tt-danger); }
-.tt-anx-note-text { font-size: .8125rem; color: #991B1B; margin-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tt-anx-note-text { font-size: .8125rem; color: var(--tt-danger); margin-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
 
 /* === 3. Descarga ========================================================== */
 .tt-anx-download { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: var(--tt-sp-2); }

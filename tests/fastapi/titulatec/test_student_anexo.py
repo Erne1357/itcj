@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import unquote
 
 import pytest
 
@@ -121,11 +122,23 @@ class TestPagina:
     def test_otro_alumno_ve_solo_lo_suyo(self, caso, client_as, db_session):
         a = caso()
         AnexoService.ensure_folio(db_session, a.process, a.coordinator.id)
-        folio = AnexoService.get(db_session, a.process.id).folio
-        db_session.commit()
         b = caso(modality_code="thesis")
-        html = client_as(b.student).get(BASE).text
-        assert folio not in html
+        AnexoService.ensure_folio(db_session, b.process, b.coordinator.id)
+        folio_a = AnexoService.get(db_session, a.process.id).folio
+        folio_b = AnexoService.get(db_session, b.process.id).folio
+        db_session.commit()
+        assert folio_a != folio_b
+        html_b = client_as(b.student).get(BASE).text
+        assert folio_b in html_b and folio_a not in html_b
+        html_a = client_as(a.student).get(BASE).text
+        assert folio_a in html_a and folio_b not in html_a
+
+    def test_corte_3_redirige_y_no_escribe(self, caso, client_as, corte, db_session):
+        c = caso()
+        corte(3)
+        resp = client_as(c.student).get(BASE, follow_redirects=False)
+        assert resp.status_code == 302 and resp.headers["location"].startswith(DASH)
+        assert _folios(db_session, c) == 0
 
 
 class TestPdf:
@@ -139,6 +152,16 @@ class TestPdf:
         assert "inline" in r1.headers["content-disposition"]
         assert r2.status_code == 200
         assert _folios(db_session, c) == 1
+
+    def test_sin_proceso_el_mensaje_es_el_de_la_causa(self, make_student, make_role,
+                                                      client_as, seed_phase_defs):
+        seed_phase_defs()
+        alumno = make_student()
+        make_role(ROLE_STUDENT, ANEXO_PERMS)
+        resp = client_as(alumno).get(BASE + "/pdf")
+        assert resp.status_code == 400
+        assert "proceso" in unquote(resp.headers["X-Tt-Error"])
+        assert "todavia no se opera" not in unquote(resp.headers["X-Tt-Error"])
 
     def test_corte_3_es_400_y_no_numera(self, caso, client_as, corte, db_session):
         c = caso()

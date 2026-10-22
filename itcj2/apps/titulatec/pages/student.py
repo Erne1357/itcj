@@ -2964,8 +2964,12 @@ def _anexo_read_guard(db, process, *, page: bool = False) -> Response | None:
         n6 = AnexoService.phase_number(db)
         return RedirectResponse(
             _DASHBOARD_URL + (f"?fase={n6}" if isinstance(n6, int) else ""), status_code=302)
-    msg = (NOT_REACHED_MSG if process is not None and AnexoService.operable(db)
-           else NOT_OPERABLE_MSG)
+    if not AnexoService.operable(db):
+        msg = NOT_OPERABLE_MSG
+    elif process is None:
+        msg = "No tienes un proceso de titulacion activo."
+    else:
+        msg = NOT_REACHED_MSG
     return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
 
 
