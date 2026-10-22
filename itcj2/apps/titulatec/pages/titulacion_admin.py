@@ -264,8 +264,24 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
         if not sinodales:
             sinodales_vacio = SynodalService.empty_label(db, proc)
 
+    # Fase 5 (spec 2026-10-22 §8.3, D1): solo el ESTADO de la revisión, junto a
+    # los sinodales; nunca mensajes, archivos ni ligas a la conversación.
+    review_applies, review_status = False, None
+    if status == "approved":
+        from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        from itcj2.apps.titulatec.services.review_service import ReviewService
+        from itcj2.apps.titulatec.services.synodal_service import REVIEW_PHASE_CODE
+        n5 = PhaseService.phase_number_for_code(db, REVIEW_PHASE_CODE)
+        review_applies = (n5 is not None and (proc.current_phase or 0) >= n5
+                          and ReviewService.operable(db))
+        if review_applies:
+            review_status = ReviewService.status_for_process(
+                db, process_id, holidays=NonWorkingDayService.holidays(db))
+
     return {
         "sinodales": sinodales, "can_oficio": can_oficio, "sinodales_empty": sinodales_vacio,
+        "review_applies": review_applies, "review_status": review_status,
         "process_id": process_id, "folio": proc.folio, "status": status,
         "round": int(getattr(fb, "submission_count", 0) or 0),
         "name": nombre or _VACIO,

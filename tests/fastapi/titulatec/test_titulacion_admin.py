@@ -871,3 +871,93 @@ def test_formato_b_pendiente_no_muestra_el_bloque_de_sinodales(esc, client_as):
     p = e.enviado("ANA")
     det = _detalle(client_as(a).get(BODY, params={"tab": "pending", "selected": p.id}))
     assert det is not None and not det.xpath('.//*[@id="tt-tit-sinodales"]')
+
+
+# ---------------------------------------------------------------------------
+# Fase 5 (spec 2026-10-22 §8.3, D1): estado de la revision, nunca la conversacion
+# ---------------------------------------------------------------------------
+MENSAJE_SECRETO = "TEXTO-PRIVADO-TITULACION-T11"
+
+
+def _con_revision(e, db_session, make_department, make_teacher, make_synodals,
+                  *, con_chat=True, votos=None):
+    from itcj2.apps.titulatec.models import (
+        ChatMessage, ProcessChat, ReviewVersion, ReviewVote, SynodalAssignment,
+    )
+    p = e.enviado("REVISA", status="approved", phase=5)
+    dept = make_department(name="Depto Titulacion Revision T11")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(p, docs, e.revisor("ASIGNA"))
+    if con_chat:
+        chat = ProcessChat(process_id=p.id)
+        db_session.add(chat)
+        db_session.flush()
+        v = ReviewVersion(process_id=p.id, number=1, file_path="/tmp/t11.pdf",
+                          original_name="proyecto-t11.pdf", mime_type="application/pdf",
+                          size_bytes=10, uploaded_by_id=p.student_id)
+        db_session.add(v)
+        db_session.flush()
+        db_session.add(ChatMessage(chat_id=chat.id, author_id=p.student_id,
+                                   body=MENSAJE_SECRETO, version_id=v.id))
+        for rol, veredicto in (votos or {}).items():
+            asg = (db_session.query(SynodalAssignment)
+                   .filter_by(process_id=p.id, role=rol, is_active=True).one())
+            db_session.add(ReviewVote(version_id=v.id, assignment_id=asg.id,
+                                      user_id=asg.user_id, verdict=veredicto))
+        db_session.flush()
+    return p
+
+
+def test_titulacion_muestra_el_estado_de_la_revision_sin_la_conversacion(
+    esc, client_as, db_session, make_department, make_teacher, make_synodals,
+):
+    e = esc()
+    e.residencias.signature_rule = "all_synodals"
+    db_session.flush()
+    p = _con_revision(e, db_session, make_department, make_teacher, make_synodals,
+                      votos={"president": "approved"})
+    p.modality_id = e.residencias.id          # `rule_for` lee la del proceso
+    db_session.flush()
+
+    resp = client_as(e.revisor("LUISA")).get(BODY, params={"tab": "approved", "selected": p.id})
+
+    det = _detalle(resp)
+    assert det is not None and det.xpath('.//*[@id="tt-rv-status"]')
+    assert "Versión 1" in resp.text and "Aprobó" in resp.text and "Sin votar" in resp.text
+    assert MENSAJE_SECRETO not in resp.text and "proyecto-t11.pdf" not in resp.text
+    assert "/titulatec/admin/revisiones" not in resp.text
+    assert "/titulatec/student/revision" not in resp.text
+
+
+def test_titulacion_sin_conversacion_dice_sin_versiones(
+    esc, client_as, db_session, make_department, make_teacher, make_synodals,
+):
+    e = esc()
+    p = _con_revision(e, db_session, make_department, make_teacher, make_synodals,
+                      con_chat=False)
+
+    resp = client_as(e.revisor("LUISA")).get(BODY, params={"tab": "approved", "selected": p.id})
+
+    assert "Sin versiones todavía" in resp.text
+
+
+def test_titulacion_antes_de_la_fase_5_no_pinta_el_estado(
+    esc, client_as, db_session, make_department, make_teacher, make_synodals,
+):
+    e = esc()
+    p = _aprobado_con_sinodales(e, db_session, make_department, make_teacher, make_synodals)
+
+    resp = client_as(e.revisor("LUISA")).get(BODY, params={"tab": "approved", "selected": p.id})
+
+    assert 'id="tt-rv-status"' not in resp.text
+
+
+def test_titulacion_con_el_corte_en_3_no_pinta_el_estado(
+    esc, client_as, db_session, make_department, make_teacher, make_synodals,
+):
+    e = esc(cut=3)
+    p = _con_revision(e, db_session, make_department, make_teacher, make_synodals)
+
+    resp = client_as(e.revisor("LUISA")).get(BODY, params={"tab": "approved", "selected": p.id})
+
+    assert 'id="tt-rv-status"' not in resp.text and MENSAJE_SECRETO not in resp.text

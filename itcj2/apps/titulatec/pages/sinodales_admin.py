@@ -190,6 +190,15 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
     docentes = _docentes(db, depto.id if depto else None) if (can_assign or can_replace) else []
     vigentes = {s["user_id"] for s in sinodales}
 
+    # Fase 5 (spec 2026-10-22 §8.3, D1): solo el ESTADO de la revisión, para
+    # decidir sustituciones (quién no ha votado); nunca la conversación.
+    from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+    review_applies = (n5 is not None and (proc.current_phase or 0) >= n5
+                      and ReviewService.operable(db))
+    review_status = (ReviewService.status_for_process(
+        db, process_id, holidays=NonWorkingDayService.holidays(db)) if review_applies else None)
+
     return {
         "process_id": process_id, "folio": proc.folio,
         "name": _nombre(alumno) or _VACIO,
@@ -203,6 +212,7 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
         "status": proc.status,
         "not_mapped_msg": NOT_MAPPED_MSG if depto is None else None,
         "synodals": sinodales, "history": historial,
+        "review_applies": review_applies, "review_status": review_status,
         "roles": [{"code": r, "label": ROLE_LABELS[r]} for r in ROLES],
         "can_assign": can_assign, "can_replace": can_replace,
         "can_oficio": bool(sinodales) and _READ_PERM in perms,

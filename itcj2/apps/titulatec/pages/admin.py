@@ -1789,6 +1789,19 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     sinodales["empty_label"] = (None if sinodales["vigentes"]
                                 else SynodalService.empty_label(db, proc))
 
+    # Fase 5 (spec 2026-10-22 §8.3, D1): SOLO el estado de la revisión; nunca la
+    # conversación. Aplica con el proceso en la fase 5 o después.
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+    from itcj2.apps.titulatec.services.synodal_service import REVIEW_PHASE_CODE
+    review_phase = _PS.phase_number_for_code(db, REVIEW_PHASE_CODE)
+    review_applies = (review_phase is not None and (proc.current_phase or 0) >= review_phase
+                      and ReviewService.operable(db))
+    review_status = None
+    if review_applies:
+        from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+        review_status = ReviewService.status_for_process(
+            db, proc.id, holidays=NonWorkingDayService.holidays(db))
+
     # ---- requisitos de cotejo de la fase 2 (§5.4) ----
     #
     # Lectura NO SEMBRADORA a proposito. `RequirementService.list_with_status`
@@ -1997,6 +2010,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "synodal_phase": synodal_phase,
         "sinodales": sinodales,
         "can_read_synodal": can_read_synodal,
+        "review_phase": review_phase,
+        "review_applies": review_applies,
+        "review_status": review_status,
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,

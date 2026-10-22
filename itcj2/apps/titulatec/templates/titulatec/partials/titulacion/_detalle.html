@@ -201,6 +201,10 @@
     <p class="tt-tit-sub">{{ d.sinodales_empty }}</p>
     {% endif %}
   </section>
+  {% if d.review_applies %}
+  {% set review_status = d.review_status %}
+  {% include "titulatec/partials/review/_status.html" %}
+  {% endif %}
   {% endif %}
 </article>
 {% endif %}

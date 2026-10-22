@@ -1005,3 +1005,113 @@ def test_fase_4_sin_sinodales_dice_por_que(caso, esperado, expediente, client_as
                   "Esta fase todavía no está en la app"):
         if frase not in esperado:
             assert frase not in bloque, (frase, bloque[:400])
+
+
+# ===========================================================================
+# Fase 5 (revision de sinodales): SOLO el estado, nunca la conversacion (D1)
+# ===========================================================================
+MENSAJE_SECRETO = "TEXTO-PRIVADO-DE-LA-CONVERSACION-T11"
+
+
+def _revision(db_session, esc, make_department, make_teacher, make_synodals,
+              *, votos=None, con_chat=True, con_version=True):
+    """Chat + 4 sinodales vigentes + version 1 + los votos pedidos ({rol: veredicto}),
+    y un mensaje con texto reconocible que el estado jamas debe filtrar."""
+    from itcj2.apps.titulatec.models import (
+        ChatMessage, ProcessChat, ReviewVersion, ReviewVote, SynodalAssignment,
+    )
+    proc = esc["proc"]
+    dept = make_department(name="Depto Revision T11")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(proc, docs, esc["officer"])
+    if not con_chat:
+        return docs
+    chat = ProcessChat(process_id=proc.id)
+    db_session.add(chat)
+    db_session.flush()
+    if con_version:
+        v = ReviewVersion(process_id=proc.id, number=1, file_path="/tmp/t11.pdf",
+                          original_name="proyecto-t11.pdf", mime_type="application/pdf",
+                          size_bytes=10, uploaded_by_id=esc["student"].id)
+        db_session.add(v)
+        db_session.flush()
+        db_session.add(ChatMessage(chat_id=chat.id, author_id=esc["student"].id,
+                                   body=MENSAJE_SECRETO, version_id=v.id))
+        for rol, veredicto in (votos or {}).items():
+            asg = (db_session.query(SynodalAssignment)
+                   .filter_by(process_id=proc.id, role=rol, is_active=True).one())
+            db_session.add(ReviewVote(version_id=v.id, assignment_id=asg.id,
+                                      user_id=asg.user_id, verdict=veredicto))
+    db_session.flush()
+    return docs
+
+
+def _lector_expediente(make_officer, esc):
+    user, _ = make_officer([esc["program"]], perm_codes=EXPEDIENTE_PERMS)
+    return user
+
+
+def test_fase_5_muestra_el_estado_sin_la_conversacion(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, make_modality, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    esc = expediente(current_phase=5)
+    todos = make_modality(name="Todos firman T11", requires_synodals=True,
+                          signature_rule="all_synodals")
+    esc["proc"].modality_id = todos.id
+    db_session.flush()
+    _revision(db_session, esc, make_department, make_teacher, make_synodals,
+              votos={"president": "approved"})
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert 'id="tt-rv-status"' in html
+    assert "Versión 1" in html
+    assert "Aprobó" in html and "Sin votar" in html
+    # D1: nada de la conversacion.
+    assert MENSAJE_SECRETO not in html
+    assert "proyecto-t11.pdf" not in html
+    assert "/titulatec/admin/revisiones" not in html
+    assert "/titulatec/student/revision" not in html
+    assert "Esta fase todavía no está en la app: revisión" not in html
+
+
+def test_fase_5_sin_conversacion_dice_sin_versiones(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    esc = expediente(current_phase=5)
+    _revision(db_session, esc, make_department, make_teacher, make_synodals, con_chat=False)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert "Sin versiones todavía" in html
+
+
+def test_antes_de_la_fase_5_el_expediente_no_pinta_el_estado(expediente, client_as, make_officer):
+    esc = expediente(current_phase=2)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(f"{URL}/{esc['proc'].id}").text
+
+    assert 'id="tt-rv-status"' not in html
+
+
+def test_fase_5_con_el_corte_en_3_no_pinta_el_estado(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 3))
+    esc = expediente(current_phase=5)
+    _revision(db_session, esc, make_department, make_teacher, make_synodals)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert 'id="tt-rv-status"' not in html and MENSAJE_SECRETO not in html

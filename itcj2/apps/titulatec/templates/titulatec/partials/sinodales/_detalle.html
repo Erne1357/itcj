@@ -59,6 +59,12 @@
   <p id="tt-sin-not-mapped" class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.not_mapped_msg }}</p>
   {% endif %}
 
+  {# Fase 5: solo el estado de la revisión (D1), para decidir sustituciones. #}
+  {% if d.review_applies %}
+  {% set review_status = d.review_status %}
+  {% include "titulatec/partials/review/_status.html" %}
+  {% endif %}
+
   {% if d.synodals %}
   <section class="tt-card tt-sin-synodals-card" aria-labelledby="tt-sin-synodals-title">
     <div class="tt-sin-section-head">
