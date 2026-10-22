@@ -196,14 +196,33 @@ class TestSincronia:
         assert doc.review_status == "pending" and doc.review_note is None
         assert doc.version == 2
 
-    def test_borrar_el_observado_deja_la_fase_observada(self, db_session, caso):
-        """Ausente solo regresa a `in_progress` lo que estaba `in_review`."""
+    def test_borrar_el_observado_se_niega_bajo_el_bloqueo(self, db_session, caso, tmp_path):
+        """Revision final, punto 7: el escaneo solo se borra `pending`, y lo
+        decide `DocumentService.delete` bajo el bloqueo (no solo la ruta)."""
         c = caso()
         _en_revision(db_session, c)
         AnexoService.observe(db_session, c.process, c.revisor.id, reason="Ilegible.")
 
-        DocumentService.delete(db_session, c.process.id, TIPO, actor_id=c.student.id)
+        with pytest.raises(ValueError) as exc:
+            DocumentService.delete(db_session, c.process.id, TIPO, actor_id=c.student.id)
 
+        assert str(exc.value) == DocumentService.ANEXO_SCAN_REVIEWED_MSG
+        str(exc.value).encode("ascii")              # viaja por X-Tt-Error
+        doc = _doc(db_session, c)
+        assert doc is not None and doc.review_status == "rejected"
+        assert (tmp_path / doc.file_path).exists()
+        assert _fase(db_session, c).status == "rejected"
+        assert _eventos(db_session, c, "document_deleted") == []
+
+    def test_ausente_solo_regresa_lo_que_estaba_en_revision(self, db_session, caso):
+        """Sin escaneo, `sync_phase` no toca una fase observada."""
+        c = caso()
+        _en_revision(db_session, c)
+        AnexoService.observe(db_session, c.process, c.revisor.id, reason="Ilegible.")
+        db_session.delete(_doc(db_session, c))
+        db_session.flush()
+
+        assert AnexoService.sync_phase(db_session, c.process) is None
         assert _fase(db_session, c).status == "rejected"
 
     @pytest.mark.parametrize("estado", ["approved", "skipped", "pending"])

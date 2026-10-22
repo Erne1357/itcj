@@ -3218,11 +3218,9 @@ def anexo_scan_delete(
             db, process, _phase_of(db, _ANEXO_DOC))
         if bloqueo:
             return bloqueo
-        doc = DocumentService.get_document(db, process.id, _ANEXO_DOC)
-        if doc is not None and doc.review_status != "pending":
-            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
-                "Este escaneo ya fue dictaminado: ya no se puede quitar.")})
         try:
+            # «Solo `pending`» lo decide `DocumentService.delete` BAJO el bloqueo
+            # (`ANEXO_SCAN_REVIEWED_MSG`), igual para la ruta genérica.
             DocumentService.delete(db, process.id, _ANEXO_DOC, actor_id=int(user["sub"]))
         except ValueError as exc:
             db.rollback()

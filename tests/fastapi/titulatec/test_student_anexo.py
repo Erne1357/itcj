@@ -308,6 +308,25 @@ class TestBorrado:
             assert r.headers.get("X-Tt-Error")
         assert _doc(db_session, c) is not None
 
+    def test_borrar_el_observado_por_la_ruta_generica_es_400(self, caso, client_as,
+                                                             db_session, entorno):
+        # Revision final, punto 7: la ruta generica no miraba el dictamen.
+        from itcj2.apps.titulatec.services.document_service import DocumentService
+        c = caso()
+        _subir(client_as(c.student))
+        AnexoService.observe(db_session, c.process, c.revisor.id, reason="Ilegible")
+        db_session.commit()
+        antes = _archivos(entorno.base)
+
+        for url in ("/titulatec/student/documents/" + TIPO, BASE + "/escaneo"):
+            resp = client_as(c.student).delete(url)
+            assert resp.status_code == 400, (url, resp.status_code)
+            assert (unquote(resp.headers["X-Tt-Error"])
+                    == DocumentService.ANEXO_SCAN_REVIEWED_MSG), url
+        doc = _doc(db_session, c)
+        assert doc is not None and doc.review_status == "rejected"
+        assert _archivos(entorno.base) == antes
+
     def test_corte_3_delete_es_400(self, caso, client_as, corte):
         c = caso()
         corte(3)

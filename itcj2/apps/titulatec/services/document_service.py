@@ -83,6 +83,10 @@ class DocumentService:
     # `AnexoService` desde la pestaña Titulación. ASCII: la bandeja de
     # Documentos lo manda por `X-Tt-Error` sin `_hdr()`.
     ANEXO_REVIEW_MSG = "El Anexo III se dictamina desde la pestana Titulacion."
+    # El escaneo del Anexo III solo se quita mientras espera dictamen
+    # (`pending`); lo verifica `delete` bajo el bloqueo, para las DOS rutas del
+    # alumno (revisión final de la fase 6, punto 7). ASCII: viaja por X-Tt-Error.
+    ANEXO_SCAN_REVIEWED_MSG = "Este escaneo ya fue dictaminado: ya no se puede quitar."
 
     # ------------------------------------------------------------- set por perfil
     @staticmethod
@@ -1160,8 +1164,10 @@ class DocumentService:
         documento, releídos) y la misma guarda R8 con el `current_phase`
         releído: si Titulación ya aprobó (fase pasada), `REPLACEMENT_CLOSED_MSG`
         sin tocar fila ni archivo -- un borrado en vuelo no deja la fase 6
-        `approved` sin su escaneo. Luego `AnexoService.sync_phase` (`in_review`
-        -> `in_progress`).
+        `approved` sin su escaneo. Y, también releído bajo el bloqueo, solo se
+        borra un escaneo `pending` (`ANEXO_SCAN_REVIEWED_MSG`): uno observado
+        es la evidencia del dictamen, se reemplaza subiendo otro. Luego
+        `AnexoService.sync_phase` (`in_review` -> `in_progress`).
         """
         from itcj2.apps.titulatec.models import TitulationProcess
         from itcj2.apps.titulatec.services.anexo_service import AnexoService
@@ -1187,6 +1193,8 @@ class DocumentService:
                         and not DocumentService.replacement_open(
                             doc.review_status, doc.replacement_requested_at)):
                     raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
+                if doc.review_status != "pending":
+                    raise ValueError(DocumentService.ANEXO_SCAN_REVIEWED_MSG)
         storage.delete_document_file(doc.file_path)
         db.delete(doc)
         DocumentService._log(db, process_id, actor_id, "document_deleted",
