@@ -122,6 +122,11 @@
           <div class="mt-3">{% with synodals = current.synodals %}{% include "titulatec/partials/student/_synodals_panel.html" %}{% endwith %}</div>
           {% endif %}
 
+          {% if current.review %}
+          {# Fase 5: estado de la conversación con los sinodales; el enlace es el CTA de abajo. #}
+          <div class="mt-3">{% with review = current.review, with_link = False %}{% include "titulatec/partials/student/revision/_card.html" %}{% endwith %}</div>
+          {% endif %}
+
           {% if current.progress %}
           <div class="mt-3">
             {% with p = current.progress, detail = True %}
@@ -252,6 +257,11 @@
 
                   {% if ph.synodals %}
                   {% with synodals = ph.synodals %}{% include "titulatec/partials/student/_synodals_panel.html" %}{% endwith %}
+                  {% endif %}
+
+                  {% if ph.review %}
+                  {# Fase 5 ya liberada (o aún no actual): estado y enlace de consulta. #}
+                  {% with review = ph.review, with_link = True %}{% include "titulatec/partials/student/revision/_card.html" %}{% endwith %}
                   {% endif %}
 
                   {% if ph.survey %}

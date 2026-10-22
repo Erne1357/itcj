@@ -2,7 +2,7 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
@@ -221,6 +221,9 @@ _PHASE_CTA = {
     "initial_docs":       ("/titulatec/student/documents", "Ir a documentos", "file-earmark-arrow-up"),
     "review_appointment": ("/titulatec/student/cita", "Ver requisitos", "calendar-check"),
     "format_b":           ("/titulatec/student/formato-b", "Llenar Formato B", "pencil-square"),
+    # Fase 5 (2026-10-22): la conversación con los sinodales. `_phases_ctx` la
+    # apaga si el corte a T-soft la deja fuera o si el proceso no tiene conversación.
+    "synodal_review":     ("/titulatec/student/revision", "Abrir la conversación", "chat-square-text"),
 }
 
 # Quién es responsable de la fase (para fases que el alumno no acciona).
@@ -779,6 +782,54 @@ def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict
     return {"url": url, "label": label, "icon": icon}
 
 
+_REVIEW_URL = "/titulatec/student/revision"
+
+
+def _review_state(st: dict) -> tuple[str, str, str]:
+    """Texto, tono e icono del estado de la revisión en el tablero.
+
+    Función pura sobre el dict de `ReviewService.status_for_process`.
+    «Te pidieron cambios» gana sobre el conteo: solo cuentan los votos que
+    cuentan para liberar (`counts`) y solo los de la versión vigente (la
+    versión nueva los reinicia, D4).
+    """
+    if st["closed"]:
+        return "Liberado", "success", "check-circle"
+    if st["version"] is None:
+        return "Sube tu primera versión", "amber", "file-earmark-arrow-up"
+    if any(v["counts"] and v["verdict"] == "changes_requested" for v in st["votes"]):
+        return "Te pidieron cambios", "amber", "pencil"
+    n, m = st["approvals"], st["required"]
+    return (f"En revisión: {n} de {m} {'aprobación' if m == 1 else 'aprobaciones'}",
+            "neutral", "hourglass-split")
+
+
+def _review_card(db, process) -> dict | None:
+    """Lo que el tablero pinta de la conversación de revisión, o None sin ella.
+
+    Una consulta de la conversación, una de estado y una de no leídos (el estado
+    trae las suyas fijas): nunca una por mensaje.
+    """
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    chat = ReviewService.chat_for(db, process)
+    if chat is None:
+        return None
+    st = ReviewService.status_for_process(db, process.id)
+    if st is None:
+        return None
+    state, tone, icon = _review_state(st)
+    nuevos = ReviewService.unread_counts(db, process.student_id, [chat.id]).get(chat.id, 0)
+    return {
+        "state": state, "tone": tone, "icon": icon,
+        "closed": bool(st["closed"]),
+        "new": nuevos,
+        "new_label": (f"{nuevos} {'nuevo' if nuevos == 1 else 'nuevos'}" if nuevos else None),
+        "url": _REVIEW_URL,
+        "link_label": "Consultar la conversación" if st["closed"] else "Abrir la conversación",
+    }
+
+
 def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     """Contexto del acordeón de las 9 fases + la tarjeta grande de la fase actual.
 
@@ -908,6 +959,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "library": None,
             "replacements": None,
             "synodals": None,
+            "review": None,
         }
         card.update(over)
         return card
@@ -993,6 +1045,14 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     sinodales = [{"role_label": x["role_label"], "name": x["name"]}
                  for x in SynodalService.active_for_process(db, process.id)]
 
+    # Estado de la conversación de revisión (fase 5, spec §8.1): UNA llamada de
+    # estado, solo del proceso en curso y solo si alcanzó la fase 5 y esta app
+    # la opera (corte > fase 5). Sin eso, el tablero no paga nada extra.
+    n_revision = next((p.number for p in pdefs if p.code == "synodal_review"), None)
+    review = None
+    if n_revision is not None and current_phase >= n_revision and handoff_phase > n_revision:
+        review = _review_card(db, process)
+
     cards = []
     for pd in pdefs:
         ph = ph_by_number.get(pd.number)
@@ -1021,7 +1081,10 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             is_open=(not is_current) and pd.number == open_phase,
             is_target=pd.number == open_phase,
             handoff=handoff,
-            cta=_cta_for(pd.code, is_current=is_current, status=status, handoff=handoff),
+            # Sin conversación (legado) el CTA mandaría a un 302 al propio tablero.
+            cta=(None if (pd.code == "synodal_review" and review is None)
+                 else _cta_for(pd.code, is_current=is_current, status=status, handoff=handoff)),
+            review=(review if pd.code == "synodal_review" else None),
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
             progress=progress,
@@ -2481,3 +2544,308 @@ def _cuerpo_cita_cancel(request, user, form):
             db, appt, user_id, motivo))
     finally:
         db.close()
+
+
+# ===========================================================================
+# Revisión de sinodales (fase 5) — conversación del alumno (2026-10-22)
+# ===========================================================================
+# Spec 2026-10-22-titulatec-fase5-revision-sinodales §7-§8.1. Ninguna ruta
+# lleva `{process_id}`: el proceso es SIEMPRE el del alumno que pide.
+#
+#   * Mutaciones (`mensaje`, `version`) -> `_phase_guard` con el número de la fase
+#     por código (400 + `X-Tt-Error`); la validación del formulario (archivo malo,
+#     mensaje vacío o largo) es 200 con el error pintado vía `HX-Retarget` y
+#     `X-Tt-Review-Keep` (htmx no hace swap en un 4xx y el texto no se borra).
+#   * Lecturas (`revision`, `mensajes`, `archivo`) -> `_review_read_guard`: siguen
+#     abiertas con la fase 5 aprobada (D7: consulta después de liberarse), por eso
+#     NO usan `_phase_guard` y están en `RUTAS_SIN_FASE`.
+_REVIEW_FILE_BASE = _REVIEW_URL + "/archivo/"
+_REVIEW_FORM_ERR_MSG = "tt-rv-err-msg"
+_REVIEW_FORM_ERR_VER = "tt-rv-err-ver"
+_REVIEW_PARTIALS = "titulatec/partials/student/revision/"
+
+
+def _review_read_guard(db, process, *, page: bool = False) -> Response | None:
+    """None si el alumno puede CONSULTAR su revisión; si no, 302 al tablero
+    (`page=True`, página completa) o 404 sin header (parcial y archivo).
+
+    Condiciones: proceso propio con la fase 5 alcanzada (en curso o aprobada),
+    la fase 5 se opera en esta app (corte > 5) y la conversación existe. No exige
+    que la fase siga en curso: tras liberarse, la conversación queda de consulta.
+    """
+    from fastapi.responses import RedirectResponse
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    n5 = _phase_of(db, "synodal_review")
+    if (process is not None and n5 is not None and process.current_phase >= n5
+            and ReviewService.operable(db)
+            and ReviewService.chat_for(db, process) is not None):
+        return None
+    if page:
+        destino = _DASHBOARD_URL + (f"?fase={n5}" if isinstance(n5, int) else "")
+        return RedirectResponse(destino, status_code=302)
+    return Response(status_code=404)
+
+
+def _review_view(db, process, chat, user_id: int, items: list | None = None) -> dict:
+    """Contexto común de la conversación: estado, apertura y lo que pinta cada parcial."""
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+    from itcj2.apps.titulatec.utils import review_files
+
+    status = ReviewService.status_for_process(db, process.id)
+    return {
+        "review_status": status,
+        "is_open": ReviewService.is_open(process, chat),
+        "closed": bool(status and status["closed"]),
+        "has_version": bool(status and status["version"] is not None),
+        "me_id": user_id,
+        "file_base": _REVIEW_FILE_BASE,
+        "items": items if items is not None else [],
+        "review_max_mb": max(1, review_files.max_bytes() // (1024 * 1024)),
+        "err_msg_id": _REVIEW_FORM_ERR_MSG,
+        "err_ver_id": _REVIEW_FORM_ERR_VER,
+    }
+
+
+def _review_form_error(request, target_id: str, mensaje: str):
+    """200 con el error de validación en el contenedor del formulario (sin borrar
+    lo escrito): `HX-Retarget` desvía el swap y `X-Tt-Review-Keep` evita el reset."""
+    resp = render_titulatec(request, _REVIEW_PARTIALS + "_form_error.html", {"error": mensaje})
+    resp.headers["HX-Retarget"] = "#" + target_id
+    resp.headers["HX-Reswap"] = "innerHTML"
+    resp.headers["X-Tt-Review-Keep"] = "1"
+    return resp
+
+
+def _review_service_error(request, exc, target_id: str):
+    """Traduce un `ValueError` del servicio: validación de formulario -> 200 con el
+    error pintado; cualquier otra guarda (cerrada, no es tu proceso...) -> 400."""
+    from itcj2.apps.titulatec.services import review_service as rs
+    from itcj2.apps.titulatec.utils.review_files import ReviewFileError
+
+    texto = str(exc)
+    if isinstance(exc, ReviewFileError) or texto in (rs.MESSAGE_EMPTY_MSG, rs.MESSAGE_TOO_LONG_MSG):
+        return _review_form_error(request, target_id, texto)
+    return Response(status_code=400, headers={"X-Tt-Error": _hdr(texto)})
+
+
+@router.get("/revision", name="titulatec.pages.student.revision")
+def revision(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.chat.page.view"])),
+):
+    """Página de la conversación con los sinodales (consulta incluida tras liberarse)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        process = DocumentService.get_active_process(db, uid)
+        bloqueo = _review_read_guard(db, process, page=True)
+        if bloqueo:
+            return bloqueo
+        chat = ReviewService.chat_for(db, process)
+        items = ReviewService.messages(db, chat.id)
+        ctx = _review_view(db, process, chat, uid, items)
+        if items:
+            ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/student/revision.html", ctx)
+
+
+@router.get("/revision/mensajes", name="titulatec.pages.student.revision_messages")
+def revision_messages(
+    request: Request,
+    after: str = "",
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.chat.api.read"])),
+):
+    """Parcial del refresco (cada ~15 s, D10): solo los mensajes posteriores a `after`.
+
+    Con mensajes nuevos agrega también, fuera de banda, el panel de estado; si la
+    revisión ya se cerró, además detiene el sondeo y cambia el formulario por el aviso.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        process = DocumentService.get_active_process(db, uid)
+        bloqueo = _review_read_guard(db, process)
+        if bloqueo:
+            return bloqueo
+        chat = ReviewService.chat_for(db, process)
+        items = ReviewService.messages(db, chat.id, after_id=_to_int(after))
+        ctx = {"items": [], "me_id": uid, "file_base": _REVIEW_FILE_BASE, "oob": False}
+        if items:
+            ctx = _review_view(db, process, chat, uid, items)
+            ctx["oob"] = True
+            ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
+    finally:
+        db.close()
+    return render_titulatec(request, _REVIEW_PARTIALS + "_poll.html", ctx)
+
+
+@router.post("/revision/mensaje", name="titulatec.pages.student.revision_message")
+async def revision_message(
+    request: Request,
+    body: str = Form(""),
+    archivo: UploadFile | None = File(None),
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.chat.api.send", "titulatec.chat.api.upload"])),
+):
+    """Un mensaje del alumno, con o sin adjunto (PDF o Word)."""
+    raw = None
+    nombre = None
+    if archivo is not None and archivo.filename:
+        nombre = archivo.filename
+        raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_revision_message, request=request, user=user, body=body, raw=raw, nombre=nombre)
+
+
+def _review_perm_error(db, user_id: int, needs: set):
+    """400 + `X-Tt-Error` si falta alguno de los permisos que ESTA petición necesita
+    (la ruta admite `send` o `upload`; texto y adjunto piden cada uno el suyo)."""
+    from itcj2.core.services.authz_cache import cached_perms
+
+    if needs - set(cached_perms(db, user_id, "titulatec")):
+        return Response(status_code=400,
+                        headers={"X-Tt-Error": _hdr("No tienes permiso para esta acción.")})
+    return None
+
+
+def _cuerpo_revision_message(request, user, body, raw, nombre):
+    """Cuerpo síncrono de `revision_message`: corre en el threadpool."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        process = DocumentService.get_active_process(db, uid)
+        if process is None:
+            return Response(status_code=409)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "synodal_review"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        needs = set()
+        if raw is not None:
+            needs.add("titulatec.chat.api.upload")
+        if (body or "").strip() or raw is None:
+            needs.add("titulatec.chat.api.send")
+        sin_permiso = _review_perm_error(db, uid, needs)
+        if sin_permiso:
+            return sin_permiso
+        chat = ReviewService.chat_for(db, process)
+        if chat is None:
+            return Response(status_code=404)
+        try:
+            msg = ReviewService.post_message(db, process, uid, body=body, raw=raw,
+                                             original_name=nombre)
+        except ValueError as exc:
+            return _review_service_error(request, exc, _REVIEW_FORM_ERR_MSG)
+        items = ReviewService.messages(db, chat.id, after_id=msg.id - 1)
+        ctx = _review_view(db, process, chat, uid, items)
+        ctx["oob_clear"] = _REVIEW_FORM_ERR_MSG
+        ctx["oob"] = False
+        if items:
+            ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
+    finally:
+        db.close()
+    return render_titulatec(request, _REVIEW_PARTIALS + "_posted.html", ctx)
+
+
+@router.post("/revision/version", name="titulatec.pages.student.revision_version")
+async def revision_version(
+    request: Request,
+    archivo: UploadFile | None = File(None),
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.chat.api.upload"])),
+):
+    """Sube una versión nueva del proyecto (PDF o Word); reinicia los votos (D4)."""
+    raw = None
+    nombre = None
+    if archivo is not None and archivo.filename:
+        nombre = archivo.filename
+        raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_revision_version, request=request, user=user, raw=raw, nombre=nombre)
+
+
+def _cuerpo_revision_version(request, user, raw, nombre):
+    """Cuerpo síncrono de `revision_version`: corre en el threadpool."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import ChatMessage
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        process = DocumentService.get_active_process(db, uid)
+        if process is None:
+            return Response(status_code=409)
+        fuera_de_fase = _phase_guard(db, process, _phase_of(db, "synodal_review"))
+        if fuera_de_fase:
+            return fuera_de_fase
+        chat = ReviewService.chat_for(db, process)
+        if chat is None:
+            return Response(status_code=404)
+        if raw is None:
+            return _review_form_error(request, _REVIEW_FORM_ERR_VER,
+                                      "Elige el archivo de tu proyecto (PDF o Word).")
+        try:
+            version = ReviewService.upload_version(db, process, uid, raw=raw,
+                                                   original_name=nombre)
+        except ValueError as exc:
+            return _review_service_error(request, exc, _REVIEW_FORM_ERR_VER)
+        numero = version.number
+        mensaje_id = (db.query(ChatMessage.id)
+                      .filter(ChatMessage.chat_id == chat.id, ChatMessage.kind == "version",
+                              ChatMessage.version_id == version.id).scalar())
+        items = ReviewService.messages(db, chat.id, after_id=(mensaje_id or 1) - 1)
+        ctx = _review_view(db, process, chat, uid, items)
+        ctx["oob_clear"] = _REVIEW_FORM_ERR_VER
+        ctx["oob"] = True
+        if items:
+            ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
+    finally:
+        db.close()
+    resp = render_titulatec(request, _REVIEW_PARTIALS + "_posted.html", ctx)
+    resp.headers["X-Tt-Notice"] = _hdr(f"Versión {numero} enviada a tus sinodales.")
+    resp.headers["X-Tt-Notice-Kind"] = "success"
+    return resp
+
+
+@router.get("/revision/archivo/{message_id}", name="titulatec.pages.student.revision_file")
+def revision_file(
+    message_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.chat.api.read"])),
+):
+    """Descarga el archivo de un mensaje de SU conversación (PDF inline, Word attachment)."""
+    from fastapi.responses import FileResponse
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        bloqueo = _review_read_guard(db, process)
+        if bloqueo:
+            return bloqueo
+        archivo = ReviewService.attachment_for(db, process.id, message_id)
+    finally:
+        db.close()
+    if archivo is None:
+        return Response(status_code=404)
+    disposicion = archivo["disposition"] + '; filename="' + archivo["download_name"] + '"'
+    return FileResponse(str(archivo["path"]), media_type=archivo["mime"],
+                        headers={"Content-Disposition": disposicion,
+                                 "X-Content-Type-Options": "nosniff"})

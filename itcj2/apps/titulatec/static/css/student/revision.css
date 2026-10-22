@@ -1,0 +1,64 @@
+/* ===========================================================================
+   student/revision.css — página de la conversación del alumno (fase 5)
+   ---------------------------------------------------------------------------
+   Spec 2026-10-22-titulatec-fase5-revision-sinodales §8.1. Solo el armado de la
+   PÁGINA (rejilla, formularios, tarjeta del tablero); las burbujas y el panel de
+   estado son de `css/review.css` (clases `tt-rv-*`). Mobile-first: una columna
+   (estado, hilo, formularios) y a >= 992px el estado pasa a una columna lateral.
+   Invariante: `scrollWidth <= innerWidth` en 360/390/768/1280/1440/1920 (todo hijo
+   de flex/grid lleva `min-width: 0`). Tokens `--tt-*`; sin `style=` en plantillas.
+   =========================================================================== */
+
+/* === 1. Página ============================================================ */
+.tt-rvs { min-width: 0; }
+.tt-rvs-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  gap: var(--tt-sp-4); min-width: 0;
+}
+.tt-rvs-side, .tt-rvs-main { min-width: 0; }
+.tt-rvs-main { display: flex; flex-direction: column; gap: var(--tt-sp-3); }
+.tt-rvs-appbar-sub { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+@media (min-width: 992px) {
+  .tt-rvs-grid { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; }
+  .tt-rvs-side { position: sticky; top: var(--tt-sp-4); }
+}
+
+/* === 2. Formularios ======================================================= */
+.tt-rvs-actions { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+.tt-rvs-form { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rvs-h { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rvs-label { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
+.tt-rvs-hint { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-rvs-row {
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--tt-sp-2); min-width: 0;
+}
+.tt-rvs-file { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.tt-rvs-send { align-self: stretch; white-space: nowrap; }
+@media (min-width: 576px) {
+  .tt-rvs-row { flex-direction: row; align-items: flex-end; }
+  .tt-rvs-send { align-self: flex-end; }
+}
+.tt-rvs-form textarea { font-size: var(--tt-fs-200); resize: vertical; min-height: 5rem; }
+.tt-rvs-err:empty { display: none; }
+.tt-rvs-err-text {
+  display: flex; gap: var(--tt-sp-2); align-items: flex-start; margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  font-size: var(--tt-fs-100); color: var(--tt-danger);
+  background: var(--tt-danger-soft); border-radius: var(--tt-r);
+  overflow-wrap: anywhere;
+}
+.tt-rvs-err-text i { flex: 0 0 auto; margin-top: 2px; }
+.tt-rvs-readonly {
+  display: flex; gap: var(--tt-sp-3); align-items: flex-start; min-width: 0;
+}
+.tt-rvs-readonly i { flex: 0 0 auto; color: var(--tt-text-3); margin-top: 2px; }
+
+/* === 3. Tarjeta del tablero (fase 5) ======================================= */
+.tt-rvc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }
+.tt-rvc-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rvc-new {
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-navy);
+  background: var(--tt-navy-soft); border-radius: 999px;
+  padding: 2px var(--tt-sp-2);
+}
+.tt-rvc-link { white-space: normal; }

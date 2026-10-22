@@ -1,0 +1,17 @@
+{# Estado de la conversación de revisión en el tablero del alumno (fase 5, spec §8.1).
+
+   Recibe `review` (dict de `pages/student.py::_review_card`: state, tone, icon,
+   new, new_label, url, link_label) y `with_link`: en la tarjeta de la fase actual
+   el enlace es el CTA de la propia tarjeta; en el acordeón (fase ya liberada) va aquí. #}
+{% from "titulatec/_macros.html" import pill %}
+<div class="tt-rvc" data-tt-review-card>
+  <div class="tt-rvc-state">
+    {{ pill(review.state, review.tone, review.icon) }}
+    {% if review.new %}<span class="tt-rvc-new" data-tt-review-new>{{ review.new_label }}</span>{% endif %}
+  </div>
+  {% if with_link %}
+  <a class="btn btn-sm tt-btn-soft tt-rvc-link" href="{{ review.url }}">
+    <i class="bi bi-chat-square-text me-1" aria-hidden="true"></i>{{ review.link_label }}
+  </a>
+  {% endif %}
+</div>

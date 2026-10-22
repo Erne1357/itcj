@@ -1,0 +1,5 @@
+{# Respuesta de un envío correcto: la burbuja nueva (va al final de la lista) y,
+   fuera de banda, se limpia el error del formulario y, si cambió, el estado. #}
+{% include "titulatec/partials/review/_messages.html" %}
+<div id="{{ oob_clear }}" class="tt-rvs-err" hx-swap-oob="innerHTML"></div>
+{% if oob %}{% include "titulatec/partials/student/revision/_status_slot.html" %}{% endif %}

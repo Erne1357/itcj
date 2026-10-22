@@ -1,0 +1,57 @@
+{# Formularios de la conversación (solo con la revisión abierta) o el aviso de
+   «solo consulta» (D7). Raíz `#tt-rv-actions`: el refresco la reemplaza fuera de
+   banda (`oob`) cuando la revisión se cierra. Variables: is_open, closed,
+   has_version, review_max_mb, err_msg_id, err_ver_id. #}
+<div id="tt-rv-actions" class="tt-rvs-actions"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {%- if is_open %}
+  <form id="tt-rv-form-msg" class="tt-card tt-rvs-form" novalidate
+        data-tt-review-form="#tt-rv-list"
+        hx-post="/titulatec/student/revision/mensaje" hx-encoding="multipart/form-data"
+        hx-target="#tt-rv-list" hx-swap="beforeend"
+        hx-disabled-elt="find button[type=submit]">
+    <label class="tt-rvs-label" for="tt-rv-body">Escribe a tus sinodales</label>
+    <textarea id="tt-rv-body" name="body" rows="3" maxlength="4000" class="form-control"
+              placeholder="Tu mensaje (hasta 4000 caracteres)"></textarea>
+    <div class="tt-rvs-row">
+      <div class="tt-rvs-file">
+        <label class="tt-rvs-label" for="tt-rv-file-msg">Adjuntar un archivo (opcional)</label>
+        <input id="tt-rv-file-msg" type="file" name="archivo" accept=".pdf,.doc,.docx"
+               class="form-control form-control-sm">
+      </div>
+      <button type="submit" class="btn tt-btn-ink tt-rvs-send">
+        <i class="bi bi-send me-1" aria-hidden="true"></i>Enviar
+      </button>
+    </div>
+    <div id="{{ err_msg_id }}" class="tt-rvs-err" role="alert"></div>
+  </form>
+
+  <form id="tt-rv-form-ver" class="tt-card tt-rvs-form" novalidate
+        data-tt-review-form="#tt-rv-list"
+        hx-post="/titulatec/student/revision/version" hx-encoding="multipart/form-data"
+        hx-target="#tt-rv-list" hx-swap="beforeend"
+        hx-disabled-elt="find button[type=submit]">
+    <h4 class="tt-rvs-h">{% if has_version %}Subir nueva versión{% else %}Sube la primera versión de tu proyecto{% endif %}</h4>
+    <p class="tt-rvs-hint">PDF o Word (.docx, .doc) de hasta {{ review_max_mb }} MB.
+      {% if has_version %}Al subir una versión nueva, tus sinodales vuelven a votar.{% endif %}</p>
+    <div class="tt-rvs-row">
+      <div class="tt-rvs-file">
+        <label class="tt-rvs-label" for="tt-rv-file-ver">Archivo de tu proyecto</label>
+        <input id="tt-rv-file-ver" type="file" name="archivo" accept=".pdf,.doc,.docx"
+               class="form-control form-control-sm">
+      </div>
+      <button type="submit" class="btn tt-btn-ink tt-rvs-send">
+        <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Subir<span class="d-none d-sm-inline">&nbsp;versión</span>
+      </button>
+    </div>
+    <div id="{{ err_ver_id }}" class="tt-rvs-err" role="alert"></div>
+  </form>
+  {%- else %}
+  <div class="tt-card tt-rvs-readonly" role="status">
+    <i class="bi bi-lock" aria-hidden="true"></i>
+    <p class="tt-rvs-hint">
+      {%- if closed %}Tu proyecto fue liberado. Esta conversación queda solo para consulta: ya no hay más cambios ni versiones.
+      {%- else %}Esta conversación queda solo para consulta mientras tu proceso no esté activo.{% endif -%}
+    </p>
+  </div>
+  {%- endif %}
+</div>

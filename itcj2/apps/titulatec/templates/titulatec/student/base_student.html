@@ -25,6 +25,8 @@
 {% block head_extra %}
   <link rel="stylesheet" href="/static/core/css/apps/mobile-app-shell.css?v={{ sv_core('css/apps/mobile-app-shell.css') }}">
   <link rel="stylesheet" href="/static/core/css/notifications/notifications.css?v={{ sv_core('css/notifications/notifications.css') }}">
+  {# Conversación de la revisión de sinodales (fase 5): burbujas y panel de estado compartidos. #}
+  <link rel="stylesheet" href="/static/titulatec/css/review.css?v={{ sv('css/review.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -144,5 +146,7 @@
   {# — Acordeón de fases del dashboard. Se carga una sola vez desde la base:
      es delegado en `document` y no hace nada si la vista no tiene acordeón. — #}
   <script src="/static/titulatec/js/student/dashboard.js?v={{ sv('js/student/dashboard.js') }}"></script>
+  {# — Hilo de la revisión de sinodales: delegado en `document.body`, no hace nada sin lista. — #}
+  <script src="/static/titulatec/js/shared/review-thread.js?v={{ sv('js/shared/review-thread.js') }}"></script>
   {% block student_scripts %}{% endblock %}
 {% endblock %}
