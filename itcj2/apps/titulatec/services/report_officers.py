@@ -286,16 +286,19 @@ def production(db: Session, *, start: date, end: date, cohort_ids,
 # ---------------------------------------------------------------------------
 # Capacidad de citas
 # ---------------------------------------------------------------------------
-def _upcoming_business_days(today: date, days: int) -> list[date]:
+def _upcoming_business_days(today: date, days: int, *,
+                            holidays: frozenset[date] = frozenset()) -> list[date]:
     """Los `days` días hábiles desde `today` inclusive (si `today` es fin de
     semana, desde el lunes siguiente)."""
     if days <= 0:
         return []
-    primero = add_business_days(today, 0)
-    return [primero] + [add_business_days(primero, i) for i in range(1, days)]
+    primero = add_business_days(today, 0, holidays=holidays)
+    return [primero] + [add_business_days(primero, i, holidays=holidays)
+                        for i in range(1, days)]
 
 
-def capacity(db: Session, *, today: date, days: int = 5) -> dict[int, tuple[int, int]]:
+def capacity(db: Session, *, today: date, days: int = 5,
+             holidays: frozenset[date] = frozenset()) -> dict[int, tuple[int, int]]:
     """Lugares de cita en los próximos `days` días hábiles (desde hoy
     inclusive): `{owner_user_id: (ocupados, capacidad)}`, llave `0` = total
     (siempre presente, `(0, 0)` sin ventanas).
@@ -311,7 +314,7 @@ def capacity(db: Session, *, today: date, days: int = 5) -> dict[int, tuple[int,
     from itcj2.apps.titulatec.services.slot_service import SlotService
 
     salida: dict[int, tuple[int, int]] = {0: (0, 0)}
-    dias = _upcoming_business_days(today, days)
+    dias = _upcoming_business_days(today, days, holidays=holidays)
     if not dias:
         return salida
     ventanas = (db.query(ReviewWindow)

@@ -275,3 +275,14 @@ def test_seleccionado_en_pagina_2_sigue_en_el_universo(inbox):
 
     assert _ids(pagina_1) == [uno.id]
     assert S.contains(inbox.db, inbox.user.id, dos.id, tab="pending")
+
+
+def test_un_festivo_en_el_intervalo_cuenta_un_dia_menos(inbox, monkeypatch, make_non_working_day):
+    """El semaforo de la bandeja descuenta los dias inhabiles del calendario."""
+    from itcj2.apps.titulatec.services import format_b_inbox_service as mod
+    hoy = datetime(2091, 3, 9, 12, 0)                    # viernes
+    monkeypatch.setattr(mod, "db_now", lambda: hoy)
+    inbox.nuevo(submitted_at=datetime(2091, 3, 5, 10))   # lunes
+    assert inbox.lista()["rows"][0]["waited_days"] == 4
+    make_non_working_day(datetime(2091, 3, 6).date(), "Festivo de prueba")   # martes
+    assert inbox.lista()["rows"][0]["waited_days"] == 3

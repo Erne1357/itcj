@@ -129,6 +129,10 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "teacher.removed": ("processes", "Quitó a un docente del departamento"),
     "teacher.access_reset": ("processes", "Restableció el acceso de un docente"),
 
+    # --- calendar: dias inhabiles (fase 5, `NonWorkingDayService`) -------------
+    "non_working_day.added": ("calendar", "Registró días inhábiles"),
+    "non_working_day.removed": ("calendar", "Quitó días inhábiles"),
+
     # --- processes: sinodales (fase 4, `SynodalService`) ----------------------
     # Mismo módulo que `titulatec_synodal_assignments` en `TABLE_MODULES`. El
     # correo de aviso es best-effort tras el commit: si no sale, queda aquí (§11).

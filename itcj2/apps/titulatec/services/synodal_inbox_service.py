@@ -30,6 +30,7 @@ import dataclasses
 from sqlalchemy import and_, exists, false, func
 from sqlalchemy.orm import Session, aliased
 
+from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
 from itcj2.apps.titulatec.utils.business_days import business_days_between
 from itcj2.core.utils.timezone import db_now
 
@@ -206,6 +207,8 @@ class SynodalInboxService:
 
         pg = paginate_query(lista, page_n, per_page)
         hoy = db_now().date()
+        feriados = (NonWorkingDayService.holidays(db) if tab == "pending"
+                    else frozenset())
         first = (pg.page - 1) * pg.per_page
         rows = []
         for i, r in enumerate(pg.items):
@@ -215,7 +218,8 @@ class SynodalInboxService:
             if tab == "pending":
                 pos = first + i + 1
                 if r.started_at is not None:
-                    days = business_days_between(r.started_at.date(), hoy)
+                    days = business_days_between(r.started_at.date(), hoy,
+                                                 holidays=feriados)
                     level = cls._wait_level(days)
             rows.append({
                 "process_id": r.process_id, "folio": r.folio,

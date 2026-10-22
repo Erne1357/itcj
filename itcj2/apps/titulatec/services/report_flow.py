@@ -107,14 +107,15 @@ def cumulative(series: list[tuple[date, int]], base: int = 0) -> list[tuple[date
     return out
 
 
-def pace(liberated: dict[date, int], today: date, n: int = 10) -> float:
+def pace(liberated: dict[date, int], today: date, n: int = 10, *,
+         holidays: frozenset[date] = frozenset()) -> float:
     """Liberados por dia habil, promedio de los ultimos `n` dias habiles.
 
     Los fines de semana no cuentan ni en el numerador ni en el divisor.
     """
     if n <= 0:
         return 0.0
-    dias = last_business_days(today, n)
+    dias = last_business_days(today, n, holidays=holidays)
     return sum(liberated.get(d, 0) for d in dias) / n
 
 
@@ -132,7 +133,8 @@ def clear_days(queue: int, per_day: float) -> int | None:
     return math.ceil(Fraction(int(queue)) / Fraction(per_day).limit_denominator(10**6))
 
 
-def forecast(pending: int, pace: float, today: date) -> date | None:
+def forecast(pending: int, pace: float, today: date, *,
+             holidays: frozenset[date] = frozenset()) -> date | None:
     """Fecha estimada en que se vacian los pendientes, sin contar feriados:
     `add_business_days(today, clear_days(pending, pace))`.
 
@@ -141,7 +143,7 @@ def forecast(pending: int, pace: float, today: date) -> date | None:
     if pending <= 0:
         return today
     dias = clear_days(pending, pace)
-    return None if dias is None else add_business_days(today, dias)
+    return None if dias is None else add_business_days(today, dias, holidays=holidays)
 
 
 def liberated_by_program(items: list[Item]) -> dict[int | None, dict[date, int]]:
