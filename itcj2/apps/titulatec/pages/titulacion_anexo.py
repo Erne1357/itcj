@@ -135,10 +135,10 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
     programa = db.get(Program, proc.program_id) if proc.program_id else None
     modalidad = db.get(Modality, proc.modality_id) if proc.modality_id else None
     n = AnexoService.phase_number(db)
-    fase, fase_fin = (db.query(ProcessPhase.status, ProcessPhase.completed_at)
-                      .filter(ProcessPhase.process_id == process_id,
-                              ProcessPhase.phase_number == n)
-                      .first() or (None, None)) if n is not None else (None, None)
+    fase, fase_fin, motivo_previo = (
+        db.query(ProcessPhase.status, ProcessPhase.completed_at, ProcessPhase.rejection_reason)
+        .filter(ProcessPhase.process_id == process_id, ProcessPhase.phase_number == n)
+        .first() or (None, None, None)) if n is not None else (None, None, None)
     doc = (db.query(Document).filter_by(process_id=process_id, type_code=DOC_TYPE).first())
     anexo = AnexoService.get(db, process_id)
 
@@ -188,6 +188,13 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
                  if doc is not None else None),
         "pdf_url": f"{_BASE_URL}/{process_id}/anexo.pdf",
         "reviewed_label": revisado,
+        # Revisión final, punto 11 (molde de la «nota general de la ronda
+        # anterior» del Formato B): tras una resubida (versión > 1, escaneo sin
+        # dictamen) el motivo con que se observó sigue en la fase 6 -lo limpia
+        # solo `approve_phase`- y es lo que el revisor debe comprobar.
+        "prev_observation": (motivo_previo if doc is not None and doc.version > 1
+                             and doc.review_status == "pending" and motivo_previo
+                             else None),
         "can_review": en_revision and _REVIEW_PERM in perms,
         "form_error": error, "form_reason": reason,
         "others": list(others or []),

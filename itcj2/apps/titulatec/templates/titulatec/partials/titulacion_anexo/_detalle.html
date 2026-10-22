@@ -5,6 +5,8 @@
    - Firmas requeridas (etiquetas de `AnexoService.signer_labels`, que sale de
      `ReviewService.counting_roles`; aquí no se compara ninguna regla de firma).
    - Sinodales vigentes, visor del escaneo (iframe) y liga al Anexo generado.
+   - «Observación anterior» (`prev_observation`): tras una resubida, el motivo
+     con que se observó la versión previa (molde de la nota general del Formato B).
    - Aprobar / Observar (motivo obligatorio) dentro de UN formulario que manda la
      vista (pestaña, búsqueda, carrera, página) y la `version` del escaneo que se
      tenía en pantalla (R5: si el alumno subió otro, el servidor avisa y no escribe).
@@ -103,6 +105,13 @@
     <p class="tt-tit-sub" id="tt-anx-noscan">El alumno todavía no sube el escaneo firmado.</p>
     {% endif %}
   </section>
+
+  {% if d.prev_observation %}
+  <div id="tt-anx-prevobs" class="tt-card tt-tit-prevgeneral">
+    <span class="tt-kicker">Observación anterior</span>
+    <p class="tt-tit-prevgeneral-text">{{ d.prev_observation }}</p>
+  </div>
+  {% endif %}
 
   {% if d.can_review %}
   <form id="tt-anx-review" class="tt-tit-review">

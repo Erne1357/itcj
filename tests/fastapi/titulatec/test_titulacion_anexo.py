@@ -427,3 +427,37 @@ def test_la_lista_fecha_la_subida_con_la_misma_fuente(esc, db_session):
     (pill,) = _html(resp).xpath('//*[@id="tt-anx-row-%d"]//*[contains(@class,"tt-tit-wait")]'
                                 % c.process.id)
     assert "subido el 2 de octubre a las 16:40" in pill.get("title")
+
+
+# ---------------------------------------------------------------------------
+# Revision final, punto 11: tras una resubida se ve lo que se pidio antes
+# ---------------------------------------------------------------------------
+def test_resubido_muestra_la_observacion_anterior(esc, db_session):
+    c = esc.caso()
+    rev = esc.revisor(c)
+    AnexoService.observe(db_session, c.process, rev.id, reason="Falta la firma del vocal")
+    db_session.commit()
+    _resubir(db_session, c)
+    assert _doc(db_session, c).version == 2 and _fase(db_session, c).status == "in_review"
+
+    resp = esc.client_as(rev).get(ANX + "/body",
+                                  params={"tab": "pending", "selected": c.process.id})
+    assert resp.status_code == 200, resp.text[:400]
+    (nota,) = _html(resp).xpath('//*[@id="tt-anx-prevobs"]')
+    texto = " ".join(nota.text_content().split())
+    assert "Observación anterior" in texto and "Falta la firma del vocal" in texto
+
+
+def test_primera_entrega_y_observado_vigente_sin_observacion_anterior(esc, db_session):
+    c = esc.caso()
+    rev = esc.revisor(c)
+    cli = esc.client_as(rev)
+    primera = cli.get(ANX + "/body", params={"tab": "pending", "selected": c.process.id})
+    assert not _html(primera).xpath('//*[@id="tt-anx-prevobs"]')
+
+    AnexoService.observe(db_session, c.process, rev.id, reason="Falta la firma del vocal")
+    db_session.commit()
+    observado = cli.get(ANX + "/body", params={"tab": "observed", "selected": c.process.id})
+    # El motivo vigente ya se pinta en el escaneo: no se repite como «anterior».
+    assert not _html(observado).xpath('//*[@id="tt-anx-prevobs"]')
+    assert _html(observado).xpath('//*[@id="tt-anx-prevnote"]')
