@@ -1,0 +1,21 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{# Pestaña «Días inhábiles» (spec 2026-10-22 fase 5 §9.1, D11).
+   Sin etiquetas de script ni estilos aquí: la hoja de esta pestaña se carga UNA
+   vez desde `base_admin.html` (la navegación del menú solo morphea
+   `#tt-admin-content`). #}
+{% block title %}Días inhábiles · TitulaTec{% endblock %}
+{% block admin_view %}dias-inhabiles{% endblock %}
+{% block admin_main %}
+<div class="tt-dias-page">
+  <header class="tt-dias-header">
+    <span class="tt-kicker">Calendario</span>
+    <h1 class="tt-display tt-dias-title">Días inhábiles</h1>
+    <p class="tt-dias-lead">Las fechas registradas aquí no cuentan como días hábiles en los plazos, las bandejas y el Tablero. Sábados y domingos ya no cuentan y no se guardan.</p>
+  </header>
+  <div class="tt-dias-host tt-ind-host">
+    <div id="tt-dias-body" data-tt-view="dias-inhabiles-body">
+      {% include "titulatec/partials/dias_inhabiles/_body.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

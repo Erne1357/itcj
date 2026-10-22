@@ -211,6 +211,9 @@ _ADMIN_NAV = [
     ("Docentes",            "bi-person-badge", "/titulatec/admin/docentes",    {"titulatec.teacher.page.list"}),
     # Carrera -> departamento académico y ajustes del oficio (fase 4 §13, solo admin).
     ("Carreras por depto",  "bi-diagram-3",   "/titulatec/admin/carreras-deptos", {"titulatec.program_department.page.list"}),
+    # Calendario de días inhábiles (fase 5 §9.1): de toda la app, SIN guarda de
+    # fase; invisible en producción porque el permiso solo lo da `init-titulatec-fase-2`.
+    ("Días inhábiles",      "bi-calendar-x",  "/titulatec/admin/dias-inhabiles", {"titulatec.non_working_day.page.list"}),
     # Bandeja de solo lectura del Departamento de Titulacion (2026-09-21, Tarea
     # 5 del deslinde a T-soft): egresados ya liberados por Servicios Escolares.
     ("Liberados",           "bi-box-arrow-right", "/titulatec/admin/liberados", {"titulatec.handoff.page.list"}),

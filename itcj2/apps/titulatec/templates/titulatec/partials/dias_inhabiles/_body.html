@@ -1,0 +1,104 @@
+{# Cuerpo de «Días inhábiles». Re-render en #tt-dias-body (innerHTML) tras cada
+   acción (`pages/dias_inhabiles_admin.py::_repintar`) y al cambiar de año. Los
+   ids de fila son estables para el morph. #}
+{% set v = values or {} %}
+<nav class="tt-dias-year" aria-label="Año">
+  {% if anio_prev %}
+  <a id="tt-dias-prev" class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/dias-inhabiles?anio={{ anio_prev }}"
+     hx-get="/titulatec/admin/dias-inhabiles/body?anio={{ anio_prev }}" hx-target="#tt-dias-body" hx-swap="innerHTML">
+    <i class="bi bi-chevron-left" aria-hidden="true"></i><span class="d-none d-sm-inline"> {{ anio_prev }}</span>
+  </a>
+  {% endif %}
+  <h2 id="tt-dias-year" class="tt-dias-year-label">{{ anio }}</h2>
+  {% if anio_next %}
+  <a id="tt-dias-next" class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/dias-inhabiles?anio={{ anio_next }}"
+     hx-get="/titulatec/admin/dias-inhabiles/body?anio={{ anio_next }}" hx-target="#tt-dias-body" hx-swap="innerHTML">
+    <span class="d-none d-sm-inline">{{ anio_next }} </span><i class="bi bi-chevron-right" aria-hidden="true"></i>
+  </a>
+  {% endif %}
+</nav>
+
+{% if error %}
+<p id="tt-dias-error" class="tt-dias-error" role="alert">
+  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span>{{ error }}</span>
+</p>
+{% endif %}
+
+{% if can_manage %}
+<section class="tt-dias-block" aria-labelledby="tt-dias-h-add">
+  <h2 id="tt-dias-h-add" class="tt-dias-h">Agregar días</h2>
+  <p class="tt-dias-help">Un día suelto o un rango (máximo {{ max_range }} días). Puedes capturar fechas pasadas: corrigen los conteos viejos.</p>
+  <form id="tt-dias-add" class="tt-card tt-dias-form"
+        hx-post="/titulatec/admin/dias-inhabiles/agregar" hx-target="#tt-dias-body" hx-swap="innerHTML"
+        hx-disabled-elt="find button" novalidate>
+    <input type="hidden" name="anio" value="{{ anio }}">
+    <label class="tt-dias-field">
+      <span class="tt-dias-label">Del</span>
+      <input type="date" name="start" class="tt-field" value="{{ v.start or '' }}" required>
+    </label>
+    <label class="tt-dias-field">
+      <span class="tt-dias-label">Al (opcional)</span>
+      <input type="date" name="end" class="tt-field" value="{{ v.end or '' }}">
+    </label>
+    <label class="tt-dias-field tt-dias-field--wide">
+      <span class="tt-dias-label">Descripción</span>
+      <input type="text" name="description" class="tt-field" maxlength="{{ max_description }}"
+             value="{{ v.description or '' }}" placeholder="Semana Santa" required>
+    </label>
+    <button type="submit" class="btn btn-sm tt-btn-ink tt-dias-save">
+      <i class="bi bi-plus-lg me-1" aria-hidden="true"></i>Agregar
+    </button>
+  </form>
+</section>
+{% endif %}
+
+<section class="tt-dias-block" aria-labelledby="tt-dias-h-list">
+  <h2 id="tt-dias-h-list" class="tt-dias-h">Registrados en {{ anio }}</h2>
+  <div id="tt-dias-list" class="tt-dias-list">
+    {% for r in rows %}
+    <div id="tt-dia-{{ r.id }}" class="tt-card tt-dias-row">
+      <span class="tt-dias-date tt-mono">{{ r.label }}</span>
+      <span class="tt-dias-desc">{{ r.description }}</span>
+      {% if can_manage %}
+      <form class="tt-dias-rm" hx-post="/titulatec/admin/dias-inhabiles/quitar"
+            hx-target="#tt-dias-body" hx-swap="innerHTML" hx-disabled-elt="find button"
+            hx-confirm="Quitar día inhábil|{{ r.label }} volverá a contar como día hábil."
+            data-tt-confirm-ok="Quitar">
+        <input type="hidden" name="anio" value="{{ anio }}">
+        <input type="hidden" name="start" value="{{ r.iso }}">
+        <button type="submit" class="btn btn-sm tt-btn-ghost" aria-label="Quitar {{ r.label }}">
+          <i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Quitar</span>
+        </button>
+      </form>
+      {% endif %}
+    </div>
+    {% else %}
+    <p id="tt-dias-empty" class="tt-dias-empty">No hay días inhábiles registrados en {{ anio }}.</p>
+    {% endfor %}
+  </div>
+</section>
+
+{% if can_manage and rows %}
+<section class="tt-dias-block" aria-labelledby="tt-dias-h-rm">
+  <h2 id="tt-dias-h-rm" class="tt-dias-h">Quitar un rango</h2>
+  <p class="tt-dias-help">Quita todos los días registrados entre las dos fechas, inclusive.</p>
+  <form id="tt-dias-remove" class="tt-card tt-dias-form tt-dias-form--rm"
+        hx-post="/titulatec/admin/dias-inhabiles/quitar" hx-target="#tt-dias-body" hx-swap="innerHTML"
+        hx-disabled-elt="find button"
+        hx-confirm="Quitar rango|Los días registrados en ese rango volverán a contar como hábiles."
+        data-tt-confirm-ok="Quitar" novalidate>
+    <input type="hidden" name="anio" value="{{ anio }}">
+    <label class="tt-dias-field">
+      <span class="tt-dias-label">Del</span>
+      <input type="date" name="start" class="tt-field" value="{{ v.rm_start or '' }}" required>
+    </label>
+    <label class="tt-dias-field">
+      <span class="tt-dias-label">Al</span>
+      <input type="date" name="end" class="tt-field" value="{{ v.rm_end or '' }}" required>
+    </label>
+    <button type="submit" class="btn btn-sm tt-btn-ghost tt-dias-save">
+      <i class="bi bi-trash me-1" aria-hidden="true"></i>Quitar rango
+    </button>
+  </form>
+</section>
+{% endif %}
