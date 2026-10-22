@@ -12,7 +12,7 @@ from itcj2.apps.titulatec.models.process_phase import ProcessPhase
 from itcj2.apps.titulatec.models.document import Document
 from itcj2.apps.titulatec.models.format_b import FormatB
 from itcj2.apps.titulatec.models.synodal_assignment import SynodalAssignment
-from itcj2.apps.titulatec.models.chat import ProcessChat, ChatMessage
+from itcj2.apps.titulatec.models.chat import ProcessChat, ChatMessage, ChatRead
 from itcj2.apps.titulatec.models.review_appointment import ReviewAppointment
 from itcj2.apps.titulatec.models.ceremony import Ceremony, CeremonyProcess
 from itcj2.apps.titulatec.models.process_event import ProcessEvent
@@ -41,6 +41,10 @@ from itcj2.apps.titulatec.models.teacher_profile import TeacherProfile  # noqa: 
 from itcj2.apps.titulatec.models.program_department import (  # noqa: F401
     ProgramDepartment, DepartmentSettings,
 )
+from itcj2.apps.titulatec.models.review import (  # noqa: F401
+    ReviewVersion, ReviewVote, ReviewReminder,
+)
+from itcj2.apps.titulatec.models.non_working_day import NonWorkingDay  # noqa: F401
 
 # Alias de comodidad (spec: «AuditLog»). La clase real se llama distinto porque
 # agendatec ya registra una `AuditLog` en el mismo `Base`. Fuera de `__all__`.
@@ -58,6 +62,7 @@ __all__ = [
     "SynodalAssignment",
     "ProcessChat",
     "ChatMessage",
+    "ChatRead",
     "ReviewAppointment",
     "Ceremony",
     "CeremonyProcess",
@@ -85,6 +90,10 @@ __all__ = [
     "TeacherProfile",
     "ProgramDepartment",
     "DepartmentSettings",
+    "ReviewVersion",
+    "ReviewVote",
+    "ReviewReminder",
+    "NonWorkingDay",
 ]
 
 # Bitácora (spec 2026-10-07 §4.4): la escucha `after_flush` se instala AQUÍ, al

@@ -1689,3 +1689,101 @@ def espia_correo(monkeypatch):
 def listo(seed_phase_defs, titulatec_app):
     """Fases y app sembradas: `_create_account` crea el proceso de verdad."""
     seed_phase_defs()
+
+
+# ---------------------------------------------------------------------------
+# Fase 5: revision de sinodales (spec 2026-10-22-titulatec-fase5-revision-sinodales)
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_non_working_day(db_session):
+    """`NonWorkingDay` (day UNIQUE): idempotente por fecha. Flush, sin commit."""
+    from itcj2.apps.titulatec.models import NonWorkingDay
+
+    def _make(day, description="Inhábil"):
+        row = db_session.query(NonWorkingDay).filter_by(day=day).first()
+        if row is None:
+            row = NonWorkingDay(day=day, description=description)
+            db_session.add(row)
+            db_session.flush()
+        return row
+
+    return _make
+
+
+_PDF_MINIMO = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+               b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n"
+               b"trailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+@pytest.fixture()
+def make_review_case(db_session, tmp_path, seed_phase_defs, make_department, make_program,
+                     make_program_department, make_academic_head, make_teacher, make_user,
+                     make_student, make_process, make_modality, make_format_b,
+                     make_synodals):
+    """Caso completo de la fase 5 (revision de sinodales).
+
+    Proceso `active` en la fase con codigo `synodal_review` (el numero sale del
+    catalogo, nunca un literal), fases anteriores aprobadas, modalidad nueva con
+    la `signature_rule` pedida, 4 sinodales VIGENTES de un mismo departamento,
+    `ProcessChat` abierto y `versions` versiones con un PDF minimo escrito en
+    `tmp_path`. `phase_status` es el estado de la fase de revision.
+
+    Devuelve `SimpleNamespace(process, student, teachers, assignments, chat,
+    versions)`: `teachers` y `assignments` son {rol: ...} con los roles
+    president|secretary|vocal|alternate.
+    """
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.models import ProcessChat, ProcessPhase, ReviewVersion
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    def _make(*, signature_rule="president_only", versions=1, phase_status="in_progress"):
+        seed_phase_defs()
+        n = _n()
+        review_phase = PhaseService.phase_number_for_code(db_session, "synodal_review")
+        assert review_phase is not None, "el catalogo de fases no trae synodal_review"
+
+        depto = make_department(name=f"Depto revision {n}")
+        programa = make_program(f"Ingenieria Ficticia Revision {n}")
+        make_program_department(programa, depto)
+        jefe = make_academic_head(depto, kind="head")
+        modalidad = make_modality(name=f"Modalidad revision {n}", requires_synodals=True,
+                                  signature_rule=signature_rule)
+        alumno = make_student(first_name="ALUMNO", last_name=f"REVISION{n}")
+        proc = make_process(alumno, program=programa, modality=modalidad,
+                            current_phase=review_phase)
+        make_format_b(proc, status="approved", modality=modalidad, submission_count=1,
+                      project_name="Sistema de revision de prueba")
+
+        fase = (db_session.query(ProcessPhase)
+                .filter_by(process_id=proc.id, phase_number=review_phase).one())
+        fase.status = phase_status
+
+        teachers = {
+            rol: make_teacher(depto, user=make_user(first_name=f"SINODAL{i}",
+                                                    last_name=f"REVISION{n}"))
+            for i, rol in enumerate(("president", "secretary", "vocal", "alternate"))
+        }
+        rows = make_synodals(proc, teachers, jefe)
+        assignments = {r.role: r for r in rows}
+
+        chat = ProcessChat(process_id=proc.id)
+        db_session.add(chat)
+        db_session.flush()
+
+        vers = []
+        for i in range(1, versions + 1):
+            archivo = tmp_path / f"proyecto_p{proc.id}_v{i}.pdf"
+            archivo.write_bytes(_PDF_MINIMO)
+            v = ReviewVersion(process_id=proc.id, number=i, file_path=str(archivo),
+                              original_name=f"proyecto_v{i}.pdf",
+                              mime_type="application/pdf", size_bytes=len(_PDF_MINIMO),
+                              uploaded_by_id=alumno.id)
+            db_session.add(v)
+            vers.append(v)
+        db_session.flush()
+
+        return SimpleNamespace(process=proc, student=alumno, teachers=teachers,
+                               assignments=assignments, chat=chat, versions=vers)
+
+    return _make

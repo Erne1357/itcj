@@ -54,6 +54,8 @@ _MODULOS_SPEC = {
     "library": "Biblioteca",
     "cashier": "Caja",
     "certificates": "Folios",
+    "review": "Revisión de sinodales",      # fase 5 (2026-10-22)
+    "calendar": "Días inhábiles",           # fase 5 (2026-10-22)
     "surveys": "Encuestas",
     "mail": "Correos",
     "sii": "SII",
@@ -298,7 +300,7 @@ def test_toda_accion_que_el_codigo_registra_esta_en_el_vocabulario():
 # ---------------------------------------------------------------------------
 # (c) Módulos, etiquetas y forma de los códigos
 # ---------------------------------------------------------------------------
-def test_los_modulos_son_los_18_de_la_spec():
+def test_los_modulos_son_los_20_de_la_spec():
     assert _vocab().AUDIT_MODULES == _MODULOS_SPEC
 
 
@@ -436,7 +438,11 @@ def test_no_hay_tablas_fantasma_en_el_vocabulario():
 
 
 def test_la_red_excluye_d14_y_el_contenido_de_las_encuestas():
-    """Exactamente estas seis, ni una más ni una menos:
+    """Exactamente estas ocho, ni una más ni una menos:
+
+    - Fase 5 (2026-10-22): el chat (`titulatec_chat_messages`: alto volumen y su
+      contenido no se copia a la bitácora) y sus marcas de lectura
+      (`titulatec_chat_reads`: ruido puro).
 
     - D14: la bitácora misma, la tabla de eventos (ya espejada) y la bandeja de
       correos (su propio registro; Celery la toca cada 5 minutos).
@@ -448,6 +454,7 @@ def test_la_red_excluye_d14_y_el_contenido_de_las_encuestas():
     assert _vocab().NET_EXCLUDED_TABLES == frozenset({
         "titulatec_audit_log", "titulatec_process_events", "titulatec_email_outbox",
         "titulatec_survey_responses", "titulatec_survey_answers", "titulatec_survey_drafts",
+        "titulatec_chat_messages", "titulatec_chat_reads",
     })
 
 

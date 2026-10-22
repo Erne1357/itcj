@@ -41,6 +41,8 @@ AUDIT_MODULES: dict[str, str] = {
     "library": "Biblioteca",
     "cashier": "Caja",
     "certificates": "Folios",
+    "review": "Revisión de sinodales",
+    "calendar": "Días inhábiles",
     "surveys": "Encuestas",
     "mail": "Correos",
     "sii": "SII",
@@ -216,7 +218,8 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_certificate_batches": "certificates",
     "titulatec_certificate_counters": "certificates",
     "titulatec_certificates": "certificates",
-    "titulatec_chat_messages": "processes",
+    # `titulatec_chat_messages` y `titulatec_chat_reads` NO están aquí: salen de la
+    # red (ver `NET_EXCLUDED_TABLES`).
     "titulatec_chats": "processes",
     "titulatec_cohort_review_days": "cohorts",
     "titulatec_cohorts": "cohorts",
@@ -243,7 +246,11 @@ TABLE_MODULES: dict[str, str] = {
     "titulatec_processes": "processes",
     "titulatec_requirement_fulfillments": "processes",
     "titulatec_review_appointments": "appointments",
+    "titulatec_review_reminders": "review",
+    "titulatec_review_versions": "review",
+    "titulatec_review_votes": "review",
     "titulatec_review_windows": "windows",
+    "titulatec_non_working_days": "calendar",
     "titulatec_survey_answers": "surveys",
     "titulatec_survey_drafts": "surveys",
     "titulatec_survey_forms": "surveys",
@@ -263,6 +270,7 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_certificate_counters": "Contador de folios",
     "titulatec_certificates": "Folio",
     "titulatec_chat_messages": "Mensaje del chat",
+    "titulatec_chat_reads": "Lectura del chat",
     "titulatec_chats": "Chat del proceso",
     "titulatec_cohort_review_days": "Día de cotejo",
     "titulatec_cohorts": "Convocatoria",
@@ -285,6 +293,10 @@ TABLE_LABELS: dict[str, str] = {
     "titulatec_requirement_fulfillments": "Requisito de cotejo cumplido",
     "titulatec_review_appointments": "Cita de cotejo",
     "titulatec_review_windows": "Espacio de cotejo",
+    "titulatec_review_versions": "Versión del proyecto",
+    "titulatec_review_votes": "Voto de sinodal",
+    "titulatec_review_reminders": "Recordatorio de revisión",
+    "titulatec_non_working_days": "Día inhábil",
     "titulatec_survey_answers": "Respuesta de encuesta",
     "titulatec_survey_drafts": "Borrador de encuesta",
     "titulatec_survey_forms": "Formulario de encuesta",
@@ -343,6 +355,12 @@ NET_EXCLUDED_TABLES: frozenset[str] = frozenset({
     "titulatec_survey_responses",
     "titulatec_survey_answers",
     "titulatec_survey_drafts",
+    # Fase 5: el chat es alto volumen y el CONTENIDO de los mensajes no se copia a
+    # la bitácora inmutable (sería duplicar conversación y adjuntos); sus hechos
+    # de negocio (versión subida, voto, cierre) ya llevan evento/acción propia.
+    # `chat_reads` solo es una marca de lectura: ruido puro (se escribe al abrir).
+    "titulatec_chat_messages",
+    "titulatec_chat_reads",
 })
 
 # ---------------------------------------------------------------------------

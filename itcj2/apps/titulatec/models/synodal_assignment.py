@@ -16,6 +16,9 @@ class SynodalAssignment(Base):
     user_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=False, index=True)  # sinodal
     role = Column(String(20), nullable=False)                       # president|secretary|vocal|alternate
 
+    # LEGADO (fase 5): vote/vote_at/vote_note ya no los escribe nadie; los votos
+    # viven en `titulatec_review_votes` (uno por versión y asignación). Se
+    # conservan por compatibilidad con filas anteriores.
     vote = Column(String(20), nullable=True)                        # approved|changes_requested|null
     vote_at = Column(DateTime, nullable=True)
     vote_note = Column(Text, nullable=True)
