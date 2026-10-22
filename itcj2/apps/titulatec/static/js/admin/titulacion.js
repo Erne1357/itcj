@@ -7,6 +7,8 @@
      - ⚑ por campo editable: despliega su nota (y la habilita: una caja
        deshabilitada no viaja en el POST), cuenta los marcados en «Regresar con
        observaciones (N)» y deshabilita «Aprobar» con uno o más;
+     - antes de «Observar» del Anexo III (`#tt-anx-observe`) exige el motivo
+       (`#tt-anx-reason`), con el mismo mecanismo de captura;
      - antes de «Regresar» exige al menos una observación y que cada campo
        marcado tenga su nota (en CAPTURA: el listener de htmx vive en el propio
        botón y, en burbuja, ya habría abierto el `hx-confirm`). El servidor lo
@@ -122,7 +124,19 @@
   // con su nota. En CAPTURA, antes del `hx-confirm` del botón.
   document.body.addEventListener('click', function (e) {
     var t = e.target;
-    if (!t || !t.closest || !t.closest('#tt-tit-observe')) return;
+    if (!t || !t.closest) return;
+    // Vista «Anexo III»: el motivo es obligatorio antes de abrir el `hx-confirm`
+    // (el servidor lo vuelve a exigir: 200 con el error en el formulario).
+    if (t.closest('#tt-anx-observe')) {
+      var motivo = $('tt-anx-reason');
+      if (!motivo || !motivo.value.trim()) {
+        cortar(e);
+        toast('Escribe el motivo de la observación.');
+        if (motivo) motivo.focus();
+      }
+      return;
+    }
+    if (!t.closest('#tt-tit-observe')) return;
     var sinNota = marcadas().filter(function (b) {
       var caja = cajaDe(b);
       return !caja || !caja.value.trim();

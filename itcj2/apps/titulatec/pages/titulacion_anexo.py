@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
+from itcj2.apps.titulatec.pages import _titulacion_shared as _shared
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.titulacion_anexo")
@@ -36,13 +37,14 @@ _BODY_TPL = "titulatec/partials/titulacion_anexo/_body.html"
 
 # Tipo de revisión en `ReviewPresence` (la clave de Redis lo lleva).
 _PRESENCE_KIND = "anexo_iii"
-_NEXT_TRIES = 10
 
 _TABS = (("pending", "Por revisar"), ("observed", "Con observaciones"),
          ("approved", "Aprobados"), ("unsent", "Sin enviar"))
 _TAB_BY_PHASE_STATUS = {"in_review": "pending", "rejected": "observed", "approved": "approved"}
 
 VERSION_CHANGED_NOTICE = "El alumno subió otro escaneo; revísalo de nuevo."
+VERSION_MISSING_NOTICE = ("No se pudo confirmar qué escaneo tenías en pantalla; "
+                          "recarga la vista y revísalo de nuevo.")
 _VACIO = "—"
 
 
@@ -85,60 +87,33 @@ def views_ctx(db, perms) -> dict:
             "can_review_anexo": _puede_ver_anexo(perms)}
 
 
-def _nombre(user) -> str:
-    return " ".join(p for p in (user.first_name, user.last_name) if p) if user else ""
-
-
-def _viewer_name(db, user_id: int) -> str:
-    from itcj2.core.models.user import User
-    return _nombre(db.get(User, user_id)) or "Otra persona"
+_viewer_name = _shared.viewer_name
 
 
 def _infer_tab(db, user_id: int, process_id: int) -> str:
-    """Pestaña de un `?selected=` sin ella; solo mira procesos en alcance."""
+    """Pestaña de un `?selected=` sin ella (el estado de la fase 6)."""
     from itcj2.apps.titulatec.models import ProcessPhase
     from itcj2.apps.titulatec.services.anexo_service import AnexoService
-    from itcj2.apps.titulatec.services.scope_service import process_in_scope
 
-    if process_in_scope(db, user_id, process_id) is None:
-        return "pending"
-    n = AnexoService.phase_number(db)
-    estado = (db.query(ProcessPhase.status)
-              .filter(ProcessPhase.process_id == process_id,
-                      ProcessPhase.phase_number == n).scalar()) if n is not None else None
-    return _TAB_BY_PHASE_STATUS.get(estado, "unsent")
+    def _estado(d, pid):
+        n = AnexoService.phase_number(d)
+        return (d.query(ProcessPhase.status)
+                .filter(ProcessPhase.process_id == pid,
+                        ProcessPhase.phase_number == n).scalar()) if n is not None else None
+
+    return _shared.infer_tab(db, user_id, process_id, status_of=_estado,
+                             tab_by_status=_TAB_BY_PHASE_STATUS)
 
 
 def _next_free(db, user_id: int, done_id: int, vista: dict | None = None):
-    """El siguiente «Por revisar» de la cola FIFO que nadie más tenga abierto."""
+    """El siguiente «Por revisar» del Anexo III que nadie más tenga abierto."""
     from itcj2.apps.titulatec.services.anexo_inbox_service import AnexoInboxService
-    from itcj2.apps.titulatec.services.review_presence import ReviewPresence
 
-    vista = vista or {}
-    q, carrera = vista.get("q") or "", _to_int(vista.get("carrera"))
-    excluir = {done_id}
-    for _ in range(_NEXT_TRIES):
-        pid = AnexoInboxService.next_pending(
-            db, user_id, exclude_ids=excluir, q=q, program_id=carrera)
-        if pid is None:
-            return None
-        if not ReviewPresence.viewers(_PRESENCE_KIND, [pid], exclude_user_id=user_id):
-            return pid
-        excluir.add(pid)
-    return None
+    return _shared.next_free(db, user_id, done_id, vista,
+                             inbox=AnexoInboxService, kind=_PRESENCE_KIND)
 
 
-def _programs(db, user_id: int) -> list[dict]:
-    from itcj2.apps.titulatec.services.scope_service import officer_programs
-    from itcj2.core.models.program import Program
-
-    scope = officer_programs(db, user_id)
-    if scope != "ALL" and not scope:
-        return []
-    query = db.query(Program.id, Program.name).order_by(Program.name, Program.id)
-    if scope != "ALL":
-        query = query.filter(Program.id.in_(scope))
-    return [{"id": p.id, "name": p.name} for p in query.all()]
+_programs = _shared.programs
 
 
 def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
@@ -260,10 +235,7 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
     return ctx
 
 
-def _vista(form) -> dict:
-    """Pestaña, búsqueda, carrera y página desde las que se actuó (CLAUDE.md §18, regla 3)."""
-    return {"tab": form.get("tab") or "pending", "q": form.get("q") or "",
-            "carrera": form.get("carrera") or "", "page": form.get("page") or ""}
+_vista = _shared.vista
 
 
 def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str, *,
@@ -351,8 +323,9 @@ def _cuerpo_approve(process_id, request, user, form):
             return _bloqueo_por_corte()
         version = _to_int(form.get("version"))
         if version is None:
+            # Falta o está mal formada: nada se escribe (aviso propio, no «subió otro»).
             return _repintar(request, db, uid, _vista(form), process_id,
-                             VERSION_CHANGED_NOTICE, kind="warning")
+                             VERSION_MISSING_NOTICE, kind="warning")
         try:
             AnexoService.approve(db, proc, uid, expected_version=version)
         except AnexoVersionChanged:
@@ -396,8 +369,9 @@ def _cuerpo_observe(process_id, request, user, form):
             return _bloqueo_por_corte()
         version = _to_int(form.get("version"))
         if version is None:
+            # Falta o está mal formada: nada se escribe (aviso propio, no «subió otro»).
             return _repintar(request, db, uid, _vista(form), process_id,
-                             VERSION_CHANGED_NOTICE, kind="warning")
+                             VERSION_MISSING_NOTICE, kind="warning")
         try:
             AnexoService.observe(db, proc, uid, reason=motivo, expected_version=version)
         except AnexoVersionChanged:
@@ -451,6 +425,8 @@ def scan_file(process_id: int, request: Request,
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
     from itcj2.apps.titulatec.utils import storage
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.safe_paths import UnsafePath
 
     uid = int(user["sub"])
     db = SessionLocal()
@@ -462,9 +438,13 @@ def scan_file(process_id: int, request: Request,
         doc = DocumentService.get_document(db, process_id, DOC_TYPE)
         if not doc:
             return Response(status_code=404)
-        path = storage.abs_path(doc.file_path)
+        try:
+            path = storage.safe_abs_path(doc.file_path)
+        except UnsafePath:
+            return Response(status_code=404)
         mime = doc.mime_type
-        _period, control = DocumentService._storage_keys(db, proc)
+        alumno = db.get(User, proc.student_id)
+        control = (alumno.control_number if alumno else None) or str(proc.student_id)
         filename = storage.download_filename(control, DOC_TYPE, doc.file_path)
     finally:
         db.close()

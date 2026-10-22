@@ -248,6 +248,13 @@ def test_dictamen_sin_version_tambien_avisa(esc, db_session):
     resp = cli.post(f"{ANX}/{c.process.id}/aprobar", data={"tab": "pending"})
     assert resp.status_code == 200
     assert resp.headers["X-Tt-Notice-Kind"] == "warning"
+    # Mensaje propio del caso mal formado (no «el alumno subió otro escaneo»).
+    assert "No se pudo confirmar" in _hdr(resp, "X-Tt-Notice")
+    assert "otro escaneo" not in _hdr(resp, "X-Tt-Notice")
+    assert _fase(db_session, c).status == "in_review"
+    ilegible = cli.post(f"{ANX}/{c.process.id}/observar",
+                        data={"tab": "pending", "version": "abc", "reason": "x"})
+    assert "No se pudo confirmar" in _hdr(ilegible, "X-Tt-Notice")
     assert _fase(db_session, c).status == "in_review"
 
 
@@ -285,3 +292,29 @@ def test_latido_de_presencia(esc, presencia):
     cli = esc.client_as(esc.revisor(c))
     assert cli.post(f"{ANX}/{c.process.id}/viendo").status_code == 204
     assert ("anexo_iii", c.process.id) in presencia
+
+
+def test_latido_con_corte_3_no_marca_presencia(esc, corte, presencia):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    corte(3)
+    assert cli.post(f"{ANX}/{c.process.id}/viendo").status_code == 204
+    assert ("anexo_iii", c.process.id) not in presencia
+
+
+def test_escaneo_con_ruta_fuera_de_la_raiz_404(esc, db_session):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    doc = _doc(db_session, c)
+    doc.file_path = "../../etc/passwd"
+    db_session.commit()
+    assert cli.get(f"{ANX}/{c.process.id}/escaneo").status_code == 404
+
+
+def test_el_boton_observar_exige_el_motivo_antes_del_confirm():
+    from pathlib import Path
+    import itcj2.apps.titulatec as pkg
+
+    js = (Path(pkg.__file__).resolve().parent / "static" / "js" / "admin" / "titulacion.js")
+    texto = js.read_text(encoding="utf-8")
+    assert "#tt-anx-observe" in texto and "tt-anx-reason" in texto

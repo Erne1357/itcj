@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
+from itcj2.apps.titulatec.pages import _titulacion_shared as _shared
 from itcj2.apps.titulatec.pages.nav import render_titulatec
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.titulacion_admin")
@@ -45,9 +46,6 @@ _BODY_TPL = "titulatec/partials/titulacion/_body.html"
 
 # Tipo de revisión en `ReviewPresence` (la clave de Redis lo lleva).
 _PRESENCE_KIND = "format_b"
-# Al elegir el siguiente de la cola tras dictaminar se saltan, a lo más, estos
-# procesos abiertos por otra persona (el Depto. son dos o tres revisores).
-_NEXT_TRIES = 10
 
 # Pestañas en el orden de pantalla (las claves son `FormatBInboxService.TABS`).
 _TABS = (("pending", "Por revisar"), ("observed", "Con observaciones"),
@@ -110,26 +108,19 @@ def _operable(db) -> bool:
     return n is not None and PhaseService._handoff_phase() > n
 
 
-def _nombre(user) -> str:
-    return " ".join(p for p in (user.first_name, user.last_name) if p) if user else ""
-
-
-def _viewer_name(db, user_id: int) -> str:
-    """Nombre con que el revisor aparece en la insignia de los demás."""
-    from itcj2.core.models.user import User
-    return _nombre(db.get(User, user_id)) or "Otra persona"
+_nombre = _shared.nombre
+_viewer_name = _shared.viewer_name
 
 
 def _infer_tab(db, user_id: int, process_id: int) -> str:
-    """Pestaña de un `?selected=` que llega sin ella. Solo mira procesos en
-    alcance: la pestaña marcada no debe delatar el estado de uno ajeno."""
+    """Pestaña de un `?selected=` sin ella (el estado del Formato B); solo mira
+    procesos en alcance."""
     from itcj2.apps.titulatec.models import FormatB
-    from itcj2.apps.titulatec.services.scope_service import process_in_scope
 
-    if process_in_scope(db, user_id, process_id) is None:
-        return "pending"
-    fb = db.get(FormatB, process_id)
-    return _TAB_BY_STATUS.get(getattr(fb, "status", None), "unsent")
+    return _shared.infer_tab(
+        db, user_id, process_id,
+        status_of=lambda d, pid: getattr(d.get(FormatB, pid), "status", None),
+        tab_by_status=_TAB_BY_STATUS)
 
 
 def _en_universo(db, user_id: int, process_id: int, *, tab: str, q, carrera) -> bool:
@@ -146,42 +137,14 @@ def _en_universo(db, user_id: int, process_id: int, *, tab: str, q, carrera) -> 
 
 
 def _next_free(db, user_id: int, done_id: int, vista: dict | None = None):
-    """El siguiente «Por revisar» de la cola FIFO que nadie más tenga abierto.
-
-    Salta el recién dictaminado y, uno por uno, los que otra persona tiene
-    abiertos (§8.2); con Redis caído `viewers` devuelve vacío y gana la cabeza
-    de la cola. Respeta la búsqueda y la carrera de la vista (`vista`): el
-    siguiente es del conjunto FILTRADO. None si no queda ninguno libre.
-    """
+    """El siguiente «Por revisar» del Formato B que nadie más tenga abierto (§8.2)."""
     from itcj2.apps.titulatec.services.format_b_inbox_service import FormatBInboxService
-    from itcj2.apps.titulatec.services.review_presence import ReviewPresence
 
-    vista = vista or {}
-    q, carrera = vista.get("q") or "", _to_int(vista.get("carrera"))
-    excluir = {done_id}
-    for _ in range(_NEXT_TRIES):
-        pid = FormatBInboxService.next_pending(
-            db, user_id, exclude_ids=excluir, q=q, program_id=carrera)
-        if pid is None:
-            return None
-        if not ReviewPresence.viewers(_PRESENCE_KIND, [pid], exclude_user_id=user_id):
-            return pid
-        excluir.add(pid)
-    return None
+    return _shared.next_free(db, user_id, done_id, vista,
+                             inbox=FormatBInboxService, kind=_PRESENCE_KIND)
 
 
-def _programs(db, user_id: int) -> list[dict]:
-    """Carreras del filtro: las del alcance del usuario (todas con «ALL")."""
-    from itcj2.apps.titulatec.services.scope_service import officer_programs
-    from itcj2.core.models.program import Program
-
-    scope = officer_programs(db, user_id)
-    if scope != "ALL" and not scope:
-        return []
-    query = db.query(Program.id, Program.name).order_by(Program.name, Program.id)
-    if scope != "ALL":
-        query = query.filter(Program.id.in_(scope))
-    return [{"id": p.id, "name": p.name} for p in query.all()]
+_programs = _shared.programs
 
 
 def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
@@ -370,11 +333,7 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
     return ctx
 
 
-def _vista(form) -> dict:
-    """La pestaña, búsqueda, carrera y página desde las que se actuó: la acción
-    re-pinta la MISMA vista (regla 3 de la paginación, CLAUDE.md §18)."""
-    return {"tab": form.get("tab") or "pending", "q": form.get("q") or "",
-            "carrera": form.get("carrera") or "", "page": form.get("page") or ""}
+_vista = _shared.vista
 
 
 def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str):
