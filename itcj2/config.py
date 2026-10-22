@@ -493,6 +493,10 @@ class Settings(BaseSettings):
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
     # Impresión de constancias (lotes/PDF) oculta tras este switch: apagado solo se ve el folio (spec folios 2026-10-05 §3.5).
     TITULATEC_CERTIFICATE_PRINTING: bool = False
+    # Fase 5 (revisión de sinodales): tope por archivo de revisión (PDF/Word, MB) y
+    # días hábiles que dura la revisión de los sinodales.
+    TITULATEC_REVIEW_MAX_FILE_MB: int = Field(default=20, ge=1, le=50)
+    TITULATEC_REVIEW_DAYS: int = Field(default=10, ge=1, le=60)
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
