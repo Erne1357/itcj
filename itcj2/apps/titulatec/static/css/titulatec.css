@@ -2878,3 +2878,9 @@ button.tt-seat--libre { pointer-events: auto; }
 @media (max-width: 420px) {
   .tt-fb .tt-fb-dl-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+
+/* «Tus sinodales» del acordeón del alumno (fase 4, `partials/student/_synodals_panel.html`):
+   la lista de posición y nombre. Antes iba en un `style=` inline (prohibido en los parciales,
+   `test_appointments_scope_day.py`); --tt-fs-100 es el paso de la escala más cercano al .83rem
+   que traía. */
+.tt-synodal-list { font-size: var(--tt-fs-100); padding-left: 1.1rem; }

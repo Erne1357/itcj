@@ -2,7 +2,7 @@
    cédula ni grado. Recibe `synodals` (lista de {role_label, name}). #}
 <div data-tt-student-sinodales>
   <div class="tt-acc-block-title"><i class="bi bi-people"></i>Tus sinodales</div>
-  <ul class="tt-prose mb-0" style="font-size:.83rem;padding-left:1.1rem">
+  <ul class="tt-prose tt-synodal-list mb-0">
     {% for s in synodals %}
     <li data-tt-sinodal><strong>{{ s.role_label }}:</strong> {{ s.name }}</li>
     {% endfor %}

@@ -48,7 +48,7 @@ import re
 import unicodedata
 from contextlib import contextmanager
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -227,12 +227,23 @@ def _lock_email(db: Session, email: str) -> None:
                {"e": email})
 
 
-def _vigente_today(link) -> bool:
-    """¿Una `UserPosition` YA cargada es vigente hoy? (gemela en Python de
-    `authz_service._active_position_filter`, para filas bloqueadas)."""
-    from itcj2.core.utils.timezone import db_now
+def _db_today(db: Session):
+    """`CURRENT_DATE` de la BD: el reloj de la vigencia de un puesto.
 
-    hoy = db_now().date()
+    Es el MISMO que usan `authz_service._active_position_filter` (el gate,
+    `is_teacher_of`, `roster`) y el `default` de `UserPosition.start_date` (con
+    el que `_open_position` da el puesto). `db_now()` (APP_TZ) solo coincide con
+    él si Postgres corre en la zona de la app: en CI corre en UTC y de 18:00 a
+    24:00 de Juárez ya es mañana, así que el docente recién dado de alta «aún no
+    empezaba» para el alta y la baja (y sí para el gate)."""
+    return db.execute(select(func.current_date())).scalar_one()
+
+
+def _vigente_today(link, hoy) -> bool:
+    """¿Una `UserPosition` YA cargada es vigente `hoy`? (gemela en Python de
+    `authz_service._active_position_filter`, para filas bloqueadas). `hoy` sale
+    de `_db_today(db)`, nunca de `db_now()`: la gemela juzga con el reloj de la
+    cláusula SQL o deja de ser gemela."""
     return (bool(link.is_active)
             and (link.start_date is None or link.start_date <= hoy)
             and (link.end_date is None or link.end_date >= hoy))
@@ -750,8 +761,10 @@ class TeacherService:
                 raise EmailTakenError(EMAIL_TAKEN_MSG,
                                       TeacherService._candidate_dicts(db, duenos))
         links = TeacherService._locked_links(db, user.id, pos.id)
-        if any(_vigente_today(link) for link in links):
-            raise ValueError(ALREADY_TEACHER_MSG)
+        if links:
+            hoy = _db_today(db)
+            if any(_vigente_today(link, hoy) for link in links):
+                raise ValueError(ALREADY_TEACHER_MSG)
         privilegiada = TeacherService.has_privileges(db, user.id)
 
         # --- desde aquí, solo escrituras (nada que valide puede lanzar) ---
@@ -926,12 +939,16 @@ class TeacherService:
             ProgramDepartment, SynodalAssignment, TitulationProcess,
         )
         from itcj2.core.models.user import User
-        from itcj2.core.utils.timezone import db_now
 
         TeacherService._assert_operable(db)
         pos = TeacherService.position_for(db, department_id)
         links = TeacherService._locked_links(db, user_id, pos.id)
-        if not any(_vigente_today(link) for link in links):
+        if not links:
+            raise ValueError(NOT_TEACHER_MSG)
+        # El reloj del puesto (`_db_today`): el mismo con el que nació, así que
+        # el `end_date` de abajo nunca queda antes de su `start_date`.
+        hoy = _db_today(db)
+        if not any(_vigente_today(link, hoy) for link in links):
             raise ValueError(NOT_TEACHER_MSG)
         vigentes = (db.query(func.count(SynodalAssignment.id))
                     .join(TitulationProcess,
@@ -946,7 +963,6 @@ class TeacherService:
         if vigentes:
             raise ValueError(HAS_ASSIGNMENTS_MSG)
 
-        hoy = db_now().date()
         with _writing(db):
             for link in links:
                 link.is_active = False

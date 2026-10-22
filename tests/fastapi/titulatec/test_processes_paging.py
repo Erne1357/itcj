@@ -344,11 +344,20 @@ def test_sin_n_mas_1_usuario_y_carrera(db_session, escena, view):
     assert visibles == (3, 40)
     sql = "\n".join(muchas.sentencias)
     assert len(pocas) == len(muchas), sql
-    # Medido: alcance (2) + universo + fases + alumnos + carreras +
-    # modalidades = 7 (sin `q` no hay la consulta de ids que casan). La de
+    # Medido: alcance (3) + universo + fases + alumnos + carreras +
+    # modalidades = 8 (sin `q` no hay la consulta de ids que casan). La de
     # `core_apps` ya no cuenta: desde perf 2026-10-07 la sesión recuerda las
     # apps activas (`authz_service._apps_memo`) y el calentamiento la pagó.
-    assert len(muchas) == 7, sql
+    # El alcance era 2 (total 7) hasta la fase 4: `officer_programs` es desde
+    # entonces la UNIÓN de las carreras por puesto de Servicios Escolares (por
+    # rol y por permiso) y las de los departamentos académicos que el usuario
+    # dirige (`academic_departments`; spec fase 4 R-D/§7). Es UNA consulta fija
+    # por petición, no por fila: el `pocas == muchas` de arriba lo vigila.
+    assert len(muchas) == 8, sql
+    # Y el alcance cuesta exactamente esas tres (rol, permiso y departamento
+    # académico): una cuarta lectura de puestos sería otra cosa, no la unión.
+    assert len(muchas.tocan("core_user_positions")) == 3, sql
+    assert len(muchas.tocan("titulatec_program_departments")) == 1, sql
     # Pasada 2 en lote: UNA lectura de alumnos, carreras y modalidades.
     for entidad in ("core_users", "core_programs", "titulatec_modalities"):
         assert len([s for s in muchas.sentencias

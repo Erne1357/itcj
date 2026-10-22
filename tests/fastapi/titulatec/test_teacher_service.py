@@ -873,6 +873,56 @@ def test_un_puesto_vencido_pero_marcado_activo_no_impide_volver_a_agregar(
 
 
 # ---------------------------------------------------------------------------
+# Un solo reloj para la vigencia del puesto (CI run 39696762339, 2026-10-21)
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def reloj_app_un_dia_atras(db_session, monkeypatch):
+    """`db_now()` un día ATRÁS del `CURRENT_DATE` de la BD, a cualquier hora.
+
+    Es lo que pasa en CI: su Postgres corre en UTC, así que de 18:00 a 24:00 de
+    Juárez el `CURRENT_DATE` de la BD ya es mañana mientras `db_now()` (APP_TZ)
+    sigue en hoy. El puesto nace con el `CURRENT_DATE` de la BD (`default` de
+    `UserPosition.start_date`) y `is_teacher_of`/`roster`/el gate lo juzgan con
+    ese mismo reloj (`_active_position_filter`); si alta y baja lo juzgaran con
+    `db_now()`, el docente recién dado de alta «aún no empieza». Fijarlo aquí
+    hace que la prueba falle (o pase) igual a cualquier hora, no solo en la
+    ventana nocturna. Devuelve el día de la BD."""
+    from sqlalchemy import func, select
+
+    from itcj2.core.utils import timezone
+
+    hoy_bd = db_session.execute(select(func.current_date())).scalar_one()
+    monkeypatch.setattr(timezone, "db_now",
+                        lambda: datetime.combine(hoy_bd - timedelta(days=1),
+                                                 datetime.min.time()).replace(hour=20))
+    return hoy_bd
+
+
+def test_alta_y_baja_juzgan_la_vigencia_con_el_reloj_de_la_bd(db_session, depto, actor,
+                                                               reloj_app_un_dia_atras):
+    hoy_bd = reloj_app_un_dia_atras
+    dept = depto()
+    uid = _crear(db_session, actor, dept)["user_id"]
+    assert TeacherService.is_teacher_of(db_session, uid, dept.id)
+
+    # Agregarlo otra vez al mismo depto: ya es docente HOY (no un puesto «futuro»).
+    with pytest.raises(ValueError) as err:
+        TeacherService.add_existing(db_session, actor.id, dept.id, uid,
+                                    academic_degree="Maestro", professional_license="5550030")
+    assert str(err.value) == ALREADY_TEACHER_MSG
+
+    # Quitarlo: lo encuentra vigente y cierra el puesto con el MISMO día con que
+    # nació (nunca un `end_date` anterior a su `start_date`).
+    TeacherService.remove_from_department(db_session, actor.id, dept.id, uid)
+    link = (db_session.query(UserPosition).join(Position)
+            .filter(UserPosition.user_id == uid,
+                    Position.code == f"{POSITION_PREFIX}{dept.code}").one())
+    assert link.is_active is False
+    assert link.start_date == hoy_bd and link.end_date == hoy_bd
+    assert not TeacherService.is_teacher_of(db_session, uid, dept.id)
+
+
+# ---------------------------------------------------------------------------
 # Lista del departamento y búsqueda
 # ---------------------------------------------------------------------------
 def test_roster_estados_y_asignaciones_vigentes(db_session, depto, actor, make_user,

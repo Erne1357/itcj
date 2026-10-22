@@ -30,11 +30,12 @@ from __future__ import annotations
 import ast
 import inspect
 import textwrap
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from types import SimpleNamespace
 
 import pytest
 
+from itcj2.core.utils.timezone import db_now
 from tests.fastapi.titulatec.conftest import HEAD_PERMS, OFFICER_PERMS
 
 # El encargado de estas pruebas puede ESCRIBIR (es lo que hace grave el IDOR), pero
@@ -56,7 +57,16 @@ SCOPED_PERMS = OFFICER_PERMS + (
 # La jefa ve todo (`read.all`) y ademas repara datos (`officers.api.manage`).
 HEAD_WRITE_PERMS = HEAD_PERMS + SCOPED_PERMS
 
-_DAY = (date.today() + timedelta(days=7)).isoformat()
+# UN solo día para todo el escenario: el día de cotejo y sus ventanas, la cita
+# de cada proceso y los formularios de agendar/reagendar de `ROUTES`. Se fija
+# una vez, al importar el módulo, así que la cita NO puede tomar el default de
+# `make_appointment` (`date.today() + 7` al CORRER la prueba): si la medianoche
+# cae entre la colección y la prueba (el CI run 39696762339 arrancó a las 23:58
+# UTC), la cita queda un día después del día de cotejo, fuera del tablero del
+# día abierto, y «el detalle propio desaparece». Reloj de la app (`db_now`),
+# como toda fecha que la app valida.
+_DAY = (db_now().date() + timedelta(days=7)).isoformat()
+_APPT_AT = datetime.combine(date.fromisoformat(_DAY), time(10, 0))
 _INITIAL_DOCS = ("birth_certificate", "high_school_cert", "curp")
 
 # (alias, metodo, plantilla de URL, form). Las 13 rutas que la matriz ejercita
@@ -155,7 +165,7 @@ def escenario(seed_phase_defs, seed_document_types, make_program, make_cohort,
                 dest = tmp_path / doc.file_path
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_bytes(b"%PDF-1.4 documento de prueba")
-            make_appointment(proc)
+            make_appointment(proc, when=_APPT_AT)     # el MISMO día de cotejo (_DAY)
             make_survey_review(proc, status="approved")
             procs[key] = proc
             students[key] = student

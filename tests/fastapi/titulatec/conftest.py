@@ -651,13 +651,22 @@ def assign_position(db_session):
     `_active_position_filter()` (`authz_service.py:21-31`) exige `is_active` **y**
     `start_date <= hoy` **y** (`end_date` NULL o >= hoy). Con `start_date` en el
     futuro el usuario no hereda nada y el 403 resultante desconcierta.
+
+    Por omisión, AYER según el reloj de la BD (`CURRENT_DATE - 1`, lo evalúa
+    Postgres en el INSERT): es el MISMO reloj con que el gate y el `default` de la
+    columna juzgan la vigencia. Ni `date.today()` (zona del proceso) ni `db_now()`
+    (APP_TZ) lo son: en CI Postgres corre en UTC y de 18:00 a 24:00 de Juárez su
+    día ya es otro (CI run 39696762339). Además `CURRENT_DATE` no cambia dentro de
+    la transacción de la prueba aunque la medianoche pase a mitad de ella.
     """
+    from sqlalchemy import func
+
     from itcj2.core.models.position import UserPosition
 
     def _make(user, position, start_date=None, end_date=None, is_active=True):
         link = UserPosition(
             user_id=user.id, position_id=position.id,
-            start_date=start_date or (date.today() - timedelta(days=1)),
+            start_date=start_date or (func.current_date() - 1),
             end_date=end_date, is_active=is_active,
         )
         db_session.add(link)
