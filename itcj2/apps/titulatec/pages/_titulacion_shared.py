@@ -23,7 +23,13 @@ def to_int(raw):
 
 
 def nombre(user) -> str:
-    return " ".join(p for p in (user.first_name, user.last_name) if p) if user else ""
+    """Nombre de una persona en orden natural (nombre(s), paterno, materno),
+    como el oficio. Es la ÚNICA forma de armarlo en la pestaña Titulación (las
+    dos vistas, la insignia de presencia y «Revisado por») y en el aviso de
+    liberación del Anexo III (`AnexoService.notify_release`)."""
+    if user is None:
+        return ""
+    return " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p)
 
 
 def viewer_name(db, user_id: int) -> str:

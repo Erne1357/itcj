@@ -461,3 +461,32 @@ def test_primera_entrega_y_observado_vigente_sin_observacion_anterior(esc, db_se
     # El motivo vigente ya se pinta en el escaneo: no se repite como «anterior».
     assert not _html(observado).xpath('//*[@id="tt-anx-prevobs"]')
     assert _html(observado).xpath('//*[@id="tt-anx-prevnote"]')
+
+
+# ---------------------------------------------------------------------------
+# Revision final, punto 13: UNA funcion arma el nombre en Titulacion
+# ---------------------------------------------------------------------------
+def test_un_solo_armado_del_nombre_del_alumno():
+    import inspect
+    from itcj2.apps.titulatec.pages import _titulacion_shared, titulacion_anexo
+
+    persona = SimpleNamespace(first_name="ANA", last_name="PEREZ", middle_name="GOMEZ")
+    assert _titulacion_shared.nombre(persona) == "ANA PEREZ GOMEZ"   # orden natural
+    assert _titulacion_shared.nombre(None) == ""
+    # Nadie más lo arma a mano: el detalle del Anexo III y el aviso de liberación.
+    for fn in (titulacion_anexo._detail_ctx, AnexoService.notify_release):
+        fuente = inspect.getsource(fn)
+        assert "middle_name" not in fuente, fn.__qualname__
+        assert "nombre(" in fuente, fn.__qualname__
+
+
+def test_el_detalle_usa_el_nombre_compartido(esc, db_session):
+    from itcj2.apps.titulatec.pages._titulacion_shared import nombre
+    c = esc.caso()
+    c.student.middle_name = "MATERNO"
+    db_session.commit()
+    resp = esc.client_as(esc.revisor(c)).get(
+        ANX + "/body", params={"tab": "pending", "selected": c.process.id})
+    (h2,) = _html(resp).xpath('//*[@id="tt-anx-detail"]//h2')
+    assert " ".join(h2.text_content().split()) == nombre(c.student)
+    assert nombre(c.student).endswith("MATERNO")

@@ -569,6 +569,8 @@ class AnexoService:
         o la carrera no tiene departamento. Los errores los maneja el llamador
         (best-effort)."""
         from itcj2.apps.titulatec.models import TitulationProcess
+        # El mismo nombre que pintan las vistas de Titulación (una sola función).
+        from itcj2.apps.titulatec.pages._titulacion_shared import nombre as _nombre
         from itcj2.apps.titulatec.services.scope_service import department_of_program
         from itcj2.core.models.department import Department
         from itcj2.core.models.position import Position, UserPosition
@@ -601,8 +603,7 @@ class AnexoService:
             if not destinatarios:
                 return
             alumno = db.get(User, proceso.student_id)
-            nombre = " ".join(p for p in (alumno.first_name, alumno.last_name,
-                                          alumno.middle_name) if p) if alumno else ""
+            nombre = _nombre(alumno)
             control = (alumno.control_number if alumno else None) or ""
             cuerpo = " · ".join(p for p in (nombre, control) if p) or proceso.folio
             url = AnexoService.RELEASE_URL.format(process_id=process_id)

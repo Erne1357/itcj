@@ -170,8 +170,7 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
     except ValueError:
         firmas = []
     sinodales = SynodalService.active_for_process(db, process_id)
-    nombre = " ".join(p for p in (alumno.first_name, alumno.last_name, alumno.middle_name)
-                      if p) if alumno else ""
+    nombre = _shared.nombre(alumno)
     return {
         "process_id": process_id, "folio": proc.folio, "status": fase or "pending",
         "name": nombre or _VACIO,
