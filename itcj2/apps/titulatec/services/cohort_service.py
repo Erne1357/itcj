@@ -152,9 +152,17 @@ class CohortService:
         |                            | convocatoria estuviera `closed` vuelve a     |
         |                            | `active`, SIN cambiar de convocatoria.       |
         | `open→closed`,`draft→closed`| Pausar: los `active` de ESA convocatoria    |
-        |                            | pasan a `on_hold`. Nunca `completed` ni      |
-        |                            | `cancelled`.                                 |
+        |                            | que NO pasaron el primer checkpoint pasan a  |
+        |                            | `on_hold`. Nunca `completed` ni `cancelled`. |
         | cualquiera → `draft`, no-op| Nada.                                        |
+
+        Primer checkpoint (D12, spec 2026-10-22 fase 5): el pago en Caja durante
+        la cita de cotejo = fase `review_appointment` aprobada
+        (`ProcessService.first_checkpoint_clause`). Cerrar la convocatoria solo
+        pausa a quien aún no lo pasa: Servicios Escolares y Titulación llevan
+        calendarios distintos, y quien ya cobró y avanzó no depende de la
+        ventana de inscripción. Sin esa fase en el catálogo el predicado es
+        falso y se pausa a todos, como antes.
 
         El conjunto de convocatorias cerradas se calcula **antes** de escribir el
         nuevo `status`: en `closed→open` esta misma convocatoria está dentro, y
@@ -219,9 +227,13 @@ class CohortService:
                 resumed += 1
 
         elif status == "closed" and anterior in ("draft", "open"):
+            from itcj2.apps.titulatec.services.process_service import ProcessService
+
+            # D12: solo se pausa a quien NO pasó el primer checkpoint.
             for proc in (db.query(TitulationProcess)
                          .filter(TitulationProcess.status == "active",
-                                 TitulationProcess.cohort_id == cohort.id)
+                                 TitulationProcess.cohort_id == cohort.id,
+                                 ~ProcessService.first_checkpoint_clause(db))
                          .with_for_update(key_share=True).all()):
                 proc.status = "on_hold"
                 db.add(ProcessEvent(
