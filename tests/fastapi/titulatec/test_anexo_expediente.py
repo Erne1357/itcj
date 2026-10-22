@@ -190,3 +190,31 @@ def test_sin_permisos_de_anexo_no_hay_ligas(lector, db_session, monkeypatch):
     _con_escaneo(db_session, c)
     t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
     assert "anexo.pdf" not in t and "/escaneo" not in t
+
+
+def test_proceso_revocado_sin_pdf_ni_abrir_en_titulacion(lector, db_session, monkeypatch):
+    """Revision final, punto 6: con el proceso revocado el PDF da 400
+    (`reached` lo excluye) y la bandeja de Titulacion no lo lista: la tarjeta
+    no ofrece ninguna de las dos ligas. El escaneo sigue consultable."""
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    AnexoService.ensure_folio(db_session, c.process, None)
+    _con_escaneo(db_session, c)
+    c.process.status = "cancelled"
+    db_session.commit()
+
+    resp = cli.get(f"{URL}/{c.process.id}?fase=6")
+    assert resp.status_code == 200, resp.text[:400]
+    t = _tarjeta_6(resp.text)
+    assert "data-tt-exp-anexo" in resp.text
+    assert "anexo.pdf" not in t
+    assert "/titulatec/admin/titulacion/anexo?selected=" not in t
+    assert f"/titulatec/admin/titulacion/anexo/{c.process.id}/escaneo" in t
+
+
+def test_proceso_activo_si_ofrece_abrir_en_titulacion(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    _con_escaneo(db_session, c)
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert f"/titulatec/admin/titulacion/anexo?selected={c.process.id}" in t

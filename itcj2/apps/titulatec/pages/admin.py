@@ -1933,10 +1933,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                          and "titulatec.synodal.api.read" in anexo_perms)
         tiene_escaneo = db.query(Document.id).filter_by(
             process_id=process_id, type_code=_ANEXO_DOC).first() is not None
+        # Revisión final, punto 6: sin ligas que contestarían 400 o caerían sin
+        # detalle. El PDF exige el MISMO predicado que su ruta (`reached`: fase 6
+        # alcanzada y proceso no revocado); «Abrir en Titulación», un proceso
+        # no revocado (la bandeja no lista los revocados).
+        alcanzado = AnexoService.reached(db, proc)
         pdf_url = None
-        if puede_revisar:
+        if alcanzado and puede_revisar:
             pdf_url = f"/titulatec/admin/titulacion/anexo/{process_id}/anexo.pdf"
-        elif puede_generar:
+        elif alcanzado and puede_generar:
             pdf_url = f"/titulatec/admin/sinodales/{process_id}/anexo.pdf"
         anexo = {
             "folio": folio_row.folio if folio_row else None,
@@ -1947,7 +1952,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "scan_url": (f"/titulatec/admin/titulacion/anexo/{process_id}/escaneo"
                          if puede_revisar and tiene_escaneo else None),
             "open_url": (f"/titulatec/admin/titulacion/anexo?selected={process_id}"
-                         if puede_revisar else None),
+                         if puede_revisar and proc.status != "cancelled" else None),
         }
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
