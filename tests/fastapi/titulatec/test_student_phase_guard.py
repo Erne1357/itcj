@@ -712,10 +712,10 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
     # 16 desde la fase 3 (2026-10-21): +`GET /formato-b/revision` y
     # +`POST /formato-b/enviar`, las dos con `_phase_guard`.
     # 21 desde la fase 5 (2026-10-22): +3 GET de consulta (`RUTAS_SIN_FASE`, con su
-    # 25 desde la fase 6 (2026-10-22): +2 GET de consulta (`anexo`, `anexo/pdf`, con
-    # `_anexo_read_guard`) y +2 (POST/DELETE `anexo/escaneo`, con `_phase_guard`).
     # `_review_read_guard`) y +2 POST (`revision/mensaje` y `revision/version`, las
     # dos con `_phase_guard`). El brief de la tarea decia 18; el recuento real es 21.
+    # 25 desde la fase 6 (2026-10-22): +2 GET de consulta (`anexo`, `anexo/pdf`, con
+    # `_anexo_read_guard`) y +2 (POST/DELETE `anexo/escaneo`, con `_phase_guard`).
     assert revisadas == 25, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))
