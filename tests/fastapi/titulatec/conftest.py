@@ -1787,3 +1787,69 @@ def make_review_case(db_session, tmp_path, seed_phase_defs, make_department, mak
                                assignments=assignments, chat=chat, versions=vers)
 
     return _make
+
+
+# ---------------------------------------------------------------------------
+# Fase 6: Anexo III (spec 2026-10-22-titulatec-fase6-anexo-iii)
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_anexo_case(db_session, make_review_case, make_academic_head):
+    """Proceso en la fase `anexo_iii` listo para generar el Anexo.
+
+    Se apoya en `make_review_case` (4 sinodales vigentes, Formato B con
+    `project_name`, carrera mapeada a un departamento) y agrega: fase 5
+    `approved` con `completed_at`, fase 6 en `phase_status`, `product_label`
+    en la modalidad, `DepartmentSettings` y el ocupante de
+    `coord_vinculacion_{depto}`. La regla de firma sale del codigo de modalidad
+    (`integral_residencias` = president_only; cualquier otra = all_synodals).
+
+    Devuelve `SimpleNamespace(process, student, department, synodals, head,
+    coordinator, modality, review_phase, anexo_phase)`.
+    """
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.models import (
+        DepartmentSettings, ProcessPhase, ProgramDepartment,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.core.models.department import Department
+
+    def _make(modality_code="integral_residencias", phase_status="in_progress"):
+        regla = "president_only" if modality_code == "integral_residencias" else "all_synodals"
+        caso = make_review_case(signature_rule=regla, versions=0)
+        proc = caso.process
+        n5 = PhaseService.phase_number_for_code(db_session, "synodal_review")
+        n6 = PhaseService.phase_number_for_code(db_session, "anexo_iii")
+        assert n6 is not None, "el catalogo de fases no trae anexo_iii"
+
+        fases = {f.phase_number: f for f in
+                 db_session.query(ProcessPhase).filter_by(process_id=proc.id).all()}
+        fases[n5].status = "approved"
+        fases[n5].completed_at = datetime(2026, 3, 17, 10, 0)
+        fases[n6].status = phase_status
+        proc.current_phase = n6
+
+        modalidad = proc.modality
+        modalidad.product_label = {
+            "integral_residencias": "Informe técnico de residencia profesional",
+            "thesis": "Tesis",
+        }.get(modality_code, "Informe de proyecto de investigación")
+
+        mapeo = db_session.get(ProgramDepartment, proc.program_id)
+        depto = db_session.get(Department, mapeo.department_id)
+        db_session.add(DepartmentSettings(
+            department_id=depto.id, oficio_header=f"Departamento de {depto.name}",
+            addressee_position_code=f"tt_anx_dest_{depto.id}"))
+        from itcj2.core.models.position import Position, UserPosition
+        from itcj2.core.models.user import User
+        head = (db_session.query(User).join(UserPosition, UserPosition.user_id == User.id)
+                .join(Position, Position.id == UserPosition.position_id)
+                .filter(Position.code == f"head_{depto.code}").first())
+        coord = make_academic_head(depto, kind="coord")
+        db_session.flush()
+        return SimpleNamespace(process=proc, student=caso.student, department=depto,
+                               synodals=caso.teachers, head=head, coordinator=coord,
+                               modality=modalidad, review_phase=n5, anexo_phase=n6)
+
+    return _make

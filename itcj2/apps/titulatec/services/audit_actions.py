@@ -148,6 +148,10 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "review.vote_cast": ("review", "Votó una versión del proyecto"),
     "review.mail_failed": ("review", "No salió el correo de la revisión a un sinodal"),
 
+    # --- anexo: Anexo III (fase 6, `AnexoService`) ------------------------------
+    # Mismo módulo que `titulatec_anexos`/`_anexo_counters` en `TABLE_MODULES`.
+    "anexo_iii.issued": ("anexo", "Emitió el folio del Anexo III"),
+
     # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
     # Mismo módulo que `titulatec_program_departments` y
     # `titulatec_department_settings` en `TABLE_MODULES`. Remapear una carrera

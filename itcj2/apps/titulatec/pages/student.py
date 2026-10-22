@@ -314,6 +314,8 @@ _EVENT_LABELS = {
     # Texto fijo: el número de versión viaja en el payload (`version`).
     "review_version_uploaded":     "Subiste una versión de tu proyecto",
     "review_vote_cast":            "Un sinodal votó una versión de tu proyecto",
+    # Anexo III (fase 6): `AnexoService.ensure_folio`.
+    "anexo_iii_issued":            "Se generó tu Anexo III",
     # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",

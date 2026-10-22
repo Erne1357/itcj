@@ -1340,6 +1340,8 @@ _EVENT_UI = {
     # versión viaja en `version` y `_evento_detalle` la pinta («v2»).
     "review_version_uploaded":      ("Subió una versión del proyecto", "file-earmark-arrow-up", "neutral"),
     "review_vote_cast":             ("Un sinodal votó el proyecto", "check2-square",        "neutral"),
+    # Anexo III (fase 6): primera emision del folio (`AnexoService`).
+    "anexo_iii_issued":             ("Se emitió el folio del Anexo III", "file-earmark-text", "neutral"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),

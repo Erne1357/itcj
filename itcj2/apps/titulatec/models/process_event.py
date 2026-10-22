@@ -59,6 +59,9 @@ EVENT_TYPES = frozenset({
     # tabla) y la liberación es el `phase_approved` de siempre con payload.
     "review_version_uploaded",
     "review_vote_cast",
+    # Anexo III (spec 2026-10-22 fase 6 §12): primera emision del folio
+    # (`AnexoService.ensure_folio`, payload `{"folio", "semester"}`).
+    "anexo_iii_issued",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",
