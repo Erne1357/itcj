@@ -555,6 +555,12 @@ def _cuerpo_vote(process_id, request, user, form):
             return _error(str(exc))         # no cuenta, cerrada, sin versión…
         numero = res["version"]
         if res["closed"]:
+            # Liberado: avisa a vinculacion (fase 6). Ya hay commit; best-effort.
+            try:
+                from itcj2.apps.titulatec.services.anexo_service import AnexoService
+                AnexoService.notify_release(process_id)
+            except Exception:
+                logger.exception("No se pudo avisar la liberacion del proceso %s", process_id)
             aviso = (f"Aprobaste la versión {numero}: la revisión quedó cerrada y el "
                      "proyecto, liberado.")
         elif (form.get("verdict") or "") == "approved":

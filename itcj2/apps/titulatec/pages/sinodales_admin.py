@@ -42,6 +42,7 @@ _VIEW_PERMS = ["titulatec.synodal.page.list"]
 _ASSIGN_PERM = "titulatec.synodal.api.assign"
 _REPLACE_PERM = "titulatec.synodal.api.replace"
 _READ_PERM = "titulatec.synodal.api.read"
+_ANEXO_PERM = "titulatec.anexo_iii.api.generate"
 
 _BASE_URL = "/titulatec/admin/sinodales"
 _PAGE_TPL = "titulatec/admin/sinodales.html"
@@ -49,6 +50,7 @@ _BODY_TPL = "titulatec/partials/sinodales/_body.html"
 
 # Pestañas en el orden de pantalla (las claves son `SynodalInboxService.TABS`).
 _TABS = (("pending", "Por asignar"), ("assigned", "Asignados"))
+_TAB_ANEXO = ("anexo", "En Anexo III")      # solo con el Anexo III operable (fase 6)
 _VACIO = "—"
 
 
@@ -90,6 +92,12 @@ def _operable(db) -> bool:
     """¿La fase 4 se opera en esta app? (R-G; falla cerrado)."""
     from itcj2.apps.titulatec.services.synodal_service import SynodalService
     return SynodalService.operable(db)
+
+
+def _anexo_operable(db) -> bool:
+    """¿La fase 6 (Anexo III) se opera en esta app? Falla cerrado."""
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    return AnexoService.operable(db)
 
 
 def _sin_alcance_msg(db, proc) -> str:
@@ -193,6 +201,7 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
     # Fase 5 (spec 2026-10-22 §8.3, D1): solo el ESTADO de la revisión, para
     # decidir sustituciones (quién no ha votado); nunca la conversación.
     from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
     from itcj2.apps.titulatec.services.review_service import ReviewService
     review_applies = (n5 is not None and (proc.current_phase or 0) >= n5
                       and ReviewService.operable(db))
@@ -220,6 +229,10 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
         # Para sustituir: el que entra no puede ser ya sinodal vigente.
         "replacements": [d for d in docentes if d["user_id"] not in vigentes],
         "oficio_url": f"{_BASE_URL}/{process_id}/oficio.pdf",
+        # Fase 6 (D2): el PDF del Anexo, solo con la fase 6 operable y alcanzada.
+        "can_anexo": (_anexo_operable(db) and _READ_PERM in perms and _ANEXO_PERM in perms
+                      and AnexoService.reached(db, proc)),
+        "anexo_url": f"{_BASE_URL}/{process_id}/anexo.pdf",
     }
 
 
@@ -238,9 +251,10 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
 
     operable = _operable(db)
     q = normalize_q(q) or ""
-    tab = tab if tab in SynodalInboxService.TABS else "pending"
+    tabs = _TABS + ((_TAB_ANEXO,) if _anexo_operable(db) else ())
+    tab = tab if tab in {k for k, _ in tabs} else "pending"
     ctx = {
-        "operable": operable, "tab": tab, "tabs": _TABS, "q": q,
+        "operable": operable, "tab": tab, "tabs": tabs, "q": q,
         "carrera": None, "depto": None, "rows": [],
         "page": Page(items=[], total=0, page=1, per_page=per_page or PAGE_SIZE),
         "counts": {t: 0 for t in SynodalInboxService.TABS},
@@ -431,6 +445,40 @@ def _cuerpo_replace(process_id, request, user, form):
 # ===========================================================================
 # Oficio
 # ===========================================================================
+@router.get("/{process_id}/anexo.pdf", name="titulatec.pages.sinodales.anexo")
+def anexo_pdf(process_id: int, request: Request,
+              user: dict = Depends(require_page_app("titulatec", perms=[_ANEXO_PERM]))):
+    """El Anexo III en PDF, INLINE, desde Sinodales (fase 6, D2). Emite el folio
+    si aún no lo tiene: es el MISMO documento que baja el alumno. Exige
+    `anexo_iii.api.generate` (la dependencia) y `synodal.api.read`, más la
+    guarda de alcance (404 de otro departamento). Con el Anexo sin operar o sin
+    alcanzar responde 400 + `X-Tt-Error`."""
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+    from itcj2.exceptions import PageForbidden
+
+    uid = int(user["sub"])
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        if _READ_PERM not in cached_perms(db, uid, "titulatec"):
+            raise PageForbidden(has_app_access=True)
+        try:
+            pdf = AnexoService.render_pdf(db, proc, uid)
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            return _error(str(exc))
+        nombre = AnexoService.filename(db, proc)
+    finally:
+        db.close()
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{nombre}"',
+                             "X-Content-Type-Options": "nosniff"})
+
+
 @router.get("/{process_id}/oficio.pdf", name="titulatec.pages.sinodales.oficio")
 def oficio(process_id: int, request: Request,
            user: dict = Depends(require_page_app("titulatec", perms=[_READ_PERM]))):

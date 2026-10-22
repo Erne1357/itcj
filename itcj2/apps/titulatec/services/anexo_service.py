@@ -482,3 +482,67 @@ class AnexoService:
         control = (alumno.control_number if alumno and alumno.control_number
                    else f"proceso{process.id}")
         return f"{control}_ANEXO_III.pdf"
+
+    # ------------------------------------------------------------------
+    # Aviso de liberacion (spec §10): al cerrarse la fase 5
+    # ------------------------------------------------------------------
+    RELEASE_TYPE = "ANEXO_READY"
+    RELEASE_TITLE = "Proyecto liberado: Anexo III"
+    RELEASE_URL = "/titulatec/admin/sinodales?tab=anexo&selected={process_id}"
+
+    @staticmethod
+    def notify_release(process_id: int) -> None:
+        """Avisa en la campana a quien gestiona el Anexo en el departamento: los
+        ocupantes vigentes de `coord_vinculacion_{depto}` y, si el puesto esta
+        vacante, de `head_{depto}`. Abre su PROPIA sesion y commitea (se llama
+        DESPUES del commit del voto); sin correo. Inerte si el Anexo no se opera
+        o la carrera no tiene departamento. Los errores los maneja el llamador
+        (best-effort)."""
+        from itcj2.apps.titulatec.models import ProgramDepartment, TitulationProcess
+        from itcj2.core.models.department import Department
+        from itcj2.core.models.position import Position, UserPosition
+        from itcj2.core.models.user import User
+        from itcj2.core.services.authz_service import _active_position_filter
+        from itcj2.core.services.notification_service import NotificationService
+        from itcj2.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            if not AnexoService.operable(db):
+                return
+            proceso = db.get(TitulationProcess, process_id)
+            if proceso is None or proceso.program_id is None:
+                return
+            mapeo = db.get(ProgramDepartment, proceso.program_id)
+            depto = db.get(Department, mapeo.department_id) if mapeo else None
+            if depto is None:
+                return
+
+            def _ocupantes(codigo: str) -> list[int]:
+                filas = (db.query(UserPosition.user_id)
+                         .join(Position, Position.id == UserPosition.position_id)
+                         .filter(Position.code == codigo, _active_position_filter())
+                         .distinct().all())
+                return sorted(int(f[0]) for f in filas)
+
+            destinatarios = (_ocupantes(f"coord_vinculacion_{depto.code}")
+                             or _ocupantes(f"head_{depto.code}"))
+            if not destinatarios:
+                return
+            alumno = db.get(User, proceso.student_id)
+            nombre = " ".join(p for p in (alumno.first_name, alumno.last_name,
+                                          alumno.middle_name) if p) if alumno else ""
+            control = (alumno.control_number if alumno else None) or ""
+            cuerpo = " · ".join(p for p in (nombre, control) if p) or proceso.folio
+            url = AnexoService.RELEASE_URL.format(process_id=process_id)
+            for uid in destinatarios:
+                NotificationService.create(
+                    db, user_id=uid, app_name="titulatec", type=AnexoService.RELEASE_TYPE,
+                    title=AnexoService.RELEASE_TITLE, body=cuerpo,
+                    data={"url": url, "process_id": process_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()

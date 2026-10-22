@@ -1,12 +1,14 @@
 """Bandeja «Sinodales» del departamento académico (fase 4, spec §9).
 
-Solo LECTURA: arma las 2 pestañas, sus contadores y el universo de
+Solo LECTURA: arma las pestañas, sus contadores y el universo de
 `?selected=`. Asignar y sustituir viven en `SynodalService`.
 
 - **Por asignar** (`pending`): procesos `active` en la fase
   `synodal_assignment`, sin sinodales vigentes, en orden FIFO por
   `ProcessPhase.started_at` de la fase 4 (desempate por `process_id`), con
   posición y semáforo de días hábiles (ámbar >= 3, rojo >= 5).
+- **En Anexo III** (`anexo`, fase 6 de la spec 2026-10-22): procesos `active`
+  con `current_phase` en la fase `anexo_iii`; vacia si el Anexo no se opera.
 - **Asignados** (`assigned`): procesos no revocados con sinodales vigentes y
   la fase 5 (`synodal_review`) sin aprobar: es la ventana en la que se
   sustituye y se descarga el oficio.
@@ -41,7 +43,7 @@ REVIEW_PHASE_CODE = "synodal_review"     # fase 5: mientras no se apruebe, «Asi
 class SynodalInboxService:
     """Consultas de la bandeja de sinodales."""
 
-    TABS = ("pending", "assigned")
+    TABS = ("pending", "assigned", "anexo")
     WAIT_WARN_DAYS = 3   # ámbar desde aquí (días hábiles)
     WAIT_LATE_DAYS = 5   # rojo desde aquí
 
@@ -97,7 +99,15 @@ class SynodalInboxService:
                 PhaseService.phase_number_for_code(db, REVIEW_PHASE_CODE))
 
     @staticmethod
-    def _tab_predicates(n4: int | None, n5: int | None) -> dict:
+    def _anexo_number(db: Session) -> int | None:
+        """Numero de la fase 6 solo si el Anexo III se opera (corte); None deja
+        la pestana «En Anexo III» vacia (falla cerrado)."""
+        from itcj2.apps.titulatec.services.anexo_service import AnexoService
+
+        return AnexoService.phase_number(db) if AnexoService.operable(db) else None
+
+    @staticmethod
+    def _tab_predicates(n4: int | None, n5: int | None, n6: int | None = None) -> dict:
         """Predicado SQL de cada pestaña (mismo para la lista, los contadores y
         `contains`). Sin la fase en el catálogo, la pestaña queda vacía."""
         from itcj2.apps.titulatec.models import (
@@ -115,6 +125,8 @@ class SynodalInboxService:
         return {
             "pending": pendiente,
             "assigned": and_(TP.status != "cancelled", con_sinodales, ~revision_terminada),
+            "anexo": (and_(TP.status == "active", TP.current_phase == n6)
+                      if n6 is not None else false()),
         }
 
     @staticmethod
@@ -179,7 +191,7 @@ class SynodalInboxService:
         if base is None:
             return vacio
         n4, n5 = cls._phase_numbers(db)
-        preds = cls._tab_predicates(n4, n5)
+        preds = cls._tab_predicates(n4, n5, cls._anexo_number(db))
 
         # Contadores: UNA consulta con un COUNT FILTER por pestaña.
         agregados = [func.count(TP.id).filter(preds[t]) for t in cls.TABS]
@@ -248,6 +260,6 @@ class SynodalInboxService:
                          department_id=department_id)
         if base is None:
             return False
-        preds = cls._tab_predicates(*cls._phase_numbers(db))
+        preds = cls._tab_predicates(*cls._phase_numbers(db), cls._anexo_number(db))
         return (base.filter(preds[tab], TP.id == int(process_id))
                 .with_entities(TP.id).first()) is not None

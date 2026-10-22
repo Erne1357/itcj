@@ -188,7 +188,7 @@ def test_asignados_son_los_que_tienen_sinodales_y_la_fase_5_sin_aprobar(mundo):
 
     assert _ids(ctx) == [asignado.id]
     assert ctx["rows"][0]["position"] is None and ctx["rows"][0]["waited_days"] is None
-    assert ctx["counts"] == {"pending": 1, "assigned": 1}
+    assert ctx["counts"] == {"pending": 1, "assigned": 1, "anexo": 0}
     assert terminado.id not in _ids(mundo.lista()) and revocado.id not in _ids(mundo.lista())
     assert _ids(mundo.lista()) == [pendiente.id]
 
@@ -211,9 +211,9 @@ def test_contadores_respetan_filtros_y_no_la_pagina(mundo):
     ctx = mundo.lista(per_page=2)
 
     assert len(ctx["rows"]) == 2 and ctx["page"].total == 4
-    assert ctx["counts"] == {"pending": 4, "assigned": 1}
+    assert ctx["counts"] == {"pending": 4, "assigned": 1, "anexo": 0}
     assert len(mundo.lista(per_page=2, page="2")["rows"]) == 2
-    assert mundo.lista(program_id=mundo.p2.id)["counts"] == {"pending": 1, "assigned": 0}
+    assert mundo.lista(program_id=mundo.p2.id)["counts"] == {"pending": 1, "assigned": 0, "anexo": 0}
 
 
 def test_pestana_desconocida_cae_en_por_asignar(mundo):
@@ -271,7 +271,7 @@ def test_un_departamento_ajeno_en_el_filtro_no_abre_nada(mundo):
 
     ctx = mundo.lista(user=mundo.jefe1, department_id=mundo.d2.id)
 
-    assert ctx["rows"] == [] and ctx["counts"] == {"pending": 0, "assigned": 0}
+    assert ctx["rows"] == [] and ctx["counts"] == {"pending": 0, "assigned": 0, "anexo": 0}
 
 
 def test_read_all_ve_todos_los_departamentos_mapeados(mundo, lector_global):
@@ -299,7 +299,7 @@ def test_sin_departamento_a_cargo_no_ve_nada(mundo, make_user):
 
     ctx = mundo.lista(user=nadie)
 
-    assert ctx["rows"] == [] and ctx["counts"] == {"pending": 0, "assigned": 0}
+    assert ctx["rows"] == [] and ctx["counts"] == {"pending": 0, "assigned": 0, "anexo": 0}
 
 
 def test_departments_lista_los_que_opera(mundo, lector_global):

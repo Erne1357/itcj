@@ -74,6 +74,11 @@
          target="_blank" rel="noopener">
         <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
       {% endif %}
+      {% if d.can_anexo %}
+      <a id="tt-sin-anexo" class="btn btn-sm tt-btn-ink" href="{{ d.anexo_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar Anexo III</a>
+      {% endif %}
     </div>
     {# Angosto (detalle < ~560 px, p. ej. un teléfono): cada fila se apila como
        tarjeta con su etiqueta (`data-label`); ver `.tt-sin-table--stack` en
