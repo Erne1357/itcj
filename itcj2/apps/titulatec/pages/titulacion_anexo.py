@@ -471,14 +471,17 @@ def anexo_pdf(process_id: int, request: Request,
         if not _operable(db):
             return Response(status_code=404)
         try:
-            pdf = AnexoService.render_pdf(db, proc, uid)
-            db.commit()
+            ctx = AnexoService.prepare_pdf(db, proc, uid)
         except ValueError as exc:
             db.rollback()
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         nombre = AnexoService.filename(db, proc)
+        # Commit ANTES de pintar: suelta el bloqueo del proceso (y el del
+        # contador en la primera emisión) mientras WeasyPrint trabaja.
+        db.commit()
     finally:
         db.close()
+    pdf = AnexoService.render(ctx)
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{nombre}"',
                              "X-Content-Type-Options": "nosniff"})

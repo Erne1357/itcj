@@ -106,6 +106,34 @@ def _post(cli, c, accion, doc_version, **extra):
     return cli.post(f"{ANX}/{c.process.id}/{accion}", data=data)
 
 
+def _espiar_commit_y_render(monkeypatch, db_session):
+    """Revision final, punto 9: la ruta hace `commit` (suelta el bloqueo del
+    proceso) ANTES de pintar con WeasyPrint. Registra el orden y sustituye el
+    render por uno que no toca nada."""
+    eventos = []
+    real_commit = db_session.commit
+
+    def commit():
+        eventos.append("commit")
+        return real_commit()
+
+    def render(ctx):
+        eventos.append("render")
+        assert ctx["folio"].startswith("AIII-")
+        return b"%PDF-espia"
+
+    monkeypatch.setattr(db_session, "commit", commit)
+    monkeypatch.setattr(AnexoService, "render", staticmethod(render))
+    return eventos
+
+
+def _pinto_despues_del_commit(eventos, resp):
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.content == b"%PDF-espia"
+    assert eventos[-1] == "render" and eventos.count("render") == 1
+    assert "commit" in eventos[:-1], eventos
+
+
 # ---------------------------------------------------------------------------
 def test_la_pagina_ofrece_las_dos_vistas_y_la_bandeja_lista_el_caso(esc):
     c = esc.caso()
@@ -279,6 +307,13 @@ def test_escaneo_y_anexo_generado(esc):
     pdf = cli.get(f"{ANX}/{c.process.id}/anexo.pdf")
     assert pdf.status_code == 200, pdf.text[:300]
     assert pdf.content.startswith(b"%PDF")
+
+
+def test_anexo_generado_se_pinta_despues_del_commit(esc, db_session, monkeypatch):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    eventos = _espiar_commit_y_render(monkeypatch, db_session)
+    _pinto_despues_del_commit(eventos, cli.get(f"{ANX}/{c.process.id}/anexo.pdf"))
 
 
 def test_escaneo_inexistente_404(esc):

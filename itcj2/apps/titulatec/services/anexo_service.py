@@ -5,6 +5,11 @@ que se guarda es el folio y la fecha de liberacion en `titulatec_anexos`, para
 que reimprimir no cambie el documento. Todo lo que pinta la plantilla
 (`oficios/anexo_iii.html`) llega precalculado en `context`: no decide nada.
 
+Descarga en dos pasos (revision final de la fase 6): `prepare_pdf` emite el
+folio si hace falta y arma el contexto UNA vez, bajo el bloqueo del proceso;
+la ruta hace `commit` (suelta el bloqueo, y el del contador en la primera
+emision) y solo despues `render` pinta con WeasyPrint, fuera de la transaccion.
+
 Las firmas requeridas salen SOLO de `ReviewService.counting_roles` (el unico
 traductor de `Modality.signature_rule`).
 
@@ -219,6 +224,17 @@ class AnexoService:
         datos del documento estan incompletos: ANTES de numerar valida con
         `context` (4 sinodales, departamento, modalidad con producto), asi que
         un folio nunca se quema por datos invalidos sin importar el llamador."""
+        return AnexoService._ensure(db, process, actor_id)[0]
+
+    @staticmethod
+    def _ensure(db: Session, process, actor_id: int | None):
+        """`(anexo, contexto | None)`. Nucleo de `ensure_folio`/`prepare_pdf`.
+
+        Bajo el bloqueo del proceso: relee y, si no hay fila, valida con
+        `context` (falla cerrado) y numera. En la primera emision devuelve ese
+        mismo contexto con el folio recien emitido (asi `prepare_pdf` no lo
+        vuelve a calcular); si la fila ya existia (o gano otro la carrera),
+        `None`."""
         from itcj2.apps.titulatec.models import Anexo
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.certificate_service import semester_key
@@ -231,9 +247,9 @@ class AnexoService:
             raise ValueError(NOT_REACHED_MSG)
         existente = AnexoService.get(db, process.id)
         if existente is not None:
-            return existente
+            return existente, None
 
-        AnexoService.context(db, process)           # falla cerrado antes de numerar
+        ctx = AnexoService.context(db, process)     # falla cerrado antes de numerar
         ahora = db_now()
         semestre = semester_key(ahora)
         liberado = AnexoService._released_at(db, process)
@@ -250,7 +266,7 @@ class AnexoService:
             existente = AnexoService.get(db, process.id)
             if existente is None:
                 raise
-            return existente
+            return existente, None
 
         datos = {"folio": anexo.folio, "semester": semestre}
         PhaseService._log(db, process.id, actor_id, "anexo_iii_issued",
@@ -260,7 +276,11 @@ class AnexoService:
             entity_type="anexo", entity_id=anexo.id,
             process_id=process.id, subject=process.folio,
             payload=dict(datos), actor_id=actor_id)
-        return anexo
+        # El contexto se armo antes de numerar (sin fila): le faltan el folio y
+        # la fecha CONGELADA (la misma que leera cada reimpresion).
+        ctx["folio"] = anexo.folio
+        ctx["date_label"] = _date_label(anexo.released_at)
+        return anexo, ctx
 
     # ------------------------------------------------------------------
     # Sincronia de la subida (C6)
@@ -500,15 +520,27 @@ class AnexoService:
         }
 
     @staticmethod
-    def render_pdf(db: Session, process, actor_id: int | None) -> bytes:
-        """PDF del Anexo. `ensure_folio` valida antes de numerar; luego pinta. Sin commit."""
+    def prepare_pdf(db: Session, process, actor_id: int | None) -> dict:
+        """Lo que pinta el Anexo: emite el folio si hace falta (`ensure_folio`,
+        que valida ANTES de numerar) y arma `context` UNA sola vez. Sin commit.
+
+        Toma el bloqueo del proceso (y, en la primera emision, el del contador
+        del semestre): el llamador hace `commit` ENSEGUIDA y solo despues llama
+        `render`, asi WeasyPrint nunca corre con esos bloqueos tomados. Devuelve
+        un dict plano (se pinta despues de cerrar la sesion). `ValueError` igual
+        que `ensure_folio`/`context`."""
+        _anexo, ctx = AnexoService._ensure(db, process, actor_id)
+        return ctx if ctx is not None else AnexoService.context(db, process)
+
+    @staticmethod
+    def render(ctx: dict) -> bytes:
+        """PDF del Anexo a partir del contexto de `prepare_pdf`. No toca la BD:
+        se llama fuera de la transaccion (despues del `commit` de la ruta)."""
         from weasyprint import HTML
 
         from itcj2.apps.titulatec.pages.nav import titulatec_templates
         from itcj2.apps.titulatec.utils.certificate_pdf import CORE_STATIC_DIR
 
-        AnexoService.ensure_folio(db, process, actor_id)
-        ctx = AnexoService.context(db, process)
         html = titulatec_templates.get_template(_TEMPLATE_NAME).render(**ctx)
         return HTML(string=html, base_url=str(CORE_STATIC_DIR)).write_pdf()
 

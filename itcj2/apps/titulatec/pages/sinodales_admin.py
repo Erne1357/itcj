@@ -466,14 +466,17 @@ def anexo_pdf(process_id: int, request: Request,
         if _READ_PERM not in cached_perms(db, uid, "titulatec"):
             raise PageForbidden(has_app_access=True)
         try:
-            pdf = AnexoService.render_pdf(db, proc, uid)
-            db.commit()
+            ctx = AnexoService.prepare_pdf(db, proc, uid)
         except ValueError as exc:
             db.rollback()
             return _error(str(exc))
         nombre = AnexoService.filename(db, proc)
+        # Commit ANTES de pintar: suelta el bloqueo del proceso (y el del
+        # contador en la primera emisión) mientras WeasyPrint trabaja.
+        db.commit()
     finally:
         db.close()
+    pdf = AnexoService.render(ctx)
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{nombre}"',
                              "X-Content-Type-Options": "nosniff"})

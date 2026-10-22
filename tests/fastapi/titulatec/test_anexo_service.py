@@ -114,10 +114,41 @@ def test_context(corte_9, db_session, make_anexo_case):
 
 def test_pdf_empieza_con_pdf(corte_9, db_session, make_anexo_case):
     c = make_anexo_case()
-    pdf = AnexoService.render_pdf(db_session, c.process, c.coordinator.id)
+    ctx = AnexoService.prepare_pdf(db_session, c.process, c.coordinator.id)
+    pdf = AnexoService.render(ctx)
     assert pdf.startswith(b"%PDF")
     assert AnexoService.get(db_session, c.process.id) is not None
     assert AnexoService.filename(db_session, c.process).endswith("_ANEXO_III.pdf")
+
+
+# --- Revision final, punto 9: preparar (bajo el bloqueo) y pintar (fuera) -----
+def test_prepare_pdf_arma_el_contexto_una_sola_vez(corte_9, db_session, make_anexo_case,
+                                                    monkeypatch):
+    c = make_anexo_case()
+    real = AnexoService.context
+    llamadas = []
+
+    def espia(db, process):
+        llamadas.append(process.id)
+        return real(db, process)
+
+    monkeypatch.setattr(AnexoService, "context", staticmethod(espia))
+    primera = AnexoService.prepare_pdf(db_session, c.process, c.coordinator.id)
+    assert llamadas == [c.process.id]          # la 1.a emision reutiliza el de validar
+    folio = AnexoService.get(db_session, c.process.id).folio
+    assert primera["folio"] == folio
+    assert primera["date_label"] == "17/Marzo/2026"
+
+    segunda = AnexoService.prepare_pdf(db_session, c.process, c.student.id)
+    assert llamadas == [c.process.id, c.process.id]
+    assert segunda == primera                  # reimprimir no cambia el documento
+    assert _eventos(db_session, c.process.id) == 1
+
+
+def test_render_no_recibe_la_sesion_y_render_pdf_ya_no_existe():
+    import inspect
+    assert list(inspect.signature(AnexoService.render).parameters) == ["ctx"]
+    assert not hasattr(AnexoService, "render_pdf")
 
 
 def test_falla_cerrado_sin_cuatro_sinodales(corte_9, db_session, make_anexo_case):
@@ -129,7 +160,7 @@ def test_falla_cerrado_sin_cuatro_sinodales(corte_9, db_session, make_anexo_case
     fila.is_active = False
     db_session.flush()
     with pytest.raises(ValueError, match="sinodales"):
-        AnexoService.render_pdf(db_session, c.process, None)
+        AnexoService.prepare_pdf(db_session, c.process, None)
     _sin_folio(db_session, c, antes)
 
 
@@ -139,7 +170,7 @@ def test_falla_cerrado_sin_depto(corte_9, db_session, make_anexo_case):
     c.process.program_id = None
     db_session.flush()
     with pytest.raises(ValueError, match="departamento"):
-        AnexoService.render_pdf(db_session, c.process, None)
+        AnexoService.prepare_pdf(db_session, c.process, None)
     _sin_folio(db_session, c, antes)
 
 
@@ -149,7 +180,7 @@ def test_falla_cerrado_sin_modalidad(corte_9, db_session, make_anexo_case):
     c.modality.product_label = None
     db_session.flush()
     with pytest.raises(ValueError, match="modalidad"):
-        AnexoService.render_pdf(db_session, c.process, None)
+        AnexoService.prepare_pdf(db_session, c.process, None)
     _sin_folio(db_session, c, antes)
 
 

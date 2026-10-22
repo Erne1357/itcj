@@ -77,6 +77,34 @@ def _avisos(db, user, tipo="ANEXO_READY"):
             .filter_by(user_id=user.id, app_name="titulatec", type=tipo).all())
 
 
+def _espiar_commit_y_render(monkeypatch, db_session):
+    """Revision final, punto 9: la ruta hace `commit` (suelta el bloqueo del
+    proceso) ANTES de pintar con WeasyPrint. Registra el orden y sustituye el
+    render por uno que no toca nada."""
+    eventos = []
+    real_commit = db_session.commit
+
+    def commit():
+        eventos.append("commit")
+        return real_commit()
+
+    def render(ctx):
+        eventos.append("render")
+        assert ctx["folio"].startswith("AIII-")
+        return b"%PDF-espia"
+
+    monkeypatch.setattr(db_session, "commit", commit)
+    monkeypatch.setattr(AnexoService, "render", staticmethod(render))
+    return eventos
+
+
+def _pinto_despues_del_commit(eventos, resp):
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.content == b"%PDF-espia"
+    assert eventos[-1] == "render" and eventos.count("render") == 1
+    assert "commit" in eventos[:-1], eventos
+
+
 # ---------------------------------------------------------------------------
 # Pestana
 # ---------------------------------------------------------------------------
@@ -128,6 +156,14 @@ def test_pdf_desde_sinodales_mismo_folio_en_cada_descarga(esc, db_session):
     assert cli.get(f"{URL}/{c.process.id}/anexo.pdf").status_code == 200
     db_session.expire_all()
     assert db_session.query(Anexo).filter_by(process_id=c.process.id).one().folio == primero
+
+
+def test_pdf_desde_sinodales_se_pinta_despues_del_commit(esc, db_session, monkeypatch):
+    c = esc.caso()
+    eventos = _espiar_commit_y_render(monkeypatch, db_session)
+    _pinto_despues_del_commit(eventos, esc.client_as(c.head).get(f"{URL}/{c.process.id}/anexo.pdf"))
+    db_session.expire_all()
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 1
 
 
 def test_pdf_de_otro_departamento_404(esc, db_session, make_department,
