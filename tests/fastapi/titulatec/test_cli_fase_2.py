@@ -154,12 +154,13 @@ def test_dry_run_lista_el_archivo_y_no_ejecuta(tmp_path, monkeypatch):
     assert "se reactivarian 7 proceso(s)" in res.output
 
 
-def _en_pausa_con_cotejo(db_session, make_user, make_process, *, aprobado=True):
+def _en_pausa_con_cotejo(db_session, make_user, make_process, seed_phase_defs, *, aprobado=True):
     """Proceso 'on_hold' con la fase `review_appointment` (por código) aprobada o no."""
     from sqlalchemy import text
 
     from itcj2.apps.titulatec.models import ProcessPhase
 
+    seed_phase_defs()  # el CI arranca con el catalogo vacio
     num = db_session.execute(text(
         "SELECT number FROM titulatec_phase_definitions WHERE code = 'review_appointment'")).scalar()
     proc = make_process(make_user())
@@ -174,11 +175,11 @@ def _en_pausa_con_cotejo(db_session, make_user, make_process, *, aprobado=True):
 
 
 def test_contar_d12_es_solo_lectura_y_cuenta_los_en_pausa_con_cotejo_aprobado(
-        db_session, make_user, make_process, patched_session_local):
+        db_session, make_user, make_process, seed_phase_defs, patched_session_local):
     from itcj2.cli.titulatec import fase2 as cli
 
     antes = cli._contar_d12(db_session)
-    proc = _en_pausa_con_cotejo(db_session, make_user, make_process)
+    proc = _en_pausa_con_cotejo(db_session, make_user, make_process, seed_phase_defs)
 
     assert cli._contar_d12(db_session) == antes + 1
     assert cli._procesos_d12() == antes + 1
@@ -187,7 +188,7 @@ def test_contar_d12_es_solo_lectura_y_cuenta_los_en_pausa_con_cotejo_aprobado(
 
 @pytest.mark.usefixtures("audit_mark")
 def test_reactivar_d12_pasa_a_active_con_su_evento_y_es_idempotente(
-        db_session, make_user, make_process, patched_session_local):
+        db_session, make_user, make_process, seed_phase_defs, patched_session_local):
     """I3 (revisión final): D12 ya no es un UPDATE crudo del SQL (sin rastro). Por
     ORM: 'active' + un `process_resumed` por proceso (`actor_id` NULL, payload
     `{"reason": "checkpoint", "source": "init-titulatec-fase-2"}`), que la red de
@@ -197,8 +198,8 @@ def test_reactivar_d12_pasa_a_active_con_su_evento_y_es_idempotente(
     from itcj2.cli.titulatec import fase2 as cli
     from tests.fastapi.titulatec.conftest import audit_query
 
-    con = _en_pausa_con_cotejo(db_session, make_user, make_process)
-    sin = _en_pausa_con_cotejo(db_session, make_user, make_process, aprobado=False)
+    con = _en_pausa_con_cotejo(db_session, make_user, make_process, seed_phase_defs)
+    sin = _en_pausa_con_cotejo(db_session, make_user, make_process, seed_phase_defs, aprobado=False)
     db_session.commit()
     pendientes = cli._contar_d12(db_session)
     assert pendientes >= 1
