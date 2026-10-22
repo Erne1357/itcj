@@ -37,6 +37,11 @@
 <link rel="stylesheet" href="/static/titulatec/css/admin/sinodales.css?v={{ sv('css/admin/sinodales.css') }}">
 {# Pestaña Días inhábiles (fase 5): calendario; mismo motivo. #}
 <link rel="stylesheet" href="/static/titulatec/css/admin/dias-inhabiles.css?v={{ sv('css/admin/dias-inhabiles.css') }}">
+{# «Mis revisiones» (fase 5): la conversación compartida con el alumno
+   (burbujas y panel de estado, `review.css`) y la pantalla del docente
+   (`admin/revisiones.css`); mismo motivo. #}
+<link rel="stylesheet" href="/static/titulatec/css/review.css?v={{ sv('css/review.css') }}">
+<link rel="stylesheet" href="/static/titulatec/css/admin/revisiones.css?v={{ sv('css/admin/revisiones.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -201,6 +206,11 @@
    eligió en otra posición, y despliega el formulario «Sustituir» de cada fila.
    Mismo contrato: una sola carga y delegación en `document.body`. #}
 <script src="/static/titulatec/js/admin/sinodales.js?v={{ sv('js/admin/sinodales.js') }}"></script>
+{# «Mis revisiones» (fase 5): el hilo de la conversación -agrega `after` al
+   sondeo y al envío, quita duplicados, baja al final y limpia el formulario
+   tras enviar (salvo `X-Tt-Review-Keep`)-. Mismo contrato: una sola carga,
+   delegación en `document.body` y re-init en `htmx:afterSettle`. #}
+<script src="/static/titulatec/js/shared/review-thread.js?v={{ sv('js/shared/review-thread.js') }}"></script>
 {# Tablero de la jefa de SE: tooltip de las gráficas (hijo de <body>, creado una
    vez), crosshair de las líneas, Imprimir, popovers de filtros y la opacidad de
    recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en

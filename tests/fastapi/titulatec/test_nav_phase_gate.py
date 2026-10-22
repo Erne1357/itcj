@@ -102,6 +102,8 @@ def test_la_tabla_de_fases_minimas_es_la_del_ruling():
         SINODALES[0]: "synodal_assignment",
         DOCENTES[0]: "synodal_assignment",
         CARRERAS[0]: "synodal_assignment",
+        # «Mis revisiones» del docente (fase 5 §8.2, test_revisiones_admin.py).
+        "/titulatec/admin/revisiones": "synodal_review",
     }
     # Cada llave es un ítem real del menú (un typo dejaría la guarda muerta).
     assert set(_NAV_PHASE_GATE) <= {url for _l, _i, url, _n in _ADMIN_NAV}

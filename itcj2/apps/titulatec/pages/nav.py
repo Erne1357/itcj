@@ -121,6 +121,13 @@ _SINODALES_ROLE = "titulatec_vinculacion"
 _SINODALES_URL = "/titulatec/admin/sinodales"
 _SINODALES_PERM = "titulatec.synodal.page.list"
 
+# «Mis revisiones» (spec 2026-10-22 fase 5 §8.2): el docente sinodal
+# (`titulatec_sinodal`) aterriza en su bandeja con el permiso Y la fase 5
+# operable; sin eso, el placeholder de siempre (`/titulatec/sinodal/`).
+_REVISIONES_ROLE = "titulatec_sinodal"
+_REVISIONES_URL = "/titulatec/admin/revisiones"
+_REVISIONES_PERM = "titulatec.synodal.page.my_reviews"
+
 
 # Aterrizajes condicionales: rol -> (URL de la pestaña, permiso que la abre).
 # Además de permiso, la pantalla debe OPERARSE con el corte vigente: su fase
@@ -128,6 +135,7 @@ _SINODALES_PERM = "titulatec.synodal.page.list"
 _CONDITIONAL_LANDING = {
     _TITULACION_ROLE: (_TITULACION_URL, _TITULACION_PERM),
     _SINODALES_ROLE: (_SINODALES_URL, _SINODALES_PERM),
+    _REVISIONES_ROLE: (_REVISIONES_URL, _REVISIONES_PERM),
 }
 
 
@@ -145,10 +153,12 @@ def resolve_dashboard_url(
     Y el Departamento de Titulación aterriza en su pestaña solo con
     `titulatec.titulacion.page.list` (si no, Liberados, como antes); la
     vinculación de los departamentos académicos, en Sinodales solo con
-    `titulatec.synodal.page.list` (si no, su página de siempre).
+    `titulatec.synodal.page.list` (si no, su página de siempre); y el docente
+    sinodal, en «Mis revisiones» solo con `titulatec.synodal.page.my_reviews`
+    (si no, el placeholder `/titulatec/sinodal/`).
 
     `operable` (ruling R5 de la fase 4) son los CÓDIGOS de fase del catálogo
-    que hoy se operan en esta app (`PhaseService.operable_codes`). Esos dos
+    que hoy se operan en esta app (`PhaseService.operable_codes`). Esos
     aterrizajes exigen además que la fase de su pantalla (`_NAV_PHASE_GATE`)
     esté en el conjunto: con el corte en 3 (producción) el DML base ya da
     `synodal.page.list` a la vinculación, y sin esta guarda aterrizaría en una
@@ -207,6 +217,9 @@ _ADMIN_NAV = [
     # Bandeja del departamento académico (spec 2026-10-21 fase 4 §9): asignar
     # los 4 sinodales (FIFO), sustituir y descargar el oficio.
     ("Sinodales",           "bi-people",      "/titulatec/admin/sinodales",    {"titulatec.synodal.page.list"}),
+    # Pantalla del docente sinodal (spec 2026-10-22 fase 5 §8.2): sus
+    # revisiones (por revisar / en curso / completados) y cada conversación.
+    ("Mis revisiones",      "bi-chat-square-text", "/titulatec/admin/revisiones", {"titulatec.synodal.page.my_reviews"}),
     # Catálogo de docentes por departamento académico (spec 2026-10-21 fase 4 §8).
     ("Docentes",            "bi-person-badge", "/titulatec/admin/docentes",    {"titulatec.teacher.page.list"}),
     # Carrera -> departamento académico y ajustes del oficio (fase 4 §13, solo admin).
@@ -255,6 +268,8 @@ _NAV_PHASE_GATE: dict[str, str] = {
     "/titulatec/admin/sinodales": "synodal_assignment",
     "/titulatec/admin/docentes": "synodal_assignment",
     "/titulatec/admin/carreras-deptos": "synodal_assignment",
+    # Fase 5 (spec 2026-10-22 §8.2, §14): con el corte en 3 no aparece.
+    "/titulatec/admin/revisiones": "synodal_review",
 }
 
 

@@ -66,3 +66,7 @@ titulatec_pages_router.include_router(dias_inhabiles_admin_router)
 # sustituir y el oficio en PDF.
 from .sinodales_admin import router as sinodales_admin_router  # noqa: E402
 titulatec_pages_router.include_router(sinodales_admin_router)
+# Pestaña «Mis revisiones» (spec 2026-10-22 fase 5 §8.2): la bandeja del docente
+# sinodal y la conversación de revisión de cada proceso.
+from .revisiones_admin import router as revisiones_admin_router  # noqa: E402
+titulatec_pages_router.include_router(revisiones_admin_router)

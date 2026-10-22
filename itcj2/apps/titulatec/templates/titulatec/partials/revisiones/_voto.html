@@ -1,0 +1,87 @@
+{# Panel de voto del sinodal (spec 2026-10-22 fase 5 §6.3, §8.2; D3, D4, D6).
+   Recibe `conv` y `oob` (el refresco lo reemplaza fuera de banda al cerrarse).
+
+   - Conversación cerrada: nada que votar (el porqué ya lo dice `#tt-rev-live`).
+   - Regla de firma desconocida / su voto no cuenta / sin versión: el aviso.
+   - Vota: UN formulario con las observaciones y dos botones («Pedir cambios»
+     y «Aprobar versión N»), cada uno con su `hx-post` (htmx incluye el
+     formulario y el `name`/`value` del botón). Manda la `version` que el
+     sinodal tiene en pantalla: si el alumno ya subió otra, el servidor no
+     escribe nada y avisa (R10 de la app).
+   - Si su aprobación CERRARÍA la revisión (`would_close`): el botón «Aprobar»
+     lleva el texto de D6 en `hx-confirm` (puente `htmx:confirm` ->
+     `TitulaTecUtils.confirmDialog`, `data-tt-confirm-ok`) y el formulario
+     `confirm=1`. El servidor lo exige igual: sin `confirm` responde con el
+     panel de reconfirmación (`vote_mode == "confirm"`), sin escribir nada.
+   El voto re-pinta la conversación entera (`#tt-rev-conv`, morph).
+
+   `hx-disabled-elt` con selector de documento, NO `find …`: el `hx-post` vive
+   en cada botón y el atributo se hereda del formulario, así que htmx lo
+   resuelve desde el BOTÓN; `find button` no encuentra nada dentro de un botón
+   y htmx 2.0.3 truena (`getInternalData(null)`) sin mandar el voto (visto en
+   Chromium). #}
+{% set c = conv %}
+<section id="tt-rev-vote" class="tt-card tt-rev-vote" aria-labelledby="tt-rev-vote-title"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h2 id="tt-rev-vote-title" class="tt-kicker tt-rev-vote-title">Tu voto</h2>
+  {% if not c.is_open %}
+  <p class="tt-rev-note">La revisión ya no admite votos.</p>
+  {% elif c.rule_error %}
+  <p class="tt-rev-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ c.rule_unknown_msg }}</p>
+  {% elif not c.counts %}
+  <p id="tt-rev-not-counting" class="tt-rev-note"><i class="bi bi-chat-left-text" aria-hidden="true"></i>{{ c.not_counting_msg }}</p>
+  {% elif c.version is none %}
+  <p class="tt-rev-note"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ c.no_version_msg }}</p>
+  {% elif not c.can_vote %}
+  <p class="tt-rev-note">No tienes permiso para votar en esta revisión.</p>
+  {% elif c.vote_mode == "confirm" %}
+  <div id="tt-rev-confirm" class="tt-rev-confirm" role="alertdialog" aria-labelledby="tt-rev-confirm-title">
+    <p id="tt-rev-confirm-title" class="tt-rev-confirm-title"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>Tu aprobación cerrará la revisión</p>
+    <p class="tt-rev-confirm-text">{{ c.confirm_msg }}</p>
+    <form id="tt-rev-confirm-form" class="tt-rev-buttons"
+          hx-post="{{ c.url }}/voto" hx-target="#tt-rev-conv" hx-swap="morph:outerHTML"
+          hx-disabled-elt="#tt-rev-confirm-form button">
+      <input type="hidden" name="verdict" value="approved">
+      <input type="hidden" name="version" value="{{ c.version }}">
+      <input type="hidden" name="confirm" value="1">
+      <input type="hidden" name="comment" value="{{ c.draft }}">
+      <button type="button" class="btn btn-sm tt-btn-ghost"
+              hx-get="{{ c.url }}" hx-target="#tt-rev-conv" hx-select="#tt-rev-conv"
+              hx-swap="morph:outerHTML">Cancelar</button>
+      <button type="submit" id="tt-rev-confirm-ok" class="btn btn-sm tt-btn-ink">
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Sí, aprobar y cerrar</button>
+    </form>
+  </div>
+  {% else %}
+  {% if c.my_verdict %}
+  <p class="tt-rev-mine">
+    {% if c.my_verdict == "approved" %}<i class="bi bi-check-circle" aria-hidden="true"></i>Aprobaste la versión {{ c.version }}.
+    {% else %}<i class="bi bi-pencil" aria-hidden="true"></i>Pediste cambios en la versión {{ c.version }}.{% endif %}
+    Puedes cambiar tu voto mientras la revisión siga abierta.
+  </p>
+  {% endif %}
+  <form id="tt-rev-vote-form" class="tt-rev-vote-form"
+        hx-target="#tt-rev-conv" hx-swap="morph:outerHTML"
+        hx-disabled-elt="#tt-rev-vote-form button">
+    <input type="hidden" name="version" value="{{ c.version }}">
+    {% if c.would_close %}<input type="hidden" name="confirm" value="1">{% endif %}
+    <label class="tt-label" for="tt-rev-comment">Observaciones sobre la versión {{ c.version }}</label>
+    <textarea id="tt-rev-comment" name="comment" class="tt-field tt-rev-textarea" rows="3"
+              maxlength="2000" placeholder="Obligatorias si pides cambios.">{{ c.draft }}</textarea>
+    <p id="tt-rev-vote-error" class="tt-rev-error" role="alert"{% if not c.vote_error %} hidden{% endif %}>{{ c.vote_error or '' }}</p>
+    {% if c.would_close %}
+    <p class="tt-rev-hint"><i class="bi bi-info-circle" aria-hidden="true"></i>Tu aprobación es la que falta: al aprobar se cerrará la revisión.</p>
+    {% endif %}
+    <div class="tt-rev-buttons">
+      <button type="submit" id="tt-rev-changes" name="verdict" value="changes_requested"
+              class="btn btn-sm tt-btn-ghost" hx-post="{{ c.url }}/voto">
+        <i class="bi bi-pencil me-1" aria-hidden="true"></i>Pedir cambios</button>
+      <button type="submit" id="tt-rev-approve" name="verdict" value="approved"
+              class="btn btn-sm tt-btn-ink" hx-post="{{ c.url }}/voto"
+              {%- if c.would_close %}
+              hx-confirm="Cerrar la revisión|{{ c.confirm_msg }}" data-tt-confirm-ok="Aprobar y cerrar"
+              {%- endif %}>
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar versión {{ c.version }}</button>
+    </div>
+  </form>
+  {% endif %}
+</section>

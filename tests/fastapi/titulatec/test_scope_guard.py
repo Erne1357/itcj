@@ -499,6 +499,12 @@ def _rutas(router):
 
 
 _GUARD = "assert_process_in_scope"
+# Fase 5 (spec 2026-10-22 §12): las rutas del sinodal («Mis revisiones») no se
+# acotan por carrera sino por PARTICIPACIÓN: `ReviewService.assert_participant`
+# (asignación VIGENTE en ese proceso, 404 sin header si no). Es la guarda
+# alternativa, con la MISMA regla: llamada real, incondicional y antes de tocar
+# la sesión. Cualquiera de las dos satisface el censo.
+_GUARDS = {_GUARD, "assert_participant"}
 
 
 def _nombre_llamado(func):
@@ -556,7 +562,7 @@ def _es_sentencia_guard(st):
     una comprension NO cuenta: preferimos el rojo explicito a aflojar el criterio.
     """
     valor = st.value if isinstance(st, (ast.Expr, ast.Assign, ast.AnnAssign)) else None
-    return isinstance(valor, ast.Call) and _nombre_llamado(valor.func) == _GUARD
+    return isinstance(valor, ast.Call) and _nombre_llamado(valor.func) in _GUARDS
 
 
 def _toca_la_sesion(call):
@@ -594,7 +600,8 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     QUE EXIGE, EXACTAMENTE (presencia + posicion, con una relajacion declarada)
     --------------------------------------------------------------------------
     1. **Presencia real**: un `Call` cuyo callable resuelve al nombre
-       `assert_process_in_scope` (`f(...)` o `modulo.f(...)`). El import solo
+       `assert_process_in_scope` (`f(...)` o `modulo.f(...)`) o, en las rutas
+       del sinodal (fase 5), `assert_participant` (`_GUARDS`). El import solo
        ya no basta.
     2. **Incondicional**: la llamada es una sentencia de la ESPINA (cuerpo de la
        funcion, o del `try`/`with` que la envuelve), nunca dentro de un `if`, un
@@ -630,7 +637,7 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
 
         cuerpo = _cuerpo(route.endpoint)
         llamadas = [n for st in cuerpo for n in ast.walk(st) if isinstance(n, ast.Call)]
-        if not any(_nombre_llamado(c.func) == _GUARD for c in llamadas):
+        if not any(_nombre_llamado(c.func) in _GUARDS for c in llamadas):
             sin_guard.append(etiqueta)
             continue
 
@@ -667,15 +674,22 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # `pages/sinodales_admin.py`): `POST /admin/sinodales/{id}/asignar`,
     # `/sustituir` y `GET /admin/sinodales/{id}/oficio.pdf`. Docentes y
     # Carreras por departamento (fase 4 §8 y §13) no llevan `{process_id}`.
-    assert revisadas == 36, (
+    # 41 desde 2026-10-22: + 5 rutas de «Mis revisiones» (fase 5 §8.2,
+    # `pages/revisiones_admin.py`), guardadas con `assert_participant`:
+    # `GET /admin/revisiones/{id}`, `GET /{id}/mensajes`, `POST /{id}/mensaje`,
+    # `POST /{id}/voto` y `GET /{id}/archivo/{message_id}`. Las del alumno
+    # (`/student/revision...`) no llevan `{process_id}`.
+    assert revisadas == 41, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
-        "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
+        "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` (o, en una\n"
+        "ruta del sinodal, `ReviewService.assert_participant`) como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"
         "OJO: este censo solo ve rutas que llevan el id EN LA RUTA. Una ruta que\n"
         "reciba ids en el CUERPO (p. ej. el reparto masivo) le es invisible y tiene\n"
         "que validar cada id contra `process_in_scope` por su cuenta." % revisadas)
     assert not sin_guard, (
-        "rutas con {process_id} que NO llaman a `assert_process_in_scope`\n"
+        "rutas con {process_id} que NO llaman a `assert_process_in_scope` ni a\n"
+        "`assert_participant`\n"
         "(importarlo no cuenta: el censo lee el AST, no el texto):\n"
         + "\n".join(sin_guard))
     assert not condicional, (
