@@ -337,7 +337,8 @@ class SynodalService:
         con `populate_existing`). Los ids pueden llegar como texto del
         formulario. Crea las 4 filas vigentes, el evento `synodals_assigned`
         (`{"synodals": [{"role", "user_id"}]}`, ver `_pairs`) y la bitácora
-        `synodal.assigned`; abre la puerta del motor y `approve_phase` aprueba
+        `synodal.assigned`; abre la conversación de la revisión
+        (`ReviewService.open_chat`, fase 5), la puerta del motor y `approve_phase` aprueba
         la fase 4, activa la 5, avisa al alumno, le encola el correo «Avanzaste
         a …» y commitea. Ya commiteado, avisa a los 4
         (`send_assignment_notices`, best-effort).
@@ -378,6 +379,10 @@ class SynodalService:
                 actor_id=actor_id,
             )
             db.flush()
+            # Fase 5 (spec 2026-10-22 §6.2): la conversación de revisión nace aquí,
+            # en esta misma transacción (si la aprobación falla, se revierte).
+            from itcj2.apps.titulatec.services.review_service import ReviewService
+            ReviewService.open_chat(db, process)
             PhaseService.open_door(db, PHASE_CODE, process.id, "approved")
             resultado = PhaseService.approve_phase(db, process, n, actor_id)
         except IntegrityError:
@@ -436,8 +441,9 @@ class SynodalService:
         mismas reglas de alcance, docente vigente y perfil que al asignar, y el
         nuevo no puede ser ya sinodal vigente del proceso. Bajo el candado
         desactiva la fila vigente (`replaced_*`) y crea la nueva; evento
-        `synodal_replaced`, bitácora `synodal.replaced` y aviso in-app al
-        alumno, todo en una transacción. Ya commiteado avisa al entrante
+        `synodal_replaced`, bitácora `synodal.replaced`, aviso in-app al
+        alumno y el mensaje de la sustitución en la conversación de revisión
+        (`ReviewService.on_replaced`), todo en una transacción. Ya commiteado avisa al entrante
         (`replaced_in`) y al saliente (`replaced_out`, pierde el acceso).
         """
         from itcj2.apps.titulatec.models import SynodalAssignment
@@ -490,6 +496,12 @@ class SynodalService:
                       f"{_name(users.get(anterior)) or 'tu sinodal'} por "
                       f"{_name(users.get(nuevo)) or 'otro docente'}."),
                 process_id=process.id, phase_number=process.current_phase)
+            # Fase 5 (spec 2026-10-22 §6.3): «X sustituye a Y como …» en la
+            # conversación, si ya existe. El voto de la fila desactivada deja de
+            # contar solo (cuentan las asignaciones vigentes).
+            from itcj2.apps.titulatec.services.review_service import ReviewService
+            ReviewService.on_replaced(db, process, role=role, old_user_id=anterior,
+                                      new_user_id=nuevo)
             db.commit()
         except IntegrityError:
             db.rollback()

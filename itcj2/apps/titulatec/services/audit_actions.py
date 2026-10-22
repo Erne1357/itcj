@@ -140,6 +140,12 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     "synodal.replaced": ("processes", "Sustituyó a un sinodal de un proceso"),
     "synodal.mail_failed": ("processes", "No salió el correo de aviso a un sinodal"),
 
+    # --- review: revisión de sinodales (fase 5, `ReviewService`) ---------------
+    # Mismo módulo que `titulatec_review_versions`/`_votes` en `TABLE_MODULES`.
+    # Sin contenido de mensajes ni comentarios: versión, rol (como VALOR) y voto.
+    "review.version_uploaded": ("review", "Subió una versión del proyecto a revisión"),
+    "review.vote_cast": ("review", "Votó una versión del proyecto"),
+
     # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
     # Mismo módulo que `titulatec_program_departments` y
     # `titulatec_department_settings` en `TABLE_MODULES`. Remapear una carrera

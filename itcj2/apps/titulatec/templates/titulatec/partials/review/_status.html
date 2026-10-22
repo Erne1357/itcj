@@ -1,0 +1,68 @@
+{# Panel de estado de la revisión de sinodales (fase 5, spec 2026-10-22 §8.3).
+
+   Recibe SOLO `review_status`: el dict de `ReviewService.status_for_process`
+   (o None sin conversación -> «Sin versiones todavía»). Nunca mensajes,
+   comentarios, archivos ni ligas a la conversación: lo reutilizan el
+   expediente, el detalle de Sinodales y la pestaña Titulación (D1), además de
+   las dos conversaciones. Raíz con id estable `tt-rv-status` (el refresco lo
+   reemplaza fuera de banda).
+
+   - Versión vigente y su fecha; plazo con semáforo (en plazo / por vencer /
+     vencido) mientras corre; «Proyecto liberado» al cerrarse.
+   - La regla de votos en lenguaje llano (`rule_label`).
+   - Una fila por sinodal vigente en el orden del oficio: `tt-rv-vote--counts`
+     si su voto cuenta (con su voto en la versión vigente) o
+     `tt-rv-vote--comments` si solo comenta. #}
+{% from "titulatec/_macros.html" import pill %}
+{%- set st = review_status if review_status is defined else none %}
+<section id="tt-rv-status" class="tt-card tt-rv-status" aria-label="Estado de la revisión">
+  <header class="tt-rv-status-head">
+    <h3 class="tt-rv-status-title">Revisión de sinodales</h3>
+    {%- if st and st.closed %}{{ pill("Proyecto liberado", "success", "check-lg") }}
+    {%- elif st and st.semaphore == "late" %}{{ pill("Plazo vencido", "danger", "exclamation-triangle") }}
+    {%- elif st and st.semaphore == "warn" %}{{ pill("Por vencer", "amber", "hourglass-split") }}
+    {%- elif st and st.semaphore == "ok" %}{{ pill("En plazo", "success", "clock") }}
+    {%- endif %}
+  </header>
+
+  {%- if not st or st.version is none %}
+  <p class="tt-rv-status-empty"><i class="bi bi-file-earmark" aria-hidden="true"></i>Sin versiones todavía.</p>
+  {%- else %}
+  <dl class="tt-rv-facts">
+    <div class="tt-rv-fact">
+      <dt>Versión vigente</dt>
+      <dd>Versión {{ st.version }}{% if st.uploaded_label %} · subida el {{ st.uploaded_label }}{% endif %}</dd>
+    </div>
+    {%- if st.due_label and not st.closed %}
+    <div class="tt-rv-fact">
+      <dt>Plazo de revisión</dt>
+      <dd>Vence el {{ st.due_label }}</dd>
+    </div>
+    {%- endif %}
+  </dl>
+  {%- endif %}
+
+  {%- if st %}
+  <p class="tt-rv-rule"><i class="bi bi-pen" aria-hidden="true"></i>{{ st.rule_label }}{% if st.required and st.version is not none %} · {{ st.approvals }} de {{ st.required }} {{ "aprobación" if st.required == 1 else "aprobaciones" }}{% endif %}</p>
+  {%- if st.votes %}
+  <ul class="tt-rv-votes">
+    {%- for v in st.votes %}
+    <li class="tt-rv-vote {{ 'tt-rv-vote--counts' if v.counts else 'tt-rv-vote--comments' }}">
+      <span class="tt-rv-vote-who">
+        <span class="tt-rv-vote-role">{{ v.role_label }}</span>
+        <span class="tt-rv-vote-name">{{ v.name }}</span>
+      </span>
+      <span class="tt-rv-vote-state">
+        {%- if not v.counts %}<span class="tt-rv-vote-note">Solo comenta</span>
+        {%- elif v.verdict == "approved" %}{{ pill("Aprobó", "success", "check-lg") }}
+        {%- elif v.verdict == "changes_requested" %}{{ pill("Pidió cambios", "amber", "pencil") }}
+        {%- elif st.version is not none %}{{ pill("Sin votar", "neutral", "hourglass-split") }}
+        {%- else %}<span class="tt-rv-vote-note">Vota</span>
+        {%- endif %}
+      </span>
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+  {%- endif %}
+</section>

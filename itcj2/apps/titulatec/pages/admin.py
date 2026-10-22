@@ -1336,6 +1336,10 @@ _EVENT_UI = {
     # sustitución viaja en `reason` y `_evento_detalle` ya lo pinta.
     "synodals_assigned":            ("Sinodales asignados",       "people",                 "success"),
     "synodal_replaced":             ("Sinodal sustituido",        "arrow-left-right",       "amber"),
+    # Revisión de sinodales (spec 2026-10-22 fase 5 §11): `ReviewService`. La
+    # versión viaja en `version` y `_evento_detalle` la pinta («v2»).
+    "review_version_uploaded":      ("Subió una versión del proyecto", "file-earmark-arrow-up", "neutral"),
+    "review_vote_cast":             ("Un sinodal votó el proyecto", "check2-square",        "neutral"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),

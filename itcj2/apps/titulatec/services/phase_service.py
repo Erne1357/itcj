@@ -283,9 +283,11 @@ class PhaseService:
     # Fases con UNA sola puerta (spec fase 3 §7, generalizada en la fase 4 §10)
     # ------------------------------------------------------------------
     # Una fase de este registro solo se dictamina desde el servicio que la
-    # posee: `format_b` desde `FormatBService.approve`/`.reject` y
+    # posee: `format_b` desde `FormatBService.approve`/`.reject`,
     # `synodal_assignment` desde `SynodalService.assign` (la fase 4 no tiene
-    # rechazo). El servicio deja su dictamen en la sesión y abre el motor con
+    # rechazo) y `synodal_review` desde `ReviewService.vote`, con el voto que
+    # cumple la regla de firma (la fase 5 tampoco tiene rechazo). El servicio
+    # deja su dictamen en la sesión y abre el motor con
     # `open_door` justo antes de llamar a `approve_phase`/`reject_phase`;
     # `_door_guard` exige la marca y la CONSUME. Cualquier otra puerta -los
     # botones genéricos «Aprobar/Rechazar fase» del expediente, un script-
@@ -293,9 +295,12 @@ class PhaseService:
     # recibir (`phase/{n}/approve|reject` del expediente) lo pasan por `_hdr()`.
     FORMAT_B_ONLY_MSG = "El Formato B se dictamina desde la pestaña Titulación."
     SYNODAL_ONLY_MSG = "Los sinodales se registran desde la pestaña Sinodales."
+    REVIEW_ONLY_MSG = ("La revisión de sinodales se libera sola cuando votan los sinodales "
+                       "que firman, desde su conversación.")
     _DOOR_PHASES = {
         "format_b": FORMAT_B_ONLY_MSG,
         "synodal_assignment": SYNODAL_ONLY_MSG,
+        "synodal_review": REVIEW_ONLY_MSG,
     }
     _DOOR_VERDICTS = ("approved", "rejected")
 
@@ -341,6 +346,10 @@ class PhaseService:
           solo la marca tampoco: van las dos.
         - `synodal_assignment`: solo se aprueba, y con los 4 sinodales
           vigentes ya escritos (`SynodalService.ROLES`). No tiene rechazo.
+        - `synodal_review`: solo se aprueba, y con la regla de firma cumplida
+          en la versión vigente por asignaciones vigentes
+          (`ReviewService.rule_satisfied`, ya con el voto que cierra escrito).
+          No tiene rechazo.
         """
         if phase_code == "format_b":
             from itcj2.apps.titulatec.models import FormatB
@@ -358,6 +367,11 @@ class PhaseService:
                                 SynodalAssignment.is_active.is_(True))
                         .scalar())
             return vigentes == len(ROLES)
+        if phase_code == "synodal_review":
+            if verdict != "approved":
+                return False
+            from itcj2.apps.titulatec.services.review_service import ReviewService
+            return ReviewService.rule_satisfied(db, process)
         return False
 
     @staticmethod
@@ -584,7 +598,8 @@ class PhaseService:
 
         Las fases con puerta solo pasan con el dictamen de su servicio en la
         sesión (`_door_guard`): `format_b` con el Formato B ya `approved`,
-        `synodal_assignment` con los 4 sinodales ya registrados.
+        `synodal_assignment` con los 4 sinodales ya registrados y
+        `synodal_review` con la regla de firma cumplida (`ReviewService.vote`).
         `event_payload` se fusiona en el payload del evento `phase_approved`
         (así viaja la ronda del Formato B al timeline sin un evento duplicado).
         """
@@ -729,3 +744,4 @@ class PhaseService:
 # el texto lo importa sin la clase.
 FORMAT_B_ONLY_MSG = PhaseService.FORMAT_B_ONLY_MSG
 SYNODAL_ONLY_MSG = PhaseService.SYNODAL_ONLY_MSG
+REVIEW_ONLY_MSG = PhaseService.REVIEW_ONLY_MSG

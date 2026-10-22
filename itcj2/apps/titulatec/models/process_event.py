@@ -17,8 +17,8 @@ from itcj2.models.base import Base
 # mapas, o el test falla.** Ese es todo el punto: que el próximo no se entere
 # el usuario por una captura de pantalla.
 #
-# `synodal_voted` NO está: el voto es de la fase 5 y nada lo escribe todavía.
-# Entra cuando se escriba.
+# `synodal_voted` NO está y no entrará: el voto de la fase 5 se escribe como
+# `review_vote_cast` (uno por voto y versión, `ReviewService.vote`).
 EVENT_TYPES = frozenset({
     # Proceso
     "process_created",
@@ -52,6 +52,13 @@ EVENT_TYPES = frozenset({
     # (posición, saliente, entrante y motivo). Los escribe `SynodalService`.
     "synodals_assigned",
     "synodal_replaced",
+    # Revisión de sinodales (spec 2026-10-22 fase 5 §11): el alumno subió una
+    # versión del proyecto (payload `{"version"}`) o un sinodal votó la vigente
+    # (`{"version", "role", "verdict"}`, la posición como VALOR). Los escribe
+    # `ReviewService`; los mensajes del chat NO generan evento (viven en su
+    # tabla) y la liberación es el `phase_approved` de siempre con payload.
+    "review_version_uploaded",
+    "review_vote_cast",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",

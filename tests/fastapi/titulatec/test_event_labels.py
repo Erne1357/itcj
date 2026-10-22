@@ -154,14 +154,16 @@ def test_todo_event_type_que_el_codigo_escribe_esta_en_el_dominio():
     lo agrega al frozenset, los tres pasarian y la pantalla volveria a enseñar
     el codigo crudo. Aqui la fuente es el codigo.
     """
+    # `review` (fase 5, 2026-10-22): `review_version_uploaded`/`review_vote_cast`.
     prefijos = ("process", "document", "phase", "requirement", "appointment",
-                "survey_review", "enrollment", "library")
+                "survey_review", "enrollment", "library", "review")
     patron = re.compile(r'"((?:' + "|".join(prefijos) + r')_[a-z_]+)"')
     # Claves de payload y nombres de campo que comparten prefijo con un evento.
     no_son_eventos = {
         "process_id", "phase_name", "phase_number", "phase_rows", "requirement_id",
         "enrollment_request", "enrollment_approved", "enrollment_rejected",
         "enrollment_done",          # plantillas de correo, no eventos
+        "review_id",                # llave de payload de la liberación de GTV
     }
 
     escritos: set[str] = set()

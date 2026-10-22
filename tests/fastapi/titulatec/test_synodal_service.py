@@ -240,6 +240,15 @@ class TestAsignar:
                                 action="process.synodals_assigned").all())
         assert espejo.payload["synodals"] == pares
         assert PhaseService.DOOR_KEY not in db_session.info, "la puerta se cierra"
+        # Fase 5 (spec 2026-10-22 §6.2): en la MISMA transacción nace la
+        # conversación de revisión, abierta y con su mensaje de apertura.
+        from itcj2.apps.titulatec.models import ChatMessage, ProcessChat
+        from itcj2.apps.titulatec.services.review_service import OPEN_CHAT_MSG
+        chat = db_session.query(ProcessChat).filter_by(process_id=e.proc.id).one()
+        assert chat.closed_at is None
+        assert [(m.kind, m.author_id, m.body)
+                for m in db_session.query(ChatMessage).filter_by(chat_id=chat.id)] == [
+            ("system", None, OPEN_CHAT_MSG)]
 
     def test_acepta_los_ids_como_texto(self, db_session, esc):
         """La ruta los manda tal cual llegan del formulario."""
@@ -438,7 +447,11 @@ class TestUnaSolaPuerta:
         with pytest.raises(ValueError):
             PhaseService.open_door(db_session, "synodal_assignment", 1, "aprobado")
         assert PhaseService.DOOR_KEY not in db_session.info
-        assert set(PhaseService._DOOR_PHASES) == {"format_b", "synodal_assignment"}
+        # Fase 5 (spec 2026-10-22 §6.4): la revisión de sinodales también
+        # tiene puerta (`ReviewService.vote`); su caso vive en test_review_service.py.
+        assert set(PhaseService._DOOR_PHASES) == {"format_b", "synodal_assignment",
+                                                  "synodal_review"}
+        assert PhaseService._DOOR_PHASES["synodal_review"] == PhaseService.REVIEW_ONLY_MSG
         assert PhaseService._DOOR_PHASES["synodal_assignment"] == (
             "Los sinodales se registran desde la pestaña Sinodales.")
 
@@ -602,6 +615,14 @@ class TestSustituir:
         assert len(_avisos(db_session, [e.alumno.id], "SYNODAL_REPLACED")) == 1
         assert len(_avisos(db_session, [entrante.id], "SYNODAL_ASSIGNED")) == 1
         assert len(_avisos(db_session, [saliente.id], "SYNODAL_RELEASED")) == 1
+        # Fase 5 (spec 2026-10-22 §6.3): la sustitución queda en la conversación.
+        from itcj2.apps.titulatec.models import ChatMessage, ProcessChat
+        chat = db_session.query(ProcessChat).filter_by(process_id=e.proc.id).one()
+        ultimo = (db_session.query(ChatMessage).filter_by(chat_id=chat.id)
+                  .order_by(ChatMessage.id.desc()).first())
+        assert (ultimo.kind, ultimo.author_id) == ("system", None)
+        assert ultimo.body == (f"{_nombre(entrante)} sustituye a {_nombre(saliente)} "
+                               "como Secretario.")
         destinos = {c["to"]: (c["context"]["kind"], c["context"]["posicion"])
                     for c in correos.enviados}
         assert destinos == {entrante.email: ("replaced_in", "Secretario"),

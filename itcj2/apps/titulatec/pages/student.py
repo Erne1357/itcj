@@ -304,6 +304,10 @@ _EVENT_LABELS = {
     # ---- Sinodales (fase 4): `SynodalService.assign` / `.replace` ---------
     "synodals_assigned":           "Tu departamento académico asignó a tus sinodales",
     "synodal_replaced":            "Tu departamento académico sustituyó a uno de tus sinodales",
+    # ---- Revisión de sinodales (fase 5): `ReviewService` ------------------
+    # Texto fijo: el número de versión viaja en el payload (`version`).
+    "review_version_uploaded":     "Subiste una versión de tu proyecto",
+    "review_vote_cast":            "Un sinodal votó una versión de tu proyecto",
     # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",
