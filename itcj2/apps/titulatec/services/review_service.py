@@ -104,6 +104,13 @@ RELEASED_HANDOFF_TEXT = ("Proyecto liberado. Tu proceso continúa en el Departam
 REPLACED_TEXT = "{nuevo} sustituye a {anterior} como {posicion}."
 STUDENT_LABEL = "Alumno"
 
+# --- Tarjeta de la fase 5 del expediente cuando NO se pinta el estado -------
+# (patrón de `SynodalService.empty_label`, fase 4).
+NOT_APPLICABLE_LABEL = "No aplica para esta modalidad."
+NOT_IN_APP_LABEL = ("Esta fase todavía no está en la app: la revisión de sinodales se lleva "
+                    "en T-soft. Lo que se ve aquí es su estado, no su contenido.")
+PENDING_LABEL = "El proceso todavía no llega a la revisión de sinodales."
+
 
 class ReviewNeedsConfirmation(ValueError):
     """Este voto cumpliría la regla y cerraría la revisión: falta reconfirmarlo
@@ -278,10 +285,18 @@ class ReviewService:
     def chat_for(db: Session, process, *, create: bool = False):
         """La conversación del proceso o None. Con `create=True` la crea y
         commitea si falta (respaldo para procesos que ya estaban en la fase 5
-        sin conversación). Dos peticiones a la vez: la segunda relee."""
+        sin conversación), pero SOLO si la revisión está viva: proceso `active`
+        con la fase 5 `in_progress`. Un proceso cerrado, en pausa o revocado
+        (o ya más allá de la fase 5) no recibe conversación nueva: devuelve
+        None sin escribir nada (el mensaje de apertura es inmutable y abriría
+        la conversación y la tarjeta del alumno). Dos peticiones a la vez: la
+        segunda relee."""
         chat = ReviewService._chat_of(db, process.id)
         if chat is not None or not create:
             return chat
+        if (getattr(process, "status", None) != "active"
+                or ReviewService._phase_status(db, process.id) != "in_progress"):
+            return None
         try:
             chat = ReviewService.open_chat(db, process)
             db.commit()
@@ -822,6 +837,35 @@ class ReviewService:
     # ------------------------------------------------------------------
     # Estado (§8.3): para el panel y para quien no está en la conversación
     # ------------------------------------------------------------------
+    @staticmethod
+    def empty_label(db: Session, process) -> str | None:
+        """Leyenda de la tarjeta de la fase 5 del expediente, o None si ahí va
+        el ESTADO (`status_for_process`). Patrón de `SynodalService.empty_label`:
+
+        - La modalidad salta la fase 5 (`skips_phases`, p. ej. EGEL) o su
+          `ProcessPhase` ya está `skipped` -> `NOT_APPLICABLE_LABEL`. Gana sobre
+          el corte: es un hecho de la modalidad.
+        - La fase 5 no se opera en esta app (corte a T-soft en ella o antes, o
+          sin la fase en el catálogo) -> `NOT_IN_APP_LABEL` (el sentido de lo que
+          decía la tarjeta antes de la fase 5).
+        - El proceso todavía no llega a la fase 5 -> `PENDING_LABEL`.
+        - Si no, None: el estado aplica.
+        Dos consultas a lo más (número de fase y estado de su `ProcessPhase`).
+        """
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = PhaseService.phase_number_for_code(db, PHASE_CODE)
+        if n is not None and process is not None:
+            if n in PhaseService._skips(process):
+                return NOT_APPLICABLE_LABEL
+            if ReviewService._phase_status(db, process.id) == "skipped":
+                return NOT_APPLICABLE_LABEL
+        if n is None or PhaseService._handoff_phase() <= n:
+            return NOT_IN_APP_LABEL
+        if process is None or (process.current_phase or 0) < n:
+            return PENDING_LABEL
+        return None
+
     @staticmethod
     def status_for_process(db: Session, process_id: int, *,
                            holidays: frozenset[date] | None = None) -> dict | None:

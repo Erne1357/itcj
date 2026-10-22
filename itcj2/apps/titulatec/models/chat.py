@@ -17,7 +17,9 @@ class ProcessChat(Base):
 
     id = Column(Integer, primary_key=True)
     process_id = Column(Integer, ForeignKey("titulatec_processes.id"), unique=True, nullable=False)
-    pinned_document_id = Column(Integer, ForeignKey("titulatec_documents.id"), nullable=True)  # versión actual del proyecto
+    # Legado sin uso (spec fase 5 §5, CLAUDE.md de la app §26): las versiones del
+    # proyecto viven en `titulatec_review_versions`; nadie lee ni escribe esta columna.
+    pinned_document_id = Column(Integer, ForeignKey("titulatec_documents.id"), nullable=True)
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     closed_at = Column(DateTime, nullable=True)                   # NULL = abierto (fase 5)
 

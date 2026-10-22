@@ -1,11 +1,15 @@
 {# Formularios de la conversación (solo con la revisión abierta) o el aviso de
    «solo consulta» (D7). Raíz `#tt-rv-actions`: el refresco la reemplaza fuera de
-   banda (`oob`) cuando la revisión se cierra. Variables: is_open, closed,
-   has_version, review_max_mb, err_msg_id, err_ver_id. #}
+   banda (`oob`) cuando la revisión deja de estar abierta. Variables: is_open,
+   closed, has_version, review_max_mb, err_msg_id, err_ver_id.
+
+   Los dos formularios llevan `data-tt-review-poll`: `js/shared/review-thread.js`
+   les agrega `after` (el último id pintado) y la respuesta del POST trae también
+   lo que otros escribieron entre refrescos, no solo lo propio. #}
 <div id="tt-rv-actions" class="tt-rvs-actions"{% if oob %} hx-swap-oob="true"{% endif %}>
   {%- if is_open %}
   <form id="tt-rv-form-msg" class="tt-card tt-rvs-form" novalidate
-        data-tt-review-form="#tt-rv-list"
+        data-tt-review-form="#tt-rv-list" data-tt-review-poll="#tt-rv-list"
         hx-post="/titulatec/student/revision/mensaje" hx-encoding="multipart/form-data"
         hx-target="#tt-rv-list" hx-swap="beforeend"
         hx-disabled-elt="find button[type=submit]">
@@ -26,13 +30,11 @@
   </form>
 
   <form id="tt-rv-form-ver" class="tt-card tt-rvs-form" novalidate
-        data-tt-review-form="#tt-rv-list"
+        data-tt-review-form="#tt-rv-list" data-tt-review-poll="#tt-rv-list"
         hx-post="/titulatec/student/revision/version" hx-encoding="multipart/form-data"
         hx-target="#tt-rv-list" hx-swap="beforeend"
         hx-disabled-elt="find button[type=submit]">
-    <h4 class="tt-rvs-h">{% if has_version %}Subir nueva versión{% else %}Sube la primera versión de tu proyecto{% endif %}</h4>
-    <p class="tt-rvs-hint">PDF o Word (.docx, .doc) de hasta {{ review_max_mb }} MB.
-      {% if has_version %}Al subir una versión nueva, tus sinodales vuelven a votar.{% endif %}</p>
+    {% with oob=False %}{% include "titulatec/partials/student/revision/_ver_head.html" %}{% endwith %}
     <div class="tt-rvs-row">
       <div class="tt-rvs-file">
         <label class="tt-rvs-label" for="tt-rv-file-ver">Archivo de tu proyecto</label>

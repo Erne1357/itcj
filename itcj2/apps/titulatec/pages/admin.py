@@ -1790,12 +1790,14 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
                                 else SynodalService.empty_label(db, proc))
 
     # Fase 5 (spec 2026-10-22 §8.3, D1): SOLO el estado de la revisión; nunca la
-    # conversación. Aplica con el proceso en la fase 5 o después.
+    # conversación. Aplica con el proceso en la fase 5 o después, la fase
+    # operable y la modalidad sin saltarla; si no, el porqué (patrón de la fase
+    # 4): no aplica (EGEL), se lleva en T-soft (corte) o todavía no llega.
     from itcj2.apps.titulatec.services.review_service import ReviewService
     from itcj2.apps.titulatec.services.synodal_service import REVIEW_PHASE_CODE
     review_phase = _PS.phase_number_for_code(db, REVIEW_PHASE_CODE)
-    review_applies = (review_phase is not None and (proc.current_phase or 0) >= review_phase
-                      and ReviewService.operable(db))
+    review_empty_label = ReviewService.empty_label(db, proc)
+    review_applies = review_phase is not None and review_empty_label is None
     review_status = None
     if review_applies:
         from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
@@ -2012,6 +2014,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_read_synodal": can_read_synodal,
         "review_phase": review_phase,
         "review_applies": review_applies,
+        "review_empty_label": review_empty_label,
         "review_status": review_status,
         "can_revoke": can_revoke,
         "revocada": revocada,

@@ -322,6 +322,86 @@ def test_abrir_crea_la_conversacion_si_falta(esc, client_as, db_session):
     assert OPEN_CHAT_MSG in resp.text
 
 
+@pytest.mark.parametrize("estado,motivo", [
+    ("on_hold", "en pausa"),
+    ("cancelled", "revocada"),
+    ("fase_aprobada", "no tiene conversación en la app"),
+])
+def test_abrir_fuera_de_una_revision_viva_no_crea_la_conversacion(estado, motivo, esc,
+                                                                  client_as, db_session):
+    """I4 (revisión final): sin conversación y con el proceso pausado, revocado o la
+    fase 5 ya fuera de curso, abrir la fila de la bandeja NO crea el chat (ni su
+    mensaje inmutable de apertura): pinta la vista de solo lectura «sin
+    conversación» con el encabezado de D13 y el porqué."""
+    from itcj2.apps.titulatec.models import ChatMessage, ProcessChat, ProcessPhase
+    from itcj2.apps.titulatec.services.review_service import OPEN_CHAT_MSG
+
+    c = esc()
+    db_session.delete(c.chat)
+    if estado == "fase_aprobada":
+        n5 = PhaseService.phase_number_for_code(db_session, "synodal_review")
+        (db_session.query(ProcessPhase).filter_by(process_id=c.process.id, phase_number=n5)
+         .one()).status = "approved"
+    else:
+        c.process.status = estado
+    db_session.commit()
+    mensajes_antes = db_session.query(ChatMessage).count()
+
+    resp = client_as(c.pres).get(c.url)
+
+    assert resp.status_code == 200, resp.text[:500]
+    db_session.expire_all()
+    assert db_session.query(ProcessChat).filter_by(process_id=c.process.id).count() == 0
+    assert db_session.query(ChatMessage).count() == mensajes_antes
+    doc = lxml.html.fromstring(resp.text)
+    assert doc.xpath('//*[@id="tt-rev-head"]')
+    (nota,) = doc.xpath('//*[@id="tt-rev-readonly"]')
+    assert motivo in nota.text_content()
+    assert OPEN_CHAT_MSG not in resp.text
+    assert not _poll(resp.text)
+    assert not doc.xpath('//form[@id="tt-rev-composer"]')
+
+
+def test_un_cuerpo_declarado_sobre_el_tope_es_413_antes_de_leerlo(esc, client_as, db_session,
+                                                                 monkeypatch):
+    """I2 (revisión final): el tope solo-cabeceras (`_review_body_block`) corre ANTES
+    de `request.form()` -que antes se parseaba completo aun antes de
+    `assert_participant`-: 413 + `X-Tt-Error`, nada escrito y el form sin leer."""
+    from starlette.requests import Request
+
+    from itcj2.apps.titulatec.utils import review_files
+
+    c = esc(versions=0)
+    leidos = []
+    original = Request.form
+
+    def _form(self, *a, **kw):
+        leidos.append(self.url.path)
+        return original(self, *a, **kw)
+
+    monkeypatch.setattr(Request, "form", _form)
+    monkeypatch.setattr(review_files, "max_body_bytes", lambda: 64)
+    antes = len(_mensajes(db_session, c))
+
+    resp = client_as(c.pres).post(f"{c.url}/mensaje", data={"body": "Con archivo"},
+                                  files={"archivo": ("a.pdf", PDF, "application/pdf")})
+
+    assert resp.status_code == 413
+    assert resp.headers.get("X-Tt-Error")
+    assert len(_mensajes(db_session, c)) == antes
+    assert leidos == []
+
+
+def test_el_tope_deja_pasar_un_mensaje_normal(esc, client_as, db_session):
+    """El margen multipart (`review_files.max_body_bytes`) no estorba al uso real."""
+    c = esc(versions=0)
+
+    resp = client_as(c.pres).post(f"{c.url}/mensaje", data={"body": "Normal"},
+                                  files={"archivo": ("a.pdf", PDF, "application/pdf")})
+
+    assert resp.status_code == 200, resp.text[:300]
+
+
 def test_abrir_marca_leido(esc, client_as, db_session):
     from itcj2.apps.titulatec.services.review_service import ReviewService
 

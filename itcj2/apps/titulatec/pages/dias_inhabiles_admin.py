@@ -207,6 +207,13 @@ def _cuerpo_remove(request, user, form):
                             headers={"X-Tt-Error": _hdr("No tienes permiso para modificar el calendario.")})
         anio = _parse_anio(form.get("anio"), db_now().date().year)
         values = {"start": form.get("start") or "", "end": form.get("end") or ""}
+        # «Quitar un rango» (`mode=range`) exige las DOS fechas: su confirmación
+        # habla de un rango, y con «Al» vacío quitaría un solo día. La X de una
+        # fila (un día suelto) no manda `mode` ni `end`: sigue siendo `end = start`.
+        if form.get("mode") == "range" and not values["end"].strip():
+            return _repintar(request, db, uid, anio, values={"rm_start": values["start"],
+                                                             "rm_end": values["end"]},
+                             error="Indica la fecha de inicio y la de fin del rango.")
         start = _parse_iso(values["start"])
         end = _parse_iso(values["end"]) if values["end"] else start
         if start is None or end is None:

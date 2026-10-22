@@ -1,5 +1,10 @@
-{# Respuesta de un envío correcto: la burbuja nueva (va al final de la lista) y,
-   fuera de banda, se limpia el error del formulario y, si cambió, el estado. #}
+{# Respuesta de un envío correcto: las burbujas nuevas (la propia y lo que otros
+   escribieron desde `after`; van al final de la lista) y, fuera de banda, se
+   limpia el error del formulario y se re-pintan el estado y el encabezado del
+   formulario de versión (tras la primera subida ya no pide «la primera»). #}
 {% include "titulatec/partials/review/_messages.html" %}
 <div id="{{ oob_clear }}" class="tt-rvs-err" hx-swap-oob="innerHTML"></div>
-{% if oob %}{% include "titulatec/partials/student/revision/_status_slot.html" %}{% endif %}
+{% if oob %}
+{% include "titulatec/partials/student/revision/_status_slot.html" %}
+{% include "titulatec/partials/student/revision/_ver_head.html" %}
+{% endif %}

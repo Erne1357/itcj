@@ -73,8 +73,12 @@ _FASE_2_NEW_PERMISSIONS: set[str] = {
 }
 
 # Tarea periodica sembrada por `03_revision_sinodales.sql` (cron diario 9:15).
+# El verificador exige que EXISTA; inactiva (pausada desde /config/system/tasks)
+# es solo un AVISO (`_avisos_fase_2`).
 _FASE_2_PERIODIC_TASK = "titulatec.review_reminders"
-_FASE_2_PERIODIC_CRON = "15 9 * * *"
+
+# D12 (spec fase 5 §6.5): payload del `process_resumed` de la reactivacion.
+_D12_PAYLOAD = {"reason": "checkpoint", "source": "init-titulatec-fase-2"}
 
 # Los 8 departamentos con sinodales propios (spec fase 4 §5.1).
 _FASE_2_DEPARTMENTS: tuple[str, ...] = (
@@ -147,31 +151,46 @@ def _program_mapping_rows(db) -> list[tuple]:
 
 
 def _avisos_fase_2() -> list[str]:
-    """Diferencias con la siembra que NO son un problema (hallazgo 2): una carrera
-    corregida en «Carreras por departamento» ya no esta en el depto sembrado.
-    El comando las imprime y sigue. Sesion propia, solo lectura."""
+    """Diferencias con la siembra que NO son un problema y el comando imprime sin
+    abortar: una carrera corregida en «Carreras por departamento» ya no esta en
+    el depto sembrado (hallazgo 2), o la tarea periodica de la fase 5 esta
+    pausada desde /config/system/tasks (el 03 respeta `is_active`; abortar
+    bloquearia todo re-run). Sesion propia, solo lectura."""
+    from sqlalchemy import text
+
     from itcj2.database import SessionLocal
 
     db = SessionLocal()
     try:
-        return [f"la carrera '{nombre}' esta mapeada a {actual} (la siembra dice {sembrado})"
-                for nombre, sembrado, actual, existe, _docentes in _program_mapping_rows(db)
-                if existe and actual is not None and actual != sembrado]
+        avisos = [f"la carrera '{nombre}' esta mapeada a {actual} (la siembra dice {sembrado})"
+                  for nombre, sembrado, actual, existe, _docentes in _program_mapping_rows(db)
+                  if existe and actual is not None and actual != sembrado]
+        tarea = db.execute(
+            text("SELECT is_active FROM core_periodic_tasks WHERE task_name = :t"),
+            {"t": _FASE_2_PERIODIC_TASK}).first()
+        if tarea is not None and not tarea[0]:
+            avisos.append(f"la tarea periodica {_FASE_2_PERIODIC_TASK} esta inactiva "
+                          "(pausada en /config/system/tasks): no habra recordatorios")
+        return avisos
     finally:
         db.close()
 
 
-def _contar_d12(db) -> int:
-    """Procesos 'on_hold' cuya fase `review_appointment` ya esta aprobada (D12).
-    Solo lectura: es lo que el 03 reactivaria."""
-    from sqlalchemy import text
+def _query_d12(db):
+    """Procesos 'on_hold' que ya pasaron su primer checkpoint (D12): el predicado
+    UNICO de `ProcessService.first_checkpoint_clause` (fase `review_appointment`
+    por codigo, `approved`)."""
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.process_service import ProcessService
 
-    return db.execute(text(
-        "SELECT COUNT(*) FROM titulatec_processes pr WHERE pr.status = 'on_hold' "
-        "AND EXISTS (SELECT 1 FROM titulatec_process_phases pp "
-        "JOIN titulatec_phase_definitions pd ON pd.number = pp.phase_number "
-        "WHERE pp.process_id = pr.id AND pp.status = 'approved' "
-        "AND pd.code = 'review_appointment')")).scalar() or 0
+    return db.query(TitulationProcess).filter(
+        TitulationProcess.status == "on_hold",
+        ProcessService.first_checkpoint_clause(db))
+
+
+def _contar_d12(db) -> int:
+    """Cuantos reactivaria D12. Solo lectura."""
+    return _query_d12(db).count()
 
 
 def _procesos_d12() -> int:
@@ -181,6 +200,36 @@ def _procesos_d12() -> int:
     db = SessionLocal()
     try:
         return _contar_d12(db)
+    finally:
+        db.close()
+
+
+def _reactivar_d12() -> int:
+    """D12 (spec fase 5 §6.5): los procesos 'on_hold' con el cotejo aprobado
+    vuelven a 'active'. Por ORM, con un `ProcessEvent` `process_resumed` por
+    proceso (`actor_id` NULL, `_D12_PAYLOAD`): el timeline del alumno y del
+    expediente lo dicen, y la red de la bitacora espeja el evento y el cambio
+    de estado (canal `cli` del comando). Filas con `FOR UPDATE` (una revocacion
+    concurrente no se pisa). Idempotente: la segunda corrida no encuentra a
+    nadie. Devuelve cuantos reactivo. Sesion propia, un commit."""
+    from itcj2.apps.titulatec.models import ProcessEvent, TitulationProcess
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        procesos = (_query_d12(db).order_by(TitulationProcess.id)
+                    .with_for_update(key_share=True).all())
+        for proc in procesos:
+            proc.status = "active"
+            db.add(ProcessEvent(process_id=proc.id, actor_id=None,
+                                event_type="process_resumed",
+                                phase_number=proc.current_phase,
+                                payload=dict(_D12_PAYLOAD)))
+        db.commit()
+        return len(procesos)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
@@ -294,13 +343,13 @@ def _verify_fase_2() -> list[str]:
                  "WHERE code = 'synodal_review'")).first()
         if fila is None or fila[0] != "synodals":
             problemas.append("la fase synodal_review no tiene responsible=synodals")
+        # Solo que EXISTA: inactiva (pausada desde /config/system/tasks) es un
+        # AVISO de `_avisos_fase_2`, nunca un problema que aborte el re-run.
         tarea = db.execute(
-            text("SELECT is_active, cron_expression FROM core_periodic_tasks "
-                 "WHERE task_name = :t"), {"t": _FASE_2_PERIODIC_TASK}).first()
+            text("SELECT 1 FROM core_periodic_tasks WHERE task_name = :t"),
+            {"t": _FASE_2_PERIODIC_TASK}).first()
         if tarea is None:
             problemas.append(f"falta la tarea periodica {_FASE_2_PERIODIC_TASK}")
-        elif not tarea[0]:
-            problemas.append(f"la tarea periodica {_FASE_2_PERIODIC_TASK} esta inactiva")
     finally:
         db.close()
     return problemas
@@ -314,10 +363,13 @@ def init_titulatec_fase_2_command(dry_run):
 
     Corre SOLO `database/DML/titulatec/fase_2/*.sql` (en el orden de
     `_DML_FASE_2_FILES`): NO re-ejecuta el 15 ni el resto de `SEED_FILES`.
-    Idempotente (ON CONFLICT). Invalida el cache de authz solo de titulatec y
-    VERIFICA con `_verify_fase_2()`; aborta si algo no aterrizo. Una carrera
-    corregida en «Carreras por departamento» (otro depto con docentes) sale
-    como AVISO (`_avisos_fase_2()`), sin abortar.
+    Idempotente (ON CONFLICT). Despues de los SQL hace la correccion D12 en
+    Python (`_reactivar_d12`: 'on_hold' con el cotejo aprobado -> 'active',
+    con su `process_resumed`) y la reporta. Invalida el cache de authz solo de
+    titulatec y VERIFICA con `_verify_fase_2()`; aborta si algo no aterrizo.
+    Una carrera corregida en «Carreras por departamento» (otro depto con
+    docentes) o la tarea periodica pausada salen como AVISO
+    (`_avisos_fase_2()`), sin abortar.
 
     IMPORTANTE: tras cualquier `init-titulatec` o `init-ajustes-2026-10` hay
     que volver a correr este comando (sus DELETE de convergencia quitan los
@@ -355,6 +407,11 @@ def init_titulatec_fase_2_command(dry_run):
         click.echo(f"   Ejecutando: {nombre}")
         execute_sql_file(str(DML_TITULATEC / nombre), invalidate_authz=False)
         click.echo(f"   Completado: {nombre}")
+
+    # D12 (spec fase 5 §6.5): fuera del SQL para que deje rastro (evento +
+    # bitacora) y el conteo se vea en la corrida real, no en un RAISE NOTICE.
+    reactivados = _reactivar_d12()
+    click.echo(f"D12: {reactivados} proceso(s) reactivado(s).")
 
     # Tras el commit y ANTES de verificar; best-effort (Redis caido = TTL de 5 min).
     from itcj2.core.services.authz_cache import invalidate_app

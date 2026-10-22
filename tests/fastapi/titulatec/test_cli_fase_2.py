@@ -72,6 +72,7 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
     with patch("itcj2.cli.core.execute_sql_file",
                side_effect=lambda ruta, **kw: ejecutados.append((Path(ruta).name, kw))), \
             patch("itcj2.core.services.authz_cache.invalidate_app") as inv, \
+            patch.object(cli, "_reactivar_d12", return_value=3) as d12, \
             patch.object(cli, "_verify_fase_2", return_value=[]) as verificar, \
             patch.object(cli, "_avisos_fase_2", return_value=[]) as avisos:
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
@@ -81,8 +82,12 @@ def test_el_comando_corre_los_archivos_de_fase_2_y_verifica(tmp_path, monkeypatc
                           ("02_sinodales.sql", {"invalidate_authz": False}),
                           ("03_revision_sinodales.sql", {"invalidate_authz": False})]
     inv.assert_called_once_with("titulatec")
+    d12.assert_called_once_with()
     verificar.assert_called_once_with()
     avisos.assert_called_once_with()
+    # I3: la corrida REAL reporta D12 (antes solo un RAISE NOTICE que nadie leía).
+    assert "D12: 3 proceso(s) reactivado(s)." in res.output
+    assert res.output.index("Completado: fase_2/03") < res.output.index("D12: 3")
     assert "OK" in res.output
 
 
@@ -95,6 +100,7 @@ def test_los_avisos_se_imprimen_y_no_abortan(tmp_path, monkeypatch):
     aviso = "la carrera 'Ing. Tics' esta mapeada a ead (la siembra dice sys_computing)"
     with patch("itcj2.cli.core.execute_sql_file"), \
             patch("itcj2.core.services.authz_cache.invalidate_app"), \
+            patch.object(cli, "_reactivar_d12", return_value=0), \
             patch.object(cli, "_verify_fase_2", return_value=[]), \
             patch.object(cli, "_avisos_fase_2", return_value=[aviso]):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
@@ -110,6 +116,7 @@ def test_el_comando_aborta_si_no_aterrizo(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
     with patch("itcj2.cli.core.execute_sql_file"), \
             patch("itcj2.core.services.authz_cache.invalidate_app"), \
+            patch.object(cli, "_reactivar_d12", return_value=0), \
             patch.object(cli, "_verify_fase_2", return_value=["el rol admin no tiene x"]):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, [])
 
@@ -133,39 +140,91 @@ def test_dry_run_lista_el_archivo_y_no_ejecuta(tmp_path, monkeypatch):
     from itcj2.cli.titulatec import fase2 as cli
 
     monkeypatch.setattr(cli, "DML_TITULATEC", _dml_en_tmp(tmp_path))
-    with patch("itcj2.cli.core.execute_sql_file") as correr,             patch.object(cli, "_procesos_d12", return_value=7):
+    with patch("itcj2.cli.core.execute_sql_file") as correr, \
+            patch.object(cli, "_reactivar_d12") as d12, \
+            patch.object(cli, "_procesos_d12", return_value=7):
         res = CliRunner().invoke(cli.init_titulatec_fase_2_command, ["--dry-run"])
 
     assert res.exit_code == 0, res.output
     correr.assert_not_called()
+    d12.assert_not_called()                     # el dry-run solo cuenta
     assert ARCHIVO in res.output
     assert "fase_2/02_sinodales.sql" in res.output
     assert "fase_2/03_revision_sinodales.sql" in res.output
     assert "se reactivarian 7 proceso(s)" in res.output
 
 
-def test_contar_d12_es_solo_lectura_y_cuenta_los_en_pausa_con_cotejo_aprobado(
-        db_session, make_user, make_process, patched_session_local):
+def _en_pausa_con_cotejo(db_session, make_user, make_process, *, aprobado=True):
+    """Proceso 'on_hold' con la fase `review_appointment` (por código) aprobada o no."""
     from sqlalchemy import text
 
     from itcj2.apps.titulatec.models import ProcessPhase
-    from itcj2.cli.titulatec import fase2 as cli
 
     num = db_session.execute(text(
         "SELECT number FROM titulatec_phase_definitions WHERE code = 'review_appointment'")).scalar()
-    antes = cli._contar_d12(db_session)
     proc = make_process(make_user())
     proc.status = "on_hold"
     fase = db_session.query(ProcessPhase).filter_by(process_id=proc.id, phase_number=num).first()
     if fase is None:
         fase = ProcessPhase(process_id=proc.id, phase_number=num)
         db_session.add(fase)
-    fase.status = "approved"
+    fase.status = "approved" if aprobado else "in_progress"
     db_session.flush()
+    return proc
+
+
+def test_contar_d12_es_solo_lectura_y_cuenta_los_en_pausa_con_cotejo_aprobado(
+        db_session, make_user, make_process, patched_session_local):
+    from itcj2.cli.titulatec import fase2 as cli
+
+    antes = cli._contar_d12(db_session)
+    proc = _en_pausa_con_cotejo(db_session, make_user, make_process)
 
     assert cli._contar_d12(db_session) == antes + 1
     assert cli._procesos_d12() == antes + 1
     assert db_session.get(type(proc), proc.id).status == "on_hold"  # nada se escribio
+
+
+@pytest.mark.usefixtures("audit_mark")
+def test_reactivar_d12_pasa_a_active_con_su_evento_y_es_idempotente(
+        db_session, make_user, make_process, patched_session_local):
+    """I3 (revisión final): D12 ya no es un UPDATE crudo del SQL (sin rastro). Por
+    ORM: 'active' + un `process_resumed` por proceso (`actor_id` NULL, payload
+    `{"reason": "checkpoint", "source": "init-titulatec-fase-2"}`), que la red de
+    la bitácora espeja. Solo los que pasaron el primer checkpoint; la segunda
+    corrida no encuentra a nadie."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    from itcj2.cli.titulatec import fase2 as cli
+    from tests.fastapi.titulatec.conftest import audit_query
+
+    con = _en_pausa_con_cotejo(db_session, make_user, make_process)
+    sin = _en_pausa_con_cotejo(db_session, make_user, make_process, aprobado=False)
+    db_session.commit()
+    pendientes = cli._contar_d12(db_session)
+    assert pendientes >= 1
+
+    assert cli._reactivar_d12() == pendientes
+    db_session.expire_all()
+
+    assert db_session.get(type(con), con.id).status == "active"
+    assert db_session.get(type(sin), sin.id).status == "on_hold"
+    (evento,) = db_session.query(ProcessEvent).filter_by(process_id=con.id,
+                                                         event_type="process_resumed").all()
+    assert evento.actor_id is None
+    assert evento.payload == {"reason": "checkpoint", "source": "init-titulatec-fase-2"}
+    assert evento.phase_number == con.current_phase
+    assert not db_session.query(ProcessEvent).filter_by(process_id=sin.id).filter(
+        ProcessEvent.event_type == "process_resumed").count()
+    # La red de la bitácora espeja el evento (canal de quien corre el comando).
+    espejo = audit_query(db_session).filter_by(source="process_event",
+                                               action="process.process_resumed",
+                                               process_id=con.id).all()
+    assert len(espejo) == 1
+
+    # Idempotente: nadie más que reactivar, ningún evento nuevo.
+    assert cli._reactivar_d12() == 0
+    assert db_session.query(ProcessEvent).filter_by(
+        process_id=con.id, event_type="process_resumed").count() == 1
 
 
 def test_verify_fase_2_exige_la_tarea_periodica_y_el_responsable(
@@ -190,7 +249,37 @@ def test_verify_fase_2_exige_la_tarea_periodica_y_el_responsable(
         "INSERT INTO core_periodic_tasks (name, task_name, cron_expression, kwargs_json, is_active) "
         "VALUES ('zz test', 'titulatec.zz_inexistente', '15 9 * * *', '{}', FALSE)"))
     db_session.flush()
-    assert "esta inactiva" in " | ".join(cli._verify_fase_2())
+    # M2 (revisión final): pausada desde /config/system/tasks NO aborta el re-run;
+    # existe, así que el verificador calla y queda como AVISO.
+    texto = " | ".join(cli._verify_fase_2())
+    assert "titulatec.zz_inexistente" not in texto
+    avisos = [a for a in cli._avisos_fase_2() if "titulatec.zz_inexistente" in a]
+    assert len(avisos) == 1 and "esta inactiva" in avisos[0]
+
+
+def test_la_tarea_activa_no_da_aviso(db_session, patched_session_local, monkeypatch):
+    from sqlalchemy import text
+
+    from itcj2.cli.titulatec import fase2 as cli
+
+    monkeypatch.setattr(cli, "_FASE_2_PERIODIC_TASK", "titulatec.zz_activa")
+    db_session.execute(text(
+        "INSERT INTO core_task_definitions (task_name, display_name, app_name, category, "
+        "default_args, is_active) VALUES ('titulatec.zz_activa', 'zz', 'titulatec', "
+        "'notification', '{}', TRUE)"))
+    db_session.execute(text(
+        "INSERT INTO core_periodic_tasks (name, task_name, cron_expression, kwargs_json, is_active) "
+        "VALUES ('zz activa', 'titulatec.zz_activa', '15 9 * * *', '{}', TRUE)"))
+    db_session.flush()
+
+    assert not [a for a in cli._avisos_fase_2() if "titulatec.zz_activa" in a]
+    assert not [p for p in cli._verify_fase_2() if "titulatec.zz_activa" in p]
+
+
+def _literales_unidos(sql: str) -> str:
+    """`'a'\\n   'b'` -> `'ab'`: PostgreSQL une literales separados por un salto."""
+    import re
+    return re.sub(r"'\s*\n\s*'", "", sql)
 
 
 @requires_dml
@@ -201,10 +290,28 @@ def test_el_03_siembra_lo_que_el_verificador_espera():
         assert f"'{codigo}'" in cuerpo
     assert "'titulatec.review_reminders'" in cuerpo and "'15 9 * * *'" in cuerpo
     assert "responsible = 'synodals'" in cuerpo and "'synodal_review'" in cuerpo
-    assert "pd.code = 'review_appointment'" in cuerpo and "status = 'active'" in cuerpo
+    # I3: D12 ya no vive en el SQL (lo hace el comando, por ORM, con su evento).
+    assert "UPDATE titulatec_processes" not in cuerpo
+    assert "review_appointment" not in cuerpo
     assert "ON CONFLICT (app_id, code) DO UPDATE SET description = EXCLUDED.description" in cuerpo
     assert "read.all" not in cuerpo
     assert "permission_id" not in cuerpo
+
+
+@requires_dml
+def test_el_03_copia_exacta_la_definicion_de_la_tarea():
+    """M1 (revisión final): el ON CONFLICT del 03 reescribe `description` de
+    `core_task_definitions`; si no es la de `TASK_DEFINITIONS` pisa la del código
+    (y decía que avisaba «al departamento», falso)."""
+    from itcj2.tasks.titulatec_tasks import TASK_DEFINITIONS
+
+    (defn,) = [d for d in TASK_DEFINITIONS if d["task_name"] == "titulatec.review_reminders"]
+    sql = _literales_unidos((DML / "fase_2/03_revision_sinodales.sql").read_text(encoding="utf-8"))
+    cuerpo = sql.split("DO $$", 1)[1]
+    assert f"'{defn['description']}'" in cuerpo
+    assert f"'{defn['display_name']}'" in cuerpo
+    assert "departamento" not in cuerpo.lower()
+    assert "--" not in defn["description"], "execute_sql_file recorta tras dos guiones"
 
 
 def test_verify_fase_2_reporta_un_grant_faltante(db_session, make_role, patched_session_local):

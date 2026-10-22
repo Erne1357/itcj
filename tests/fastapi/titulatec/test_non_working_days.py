@@ -86,6 +86,49 @@ def test_add_range_acepta_exactamente_120_dias_y_deja_una_fila_de_bitacora(db_se
     assert filas[0].module == "calendar"
 
 
+def test_add_range_con_un_dia_que_otra_peticion_registro_entre_tanto(db_session, make_user,
+                                                                    monkeypatch):
+    """M6 (revisión final): dos altas simultáneas del mismo día daban
+    `IntegrityError` -> 500. Se simula la carrera: la lectura previa no ve el día
+    (la otra petición aún no commiteaba) y al insertar choca con `UNIQUE(day)`.
+    Cuenta como `existing`, el resto entra y la descripción ajena no se pisa."""
+    actor = make_user()
+    martes = LUN + timedelta(days=1)
+    db_session.add(NonWorkingDay(day=martes, description="De la otra peticion",
+                                 created_by_id=actor.id))
+    db_session.flush()
+    monkeypatch.setattr(S, "_existing_days", staticmethod(lambda db, start, end: set()))
+
+    r = S.add_range(db_session, actor.id, start=LUN, end=LUN + timedelta(days=2),
+                    description="Puente")
+
+    assert r == {"added": 2, "weekend": 0, "existing": 1}
+    filas = _filas(db_session, LUN, LUN + timedelta(days=2))
+    assert [f.day for f in filas] == [LUN, martes, LUN + timedelta(days=2)]
+    assert {f.day: f.description for f in filas}[martes] == "De la otra peticion"
+    (registro,) = _bitacora(db_session, "non_working_day.added")
+    assert registro.payload["added"] == 2
+
+
+def test_un_alta_o_baja_que_no_cambio_nada_no_deja_bitacora(db_session, make_user):
+    """M6: un rango de solo fin de semana o de días ya registrados, y una baja de un
+    rango vacío, no escriben fila de bitácora."""
+    actor = make_user()
+    S.add_range(db_session, actor.id, start=LUN, end=LUN, description="Lunes")
+    assert len(_bitacora(db_session, "non_working_day.added")) == 1
+
+    sabado = LUN + timedelta(days=5)
+    assert S.add_range(db_session, actor.id, start=sabado, end=sabado + timedelta(days=1),
+                       description="Fin de semana") == {"added": 0, "weekend": 2, "existing": 0}
+    assert S.add_range(db_session, actor.id, start=LUN, end=LUN,
+                       description="Otra vez") == {"added": 0, "weekend": 0, "existing": 1}
+    assert S.remove_range(db_session, actor.id, start=LUN + timedelta(days=14),
+                          end=LUN + timedelta(days=16)) == 0
+
+    assert len(_bitacora(db_session, "non_working_day.added")) == 1
+    assert _bitacora(db_session, "non_working_day.removed") == []
+
+
 def test_remove_range_y_list_year(db_session, make_user):
     actor = make_user()
     S.add_range(db_session, actor.id, start=LUN, end=LUN + timedelta(days=4),

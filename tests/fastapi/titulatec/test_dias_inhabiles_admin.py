@@ -186,6 +186,40 @@ def test_quitar_un_rango(esc, client_as, db_session):
     assert _dias(db_session) == [date(ANIO, 3, 8)]
 
 
+def test_el_formulario_de_rango_manda_su_modo(esc, client_as, db_session):
+    _sembrar(db_session, esc.admin, [date(ANIO, 3, 5)])
+    doc = lxml.html.fromstring(client_as(esc.admin).get(f"{URL}?anio={ANIO}").text)
+    assert doc.xpath('//form[@id="tt-dias-remove"]//input[@name="mode"]/@value') == ["range"]
+    # La X de una fila (un día suelto) no lleva modo: sigue siendo `end = start`.
+    assert not doc.xpath('//form[@class="tt-dias-rm"]//input[@name="mode"]')
+
+
+def test_quitar_un_rango_sin_al_da_200_con_mensaje_y_no_borra(esc, client_as, db_session):
+    """M5 (revisión final): con «Al» vacío el servidor tomaba `end = start` y quitaba
+    UN día tras una confirmación que hablaba de un rango."""
+    _sembrar(db_session, esc.admin, [date(ANIO, 3, 5), date(ANIO, 3, 6)])
+
+    resp = client_as(esc.admin).post(URL + "/quitar", data={
+        "anio": str(ANIO), "mode": "range", "start": f"{ANIO}-03-05", "end": ""})
+
+    assert resp.status_code == 200
+    assert not resp.headers.get("X-Tt-Notice")
+    (error,) = lxml.html.fromstring(resp.text).xpath('//*[@id="tt-dias-error"]')
+    assert "la de fin del rango" in error.text_content()
+    assert _dias(db_session) == [date(ANIO, 3, 5), date(ANIO, 3, 6)]
+    assert audit_query(db_session).filter_by(action="non_working_day.removed").count() == 0
+
+
+def test_quitar_un_rango_completo_con_modo(esc, client_as, db_session):
+    _sembrar(db_session, esc.admin, [date(ANIO, 3, 5), date(ANIO, 3, 6)])
+
+    resp = client_as(esc.admin).post(URL + "/quitar", data={
+        "anio": str(ANIO), "mode": "range", "start": f"{ANIO}-03-05", "end": f"{ANIO}-03-06"})
+
+    assert _hdr(resp, "X-Tt-Notice") == "Se quitaron 2 días inhábiles."
+    assert _dias(db_session) == []
+
+
 def test_quitar_un_rango_invalido_da_200_con_mensaje(esc, client_as, db_session):
     _sembrar(db_session, esc.admin, [date(ANIO, 3, 5)])
     resp = client_as(esc.admin).post(URL + "/quitar", data={

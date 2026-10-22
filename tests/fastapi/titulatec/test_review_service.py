@@ -309,19 +309,35 @@ class TestNadieMasLeeSignatureRule:
         assert self._lecturas(ast.parse(muestra)) == [2, 4]
 
     def test_solo_review_service_lee_signature_rule(self):
-        ofensas = []
-        for carpeta in ("services", "pages"):
-            for ruta in sorted((_APP / carpeta).glob("*.py")):
-                if ruta.name == "review_service.py":
-                    continue
-                arbol = ast.parse(ruta.read_text(encoding="utf-8"))
-                ofensas += [f"{carpeta}/{ruta.name}:{n}" for n in self._lecturas(arbol)]
+        """M8 (revisión final): TODO `itcj2/apps/titulatec/` (rglob), no solo
+        `services/` y `pages/`: un util, un CLI de la app o un helper de `nav`
+        también serían un segundo lector. Se excluyen `models/` (define la
+        columna y su `to_dict`) y el propio `review_service.py`."""
+        ofensas, revisados = [], 0
+        for ruta in sorted(_APP.rglob("*.py")):
+            relativo = ruta.relative_to(_APP).as_posix()
+            if relativo.startswith("models/") or relativo == "services/review_service.py":
+                continue
+            revisados += 1
+            arbol = ast.parse(ruta.read_text(encoding="utf-8"))
+            ofensas += [f"{relativo}:{n}" for n in self._lecturas(arbol)]
+        assert revisados > 50, f"el rglob solo vio {revisados} archivos"
         assert not ofensas, (
             "`signature_rule` se lee fuera de services/review_service.py (usa "
             "ReviewService.counting_roles / rule_for / signature_text):\n"
             + "\n".join(ofensas))
         assert self._lecturas(ast.parse(
             (_APP / "services" / "review_service.py").read_text(encoding="utf-8")))
+
+    def test_ninguna_plantilla_lee_signature_rule(self):
+        """Una plantilla con `modality.signature_rule == ...` sería otro traductor
+        de la regla, invisible al AST de Python."""
+        patron = re.compile(r"\bsignature_rule\b")
+        plantillas = sorted((_APP / "templates").rglob("*.html"))
+        assert len(plantillas) > 50
+        ofensas = [p.relative_to(_APP).as_posix() for p in plantillas
+                   if patron.search(p.read_text(encoding="utf-8"))]
+        assert not ofensas, "plantillas que leen `signature_rule`:\n" + "\n".join(ofensas)
 
 
 # ---------------------------------------------------------------------------
@@ -897,6 +913,32 @@ class TestApertura:
         assert nuevo is not None and otra_vez.id == nuevo.id
         (mensaje,) = _mensajes(db_session, nuevo.id)
         assert mensaje.kind == "system" and mensaje.body == OPEN_CHAT_MSG
+
+    @pytest.mark.parametrize("como", ["on_hold", "cancelled", "completed",
+                                      "fase_aprobada", "fase_pendiente"])
+    def test_chat_for_no_crea_fuera_de_una_revision_viva(self, db_session, caso, como):
+        """I4 (revisión final): el respaldo solo crea con el proceso `active` y la
+        fase 5 `in_progress`. Para un proceso cerrado, pausado, revocado o con la
+        fase 5 fuera de curso devuelve None SIN escribir: el mensaje de apertura
+        es inmutable y abriría `/student/revision` y la tarjeta del alumno."""
+        from itcj2.apps.titulatec.models import ChatMessage, ProcessChat
+
+        if como == "fase_aprobada":
+            c = caso(phase_status="approved")
+        elif como == "fase_pendiente":
+            c = caso(phase_status="pending")
+        else:
+            c = caso()
+            c.process.status = como
+        db_session.delete(c.chat)
+        db_session.commit()
+        mensajes_antes = db_session.query(ChatMessage).count()
+
+        assert ReviewService.chat_for(db_session, c.process, create=True) is None
+
+        db_session.expire_all()
+        assert db_session.query(ProcessChat).filter_by(process_id=c.process.id).count() == 0
+        assert db_session.query(ChatMessage).count() == mensajes_antes
 
 
 # ---------------------------------------------------------------------------

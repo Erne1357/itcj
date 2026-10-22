@@ -728,6 +728,204 @@ class TestEstadoPuro:
 
 
 # ---------------------------------------------------------------------------
+# 8b. Revisión final (I1, I2, M7)
+# ---------------------------------------------------------------------------
+def _ids(html: str) -> list[int]:
+    return [int(x) for x in re.findall(r'data-tt-msg-id="(\d+)"', html)]
+
+
+class TestElPostTraeLoIntercalado:
+    """I1: los dos formularios llevan `data-tt-review-poll` (el JS compartido les
+    agrega `after`) y el POST usa la regla del docente: con `after` menor que el id
+    nuevo devuelve TAMBIÉN lo que otros escribieron entre refrescos. Antes
+    (`after_id = id propio - 1`) un mensaje ajeno de id menor nunca se pintaba y
+    `mark_read` hasta el id propio lo daba por leído."""
+
+    def test_los_dos_formularios_mandan_after(self, caso, client_as):
+        import lxml.html
+
+        c = caso()
+        doc = lxml.html.fromstring(client_as(c.student).get(BASE).text)
+        for form_id in ("tt-rv-form-msg", "tt-rv-form-ver"):
+            (form,) = doc.xpath(f'//form[@id="{form_id}"]')
+            assert form.get("data-tt-review-poll") == "#tt-rv-list", form_id
+
+    def test_un_mensaje_ajeno_de_id_menor_llega_en_la_respuesta_del_post(
+        self, caso, client_as, db_session,
+    ):
+        from itcj2.apps.titulatec.models import ChatMessage
+
+        c = caso()
+        previo = ReviewService.post_message(db_session, c.process, c.student.id,
+                                            body="Ya lo tenía en pantalla")
+        ajeno = ReviewService.post_message(db_session, c.process,
+                                           c.teachers["president"].id,
+                                           body="Llegó entre dos refrescos")
+
+        resp = client_as(c.student).post(BASE + "/mensaje", data={
+            "body": "Mi respuesta", "after": str(previo.id)})
+
+        assert resp.status_code == 200, resp.text[:300]
+        propio = _mensajes(db_session, c.chat.id, kind="message")[-1]
+        assert propio.body == "Mi respuesta" and ajeno.id < propio.id
+        assert _ids(resp.text) == [ajeno.id, propio.id]
+        assert "Llegó entre dos refrescos" in resp.text
+        # Nada queda leído sin haberse pintado: todo lo ajeno posterior a `after`
+        # hasta la marca de leído viene en ESTA respuesta.
+        ajenos = {m.id for m in db_session.query(ChatMessage)
+                  .filter(ChatMessage.chat_id == c.chat.id, ChatMessage.id > previo.id,
+                          ChatMessage.author_id != c.student.id)}
+        assert ajenos and ajenos <= set(_ids(resp.text))
+        assert ReviewService.unread_counts(db_session, c.student.id, [c.chat.id])[c.chat.id] == 0
+
+    def test_la_version_tambien_trae_lo_intercalado(self, caso, client_as, db_session):
+        c = caso()
+        previo = ReviewService.post_message(db_session, c.process, c.student.id, body="Previo")
+        ReviewService.post_message(db_session, c.process, c.teachers["vocal"].id,
+                                   body="Observación del vocal")
+
+        resp = client_as(c.student).post(
+            BASE + "/version", data={"after": str(previo.id)},
+            files={"archivo": ("v2.pdf", PDF, "application/pdf")})
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert "Observación del vocal" in resp.text and "Versión 2" in resp.text
+        assert previo.id not in _ids(resp.text)
+
+    def test_sin_after_solo_trae_lo_propio(self, caso, client_as, db_session):
+        """Misma regla que el docente: sin `after` (o uno mayor que el nuevo), solo
+        el mensaje propio."""
+        c = caso()
+        ReviewService.post_message(db_session, c.process, c.teachers["vocal"].id, body="Del vocal")
+
+        resp = client_as(c.student).post(BASE + "/mensaje", data={"body": "Solo lo mío",
+                                                                 "after": "99999999"})
+
+        assert "Solo lo mío" in resp.text and "Del vocal" not in resp.text
+
+
+class TestNadaSeLeeAntesDeLasGuardas:
+    """I2: tope solo-cabeceras (411/413) y luego dos saltos al hilo; el archivo
+    no se lee (`request.form()` no se llama) si una guarda lo va a rechazar."""
+
+    @pytest.fixture()
+    def lecturas(self, monkeypatch):
+        from starlette.requests import Request
+
+        leidas = []
+        original = Request.form
+
+        def _form(self, *a, **kw):
+            leidas.append(self.url.path)
+            return original(self, *a, **kw)
+
+        monkeypatch.setattr(Request, "form", _form)
+        return leidas
+
+    def _subir(self, cli):
+        return cli.post(BASE + "/version", files={"archivo": ("p.pdf", PDF, "application/pdf")})
+
+    def test_con_el_corte_en_3_no_lee_el_archivo(self, caso, client_as, corte, lecturas):
+        c = caso()
+        corte(3)
+
+        version = self._subir(client_as(c.student))
+        mensaje = client_as(c.student).post(BASE + "/mensaje", data={"body": "hola"})
+
+        assert version.status_code == 400 and version.headers.get("X-Tt-Error")
+        assert mensaje.status_code == 400
+        assert lecturas == []
+
+    def test_con_la_conversacion_cerrada_no_lee_el_archivo(self, caso, client_as, db_session,
+                                                           lecturas):
+        c = caso()
+        c.chat.closed_at = db_now()
+        db_session.commit()
+
+        resp = self._subir(client_as(c.student))
+
+        assert resp.status_code == 400
+        assert unquote(resp.headers["X-Tt-Error"]) == CLOSED_MSG
+        assert lecturas == []
+        assert len(_versiones(db_session, c.process.id)) == 1
+
+    def test_lo_valido_si_se_lee_una_sola_vez(self, caso, client_as, db_session, lecturas):
+        c = caso()
+
+        resp = self._subir(client_as(c.student))
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert lecturas == [BASE + "/version"]
+        assert len(_versiones(db_session, c.process.id)) == 2
+
+    def test_un_cuerpo_declarado_sobre_el_tope_es_413(self, caso, client_as, db_session,
+                                                      monkeypatch, lecturas):
+        c = caso()
+        monkeypatch.setattr(review_files, "max_body_bytes", lambda: 64)
+
+        version = self._subir(client_as(c.student))
+        mensaje = client_as(c.student).post(
+            BASE + "/mensaje", data={"body": "mira"},
+            files={"archivo": ("a.pdf", PDF, "application/pdf")})
+
+        for resp in (version, mensaje):
+            assert resp.status_code == 413
+            assert "El archivo supera" in unquote(resp.headers["X-Tt-Error"])
+        assert lecturas == []
+        assert len(_versiones(db_session, c.process.id)) == 1
+        assert _mensajes(db_session, c.chat.id, kind="message") == []
+
+    def test_sin_content_length_es_411(self, caso, client_as, lecturas):
+        """Un cuerpo `chunked` no declara tamaño: el tope no se podría aplicar
+        antes de leerlo, así que se rechaza (mismo criterio que `public.py`)."""
+        c = caso()
+
+        resp = client_as(c.student).post(
+            BASE + "/version", content=iter([b"--x\r\n"]),
+            headers={"Content-Type": "multipart/form-data; boundary=x"})
+
+        assert resp.status_code == 411 and resp.headers.get("X-Tt-Error")
+        assert lecturas == []
+
+
+class TestEncabezadoYCierre:
+    """M7: (a) tras la primera subida el encabezado ya no pide «la primera»; (b) el
+    refresco detiene el sondeo con la conversación ya no abierta aunque no haya
+    mensajes nuevos (una pausa o revocación no deja mensaje)."""
+
+    def test_tras_la_primera_version_el_encabezado_cambia_fuera_de_banda(self, caso,
+                                                                         client_as):
+        c = caso(versions=0)
+        assert "Sube la primera versión de tu proyecto" in client_as(c.student).get(BASE).text
+
+        resp = client_as(c.student).post(BASE + "/version",
+                                         files={"archivo": ("v1.pdf", PDF, "application/pdf")})
+
+        assert resp.status_code == 200, resp.text[:300]
+        assert 'id="tt-rv-ver-head" class="tt-rvs-ver-head" hx-swap-oob="true"' in resp.text
+        assert "Subir nueva versión" in resp.text
+        assert "Sube la primera versión de tu proyecto" not in resp.text
+
+    @pytest.mark.parametrize("estado", ["on_hold", "cancelled"])
+    def test_sin_mensajes_nuevos_y_sin_conversacion_abierta_detiene_el_sondeo(
+        self, caso, client_as, db_session, estado,
+    ):
+        c = caso()
+        ultimo = ReviewService.post_message(db_session, c.process, c.teachers["president"].id,
+                                            body="Último antes de la pausa")
+        c.process.status = estado
+        db_session.commit()
+
+        resp = client_as(c.student).get(BASE + "/mensajes", params={"after": ultimo.id})
+
+        assert resp.status_code == 200
+        assert _ids(resp.text) == []
+        assert 'id="tt-rv-poll" hx-swap-oob="outerHTML" hidden' in resp.text
+        assert 'id="tt-rv-actions"' in resp.text and "solo para consulta" in resp.text
+        assert "tt-rv-form-msg" not in resp.text
+
+
+# ---------------------------------------------------------------------------
 # 9. Reglas de la casa de lo nuevo
 # ---------------------------------------------------------------------------
 class TestReglasDeLaCasa:

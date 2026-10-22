@@ -412,12 +412,14 @@
 
 {# ------------------------------------------------ 05 · revisión ----------- #}
 {# Solo el ESTADO (spec fase 5 §8.3, D1): el expediente no entra a la
-   conversación; sin mensajes, archivos ni ligas a ella. #}
+   conversación; sin mensajes, archivos ni ligas a ella. Sin estado, el porqué
+   (`ReviewService.empty_label`, patrón de la fase 4): no aplica, se lleva en
+   T-soft (corte) o todavía no llega. #}
 {% elif f.number == review_phase %}
   {% if review_applies %}
   {% include "titulatec/partials/review/_status.html" %}
   {% else %}
-  <p class="tt-exp-vacio">El proceso todavía no llega a la revisión de sinodales.</p>
+  <p class="tt-exp-vacio" data-tt-exp-revision>{{ review_empty_label }}</p>
   {% endif %}
 
 {# ------------------------------------------------ 06..08 · aún no existen -- #}

@@ -1102,6 +1102,48 @@ def test_antes_de_la_fase_5_el_expediente_no_pinta_el_estado(expediente, client_
     assert 'id="tt-rv-status"' not in html
 
 
+def _tarjeta_5(html: str) -> str:
+    """El panel de la fase 5, hasta donde empieza el acordeón de la 6."""
+    return " ".join(html.split('id="exp-panel-5"')[1].split('id="exp-fase-6"')[0].split())
+
+
+# M4 (revisión final): sin estado, la tarjeta de la fase 5 dice el porqué con el
+# patrón de la fase 4 (`ReviewService.empty_label`).
+@pytest.mark.parametrize("caso,corte,fase,esperado", [
+    # Producción (corte 3): el sentido de antes de la rama («todavía no está en la app»).
+    ("corte", 3, 5, "Esta fase todavía no está en la app: la revisión de sinodales se lleva en T-soft."),
+    ("corte_antes", 3, 2, "Esta fase todavía no está en la app: la revisión de sinodales se lleva en T-soft."),
+    # La modalidad salta la fase 5 (EGEL): gana sobre el corte y sobre «Sin versiones».
+    ("egel", 9, 6, "No aplica para esta modalidad."),
+    ("egel_corte", 3, 6, "No aplica para esta modalidad."),
+    # Operable, pero el proceso todavía no llega.
+    ("pendiente", 9, 4, "El proceso todavía no llega a la revisión de sinodales."),
+])
+def test_fase_5_sin_estado_dice_por_que(caso, corte, fase, esperado, expediente, client_as,
+                                       db_session, make_officer, make_modality, monkeypatch):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: corte))
+    esc = expediente(current_phase=fase)
+    if caso.startswith("egel"):
+        egel = make_modality(name=f"EGEL expediente fase 5 {caso}", requires_synodals=False,
+                             skips_phases=[4, 5])
+        esc["proc"].modality_id = egel.id
+        db_session.flush()
+        db_session.expire(esc["proc"], ["modality"])
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    tarjeta = _tarjeta_5(html)
+    assert esperado in tarjeta, tarjeta[:400]
+    assert 'id="tt-rv-status"' not in html
+    assert "Sin versiones todavía" not in tarjeta
+    for otra in ("No aplica para esta modalidad", "todavía no llega",
+                 "Esta fase todavía no está en la app"):
+        if otra not in esperado:
+            assert otra not in tarjeta, (otra, tarjeta[:400])
+
+
 def test_fase_5_con_el_corte_en_3_no_pinta_el_estado(
     expediente, client_as, db_session, make_department, make_teacher, make_synodals,
     make_officer, monkeypatch,

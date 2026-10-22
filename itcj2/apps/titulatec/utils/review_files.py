@@ -46,6 +46,24 @@ def max_bytes() -> int:
     return get_settings().TITULATEC_REVIEW_MAX_FILE_MB * _MB
 
 
+# Margen del CUERPO multipart sobre el tope del archivo: las cabeceras de cada
+# parte, el texto del mensaje (hasta 4000 caracteres) y los campos ocultos.
+MULTIPART_MARGIN_BYTES = 1 * _MB
+
+
+def max_body_bytes() -> int:
+    """Tope del cuerpo de una petición que trae un archivo de la revisión: el
+    del archivo más `MULTIPART_MARGIN_BYTES`. Lo usa la guarda solo-cabeceras de
+    las rutas (`pages/revisiones_admin.py::_review_body_block`, 411/413 ANTES de
+    leer el cuerpo); `validate` sigue midiendo el archivo real."""
+    return max_bytes() + MULTIPART_MARGIN_BYTES
+
+
+def too_big_msg() -> str:
+    """«El archivo supera N MB.» con el tope vigente (validación y guarda)."""
+    return f"El archivo supera {max(1, max_bytes() // _MB)} MB."
+
+
 def review_days() -> int:
     """Días hábiles que dura la revisión de los sinodales (config, cada llamada)."""
     return int(get_settings().TITULATEC_REVIEW_DAYS)
@@ -72,9 +90,8 @@ def validate(raw: bytes, original_name: str) -> tuple[str, str]:
     ext = _ext_of(original_name)
     if ext not in REVIEW_TYPES:
         raise ReviewFileError(_MSG_EXT)
-    limit = max_bytes()
-    if len(raw) > limit:
-        raise ReviewFileError(f"El archivo supera {max(1, limit // _MB)} MB.")
+    if len(raw) > max_bytes():
+        raise ReviewFileError(too_big_msg())
     if ext == "pdf":
         ok = raw.startswith(_PDF_MAGIC)
     elif ext == "doc":

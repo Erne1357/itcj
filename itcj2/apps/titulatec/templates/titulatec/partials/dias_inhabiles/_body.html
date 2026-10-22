@@ -88,6 +88,8 @@
         hx-confirm="Quitar rango|Los días registrados en ese rango volverán a contar como hábiles."
         data-tt-confirm-ok="Quitar" novalidate>
     <input type="hidden" name="anio" value="{{ anio }}">
+    {# El servidor exige «Al» con este modo (sin él quitaría un solo día). #}
+    <input type="hidden" name="mode" value="range">
     <label class="tt-dias-field">
       <span class="tt-dias-label">Del</span>
       <input type="date" name="start" class="tt-field" value="{{ v.rm_start or '' }}" required>

@@ -2,12 +2,15 @@
 import logging
 import time
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
 from itcj2.dependencies import require_page_app
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+# Guarda solo-cabeceras de las subidas de la revisión (fase 5), compartida con
+# «Mis revisiones» del docente: un solo tope para los dos lados.
+from itcj2.apps.titulatec.pages.revisiones_admin import _review_body_block
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.student")
 
@@ -2664,8 +2667,10 @@ def revision_messages(
 ):
     """Parcial del refresco (cada ~15 s, D10): solo los mensajes posteriores a `after`.
 
-    Con mensajes nuevos agrega también, fuera de banda, el panel de estado; si la
-    revisión ya se cerró, además detiene el sondeo y cambia el formulario por el aviso.
+    Con mensajes nuevos agrega también, fuera de banda, el panel de estado. Con
+    la conversación ya NO abierta (liberada, pausada, revocada) lo hace SIEMPRE,
+    haya o no mensajes nuevos: detiene el sondeo y cambia el formulario por el
+    aviso (una pausa o revocación no deja mensaje en el hilo).
     """
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -2681,9 +2686,10 @@ def revision_messages(
         chat = ReviewService.chat_for(db, process)
         items = ReviewService.messages(db, chat.id, after_id=_to_int(after))
         ctx = {"items": [], "me_id": uid, "file_base": _REVIEW_FILE_BASE, "oob": False}
-        if items:
+        if items or not ReviewService.is_open(process, chat):
             ctx = _review_view(db, process, chat, uid, items)
             ctx["oob"] = True
+        if items:
             ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
     finally:
         db.close()
@@ -2693,19 +2699,62 @@ def revision_messages(
 @router.post("/revision/mensaje", name="titulatec.pages.student.revision_message")
 async def revision_message(
     request: Request,
-    body: str = Form(""),
-    archivo: UploadFile | None = File(None),
     user: dict = Depends(require_page_app(
         "titulatec", perms=["titulatec.chat.api.send", "titulatec.chat.api.upload"])),
 ):
-    """Un mensaje del alumno, con o sin adjunto (PDF o Word)."""
-    raw = None
-    nombre = None
-    if archivo is not None and archivo.filename:
-        nombre = archivo.filename
-        raw = await archivo.read()
+    """Un mensaje del alumno, con o sin adjunto (PDF o Word).
+
+    Nada se lee antes de las guardas (CLAUDE.md de la app §1, matices (a) y
+    (b)): el tope solo-cabeceras (`_review_body_block`, 411/413) y luego DOS
+    saltos al hilo. El primero valida (proceso propio, fase y corte,
+    conversación abierta) y devuelve la respuesta final o None; solo entonces
+    se lee el form; el segundo repite la validación sobre el estado de AHORA y
+    escribe. Sin `File`/`Form` en la firma: FastAPI los leería ANTES de la ruta.
+    """
+    bloqueo = _review_body_block(request.headers)
+    if bloqueo is not None:
+        return bloqueo
+    respuesta = await run_in_threadpool(
+        _cuerpo_revision_message, request=request, user=user, form=None)
+    if respuesta is not None:
+        return respuesta
+    form = await request.form()
     return await run_in_threadpool(
-        _cuerpo_revision_message, request=request, user=user, body=body, raw=raw, nombre=nombre)
+        _cuerpo_revision_message, request=request, user=user, form=form)
+
+
+def _review_upload(form):
+    """`(raw, nombre)` del campo `archivo` del form ya leído, o `(None, None)` si
+    no eligieron archivo (un `<input type="file">` vacío llega sin nombre). Corre
+    en el hilo: el archivo ya está en el temporal de `request.form()`."""
+    up = form.get("archivo") if form is not None else None
+    if up is None or isinstance(up, str) or not getattr(up, "filename", None):
+        return None, None
+    up.file.seek(0)
+    return up.file.read(), up.filename
+
+
+def _review_after(form, nuevo_id: int) -> int:
+    """Desde qué id devuelve lo nuevo el POST (misma regla que el docente,
+    `revisiones_admin._cuerpo_message`): con `after` (el último id que el
+    cliente tiene; el formulario lleva `data-tt-review-poll`) también lo que
+    otros escribieron entre refrescos; sin él, solo lo propio."""
+    after = _to_int(form.get("after")) if form is not None else None
+    return after if after is not None and after < nuevo_id else nuevo_id - 1
+
+
+def _review_open_guard(process, chat) -> Response | None:
+    """Después de `_phase_guard`, en los DOS saltos de las mutaciones: 404 sin
+    conversación y 400 + `CLOSED_MSG` con la conversación de solo lectura
+    (cerrada, proceso no `active` o fase 5 no `in_progress`): ninguna de las
+    dos lee el archivo."""
+    from itcj2.apps.titulatec.services.review_service import CLOSED_MSG, ReviewService
+
+    if chat is None:
+        return Response(status_code=404)
+    if not ReviewService.is_open(process, chat):
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(CLOSED_MSG)})
+    return None
 
 
 def _review_perm_error(db, user_id: int, needs: set):
@@ -2719,8 +2768,12 @@ def _review_perm_error(db, user_id: int, needs: set):
     return None
 
 
-def _cuerpo_revision_message(request, user, body, raw, nombre):
-    """Cuerpo síncrono de `revision_message`: corre en el threadpool."""
+def _cuerpo_revision_message(request, user, form):
+    """Cuerpo síncrono de `revision_message`: corre en el threadpool.
+
+    Sin `form` (primer salto) solo valida: la `Response` final si algo se
+    rechaza, o None para que la ruta lea el cuerpo. Con `form` (segundo salto)
+    repite las guardas, revisa el permiso que pide ESTA petición y escribe."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.review_service import ReviewService
@@ -2734,26 +2787,32 @@ def _cuerpo_revision_message(request, user, body, raw, nombre):
         fuera_de_fase = _phase_guard(db, process, _phase_of(db, "synodal_review"))
         if fuera_de_fase:
             return fuera_de_fase
+        chat = ReviewService.chat_for(db, process)
+        cerrada = _review_open_guard(process, chat)
+        if cerrada:
+            return cerrada
+        if form is None:
+            return None                      # primer salto: se puede leer el cuerpo
+        body = str(form.get("body") or "")
+        raw, nombre = _review_upload(form)
         needs = set()
         if raw is not None:
             needs.add("titulatec.chat.api.upload")
-        if (body or "").strip() or raw is None:
+        if body.strip() or raw is None:
             needs.add("titulatec.chat.api.send")
         sin_permiso = _review_perm_error(db, uid, needs)
         if sin_permiso:
             return sin_permiso
-        chat = ReviewService.chat_for(db, process)
-        if chat is None:
-            return Response(status_code=404)
         try:
             msg = ReviewService.post_message(db, process, uid, body=body, raw=raw,
                                              original_name=nombre)
         except ValueError as exc:
             return _review_service_error(request, exc, _REVIEW_FORM_ERR_MSG)
-        items = ReviewService.messages(db, chat.id, after_id=msg.id - 1)
+        items = ReviewService.messages(db, chat.id, after_id=_review_after(form, msg.id))
         ctx = _review_view(db, process, chat, uid, items)
         ctx["oob_clear"] = _REVIEW_FORM_ERR_MSG
-        ctx["oob"] = False
+        # Puede traer mensajes de otros (votos incluidos): el estado va también.
+        ctx["oob"] = True
         if items:
             ReviewService.mark_read(db, chat.id, uid, items[-1]["id"])
     finally:
@@ -2764,21 +2823,27 @@ def _cuerpo_revision_message(request, user, body, raw, nombre):
 @router.post("/revision/version", name="titulatec.pages.student.revision_version")
 async def revision_version(
     request: Request,
-    archivo: UploadFile | None = File(None),
     user: dict = Depends(require_page_app("titulatec", perms=["titulatec.chat.api.upload"])),
 ):
-    """Sube una versión nueva del proyecto (PDF o Word); reinicia los votos (D4)."""
-    raw = None
-    nombre = None
-    if archivo is not None and archivo.filename:
-        nombre = archivo.filename
-        raw = await archivo.read()
+    """Sube una versión nueva del proyecto (PDF o Word); reinicia los votos (D4).
+
+    Misma forma que `revision_message`: tope solo-cabeceras y dos saltos (el
+    archivo no se lee si una guarda lo va a rechazar)."""
+    bloqueo = _review_body_block(request.headers)
+    if bloqueo is not None:
+        return bloqueo
+    respuesta = await run_in_threadpool(
+        _cuerpo_revision_version, request=request, user=user, form=None)
+    if respuesta is not None:
+        return respuesta
+    form = await request.form()
     return await run_in_threadpool(
-        _cuerpo_revision_version, request=request, user=user, raw=raw, nombre=nombre)
+        _cuerpo_revision_version, request=request, user=user, form=form)
 
 
-def _cuerpo_revision_version(request, user, raw, nombre):
-    """Cuerpo síncrono de `revision_version`: corre en el threadpool."""
+def _cuerpo_revision_version(request, user, form):
+    """Cuerpo síncrono de `revision_version`: corre en el threadpool. Sin `form`
+    (primer salto) solo valida; con `form` repite las guardas y escribe."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import ChatMessage
     from itcj2.apps.titulatec.services.document_service import DocumentService
@@ -2794,8 +2859,12 @@ def _cuerpo_revision_version(request, user, raw, nombre):
         if fuera_de_fase:
             return fuera_de_fase
         chat = ReviewService.chat_for(db, process)
-        if chat is None:
-            return Response(status_code=404)
+        cerrada = _review_open_guard(process, chat)
+        if cerrada:
+            return cerrada
+        if form is None:
+            return None                      # primer salto: se puede leer el cuerpo
+        raw, nombre = _review_upload(form)
         if raw is None:
             return _review_form_error(request, _REVIEW_FORM_ERR_VER,
                                       "Elige el archivo de tu proyecto (PDF o Word).")
@@ -2808,7 +2877,8 @@ def _cuerpo_revision_version(request, user, raw, nombre):
         mensaje_id = (db.query(ChatMessage.id)
                       .filter(ChatMessage.chat_id == chat.id, ChatMessage.kind == "version",
                               ChatMessage.version_id == version.id).scalar())
-        items = ReviewService.messages(db, chat.id, after_id=(mensaje_id or 1) - 1)
+        items = ReviewService.messages(db, chat.id,
+                                       after_id=_review_after(form, mensaje_id or 1))
         ctx = _review_view(db, process, chat, uid, items)
         ctx["oob_clear"] = _REVIEW_FORM_ERR_VER
         ctx["oob"] = True

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.models.non_working_day import NonWorkingDay
@@ -46,13 +47,26 @@ class NonWorkingDayService:
                 f"El rango no puede pasar de {NonWorkingDayService.MAX_RANGE_DAYS} días.")
 
     @staticmethod
+    def _existing_days(db: Session, start: date, end: date) -> set[date]:
+        """Dias ya registrados en el rango (una consulta)."""
+        return {d for (d,) in db.query(NonWorkingDay.day)
+                .filter(NonWorkingDay.day >= start, NonWorkingDay.day <= end).all()}
+
+    @staticmethod
     def add_range(db: Session, actor_id: int, *, start: date, end: date,
                   description: str) -> dict:
         """Registra como inhabiles los dias de `start` a `end` (inclusive).
 
         Sabados y domingos y dias ya registrados se saltan. Devuelve
         `{"added", "weekend", "existing"}`. `ValueError` con texto para el
-        usuario ANTES de escribir nada. Una fila de bitacora, commit.
+        usuario ANTES de escribir nada. Una fila de bitacora (solo si agrego
+        algo), commit.
+
+        Dos altas simultaneas del mismo dia: cada dia nuevo entra en su propio
+        SAVEPOINT; el que choca con el `UNIQUE(day)` que la otra peticion ya
+        escribio cuenta como `existing` en vez de tumbar el alta entera (500).
+        Por ORM, no `INSERT ... ON CONFLICT`: asi la red de la bitacora sigue
+        viendo cada fila.
         """
         NonWorkingDayService._check_range(start, end)
         texto = (description or "").strip()
@@ -63,8 +77,7 @@ class NonWorkingDayService:
                 f"La descripción no puede pasar de {NonWorkingDayService.MAX_DESCRIPTION} "
                 "caracteres.")
 
-        existentes = {d for (d,) in db.query(NonWorkingDay.day)
-                      .filter(NonWorkingDay.day >= start, NonWorkingDay.day <= end).all()}
+        existentes = NonWorkingDayService._existing_days(db, start, end)
         agregados = fin_de_semana = repetidos = 0
         dia = start
         while dia <= end:
@@ -73,30 +86,37 @@ class NonWorkingDayService:
             elif dia in existentes:
                 repetidos += 1
             else:
-                db.add(NonWorkingDay(day=dia, description=texto, created_by_id=actor_id))
-                agregados += 1
+                try:
+                    with db.begin_nested():
+                        db.add(NonWorkingDay(day=dia, description=texto,
+                                             created_by_id=actor_id))
+                except IntegrityError:
+                    repetidos += 1           # otra peticion lo registro entre tanto
+                else:
+                    agregados += 1
             dia += timedelta(days=1)
-        db.flush()
-        AuditService.record(
-            db, "non_working_day.added", actor_id=actor_id,
-            payload={"start": start.isoformat(), "end": end.isoformat(),
-                     "added": agregados, "description": texto})
+        if agregados:
+            AuditService.record(
+                db, "non_working_day.added", actor_id=actor_id,
+                payload={"start": start.isoformat(), "end": end.isoformat(),
+                         "added": agregados, "description": texto})
         db.commit()
         return {"added": agregados, "weekend": fin_de_semana, "existing": repetidos}
 
     @staticmethod
     def remove_range(db: Session, actor_id: int, *, start: date, end: date) -> int:
         """Quita los dias inhabiles de `start` a `end` (inclusive); devuelve
-        cuantos quito. Una fila de bitacora, commit."""
+        cuantos quito. Una fila de bitacora (solo si quito algo), commit."""
         NonWorkingDayService._check_range(start, end)
         filas = (db.query(NonWorkingDay)
                  .filter(NonWorkingDay.day >= start, NonWorkingDay.day <= end).all())
         for fila in filas:
             db.delete(fila)
         db.flush()
-        AuditService.record(
-            db, "non_working_day.removed", actor_id=actor_id,
-            payload={"start": start.isoformat(), "end": end.isoformat(),
-                     "removed": len(filas)})
+        if filas:
+            AuditService.record(
+                db, "non_working_day.removed", actor_id=actor_id,
+                payload={"start": start.isoformat(), "end": end.isoformat(),
+                         "removed": len(filas)})
         db.commit()
         return len(filas)

@@ -237,10 +237,13 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
   `cancelled` nunca se pausan. Con esta regla un proceso en la fase 5 nunca queda en pausa por una convocatoria.
   **Es el único cambio visible en producción de la fase 5** (corre al fusionar, sin depender del corte); se confirma
   con el usuario antes del merge. **Reactivación de datos:** los procesos que ya estaban `on_hold` con el cotejo
-  aprobado vuelven a `active` con `titulatec init-titulatec-fase-2` (el DML `fase_2/03_revision_sinodales.sql`
-  incluye la corrección, idempotente; el comando la reporta: «D12: se reactivarían N proceso(s)…» en `--dry-run`).
-  La corrida **no** escribe `process_resumed` ni bitácora para esos procesos. Pruebas:
-  `tests/fastapi/titulatec/test_cohort_checkpoint.py`. Detalle de la fase que lo motivó:
+  aprobado vuelven a `active` con `titulatec init-titulatec-fase-2`: después de correr los SQL de `fase_2/`, el
+  comando lo hace en Python (`itcj2/cli/titulatec/fase2.py::_reactivar_d12`, mismo predicado
+  `first_checkpoint_clause`), por ORM y con `FOR NO KEY UPDATE`, escribiendo un `ProcessEvent` `process_resumed` por
+  proceso (`actor_id` NULL, payload `{"reason": "checkpoint", "source": "init-titulatec-fase-2"}`) que la red de la
+  bitácora espeja (canal `cli`). Idempotente. La corrida real imprime «D12: N proceso(s) reactivado(s).»; el
+  `--dry-run` solo cuenta («D12: se reactivarían N proceso(s)…»). El DML `03` ya no trae el `UPDATE`. Pruebas:
+  `tests/fastapi/titulatec/test_cohort_checkpoint.py` y `test_cli_fase_2.py` (la reactivación). Detalle de la fase que lo motivó:
   [`phase5_synodal_review.md`](phase5_synodal_review.md).
 - El **alta** vive en la lista (`/titulatec/admin/cohorts` → «Nueva convocatoria» →
   `POST /cohorts`, perm `titulatec.cohort.api.create`): desde 2026-09-27 pide, además del período

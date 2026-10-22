@@ -37,6 +37,7 @@ from fastapi.responses import FileResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from itcj2.apps.titulatec.pages.nav import render_titulatec
+from itcj2.apps.titulatec.pages.public import _declared_body_size
 from itcj2.dependencies import require_page_app
 
 logger = logging.getLogger("itcj2.apps.titulatec.pages.revisiones_admin")
@@ -64,6 +65,12 @@ _VACIO = "—"
 _READONLY_REVOKED = "La inscripción fue revocada: la conversación queda solo para consulta."
 _READONLY_RELEASED = "Proyecto liberado: la conversación queda solo para consulta."
 _READONLY_PAUSED = "El proceso está en pausa: por ahora la conversación queda solo para consulta."
+_READONLY_NO_CHAT = ("Esta revisión no tiene conversación en la app: no hay mensajes, archivos "
+                     "ni votos que consultar.")
+
+# Guarda solo-cabeceras de las subidas de la revisión (`_review_body_block`).
+_BODY_LENGTH_MSG = ("No pudimos leer el tamaño de tu envío. Recarga la página e inténtalo "
+                    "de nuevo.")
 
 
 def _hdr(msg: str) -> str:
@@ -86,6 +93,26 @@ def _to_int(raw):
 def _error(msg: str) -> Response:
     """Guarda del servicio: 400 + `X-Tt-Error` (htmx no hace swap en un 4xx)."""
     return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+
+
+def _review_body_block(headers) -> Response | None:
+    """Guarda SOLO-CABECERAS de las rutas que reciben un archivo de la revisión
+    (mensaje del docente aquí; mensaje y versión del alumno en
+    `pages/student.py`). Corre en el cuerpo `async` ANTES de leer el cuerpo: sin
+    `Content-Length` válido -> 411 (el tope no se puede aplicar antes de
+    `request.form()`, que lo bufferea entero); declarado por encima de
+    `review_files.max_body_bytes()` (archivo + margen multipart) -> 413. Ambas
+    con `X-Tt-Error`. Solo lee cabeceras y configuración: vive en la lista
+    `GUARDAS_DE_CONFIGURACION` de `test_route_threadpool_convention.py`."""
+    from itcj2.apps.titulatec.utils import review_files
+
+    tamano = _declared_body_size(headers)
+    if tamano is None:
+        return Response(status_code=411, headers={"X-Tt-Error": _hdr(_BODY_LENGTH_MSG)})
+    if tamano > review_files.max_body_bytes():
+        return Response(status_code=413,
+                        headers={"X-Tt-Error": _hdr(review_files.too_big_msg())})
+    return None
 
 
 def _exigir_bandeja(db, user_id: int) -> None:
@@ -162,10 +189,13 @@ def _state(db, proc, chat, *, user_id: int, perms) -> dict:
         solo_lectura = None
     elif revocada:
         solo_lectura = _READONLY_REVOKED
-    elif chat.closed_at is not None or (estado or {}).get("closed"):
+    elif (chat is not None and chat.closed_at is not None) or (estado or {}).get("closed"):
         solo_lectura = _READONLY_RELEASED
     elif proc.status == "on_hold":
         solo_lectura = _READONLY_PAUSED
+    elif chat is None:
+        # `chat_for(create=True)` no abre conversación fuera de una revisión viva.
+        solo_lectura = _READONLY_NO_CHAT
     else:
         solo_lectura = CLOSED_MSG
 
@@ -202,7 +232,9 @@ def _state(db, proc, chat, *, user_id: int, perms) -> dict:
 
 def _conv_ctx(db, proc, chat, *, user_id: int, vote_mode: str = "form",
               vote_error: str | None = None, draft: str = "") -> dict:
-    """La conversación completa: encabezado de D13, mensajes y paneles.
+    """La conversación completa: encabezado de D13, mensajes y paneles. Con
+    `chat` None (proceso sin conversación fuera de una revisión viva) es la
+    vista de solo lectura «sin conversación»: el encabezado y el porqué.
 
     D13: el sinodal ve SOLO nombre, número de control, carrera, modalidad,
     título del proyecto (`FormatB.project_name`, «—» si no hay) y quiénes son
@@ -233,7 +265,7 @@ def _conv_ctx(db, proc, chat, *, user_id: int, vote_mode: str = "form",
                    for s in SynodalService.active_for_process(db, proc.id)
                    if s["user_id"] != user_id],
         # «thread», no «items»: en Jinja `conv.items` sería el método del dict.
-        "thread": ReviewService.messages(db, chat.id),
+        "thread": ReviewService.messages(db, chat.id) if chat is not None else [],
         "vote_mode": vote_mode,
         "vote_error": vote_error,
         "draft": draft or "",
@@ -326,7 +358,9 @@ def conversation(process_id: int, request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=[_READ_PERM]))):
     """La conversación completa (página admin). Crea la conversación si el
     proceso ya estaba en la fase 5 sin ella (`chat_for(create=True)`, §6.2) y
-    la marca leída."""
+    la marca leída. El servicio solo la crea con la revisión viva (proceso
+    `active`, fase 5 `in_progress`); si no, la fila de la bandeja abre la vista
+    de solo lectura «sin conversación» (encabezado y porqué, nada escrito)."""
     from itcj2.apps.titulatec.services.review_service import ReviewService
     from itcj2.database import SessionLocal
 
@@ -338,10 +372,9 @@ def conversation(process_id: int, request: Request,
         if not _operable(db):
             return Response(status_code=404)
         chat = ReviewService.chat_for(db, proc, create=True)
-        if chat is None:
-            return Response(status_code=404)
         ctx = {"conv": _conv_ctx(db, proc, chat, user_id=uid)}
-        _marcar_leido(db, chat.id, uid, ctx["conv"]["thread"])
+        if chat is not None:
+            _marcar_leido(db, chat.id, uid, ctx["conv"]["thread"])
     finally:
         db.close()
     return render_titulatec(request, _PAGE_TPL, ctx)
@@ -393,7 +426,13 @@ def _archivo(form):
 @router.post("/{process_id}/mensaje", name="titulatec.pages.revisiones.message")
 async def message(process_id: int, request: Request,
                   user: dict = Depends(require_page_app("titulatec", perms=[_SEND_PERM]))):
-    """Mensaje del sinodal: texto (1..4000) con o sin un adjunto PDF/Word."""
+    """Mensaje del sinodal: texto (1..4000) con o sin un adjunto PDF/Word.
+
+    El tope de tamaño (solo cabeceras) va ANTES de `request.form()`, que
+    bufferea el cuerpo entero aun antes de `assert_participant`."""
+    bloqueo = _review_body_block(request.headers)
+    if bloqueo is not None:
+        return bloqueo
     form = await request.form()
     return await run_in_threadpool(
         _cuerpo_message, process_id=process_id, request=request, user=user, form=form)

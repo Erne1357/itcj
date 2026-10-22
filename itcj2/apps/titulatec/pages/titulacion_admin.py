@@ -273,8 +273,9 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
         from itcj2.apps.titulatec.services.review_service import ReviewService
         from itcj2.apps.titulatec.services.synodal_service import REVIEW_PHASE_CODE
         n5 = PhaseService.phase_number_for_code(db, REVIEW_PHASE_CODE)
-        review_applies = (n5 is not None and (proc.current_phase or 0) >= n5
-                          and ReviewService.operable(db))
+        # Mismo criterio que el expediente: alcanzada, operable y sin que la
+        # modalidad la salte (un EGEL no pinta «Sin versiones todavía»).
+        review_applies = n5 is not None and ReviewService.empty_label(db, proc) is None
         if review_applies:
             review_status = ReviewService.status_for_process(
                 db, process_id, holidays=NonWorkingDayService.holidays(db))

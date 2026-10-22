@@ -26,6 +26,8 @@
 /* === 2. Formularios ======================================================= */
 .tt-rvs-actions { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
 .tt-rvs-form { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+/* Encabezado del formulario de versión (`_ver_head.html`, se reemplaza fuera de banda). */
+.tt-rvs-ver-head { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
 .tt-rvs-h { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
 .tt-rvs-label { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
 .tt-rvs-hint { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
