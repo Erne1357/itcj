@@ -422,10 +422,49 @@
   <p class="tt-exp-vacio" data-tt-exp-revision>{{ review_empty_label }}</p>
   {% endif %}
 
-{# ------------------------------------------------ 06..08 · aún no existen -- #}
+{# ------------------------------------------------ 06 · Anexo III ----------- #}
+{# Estado + folio + ligas según permisos (spec fase 6 §9.4); sin estado, el
+   porqué (`AnexoService.empty_label`, patrón de la fase 5). Leer el expediente
+   nunca emite el folio. #}
+{% elif f.number == anexo_phase %}
+  {% if anexo %}
+  <div data-tt-exp-anexo>
+    <dl class="tt-exp-datos">
+      <div><dt>Folio</dt>
+        <dd data-tt-anexo-folio>{{ anexo.folio or 'Aún no se genera' }}</dd></div>
+      {% if anexo.released_label %}
+      <div><dt>Liberado de la revisión</dt><dd>{{ anexo.released_label }}</dd></div>
+      {% endif %}
+      <div><dt>Escaneo firmado</dt>
+        <dd>{{ 'Ya lo subió el alumno' if anexo.has_scan else 'Sin enviar' }}</dd></div>
+    </dl>
+    {% if anexo.pdf_url or anexo.scan_url or anexo.open_url %}
+    <div class="tt-exp-acciones">
+      {% if anexo.pdf_url %}
+      <a class="btn btn-sm tt-btn-ghost" data-tt-anexo-pdf href="{{ anexo.pdf_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Anexo III (PDF)</a>
+      {% endif %}
+      {% if anexo.scan_url %}
+      <a class="btn btn-sm tt-btn-ghost" data-tt-anexo-scan href="{{ anexo.scan_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-check me-1" aria-hidden="true"></i>Ver escaneo</a>
+      {% endif %}
+      {% if anexo.open_url %}
+      <a class="btn btn-sm tt-btn-ghost" href="{{ anexo.open_url }}">
+        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Abrir en Titulación</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="tt-exp-vacio" data-tt-exp-anexo>{{ anexo_empty_label }}</p>
+  {% endif %}
+
+{# ------------------------------------------------ 07..08 · aún no existen -- #}
 {% else %}
   <p class="tt-exp-vacio">
-    Esta fase todavía no está en la app: anexo, entrega final y acto
-    protocolario tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es
-    su estado, no su contenido.</p>
+    Esta fase todavía no está en la app: entrega final y acto protocolario
+    tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es su estado,
+    no su contenido.</p>
 {% endif %}

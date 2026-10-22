@@ -60,6 +60,12 @@ class AnexoVersionChanged(ValueError):
 # Estados de la fase 6 desde los que una subida la pone «Por revisar» (C6).
 _SYNC_TO_REVIEW = ("in_progress", "rejected", "in_review")
 
+# Leyendas de la tarjeta de la fase 6 del expediente (`AnexoService.empty_label`).
+NOT_APPLICABLE_LABEL = "No aplica para esta modalidad."
+NOT_IN_APP_LABEL = ("Esta fase todavía no está en la app: el Anexo III se lleva "
+                    "en T-soft. Lo que se ve aquí es su estado, no su contenido.")
+PENDING_LABEL = "El proceso todavía no llega al Anexo III."
+
 _TEMPLATE_NAME = "titulatec/oficios/anexo_iii.html"
 
 
@@ -94,6 +100,38 @@ class AnexoService:
                   .filter(ProcessPhase.process_id == process.id,
                           ProcessPhase.phase_number == n).scalar())
         return estado != "skipped"
+
+    @staticmethod
+    def empty_label(db: Session, process) -> str | None:
+        """Leyenda de la tarjeta de la fase 6 del expediente, o None si ahí va
+        el ESTADO (estado + folio + ligas). Molde de `ReviewService.empty_label`:
+
+        - La modalidad salta la fase 6 (`skips_phases`, p. ej. EGEL) o su
+          `ProcessPhase` ya está `skipped` -> `NOT_APPLICABLE_LABEL`. Gana
+          sobre el corte: es un hecho de la modalidad.
+        - La fase 6 no se opera en esta app (corte en ella o antes, o sin la
+          fase en el catálogo) -> `NOT_IN_APP_LABEL`.
+        - El proceso todavía no llega a la fase 6 -> `PENDING_LABEL`.
+        - Si no, None.
+        Dos consultas a lo más (número de fase y estado de su `ProcessPhase`).
+        """
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        n = AnexoService.phase_number(db)
+        if n is not None and process is not None:
+            if n in PhaseService._skips(process):
+                return NOT_APPLICABLE_LABEL
+            estado = (db.query(ProcessPhase.status)
+                      .filter(ProcessPhase.process_id == process.id,
+                              ProcessPhase.phase_number == n).scalar())
+            if estado == "skipped":
+                return NOT_APPLICABLE_LABEL
+        if n is None or PhaseService._handoff_phase() <= n:
+            return NOT_IN_APP_LABEL
+        if process is None or (process.current_phase or 0) < n:
+            return PENDING_LABEL
+        return None
 
     # ------------------------------------------------------------------
     # Firmas

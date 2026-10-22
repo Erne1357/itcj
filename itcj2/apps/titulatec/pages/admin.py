@@ -1406,11 +1406,12 @@ _MAIL_STATUS_UI = {
 # que ahí la píldora no nombra un buzón que quizá ni era el destino.
 _SIN_DESTINATARIO_INSCRIPCION = "Sin correo"
 
-# Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
-# nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
-# porque un panel vacío se lee como «no ha pasado nada» y no como «esto todavía
-# no existe en la app».
-_FASES_CON_PANEL = (0, 1, 2, 3)
+# Fases con contenido propio en el expediente (0-3 con su panel de siempre; la 4
+# sinodales, la 5 estado de la revisión y la 6 Anexo III pintan estado o el porqué
+# según el corte). El resto tiene modelo y tabla y nada más (entrega final,
+# ceremonia): se pintan diciéndolo, porque un panel vacío se lee como «no ha
+# pasado nada» y no como «esto todavía no existe en la app».
+_FASES_CON_PANEL = (0, 1, 2, 3, 4, 5, 6)
 
 _MESES = ["", "ene", "feb", "mar", "abr", "may", "jun",
           "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -1874,6 +1875,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_revoke = False
     can_register_prior = False
     can_request_replacement = False
+    anexo_perms = frozenset()
     # Pestañas que el actor puede abrir (spec 2026-10-07 §1.2): decide qué
     # enlaces a otras pestañas se pintan y a dónde regresa «Regresar» sin
     # `from`. Sin actor, ninguno (fail-closed, como los `can_*`).
@@ -1911,6 +1913,39 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         can_request_replacement = (
             "titulatec.document.api.request_replacement" in _user_perms
             and in_cotejo)
+        anexo_perms = _user_perms
+
+    # Fase 6 (spec fase 6 §9.4): estado + folio + ligas según permisos, o el
+    # porqué (`AnexoService.empty_label`, molde de la fase 5). NO emite folio:
+    # solo lo lee. Dict plano (se renderiza tras el `db.close()`).
+    from itcj2.apps.titulatec.services.anexo_service import (
+        DOC_TYPE as _ANEXO_DOC, AnexoService)
+    anexo_phase = AnexoService.phase_number(db)
+    anexo_empty_label = AnexoService.empty_label(db, proc)
+    anexo = None
+    if anexo_phase is not None and anexo_empty_label is None:
+        folio_row = AnexoService.get(db, process_id)
+        puede_revisar = "titulatec.anexo_iii.api.review" in anexo_perms
+        puede_generar = ("titulatec.anexo_iii.api.generate" in anexo_perms
+                         and "titulatec.synodal.api.read" in anexo_perms)
+        tiene_escaneo = db.query(Document.id).filter_by(
+            process_id=process_id, type_code=_ANEXO_DOC).first() is not None
+        pdf_url = None
+        if puede_revisar:
+            pdf_url = f"/titulatec/admin/titulacion/anexo/{process_id}/anexo.pdf"
+        elif puede_generar:
+            pdf_url = f"/titulatec/admin/sinodales/{process_id}/anexo.pdf"
+        anexo = {
+            "folio": folio_row.folio if folio_row else None,
+            "released_label": (_fecha_larga(folio_row.released_at)
+                               if folio_row and folio_row.released_at else None),
+            "has_scan": tiene_escaneo,
+            "pdf_url": pdf_url,
+            "scan_url": (f"/titulatec/admin/titulacion/anexo/{process_id}/escaneo"
+                         if puede_revisar and tiene_escaneo else None),
+            "open_url": (f"/titulatec/admin/titulacion/anexo?selected={process_id}"
+                         if puede_revisar and can_open_titulacion else None),
+        }
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -2018,6 +2053,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "review_applies": review_applies,
         "review_empty_label": review_empty_label,
         "review_status": review_status,
+        "anexo_phase": anexo_phase,
+        "anexo": anexo,
+        "anexo_empty_label": anexo_empty_label,
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,
