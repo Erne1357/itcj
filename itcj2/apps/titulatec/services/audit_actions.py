@@ -145,6 +145,7 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # Sin contenido de mensajes ni comentarios: versión, rol (como VALOR) y voto.
     "review.version_uploaded": ("review", "Subió una versión del proyecto a revisión"),
     "review.vote_cast": ("review", "Votó una versión del proyecto"),
+    "review.mail_failed": ("review", "No salió el correo de la revisión a un sinodal"),
 
     # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
     # Mismo módulo que `titulatec_program_departments` y
@@ -195,6 +196,7 @@ DATA_ACTIONS: dict[str, str] = {
 # ese `CASE`, sin desfase: ningún evento `format_b_*` existía al hacer el backfill.
 _EVENT_PREFIX_MODULES: tuple[tuple[str, str], ...] = (
     ("format_b_", "format_b"),
+    ("review_", "review"),          # fase 5 (2026-10-22): tampoco está en el `CASE` del backfill
     ("document_", "documents"),
     ("appointment_", "appointments"),
     ("library_payment_", "cashier"),

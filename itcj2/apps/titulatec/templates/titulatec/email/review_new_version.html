@@ -1,0 +1,23 @@
+{# «Versión nueva del proyecto» (fase 5, spec 2026-10-22 §10, D8). Lo manda
+   `ReviewNotices.send_version_notices` DESPUÉS del commit, best-effort y sin
+   bandeja de salida, a cada sinodal vigente.
+   Contexto: nombre, alumno, control, carrera, titulo, version, vence (texto de
+   la fecha límite), link (`StudentMail.link`, el login con `next`). #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Versión nueva del proyecto — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ nombre|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  <strong>{{ alumno|e }}</strong> subió la <strong>versión {{ version|e }}</strong> de su
+  proyecto de titulación{% if titulo %} («{{ titulo|e }}»){% endif %}.
+  {% if carrera %}Carrera: {{ carrera|e }}.{% endif %}
+</p>
+{% if vence %}
+{{ m.aviso("Tienes hasta el " ~ vence ~ " para revisarla y votar.") }}
+{% endif %}
+<p style="margin:0 0 24px;">
+  Entra a «Mis revisiones» para leer el archivo, conversar con el alumno y dar tu voto.
+</p>
+{{ m.boton(link, "Abrir la revisión") }}
+{% endblock %}

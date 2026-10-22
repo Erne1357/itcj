@@ -362,6 +362,8 @@ def test_el_espejo_de_process_event_cae_en_un_modulo_valido():
     ("phase_approved", "processes"),
     ("process_cancelled", "processes"),
     ("requirement_fulfilled", "processes"),
+    ("review_version_uploaded", "review"),
+    ("review_vote_cast", "review"),
     ("algo_nuevo_sin_prefijo", "processes"),
 ])
 def test_modulo_del_espejo_por_prefijo(tipo, modulo):

@@ -34,7 +34,8 @@ Reglas que este servicio garantiza (las rutas solo deciden quién y qué proceso
   disco con nombre generado; se sirven solo resolviendo el mensaje DENTRO de la
   conversación del proceso ya autorizado (`attachment_for`).
 
-Los avisos y correos (spec §10) son de la Task 8: este servicio no los envía.
+Los avisos y correos (spec §10) viven en `review_notices.py` (`ReviewNotices`): aquí solo se
+llaman en `post_message`, `upload_version` y `vote`.
 """
 from __future__ import annotations
 
@@ -50,6 +51,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services.synodal_service import ROLE_LABELS, ROLES
+from itcj2.apps.titulatec.services.review_notices import ReviewNotices
 from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
@@ -469,10 +471,13 @@ class ReviewService:
                 payload={"version": numero, "mime": mime, "size": len(raw)},
                 actor_id=actor_id,
             )
+            pid, vid = process.id, version.id      # antes del commit (expire_on_commit en prod)
             db.commit()
         except Exception:
             db.rollback()
             raise
+        # Avisos y correos a los sinodales: después del commit, best-effort (§10).
+        ReviewNotices.send_version_notices(pid, vid)
         return version
 
     # ------------------------------------------------------------------
@@ -518,6 +523,7 @@ class ReviewService:
                 msg.attachment_name = _display_name(original_name, ext)
                 msg.attachment_mime = mime
                 msg.attachment_size = len(raw)
+            ReviewNotices.on_message(db, process, actor_id)
             db.commit()
         except Exception:
             db.rollback()
@@ -758,6 +764,8 @@ class ReviewService:
                 payload=dict(datos),
                 actor_id=actor_id,
             )
+            ReviewNotices.on_vote(db, process, role=role, verdict=verdict,
+                                  version=numero, comment=texto)
             if not cierra:
                 db.commit()
                 return {"closed": False, "version": numero}

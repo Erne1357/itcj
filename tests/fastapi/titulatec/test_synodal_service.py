@@ -250,6 +250,19 @@ class TestAsignar:
                 for m in db_session.query(ChatMessage).filter_by(chat_id=chat.id)] == [
             ("system", None, OPEN_CHAT_MSG)]
 
+    def test_con_el_corte_en_la_5_no_se_abre_la_conversacion(self, db_session, esc, corte):
+        """R7 (fase 5): con el corte a T-soft en la fase 5 la revisión es de
+        T-soft; la fase 4 sí se asigna y avanza, pero no nace la conversación."""
+        from itcj2.apps.titulatec.models import ProcessChat
+
+        corte(5)
+        e = esc()
+
+        out = _asignar(db_session, e)
+
+        assert out["next_phase"] == 5
+        assert db_session.query(ProcessChat).filter_by(process_id=e.proc.id).count() == 0
+
     def test_acepta_los_ids_como_texto(self, db_session, esc):
         """La ruta los manda tal cual llegan del formulario."""
         e = esc()

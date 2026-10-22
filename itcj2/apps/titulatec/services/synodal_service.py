@@ -69,6 +69,7 @@ _NOTICES = {
 }
 NOTICE_TEMPLATE = "synodal_assigned.html"   # relativa a `titulatec/email/`
 _NOTICE_PATH = "/titulatec/"                # el landing resuelve la vista por rol
+_REVIEWS_PATH = "/titulatec/admin/revisiones"   # «Mis revisiones» (fase 5)
 
 _MAX_REASON = 500
 
@@ -382,7 +383,9 @@ class SynodalService:
             # Fase 5 (spec 2026-10-22 §6.2): la conversación de revisión nace aquí,
             # en esta misma transacción (si la aprobación falla, se revierte).
             from itcj2.apps.titulatec.services.review_service import ReviewService
-            ReviewService.open_chat(db, process)
+            # Con el corte a T-soft en la fase 5 o antes la revisión no es de la app.
+            if ReviewService.operable(db):
+                ReviewService.open_chat(db, process)
             PhaseService.open_door(db, PHASE_CODE, process.id, "approved")
             resultado = PhaseService.approve_phase(db, process, n, actor_id)
         except IntegrityError:
@@ -718,6 +721,10 @@ class SynodalService:
                 roles = SynodalService._roles_for_notice(db, process_id, ids, kind)
                 users = SynodalService._users(db, ids)
                 liga = StudentMail.link(_NOTICE_PATH)
+                # Fase 5 operable: el correo invita a «Mis revisiones» (spec 2026-10-22 §10).
+                from itcj2.apps.titulatec.services.review_service import ReviewService
+                revision = ReviewService.operable(db)
+                liga_revision = StudentMail.link(_REVIEWS_PATH) if revision else None
                 for uid in ids:
                     user, role = users.get(uid), roles.get(uid)
                     if user is None or role is None:
@@ -735,7 +742,8 @@ class SynodalService:
                         body=cuerpo, data={"url": _NOTICE_PATH, "process_id": process_id})
                     envios.append((uid, (user.email or "").strip() or None,
                                    {**base, "kind": kind, "nombre": _name(user),
-                                    "posicion": posicion, "link": liga}))
+                                    "posicion": posicion, "link": liga,
+                                    "revision": revision, "review_link": liga_revision}))
                 db.commit()
             except Exception:
                 db.rollback()

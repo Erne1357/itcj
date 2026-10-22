@@ -2521,7 +2521,7 @@ def test_toda_variable_de_las_plantillas_de_correo_lleva_e():
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def todos(db_session, proceso, make_appointment, make_document, seed_document_types,
-          make_survey_review, con_biblioteca, reloj):
+          make_survey_review, con_biblioteca, reloj, make_review_case):
     """Un correo de CADA tipo y variante, con los huecos opcionales en `None`
     donde el contrato lo permite (sin motivo, sin nota, sin lugar, sin
     requisitos). Devuelve `({variante: Composed}, {kinds cubiertos})`."""
@@ -2699,6 +2699,26 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
     p = proceso(fase=2)
     _recordatorio(db, "survey_reminder", p)
     _anota("recordatorio de encuesta", p)
+
+    # Fase 5 (spec 2026-10-22 §10): cambios pedidos (con un voto sin texto, que se
+    # omite) y la liberación de la revisión en sus dos variantes.
+    c5 = make_review_case(signature_rule="all_synodals")
+    StudentMail.review_changes_requested(db, c5.process, version=1, role_label="Secretario",
+                                         comment="Falta la conclusión")
+    StudentMail.review_changes_requested(db, c5.process, version=1, role_label="Vocal",
+                                         comment="")
+    _anota("cambios pedidos por los sinodales", c5.process)
+
+    for nombre, siguiente, handoff, regla in (
+        ("revisión liberada: Anexo III", 6, False, "president_only"),
+        ("revisión liberada: traspaso a Titulación", 6, True, "all_synodals"),
+    ):
+        c5 = make_review_case(signature_rule=regla)
+        StudentMail.phase_approved(db, c5.process, phase_number=5,
+                                   phase_name="Fase 05 · Revisión de sinodales",
+                                   next_phase=siguiente, next_name="Fase 06 · Anexo III",
+                                   handoff=handoff)
+        _anota(nombre, c5.process)
 
     return correos, tipos
 
