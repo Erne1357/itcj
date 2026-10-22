@@ -1925,7 +1925,10 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     anexo = None
     if anexo_phase is not None and anexo_empty_label is None:
         folio_row = AnexoService.get(db, process_id)
-        puede_revisar = "titulatec.anexo_iii.api.review" in anexo_perms
+        # Mismo predicado que usan las rutas de Titulación (abrir la pestaña Y
+        # revisar): nunca una liga que contestaría 403.
+        from itcj2.apps.titulatec.pages.titulacion_anexo import _puede_ver_anexo
+        puede_revisar = _puede_ver_anexo(anexo_perms)
         puede_generar = ("titulatec.anexo_iii.api.generate" in anexo_perms
                          and "titulatec.synodal.api.read" in anexo_perms)
         tiene_escaneo = db.query(Document.id).filter_by(
@@ -1944,7 +1947,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "scan_url": (f"/titulatec/admin/titulacion/anexo/{process_id}/escaneo"
                          if puede_revisar and tiene_escaneo else None),
             "open_url": (f"/titulatec/admin/titulacion/anexo?selected={process_id}"
-                         if puede_revisar and can_open_titulacion else None),
+                         if puede_revisar else None),
         }
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza

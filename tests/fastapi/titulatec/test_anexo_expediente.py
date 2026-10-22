@@ -14,16 +14,16 @@ from itcj2.apps.titulatec.services.phase_service import PhaseService
 
 URL = "/titulatec/admin/processes"
 ROLE = f"tt_test_anexo_exp_{os.getpid()}"
-PERMS = (
+BASE = (
     "titulatec.dashboard.school_services",
     "titulatec.process.page.list",
     "titulatec.process.page.detail",
     "titulatec.document.page.list",
     "titulatec.document.api.read.all",
-    "titulatec.synodal.api.read",
-    "titulatec.anexo_iii.api.generate",
-    "titulatec.anexo_iii.api.review",
 )
+SIN = ("titulatec.synodal.api.read", "titulatec.anexo_iii.api.generate")
+REV = ("titulatec.anexo_iii.api.review", "titulatec.titulacion.page.list")
+PERMS = BASE + SIN + REV
 
 
 def _corte(monkeypatch, n):
@@ -88,9 +88,9 @@ def test_no_aplica_si_la_modalidad_salta_la_fase(db_session, monkeypatch, make_a
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def lector(db_session, make_anexo_case, make_role, grant_user_role, client_as):
-    def _build(**kw):
+    def _build(perms=PERMS, **kw):
         c = make_anexo_case(**kw)
-        grant_user_role(c.head, make_role(ROLE, PERMS))
+        grant_user_role(c.head, make_role(ROLE, perms))
         db_session.commit()
         return c, client_as(c.head)
     return _build
@@ -110,8 +110,10 @@ def test_expediente_muestra_folio_y_estado_en_fase_6(lector, db_session, monkeyp
     tarjeta = _tarjeta_6(resp.text)
     assert anexo.folio in tarjeta
     assert "data-tt-exp-anexo" in resp.text
-    assert f"/titulatec/admin/sinodales/{c.process.id}/anexo.pdf" in tarjeta \
-        or f"/titulatec/admin/titulacion/anexo/{c.process.id}/anexo.pdf" in tarjeta
+    # review + titulacion.page.list -> ligas de Titulacion (no la de Sinodales)
+    assert f"/titulatec/admin/titulacion/anexo/{c.process.id}/anexo.pdf" in tarjeta
+    assert f"/titulatec/admin/titulacion/anexo/{c.process.id}/escaneo" not in tarjeta  # sin escaneo
+    assert "/admin/sinodales/" not in tarjeta
     assert "Esta fase todavía no está en la app: anexo" not in tarjeta
 
 
@@ -144,3 +146,47 @@ def test_expediente_egel_no_aplica(lector, db_session, monkeypatch):
     resp = cli.get(f"{URL}/{c.process.id}?fase=6")
     assert resp.status_code == 200
     assert NOT_APPLICABLE_LABEL in _tarjeta_6(resp.text)
+
+
+def _con_escaneo(db, c):
+    from itcj2.apps.titulatec.models import Document
+    db.add(Document(process_id=c.process.id, phase_number=c.anexo_phase,
+                    uploaded_by_id=c.student.id, type_code="anexo_iii", file_path="x/y.pdf",
+                    original_name="y.pdf", mime_type="application/pdf", size_bytes=10,
+                    review_status="pending", version=1))
+    db.commit()
+
+
+def test_ligas_de_titulacion_con_review_y_page_list_incluyen_escaneo(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    _con_escaneo(db_session, c)
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert f"/titulatec/admin/titulacion/anexo/{c.process.id}/escaneo" in t
+    assert f"/titulatec/admin/titulacion/anexo/{c.process.id}/anexo.pdf" in t
+    assert "/admin/sinodales/" not in t
+
+
+def test_solo_generate_y_synodal_read_da_pdf_de_sinodales_sin_escaneo(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector(perms=BASE + SIN)
+    _con_escaneo(db_session, c)
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert f"/titulatec/admin/sinodales/{c.process.id}/anexo.pdf" in t
+    assert "/admin/titulacion/" not in t and "escaneo" not in t.lower().replace("escaneo firmado", "")
+
+
+def test_review_sin_page_list_no_da_ligas_de_titulacion(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector(perms=BASE + ("titulatec.anexo_iii.api.review",))
+    _con_escaneo(db_session, c)
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert "/admin/titulacion/" not in t and "/admin/sinodales/" not in t
+
+
+def test_sin_permisos_de_anexo_no_hay_ligas(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector(perms=BASE)
+    _con_escaneo(db_session, c)
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert "anexo.pdf" not in t and "/escaneo" not in t
