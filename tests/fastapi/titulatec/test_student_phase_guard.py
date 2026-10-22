@@ -677,6 +677,8 @@ RUTAS_SIN_FASE = {
     ("GET", "/student/revision"),
     ("GET", "/student/revision/mensajes"),
     ("GET", "/student/revision/archivo/{message_id}"),
+    ("GET", "/student/anexo"),
+    ("GET", "/student/anexo/pdf"),
 }
 
 
@@ -710,13 +712,19 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
     # 16 desde la fase 3 (2026-10-21): +`GET /formato-b/revision` y
     # +`POST /formato-b/enviar`, las dos con `_phase_guard`.
     # 21 desde la fase 5 (2026-10-22): +3 GET de consulta (`RUTAS_SIN_FASE`, con su
+    # 25 desde la fase 6 (2026-10-22): +2 GET de consulta (`anexo`, `anexo/pdf`, con
+    # `_anexo_read_guard`) y +2 (POST/DELETE `anexo/escaneo`, con `_phase_guard`).
     # `_review_read_guard`) y +2 POST (`revision/mensaje` y `revision/version`, las
     # dos con `_phase_guard`). El brief de la tarea decia 18; el recuento real es 21.
-    assert revisadas == 21, "cambio el inventario de rutas del alumno: " + str(revisadas)
+    assert revisadas == 25, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))
     # Las lecturas exentas no son un hueco: cada una lleva la guarda de LECTURA.
     for method, path in RUTAS_SIN_FASE:
+        if "/anexo" in path:
+            route = next(r for r in student_router.routes
+                         if getattr(r, "path", "") == path and method in r.methods)
+            assert "_anexo_read_guard" in fuente_de_ruta(route.endpoint), path
         if "/revision" in path:
             route = next(r for r in student_router.routes
                          if getattr(r, "path", "") == path and method in r.methods)

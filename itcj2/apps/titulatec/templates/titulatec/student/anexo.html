@@ -1,0 +1,25 @@
+{# ===========================================================================
+   anexo.html — Anexo III del alumno (fase 6).
+   Spec 2026-10-22-titulatec-fase6-anexo-iii §9.1. Contexto: `anexo`
+   (pages/student.py::_anexo_ctx). Sin scripts propios: todo va por htmx.
+   =========================================================================== #}
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Anexo III · TitulaTec{% endblock %}
+{% block student_active %}home{% endblock %}
+{% block student_page %}student_anexo{% endblock %}
+{% block student_appbar_title %}Anexo III{% endblock %}
+{% block student_appbar_sub %}<div class="tt-anx-appbar-sub">Descarga, firmas y escaneo</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
+
+{% block head_extra %}
+  {{ super() }}
+  <link rel="stylesheet" href="/static/titulatec/css/student/anexo.css?v={{ sv('css/student/anexo.css') }}">
+{% endblock %}
+
+{% block student_body %}
+<div class="p-3 p-lg-4 tt-anx">
+  {% include "titulatec/partials/student/anexo/_body.html" %}
+</div>
+{% endblock %}

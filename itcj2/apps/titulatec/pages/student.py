@@ -109,17 +109,19 @@ _PHASE_INFO = {
         "who": "Tus sinodales revisan y votan; tú corriges hasta que liberen tu trabajo.",
     },
     "anexo_iii": {
-        "desc": "Ya que liberan tu trabajo, descargas el Anexo III, juntas las firmas en "
-                "físico y lo subes escaneado.",
+        "desc": "Ya que liberan tu trabajo, descargas e imprimes el Anexo III (el departamento "
+                "académico también puede imprimirlo), juntas las firmas y lo subes "
+                "escaneado. El Depto. de Titulación lo revisa.",
         "needs": [
             "Descargar el Anexo III desde la app.",
-            "Las firmas: por residencias, solo la del presidente; en tesis y proyecto de "
-            "investigación, la de todos los sinodales.",
+            "Las firmas: la del jefe del departamento académico (la gestiona tu jefe de "
+            "proyecto de vinculación) y, por residencias, solo la del presidente; en tesis "
+            "y proyecto de investigación, la de todos los sinodales.",
             "Escanearlo y subirlo en PDF de hasta {pdf_max_mb} MB (si pesa más, hasta "
             "{pdf_upload_mb} MB, lo comprimimos automáticamente).",
         ],
-        "who": "El Depto. de Titulación habilita el documento; tú consigues las firmas y "
-               "lo subes escaneado.",
+        "who": "Tú descargas el documento y consigues las firmas; el Depto. de Titulación "
+               "revisa el escaneo y aprueba la fase.",
     },
     "final_docs": {
         "desc": "Entregas los documentos que cierran tu expediente y pasas a la primera "
@@ -227,6 +229,9 @@ _PHASE_CTA = {
     # Fase 5 (2026-10-22): la conversación con los sinodales. `_phases_ctx` la
     # apaga si el corte a T-soft la deja fuera o si el proceso no tiene conversación.
     "synodal_review":     ("/titulatec/student/revision", "Abrir la conversación", "chat-square-text"),
+    # Fase 6 (2026-10-22): Anexo III. Inerte con el corte en 3 (`_cta_for` apaga todo
+    # lo que cae en `handoff`).
+    "anexo_iii":          ("/titulatec/student/anexo", "Abrir mi Anexo III", "file-earmark-check"),
 }
 
 # Quién es responsable de la fase (para fases que el alumno no acciona).
@@ -1564,7 +1569,13 @@ def document_delete(
         if fuera_del_set:
             return fuera_del_set
         if process:
-            DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
+            try:
+                DocumentService.delete(db, process.id, type_code, actor_id=int(user["sub"]))
+            except ValueError as exc:
+                # R4 (fase 6): borrar vs. aprobar en vuelo (`REPLACEMENT_CLOSED_MSG`)
+                # daba 500; es una guarda más, igual que `_phase_guard`.
+                db.rollback()
+                return Response(status_code=400, headers={"X-Tt-Error": _hdr(exc)})
         ctx = _slot_ctx(dtype, None)
         ctx["doc_hint"] = DocumentService.INITIAL_DOC_HINTS.get(type_code)
         if process:
@@ -2921,3 +2932,284 @@ def revision_file(
     return FileResponse(str(archivo["path"]), media_type=archivo["mime"],
                         headers={"Content-Disposition": disposicion,
                                  "X-Content-Type-Options": "nosniff"})
+
+
+# ===========================================================================
+# Anexo III (fase 6) -- spec 2026-10-22-titulatec-fase6-anexo-iii §9.1
+# ===========================================================================
+# Misma forma que la revisión (fase 5):
+#   * Lecturas (`anexo`, `anexo/pdf`) -> `_anexo_read_guard`: siguen abiertas con la
+#     fase 6 aprobada (reimprimir y consultar el dictamen), por eso NO usan
+#     `_phase_guard` y están en `RUTAS_SIN_FASE`.
+#   * Mutaciones (`anexo/escaneo` POST y DELETE) -> `_phase_guard` por código de
+#     fase (400 + `X-Tt-Error`). Un `ValueError` del servicio (borrar vs. aprobar
+#     en vuelo, R4) también es 400, nunca 500.
+#   * Con el corte a T-soft en 3 todo es inerte: `AnexoService.operable` es falso.
+_ANEXO_URL = "/titulatec/student/anexo"
+_ANEXO_BODY = "titulatec/partials/student/anexo/_body.html"
+_ANEXO_DOC = "anexo_iii"
+
+
+def _anexo_read_guard(db, process, *, page: bool = False) -> Response | None:
+    """None si el alumno puede CONSULTAR su Anexo III; si no, 302 al tablero
+    (`page=True`) o 400 + `X-Tt-Error` (descarga del PDF)."""
+    from fastapi.responses import RedirectResponse
+    from itcj2.apps.titulatec.services.anexo_service import (
+        NOT_OPERABLE_MSG, NOT_REACHED_MSG, AnexoService,
+    )
+
+    if process is not None and AnexoService.operable(db) and AnexoService.reached(db, process):
+        return None
+    if page:
+        n6 = AnexoService.phase_number(db)
+        return RedirectResponse(
+            _DASHBOARD_URL + (f"?fase={n6}" if isinstance(n6, int) else ""), status_code=302)
+    msg = (NOT_REACHED_MSG if process is not None and AnexoService.operable(db)
+           else NOT_OPERABLE_MSG)
+    return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+
+
+def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
+    """Contexto (tipos planos: la plantilla se pinta después del `db.close()`)."""
+    from itcj2.apps.titulatec.models import Document, DocumentType, ProcessPhase
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
+    from itcj2.apps.titulatec.utils.storage import pdf_limits_mb
+
+    n6 = AnexoService.phase_number(db)
+    fase = (db.query(ProcessPhase).filter_by(process_id=process.id, phase_number=n6).first()
+            if n6 is not None else None)
+    doc = db.query(Document).filter_by(process_id=process.id, type_code=_ANEXO_DOC).first()
+    dtype = db.query(DocumentType).filter_by(code=_ANEXO_DOC, is_active=True).first()
+    anexo = AnexoService.get(db, process.id)
+    can_act = bool(PhaseService.can_student_act(db, process, n6)) if n6 is not None else False
+
+    aprobado = (doc is not None and doc.review_status == "approved") or (
+        fase is not None and fase.status == "approved")
+    if aprobado:
+        state = "approved"
+    elif doc is not None and doc.review_status == "rejected":
+        state = "observed"
+    elif doc is not None:
+        state = "in_review"
+    else:
+        state = "todo"
+
+    sent_at = None
+    if doc is not None:
+        sent_at = (DocumentService.last_uploads(db, [process.id], codes=[_ANEXO_DOC])
+                   .get((process.id, _ANEXO_DOC)) or doc.created_at)
+    max_mb, upload_mb = pdf_limits_mb()
+    return {
+        "state": state,
+        "folio": anexo.folio if anexo else None,
+        "signers_text": AnexoService.signers_text(process),
+        "doc": ({
+            "original_name": doc.original_name,
+            "size_kb": int(round((doc.size_bytes or 0) / 1024)),
+            "version": doc.version,
+            "review_status": doc.review_status,
+            "sent_label": f"Enviado el {dia_mes_hora(sent_at)}" if sent_at else None,
+        } if doc is not None else None),
+        "note": ((doc.review_note if doc is not None else None)
+                 or (fase.rejection_reason if fase is not None else None)),
+        "can_upload": can_act and state in ("todo", "in_review", "observed"),
+        "can_delete": bool(can_act and state == "in_review"
+                           and doc is not None and doc.review_status == "pending"),
+        "file_kind_pdf": dtype is None or dtype.file_kind == "pdf",
+        "pdf_max_mb": max_mb,
+        "pdf_upload_mb": upload_mb,
+        "pdf_url": _ANEXO_URL + "/pdf",
+        "upload_url": _ANEXO_URL + "/escaneo",
+        "delete_url": _ANEXO_URL + "/escaneo",
+        "error": error,
+    }
+
+
+def _anexo_body(request, db, process, *, error: str | None = None):
+    resp = render_titulatec(request, _ANEXO_BODY, {"anexo": _anexo_ctx(db, process, error=error)})
+    if error:
+        resp.headers["X-Tt-Error"] = _hdr(error)
+    return resp
+
+
+@router.get("/anexo", name="titulatec.pages.student.anexo")
+def anexo(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.read.own"])),
+):
+    """Página del Anexo III del alumno (consulta incluida tras aprobarse)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        bloqueo = _anexo_read_guard(db, process, page=True)
+        if bloqueo:
+            return bloqueo
+        ctx = {"anexo": _anexo_ctx(db, process)}
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/student/anexo.html", ctx)
+
+
+@router.get("/anexo/pdf", name="titulatec.pages.student.anexo_pdf")
+def anexo_pdf(
+    request: Request,
+    user: dict = Depends(require_page_app(
+        "titulatec", perms=["titulatec.anexo_iii.api.generate.own"])),
+):
+    """Descarga (inline) el Anexo III del propio proceso. La primera vez emite el folio."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        process = DocumentService.get_active_process(db, uid)
+        bloqueo = _anexo_read_guard(db, process)
+        if bloqueo:
+            return bloqueo
+        try:
+            pdf = AnexoService.render_pdf(db, process, uid)
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(exc)})
+        nombre = AnexoService.filename(db, process)
+    finally:
+        db.close()
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{nombre}"',
+                             "X-Content-Type-Options": "nosniff"})
+
+
+@router.post("/anexo/escaneo", name="titulatec.pages.student.anexo_scan_upload")
+async def anexo_scan_upload(
+    request: Request,
+    archivo: UploadFile = File(...),
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.upload.own"])),
+):
+    """Sube (o reemplaza) el escaneo firmado. Dos saltos, como `document_upload`:
+    las guardas y el tope del PDF se resuelven ANTES de leer el cuerpo."""
+    respuesta = await run_in_threadpool(
+        _cuerpo_anexo_scan_upload, request=request, archivo=archivo, user=user)
+    if respuesta is not None:
+        return respuesta
+    raw = await archivo.read()
+    return await run_in_threadpool(
+        _cuerpo_anexo_scan_upload, request=request, archivo=archivo, user=user, raw=raw)
+
+
+def _anexo_mutation_guard(db, process) -> Response | None:
+    """Guardas comunes de subir/borrar: proceso y Anexo operable. La de FASE
+    (`_phase_guard`, que también aplica el corte) la llama cada cuerpo."""
+    from itcj2.apps.titulatec.services.anexo_service import (
+        NOT_OPERABLE_MSG, AnexoService,
+    )
+
+    if process is None:
+        return Response(status_code=409)
+    if not AnexoService.operable(db):
+        return Response(status_code=400, headers={"X-Tt-Error": _hdr(NOT_OPERABLE_MSG)})
+    return None
+
+
+def _cuerpo_anexo_scan_upload(request, archivo, user, raw=None):
+    """Cuerpo síncrono de `anexo_scan_upload`: corre en el threadpool.
+
+    Sin `raw` solo valida (la `Response` final si algo se rechaza, o `None` si
+    toca leer); con `raw` repite la validación, comprime, guarda y re-pinta."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import DocumentType
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.utils import storage
+    from itcj2.apps.titulatec.utils.storage import StorageError, check_pdf_upload_size
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        bloqueo = _anexo_mutation_guard(db, process) or _phase_guard(
+            db, process, _phase_of(db, _ANEXO_DOC))
+        if bloqueo:
+            return bloqueo
+        dtype = db.query(DocumentType).filter_by(code=_ANEXO_DOC, is_active=True).first()
+        if not dtype:
+            return Response(status_code=404)
+
+        error = None
+        t0 = time.perf_counter()
+        try:
+            if dtype.file_kind == "pdf":
+                check_pdf_upload_size(archivo.size)
+            file_kind = dtype.file_kind
+            _, control = DocumentService._storage_keys(db, process)
+            # Fin de la transacción de lectura antes de lo lento (ver `document_upload`).
+            db.commit()
+            if raw is None:
+                return None
+            t0 = time.perf_counter()
+            prepared = storage.prepare_document(
+                raw=raw, original_name=archivo.filename,
+                control_number=control, file_kind=file_kind,
+            )
+            prepare_ms = (time.perf_counter() - t0) * 1000
+            DocumentService.save(
+                db, process, _ANEXO_DOC,
+                raw=raw, original_name=archivo.filename,
+                content_type=archivo.content_type, uploaded_by_id=int(user["sub"]),
+                prepared=prepared,
+            )
+            _log_upload(_ANEXO_DOC, raw, prepared=prepared, prepare_ms=prepare_ms,
+                        save_ms=(time.perf_counter() - t0) * 1000 - prepare_ms)
+        except StorageError as exc:
+            # Validación del archivo: 200 con el parcial re-pintado y el error.
+            error = str(exc)
+            if raw is not None:
+                _log_upload(_ANEXO_DOC, raw, prepare_ms=(time.perf_counter() - t0) * 1000,
+                            error=type(exc).__name__)
+        except ValueError as exc:
+            # Guarda del servicio (p. ej. el dictamen llegó en vuelo): 400.
+            db.rollback()
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(exc)})
+
+        resp = _anexo_body(request, db, process, error=error)
+        if not error:
+            resp.headers["X-Tt-Notice"] = _hdr("Escaneo enviado al Depto. de Titulación.")
+        return resp
+    finally:
+        db.close()
+
+
+@router.delete("/anexo/escaneo", name="titulatec.pages.student.anexo_scan_delete")
+def anexo_scan_delete(
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.document.api.delete.own"])),
+):
+    """Quita el escaneo mientras sigue «en revisión» (sin dictamen)."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+
+    db = SessionLocal()
+    try:
+        process = DocumentService.get_active_process(db, int(user["sub"]))
+        bloqueo = _anexo_mutation_guard(db, process) or _phase_guard(
+            db, process, _phase_of(db, _ANEXO_DOC))
+        if bloqueo:
+            return bloqueo
+        doc = DocumentService.get_document(db, process.id, _ANEXO_DOC)
+        if doc is not None and doc.review_status != "pending":
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(
+                "Este escaneo ya fue dictaminado: ya no se puede quitar.")})
+        try:
+            DocumentService.delete(db, process.id, _ANEXO_DOC, actor_id=int(user["sub"]))
+        except ValueError as exc:
+            db.rollback()
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(exc)})
+        return _anexo_body(request, db, process)
+    finally:
+        db.close()
