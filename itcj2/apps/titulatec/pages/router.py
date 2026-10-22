@@ -27,6 +27,7 @@ from .mail_admin import router as mail_admin_router
 from .audit_admin import router as audit_admin_router
 from .reports_admin import router as reports_admin_router
 from .titulacion_admin import router as titulacion_admin_router
+from .titulacion_anexo import router as titulacion_anexo_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -52,6 +53,9 @@ titulatec_pages_router.include_router(mail_admin_router)
 titulatec_pages_router.include_router(audit_admin_router)
 titulatec_pages_router.include_router(reports_admin_router)
 # Pestaña Titulación (spec 2026-10-21 fase 3 §8): bandeja del Formato B.
+# La vista «Anexo III» (fase 6, spec 2026-10-22 §9.2) va ANTES: ninguna ruta del
+# prefijo `/admin/titulacion` debe poder capturar `anexo`.
+titulatec_pages_router.include_router(titulacion_anexo_router)
 titulatec_pages_router.include_router(titulacion_admin_router)
 # Pestaña Docentes (spec 2026-10-21 fase 4 §8): catálogo por departamento.
 from .docentes_admin import router as docentes_admin_router  # noqa: E402

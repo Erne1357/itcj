@@ -45,6 +45,18 @@ NOT_IN_REVIEW_MSG = ("Este Anexo III no esta por revisar: el alumno aun no sube 
 REASON_REQUIRED_MSG = "Escribe el motivo de la observacion."
 REASON_TOO_LONG_MSG = "El motivo de la observacion admite hasta 500 caracteres."
 
+DEPARTMENT_HEAD_LABEL = "Jefe(a) del departamento académico"
+VERSION_CHANGED_MSG = "El alumno subio otro escaneo; revisalo de nuevo."
+
+
+class AnexoVersionChanged(ValueError):
+    """`approve`/`observe(expected_version=N)` encontro OTRA version del escaneo:
+    el alumno lo reemplazo entre que Titulacion lo vio y lo dictamino (Ruling R5
+    de la fase 6; molde `DocumentVersionChanged`). Subclase de `ValueError`
+    para que cualquier `except ValueError` la siga atrapando; la ruta la
+    distingue para contestar 200 + aviso en vez de 400."""
+
+
 # Estados de la fase 6 desde los que una subida la pone «Por revisar» (C6).
 _SYNC_TO_REVIEW = ("in_progress", "rejected", "in_review")
 
@@ -93,6 +105,15 @@ class AnexoService:
         from itcj2.apps.titulatec.services.review_service import ReviewService
         return ["department_head",
                 *ReviewService.counting_roles(ReviewService.rule_for(process))]
+
+    @staticmethod
+    def signer_labels(process) -> list[str]:
+        """`required_signers` en etiquetas de pantalla (Titulacion). `ValueError`
+        si la regla de firma es desconocida."""
+        from itcj2.apps.titulatec.services.synodal_service import ROLE_LABELS
+
+        return [DEPARTMENT_HEAD_LABEL if r == "department_head" else ROLE_LABELS.get(r, r)
+                for r in AnexoService.required_signers(process)]
 
     @staticmethod
     def signers_text(process) -> str:
@@ -302,25 +323,31 @@ class AnexoService:
         return doc
 
     @staticmethod
-    def approve(db: Session, process, reviewer_id: int) -> dict:
+    def approve(db: Session, process, reviewer_id: int, *,
+                expected_version: int | None = None) -> dict:
         """Titulacion aprueba el escaneo y, en la MISMA transaccion, la fase 6.
 
         Escaneo `approved` (sin nota) + `approve_phase` con la puerta abierta:
         el proceso pasa a la siguiente fase aplicable (la 7). Cualquier error
         bajo el bloqueo: `rollback` y se re-lanza. Devuelve lo de
-        `approve_phase`.
+        `approve_phase`. `expected_version` (opcional) es la version del
+        escaneo que Titulacion tenia en pantalla: bajo el bloqueo, si cambio,
+        `AnexoVersionChanged` sin escribir nada.
         """
         n = AnexoService.phase_number(db)
         AnexoService._assert_in_review(db, process, n, locked=False)
-        return AnexoService._dictaminar(db, process, n, reviewer_id, "approved", None)
+        return AnexoService._dictaminar(db, process, n, reviewer_id, "approved", None,
+                                        expected_version=expected_version)
 
     @staticmethod
-    def observe(db: Session, process, reviewer_id: int, *, reason: str) -> None:
+    def observe(db: Session, process, reviewer_id: int, *, reason: str,
+                expected_version: int | None = None) -> None:
         """Titulacion observa el escaneo: escaneo `rejected` con el motivo y
         `reject_phase` (el alumno lo ve y vuelve a subir, C6). Motivo
         obligatorio (`REASON_REQUIRED_MSG`) y de a lo mas `REASON_MAX`
         caracteres tras `strip()` (`REASON_TOO_LONG_MSG`); se valida antes de
-        tomar el bloqueo, asi que un motivo invalido no escribe nada."""
+        tomar el bloqueo, asi que un motivo invalido no escribe nada.
+        `expected_version`: igual que en `approve`."""
         n = AnexoService.phase_number(db)
         AnexoService._assert_in_review(db, process, n, locked=False)
         motivo = (reason or "").strip()
@@ -328,11 +355,12 @@ class AnexoService:
             raise ValueError(REASON_REQUIRED_MSG)
         if len(motivo) > REASON_MAX:
             raise ValueError(REASON_TOO_LONG_MSG)
-        AnexoService._dictaminar(db, process, n, reviewer_id, "rejected", motivo)
+        AnexoService._dictaminar(db, process, n, reviewer_id, "rejected", motivo,
+                                 expected_version=expected_version)
 
     @staticmethod
     def _dictaminar(db: Session, process, n: int, reviewer_id: int, veredicto: str,
-                    motivo: str | None):
+                    motivo: str | None, *, expected_version: int | None = None):
         """Bloqueo -> re-chequeo -> escaneo + bitacora -> puerta -> motor.
 
         El escaneo se escribe y se hace `flush` ANTES del motor: `_door_guard`
@@ -348,6 +376,8 @@ class AnexoService:
         try:
             PhaseService._lock_process_row(db, process)
             doc = AnexoService._assert_in_review(db, process, n, locked=True)
+            if expected_version is not None and doc.version != expected_version:
+                raise AnexoVersionChanged(VERSION_CHANGED_MSG)
             doc.review_status = veredicto
             doc.review_note = motivo
             doc.reviewed_by_id = reviewer_id

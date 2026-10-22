@@ -403,10 +403,16 @@ def home(request: Request, tab: str = "", q: str = "", carrera: str = "", page: 
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
-        ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, carrera=carrera,
+        uid = int(user["sub"])
+        ctx = _body_ctx(db, user_id=uid, tab=tab, q=q, carrera=carrera,
                         page=page, selected_id=_to_int(selected))
+        # Vistas hermanas (fase 6): la liga «Anexo III» solo si se opera y se puede revisar.
+        from itcj2.core.services.authz_cache import cached_perms
+        from itcj2.apps.titulatec.pages.titulacion_anexo import views_ctx
+        ctx.update(views_ctx(db, cached_perms(db, uid, "titulatec")))
     finally:
         db.close()
+    ctx.update(view="format_b", body_tpl=_BODY_TPL)
     return render_titulatec(request, _PAGE_TPL, ctx)
 
 
