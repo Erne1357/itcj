@@ -373,9 +373,10 @@ class TestPagina:
         assert "Revisa tu domicilio" in pagina.text
         assert "20 de octubre" in pagina.text
         assert f"{BASE}/step/1" in pagina.text, "cada campo observado enlaza a su paso"
-        # Sin cambio: nota ambar. Cambiado (Calle -> Calle Uno): «Corregido ✓».
+        # Sin cambio: nota ambar. Cambiado (Calle -> Calle Uno): «Corregido»
+        # (el ✓ duplicaba el ícono; 2026-10-23).
         assert "Observación de Titulación: No coincide con tu comprobante" in paso.text
-        assert "Corregido ✓" in paso.text
+        assert "tt-fb-obs--ok" in paso.text and "Corregido" in paso.text
         assert "is-observed" in paso.text
 
     def test_sin_proceso_muestra_el_estado_vacio(

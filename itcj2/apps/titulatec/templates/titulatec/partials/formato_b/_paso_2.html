@@ -1,14 +1,20 @@
 {% from "titulatec/partials/formato_b/_macros.html" import cls, notes, summary %}
-<form class="p-3 d-grid gap-3" novalidate id="fb-form-2"
+<form class="tt-fb-form d-grid gap-3" novalidate id="fb-form-2"
       hx-post="/titulatec/student/formato-b/step/2" hx-target="#formato-b-body"
       hx-swap="outerHTML show:window:top">
   {{ summary(errors) }}
 
-  <div class="row g-2">
-    <div class="col-12 col-sm-5"><label class="tt-label" for="fb-control">Número de control</label>
-      <input class="form-control tt-field--readonly tt-mono" id="fb-control" value="{{ registro.control_number }}" readonly></div>
-    <div class="col-12 col-sm-7"><label class="tt-label" for="fb-program">Carrera</label>
-      <input class="form-control tt-field--readonly" id="fb-program" value="{{ registro.program_id }}" readonly></div>
+  <div class="tt-fb-registry" id="fb-registry-school">
+    <div class="tt-fb-registry-pair">
+      <div>
+        <div class="tt-fb-registry-label">Número de control</div>
+        <div class="tt-fb-registry-value tt-mono">{{ registro.control_number }}</div>
+      </div>
+      <div>
+        <div class="tt-fb-registry-label">Carrera</div>
+        <div class="tt-fb-registry-value">{{ registro.program_id }}</div>
+      </div>
+    </div>
   </div>
 
   <div><label class="tt-label" for="fb-study-plan">Plan de estudios</label>
@@ -44,9 +50,9 @@
     del último semestre inscrito.</p>
 
   <div class="d-flex gap-2">
-    <button type="button" class="btn tt-btn-ghost" aria-label="Volver al paso 1"
+    <button type="button" class="btn tt-btn-ghost tt-fb-back" aria-label="Volver al paso 1"
             hx-get="/titulatec/student/formato-b/step/1" hx-target="#formato-b-body"
-            hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn tt-btn-ink flex-grow-1" style="height:52px">Continuar a proyecto <i class="bi bi-arrow-right ms-1"></i></button>
+            hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
+    <button class="btn tt-btn-ink tt-fb-next flex-grow-1">Continuar a proyecto <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i></button>
   </div>
 </form>

@@ -730,7 +730,7 @@ def _format_b_progress(fb) -> dict:
     elif status == "approved":
         label, tone = "Formato B aprobado", "success"
     elif status == "rejected":
-        label, tone = "Te lo regresaron con observaciones", "danger"
+        label, tone = "Corrige y vuelve a enviar", "danger"
     elif status == "submitted":
         label, tone = "Enviado · en revisión del Depto. de Titulación", "amber"
     elif all(s["done"] for s in prog["steps"]):
@@ -790,6 +790,22 @@ def _cta_for(code: str, *, is_current: bool, status: str, handoff: bool) -> dict
         return None
     url, label, icon = entry
     return {"url": url, "label": label, "icon": icon}
+
+
+def _format_b_cta(cta: dict | None, progress: dict | None) -> dict | None:
+    """El CTA de la fase 3 dice lo que el alumno va a hacer según su Formato B
+    (2026-10-23): llenarlo, seguirlo, corregirlo o verlo. Puro; sin progreso o
+    sin CTA devuelve el CTA tal cual (la URL sigue saliendo de `_PHASE_CTA`)."""
+    if not cta or not progress:
+        return cta
+    status = progress.get("status")
+    if status == "rejected":
+        return {**cta, "label": "Corregir Formato B", "icon": "pencil"}
+    if status in ("submitted", "approved"):
+        return {**cta, "label": "Ver mi Formato B", "icon": "eye"}
+    if progress.get("started"):
+        return {**cta, "label": "Continuar Formato B"}
+    return cta
 
 
 _REVIEW_URL = "/titulatec/student/revision"
@@ -1093,7 +1109,9 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             handoff=handoff,
             # Sin conversación (legado) el CTA mandaría a un 302 al propio tablero.
             cta=(None if (pd.code == "synodal_review" and review is None)
-                 else _cta_for(pd.code, is_current=is_current, status=status, handoff=handoff)),
+                 else _format_b_cta(
+                     _cta_for(pd.code, is_current=is_current, status=status, handoff=handoff),
+                     progress if pd.code == "format_b" else None)),
             review=(review if pd.code == "synodal_review" else None),
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
@@ -2581,6 +2599,18 @@ _REVIEW_FORM_ERR_VER = "tt-rv-err-ver"
 _REVIEW_PARTIALS = "titulatec/partials/student/revision/"
 
 
+def review_consultable(db, process) -> bool:
+    """¿Puede el alumno CONSULTAR su revisión? Predicado de `_review_read_guard`
+    (y del menú del alumno, `pages/nav.py::student_nav_items`): proceso con la fase
+    5 alcanzada, la fase 5 se opera en esta app y la conversación existe."""
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    n5 = _phase_of(db, "synodal_review")
+    return bool(process is not None and n5 is not None and process.current_phase >= n5
+                and ReviewService.operable(db)
+                and ReviewService.chat_for(db, process) is not None)
+
+
 def _review_read_guard(db, process, *, page: bool = False) -> Response | None:
     """None si el alumno puede CONSULTAR su revisión; si no, 302 al tablero
     (`page=True`, página completa) o 404 sin header (parcial y archivo).
@@ -2590,13 +2620,10 @@ def _review_read_guard(db, process, *, page: bool = False) -> Response | None:
     que la fase siga en curso: tras liberarse, la conversación queda de consulta.
     """
     from fastapi.responses import RedirectResponse
-    from itcj2.apps.titulatec.services.review_service import ReviewService
 
-    n5 = _phase_of(db, "synodal_review")
-    if (process is not None and n5 is not None and process.current_phase >= n5
-            and ReviewService.operable(db)
-            and ReviewService.chat_for(db, process) is not None):
+    if review_consultable(db, process):
         return None
+    n5 = _phase_of(db, "synodal_review")
     if page:
         destino = _DASHBOARD_URL + (f"?fase={n5}" if isinstance(n5, int) else "")
         return RedirectResponse(destino, status_code=302)
@@ -2950,6 +2977,15 @@ _ANEXO_BODY = "titulatec/partials/student/anexo/_body.html"
 _ANEXO_DOC = "anexo_iii"
 
 
+def anexo_consultable(db, process) -> bool:
+    """¿Puede el alumno CONSULTAR su Anexo III? Predicado de `_anexo_read_guard`
+    (y del menú del alumno): la fase 6 se opera en esta app y el proceso la alcanzó."""
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+
+    return bool(process is not None and AnexoService.operable(db)
+                and AnexoService.reached(db, process))
+
+
 def _anexo_read_guard(db, process, *, page: bool = False) -> Response | None:
     """None si el alumno puede CONSULTAR su Anexo III; si no, 302 al tablero
     (`page=True`) o 400 + `X-Tt-Error` (descarga del PDF)."""
@@ -2958,7 +2994,7 @@ def _anexo_read_guard(db, process, *, page: bool = False) -> Response | None:
         NOT_OPERABLE_MSG, NOT_REACHED_MSG, AnexoService,
     )
 
-    if process is not None and AnexoService.operable(db) and AnexoService.reached(db, process):
+    if anexo_consultable(db, process):
         return None
     if page:
         n6 = AnexoService.phase_number(db)

@@ -1,0 +1,134 @@
+/* ===========================================================================
+   student/formato-b.css — Formato B del alumno (fase 3) (2026-10-23)
+   ---------------------------------------------------------------------------
+   Lo carga solo `student/formato_b.html`. Cuelga de `partials/formato_b/`.
+   Los estilos de campos, observaciones y lista de datos (`.tt-fb .tt-fb-*`)
+   siguen en titulatec.css; aquí va el ACOMODO y lo que antes era `style=`:
+
+   - Celular (base): pasos en fila (barra + rótulo debajo de SU barra), las
+     observaciones de Titulación y el formulario, una columna.
+   - Lienzo ≥ 992 px (D3 del usuario): formulario a ancho de lectura y, a un
+     lado, los pasos en vertical y las observaciones, fijos (sticky) mientras
+     se corrige. Antes el formulario se estiraba a ~1,480 px en 1920.
+
+   Texto: nada por debajo de 12 px ni con `--tt-mute` (2.5:1, prohibido para
+   texto); el más claro es `--tt-text-3` (5.4:1).
+   =========================================================================== */
+
+/* === Página ============================================================= */
+.tt-fb-page { padding: var(--tt-sp-4); }
+@media (min-width: 992px) { .tt-fb-page { padding: 0; } }
+
+.tt-fb-layout { display: grid; gap: var(--tt-sp-4); }
+.tt-fb-aside, .tt-fb-main { min-width: 0; }
+.tt-fb-aside { display: grid; gap: var(--tt-sp-3); align-content: start; }
+/* El banner de observaciones vive en la columna de los pasos: sin el margen
+   lateral que traía cuando colgaba del borde de la pantalla. */
+.tt-fb .tt-fb-aside .tt-fb-banner { margin: 0; }
+.tt-fb-main { max-width: 46rem; }
+
+@media (min-width: 992px) {
+  .tt-fb-layout {
+    grid-template-columns: minmax(0, 46rem) minmax(15rem, 20rem);
+    gap: var(--tt-sp-6); align-items: start;
+  }
+  /* El formulario a la izquierda (donde empieza la lectura); los pasos y las
+     observaciones a la derecha, fijos mientras se recorre el formulario. */
+  .tt-fb-aside {
+    grid-column: 2; grid-row: 1;
+    position: sticky; top: var(--tt-sp-4);
+    max-height: calc(100dvh - 2 * var(--tt-sp-4)); overflow-y: auto;
+  }
+  .tt-fb-layout > .tt-fb-main { grid-column: 1; grid-row: 1; }
+}
+
+/* === Pasos ============================================================== */
+.tt-fb-steps ol {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tt-sp-2);
+}
+.tt-fb-step-link {
+  display: flex; flex-direction: column; gap: 6px; min-height: 40px;
+  font-size: .75rem; font-weight: 600; color: var(--tt-text-3); text-decoration: none;
+}
+/* La barra de cada paso: el rótulo queda SIEMPRE bajo la suya. */
+.tt-fb-step-link::before {
+  content: ""; display: block; height: 5px; border-radius: 3px; background: var(--tt-line);
+}
+.tt-fb-step.is-done .tt-fb-step-link::before,
+.tt-fb-step.is-current .tt-fb-step-link::before { background: var(--tt-accent); }
+.tt-fb-step.is-current .tt-fb-step-link { color: var(--tt-ink); }
+.tt-fb-step.is-done .tt-fb-step-link { color: #166534; }
+a.tt-fb-step-link { cursor: pointer; }
+a.tt-fb-step-link:hover .tt-fb-step-label { text-decoration: underline; }
+a.tt-fb-step-link:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 4px; }
+/* En celular el número/palomita sobra: la barra ya dice dónde vas. */
+.tt-fb-step-dot { display: none; }
+.tt-fb-step-label { display: inline-flex; gap: 4px; align-items: center; }
+
+@media (min-width: 992px) {
+  .tt-fb-steps {
+    padding: var(--tt-sp-3); border: 1px solid var(--tt-line);
+    border-radius: var(--tt-r); background: var(--tt-paper);
+  }
+  .tt-fb-steps ol { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .tt-fb-step-link {
+    flex-direction: row; align-items: center; gap: var(--tt-sp-2);
+    padding: 6px var(--tt-sp-2); border-radius: var(--tt-r-sm);
+    font-size: var(--tt-fs-200);
+  }
+  .tt-fb-step-link::before { display: none; }
+  .tt-fb-step-dot {
+    display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto;
+    width: 26px; height: 26px; border-radius: 999px;
+    border: 1px solid var(--tt-line); background: var(--tt-mist);
+    font-size: .75rem; font-weight: 700; color: var(--tt-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .tt-fb-step.is-done .tt-fb-step-dot { background: var(--tt-success-soft); border-color: rgba(22,163,74,.32); color: #166534; }
+  .tt-fb-step.is-current .tt-fb-step-link { background: var(--tt-accent-soft); }
+  .tt-fb-step.is-current .tt-fb-step-dot { background: var(--tt-accent); border-color: var(--tt-accent); color: var(--tt-ink); }
+  @media (hover: hover) and (pointer: fine) {
+    a.tt-fb-step-link:hover { background: var(--tt-mist); }
+  }
+}
+
+/* === Formulario ========================================================= */
+/* El botón principal de cada paso (antes `style="height:52px"`). */
+.tt-fb-next { min-height: 52px; font-weight: 600; }
+.tt-fb-back { min-width: 52px; min-height: 52px; }
+@media (min-width: 992px) {
+  .tt-fb-next { min-height: 44px; }
+  .tt-fb-back { min-width: 44px; min-height: 44px; }
+}
+
+/* Datos del registro: texto, no campos (no se editan aquí). */
+.tt-fb-registry {
+  padding: var(--tt-sp-3); border-radius: var(--tt-r);
+  background: var(--tt-mist); border: 1px solid var(--tt-line);
+}
+.tt-fb-registry-label { font-size: .75rem; font-weight: 600; color: var(--tt-text-3); }
+.tt-fb-registry-value {
+  font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-ink);
+  overflow-wrap: anywhere; margin-top: 2px;
+}
+.tt-fb-registry-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: var(--tt-sp-3); }
+
+/* Avisos de una línea con ícono (sin proyecto, aprobado, en revisión). */
+.tt-fb-note { display: flex; gap: var(--tt-sp-2); align-items: flex-start; font-size: var(--tt-fs-200); }
+.tt-fb-note > i { flex: 0 0 auto; margin-top: 2px; }
+
+/* === Revisión y solo lectura ============================================ */
+.tt-fb-title { font-size: var(--tt-fs-400); font-weight: 600; color: var(--tt-ink); margin: 0; }
+.tt-fb-sec-title { font-family: var(--tt-display); font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-ink); margin: 0 0 var(--tt-sp-2); }
+#fb-review .tt-fb-sec-title { margin: 0; }
+.tt-fb-sent-ico {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; border-radius: 999px; margin-bottom: var(--tt-sp-2);
+  background: var(--tt-success-soft); color: var(--tt-success); font-size: 1.6rem;
+}
+.tt-fb-sent-text { margin: var(--tt-sp-1) auto var(--tt-sp-3); font-size: var(--tt-fs-200); color: var(--tt-slate); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-fb-step-link { transition: none; }
+}

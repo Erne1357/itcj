@@ -322,6 +322,119 @@ def admin_nav_items(user_id: int, db=None) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Menú del alumno por etapa (spec UI fase 3, 2026-10-23)
+# ---------------------------------------------------------------------------
+
+# Pantalla del alumno por CÓDIGO de fase: (clave activa, etiqueta, ícono, URL, permiso
+# que exige la página). Los códigos sin fila (0, 4, 7, 8) no tienen pantalla.
+_STUDENT_SCREENS: dict[str, tuple[str, str, str, str, str]] = {
+    "initial_docs": ("docs", "Documentos", "file-earmark", "/titulatec/student/documents",
+                     "titulatec.document.api.read.own"),
+    "review_appointment": ("cita", "Cita de cotejo", "calendar-check", "/titulatec/student/cita",
+                           "titulatec.appointment.page.my"),
+    # `pencil` y no `pencil-square`: el activo pinta `{icono}-fill` y Bootstrap
+    # Icons no trae `pencil-square-fill`.
+    "format_b": ("formato_b", "Formato B", "pencil", "/titulatec/student/formato-b",
+                 "titulatec.format_b.page.fill"),
+    "synodal_review": ("revision", "Revisión", "chat-square-text", "/titulatec/student/revision",
+                       "titulatec.chat.page.view"),
+    "anexo_iii": ("anexo", "Anexo III", "file-earmark-check", "/titulatec/student/anexo",
+                  "titulatec.document.api.read.own"),
+}
+# Orden de «Consultar»: las pantallas de solo lectura que sobreviven a su fase.
+_STUDENT_CONSULT_ORDER = ("format_b", "synodal_review", "anexo_iii")
+
+
+def _student_item(code: str, group: str) -> dict:
+    key, label, icon, url, _perm = _STUDENT_SCREENS[code]
+    return {"key": key, "label": label, "icon": icon, "url": url, "group": group}
+
+
+def _student_nav_compute(db, user_id: int) -> list[dict]:
+    """Ítems «Ahora» y «Consultar» del alumno (sin Inicio ni Perfil, que pone la macro).
+
+    Reusa los predicados que ya deciden si la página abre: `PhaseService.can_student_act`
+    (fase en curso + corte), `open_replacements`/`student_can_replace` (reemplazo en
+    la cita), `review_consultable` y `anexo_consultable` (guardas de lectura) y el
+    Formato B `approved` que `pages/student.py::formato_b` sirve en fase >= 4. Sin
+    proceso `active` no hay ítems.
+    """
+    from itcj2.apps.titulatec.models import FormatB, PhaseDefinition
+    from itcj2.apps.titulatec.pages.student import anexo_consultable, review_consultable
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.core.services.authz_cache import cached_perms
+
+    process = DocumentService.get_active_process(db, user_id)
+    if process is None or process.status != "active":
+        return []
+    perms = cached_perms(db, user_id, "titulatec")
+    actual = process.current_phase
+    corte = PhaseService._handoff_phase()
+    numero = {code: int(n) for code, n in
+              db.query(PhaseDefinition.code, PhaseDefinition.number)
+              .filter(PhaseDefinition.code.in_(sorted(_STUDENT_SCREENS))).all()}
+    code_actual = next((c for c, n in numero.items() if n == actual), None)
+
+    def _permitido(code: str) -> bool:
+        return _STUDENT_SCREENS[code][4] in perms
+
+    ahora: list[str] = []
+    if code_actual is not None and _permitido(code_actual):
+        if code_actual == "synodal_review":
+            abre = review_consultable(db, process)
+        elif code_actual == "anexo_iii":
+            abre = anexo_consultable(db, process)
+        else:
+            abre = PhaseService.can_student_act(db, process, actual)
+        if abre:
+            ahora.append(code_actual)
+    # Reemplazo de un documento pedido en la cita de cotejo (misma regla que `documents`).
+    if (ahora == ["review_appointment"]
+            and _permitido("initial_docs") and "initial_docs" in numero
+            and any(DocumentService.student_can_replace(db, process, r["type_code"])
+                    for r in DocumentService.open_replacements(db, process.id))):
+        ahora.append("initial_docs")
+
+    consultar: list[str] = []
+    for code in _STUDENT_CONSULT_ORDER:
+        n = numero.get(code)
+        # Solo fases ANTERIORES a la actual, que se operan en esta app (corte) y con permiso.
+        if n is None or actual <= n or corte <= n or not _permitido(code):
+            continue
+        if code == "format_b":
+            fb = db.get(FormatB, process.id)
+            ok = fb is not None and fb.status == "approved"
+        elif code == "synodal_review":
+            ok = review_consultable(db, process)
+        else:
+            ok = anexo_consultable(db, process)
+        if ok:
+            consultar.append(code)
+
+    return ([_student_item(c, "now") for c in ahora]
+            + [_student_item(c, "consult") for c in consultar])
+
+
+def student_nav_items(user_id: int) -> list[dict]:
+    """Ítems de etapa del menú del alumno; `[]` (solo Inicio y Perfil) si falla.
+
+    Abre su propia sesión (`render_titulatec` no tiene la de la ruta) y nunca rompe
+    la página: ante cualquier error, `logger.warning` y menú mínimo.
+    """
+    try:
+        from itcj2.database import SessionLocal
+        db = SessionLocal()
+        try:
+            return _student_nav_compute(db, user_id)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Error calculando el menú del alumno (user %s): %s", user_id, exc)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Render
 # ---------------------------------------------------------------------------
 
@@ -356,4 +469,12 @@ def render_titulatec(
         else:
             # `admin_nav_items` se resuelve como global del módulo al invocar.
             ctx["admin_nav"] = lambda: admin_nav_items(uid)
+    # Igual de perezoso para el menú del alumno: solo `student/base_student.html` lo invoca.
+    if "student_nav_items" not in ctx and user is not None:
+        try:
+            suid = int(user["sub"])
+        except Exception:
+            ctx["student_nav_items"] = lambda: []
+        else:
+            ctx["student_nav_items"] = lambda: student_nav_items(suid)
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)

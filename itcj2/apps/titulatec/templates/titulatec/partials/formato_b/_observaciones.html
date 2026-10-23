@@ -2,16 +2,17 @@
    lista de campos observados, cada uno con liga a su paso. Contexto: observed ·
    general_note · reviewed_txt. Solo se incluye con el Formato B en `rejected`. #}
 <div class="tt-fb-banner" id="fb-observations-banner" role="note">
-  <div class="tt-fb-banner-title"><i class="bi bi-chat-left-text"></i>
+  <div class="tt-fb-banner-title"><i class="bi bi-chat-left-text" aria-hidden="true"></i>
     Titulación te regresó el Formato B{% if reviewed_txt %} · {{ reviewed_txt }}{% endif %}</div>
   {% if general_note %}<p class="tt-fb-banner-note">{{ general_note }}</p>{% endif %}
   {% if observed %}
   <ul class="tt-fb-banner-list">
     {% for o in observed %}
     <li id="fb-banner-{{ o.field }}">
-      <a href="/titulatec/student/formato-b/step/{{ o.step }}" hx-get="/titulatec/student/formato-b/step/{{ o.step }}"
+      {# `href` a la página (no al parcial): abierta en otra pestaña no queda HTML suelto. #}
+      <a href="/titulatec/student/formato-b" hx-get="/titulatec/student/formato-b/step/{{ o.step }}"
          hx-target="#formato-b-body" hx-swap="outerHTML show:window:top">{{ o.label }}</a>
-      {% if o.changed %}<span class="tt-pill tt-pill--success">Corregido ✓</span>{% endif %}
+      {% if o.changed %}<span class="tt-pill tt-pill--success"><i class="bi bi-check-lg" aria-hidden="true"></i>Corregido</span>{% endif %}
       <span class="tt-fb-banner-why">{{ o.note }}</span>
     </li>
     {% endfor %}

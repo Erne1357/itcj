@@ -1,5 +1,5 @@
 {% from "titulatec/partials/formato_b/_macros.html" import cls, notes, summary %}
-<form class="p-3 d-grid gap-3" novalidate id="fb-form-3"
+<form class="tt-fb-form d-grid gap-3" novalidate id="fb-form-3"
       hx-post="/titulatec/student/formato-b/step/3" hx-target="#formato-b-body"
       hx-swap="outerHTML show:window:top">
   {{ summary(errors) }}
@@ -13,16 +13,16 @@
     <p class="tt-fb-help mb-0">De 10 a 500 caracteres.</p>
     {{ notes(errors, obs, 'project_name') }}</div>
   {% else %}
-  <div class="tt-card" id="fb-no-project">
-    <i class="bi bi-info-circle"></i>
-    Tu tipo de titulación no pide nombre de proyecto. Continúa a la revisión.
+  <div class="tt-card tt-fb-note" id="fb-no-project">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    <span>Tu tipo de titulación no pide nombre de proyecto. Continúa a la revisión.</span>
   </div>
   {% endif %}
 
   <div class="d-flex gap-2">
-    <button type="button" class="btn tt-btn-ghost" aria-label="Volver al paso 2"
+    <button type="button" class="btn tt-btn-ghost tt-fb-back" aria-label="Volver al paso 2"
             hx-get="/titulatec/student/formato-b/step/2" hx-target="#formato-b-body"
-            hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn tt-btn-ink flex-grow-1" style="height:52px">Continuar a revisión <i class="bi bi-arrow-right ms-1"></i></button>
+            hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
+    <button class="btn tt-btn-ink tt-fb-next flex-grow-1">Continuar a revisión <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i></button>
   </div>
 </form>

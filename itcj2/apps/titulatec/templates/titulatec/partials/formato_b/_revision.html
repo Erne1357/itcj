@@ -1,22 +1,22 @@
 {# «Revisa y envía» (spec §5.3). Contexto: secciones · no_cambio. #}
-<div class="p-3 d-grid gap-3" id="fb-review">
+<div class="d-grid gap-3" id="fb-review">
   <div>
-    <div class="tt-display" style="font-size:1.15rem;font-weight:600">Revisa y envía</div>
+    <h2 class="tt-display tt-fb-title">Revisa y envía</h2>
     <p class="tt-fb-help mb-0">Confirma que todo esté bien. Al enviarlo, Titulación lo revisa en orden de llegada.</p>
   </div>
 
   {% if no_cambio %}
-  <div class="tt-fb-warn" id="fb-not-changed" role="note"><i class="bi bi-exclamation-triangle-fill"></i>
+  <div class="tt-fb-warn" id="fb-not-changed" role="note"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
     <span>No cambiaste: {{ no_cambio|join(', ') }}. Titulación te lo observó; si tus datos son correctos, puedes enviarlo así.</span></div>
   {% endif %}
 
   {% for s in secciones %}
   <section class="tt-card tt-fb-sec" id="fb-sec-{{ s.key }}">
     <div class="d-flex justify-content-between align-items-center mb-2">
-      <div class="tt-kicker">{{ s.label }}</div>
+      <h3 class="tt-fb-sec-title">{{ s.label }}</h3>
       <button type="button" class="btn btn-sm tt-btn-ghost" id="fb-edit-{{ s.key }}"
               hx-get="/titulatec/student/formato-b/step/{{ loop.index }}" hx-target="#formato-b-body"
-              hx-swap="outerHTML show:window:top"><i class="bi bi-pencil"></i> Editar</button>
+              hx-swap="outerHTML show:window:top"><i class="bi bi-pencil" aria-hidden="true"></i> Editar<span class="visually-hidden"> {{ s.label }}</span></button>
     </div>
     <dl class="tt-fb-dl mb-0">
       {% for r in s.rows %}
@@ -37,11 +37,11 @@
     </label>
     {% if confirm_error %}<div class="invalid-feedback d-block" id="fb-err-confirm" role="alert">{{ confirm_error }}</div>{% endif %}
     <div class="d-flex gap-2">
-      <button type="button" class="btn tt-btn-ghost" aria-label="Volver al paso 3"
+      <button type="button" class="btn tt-btn-ghost tt-fb-back" aria-label="Volver al paso 3"
               hx-get="/titulatec/student/formato-b/step/3" hx-target="#formato-b-body"
-              hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left"></i></button>
-      <button class="btn tt-btn-accent flex-grow-1" style="height:52px" id="fb-submit" data-fb-submit disabled>
-        Enviar Formato B <i class="bi bi-send ms-1"></i></button>
+              hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
+      <button class="btn tt-btn-accent tt-fb-next flex-grow-1" id="fb-submit" data-fb-submit disabled>
+        Enviar Formato B <i class="bi bi-send ms-1" aria-hidden="true"></i></button>
     </div>
   </form>
 </div>

@@ -1,18 +1,14 @@
 {% from "titulatec/partials/formato_b/_macros.html" import cls, notes, summary %}
-<form class="p-3 d-grid gap-3" novalidate id="fb-form-1"
+<form class="tt-fb-form d-grid gap-3" novalidate id="fb-form-1"
       hx-post="/titulatec/student/formato-b/step/1" hx-target="#formato-b-body"
       hx-swap="outerHTML show:window:top">
   {{ summary(errors) }}
 
-  <div class="tt-fb-block">
-    <div class="row g-2">
-      <div class="col-12 col-sm-4"><label class="tt-label" for="fb-first-name">Nombre(s)</label>
-        <input class="form-control tt-field--readonly" id="fb-first-name" value="{{ registro.first_name }}" readonly></div>
-      <div class="col-6 col-sm-4"><label class="tt-label" for="fb-last-name">Apellido paterno</label>
-        <input class="form-control tt-field--readonly" id="fb-last-name" value="{{ registro.last_name }}" readonly></div>
-      <div class="col-6 col-sm-4"><label class="tt-label" for="fb-middle-name">Apellido materno</label>
-        <input class="form-control tt-field--readonly" id="fb-middle-name" value="{{ registro.middle_name }}" readonly></div>
-    </div>
+  {# Datos del registro: texto, no campos de solo lectura (un input recortaba
+     los apellidos largos en 360 px y parecía editable). #}
+  <div class="tt-fb-registry" id="fb-registry-name">
+    <div class="tt-fb-registry-label">Tu nombre</div>
+    <div class="tt-fb-registry-value">{{ registro.first_name }} {{ registro.last_name }}{% if registro.middle_name %} {{ registro.middle_name }}{% endif %}</div>
     <p class="tt-fb-help mb-0">Tu nombre viene de tu registro. Titulación lo compara con tu acta de
       nacimiento y, si hay un error, lo corrige al revisar.</p>
   </div>
@@ -80,5 +76,5 @@
       {{ notes(errors, obs, 'int_number') }}</div>
   </div>
 
-  <button class="btn tt-btn-ink w-100" style="height:52px">Continuar a escolar <i class="bi bi-arrow-right ms-1"></i></button>
+  <button class="btn tt-btn-ink tt-fb-next w-100">Continuar a escolar <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i></button>
 </form>

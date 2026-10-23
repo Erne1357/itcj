@@ -318,7 +318,7 @@
     {% endif %}
     <div class="flex-grow-1 min-w-0">
       <div class="title">{{ titulo }}</div>
-      {% if sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{{ sub }}</div>{% endif %}
+      {% if sub %}<div class="tt-appbar-sub">{{ sub }}</div>{% endif %}
     </div>
     {{ caller() if caller is defined else "" }}
   </header>
@@ -326,20 +326,29 @@
 
 {# — NAV DEL ALUMNO — items compartidos por el drawer (móvil) y el rail (desktop).
    Reutiliza .app-sidebar-item del shell core (ya tematizado con --app-primary*).
-   activo: home | docs | cita    #}
-{% macro student_nav(activo="home") %}
-  {% set _items = [
-    ("home", "Inicio",          "house",          "/titulatec/student/dashboard"),
-    ("docs", "Documentos",      "file-earmark",   "/titulatec/student/documents"),
-    ("cita", "Cita de cotejo",  "calendar-check", "/titulatec/student/cita"),
-  ] %}
-  {% for key, label, icon, url in _items %}
-    <a href="{{ url }}" class="app-sidebar-item {{ 'active' if activo==key }}">
-      <i class="bi bi-{{ icon }}{{ '-fill' if activo==key }}"></i><span>{{ label }}</span>
-    </a>
+   Menú por etapa: Inicio, AHORA (pantalla de la fase en curso), CONSULTAR (fases
+   pasadas con vista de solo lectura) y Perfil. `items` sale de `student_nav_items`
+   (pages/nav.py); sin él, solo Inicio y Perfil.
+   activo: home | docs | cita | formato_b | revision | anexo | perfil    #}
+{% macro student_nav(activo="home", items=None) %}
+  {% set _items = items or [] %}
+  <a href="/titulatec/student/dashboard" class="app-sidebar-item {{ 'active' if activo=='home' }}"{% if activo=='home' %} aria-current="page"{% endif %}>
+    <i class="bi bi-house{{ '-fill' if activo=='home' }}"></i><span>Inicio</span>
+  </a>
+  {% for grupo, titulo in (("now", "Ahora"), ("consult", "Consultar")) %}
+    {% set _grupo = _items|selectattr("group", "equalto", grupo)|list %}
+    {% if _grupo %}
+      <div class="tt-nav-section-title" data-tt-nav-group="{{ grupo }}">{{ titulo }}</div>
+      {% for it in _grupo %}
+        <a href="{{ it.url }}" class="app-sidebar-item {{ 'active' if activo==it.key }}"{% if activo==it.key %} aria-current="page"{% endif %}>
+          <i class="bi bi-{{ it.icon }}{{ '-fill' if activo==it.key }}"></i><span>{{ it.label }}</span>
+        </a>
+      {% endfor %}
+    {% endif %}
   {% endfor %}
   {# Perfil: solo standalone (embebido lo da el tab Perfil del shell). #}
-  <a href="/titulatec/student/perfil" class="app-sidebar-item tt-standalone-only {{ 'active' if activo=='perfil' }}">
+  {# Con grupos, Perfil lleva una línea arriba: si no, parece parte de «Ahora». #}
+  <a href="/titulatec/student/perfil" class="app-sidebar-item tt-standalone-only{{ ' tt-nav-after-groups' if _items }} {{ 'active' if activo=='perfil' }}"{% if activo=='perfil' %} aria-current="page"{% endif %}>
     <i class="bi bi-person{{ '-fill' if activo=='perfil' }}"></i><span>Perfil</span>
   </a>
 {% endmacro %}

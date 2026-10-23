@@ -1,11 +1,16 @@
 {% extends "titulatec/student/base_student.html" %}
 {% block student_title %}Formato B · TitulaTec{% endblock %}
-{% block student_active %}home{% endblock %}
+{% block student_active %}formato_b{% endblock %}
 {% block student_page %}student_formato_b{% endblock %}
 {% block student_appbar_title %}Formato B{% endblock %}
-{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">Personal · Escolar · Proyecto · Revisión</div>{% endblock %}
+{# Sin subtítulo: los pasos ya se ven en el cuerpo (antes se repetían aquí, con
+   --tt-mute de 2.5:1). #}
+{% block head_extra %}
+  {{ super() }}
+  <link rel="stylesheet" href="/static/titulatec/css/student/formato-b.css?v={{ sv('css/student/formato-b.css') }}">
+{% endblock %}
 {% block student_appbar_left %}
-  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver al inicio"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
 {% endblock %}
 
 {% block student_body %}
@@ -18,7 +23,7 @@
       </div>
     </div>
   {% else %}
-    <div class="p-3 p-lg-4 tt-fb">
+    <div class="tt-fb tt-fb-page">
       {% include "titulatec/partials/formato_b/_body.html" %}
     </div>
   {% endif %}

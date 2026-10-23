@@ -1,36 +1,57 @@
 {# ===========================================================================
    partials/formato_b/_body.html — cuerpo del Formato B (swap HTMX completo).
-   Raíz #formato-b-body: hx-swap="outerHTML" repinta también el stepper.
+   Raíz #formato-b-body: hx-swap="outerHTML" repinta también los pasos.
    `view`: step (pasos 1-3) | review («Revisa y envía») | readonly (enviado/aprobado).
    Contexto: view · step · datos · errors · first_error · registro · modalities ·
    requires_project · obs · banner · observed · general_note · reviewed_txt ·
    secciones · no_cambio · fbv · just_submitted.
+
+   Acomodo (2026-10-23, D3): en celular, pasos arriba (en fila) + observaciones +
+   formulario. Desde 992 px de lienzo (`student/formato-b.css`), formulario a
+   ancho de lectura y a un lado los pasos en vertical y las observaciones de
+   Titulación, fijos mientras se corrige. Un paso ya hecho es una liga a ese paso.
    =========================================================================== #}
-<div id="formato-b-body" data-fb-view="{{ view }}">
+<div id="formato-b-body" class="tt-fb-body" data-fb-view="{{ view }}">
 
   {% if view == 'step' or view == 'review' %}
   {% set actual = 4 if view == 'review' else step %}
-  <div class="tt-paper px-3 pt-2 pb-3" style="border-bottom:1px solid var(--tt-line)" id="fb-stepper">
-    <div class="d-flex gap-2">
-      {% for i in range(1, 5) %}
-      <div style="flex:1;height:5px;border-radius:3px;background:{{ 'var(--tt-accent)' if i <= actual else 'var(--tt-line)' }}"></div>
-      {% endfor %}
-    </div>
-    <div class="d-flex justify-content-between mt-2" style="font-size:.6875rem;color:var(--tt-mute)">
-      {% for i, rotulo in ((1, 'Personal'), (2, 'Escolar'), (3, 'Proyecto'), (4, 'Revisión')) %}
-      <span style="{{ 'color:var(--tt-success);font-weight:600' if actual > i else ('color:var(--tt-ink);font-weight:600' if actual == i else '') }}">
-        {% if actual > i %}<i class="bi bi-check-lg"></i> {% endif %}{{ rotulo }}</span>
-      {% endfor %}
+  <div class="tt-fb-layout">
+    <aside class="tt-fb-aside">
+      <nav id="fb-stepper" class="tt-fb-steps" aria-label="Pasos del Formato B">
+        <ol>
+          {% for i, rotulo in ((1, 'Personal'), (2, 'Escolar'), (3, 'Proyecto'), (4, 'Revisión')) %}
+          <li id="fb-step-{{ i }}" class="tt-fb-step{{ ' is-done' if actual > i }}{{ ' is-current' if actual == i }}">
+            {% if actual > i and i < 4 %}
+            <a class="tt-fb-step-link" href="/titulatec/student/formato-b"
+               hx-get="/titulatec/student/formato-b/step/{{ i }}" hx-target="#formato-b-body"
+               hx-swap="outerHTML show:window:top">
+              <span class="tt-fb-step-dot"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+              <span class="tt-fb-step-label">{{ rotulo }}<span class="visually-hidden"> (hecho; volver a este paso)</span></span>
+            </a>
+            {% else %}
+            <span class="tt-fb-step-link"{% if actual == i %} aria-current="step"{% endif %}>
+              <span class="tt-fb-step-dot">{{ i }}</span>
+              <span class="tt-fb-step-label">{{ rotulo }}</span>
+            </span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </nav>
+      {% if banner %}{% include "titulatec/partials/formato_b/_observaciones.html" %}{% endif %}
+    </aside>
+    <div class="tt-fb-main">
+      {% if view == 'review' %}{% include "titulatec/partials/formato_b/_revision.html" %}
+      {% elif step == 1 %}{% include "titulatec/partials/formato_b/_paso_1.html" %}
+      {% elif step == 2 %}{% include "titulatec/partials/formato_b/_paso_2.html" %}
+      {% else %}{% include "titulatec/partials/formato_b/_paso_3.html" %}
+      {% endif %}
     </div>
   </div>
-  {% if banner %}{% include "titulatec/partials/formato_b/_observaciones.html" %}{% endif %}
-  {% endif %}
-
-  {% if view == 'readonly' %}{% include "titulatec/partials/formato_b/_solo_lectura.html" %}
-  {% elif view == 'review' %}{% include "titulatec/partials/formato_b/_revision.html" %}
-  {% elif step == 1 %}{% include "titulatec/partials/formato_b/_paso_1.html" %}
-  {% elif step == 2 %}{% include "titulatec/partials/formato_b/_paso_2.html" %}
-  {% else %}{% include "titulatec/partials/formato_b/_paso_3.html" %}
+  {% else %}
+  <div class="tt-fb-main">
+    {% include "titulatec/partials/formato_b/_solo_lectura.html" %}
+  </div>
   {% endif %}
 
 </div>

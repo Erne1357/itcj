@@ -9,7 +9,7 @@
    (el shell ya expone el tab "Avisos"). Toda vista nueva del alumno extiende ESTE.
 
    Bloques para hijos:
-     student_title · student_active (home|docs|cita|perfil) · student_appbar_left
+     student_title · student_active (home|docs|cita|formato_b|revision|anexo|perfil) · student_appbar_left
      student_appbar_title · student_appbar_sub · student_body · student_scripts
      student_page  (clave estable de la vista → <main data-tt-page>, para E2E)
    =========================================================================== #}
@@ -30,6 +30,8 @@
 {% endblock %}
 
 {% block content %}
+{# Menú por etapa: se calcula UNA vez; lo comparten el rail y el cajón. #}
+{% set _nav = student_nav_items() if student_nav_items is defined else [] %}
 {% set _uname = (current_user.name if current_user else None) or 'Alumno' %}
 {% set _uparts = _uname.split() %}
 {% set _uinitial = (_uparts[-1][:1] ~ _uparts[0][:1])|upper if _uparts|length > 1 else _uname[:2]|upper %}
@@ -44,7 +46,7 @@
         <div class="sub">Tu titulación</div>
       </div>
     </div>
-    <nav class="tt-rail-nav">{{ student_nav(self.student_active()|trim) }}</nav>
+    <nav class="tt-rail-nav">{{ student_nav(self.student_active()|trim, _nav) }}</nav>
     <div class="tt-rail-foot">
       <div class="app-sidebar-footer" style="background:transparent;border-top:1px solid var(--tt-line);padding:14px 6px 0">
         <div class="app-sidebar-user">
@@ -96,8 +98,8 @@
   </div>
   <nav class="app-sidebar-nav">
     <div class="app-sidebar-section">
-      <div class="app-sidebar-section-title">Navegación</div>
-      {{ student_nav(self.student_active()|trim) }}
+      {# Sin título «Navegación»: el menú ya trae «Ahora» y «Consultar». #}
+      {{ student_nav(self.student_active()|trim, _nav) }}
     </div>
   </nav>
   <div class="app-sidebar-footer">
