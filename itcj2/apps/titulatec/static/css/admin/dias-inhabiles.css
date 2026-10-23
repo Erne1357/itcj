@@ -1,0 +1,52 @@
+/* ===========================================================================
+   dias-inhabiles.css — Pestaña «Días inhábiles» (fase 5, 2026-10-22)
+   Se carga UNA vez en `admin/base_admin.html`. Todo cuelga de `tt-dias-*`.
+   Tokens --tt-* y escala --tt-fs-* (titulatec.css); sin `style=` en plantillas.
+   =========================================================================== */
+.tt-dias-page { padding: var(--tt-sp-5); }
+.tt-dias-header { margin-bottom: var(--tt-sp-4); }
+.tt-dias-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-dias-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+
+.tt-dias-year { display: flex; align-items: center; gap: var(--tt-sp-3); margin-bottom: var(--tt-sp-4); }
+.tt-dias-year-label { font-size: var(--tt-fs-400); font-weight: 600; margin: 0; min-width: 4ch; text-align: center; }
+
+.tt-dias-error {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0 0 var(--tt-sp-3);
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+
+.tt-dias-block { margin-bottom: var(--tt-sp-6); }
+.tt-dias-h { font-size: var(--tt-fs-300); font-weight: 600; margin: 0; }
+.tt-dias-help { margin: var(--tt-sp-1) 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+.tt-dias-form {
+  display: grid; gap: var(--tt-sp-3); align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+}
+@media (min-width: 768px) {
+  .tt-dias-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) auto; }
+  .tt-dias-form--rm { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+}
+.tt-dias-field { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: 0; margin: 0; }
+.tt-dias-field .tt-field { width: 100%; min-width: 0; }
+.tt-dias-label { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-dias-save { justify-self: start; white-space: nowrap; }
+
+.tt-dias-list { display: flex; flex-direction: column; gap: var(--tt-sp-2); }
+.tt-dias-row {
+  display: grid; align-items: center; gap: var(--tt-sp-3);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--tt-sp-2) var(--tt-sp-4);
+}
+.tt-dias-date { font-size: var(--tt-fs-200); white-space: nowrap; }
+.tt-dias-desc { grid-column: 1; font-size: var(--tt-fs-100); color: var(--tt-text-2); min-width: 0; overflow-wrap: anywhere; }
+.tt-dias-rm { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+@media (min-width: 768px) {
+  .tt-dias-row { grid-template-columns: 11rem minmax(0, 1fr) auto; }
+  .tt-dias-desc { grid-column: 2; font-size: var(--tt-fs-200); color: inherit; }
+  .tt-dias-rm { grid-column: 3; grid-row: 1; }
+}
+.tt-dias-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }

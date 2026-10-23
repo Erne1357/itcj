@@ -1,0 +1,97 @@
+<!--
+  Oficio de asignación de sinodales (WeasyPrint). Calca el oficio real; omite
+  las imágenes de campaña del año. Contexto: services/oficio_service.py::context.
+-->
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Asignación de sinodales</title>
+<style>
+  @page { size: letter; margin: 0.55in 0.7in 0.9in 0.7in; }
+  .foot { position: fixed; bottom: -0.6in; left: 0; right: 0; text-align: center; font-size: 7pt; color: #444;
+          border-top: 2.5pt solid #555; padding-top: 3pt; }
+  .foot p { margin: 0; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, "Liberation Sans", "DejaVu Sans", sans-serif; font-size: 10.5pt; color: #111; margin: 0; }
+  .top { display: table; width: 100%; }
+  .top .logos { display: table-cell; vertical-align: top; width: 60%; white-space: nowrap; }
+  .top .logos img { height: 0.5in; width: auto; margin-right: 0.12in; vertical-align: middle; }
+  .top .inst { display: table-cell; vertical-align: top; text-align: right; font-size: 8.5pt; }
+  .top .inst strong { display: block; font-size: 9pt; }
+  .meta { text-align: right; margin-top: 0.2in; }
+  .meta p { margin: 0 0 6pt; }
+  .addr { margin-top: 0.1in; font-weight: bold; text-transform: uppercase; }
+  .addr p { margin: 0; }
+  .attn { text-align: right; font-weight: bold; margin-top: 0.08in; min-height: 2.2em; }
+  .attn p { margin: 0; }
+  .body { text-align: justify; line-height: 1.35; margin: 0.1in 0 0.08in; }
+  .opt { text-decoration: underline; }
+  table.syn { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin: 4pt 0 0.14in; }
+  table.syn th, table.syn td { border: 0.8pt solid #333; padding: 3pt 5pt; text-align: center; }
+  table.syn th { background: #d9d9d9; }
+  table.syn td.pos { font-weight: bold; }
+  .close p { margin: 0 0 4pt; }
+  .sign { margin-top: 0.1in; font-weight: bold; }
+  .sign .space { height: 0.75in; }
+  .sign p { margin: 0; text-transform: uppercase; }
+  .small { font-size: 8.5pt; margin-top: 4pt; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logos">
+      <img src="images/logo_sep.png" alt="Educación">
+      <img src="images/logo_tecnm.png" alt="TecNM">
+    </div>
+    <div class="inst">
+      <strong>Instituto Tecnológico de Ciudad Juárez</strong>
+      {{ header }}
+    </div>
+  </div>
+
+  <div class="meta">
+    <p>Cd. Juárez Chih., a {{ date_label }}</p>
+    <p><strong>ASUNTO</strong>: Asignación de Sinodales</p>
+  </div>
+
+  <div class="addr">
+    <p>{% if addressee %}C. {{ addressee.name }}{% else %}&nbsp;{% endif %}</p>
+    <p>{% if addressee %}{{ addressee.title }}{% else %}&nbsp;{% endif %}</p>
+    <p>PRESENTE.-</p>
+  </div>
+
+  <div class="attn">
+    <p>{% if attn %}At'n. {{ attn.name }}{% else %}&nbsp;{% endif %}</p>
+    <p>{% if attn %}{{ attn.title }}{% else %}&nbsp;{% endif %}</p>
+  </div>
+
+  <p class="body">Por medio de la presente, comunicamos a usted los nombres de los sinodales para el(la)
+    <strong>C. {{ student_name }}</strong> con número de control <strong>{{ control_number }}</strong>,
+    egresado(a) de la carrera de <strong>{{ program_name }}</strong>, quien desea titularse por la
+    <strong>Opción</strong>: <span class="opt">{{ option_label }}</span>, con el trabajo denominado:
+    <strong>"{{ project_title }}".</strong><br>Sus sinodales serán:</p>
+
+  <table class="syn">
+    <thead><tr><th>Posición</th><th>Nombre</th><th>Grado Académico</th><th>No. de Cédula</th></tr></thead>
+    <tbody>
+    {% for s in synodals %}
+      <tr><td class="pos">{{ s.role_label | upper }}</td><td>{{ s.name }}</td>
+          <td>{{ s.academic_degree }}</td><td>{% if s.license %}CED.PROF {{ s.license }}{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="close">
+    <p>Agradezco de antemano su valioso apoyo en esta importante actividad para la formación profesional de nuestros egresados.</p>
+    <div class="sign">
+      <p style="letter-spacing:2pt">ATENTAMENTE.</p>
+      <p style="text-transform:none">Excelencia en Educación Tecnológica®</p>
+      <div class="space"></div>
+      {% if signer %}<p>{{ signer.name }}</p><p>{{ signer.title }}</p>{% endif %}
+    </div>
+    <p class="small">C.c.p. Expediente</p>
+  </div>
+  <div class="foot"><p>{{ footer_address }}</p><p>{{ footer_contact }}</p></div>
+</body>
+</html>

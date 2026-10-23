@@ -134,11 +134,24 @@ aviso emitido hasta hoy apunta ahí.
 - **CTA** (`_PHASE_CTA`): `initial_docs`→documentos · `review_appointment`→cita · `format_b`→Formato B.
   Solo en la fase actual y si su `status` ≠ `skipped`.
 - **Copy** por código de fase en `_PHASE_INFO` (`desc` / `needs` / `who`). **Responsable**:
-  `_RESPONSIBLE_LABEL`. **Timeline**: `ProcessEvent` de esa fase con etiqueta de `_EVENT_LABELS`
+  `_RESPONSIBLE_LABEL` (la fase 4 dice «departamento académico» desde 2026-10-21: el catálogo `responsible` es `academic_department`). **Timeline**: `ProcessEvent` de esa fase con etiqueta de `_EVENT_LABELS`
   (los eventos sin `phase_number` no se cuelgan de ninguna fase).
 - El historial de la fase **actual** vive en la tarjeta de la columna A, debajo del CTA (su fila
   del acordeón no se despliega).
 - Estados visuales vía [máquina de estados](00_state_machine.md); pills vía `estado_pill`.
+
+### Fases 4 y 5: sinodales (2026-10-21)
+
+- **Fase 4** (`synodal_assignment`): sin CTA ni nada que entregar; el copy dice que el **departamento
+  académico** asigna a los 4 sinodales (presidente, secretario, vocal y vocal suplente) y el alumno espera
+  el aviso. Cuando el departamento los registra ([flujo](phase4_department_assign_synodals.md)) la fase se
+  aprueba sola y el proceso pasa a la 5; el timeline muestra «Tu departamento académico asignó a tus
+  sinodales» (`synodals_assigned`) y, si cambia alguno, «… sustituyó a uno de tus sinodales»
+  (`synodal_replaced`).
+- **Fase 5** (`synodal_review`): el acordeón pinta el panel **«Tus sinodales»** con la posición y el nombre
+  de los 4 vigentes (`SynodalService.active_for_process`; **sin cédula**, y solo en la fase 5). No hay
+  descarga del oficio para el alumno.
+- Con el corte `TITULATEC_HANDOFF_PHASE` en 3 el alumno nunca llega a la fase 4.
 
 ## Archivos
 

@@ -155,21 +155,32 @@ proceso (`n=8` desde la fase 1), inventar fases (`n=99`), retroceder (`n=0` desd
 > service y con las mismas cuatro reglas. Si tocas una, mira la otra: entre las dos son las únicas
 > puertas por las que el `ProcessPhase`/`current_phase` de un proceso cambia de estado.
 
-### Segundo llamador, desde 2026-09-21: `FormatBService.review`
+### Segundo llamador, desde 2026-09-21: el dictamen de Formato B (reescrito 2026-10-21)
 
-`assert_can_transition` ya no la invoca solo `approve_phase`/`reject_phase`.
-`FormatBService.review` (`services/format_b_service.py:123-147` — dictamen de Formato B desde
-el expediente, vía `pages/admin.py::fb_review`) también la exige, con el número de fase del
-catálogo (`format_b`): antes de este arreglo `review` **no pasaba por ninguna guarda** (solo
-permiso y alcance por carrera), y el hueco era real por el propio mecanismo de reversión del
-corte que este flujo documenta — subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envío a
-`submitted`, y volver a bajarlo a 3 dejaba ese Formato B aprobable/rechazable para siempre pese
-al corte. Esto **no contradice** "las únicas puertas" de arriba: `FormatBService.review` cambia
-`FormatB.status`, nunca `ProcessPhase`/`current_phase` (no hay auto-avance ahí) — sigue siendo
-la misma guarda, con un segundo punto de aplicación. Su prima angosta,
-`DocumentService.review`, deliberadamente **no** reusa `assert_can_transition` (le rompería el
-dictamen tardío, que es su uso normal, no una excepción). Detalle completo de las dos:
-[`xcut_titulacion_handoff.md`](xcut_titulacion_handoff.md).
+`assert_can_transition` no la invoca solo `approve_phase`/`reject_phase`: el dictamen del
+Formato B también la exige. Hasta el 2026-10-21 lo hacía `FormatBService.review` (retirado junto
+con su ruta `POST /admin/processes/{id}/format-b/review`); hoy lo hacen
+`FormatBService.approve`, `.reject` y `.correct_registry` (`services/format_b_service.py`,
+`_assert_in_review`), con el número de fase del catálogo (`format_b`) y **dos veces** (sin bloqueo
+y de nuevo bajo el bloqueo del proceso). El hueco que cerró la versión de 2026-09-21 sigue
+cerrado por el mismo mecanismo: subir `TITULATEC_HANDOFF_PHASE` a 9, dejar pasar un envío a
+`submitted` y volver a bajarlo a 3 no deja ese Formato B dictaminable pese al corte.
+
+**Fases con una sola puerta (fase 3 el 2026-10-21; generalizada a la fase 4 el mismo día).**
+`approve_phase` y `reject_phase` llaman a `_door_guard` cuando `n` es una fase del registro
+`PhaseService._DOOR_PHASES` (`format_b` y `synodal_assignment`): exigen la marca de sesión
+`PhaseService.DOOR_KEY` (`db.info`, `(código de fase, process_id, "approved"|"rejected")`), que el
+servicio dueño de la fase pone con `PhaseService.open_door` justo antes de llamar al motor
+(`FormatBService.approve`/`.reject` para la 3; `SynodalService.assign` para la 4, que solo aprueba) y
+quita con `close_door` en su `finally`, **y** el estado que la respalda (`_door_state_ok`: el Formato B
+en ese estado; los 4 sinodales vigentes ya escritos). Se consume en cada dictamen. Sin ella:
+`FORMAT_B_ONLY_MSG` («El Formato B se dictamina desde la pestaña Titulación.») o `SYNODAL_ONLY_MSG`
+(«Los sinodales se registran desde la pestaña Sinodales.»); los botones genéricos
+`phase/{n}/approve|reject` del expediente ya no pueden mover la fase 3 ni la 4. Una fase sin puerta
+cuesta una consulta (su código); ver [asignación de sinodales](phase4_department_assign_synodals.md). Invariante: Formato B `approved` <=> fase 3 `approved`,
+en una sola transacción. Ambos métodos pasan `event_payload` (ronda y campos observados) al
+evento `phase_approved`/`phase_rejected`: un solo evento por dictamen, sin duplicados. Flujo
+completo: [revisión del Formato B en Titulación](phase3_titulacion_review_formato_b.md).
 
 ## Caminos alternos / errores ❗
 

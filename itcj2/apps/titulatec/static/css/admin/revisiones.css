@@ -1,0 +1,174 @@
+/* ===========================================================================
+   revisiones.css — Pestaña «Mis revisiones» del docente (fase 5) (2026-10-22)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-22-titulatec-fase5-revision-sinodales-
+   design.md §8.2. Se carga UNA vez en `admin/base_admin.html` (la navegación
+   admin solo morphea #tt-admin-content, nunca el <head>). Todo cuelga de las
+   clases `tt-rev-*` de `admin/revisiones.html` y `partials/revisiones/`. Las
+   burbujas y el panel de estado (`tt-rv-*`) son de `css/review.css`,
+   compartida con el alumno.
+
+   Desktop primero, usable en el teléfono: la bandeja es una lista de filas que
+   se apilan; la conversación pone el hilo y la columna de estado + voto lado a
+   lado cuando la CONVERSACIÓN mide lo suficiente (consulta de contenedor, no
+   @media: el ancho útil depende del sidebar y del tope de #tt-admin-content);
+   debajo, una columna (el hilo arriba). El body nunca hace scroll horizontal.
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto con
+   --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*. Sin `style=` en
+   las plantillas.
+   =========================================================================== */
+
+/* === 1. Página ============================================================ */
+.tt-rev-page { padding: var(--tt-sp-5); min-width: 0; }
+.tt-rev-header { margin-bottom: var(--tt-sp-4); }
+.tt-rev-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-rev-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+
+/* === 2. Filtros =========================================================== */
+.tt-rev-filters {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-2) var(--tt-sp-3); margin-bottom: var(--tt-sp-3);
+}
+.tt-rev-tabs { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); }
+.tt-rev-count { font-variant-numeric: tabular-nums; opacity: .8; }
+.tt-rev-search { min-width: 0; max-width: 100%; }
+
+/* === 3. Lista ============================================================= */
+.tt-rev-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-rev-row {
+  display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;
+  gap: var(--tt-sp-1) var(--tt-sp-3); width: 100%;
+  padding: var(--tt-sp-2) var(--tt-sp-3); text-decoration: none;
+  background: var(--tt-paper); color: var(--tt-text-1);
+  border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease;
+}
+.tt-rev-row:hover { border-color: var(--tt-line); background: var(--tt-mist); color: var(--tt-text-1); }
+.tt-rev-row:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-rev-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 18rem; min-width: 0; }
+.tt-rev-row-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rev-row-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); overflow-wrap: anywhere; }
+.tt-rev-role { font-weight: 600; color: var(--tt-text-2); }
+.tt-rev-row-aside {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: var(--tt-sp-1) var(--tt-sp-2); flex: 0 1 auto; min-width: 0;
+}
+.tt-rev-state { font-size: var(--tt-fs-100); color: var(--tt-text-2); text-align: right; }
+.tt-rev-list-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rev-list-empty i { margin-right: var(--tt-sp-1); }
+
+/* === 4. Conversación ====================================================== */
+.tt-rev-conv { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; container: tt-rev-conv / inline-size; }
+.tt-rev-crumbs { display: flex; }
+
+.tt-rev-head {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3);
+}
+@container tt-rev-conv (min-width: 820px) {
+  .tt-rev-head { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
+}
+.tt-rev-head-main { min-width: 0; }
+.tt-rev-name { font-size: var(--tt-fs-500); font-weight: 600; margin: 2px 0; overflow-wrap: anywhere; }
+.tt-rev-sub { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-rev-facts { display: flex; flex-direction: column; margin: 0; min-width: 0; }
+.tt-rev-fact {
+  display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: var(--tt-sp-1) var(--tt-sp-3); padding: var(--tt-sp-1) 0;
+  border-top: 1px solid var(--tt-line-soft);
+}
+.tt-rev-fact:first-child { border-top: 0; padding-top: 0; }
+.tt-rev-fact dt { font-size: var(--tt-fs-100); font-weight: 400; color: var(--tt-text-2); }
+.tt-rev-fact dd { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rev-project { font-weight: 600; }
+.tt-rev-synodals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tt-rev-synodal {
+  display: grid; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+  gap: 0 var(--tt-sp-2); align-items: baseline;
+}
+.tt-rev-synodal-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rev-synodal-name { font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rev-synodal.is-me .tt-rev-synodal-name { font-weight: 600; }
+
+/* Hilo | estado + voto. */
+.tt-rev-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3); align-items: start; }
+@container tt-rev-conv (min-width: 900px) {
+  .tt-rev-grid { grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
+  .tt-rev-side { position: sticky; top: var(--tt-sp-3); }
+}
+.tt-rev-thread-col, .tt-rev-side { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+
+/* Aviso de hilo vacío: se oculta solo en cuanto hay un mensaje (el refresco
+   los agrega con `beforeend`, sin volver a pintar la lista). */
+.tt-rev-thread-empty {
+  align-self: center; margin: var(--tt-sp-3) 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-rv-list:has(> .tt-rv-msg) > .tt-rev-thread-empty { display: none; }
+
+/* === 5. Zona viva: sondeo y formulario de mensaje ========================= */
+.tt-rev-live { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rev-poll { display: none; }
+.tt-rev-composer { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rev-textarea { width: 100%; min-height: 4.5rem; resize: vertical; }
+.tt-rev-composer-actions {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: var(--tt-sp-2) var(--tt-sp-3);
+}
+.tt-rev-attach { flex: 1 1 14rem; min-width: 0; }
+.tt-rev-file-input { width: 100%; max-width: 100%; font-size: var(--tt-fs-100); }
+.tt-rev-error {
+  margin: 0; padding: var(--tt-sp-1) var(--tt-sp-2); border-radius: var(--tt-r-sm);
+  background: var(--tt-danger-soft); color: var(--tt-danger); font-size: var(--tt-fs-100);
+}
+.tt-rev-note {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rev-note i { margin-top: 2px; color: var(--tt-text-3); }
+.tt-rev-warn {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+
+/* === 6. Voto ============================================================== */
+.tt-rev-vote { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rev-vote-title { margin: 0; }
+.tt-rev-vote-form { display: flex; flex-direction: column; gap: var(--tt-sp-2); }
+.tt-rev-mine {
+  margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rev-mine i { margin-right: var(--tt-sp-1); }
+.tt-rev-hint {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-1); margin: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-amber-ink);
+}
+.tt-rev-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tt-sp-2); }
+.tt-rev-buttons .btn:disabled { cursor: not-allowed; }
+
+/* Reconfirmación del voto que cierra (D6). */
+.tt-rev-confirm {
+  display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding: var(--tt-sp-3); border: 1px solid var(--tt-amber); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft);
+}
+.tt-rev-confirm-title {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-amber-ink);
+}
+.tt-rev-confirm-text { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+
+/* === 7. Angosto =========================================================== */
+@media (max-width: 575.98px) {
+  .tt-rev-page { padding: var(--tt-sp-4); }
+  .tt-rev-filters, .tt-rev-search { width: 100%; }
+  .tt-rev-row-aside { justify-content: flex-start; }
+  .tt-rev-state { text-align: left; }
+  .tt-rev-fact { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .tt-rev-buttons .btn { flex: 1 1 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-rev-row { transition: none; }
+}

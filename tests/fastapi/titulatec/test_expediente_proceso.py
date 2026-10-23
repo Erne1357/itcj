@@ -380,49 +380,156 @@ def test_sin_permiso_de_dictamen_no_se_pinta_mover_de_fase(
     assert 'id="exp-acciones"' not in html
 
 
-# Los 2 permisos de dictamen del Formato B (fase 3): ninguno vive en
-# `EXPEDIENTE_PERMS` (arriba), que solo trae los de mover de fase.
-FORMAT_B_REVIEW_PERMS = ("titulatec.format_b.api.approve", "titulatec.format_b.api.reject")
+TITULACION_LIST = "titulatec.titulacion.page.list"
 
 
-def test_sin_permiso_de_dictamen_no_se_pintan_los_botones_de_formato_b(
-    expediente, client_as, db_session,
-):
-    """`expediente()` da `EXPEDIENTE_PERMS` (approve/reject_phase de CUALQUIER
-    fase) pero nunca `format_b.api.approve/.reject`: exactamente el actor que
-    el spec §10 paso 4 quiere sin estos botones (arreglo A2)."""
+def _fb_enviado(db_session, proc):
+    """Formato B enviado con domicilio, genero y materno (lo que la tarjeta
+    vieja no mostraba)."""
     from itcj2.apps.titulatec.models import FormatB
-    esc = expediente(current_phase=3)
-    db_session.add(FormatB(process_id=esc["proc"].id, status="submitted"))
+    fb = FormatB(process_id=proc.id, status="submitted", first_name="Ana",
+                 last_name="Lopez", middle_name="Maternez", gender="female",
+                 street="Calle Zarco", neighborhood="Colonia Centro",
+                 postal_code="32000", submission_count=1)
+    db_session.add(fb)
     db_session.flush()
+    return fb
+
+
+def test_tarjeta_de_formato_b_es_de_solo_lectura_completa(expediente, client_as, db_session):
+    """Domicilio, genero y materno visibles; ningun boton de dictamen."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
 
     html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
 
+    assert "Calle Zarco" in html and "Colonia Centro" in html
+    assert "Maternez" in html
+    assert "Femenino" in html or "Mujer" in html
     assert "Aprobar Formato B" not in html
     assert "format-b/review" not in html
 
 
-def test_con_permiso_de_dictamen_si_se_pintan_los_botones_de_formato_b(
+def test_formato_b_enviado_dice_en_revision_en_espanol(expediente, client_as, db_session):
+    """El estado crudo «submitted» no se pinta: la tarjeta de la fase 3 lo dice
+    como el resto de la app."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "En revisión" in html
+    assert "submitted" not in html
+
+
+def test_formato_b_aprobado_no_pinta_observaciones_vigentes(expediente, client_as,
+                                                           db_session):
+    """Un aprobado conserva `review_observations` en la BD (§6) pero la tarjeta ya
+    no las muestra; un rechazado sí."""
+    esc = expediente(current_phase=4)
+    fb = _fb_enviado(db_session, esc["proc"])
+    fb.review_observations = {
+        "general": "Nota general vieja",
+        "fields": {"postal_code": {"note": "El C.P. no existe", "value": "3200"}},
+        "reviewer_id": 1, "at": "2026-10-20T10:00:00"}
+    fb.rejection_reason = "Nota general vieja"
+    fb.status = "approved"
+    db_session.flush()
+    cli = client_as(esc["officer"])
+
+    aprobado = cli.get(f"{URL}/{esc['proc'].id}").text
+
+    assert "El C.P. no existe" not in aprobado
+    assert "Nota general vieja" not in aprobado
+    assert "Aprobado" in aprobado
+
+    fb.status = "rejected"
+    db_session.flush()
+    rechazado = cli.get(f"{URL}/{esc['proc'].id}").text
+    assert "El C.P. no existe" in rechazado
+    assert "Nota general vieja" in rechazado
+
+
+def test_el_timeline_conserva_las_notas_de_cada_ronda_de_rechazo(expediente, client_as,
+                                                                db_session):
+    """Cada `phase_rejected` del Formato B lista «Campos a corregir» con sus
+    notas aunque la ronda siguiente reemplace `review_observations`."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+    esc = expediente(current_phase=3)
+    for ronda, nota in ((1, "El C.P. de la ronda uno"), (2, "La calle de la ronda dos")):
+        campo = "postal_code" if ronda == 1 else "street"
+        db_session.add(ProcessEvent(
+            process_id=esc["proc"].id, event_type="phase_rejected", phase_number=3,
+            actor_id=esc["officer"].id,
+            payload={"reason": f"Campos a corregir: x{ronda}.",
+                     "format_b": {"round": ronda, "fields": [campo], "general": "",
+                                  "notes": {campo: nota}}}))
+    db_session.flush()
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "Campos a corregir: Código postal — El C.P. de la ronda uno" in html
+    assert "Campos a corregir: Calle — La calle de la ronda dos" in html
+
+
+def test_en_la_fase_de_formato_b_no_hay_aprobar_rechazar_generico(
+    expediente, client_as, db_session,
+):
+    """Con `current_phase` = fase de `format_b` el boton «Mover de fase» (que
+    lleva data-tt-aprobar/rechazar) no se pinta."""
+    esc = expediente(current_phase=3)
+    _fb_enviado(db_session, esc["proc"])
+
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+
+    assert "data-tt-aprobar" not in html and "data-tt-rechazar" not in html
+
+
+def test_en_otra_fase_si_hay_mover_de_fase(expediente, client_as):
+    """Positivo de la misma guarda: fuera de la fase de Formato B sigue."""
+    esc = expediente(current_phase=1)
+    html = client_as(esc["officer"]).get(f"{URL}/{esc['proc'].id}").text
+    assert "data-tt-aprobar" in html
+
+
+def _expediente_con(perms, make_program, make_cohort, make_officer, make_student,
+                    make_process, seed_phase_defs, seed_document_types, db_session):
+    seed_phase_defs()
+    seed_document_types()
+    prog = make_program("Ingenieria Abrir Titulacion")
+    officer, _ = make_officer([prog], perm_codes=perms)
+    proc = make_process(make_student(), cohort=make_cohort(), program=prog, current_phase=3)
+    _fb_enviado(db_session, proc)
+    return officer, proc
+
+
+def test_sin_permiso_no_hay_abrir_en_titulacion(
     seed_phase_defs, seed_document_types, make_program, make_cohort,
     make_officer, make_student, make_process, client_as, db_session,
 ):
-    """Positivo de la MISMA ruta: la guarda de permiso no puede ser un 'no'
-    universal (regla de oro heredada de `test_student_phase_guard.py`)."""
-    from itcj2.apps.titulatec.models import FormatB
-    seed_phase_defs()
-    seed_document_types()
-    prog = make_program("Ingenieria Con Dictamen de Formato B")
-    cohort = make_cohort()
-    officer, _pos = make_officer([prog], perm_codes=EXPEDIENTE_PERMS + FORMAT_B_REVIEW_PERMS)
-    student = make_student()
-    proc = make_process(student, cohort=cohort, program=prog, current_phase=3)
-    db_session.add(FormatB(process_id=proc.id, status="submitted"))
-    db_session.flush()
+    officer, proc = _expediente_con(
+        EXPEDIENTE_PERMS, make_program, make_cohort, make_officer, make_student,
+        make_process, seed_phase_defs, seed_document_types, db_session)
+    assert "Abrir en Titulación" not in client_as(officer).get(f"{URL}/{proc.id}").text
 
+
+def test_con_permiso_si_hay_abrir_en_titulacion(
+    seed_phase_defs, seed_document_types, make_program, make_cohort,
+    make_officer, make_student, make_process, client_as, db_session,
+):
+    officer, proc = _expediente_con(
+        EXPEDIENTE_PERMS + (TITULACION_LIST,), make_program, make_cohort, make_officer,
+        make_student, make_process, seed_phase_defs, seed_document_types, db_session)
     html = client_as(officer).get(f"{URL}/{proc.id}").text
+    assert "Abrir en Titulación" in html
+    assert f"/titulatec/admin/titulacion?selected={proc.id}" in html
 
-    assert "Aprobar Formato B" in html
-    assert "format-b/review" in html
+
+def test_la_ruta_de_dictamen_del_formato_b_ya_no_existe(expediente, client_as):
+    esc = expediente(current_phase=3)
+    r = client_as(esc["officer"]).post(
+        f"{URL}/{esc['proc'].id}/format-b/review", data={"action": "approve"})
+    assert r.status_code in (404, 405)
 
 
 def test_mover_de_fase_no_usa_confirm_nativo(expediente, client_as):
@@ -568,6 +675,8 @@ def test_el_acordeon_recuerda_lo_desplegado():
     # Revisión final de la bitácora (M5): antes decía «Procesos».
     ("/titulatec/admin/bitacora?desde=2026-09-01&module=documents&student=ana&page=2",
      "Bitácora"),
+    # Revisión final de la fase 3 (M3): antes decía «Procesos».
+    ("/titulatec/admin/titulacion?tab=pending&q=ana", "Titulación"),
 ])
 def test_regresar_vuelve_al_origen_con_sus_filtros(expediente, client_as, origen, etiqueta):
     """El `href` se compara DESESCAPADO: Jinja escribe `&amp;` en los atributos,
@@ -800,3 +909,251 @@ def test_el_expediente_no_hace_una_consulta_por_documento(expediente, client_as,
 
     assert con_tres <= con_uno, (
         f"la pagina crece con los documentos: {con_uno} -> {con_tres} consultas")
+
+
+# ===========================================================================
+# Fase 4 (sinodales): tarjeta de solo lectura, oficio e historial
+# ===========================================================================
+def _con_sinodales(db_session, esc, make_department, make_teacher, make_synodals,
+                   *, con_historial=False):
+    """Los 4 vigentes de `esc["proc"]` (y, opcional, una sustitución previa)."""
+    from itcj2.apps.titulatec.models import SynodalAssignment
+    from itcj2.core.utils.timezone import db_now
+    dept = make_department(name="Depto Sinodales T10")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(esc["proc"], docs, esc["officer"])
+    if con_historial:
+        saliente = make_teacher(dept)
+        db_session.add(SynodalAssignment(
+            process_id=esc["proc"].id, user_id=saliente.id, role="vocal", is_active=False,
+            assigned_by_id=esc["officer"].id, replaced_at=db_now(),
+            replaced_by_id=esc["officer"].id, replacement_reason="Licencia medica T10"))
+        db_session.flush()
+    return docs, saliente if con_historial else None
+
+
+def _oficial(make_officer, esc, con_lectura):
+    from tests.fastapi.titulatec.conftest import OFFICER_PERMS  # noqa: F401
+    perms = tuple(EXPEDIENTE_PERMS) + (("titulatec.synodal.api.read",) if con_lectura else ())
+    user, _ = make_officer([esc["program"]], perm_codes=perms)
+    return user
+
+
+def test_fase_4_muestra_vigentes_con_grado_cedula_e_historial_sin_mover_de_fase(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer,
+):
+    esc = expediente(current_phase=4)
+    docs, saliente = _con_sinodales(db_session, esc, make_department, make_teacher,
+                                    make_synodals, con_historial=True)
+    lector = _oficial(make_officer, esc, True)
+
+    html = client_as(lector).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    bloque = html.split("data-tt-exp-sinodales")[1]
+    for rol in ("Presidente", "Secretario", "Vocal", "Vocal Suplente"):
+        assert rol in bloque, rol
+    assert "Maestra en Software Libre" in bloque and "10837613" in bloque
+    assert "Historial de sustituciones" in bloque and "Licencia medica T10" in bloque
+    assert f"/titulatec/admin/sinodales/{esc['proc'].id}/oficio.pdf" in html
+    # El PDF abre en otra pestaña: no se pierde el expediente (hallazgo 6).
+    import lxml.html
+    (liga,) = lxml.html.fromstring(html).xpath('//a[@data-tt-oficio]')
+    assert liga.get("target") == "_blank" and liga.get("rel") == "noopener"
+    # La fase 4 no se mueve desde el expediente: el motor la rechaza (SYNODAL_ONLY_MSG).
+    assert "data-tt-aprobar" not in html and "data-tt-rechazar" not in html
+
+
+def test_fase_4_sin_synodal_read_no_hay_oficio(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer,
+):
+    esc = expediente(current_phase=4)
+    _con_sinodales(db_session, esc, make_department, make_teacher, make_synodals)
+    sin = _oficial(make_officer, esc, False)
+
+    html = client_as(sin).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    assert "data-tt-exp-sinodales" in html and "oficio.pdf" not in html
+
+
+# Hallazgo 8: «Todavía no se asignan» solo cuando de verdad falta asignarlos.
+@pytest.mark.parametrize("caso,esperado", [
+    ("por_asignar", "Todavía no se asignan los sinodales"),
+    ("egel", "No aplica para esta modalidad"),
+    ("corte", "Esta fase todavía no está en la app"),
+])
+def test_fase_4_sin_sinodales_dice_por_que(caso, esperado, expediente, client_as, db_session,
+                                           make_officer, make_modality, monkeypatch):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase",
+                        staticmethod(lambda: 3 if caso == "corte" else 9))
+    esc = expediente(current_phase=4 if caso != "egel" else 6)
+    if caso == "egel":
+        egel = make_modality(name="EGEL expediente", requires_synodals=False,
+                             skips_phases=[4, 5])
+        esc["proc"].modality_id = egel.id
+        db_session.flush()
+    lector = _oficial(make_officer, esc, True)
+
+    html = client_as(lector).get(f"{URL}/{esc['proc'].id}?fase=4").text
+
+    bloque = " ".join(html.split("data-tt-exp-sinodales")[1].split("</div>")[0].split())
+    assert esperado in bloque, bloque[:400]
+    for frase in ("Todavía no se asignan", "No aplica para esta modalidad",
+                  "Esta fase todavía no está en la app"):
+        if frase not in esperado:
+            assert frase not in bloque, (frase, bloque[:400])
+
+
+# ===========================================================================
+# Fase 5 (revision de sinodales): SOLO el estado, nunca la conversacion (D1)
+# ===========================================================================
+MENSAJE_SECRETO = "TEXTO-PRIVADO-DE-LA-CONVERSACION-T11"
+
+
+def _revision(db_session, esc, make_department, make_teacher, make_synodals,
+              *, votos=None, con_chat=True, con_version=True):
+    """Chat + 4 sinodales vigentes + version 1 + los votos pedidos ({rol: veredicto}),
+    y un mensaje con texto reconocible que el estado jamas debe filtrar."""
+    from itcj2.apps.titulatec.models import (
+        ChatMessage, ProcessChat, ReviewVersion, ReviewVote, SynodalAssignment,
+    )
+    proc = esc["proc"]
+    dept = make_department(name="Depto Revision T11")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(proc, docs, esc["officer"])
+    if not con_chat:
+        return docs
+    chat = ProcessChat(process_id=proc.id)
+    db_session.add(chat)
+    db_session.flush()
+    if con_version:
+        v = ReviewVersion(process_id=proc.id, number=1, file_path="/tmp/t11.pdf",
+                          original_name="proyecto-t11.pdf", mime_type="application/pdf",
+                          size_bytes=10, uploaded_by_id=esc["student"].id)
+        db_session.add(v)
+        db_session.flush()
+        db_session.add(ChatMessage(chat_id=chat.id, author_id=esc["student"].id,
+                                   body=MENSAJE_SECRETO, version_id=v.id))
+        for rol, veredicto in (votos or {}).items():
+            asg = (db_session.query(SynodalAssignment)
+                   .filter_by(process_id=proc.id, role=rol, is_active=True).one())
+            db_session.add(ReviewVote(version_id=v.id, assignment_id=asg.id,
+                                      user_id=asg.user_id, verdict=veredicto))
+    db_session.flush()
+    return docs
+
+
+def _lector_expediente(make_officer, esc):
+    user, _ = make_officer([esc["program"]], perm_codes=EXPEDIENTE_PERMS)
+    return user
+
+
+def test_fase_5_muestra_el_estado_sin_la_conversacion(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, make_modality, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    esc = expediente(current_phase=5)
+    todos = make_modality(name="Todos firman T11", requires_synodals=True,
+                          signature_rule="all_synodals")
+    esc["proc"].modality_id = todos.id
+    db_session.flush()
+    _revision(db_session, esc, make_department, make_teacher, make_synodals,
+              votos={"president": "approved"})
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert 'id="tt-rv-status"' in html
+    assert "Versión 1" in html
+    assert "Aprobó" in html and "Sin votar" in html
+    # D1: nada de la conversacion.
+    assert MENSAJE_SECRETO not in html
+    assert "proyecto-t11.pdf" not in html
+    assert "/titulatec/admin/revisiones" not in html
+    assert "/titulatec/student/revision" not in html
+    assert "Esta fase todavía no está en la app: revisión" not in html
+
+
+def test_fase_5_sin_conversacion_dice_sin_versiones(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    esc = expediente(current_phase=5)
+    _revision(db_session, esc, make_department, make_teacher, make_synodals, con_chat=False)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert "Sin versiones todavía" in html
+
+
+def test_antes_de_la_fase_5_el_expediente_no_pinta_el_estado(expediente, client_as, make_officer):
+    esc = expediente(current_phase=2)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(f"{URL}/{esc['proc'].id}").text
+
+    assert 'id="tt-rv-status"' not in html
+
+
+def _tarjeta_5(html: str) -> str:
+    """El panel de la fase 5, hasta donde empieza el acordeón de la 6."""
+    return " ".join(html.split('id="exp-panel-5"')[1].split('id="exp-fase-6"')[0].split())
+
+
+# M4 (revisión final): sin estado, la tarjeta de la fase 5 dice el porqué con el
+# patrón de la fase 4 (`ReviewService.empty_label`).
+@pytest.mark.parametrize("caso,corte,fase,esperado", [
+    # Producción (corte 3): el sentido de antes de la rama («todavía no está en la app»).
+    ("corte", 3, 5, "Esta fase todavía no está en la app: la revisión de sinodales se lleva en T-soft."),
+    ("corte_antes", 3, 2, "Esta fase todavía no está en la app: la revisión de sinodales se lleva en T-soft."),
+    # La modalidad salta la fase 5 (EGEL): gana sobre el corte y sobre «Sin versiones».
+    ("egel", 9, 6, "No aplica para esta modalidad."),
+    ("egel_corte", 3, 6, "No aplica para esta modalidad."),
+    # Operable, pero el proceso todavía no llega.
+    ("pendiente", 9, 4, "El proceso todavía no llega a la revisión de sinodales."),
+])
+def test_fase_5_sin_estado_dice_por_que(caso, corte, fase, esperado, expediente, client_as,
+                                       db_session, make_officer, make_modality, monkeypatch):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: corte))
+    esc = expediente(current_phase=fase)
+    if caso.startswith("egel"):
+        egel = make_modality(name=f"EGEL expediente fase 5 {caso}", requires_synodals=False,
+                             skips_phases=[4, 5])
+        esc["proc"].modality_id = egel.id
+        db_session.flush()
+        db_session.expire(esc["proc"], ["modality"])
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    tarjeta = _tarjeta_5(html)
+    assert esperado in tarjeta, tarjeta[:400]
+    assert 'id="tt-rv-status"' not in html
+    assert "Sin versiones todavía" not in tarjeta
+    for otra in ("No aplica para esta modalidad", "todavía no llega",
+                 "Esta fase todavía no está en la app"):
+        if otra not in esperado:
+            assert otra not in tarjeta, (otra, tarjeta[:400])
+
+
+def test_fase_5_con_el_corte_en_3_no_pinta_el_estado(
+    expediente, client_as, db_session, make_department, make_teacher, make_synodals,
+    make_officer, monkeypatch,
+):
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 3))
+    esc = expediente(current_phase=5)
+    _revision(db_session, esc, make_department, make_teacher, make_synodals)
+
+    html = client_as(_lector_expediente(make_officer, esc)).get(
+        f"{URL}/{esc['proc'].id}?fase=5").text
+
+    assert 'id="tt-rv-status"' not in html and MENSAJE_SECRETO not in html

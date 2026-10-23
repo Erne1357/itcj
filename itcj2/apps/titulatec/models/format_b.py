@@ -1,6 +1,6 @@
 """Formato B — 1-1 con proceso. Reemplaza al Tsoft."""
 from sqlalchemy import (
-    BigInteger, Column, Date, DateTime, ForeignKey, Integer, String, Text,
+    BigInteger, Column, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
@@ -44,10 +44,23 @@ class FormatB(Base):
     approved_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
 
+    # --- revision / FIFO (fase 3) ---
+    submitted_at = Column(DateTime, nullable=True)                  # ultimo envio; ancla del FIFO
+    submission_count = Column(Integer, nullable=False, server_default=text("0"))
+    review_observations = Column(JSON, nullable=True)               # observaciones por seccion/campo
+    reviewed_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    modality_id = Column(Integer, ForeignKey("titulatec_modalities.id"), nullable=True)
+
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
 
     process = relationship("TitulationProcess", back_populates="format_b")
+    modality = relationship("Modality")
+
+    __table_args__ = (
+        Index("ix_titulatec_format_b_status_submitted", "status", "submitted_at"),
+    )
 
     def __repr__(self) -> str:
         return f"<FormatB p{self.process_id}:{self.status}>"

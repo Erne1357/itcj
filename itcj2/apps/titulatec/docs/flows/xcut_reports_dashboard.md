@@ -100,8 +100,12 @@ cabecera de impresión. Navegación interna: `hx-get=".../body?..."`, `hx-target
 
 ## Definiciones (el contrato de los números)
 
-«Hoy» = `db_now().date()` (hora de Juárez del servidor). **Día hábil = lunes a viernes, sin feriados**
-(`utils/business_days.py`).
+«Hoy» = `db_now().date()` (hora de Juárez del servidor). **Día hábil = lunes a viernes y fuera del calendario
+único de días inhábiles** (`utils/business_days.py`; desde 2026-10-22 el calendario lo captura la pantalla
+«Días inhábiles», ver [`xcut_non_working_days.md`](xcut_non_working_days.md)). `ReportService._load` lee el
+calendario UNA vez por `build` (`_Data.holidays`, +1 consulta por pestaña) y lo pasa como `holidays=` a todo
+conteo: ritmo, pronóstico, proyecciones, capacidad y el filtro de días hábiles. **Con el calendario vacío el
+resultado y todos los textos son idénticos a los de antes** (sin feriados).
 
 ### Universo
 
@@ -190,7 +194,8 @@ rampa ordinal de 5 pasos (una de 8 falla la separación adyacente).
   día hábil estrictamente posterior a `d`** (sábado + 1 = lunes; `n = 0` = `d` si es hábil, si no el siguiente).
   El cociente usa `Fraction` para que el `ceil` no se corra por coma flotante. Ritmo 0 → «sin ritmo medible»;
   sin pendientes → «sin pendientes». Siempre con la nota «a este ritmo, sin contar feriados ni nuevas
-  solicitudes».
+  solicitudes» (con el calendario vacío, el texto de siempre; con días inhábiles registrados la nota cambia a
+  «a este ritmo, descontando los días inhábiles registrados y sin nuevas solicitudes», `_Data.forecast_note`).
 - **Entradas vs salidas** (en el rango): solicitudes nuevas vs liberados; si entran más de las que salen, la
   cola crece → alerta.
 
@@ -269,7 +274,7 @@ procesos: **no crece con el número de procesos**). Medido el 2026-10-14 (Ronda 
 encargados 0-4 (4 si hay `ox` o la pestaña los usa) · instantánea 2 + ≤4 (`ClearanceGate.status_map`, solo para
 procesos en fase 2) · series diarias 3 · salidas por motivo 2 (`report_flow.exit_counts`, Panorama) · capacidad
 0-2 · producción 2 (con la serie alargada a 10 días hábiles, mismas 2). Todo se calcula en Python desde filas
-cargadas en lote (cero N+1). Al tocar el servicio, vuelve a medir.
+cargadas en lote (cero N+1). Desde 2026-10-22 cada pestaña suma **+1 consulta** (el calendario de días inhábiles, `NonWorkingDayService.holidays`, leído una vez en `_load`); el techo de 24 no cambió y el presupuesto sigue verde. Al tocar el servicio, vuelve a medir.
 
 ## Ronda 2 (servicios, 2026-10-14)
 
@@ -279,7 +284,9 @@ cargadas en lote (cero N+1). Al tocar el servicio, vuelve a medir.
   documentos + 1 cita, en la copia de prod).
 - **Atorados `?motive=<código>`**: la lista de ese primer motivo (cuadra con la cifra de Panorama); los chips se
   agrupan por área; un código basura o de otra área que `ball` se ignora.
-- **Proyecciones** (`report_service._projection`, siempre «a este ritmo, sin feriados ni nuevas entradas», ritmo
+- **Proyecciones** (`report_service._projection`, siempre «a este ritmo, sin feriados ni nuevas entradas» con el
+  calendario vacío —con días registrados, «…descontando los días inhábiles registrados y sin nuevas entradas»,
+  `_Data.projection_note`—, ritmo
   de los últimos 10 días hábiles, ritmo 0 → «Sin ritmo medible»): **por motivo** con salida clara (revisiones,
   dictámenes de documento, dictámenes de encuesta de GTV, registros de Biblioteca, accesos de Cómputo:
   `report_flow.exit_counts`), **por carrera** (pendientes ÷ liberados por día de la carrera) y **por encargado**

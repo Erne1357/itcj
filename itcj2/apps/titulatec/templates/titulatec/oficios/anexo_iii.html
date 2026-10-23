@@ -1,0 +1,108 @@
+<!--
+  Anexo III: formato de liberacion del proyecto para la titulacion integral
+  (WeasyPrint). Contexto: services/anexo_service.py::context. No decide nada.
+-->
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Anexo III</title>
+<style>
+  @page { size: letter; margin: 0.55in 0.7in 0.9in 0.7in; }
+  .foot { position: fixed; bottom: -0.6in; left: 0; right: 0; text-align: center; font-size: 7pt; color: #444;
+          border-top: 2.5pt solid #555; padding-top: 3pt; }
+  .foot p { margin: 0; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, "Liberation Sans", "DejaVu Sans", sans-serif; font-size: 10.5pt; color: #111; margin: 0; }
+  .top { display: table; width: 100%; }
+  .top .logos { display: table-cell; vertical-align: top; width: 60%; white-space: nowrap; }
+  .top .logos img { height: 0.5in; width: auto; margin-right: 0.12in; vertical-align: middle; }
+  .top .inst { display: table-cell; vertical-align: top; text-align: right; font-size: 8.5pt; }
+  .top .inst strong { display: block; font-size: 9pt; }
+  .title { text-align: center; font-weight: bold; margin-top: 0.15in; }
+  .title p { margin: 0; }
+  .meta { text-align: right; margin-top: 0.12in; }
+  .meta p { margin: 0 0 4pt; }
+  .addr { margin-top: 0.08in; font-weight: bold; text-transform: uppercase; }
+  .addr p { margin: 0; }
+  .body { text-align: justify; line-height: 1.35; margin: 0.12in 0 0.06in; }
+  table.items { width: 100%; border-collapse: collapse; margin: 4pt 0 0.1in; }
+  table.items td { padding: 3pt 5pt; vertical-align: top; }
+  table.items td.l { width: 0.3in; font-weight: bold; }
+  table.items td.k { width: 1.8in; font-weight: bold; }
+  .close p { margin: 0 0 4pt; }
+  .sign { margin-top: 0.1in; font-weight: bold; text-align: center; }
+  .sign .space { height: 0.6in; }
+  .sign p { margin: 0; text-transform: uppercase; }
+  table.syn { width: 100%; border-collapse: collapse; margin-top: 0.1in; font-size: 9pt; }
+  /* Las 4 lineas de firma a la MISMA altura: la celda se alinea arriba y la
+     linea es su primer hijo, de alto fijo; un nombre largo crece hacia abajo
+     sin mover su linea (con `bottom`, la celda alta la subia). */
+  table.syn td { width: 25%; text-align: center; vertical-align: top; padding: 0 4pt; }
+  table.syn .space { height: 0.6in; border-bottom: 0.8pt solid #333; }
+  table.syn .pos { font-weight: bold; margin-top: 2pt; }
+  table.syn .nm { margin-top: 1pt; }
+  .small { font-size: 8.5pt; margin-top: 8pt; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logos">
+      <img src="images/logo_sep.png" alt="Educación">
+      <img src="images/logo_tecnm.png" alt="TecNM">
+    </div>
+    <div class="inst">
+      <strong>Instituto Tecnológico de Ciudad Juárez</strong>
+      {{ header }}
+    </div>
+  </div>
+
+  <div class="title">
+    <p>ANEXO III</p>
+    <p>FORMATO DE LIBERACIÓN DEL PROYECTO PARA LA TITULACIÓN INTEGRAL</p>
+  </div>
+
+  <div class="meta">
+    {% if folio %}<p><strong>Folio</strong>: {{ folio }}</p>{% endif %}
+    <p>Ciudad Juárez, Chih., {{ date_label }}</p>
+    <p><strong>Asunto</strong>: Liberación de proyecto para la titulación integral</p>
+  </div>
+
+  <div class="addr">
+    <p>{% if addressee %}{{ addressee.name }}{% else %}&nbsp;{% endif %}</p>
+    <p>{% if addressee %}{{ addressee.title }}{% else %}&nbsp;{% endif %}</p>
+    <p>P r e s e n t e</p>
+  </div>
+
+  <p class="body">Por este medio le informo que ha sido liberado el siguiente proyecto para la titulación integral:</p>
+
+  <table class="items">
+    {% for it in items %}
+    <tr><td class="l">{{ it.letter }})</td><td class="k">{{ it.label }}:</td><td>{{ it.value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <div class="close">
+    <p>Agradezco de antemano su valioso apoyo en esta importante actividad para la formación profesional de nuestros egresados.</p>
+    <div class="sign">
+      <p style="letter-spacing:2pt">ATENTAMENTE</p>
+      <p style="text-transform:none">Excelencia en Educación Tecnológica®</p>
+      <div class="space"></div>
+      {% if signer %}<p>{{ signer.name }}</p><p>{{ signer.title }}</p>{% endif %}
+    </div>
+  </div>
+
+  <table class="syn">
+    <tr>
+    {% for s in synodals %}
+      <td><div class="space"></div>
+        <div class="pos">{{ s.role_label | upper }}</div>
+        <div class="nm">{{ s.academic_degree }} {{ s.name }}</div></td>
+    {% endfor %}
+    </tr>
+  </table>
+
+  <p class="small">c.c.p. Expediente</p>
+  <div class="foot"><p>{{ footer_address }}</p><p>{{ footer_contact }}</p></div>
+</body>
+</html>

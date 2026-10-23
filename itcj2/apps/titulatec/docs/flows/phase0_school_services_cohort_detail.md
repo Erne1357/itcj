@@ -87,7 +87,7 @@ Prefijos: router de páginas `/titulatec` (`pages/router.py:18`) + router admin 
 | 6 | 🏛️ | Importar | subir CSV | `POST /cohorts/{id}/import/upload` | `ImportService.save_temp` + `parse` + `autodetect_mapping` | — (CSV temporal por token) | `titulatec.cohort.api.import_csv` |
 | 7 | 🏛️ | Importar | ajustar mapeo | `POST /cohorts/{id}/import/revalidate` | `ImportService.read_temp` + `build_preview` | — | `titulatec.cohort.api.import_csv` |
 | 8 | 🏛️ | Importar | confirmar | `POST /cohorts/{id}/import/commit` | `ImportService.save_mapping` + `import_rows` + `delete_temp` | igual que el paso 2, en lote; notif `PROCESS_CREATED` por proceso creado | `titulatec.cohort.api.import_csv` |
-| 9 | 🏛️ jefa | Resumen | guardar ventana | `POST /cohorts/{id}/ventana` (`status`, `opens_date` + `opens_time`, `closes_date` + `closes_time`; los nombres viejos `opens_at`/`closes_at` solo como respaldo de fecha) | `_parse_window_dt` → `CohortService.set_window` | UPDATE de `opens_at`/`closes_at`/`status` en `titulatec_cohorts` **+ el flip de procesos**: al cerrar, los `active` de esa convocatoria pasan a `on_hold`; al abrir, los `on_hold` de convocatorias cerradas vuelven a `active`. Un `ProcessEvent` (`process_paused`/`process_resumed`) por proceso tocado | `titulatec.cohort.api.update` |
+| 9 | 🏛️ jefa | Resumen | guardar ventana | `POST /cohorts/{id}/ventana` (`status`, `opens_date` + `opens_time`, `closes_date` + `closes_time`; los nombres viejos `opens_at`/`closes_at` solo como respaldo de fecha) | `_parse_window_dt` → `CohortService.set_window` | UPDATE de `opens_at`/`closes_at`/`status` en `titulatec_cohorts` **+ el flip de procesos**: al cerrar, los `active` de esa convocatoria **que aún no pasaron el primer *checkpoint*** (fase `review_appointment` sin `approved`, D12) pasan a `on_hold`; al abrir, los `on_hold` de convocatorias cerradas vuelven a `active`. Un `ProcessEvent` (`process_paused`/`process_resumed`) por proceso tocado | `titulatec.cohort.api.update` |
 
 ### Targets HTMX (no todo swappea el tab)
 
@@ -223,7 +223,28 @@ esto: importar CSV y dar de alta a mano siguen funcionando con la convocatoria `
 
 - `titulatec_cohorts` **sí se modifica** desde esta pantalla desde 2026-09-08: el editor de ventana
   del tab *Resumen* escribe `opens_at`, `closes_at` (fecha y hora) y `status`. Ese mismo POST puede
-  además mover `titulatec_processes.status` (`active` ↔ `on_hold`) y escribir `ProcessEvent`.
+  además mover `titulatec_processes.status` (`active` ↔ `on_hold`, el cierre solo para quien no pasó el primer *checkpoint*) y escribir `ProcessEvent`.
+- **Cerrar solo pausa a quien no pasó el primer *checkpoint* (D12, 2026-10-22, spec de la fase 5).** Servicios
+  Escolares y Titulación llevan tiempos distintos: Titulación sigue semanas después del cierre, o el semestre
+  siguiente, con los del semestre pasado. Según la jefa de Servicios Escolares un proceso se retoma desde 2
+  *checkpoints*, que son los pagos: el **1.º en la cita de cotejo** (= fase 2 aprobada, «liberado»); el 2.º en el
+  cotejo de expediente de Titulación (fase 7, spec futuro). Quien ya pasó el 1.º **no se pausa** al cerrar la
+  convocatoria. El predicado vive en un solo sitio, `ProcessService.first_checkpoint_clause(db)` (SQL: `EXISTS` de
+  `ProcessPhase` de la fase `FIRST_CHECKPOINT_PHASE_CODE = "review_appointment"` en `approved`, resuelta por
+  código; fase ausente del catálogo → `false()`, se pausa a todos, falla cerrado) y su gemelo
+  `ProcessService.passed_first_checkpoint(db, process)`; `CohortService.set_window` lo agrega (negado) al filtro del
+  `UPDATE` de cierre. **Reabrir** no cambia: reanuda todo `on_hold` de convocatoria cerrada. Los `completed` y
+  `cancelled` nunca se pausan. Con esta regla un proceso en la fase 5 nunca queda en pausa por una convocatoria.
+  **Es el único cambio visible en producción de la fase 5** (corre al fusionar, sin depender del corte); se confirma
+  con el usuario antes del merge. **Reactivación de datos:** los procesos que ya estaban `on_hold` con el cotejo
+  aprobado vuelven a `active` con `titulatec init-titulatec-fase-2`: después de correr los SQL de `fase_2/`, el
+  comando lo hace en Python (`itcj2/cli/titulatec/fase2.py::_reactivar_d12`, mismo predicado
+  `first_checkpoint_clause`), por ORM y con `FOR NO KEY UPDATE`, escribiendo un `ProcessEvent` `process_resumed` por
+  proceso (`actor_id` NULL, payload `{"reason": "checkpoint", "source": "init-titulatec-fase-2"}`) que la red de la
+  bitácora espeja (canal `cli`). Idempotente. La corrida real imprime «D12: N proceso(s) reactivado(s).»; el
+  `--dry-run` solo cuenta («D12: se reactivarían N proceso(s)…»). El DML `03` ya no trae el `UPDATE`. Pruebas:
+  `tests/fastapi/titulatec/test_cohort_checkpoint.py` y `test_cli_fase_2.py` (la reactivación). Detalle de la fase que lo motivó:
+  [`phase5_synodal_review.md`](phase5_synodal_review.md).
 - El **alta** vive en la lista (`/titulatec/admin/cohorts` → «Nueva convocatoria» →
   `POST /cohorts`, perm `titulatec.cohort.api.create`): desde 2026-09-27 pide, además del período
   académico, la **ventana** con la misma macro `window_end` (fecha obligatoria + hora opcional por

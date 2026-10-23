@@ -1,0 +1,93 @@
+{# ===========================================================================
+   _body.html — cuerpo del Anexo III del alumno (`#tt-anexo-body`).
+   Se intercambia completo (outerHTML) al subir o quitar el escaneo. Contexto:
+   `anexo` = {state, folio, signers_text, doc, note, can_upload, can_delete,
+   file_kind_pdf, pdf_max_mb, pdf_upload_mb, pdf_url, upload_url, delete_url,
+   error}. `state`: todo | in_review | observed | approved.
+   =========================================================================== #}
+{% from "titulatec/_macros.html" import pill %}
+<div id="tt-anexo-body" class="tt-anx-body">
+
+  {# — Estado — #}
+  <section class="tt-card tt-anx-card" aria-label="Estado del Anexo III">
+    <div class="tt-anx-head">
+      <h2 class="tt-anx-title">Estado</h2>
+      {% if anexo.state == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
+      {% elif anexo.state == "observed" %}{{ pill("Necesita corrección", "danger", "exclamation-triangle") }}
+      {% elif anexo.state == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
+      {% else %}{{ pill("Por entregar", "neutral", "hourglass-split") }}{% endif %}
+    </div>
+    <p class="tt-anx-text">
+      {% if anexo.state == "approved" %}El Depto. de Titulación aprobó tu Anexo III. Ya puedes seguir con la siguiente fase.
+      {% elif anexo.state == "observed" %}El Depto. de Titulación te pidió una corrección. Revisa el motivo y vuelve a subir el escaneo.
+      {% elif anexo.state == "in_review" %}Tu escaneo está en revisión en el Depto. de Titulación. Mientras no lo dictaminen puedes cambiarlo.
+      {% else %}Descarga el Anexo III, junta las firmas y súbelo escaneado.{% endif %}
+    </p>
+    {% if anexo.state == "observed" and anexo.note %}
+      <div class="tt-anx-note" role="note">
+        <div class="tt-kicker"><i class="bi bi-exclamation-triangle"></i> Motivo de la observación</div>
+        <div class="tt-anx-note-text">{{ anexo.note }}</div>
+      </div>
+    {% endif %}
+    {% if anexo.folio %}<div class="tt-anx-folio">Folio <span class="tt-mono">{{ anexo.folio }}</span></div>{% endif %}
+  </section>
+
+  {# — Descarga y firmas — #}
+  <section class="tt-card tt-anx-card" aria-label="Descarga y firmas">
+    <h2 class="tt-anx-title">1. Descarga y firmas</h2>
+    <p class="tt-anx-text">{{ anexo.signers_text }}</p>
+    <a class="btn tt-btn-ink tt-anx-download" href="{{ anexo.pdf_url }}" target="_blank" rel="noopener"
+       data-tt-anexo-download>
+      <i class="bi bi-download"></i> Descargar Anexo III
+    </a>
+  </section>
+
+  {# — Escaneo — #}
+  <section class="tt-card tt-anx-card" aria-label="Escaneo firmado">
+    <h2 class="tt-anx-title">2. Escaneo firmado</h2>
+
+    {% if anexo.doc %}
+      <div class="tt-doc tt-anx-doc">
+        <div class="thumb">PDF</div>
+        <div class="tt-anx-doc-info">
+          <div class="tt-anx-doc-name">{{ anexo.doc.original_name }}</div>
+          <div class="tt-mono tt-anx-doc-meta">{{ anexo.doc.size_kb }} KB · v{{ anexo.doc.version }}</div>
+          {% if anexo.doc.sent_label %}<div class="tt-doc-sent">{{ anexo.doc.sent_label }}</div>{% endif %}
+        </div>
+        {% if anexo.can_delete %}
+        <button type="button" class="tt-iconbtn" title="Quitar escaneo" aria-label="Quitar escaneo"
+                hx-delete="{{ anexo.delete_url }}" hx-target="#tt-anexo-body" hx-swap="outerHTML">
+          <i class="bi bi-trash tt-anx-trash"></i>
+        </button>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% if anexo.can_upload %}
+      <form class="tt-dropzone tt-anx-drop" hx-post="{{ anexo.upload_url }}" hx-encoding="multipart/form-data"
+            hx-trigger="change from:#file-anexo_iii" hx-target="#tt-anexo-body" hx-swap="outerHTML"
+            hx-disabled-elt="find input">
+        <i class="bi {{ 'bi-arrow-repeat' if anexo.doc else 'bi-upload' }} tt-anx-drop-ico"></i>
+        <div class="fw-semibold tt-anx-drop-title">
+          {% if anexo.state == "observed" %}Subir escaneo corregido
+          {% elif anexo.doc %}Cambiar escaneo
+          {% else %}Tocar para subir{% endif %}
+        </div>
+        <div class="tt-dropzone-hint">
+          {% if anexo.file_kind_pdf %}PDF de hasta {{ anexo.pdf_max_mb }} MB. Si pesa más (hasta {{ anexo.pdf_upload_mb }} MB), lo comprimimos automáticamente.{% else %}Imagen (jpg, png, webp){% endif %}
+        </div>
+        <input id="file-anexo_iii" type="file" name="archivo" hidden
+               accept="{{ '.pdf' if anexo.file_kind_pdf else 'image/*' }}">
+        <label for="file-anexo_iii" class="stretched-link tt-anx-drop-label"><span class="visually-hidden">Elegir archivo</span></label>
+      </form>
+    {% elif anexo.state == "approved" %}
+      <p class="tt-anx-text">El escaneo ya fue aprobado; no se puede cambiar.</p>
+    {% elif not anexo.doc %}
+      <p class="tt-anx-text">Por ahora no puedes subir el escaneo.</p>
+    {% endif %}
+
+    {% if anexo.error %}
+      <div class="tt-anx-error" role="alert"><i class="bi bi-exclamation-triangle"></i> {{ anexo.error }}</div>
+    {% endif %}
+  </section>
+</div>

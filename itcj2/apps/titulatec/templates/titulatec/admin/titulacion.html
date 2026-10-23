@@ -1,0 +1,58 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{# Pestaña «Titulación» (spec 2026-10-21 fase 3 §8): pantalla de trabajo del
+   Departamento de Titulación. Hoy una sola vista, el Formato B; las fases
+   siguientes (Anexo III, entrega final, actos) se sumarán como vistas hermanas.
+
+   Sin etiquetas de script ni estilos aquí: el módulo JS y la hoja de esta pestaña se
+   cargan UNA vez desde `base_admin.html` (la navegación del menú solo morphea
+   `#tt-admin-content`). #}
+{% block title %}Titulación · TitulaTec{% endblock %}
+{% block admin_view %}titulacion{{ '-anexo' if view == 'anexo' else '' }}{% endblock %}
+{% block admin_main %}
+<div class="tt-tit-page">
+  <header class="tt-tit-header">
+    {# Fase de la vista, del catálogo por código (`views_ctx`): `format_b` o `anexo_iii`. #}
+    {% set fase_vista = (view_phases or {}).get(view) %}
+    <span class="tt-kicker">{% if fase_vista is not none %}Fase {{ '%02d' % fase_vista }} · {% endif %}Departamento de Titulación</span>
+    <h1 class="tt-display tt-tit-title">Titulación</h1>
+    {% if view == 'anexo' %}
+    <p class="tt-tit-lead">Revisa los Anexos III firmados en el orden en que llegaron: apruébalos o regrésalos al alumno con un motivo.</p>
+    {% else %}
+    <p class="tt-tit-lead">Revisa los Formatos B en el orden en que llegaron: apruébalos o regrésalos al alumno con observaciones.</p>
+    {% endif %}
+    {% if anexo_operable and can_review_anexo %}
+    {# Las vistas son rutas hermanas: navegación del menú (morph de #tt-admin-content,
+       hx-select == hx-target ⇒ outerHTML). #}
+    <nav class="tt-tit-views" aria-label="Vistas de Titulación">
+      {% for key, label, icon, url in [('format_b', 'Formato B', 'bi-file-earmark-text', '/titulatec/admin/titulacion'), ('anexo', 'Anexo III', 'bi-file-earmark-check', '/titulatec/admin/titulacion/anexo')] %}
+      {% if view == key %}
+      <span class="tt-tit-view is-active" aria-current="page"><i class="bi {{ icon }}" aria-hidden="true"></i>{{ label }}</span>
+      {% else %}
+      <a class="tt-tit-view" id="tt-tit-view-{{ key }}" href="{{ url }}"
+         hx-get="{{ url }}" hx-target="#tt-admin-content" hx-select="#tt-admin-content"
+         hx-swap="morph:outerHTML" hx-push-url="true"><i class="bi {{ icon }}" aria-hidden="true"></i>{{ label }}</a>
+      {% endif %}
+      {% endfor %}
+    </nav>
+    {% else %}
+    <nav class="tt-tit-views" aria-label="Vistas de Titulación">
+      <span class="tt-tit-view is-active" aria-current="page">
+        <i class="bi bi-file-earmark-text" aria-hidden="true"></i>{{ 'Anexo III' if view == 'anexo' else 'Formato B' }}</span>
+    </nav>
+    {% endif %}
+  </header>
+  <div class="tt-tit-host tt-ind-host">
+    {# Indicador de recarga: overlay (primitiva `tt-ind--overlay`,
+       docs/design/ui_motion.md), fuera del flujo. #}
+    <div id="tt-tit-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+         role="status" aria-live="polite">
+      <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+    </div>
+    {# Swap `innerHTML`: el contenedor no se reemplaza y su `data-tt-view` es
+       constante, así que las recargas de la bandeja no re-animan la entrada. #}
+    <div id="tt-tit-body" data-tt-view="titulacion-body">
+      {% include (body_tpl or "titulatec/partials/titulacion/_body.html") %}
+    </div>
+  </div>
+</div>
+{% endblock %}

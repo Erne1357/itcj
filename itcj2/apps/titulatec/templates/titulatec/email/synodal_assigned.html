@@ -1,0 +1,72 @@
+{# «Asignación como sinodal» (fase 4, spec 2026-10-21 §11). Lo manda
+   `SynodalService.send_assignment_notices` DESPUÉS del commit, best-effort y
+   sin bandeja de salida, a cada sinodal: al registrar a los 4 (`assigned`) y a
+   los dos afectados por una sustitución (`replaced_in` entra, `replaced_out`
+   sale y pierde el acceso al proceso; a ese no se le manda liga).
+   Contexto: kind, nombre, posicion, alumno, control, carrera, opcion, titulo,
+   link (`StudentMail.link`, el login con `next`), revision (la fase 5 se opera
+   aquí) y review_link (liga a «Mis revisiones»; solo con `revision`).
+   Toda variable con `|e`. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if kind == "replaced_out" %}Sustitución como sinodal{% else %}Asignación como sinodal{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ nombre|e }}</strong>,</p>
+{% if kind == "replaced_out" %}
+<p style="margin:0 0 20px;">
+  Tu departamento académico te sustituyó como <strong>{{ posicion|e }}</strong> en el
+  proceso de titulación que se describe abajo. Ya no participarás en su revisión.
+</p>
+{% elif kind == "replaced_in" %}
+<p style="margin:0 0 20px;">
+  Tu departamento académico te asignó como <strong>{{ posicion|e }}</strong>, en
+  sustitución, en el siguiente proceso de titulación:
+</p>
+{% else %}
+<p style="margin:0 0 20px;">
+  Tu departamento académico te asignó como <strong>{{ posicion|e }}</strong> en el
+  siguiente proceso de titulación:
+</p>
+{% endif %}
+<table width="100%" cellpadding="0" cellspacing="0"
+       style="border:1px solid #CFD8DC;border-radius:6px;margin-bottom:24px;">
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;width:150px;">Egresado(a)</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;font-weight:700;">{{ alumno|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">No. de control</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">{{ (control or "—")|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Carrera</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">{{ (carrera or "—")|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Opción</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">{{ (opcion or "—")|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Trabajo</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;border-top:1px solid #ECEFF1;">{{ (titulo or "—")|e }}</td>
+  </tr>
+  <tr>
+    <td style="padding:12px 16px;color:#607D8B;font-size:12px;border-top:1px solid #ECEFF1;">Tu posición</td>
+    <td style="padding:12px 16px;color:#37474F;font-size:14px;font-weight:700;border-top:1px solid #ECEFF1;">{{ posicion|e }}</td>
+  </tr>
+</table>
+{% if kind != "replaced_out" and revision and review_link %}
+<p style="margin:0 0 24px;">
+  La revisión del trabajo se hace en TitulaTec, la plataforma de titulación del ITCJ.
+  Entra a <strong>«Mis revisiones»</strong> con tu cuenta de la Plataforma Digital del ITCJ:
+  ahí verás las versiones que suba el egresado, podrás conversar con él y dar tu voto.
+</p>
+{{ m.boton(review_link, "Ir a Mis revisiones") }}
+{% elif kind != "replaced_out" %}
+<p style="margin:0 0 24px;">
+  La revisión del trabajo se hará en TitulaTec, la plataforma de titulación del ITCJ.
+  Entra con tu cuenta de la Plataforma Digital del ITCJ.
+</p>
+{{ m.boton(link, "Entrar a TitulaTec") }}
+{% endif %}
+{% endblock %}

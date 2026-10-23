@@ -56,6 +56,13 @@ periódicas las mandan por NOMBRE, no por ruta de módulo):
         `{"appt", "docs", "survey", "library"}` (recordatorios nuevos de cada
         tipo) o `{"disabled": True}` con el correo apagado.
 
+    titulatec.review_reminders()
+        Periódica, diaria a las 9:15 (spec 2026-10-22 §10, D9; la programa
+        SOLO el DML de la fase 2). Recordatorios de plazo de la revisión de
+        sinodales (`ReviewReminders.run`): in-app y correo directo al sinodal
+        que cuenta y no ha votado. Devuelve `{"due_soon", "due_today"}` o
+        `{"disabled": True}` con la fase 5 fuera de la app.
+
 La lógica vive en los services (`EligibilityService`, `MailDispatcher`,
 `MailReminders`); aquí solo sesión, reintento y resultado. `SessionLocal` se
 importa DENTRO de cada tarea (los tests lo parchean).
@@ -80,6 +87,7 @@ _TASK_SII_CHECK = "titulatec.sii_check_request"
 _TASK_SII_SWEEP = "titulatec.sii_sweep"
 _TASK_EMAIL_DISPATCH = "titulatec.email_dispatch"
 _TASK_EMAIL_REMINDERS = "titulatec.email_reminders"
+_TASK_REVIEW_REMINDERS = "titulatec.review_reminders"
 
 # Metadata para `core_task_definitions` (patrón de los otros módulos). La
 # consulta por solicitud es interna (la dispara el alta): no se cataloga. El
@@ -130,6 +138,20 @@ TASK_DEFINITIONS = [
             "TITULATEC_REMINDER_EVERY_DAYS, hasta TITULATEC_REMINDER_MAX). No duplica si "
             "corre dos veces; los manda el despacho de correos. Con "
             "TITULATEC_EMAIL_ENABLED=false no hace nada."
+        ),
+        "app_name": "titulatec",
+        "category": "notification",
+        "default_args": {},
+    },
+    {
+        "task_name": "titulatec.review_reminders",
+        "display_name": "Recordatorios de revisión de sinodales (TitulaTec)",
+        "description": (
+            "Diario: avisa en la app y por correo a los sinodales cuyo voto cuenta y "
+            "todavía no votan la versión vigente del proyecto, cuando faltan 2 días "
+            "hábiles para el plazo y el día que vence (solo días hábiles, con el "
+            "calendario de días inhábiles). No duplica si corre dos veces. Con la fase de "
+            "revisión de sinodales fuera de la app (corte a T-soft) no hace nada."
         ),
         "app_name": "titulatec",
         "category": "notification",
@@ -250,4 +272,28 @@ def email_reminders(self, task_run_id: int | None = None) -> dict:
         with SessionLocal() as db:
             out = MailReminders.run(db)
     logger.info("Correos: recordatorios — %s", out)
+    return out
+
+
+@celery_app.task(
+    bind=True,
+    base=LoggedTask,
+    name="titulatec.review_reminders",
+    soft_time_limit=540,
+    time_limit=600,
+)
+def review_reminders(self, task_run_id: int | None = None) -> dict:
+    """Barrido diario de recordatorios de la revisión de sinodales
+    (`ReviewReminders.run`, con su reloj `db_now()`; spec 2026-10-22 §10, D9).
+    Devuelve `{"due_soon", "due_today"}` —avisos nuevos de cada tipo— o
+    `{"disabled": True}` con la fase 5 fuera de la app. La programa solo el DML
+    de la fase 2 (en producción no existe la fila)."""
+    from itcj2.apps.titulatec.services.audit_context import audit_context
+    from itcj2.apps.titulatec.services.review_reminders import ReviewReminders
+    from itcj2.database import SessionLocal
+
+    with audit_context("celery", label=_TASK_REVIEW_REMINDERS):
+        with SessionLocal() as db:
+            out = ReviewReminders.run(db)
+    logger.info("Revisión: recordatorios — %s", out)
     return out

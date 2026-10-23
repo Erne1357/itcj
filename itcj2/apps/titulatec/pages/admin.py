@@ -1328,6 +1328,20 @@ _EVENT_UI = {
     "document_replacement_requested": ("Reemplazo de documento solicitado", "arrow-repeat", "amber"),
     "phase_approved":               ("Fase aprobada",             "check-circle",           "success"),
     "phase_rejected":               ("Fase rechazada",            "exclamation-triangle",   "danger"),
+    # Formato B (spec 2026-10-21 fase 3): cada envío (la ronda va en el payload)
+    # y la corrección del registro de Titulación (el motivo, en `reason`).
+    "format_b_submitted":           ("Envió el Formato B",        "send",                   "neutral"),
+    "format_b_registry_corrected":  ("Titulación corrigió el registro", "pencil-square",    "amber"),
+    # Sinodales (spec 2026-10-21 fase 4 §10): `SynodalService`. El motivo de la
+    # sustitución viaja en `reason` y `_evento_detalle` ya lo pinta.
+    "synodals_assigned":            ("Sinodales asignados",       "people",                 "success"),
+    "synodal_replaced":             ("Sinodal sustituido",        "arrow-left-right",       "amber"),
+    # Revisión de sinodales (spec 2026-10-22 fase 5 §11): `ReviewService`. La
+    # versión viaja en `version` y `_evento_detalle` la pinta («v2»).
+    "review_version_uploaded":      ("Subió una versión del proyecto", "file-earmark-arrow-up", "neutral"),
+    "review_vote_cast":             ("Un sinodal votó el proyecto", "check2-square",        "neutral"),
+    # Anexo III (fase 6): primera emision del folio (`AnexoService`).
+    "anexo_iii_issued":             ("Se emitió el folio del Anexo III", "file-earmark-text", "neutral"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),
@@ -1392,11 +1406,12 @@ _MAIL_STATUS_UI = {
 # que ahí la píldora no nombra un buzón que quizá ni era el destino.
 _SIN_DESTINATARIO_INSCRIPCION = "Sin correo"
 
-# Fases con contenido propio en el expediente. El resto tiene modelo y tabla y
-# nada más (sinodales, anexo, entrega final, ceremonia): se pintan diciéndolo,
-# porque un panel vacío se lee como «no ha pasado nada» y no como «esto todavía
-# no existe en la app».
-_FASES_CON_PANEL = (0, 1, 2, 3)
+# Fases con contenido propio en el expediente (0-3 con su panel de siempre; la 4
+# sinodales, la 5 estado de la revisión y la 6 Anexo III pintan estado o el porqué
+# según el corte). El resto tiene modelo y tabla y nada más (entrega final,
+# ceremonia): se pintan diciéndolo, porque un panel vacío se lee como «no ha
+# pasado nada» y no como «esto todavía no existe en la app».
+_FASES_CON_PANEL = (0, 1, 2, 3, 4, 5, 6)
 
 _MESES = ["", "ene", "feb", "mar", "abr", "may", "jun",
           "jul", "ago", "sep", "oct", "nov", "dic"]
@@ -1406,6 +1421,7 @@ _BACK_LABELS = (
     ("/titulatec/admin/documents", "Documentos"),
     ("/titulatec/admin/appointments", "Citas de cotejo"),
     ("/titulatec/admin/cohorts", "Convocatoria"),
+    ("/titulatec/admin/titulacion", "Titulación"),
     ("/titulatec/admin/processes", "Procesos"),
     ("/titulatec/admin/correos", "Correos"),
     ("/titulatec/admin/liberados", "Liberados"),
@@ -1558,6 +1574,14 @@ def _evento_detalle(ev, doc_names: dict) -> str | None:
                   "self_service": "por el alumno"}.get(
                       p.get("source") or p.get("source_previo"))
         return " · ".join([x for x in (etiqueta, origen) if x]) or None
+    fb = p.get("format_b")
+    if ev.event_type == "phase_rejected" and isinstance(fb, dict) and fb.get("notes"):
+        from itcj2.apps.titulatec.services.format_b_validation import FIELD_LABELS
+        trozos = "; ".join(f"{FIELD_LABELS.get(c, c)} — {n}"
+                           for c, n in fb["notes"].items())
+        general = fb.get("general")
+        texto = f"Campos a corregir: {trozos}"
+        return f"{general} · {texto}" if general else texto
     partes = []
     code = p.get("type_code")
     if code:
@@ -1737,8 +1761,51 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     fb_row = db.get(FormatB, process_id)
     formato_b = None
     if fb_row and fb_row.status != "draft":
+        # Solo lectura COMPLETA (spec fase 3 §9): las tres secciones del motor,
+        # con observaciones vigentes. El dictamen vive en la pestaña Titulación.
+        secciones_fb = FormatBService.display_sections(db, fb_row, proc)
+        if fb_row.status not in ("submitted", "rejected"):
+            # Un aprobado conserva las observaciones en la BD, pero ya no dicen
+            # nada (mismo criterio que la pestaña Titulación).
+            for sec in secciones_fb:
+                for r in sec["rows"]:
+                    r["observation"] = None
         formato_b = {"status": fb_row.status, "datos": FormatBService.to_ctx(fb_row),
-                     "program_name": program.name if program else None}
+                     "program_name": program.name if program else None,
+                     "round": fb_row.submission_count or 0,
+                     "rejection_reason": (fb_row.rejection_reason
+                                          if fb_row.status == "rejected" else None),
+                     "sections": secciones_fb}
+    from itcj2.apps.titulatec.services.phase_service import PhaseService as _PS
+    format_b_phase = _PS.phase_number_for_code(db, "format_b")
+    # Fase de sinodales (spec fase 4 §14): el motor ya no admite aprobarla ni
+    # rechazarla por la vía genérica (`SYNODAL_ONLY_MSG`), así que el expediente
+    # no ofrece «Mover de fase» ahí y pinta los vigentes y su historial.
+    from itcj2.apps.titulatec.services.synodal_service import PHASE_CODE, SynodalService
+    synodal_phase = _PS.phase_number_for_code(db, PHASE_CODE)
+    sinodales = {"vigentes": SynodalService.active_for_process(db, proc.id),
+                 "historial": [{**h, "replaced_label": _fecha_larga(h["replaced_at"])
+                                if h.get("replaced_at") else None}
+                               for h in SynodalService.history(db, proc.id)]}
+    # Sin vigentes, el porqué (hallazgo 8): no aplica (EGEL), no está en la app
+    # (corte) o todavía no se asignan.
+    sinodales["empty_label"] = (None if sinodales["vigentes"]
+                                else SynodalService.empty_label(db, proc))
+
+    # Fase 5 (spec 2026-10-22 §8.3, D1): SOLO el estado de la revisión; nunca la
+    # conversación. Aplica con el proceso en la fase 5 o después, la fase
+    # operable y la modalidad sin saltarla; si no, el porqué (patrón de la fase
+    # 4): no aplica (EGEL), se lleva en T-soft (corte) o todavía no llega.
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+    from itcj2.apps.titulatec.services.synodal_service import REVIEW_PHASE_CODE
+    review_phase = _PS.phase_number_for_code(db, REVIEW_PHASE_CODE)
+    review_empty_label = ReviewService.empty_label(db, proc)
+    review_applies = review_phase is not None and review_empty_label is None
+    review_status = None
+    if review_applies:
+        from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
+        review_status = ReviewService.status_for_process(
+            db, proc.id, holidays=NonWorkingDayService.holidays(db))
 
     # ---- requisitos de cotejo de la fase 2 (§5.4) ----
     #
@@ -1803,10 +1870,12 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # botones «Aprobar fase»/«Rechazar fase» del mismo `#exp-modal-fase`): con
     # solo uno de los dos permisos, al menos una mitad del modal SI funciona.
     can_dictaminar_fase = False
-    can_dictaminar_fb = False
+    can_open_titulacion = False
+    can_read_synodal = False
     can_revoke = False
     can_register_prior = False
     can_request_replacement = False
+    anexo_perms = frozenset()
     # Pestañas que el actor puede abrir (spec 2026-10-07 §1.2): decide qué
     # enlaces a otras pestañas se pintan y a dónde regresa «Regresar» sin
     # `from`. Sin actor, ninguno (fail-closed, como los `can_*`).
@@ -1822,9 +1891,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         can_dictaminar_fase = bool(_user_perms & {
             "titulatec.process.api.approve_phase", "titulatec.process.api.reject_phase",
         })
-        can_dictaminar_fb = bool(_user_perms & {
-            "titulatec.format_b.api.approve", "titulatec.format_b.api.reject",
-        })
+        can_open_titulacion = "titulatec.titulacion.page.list" in _user_perms
+        # «Descargar oficio» de la fase 4 (spec fase 4 §14): lo da `synodal.api.read`.
+        can_read_synodal = "titulatec.synodal.api.read" in _user_perms
         # «Revocar inscripción»: mismo permiso que exige `process_cancel`, y
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
@@ -1844,6 +1913,47 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         can_request_replacement = (
             "titulatec.document.api.request_replacement" in _user_perms
             and in_cotejo)
+        anexo_perms = _user_perms
+
+    # Fase 6 (spec fase 6 §9.4): estado + folio + ligas según permisos, o el
+    # porqué (`AnexoService.empty_label`, molde de la fase 5). NO emite folio:
+    # solo lo lee. Dict plano (se renderiza tras el `db.close()`).
+    from itcj2.apps.titulatec.services.anexo_service import (
+        DOC_TYPE as _ANEXO_DOC, AnexoService)
+    anexo_phase = AnexoService.phase_number(db)
+    anexo_empty_label = AnexoService.empty_label(db, proc)
+    anexo = None
+    if anexo_phase is not None and anexo_empty_label is None:
+        folio_row = AnexoService.get(db, process_id)
+        # Mismo predicado que usan las rutas de Titulación (abrir la pestaña Y
+        # revisar): nunca una liga que contestaría 403.
+        from itcj2.apps.titulatec.pages.titulacion_anexo import _puede_ver_anexo
+        puede_revisar = _puede_ver_anexo(anexo_perms)
+        puede_generar = ("titulatec.anexo_iii.api.generate" in anexo_perms
+                         and "titulatec.synodal.api.read" in anexo_perms)
+        tiene_escaneo = db.query(Document.id).filter_by(
+            process_id=process_id, type_code=_ANEXO_DOC).first() is not None
+        # Revisión final, punto 6: sin ligas que contestarían 400 o caerían sin
+        # detalle. El PDF exige el MISMO predicado que su ruta (`reached`: fase 6
+        # alcanzada y proceso no revocado); «Abrir en Titulación», un proceso
+        # no revocado (la bandeja no lista los revocados).
+        alcanzado = AnexoService.reached(db, proc)
+        pdf_url = None
+        if alcanzado and puede_revisar:
+            pdf_url = f"/titulatec/admin/titulacion/anexo/{process_id}/anexo.pdf"
+        elif alcanzado and puede_generar:
+            pdf_url = f"/titulatec/admin/sinodales/{process_id}/anexo.pdf"
+        anexo = {
+            "folio": folio_row.folio if folio_row else None,
+            "released_label": (_fecha_larga(folio_row.released_at)
+                               if folio_row and folio_row.released_at else None),
+            "has_scan": tiene_escaneo,
+            "pdf_url": pdf_url,
+            "scan_url": (f"/titulatec/admin/titulacion/anexo/{process_id}/escaneo"
+                         if puede_revisar and tiene_escaneo else None),
+            "open_url": (f"/titulatec/admin/titulacion/anexo?selected={process_id}"
+                         if puede_revisar and proc.status != "cancelled" else None),
+        }
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -1942,7 +2052,18 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "requisitos": requisitos,
         "can_mark_reqs": can_mark_reqs,
         "can_dictaminar_fase": can_dictaminar_fase,
-        "can_dictaminar_fb": can_dictaminar_fb,
+        "can_open_titulacion": can_open_titulacion,
+        "format_b_phase": format_b_phase,
+        "synodal_phase": synodal_phase,
+        "sinodales": sinodales,
+        "can_read_synodal": can_read_synodal,
+        "review_phase": review_phase,
+        "review_applies": review_applies,
+        "review_empty_label": review_empty_label,
+        "review_status": review_status,
+        "anexo_phase": anexo_phase,
+        "anexo": anexo,
+        "anexo_empty_label": anexo_empty_label,
         "can_revoke": can_revoke,
         "revocada": revocada,
         "survey": survey,
@@ -2367,42 +2488,10 @@ def _render_detail_body(request, db, process_id, user_id: int | None = None):
     return render_titulatec(request, "titulatec/partials/processes/_exp_shell.html", ctx)
 
 
-@router.post("/processes/{process_id}/format-b/review", name="titulatec.pages.admin.fb_review")
-async def fb_review(
-    process_id: int,
-    request: Request,
-    user: dict = Depends(require_page_app("titulatec", perms=[
-        "titulatec.format_b.api.approve", "titulatec.format_b.api.reject"])),
-):
-    form = dict(await request.form())
-    return await run_in_threadpool(
-        _cuerpo_fb_review, process_id=process_id, request=request, user=user, form=form)
-
-
-def _cuerpo_fb_review(process_id, request, user, form):
-    """Cuerpo síncrono de `fb_review`: corre en el threadpool, no en el event loop."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import FormatB
-    from itcj2.apps.titulatec.services.format_b_service import FormatBService
-    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
-
-    action = form.get("action")
-    note = form.get("note")
-    status = "approved" if action == "approve" else "rejected"
-    db = SessionLocal()
-    try:
-        proc = assert_process_in_scope(db, int(user["sub"]), process_id)
-        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
-        fb = db.get(FormatB, process_id)
-        if fb:
-            try:
-                FormatBService.review(db, fb, proc, status=status, note=note,
-                                      reviewer_id=int(user["sub"]))
-            except ValueError as exc:
-                return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
-        return _render_detail_body(request, db, process_id, int(user["sub"]))
-    finally:
-        db.close()
+# El dictamen del Formato B (`POST /processes/{id}/format-b/review`) se RETIRÓ
+# el 2026-10-21 (spec fase 3 §7): una sola puerta, la pestaña «Titulación»
+# (`FormatBService.approve`/`.reject`). El motor rechaza además aprobar o
+# rechazar la fase `format_b` por `phase/{n}/...` (`FORMAT_B_ONLY_MSG`).
 
 
 @router.post("/processes/{process_id}/phase/{n}/approve", name="titulatec.pages.admin.phase_approve")

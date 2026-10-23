@@ -171,6 +171,26 @@ class PhaseService:
         return int(row[0]) if row else None
 
     @staticmethod
+    def operable_codes(db: Session, codes) -> set[str]:
+        """De `codes` (códigos de fase del catálogo), los que se operan en esta
+        app: el corte a T-soft cae DESPUÉS de su número.
+
+        Una sola consulta para todos (el menú admin y el landing preguntan por
+        varias pantallas a la vez). Falla cerrado: un código que no está en el
+        catálogo no sale. Mismo criterio que los `operable()` de cada servicio
+        (`SynodalService`, `TeacherService`, `titulacion_admin._operable`).
+        """
+        from itcj2.apps.titulatec.models import PhaseDefinition
+
+        pedidos = {c for c in (codes or ()) if c}
+        if not pedidos:
+            return set()
+        corte = PhaseService._handoff_phase()
+        filas = (db.query(PhaseDefinition.code, PhaseDefinition.number)
+                 .filter(PhaseDefinition.code.in_(sorted(pedidos))).all())
+        return {code for code, number in filas if number is not None and corte > int(number)}
+
+    @staticmethod
     def _student_action_error(db: Session, process, phase_number) -> str | None:
         """Motivo por el que el alumno NO puede actuar en esa fase, o None.
 
@@ -258,6 +278,136 @@ class PhaseService:
     # Defensa de `approve_phase` (Ruling R14): la `ProcessPhase` de la fase a
     # aprobar ya está `approved`. ASCII por lo mismo que `_transition_error`.
     PHASE_ALREADY_APPROVED_MSG = "Esa fase ya fue aprobada."
+
+    # ------------------------------------------------------------------
+    # Fases con UNA sola puerta (spec fase 3 §7, generalizada en la fase 4 §10)
+    # ------------------------------------------------------------------
+    # Una fase de este registro solo se dictamina desde el servicio que la
+    # posee: `format_b` desde `FormatBService.approve`/`.reject`,
+    # `synodal_assignment` desde `SynodalService.assign` (la fase 4 no tiene
+    # rechazo), `synodal_review` desde `ReviewService.vote`, con el voto que
+    # cumple la regla de firma (la fase 5 tampoco tiene rechazo), y
+    # `anexo_iii` desde `AnexoService.approve`/`.observe`. El servicio
+    # deja su dictamen en la sesión y abre el motor con
+    # `open_door` justo antes de llamar a `approve_phase`/`reject_phase`;
+    # `_door_guard` exige la marca y la CONSUME. Cualquier otra puerta -los
+    # botones genéricos «Aprobar/Rechazar fase» del expediente, un script-
+    # recibe el mensaje de la fase. Con acentos: las rutas que lo pueden
+    # recibir (`phase/{n}/approve|reject` del expediente) lo pasan por `_hdr()`.
+    FORMAT_B_ONLY_MSG = "El Formato B se dictamina desde la pestaña Titulación."
+    SYNODAL_ONLY_MSG = "Los sinodales se registran desde la pestaña Sinodales."
+    REVIEW_ONLY_MSG = ("La revisión de sinodales se libera sola cuando votan los sinodales "
+                       "que firman, desde su conversación.")
+    ANEXO_ONLY_MSG = "El Anexo III se dictamina desde la pestaña Titulación."
+    _DOOR_PHASES = {
+        "format_b": FORMAT_B_ONLY_MSG,
+        "synodal_assignment": SYNODAL_ONLY_MSG,
+        "synodal_review": REVIEW_ONLY_MSG,
+        "anexo_iii": ANEXO_ONLY_MSG,
+    }
+    _DOOR_VERDICTS = ("approved", "rejected")
+
+    # Marca en `db.info`: `(código de fase, process_id, veredicto)`. La pone
+    # `open_door` y la quita `close_door` en el `finally` del servicio (éxito,
+    # error o rollback), si no la consumió antes la guarda.
+    DOOR_KEY = "titulatec.phase_door"
+
+    @staticmethod
+    def open_door(db: Session, phase_code: str, process_id: int, verdict: str) -> None:
+        """Abre la puerta del motor para UN dictamen de una fase con puerta.
+
+        La llama el servicio dueño de la fase justo antes de `approve_phase`
+        (`verdict="approved"`) o `reject_phase` (`"rejected"`), después de
+        dejar su dictamen en la sesión. Una fase sin puerta o un veredicto
+        desconocido es un error de programación (`ValueError`), no un permiso.
+        """
+        if phase_code not in PhaseService._DOOR_PHASES:
+            raise ValueError(f"La fase {phase_code!r} no tiene puerta propia en el motor.")
+        if verdict not in PhaseService._DOOR_VERDICTS:
+            raise ValueError(f"Veredicto de fase no reconocido: {verdict!r}.")
+        db.info[PhaseService.DOOR_KEY] = (phase_code, process_id, verdict)
+
+    @staticmethod
+    def close_door(db: Session) -> None:
+        """Quita la marca, la haya consumido el motor o no (va en el `finally`)."""
+        db.info.pop(PhaseService.DOOR_KEY, None)
+
+    @staticmethod
+    def _phase_code(db: Session, phase_number) -> str | None:
+        """Código del catálogo de la fase `phase_number`, o None."""
+        from itcj2.apps.titulatec.models import PhaseDefinition
+        row = (db.query(PhaseDefinition.code)
+               .filter(PhaseDefinition.number == phase_number).first())
+        return row[0] if row else None
+
+    @staticmethod
+    def _door_state_ok(db: Session, phase_code: str, process, verdict: str) -> bool:
+        """¿El dictamen que anuncia la marca está de verdad en la sesión?
+
+        - `format_b`: el Formato B en ese estado. Mirar solo el estado no
+          bastaría (un `rejected` sigue así mientras el alumno corrige, P9) y
+          solo la marca tampoco: van las dos.
+        - `synodal_assignment`: solo se aprueba, y con los 4 sinodales
+          vigentes ya escritos (`SynodalService.ROLES`). No tiene rechazo.
+        - `synodal_review`: solo se aprueba, y con la regla de firma cumplida
+          en la versión vigente por asignaciones vigentes
+          (`ReviewService.rule_satisfied`, ya con el voto que cierra escrito).
+          No tiene rechazo.
+        - `anexo_iii`: el escaneo firmado (`Document` de tipo
+          `AnexoService.DOC_TYPE`) ya en ese estado: `approved` para aprobar,
+          `rejected` para observar. Sin escaneo, ninguna de las dos (invariante:
+          fase 6 `approved` <=> documento `approved`).
+        """
+        if phase_code == "format_b":
+            from itcj2.apps.titulatec.models import FormatB
+            fb = db.get(FormatB, process.id)
+            return fb is not None and fb.status == verdict
+        if phase_code == "synodal_assignment":
+            if verdict != "approved":
+                return False
+            from sqlalchemy import func
+
+            from itcj2.apps.titulatec.models import SynodalAssignment
+            from itcj2.apps.titulatec.services.synodal_service import ROLES
+            vigentes = (db.query(func.count(SynodalAssignment.id))
+                        .filter(SynodalAssignment.process_id == process.id,
+                                SynodalAssignment.is_active.is_(True))
+                        .scalar())
+            return vigentes == len(ROLES)
+        if phase_code == "synodal_review":
+            if verdict != "approved":
+                return False
+            from itcj2.apps.titulatec.services.review_service import ReviewService
+            return ReviewService.rule_satisfied(db, process)
+        if phase_code == "anexo_iii":
+            from itcj2.apps.titulatec.models import Document
+            from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE
+            estado = (db.query(Document.review_status)
+                      .filter(Document.process_id == process.id,
+                              Document.type_code == DOC_TYPE)
+                      .scalar())
+            return estado is not None and estado == verdict
+        return False
+
+    @staticmethod
+    def _door_guard(db: Session, process, phase_number: int, required: str) -> None:
+        """Si `phase_number` es una fase con puerta, exige el dictamen de su
+        servicio EN CURSO en esta sesión; si no, el mensaje de esa fase.
+
+        «En curso» = la marca `DOOR_KEY` con esta fase, este proceso y este
+        veredicto (`approved` para aprobar, `rejected` para rechazar) **y** el
+        estado que la respalda (`_door_state_ok`). La marca se consume aquí:
+        cada dictamen abre la puerta una vez. Una consulta (el código de la
+        fase) para las fases sin puerta, como antes la del Formato B.
+        """
+        code = PhaseService._phase_code(db, phase_number)
+        mensaje = PhaseService._DOOR_PHASES.get(code)
+        if mensaje is None:
+            return
+        marca = db.info.pop(PhaseService.DOOR_KEY, None)
+        if (marca != (code, process.id, required)
+                or not PhaseService._door_state_ok(db, code, process, required)):
+            raise ValueError(mensaje)
 
     @staticmethod
     def _lock_process_row(db: Session, process) -> None:
@@ -440,7 +590,8 @@ class PhaseService:
                           PhaseService.PHASE_COTEJO, {"auto": True, "via": via})
 
     @staticmethod
-    def approve_phase(db: Session, process, phase_number: int, reviewer_id: int) -> dict:
+    def approve_phase(db: Session, process, phase_number: int, reviewer_id: int,
+                      event_payload: dict | None = None) -> dict:
         """Aprueba una fase, activa la siguiente aplicable (o completa el proceso).
 
         Solo la fase ACTUAL de un proceso ACTIVO. Lanza `ValueError` si no
@@ -459,9 +610,18 @@ class PhaseService:
         esa fase ya está `approved`: defensa ante un dato incoherente, sin
         consulta extra (la fila la lee `_ensure_phase` de todas formas) y antes
         de escribir nada.
+
+        Las fases con puerta solo pasan con el dictamen de su servicio en la
+        sesión (`_door_guard`): `format_b` con el Formato B ya `approved`,
+        `synodal_assignment` con los 4 sinodales ya registrados,
+        `synodal_review` con la regla de firma cumplida (`ReviewService.vote`)
+        y `anexo_iii` con el escaneo ya `approved` (`AnexoService.approve`).
+        `event_payload` se fusiona en el payload del evento `phase_approved`
+        (así viaja la ronda del Formato B al timeline sin un evento duplicado).
         """
         PhaseService._lock_process_row(db, process)
         _first, last = PhaseService.assert_can_transition(db, process, phase_number)
+        PhaseService._door_guard(db, process, phase_number, "approved")
 
         # D9: la encuesta de egresados (y el resto del checklist físico) BLOQUEA
         # el dictamen de la fase 2. El alumno sí puede agendar y presentarse; lo
@@ -512,7 +672,8 @@ class PhaseService:
                 nph.started_at = db_now()
             process.current_phase = nxt
 
-        PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number)
+        PhaseService._log(db, process.id, reviewer_id, "phase_approved", phase_number,
+                          dict(event_payload) if event_payload else None)
 
         from itcj2.apps.titulatec.services.notify import notify_student
         if nxt is None:
@@ -542,7 +703,8 @@ class PhaseService:
         return {"next_phase": nxt, "completed": nxt is None}
 
     @staticmethod
-    def reject_phase(db: Session, process, phase_number: int, reviewer_id: int, reason: str) -> None:
+    def reject_phase(db: Session, process, phase_number: int, reviewer_id: int, reason: str,
+                     event_payload: dict | None = None) -> None:
         """Rechaza una fase: la deja en 'rejected' con motivo y fija current_phase en ella.
 
         El alumno corrige y reenvía; ese reenvío la pasa a 'in_review', no a 'in_progress'.
@@ -552,9 +714,17 @@ class PhaseService:
         Y el mismo bloqueo previo (`_lock_process_row`, Ruling R14): sin él, un
         rechazo concurrente con la aprobación de la misma fase validaba sobre
         el `current_phase` viejo y regresaba el proceso a una fase ya liberada.
+
+        Las fases con puerta solo pasan con el dictamen de su servicio en la
+        sesión (`_door_guard`): `format_b` con el Formato B ya `rejected`;
+        `anexo_iii` con el escaneo ya `rejected` (`AnexoService.observe`);
+        `synodal_assignment` y `synodal_review` nunca (no tienen rechazo).
+        `event_payload` se fusiona en el payload del evento `phase_rejected`,
+        junto al `reason`.
         """
         PhaseService._lock_process_row(db, process)
         PhaseService.assert_can_transition(db, process, phase_number)
+        PhaseService._door_guard(db, process, phase_number, "rejected")
 
         # Gemelo del cierre automático de `approve_phase`: rechazar la fase 2
         # tambien es un dictamen, y si la cita vigente quedo `in_progress` queda
@@ -568,7 +738,8 @@ class PhaseService:
         ph.reviewed_by_id = reviewer_id
         ph.rejection_reason = reason or None
         process.current_phase = phase_number
-        PhaseService._log(db, process.id, reviewer_id, "phase_rejected", phase_number, {"reason": reason})
+        PhaseService._log(db, process.id, reviewer_id, "phase_rejected", phase_number,
+                          {**(event_payload or {}), "reason": reason})
 
         from itcj2.apps.titulatec.services.notify import notify_student
         notify_student(db, process.student_id, type="PHASE_REJECTED",
@@ -585,3 +756,11 @@ class PhaseService:
             reason=reason or None)
 
         db.commit()
+
+
+# Alias de módulo (como los mensajes de `format_b_service`): quien solo necesita
+# el texto lo importa sin la clase.
+FORMAT_B_ONLY_MSG = PhaseService.FORMAT_B_ONLY_MSG
+SYNODAL_ONLY_MSG = PhaseService.SYNODAL_ONLY_MSG
+REVIEW_ONLY_MSG = PhaseService.REVIEW_ONLY_MSG
+ANEXO_ONLY_MSG = PhaseService.ANEXO_ONLY_MSG

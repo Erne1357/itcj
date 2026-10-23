@@ -1,0 +1,52 @@
+{# Burbujas de la conversación de revisión de sinodales (fase 5, spec 2026-10-22 §7.1).
+
+   Recibe SOLO:
+   - `items`: la lista de `ReviewService.messages(db, chat_id, after_id=...)`;
+   - `me_id`: el usuario que mira (sus mensajes salen «Tú», a la derecha);
+   - `file_base` (opcional): prefijo de la ruta CON GUARDA que sirve los archivos,
+     terminado en «/» (el alumno: `/titulatec/student/revision/archivo/`; el
+     sinodal: `/titulatec/admin/revisiones/{process_id}/archivo/`). Sin él no hay
+     ligas: el archivo nunca se sirve por ruta estática.
+
+   Pinta solo los `li` (sin contenedor): la página los mete en su lista
+   `ol.tt-rv-list[data-tt-review-list]` y el refresco incremental los agrega con
+   `beforeend` (`js/shared/review-thread.js` quita duplicados por
+   `data-tt-msg-id` y baja al final). Lista vacía = nada (el estado vacío es de
+   la página). Cada `kind` se pinta distinto: `message` (burbuja), `system`
+   (aviso centrado), `version` (tarjeta con el archivo) y `vote` (franja del
+   voto). Todo texto va escapado (autoescape) y respeta los saltos de línea por
+   CSS (`white-space: pre-line`). #}
+{%- set _yo = me_id if me_id is defined else none -%}
+{%- set _base = file_base if file_base is defined and file_base else none -%}
+{%- for m in items %}
+{%- set _mio = _yo is not none and m.author_id is not none and m.author_id == _yo %}
+<li id="tt-rv-msg-{{ m.id }}" class="tt-rv-msg tt-rv-msg--{{ m.kind }}{% if _mio %} is-mine{% endif %}" data-tt-msg-id="{{ m.id }}">
+  {%- if m.kind == "system" %}
+  <p class="tt-rv-sys"><i class="bi bi-info-circle" aria-hidden="true"></i><span class="tt-rv-body">{{ m.body }}</span></p>
+  <span class="tt-rv-meta">{{ m.created_label }}</span>
+  {%- else %}
+  <div class="tt-rv-bubble">
+    <p class="tt-rv-author">
+      <span class="tt-rv-who">{{ "Tú" if _mio else (m.author_name or "—") }}</span>
+      {% if m.author_label and not _mio %}<span class="tt-rv-role">{{ m.author_label }}</span>{% endif %}
+    </p>
+    {%- if m.kind == "version" %}
+    <p class="tt-rv-kind"><i class="bi bi-file-earmark-arrow-up" aria-hidden="true"></i>Versión {{ m.version_number }} del proyecto</p>
+    {%- elif m.kind == "vote" %}
+    <p class="tt-rv-kind"><i class="bi bi-check2-square" aria-hidden="true"></i>Voto</p>
+    {%- endif %}
+    {%- if m.body and m.kind != "version" %}
+    <p class="tt-rv-body">{{ m.body }}</p>
+    {%- endif %}
+    {%- if m.attachment %}
+    {%- if _base %}
+    <a class="tt-rv-file" href="{{ _base }}{{ m.id }}" target="_blank" rel="noopener"><i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-rv-file-name">{{ m.attachment.name }}</span>{% if m.attachment.size_label %}<span class="tt-rv-file-size">{{ m.attachment.size_label }}</span>{% endif %}</a>
+    {%- else %}
+    <span class="tt-rv-file"><i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-rv-file-name">{{ m.attachment.name }}</span>{% if m.attachment.size_label %}<span class="tt-rv-file-size">{{ m.attachment.size_label }}</span>{% endif %}</span>
+    {%- endif %}
+    {%- endif %}
+    <span class="tt-rv-meta">{{ m.created_label }}</span>
+  </div>
+  {%- endif %}
+</li>
+{%- endfor %}

@@ -1,0 +1,22 @@
+{# Recordatorio del plazo de revisión (fase 5, spec 2026-10-22 §10, D9). Lo manda
+   `ReviewReminders.run` DESPUÉS del commit, solo a quien su voto cuenta y no ha
+   votado. `kind`: due_soon (faltan pocos días hábiles) | due_today (vence hoy o
+   ya venció). Contexto: kind, nombre, alumno, version, vence, link. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}{% if kind == "due_today" %}Hoy vence tu revisión{% else %}Tu revisión está por vencer{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ nombre|e }}</strong>,</p>
+{% if kind == "due_today" %}
+<p style="margin:0 0 20px;">
+  Hoy vence el plazo para votar la <strong>versión {{ version|e }}</strong> del proyecto de
+  <strong>{{ alumno|e }}</strong>{% if vence %} ({{ vence|e }}){% endif %}.
+</p>
+{% else %}
+<p style="margin:0 0 20px;">
+  Te quedan pocos días hábiles para votar la <strong>versión {{ version|e }}</strong> del
+  proyecto de <strong>{{ alumno|e }}</strong>{% if vence %}: vence el {{ vence|e }}{% endif %}.
+</p>
+{% endif %}
+{{ m.boton(link, "Abrir la revisión") }}
+{% endblock %}

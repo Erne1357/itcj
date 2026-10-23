@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 TRACK_LICENCIATURA = "licenciatura"
 TRACK_POSGRADO = "posgrado"
 
+# Etiqueta de pantalla de cada nivel de POSGRADO (licenciatura no se rotula).
+PROFILE_LABELS = {"maestria": "Maestría", "doctorado": "Doctorado"}
+
 
 class TrackService:
     @staticmethod
@@ -28,6 +31,27 @@ class TrackService:
         from itcj2.core.models.program import POSTGRADUATE_LEVELS
 
         return TRACK_POSGRADO if level in POSTGRADUATE_LEVELS else TRACK_LICENCIATURA
+
+    @staticmethod
+    def same_level(db: Session, program_id_a: int, program_id_b: int) -> bool:
+        """¿Las dos carreras son del MISMO `level` (licenciatura|maestria|doctorado)?
+
+        Lo usa la corrección del registro del Formato B (spec 2026-10-21 fase 3
+        §8.5): la carrera nueva debe ser del mismo nivel que la actual, porque
+        cambiar de nivel cambiaría el perfil de titulación a media marcha. Es
+        más estricto que comparar perfiles (maestría ↔ doctorado también
+        cambia de nivel). Vive aquí porque este módulo es el único que lee
+        `Program.level` (invariante 2). Una carrera inexistente -> False. Una
+        sola consulta.
+        """
+        from itcj2.core.models.program import Program
+
+        ids = {program_id_a, program_id_b}
+        if None in ids:
+            return False
+        levels = dict(db.query(Program.id, Program.level).filter(Program.id.in_(ids)).all())
+        return (program_id_a in levels and program_id_b in levels
+                and levels[program_id_a] == levels[program_id_b])
 
     @staticmethod
     def for_process(db: Session, process) -> str:
@@ -80,3 +104,38 @@ class TrackService:
             p.id: TrackService.for_level(levels_by_program_id.get(p.program_id))
             for p in processes
         }
+
+    @staticmethod
+    def profile_labels(db: Session, program_ids: Iterable[int]) -> dict[int, str]:
+        """`{program_id: «Maestría» | «Doctorado»}` de las carreras de posgrado.
+
+        Para pantallas que rotulan el nivel (Carreras por departamento, fase 4
+        hallazgo 10): la licenciatura no sale en el mapa. Una consulta; sin ids,
+        ninguna.
+        """
+        from itcj2.core.models.program import Program
+
+        ids = {int(i) for i in program_ids if i is not None}
+        if not ids:
+            return {}
+        filas = db.query(Program.id, Program.level).filter(Program.id.in_(ids)).all()
+        return {pid: PROFILE_LABELS[nivel] for pid, nivel in filas if nivel in PROFILE_LABELS}
+
+    @staticmethod
+    def programs_same_level(db: Session, program_id: int | None) -> list:
+        """Carreras del MISMO `level` que `program_id`, por nombre (e id).
+
+        Las opciones del «Corregir carrera» de la pestaña Titulación (spec
+        2026-10-21 fase 3 §8.5): la página no lee `Program.level` (invariante
+        2); el service lo vuelve a exigir con `same_level`. Incluye la propia
+        carrera. Sin carrera o una inexistente -> `[]`. Una sola consulta (el
+        nivel va en una subconsulta escalar).
+        """
+        from itcj2.core.models.program import Program
+
+        if program_id is None:
+            return []
+        nivel = (db.query(Program.level).filter(Program.id == program_id)
+                 .scalar_subquery())
+        return (db.query(Program).filter(Program.level == nivel)
+                .order_by(Program.name, Program.id).all())

@@ -514,24 +514,39 @@ class TestFaseRechazada:
         assert _phases(db_session, esc.process.id)[1] == "in_review"
 
     def test_corrige_y_reenvia_el_formato_b_rechazado(self, escenario, client_as,
-                                                      db_session, monkeypatch):
+                                                      db_session, make_modality,
+                                                      monkeypatch):
         """Corte a T-soft (Tarea 2, 2026-09-21) desactivado: este test prueba que
         una fase RECHAZADA se corrige y reenvia (docstring de la clase), no el
         corte -que en produccion bloquea justo la fase 3, que es Formato B-. Su
         propia cobertura vive en test_handoff_phase_cut.py.
+
+        Desde la fase 3 (2026-10-21) cada paso se VALIDA antes de guardarse y el
+        envio re-valida todo: el alumno guarda los tres pasos completos y
+        el paso 3 ya no envia: el envio es `POST /formato-b/enviar`.
         """
         monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
         esc = escenario(current_phase=3, phase_overrides={3: "rejected"})
+        modalidad = make_modality()
+        pasos = {
+            1: {"gender": "female", "age": "24", "mobile_phone": "6561234567",
+                "postal_code": "32000", "neighborhood": "Centro", "street": "Calle Uno",
+                "ext_number": "10"},
+            2: {"modality_id": str(modalidad.id), "study_plan": "ISIC-2010-224",
+                "admission_date": "2018-08", "graduation_date": "2023-06"},
+            3: {"project_name": "Proyecto corregido"},
+        }
 
         pagina = client_as(esc.student).get("/titulatec/student/formato-b",
                                             follow_redirects=False)
-        guardado = client_as(esc.student).post("/titulatec/student/formato-b/step/1",
-                                               data={"first_name": "CORREGIDO"})
-        envio = client_as(esc.student).post("/titulatec/student/formato-b/step/3",
-                                            data={"project_name": "Proyecto corregido"})
+        guardados = [client_as(esc.student).post(f"/titulatec/student/formato-b/step/{n}",
+                                                 data=pasos[n]) for n in (1, 2, 3)]
+        envio = client_as(esc.student).post("/titulatec/student/formato-b/enviar",
+                                            data={"confirm": "1"})
 
         assert pagina.status_code == 200, pagina.text[:300]
-        assert guardado.status_code == 200, guardado.text[:300]
+        for guardado in guardados:
+            assert guardado.status_code == 200, guardado.text[:300]
         assert envio.status_code == 200, envio.text[:300]
         assert _phases(db_session, esc.process.id)[3] == "in_review"
         assert _format_b(db_session, esc.process.id).status == "submitted"
@@ -649,10 +664,21 @@ class TestGuardaEnElService:
 #   - dashboard: es el acordeon informativo de las 9 fases (el destino del 302).
 #   - perfil:    identidad + resumen del proceso, sin accion de fase.
 #   - fase/{n}:  compat de notificaciones viejas; ya redirige al acordeon.
+#   - revision, revision/mensajes, revision/archivo/{id} (fase 5, 2026-10-22): son
+#     CONSULTA y siguen abiertas con la fase 5 aprobada (D7, el alumno ve la
+#     conversacion tras liberarse), asi que no pueden usar `_phase_guard`; su propia
+#     guarda es `_review_read_guard` (302 la pagina, 404 el parcial y el archivo).
+#     Las dos mutaciones de la conversacion (`mensaje`, `version`) SI llevan
+#     `_phase_guard` y no estan aqui.
 RUTAS_SIN_FASE = {
     ("GET", "/student/dashboard"),
     ("GET", "/student/perfil"),
     ("GET", "/student/fase/{n}"),
+    ("GET", "/student/revision"),
+    ("GET", "/student/revision/mensajes"),
+    ("GET", "/student/revision/archivo/{message_id}"),
+    ("GET", "/student/anexo"),
+    ("GET", "/student/anexo/pdf"),
 }
 
 
@@ -683,6 +709,23 @@ def test_toda_ruta_del_alumno_atada_a_una_fase_invoca_la_guarda():
 
     # 14 desde la Tarea 1 (2026-09-28): se retiro `POST /phase/1/submit`
     # (eran 15). La fase 1 se sincroniza sola, `DocumentService.sync_initial_phase`.
-    assert revisadas == 14, "cambio el inventario de rutas del alumno: " + str(revisadas)
+    # 16 desde la fase 3 (2026-10-21): +`GET /formato-b/revision` y
+    # +`POST /formato-b/enviar`, las dos con `_phase_guard`.
+    # 21 desde la fase 5 (2026-10-22): +3 GET de consulta (`RUTAS_SIN_FASE`, con su
+    # `_review_read_guard`) y +2 POST (`revision/mensaje` y `revision/version`, las
+    # dos con `_phase_guard`). El brief de la tarea decia 18; el recuento real es 21.
+    # 25 desde la fase 6 (2026-10-22): +2 GET de consulta (`anexo`, `anexo/pdf`, con
+    # `_anexo_read_guard`) y +2 (POST/DELETE `anexo/escaneo`, con `_phase_guard`).
+    assert revisadas == 25, "cambio el inventario de rutas del alumno: " + str(revisadas)
     assert not sin_guarda, ("rutas del alumno sin guarda de fase:\n"
                             + "\n".join(sin_guarda))
+    # Las lecturas exentas no son un hueco: cada una lleva la guarda de LECTURA.
+    for method, path in RUTAS_SIN_FASE:
+        if "/anexo" in path:
+            route = next(r for r in student_router.routes
+                         if getattr(r, "path", "") == path and method in r.methods)
+            assert "_anexo_read_guard" in fuente_de_ruta(route.endpoint), path
+        if "/revision" in path:
+            route = next(r for r in student_router.routes
+                         if getattr(r, "path", "") == path and method in r.methods)
+            assert "_review_read_guard" in fuente_de_ruta(route.endpoint), path

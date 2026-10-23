@@ -1,0 +1,47 @@
+{# ===========================================================================
+   revision.html — conversación del alumno con sus sinodales (fase 5).
+   Spec 2026-10-22-titulatec-fase5-revision-sinodales §7-§8.1. Contexto:
+   pages/student.py::_review_view. Burbujas y panel de estado son los parciales
+   compartidos `partials/review/*`; el hilo lo anima `js/shared/review-thread.js`
+   (cargado por la base). Sin scripts propios: todo va por `data-*` y htmx.
+   =========================================================================== #}
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Revisión de tu proyecto · TitulaTec{% endblock %}
+{% block student_active %}revision{% endblock %}
+{% block student_page %}student_revision{% endblock %}
+{% block student_appbar_title %}Revisión de tu proyecto{% endblock %}
+{% block student_appbar_sub %}<div class="tt-rvs-appbar-sub">Conversación con tus sinodales</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
+
+{% block head_extra %}
+  {{ super() }}
+  <link rel="stylesheet" href="/static/titulatec/css/student/revision.css?v={{ sv('css/student/revision.css') }}">
+{% endblock %}
+
+{% block student_body %}
+<div class="p-3 p-lg-4 tt-rvs" id="tt-rv-root">
+  <div class="tt-rvs-grid">
+    <aside class="tt-rvs-side">
+      {% include "titulatec/partials/student/revision/_status_slot.html" %}
+    </aside>
+
+    <section class="tt-rvs-main" aria-label="Conversación">
+      <div class="tt-rv-thread" data-tt-review-thread tabindex="0">
+        <ol id="tt-rv-list" class="tt-rv-list" data-tt-review-list>
+          {%- include "titulatec/partials/review/_messages.html" %}
+        </ol>
+      </div>
+      {% if is_open %}
+      <div id="tt-rv-poll" data-tt-review-poll="#tt-rv-list"
+           hx-get="/titulatec/student/revision/mensajes"
+           hx-trigger="every 15s [document.visibilityState=='visible']"
+           hx-target="#tt-rv-list" hx-swap="beforeend"></div>
+      {% endif %}
+
+      {% include "titulatec/partials/student/revision/_actions.html" %}
+    </section>
+  </div>
+</div>
+{% endblock %}

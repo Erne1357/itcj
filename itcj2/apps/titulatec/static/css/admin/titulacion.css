@@ -1,0 +1,215 @@
+/* ===========================================================================
+   titulacion.css — Pestaña «Titulación» (Formato B, fase 3) (2026-10-21)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-21-titulatec-fase3-formato-b-titulacion-design.md
+   §8.2. Se carga UNA vez en `admin/base_admin.html` (la navegación admin solo
+   morphea #tt-admin-content, nunca el <head>). Todo cuelga de las clases
+   `tt-tit-*` de `admin/titulacion.html` y `partials/titulacion/`.
+
+   Master-detail desktop primero: lista (5/12) y detalle (7/12) lado a lado
+   cuando la BANDEJA mide lo suficiente -consulta de contenedor sobre
+   #tt-tit-body, no @media: el ancho útil depende del sidebar, del tope de
+   #tt-admin-content y del zoom-. Ahí la lista se queda fija (sticky) con su
+   propio scroll y el detalle siempre queda a la vista. Debajo, lista y
+   detalle son VISTAS separadas (2026-10-23, «si no caben, no conviven»):
+   sin elegido se ve la lista; con elegido, solo el detalle y «Volver a la
+   lista» (`.tt-tit-wrap.has-selection`).
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto con
+   --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*. Sin `style=` en
+   las plantillas. Los tonos con texto oscuro sobre fondo suave copian los de
+   `.tt-pill--*` (titulatec.css).
+   =========================================================================== */
+
+/* === 1. Página ============================================================ */
+.tt-tit-page { padding: var(--tt-sp-5) var(--tt-sp-5) var(--tt-sp-5); }
+.tt-tit-header { margin-bottom: var(--tt-sp-4); }
+.tt-tit-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-tit-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+
+/* Vistas de la pestaña (hoy solo «Formato B»; las fases siguientes se suman aquí). */
+.tt-tit-views { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); margin-top: var(--tt-sp-3); }
+.tt-tit-view {
+  display: inline-flex; align-items: center; gap: var(--tt-sp-1);
+  padding: var(--tt-sp-1) var(--tt-sp-3); border-radius: 999px;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2);
+  border: 1px solid var(--tt-line);
+}
+.tt-tit-view.is-active { background: var(--tt-ink); border-color: var(--tt-ink); color: #fff; }
+
+#tt-tit-body { container: tt-tit / inline-size; }
+
+/* Ancho de trabajo (2026-10-23): las vistas lista + detalle de Titulación
+   (Formato B y Anexo III) usan hasta 1600 px; el resto del admin sigue en
+   1240 (titulatec.css, «Ancho de lectura del admin»). */
+@media (min-width: 1280px) {
+  .tt-admin .main > #tt-admin-content[data-tt-view^="titulacion"] { max-width: 1600px; }
+}
+
+/* === 2. Filtros =========================================================== */
+.tt-tit-filters {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-2) var(--tt-sp-3); margin-bottom: var(--tt-sp-3);
+}
+.tt-tit-tabs { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); }
+.tt-tit-count { font-variant-numeric: tabular-nums; opacity: .8; }
+.tt-tit-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); min-width: 0; flex: 1 1 32rem; justify-content: flex-end; }
+.tt-tit-search-row .tt-search { flex: 1 1 16rem; min-width: 0; max-width: 26rem; }
+.tt-tit-carrera { flex: 0 1 18rem; width: auto; max-width: 100%; min-width: 0; }
+
+/* === 3. Master-detail ===================================================== */
+.tt-tit-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3); align-items: start; }
+.tt-tit-master, .tt-tit-detail-col { min-width: 0; }
+@container tt-tit (min-width: 760px) {
+  .tt-tit-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  /* La lista se queda fija y hace scroll por dentro; el pager queda al pie. */
+  .tt-tit-master { position: sticky; top: var(--tt-sp-3); }
+  .tt-tit-list-card { display: flex; flex-direction: column; max-height: calc(100dvh - 2 * var(--tt-sp-3)); }
+  .tt-tit-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .tt-tit-list-card .tt-pager, .tt-tit-list-card .tt-pager-range { flex: 0 0 auto; margin-top: var(--tt-sp-2); }
+  .tt-tit-back { display: none; }
+}
+@container tt-tit (max-width: 759.98px) {
+  .tt-tit-wrap.has-selection .tt-tit-filters,
+  .tt-tit-wrap.has-selection .tt-tit-master,
+  .tt-tit-wrap:not(.has-selection) .tt-tit-detail-col { display: none; }
+}
+.tt-tit-back { margin-bottom: var(--tt-sp-2); }
+
+/* Lista: una fila es un <button> a todo lo ancho. */
+.tt-tit-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-tit-row {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); width: 100%;
+  padding: var(--tt-sp-2); text-align: left; cursor: pointer;
+  background: var(--tt-paper); color: var(--tt-text-1);
+  border: 1px solid var(--tt-line-soft); border-radius: var(--tt-r-sm);
+  transition: border-color var(--tt-dur-1) ease, background-color var(--tt-dur-1) ease;
+}
+.tt-tit-row:hover { border-color: var(--tt-line); }
+.tt-tit-row:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-tit-row.is-active { background: var(--tt-mist); border-color: var(--tt-line); }
+.tt-tit-pos {
+  flex: 0 0 auto; min-width: 1.6rem; padding-top: 1px; text-align: center;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3);
+}
+.tt-tit-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.tt-tit-row-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-tit-row-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); overflow-wrap: anywhere; }
+.tt-tit-row-meta .tt-mono { font-variant-numeric: tabular-nums; }
+.tt-tit-resend { align-self: flex-start; margin-top: 2px; }
+.tt-tit-viewing {
+  display: inline-flex; align-items: center; gap: var(--tt-sp-1);
+  font-size: var(--tt-fs-100); color: var(--tt-navy);
+}
+.tt-tit-wait { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.tt-tit-list-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-tit-list-empty i { margin-right: var(--tt-sp-1); }
+
+/* === 4. Detalle =========================================================== */
+.tt-tit-detail { display: flex; flex-direction: column; gap: var(--tt-sp-3); }
+.tt-tit-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-tit-head-main { min-width: 0; }
+.tt-tit-head-aside { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); }
+.tt-tit-name { font-size: var(--tt-fs-400); font-weight: 600; margin: 2px 0; overflow-wrap: anywhere; }
+.tt-tit-sub { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+
+.tt-tit-presence {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-navy-soft); color: var(--tt-navy); font-size: var(--tt-fs-100);
+}
+
+.tt-tit-prevgeneral-text { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); white-space: pre-line; }
+
+/* Bloques de campos: etiqueta | valor | ⚑. */
+.tt-tit-section-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-tit-section-title { margin: 0; }
+.tt-tit-fields { display: flex; flex-direction: column; margin-top: var(--tt-sp-2); }
+.tt-tit-field {
+  display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr) auto;
+  align-items: start; gap: var(--tt-sp-1) var(--tt-sp-3);
+  padding: var(--tt-sp-2) 0; border-top: 1px solid var(--tt-line-soft);
+}
+.tt-tit-field:first-child { border-top: 0; }
+.tt-tit-label { font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-tit-tag {
+  display: inline-block; padding: 0 var(--tt-sp-1); border-radius: 4px;
+  font-size: .75rem; color: var(--tt-text-3); border: 1px solid var(--tt-line);
+}
+.tt-tit-val { min-width: 0; display: flex; flex-direction: column; gap: var(--tt-sp-1); }
+.tt-tit-value { font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; white-space: pre-line; }
+/* Campo observado: tinte plano (antes un degradado que se desvanecía). */
+.tt-tit-field.has-obs {
+  background: var(--tt-amber-soft); border-radius: var(--tt-r-sm);
+  padding-inline: var(--tt-sp-2); margin-inline: calc(-1 * var(--tt-sp-2));
+}
+.tt-tit-field.is-flagged .tt-tit-value { font-weight: 600; }
+.tt-tit-prev { display: flex; flex-direction: column; gap: 2px; font-size: var(--tt-fs-100); }
+.tt-tit-prev-note { display: inline-flex; gap: var(--tt-sp-1); color: var(--tt-amber-ink); overflow-wrap: anywhere; }
+.tt-tit-diff { color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-tit-diff.is-same { color: var(--tt-text-3); }
+.tt-tit-before { text-decoration: line-through; }
+.tt-tit-after { font-weight: 600; color: var(--tt-text-1); }
+.tt-tit-note textarea { width: 100%; }
+
+.tt-tit-flag {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+  background: var(--tt-paper); color: var(--tt-text-3);
+  transition: background-color var(--tt-dur-1) ease, color var(--tt-dur-1) ease, border-color var(--tt-dur-1) ease;
+}
+.tt-tit-flag:hover { color: var(--tt-text-1); border-color: var(--tt-text-3); }
+.tt-tit-flag:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-tit-flag.is-on { background: var(--tt-danger-soft); color: #991B1B; border-color: rgba(220, 38, 38, .35); }
+
+/* Acciones. */
+.tt-tit-actions textarea { width: 100%; }
+.tt-tit-optional { font-weight: 400; color: var(--tt-text-3); }
+.tt-tit-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tt-sp-2); margin-top: var(--tt-sp-2); }
+.tt-tit-buttons .btn:disabled { cursor: not-allowed; }
+.tt-tit-warn {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: var(--tt-sp-2) 0 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+
+/* Corrección del registro (§8.5). `[hidden]` de Bootstrap gana (!important). */
+.tt-tit-registro { border-color: var(--tt-amber); }
+.tt-tit-registro-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-tit-help { margin: var(--tt-sp-1) 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-tit-registro-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--tt-sp-2) var(--tt-sp-3); margin-bottom: var(--tt-sp-2);
+}
+.tt-tit-registro textarea, .tt-tit-registro input, .tt-tit-registro select { width: 100%; }
+
+/* === 5. Estados vacíos ==================================================== */
+.tt-tit-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--tt-sp-1); padding: var(--tt-sp-6) var(--tt-sp-4); text-align: center;
+}
+.tt-tit-empty > i { font-size: 2rem; color: var(--tt-text-3); }
+.tt-tit-empty-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-tit-empty-text { margin: 0; max-width: 52ch; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* === 6. Angosto =========================================================== */
+@media (max-width: 575.98px) {
+  .tt-tit-page { padding: var(--tt-sp-4) var(--tt-sp-4); }
+  .tt-tit-search-row, .tt-tit-search-row .tt-search, .tt-tit-carrera { width: 100%; }
+  /* Etiqueta arriba, valor abajo; la ⚑ a la derecha de las dos. */
+  .tt-tit-field { grid-template-columns: minmax(0, 1fr) auto; }
+  .tt-tit-label { grid-column: 1; }
+  .tt-tit-val { grid-column: 1; }
+  .tt-tit-flag { grid-column: 2; grid-row: 1 / span 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-tit-row, .tt-tit-flag { transition: none; }
+}
+
+/* === Vista «Anexo III» (fase 6) ========================================== */
+a.tt-tit-view { text-decoration: none; cursor: pointer; transition: border-color var(--tt-dur-1) ease; }
+a.tt-tit-view:hover { border-color: var(--tt-text-3); color: var(--tt-text-1); }
+.tt-anx-signers-list { margin: var(--tt-sp-1) 0 0; padding-left: 1.2rem; font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+.tt-anx-viewer { width: 100%; height: 60vh; min-height: 22rem; border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm); background: var(--tt-paper); }

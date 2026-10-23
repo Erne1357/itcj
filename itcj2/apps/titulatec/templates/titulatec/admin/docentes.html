@@ -1,0 +1,25 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{# Pestaña «Docentes» (spec 2026-10-21 fase 4 §8): catálogo de docentes por
+   departamento académico. Sin etiquetas de script ni estilos aquí: el módulo JS
+   y la hoja se cargan UNA vez desde `base_admin.html` (la navegación del menú
+   solo morphea `#tt-admin-content`). #}
+{% block title %}Docentes · TitulaTec{% endblock %}
+{% block admin_view %}docentes{% endblock %}
+{% block admin_main %}
+<div class="tt-doc-page">
+  <header class="tt-doc-header">
+    <span class="tt-kicker">Fase 04 · Sinodales</span>
+    <h1 class="tt-display tt-doc-title">Docentes</h1>
+    <p class="tt-doc-lead">Docentes de tu departamento que pueden ser sinodales. Cada persona tiene una sola cuenta: si ya existe, se reutiliza.</p>
+  </header>
+  <div class="tt-doc-host tt-ind-host">
+    <div id="tt-doc-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+         role="status" aria-live="polite">
+      <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+    </div>
+    <div id="tt-doc-body" data-tt-view="docentes-body">
+      {% include "titulatec/partials/docentes/_body.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

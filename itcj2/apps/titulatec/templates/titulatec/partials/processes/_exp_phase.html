@@ -333,50 +333,138 @@
   {% endif %}
 
 {# ---------------------------------------------------- 03 · Formato B ----- #}
-{% elif f.number == 3 %}
+{% elif f.code == 'format_b' %}
   {% if formato_b %}
-  {# Bloque trasladado LITERAL del detalle anterior. Decisión del 2026-09-03:
-     de la fase 3 en adelante no se toca mientras el trabajo sea la parte de
-     Servicios Escolares (fases 0 a 2). #}
+  {# Solo lectura COMPLETA (spec fase 3 §9). El dictamen del Formato B vive en
+     la pestaña Titulación: aquí no hay botones de aprobar/rechazar. #}
   <div class="d-flex align-items-center justify-content-between mb-2">
-    <span class="tt-kicker">Formato B</span>
+    <span class="tt-kicker">Formato B{% if formato_b.round %} · envío {{ formato_b.round }}{% endif %}</span>
     {{ estado_pill(formato_b.status) }}
   </div>
+  {% for sec in formato_b.sections %}
+  <div class="tt-kicker mt-3 mb-1">{{ sec.label }}</div>
   <div class="row g-2" style="font-size:.82rem">
-    <div class="col-md-6"><span style="color:var(--tt-mute)">Nombre:</span> {{ formato_b.datos.first_name }} {{ formato_b.datos.last_name }}</div>
-    <div class="col-md-3"><span style="color:var(--tt-mute)">Edad:</span> {{ formato_b.datos.age }}</div>
-    <div class="col-md-3"><span style="color:var(--tt-mute)">Celular:</span> {{ formato_b.datos.mobile_phone }}</div>
-    <div class="col-md-6"><span style="color:var(--tt-mute)">Carrera:</span> {{ formato_b.program_name or '—' }}</div>
-    <div class="col-md-6"><span style="color:var(--tt-mute)">Plan:</span> {{ formato_b.datos.study_plan }}</div>
-    <div class="col-md-6"><span style="color:var(--tt-mute)">Ingreso:</span> {{ formato_b.datos.admission_date }}</div>
-    <div class="col-md-6"><span style="color:var(--tt-mute)">Egreso:</span> {{ formato_b.datos.graduation_date }}</div>
-    <div class="col-12"><span style="color:var(--tt-mute)">Proyecto:</span> {{ formato_b.datos.project_name }}</div>
+    {% for r in sec.rows %}
+    <div class="col-md-6" data-tt-fb-field="{{ r.field }}">
+      <span style="color:var(--tt-mute)">{{ r.label }}:</span> {{ r.value }}
+      {% if r.observation %}
+      <div class="tt-exp-vacio" data-tt-fb-obs="{{ r.field }}">
+        <i class="bi bi-chat-left-text me-1" aria-hidden="true"></i>Observación: {{ r.observation.note }}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
   </div>
-  {% if formato_b.status == 'submitted' and can_dictaminar_fb %}
-  {# `can_dictaminar_fb` (arreglo A2, revision final 2026-09-21): sin el
-     permiso, aprobar/rechazar responderia 403 -- un boton asi es peor que no
-     estar (spec §10 paso 4). Ver `pages/admin.py::_detail_ctx`. #}
-  <div class="d-flex gap-2 mt-3">
-    <button class="btn btn-sm tt-btn-ink"
-            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
-            hx-vals='{"action":"approve"}'
-            hx-target="#exp-shell" hx-swap="morph:outerHTML">
-      <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar Formato B</button>
-    <button class="btn btn-sm tt-btn-ghost"
-            hx-post="/titulatec/admin/processes/{{ process.id }}/format-b/review{{ ('?' ~ zona) if zona }}"
-            hx-vals='{"action":"reject"}'
-            hx-target="#exp-shell" hx-swap="morph:outerHTML">
-      <i class="bi bi-x-lg me-1" aria-hidden="true"></i>Rechazar</button>
+  {% endfor %}
+  {% if formato_b.status == 'rejected' and formato_b.rejection_reason %}
+  <p class="mt-3 mb-0" style="font-size:.82rem" data-tt-fb-nota="general">
+    <span style="color:var(--tt-mute)">Observación general:</span> {{ formato_b.rejection_reason }}</p>
+  {% endif %}
+  {% if can_open_titulacion %}
+  <div class="tt-exp-acciones">
+    <a class="btn btn-sm tt-btn-ghost"
+       href="/titulatec/admin/titulacion?selected={{ process.id }}">
+      <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Abrir en Titulación</a>
   </div>
   {% endif %}
   {% else %}
   <p class="tt-exp-vacio">El alumno todavía no envía su Formato B.</p>
   {% endif %}
 
-{# ------------------------------------------- 04..08 · aún no existen ----- #}
+{# ------------------------------------------------- 04 · sinodales ------- #}
+{# Solo lectura (spec fase 4 §14): los 4 vigentes con grado y cédula, el oficio
+   y el historial de sustituciones. La fase no se mueve desde aquí: el motor
+   solo la cierra el registro de los 4 sinodales (`SYNODAL_ONLY_MSG`). #}
+{% elif f.number == synodal_phase %}
+  <div data-tt-exp-sinodales>
+  {% if sinodales.vigentes %}
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="tt-kicker">Sinodales vigentes</span>
+    {% if can_read_synodal %}
+    <a class="btn btn-sm tt-btn-ghost" data-tt-oficio
+       href="/titulatec/admin/sinodales/{{ process.id }}/oficio.pdf"
+       target="_blank" rel="noopener">
+      <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
+    {% endif %}
+  </div>
+  <dl class="tt-exp-datos">
+    {% for s in sinodales.vigentes %}
+    <div data-tt-sinodal-rol="{{ s.role }}"><dt>{{ s.role_label }}</dt>
+      <dd>{{ s.name }}
+        <span class="tt-exp-vacio d-block">{{ s.academic_degree or 'Sin grado' }} · Cédula {{ s.professional_license or 'sin registrar' }}</span></dd></div>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="tt-exp-vacio">{{ sinodales.empty_label }}</p>
+  {% endif %}
+  {% if sinodales.historial %}
+  <div class="tt-kicker mt-3 mb-1">Historial de sustituciones</div>
+  <ul class="tt-exp-vacio mb-0" data-tt-sinodal-historial>
+    {% for h in sinodales.historial %}
+    <li>{{ h.role_label }}: {{ h.name }} fue sustituido
+      {%- if h.replacement_name %} por {{ h.replacement_name }}{% endif %}
+      {%- if h.replaced_by_name %}, a cargo de {{ h.replaced_by_name }}{% endif %}
+      {%- if h.replaced_label %}, el {{ h.replaced_label }}{% endif %}
+      {%- if h.reason %}. Motivo: {{ h.reason }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  </div>
+
+{# ------------------------------------------------ 05 · revisión ----------- #}
+{# Solo el ESTADO (spec fase 5 §8.3, D1): el expediente no entra a la
+   conversación; sin mensajes, archivos ni ligas a ella. Sin estado, el porqué
+   (`ReviewService.empty_label`, patrón de la fase 4): no aplica, se lleva en
+   T-soft (corte) o todavía no llega. #}
+{% elif f.number == review_phase %}
+  {% if review_applies %}
+  {% include "titulatec/partials/review/_status.html" %}
+  {% else %}
+  <p class="tt-exp-vacio" data-tt-exp-revision>{{ review_empty_label }}</p>
+  {% endif %}
+
+{# ------------------------------------------------ 06 · Anexo III ----------- #}
+{# Estado + folio + ligas según permisos (spec fase 6 §9.4); sin estado, el
+   porqué (`AnexoService.empty_label`, patrón de la fase 5). Leer el expediente
+   nunca emite el folio. #}
+{% elif f.number == anexo_phase %}
+  {% if anexo %}
+  <div data-tt-exp-anexo>
+    <dl class="tt-exp-datos">
+      <div><dt>Folio</dt>
+        <dd data-tt-anexo-folio>{{ anexo.folio or 'Aún no se genera' }}</dd></div>
+      {% if anexo.released_label %}
+      <div><dt>Liberado de la revisión</dt><dd>{{ anexo.released_label }}</dd></div>
+      {% endif %}
+      <div><dt>Escaneo firmado</dt>
+        <dd>{{ 'Ya lo subió el alumno' if anexo.has_scan else 'Sin enviar' }}</dd></div>
+    </dl>
+    {% if anexo.pdf_url or anexo.scan_url or anexo.open_url %}
+    <div class="tt-exp-acciones">
+      {% if anexo.pdf_url %}
+      <a class="btn btn-sm tt-btn-ghost" data-tt-anexo-pdf href="{{ anexo.pdf_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Anexo III (PDF)</a>
+      {% endif %}
+      {% if anexo.scan_url %}
+      <a class="btn btn-sm tt-btn-ghost" data-tt-anexo-scan href="{{ anexo.scan_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-check me-1" aria-hidden="true"></i>Ver escaneo</a>
+      {% endif %}
+      {% if anexo.open_url %}
+      <a class="btn btn-sm tt-btn-ghost" href="{{ anexo.open_url }}">
+        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Abrir en Titulación</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="tt-exp-vacio" data-tt-exp-anexo>{{ anexo_empty_label }}</p>
+  {% endif %}
+
+{# ------------------------------------------------ 07..08 · aún no existen -- #}
 {% else %}
   <p class="tt-exp-vacio">
-    Esta fase todavía no está en la app: sinodales, anexo, entrega final y acto
-    protocolario tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es
-    su estado, no su contenido.</p>
+    Esta fase todavía no está en la app: entrega final y acto protocolario
+    tienen tabla en la base y ninguna pantalla. Lo que se ve aquí es su estado,
+    no su contenido.</p>
 {% endif %}

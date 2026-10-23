@@ -257,6 +257,7 @@ class StudentMail:
         "enrollment_rejected": "Solicitud de inscripción rechazada",
         "already_enrolled": "Aviso de que ya tiene un proceso",
         "process_cancelled": "Inscripción revocada",
+        "review_changes_requested": "Los sinodales pidieron cambios a tu proyecto",
     }
 
     # ------------------------------------------------------------------
@@ -404,6 +405,24 @@ class StudentMail:
                      "next_phase": next_phase, "next_name": next_name,
                      "handoff": handoff, "completed": next_phase is None},
             group_key=grupo)
+
+    @staticmethod
+    def review_group(process_id: int, version: int) -> str:
+        """Los votos «pedir cambios» de una misma versión (fase 5)."""
+        return f"review:{process_id}:{version}"
+
+    @staticmethod
+    @_best_effort
+    def review_changes_requested(db: Session, process, *, version: int, role_label: str,
+                                 comment: str) -> bool:
+        """Un sinodal pidió cambios a la versión `version` (fase 5, spec §10).
+        Va al grupo `review:{pid}:{version}`: los votos de una misma ronda salen
+        juntos, con todas las observaciones. Obsoleto al enviar si ya hay una
+        versión más nueva o la fase 5 se aprobó."""
+        return StudentMail.enqueue(
+            db, kind="review_changes_requested", process=process,
+            payload={"version": int(version), "role_label": role_label, "comment": comment},
+            group_key=StudentMail.review_group(process.id, int(version)))
 
     @staticmethod
     @_best_effort

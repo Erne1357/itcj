@@ -250,7 +250,7 @@ def test_la_alerta_de_capacidad_sale_del_tablero_por_el_menu(client_as, jefa, es
     """La liga de capacidad va a Citas de cotejo: navega como el menú lateral
     (`#tt-admin-content`), no dentro del tablero."""
     from itcj2.apps.titulatec.services import report_officers as ro
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 0)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (0, 0)})
     doc = _doc(_get(client_as(jefa), BODY, tab="panorama", cohort=esc.c.id))
     alerta = _by_id(doc, "tt-rep-alert-capacity")
     liga = alerta if alerta.tag == "a" else alerta.xpath(".//a")[0]
@@ -454,7 +454,7 @@ def test_sin_convocatorias(client_as, jefa, monkeypatch, tab):
 @pytest.mark.parametrize("tab", ["panorama", "ritmo"])
 def test_convocatoria_vacia(client_as, jefa, esc, tab, monkeypatch):
     from itcj2.apps.titulatec.services import report_officers as ro
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 100)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (0, 100)})
     vacia = esc.make_cohort()
     html = _get(client_as(jefa), BODY, tab=tab, cohort=vacia.id)
     doc = _doc(html)

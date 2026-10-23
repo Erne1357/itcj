@@ -1,19 +1,20 @@
-"""Dias habiles (lunes a viernes) para el ritmo y el pronostico del tablero.
+"""Dias habiles (lunes a viernes, fuera del calendario de dias inhabiles).
 
-Puro: sin BD ni calendario de feriados. El pronostico lo dice con todas sus
-letras («sin contar feriados»), asi que aqui un dia habil es solo lun-vie.
+Puro: sin BD. El calendario (`NonWorkingDayService.holidays`) lo carga quien
+llama UNA vez por peticion y lo pasa en `holidays=`; con el calendario vacio
+(el valor por omision) un dia habil es solo lun-vie, exactamente como antes.
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 
 
-def is_business_day(d: date) -> bool:
-    """Lunes a viernes."""
-    return d.weekday() < 5
+def is_business_day(d: date, *, holidays: frozenset[date] = frozenset()) -> bool:
+    """Lunes a viernes y fuera de `holidays`."""
+    return d.weekday() < 5 and d not in holidays
 
 
-def add_business_days(d: date, n: int) -> date:
+def add_business_days(d: date, n: int, *, holidays: frozenset[date] = frozenset()) -> date:
     """El `n`-esimo dia habil ESTRICTAMENTE posterior a `d` (n >= 1).
 
     Sabado + 1 = lunes, viernes + 1 = lunes, lunes + 1 = martes.
@@ -22,24 +23,41 @@ def add_business_days(d: date, n: int) -> date:
     if n < 0:
         raise ValueError("n debe ser >= 0")
     if n == 0:
-        while not is_business_day(d):
+        while not is_business_day(d, holidays=holidays):
             d += timedelta(days=1)
         return d
     restantes = n
     while restantes > 0:
         d += timedelta(days=1)
-        if is_business_day(d):
+        if is_business_day(d, holidays=holidays):
             restantes -= 1
     return d
 
 
-def last_business_days(today: date, n: int) -> list[date]:
+def business_days_between(start: date, end: date, *,
+                          holidays: frozenset[date] = frozenset()) -> int:
+    """Días hábiles ESTRICTAMENTE posteriores a `start` hasta `end` (inclusive).
+
+    El semáforo de espera de las bandejas FIFO (Formato B y Sinodales): lo
+    enviado hoy lleva 0; viernes -> lunes, 1. Un `end` anterior a `start`
+    (reloj desfasado) da 0, nunca un número negativo.
+    """
+    n, d = 0, start
+    while d < end:
+        d += timedelta(days=1)
+        if is_business_day(d, holidays=holidays):
+            n += 1
+    return n
+
+
+def last_business_days(today: date, n: int, *,
+                       holidays: frozenset[date] = frozenset()) -> list[date]:
     """Los `n` dias habiles que terminan en `today` (o en el habil anterior si
-    `today` es fin de semana), en orden ascendente."""
+    `today` es fin de semana o inhabil), en orden ascendente."""
     dias: list[date] = []
     d = today
     while len(dias) < n:
-        if is_business_day(d):
+        if is_business_day(d, holidays=holidays):
             dias.append(d)
         d -= timedelta(days=1)
     dias.reverse()

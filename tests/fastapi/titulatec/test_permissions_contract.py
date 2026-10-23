@@ -205,12 +205,16 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_103_permisos_conocidos():
+def test_el_dml_declara_los_115_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    103 es el numero verificado en BD tras `titulatec init-reemplazo-docs`
-    (o tras `init-titulatec` desde cero).
+    115 es el numero (2026-10-22: +3 de fase_2/04, Anexo III; 112 antes; 110 hasta fase_2/02, sinodales; 2026-10-22: sube de 110 a 112 por
+    non_working_day.page.list y .api.manage de fase_2/03, revision de sinodales) verificado en BD tras `titulatec init-titulatec-fase-2`
+    (o tras `init-titulatec` + `init-titulatec-fase-2` desde cero).
 
+    2026-10-21: sube de 103 a 105 por `titulatec.titulacion.page.list` y
+    `titulatec.format_b.api.correct_registry` (fase 3, Formato B en Titulacion,
+    fase_2/01_titulacion_formato_b.sql).
     2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement (reemplazo en cotejo, reemplazo_2026_10/27).
     2026-10-14: sube de 101 a 102 por titulatec.reports.page.view (Tablero de la jefa, reportes_2026_10/26).
     Eran 99 hasta el 2026-10-07, cuando
@@ -255,10 +259,11 @@ def test_el_dml_declara_los_103_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 103, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 103 "
-        "(2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement, "
-        "el reemplazo en cotejo). Actualiza este numero "
+    assert len(declared) == 115, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 115 "
+        "(2026-10-21: sube de 103 a 105 por los dos permisos de fase_2/01, "
+        "Formato B en Titulacion, y de 105 a 110 por los cinco de fase_2/02: "
+        "docentes, sustitucion de sinodales y carreras por departamento). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )
@@ -639,6 +644,16 @@ def test_titulaciones_plena_y_titulacion_tienen_el_reparto_exacto():
         "(8 de fase 3-8 + 2 de ceremony.api.*)")
 
 
+def _otorgado_a_titulacion(sql: str) -> set[str]:
+    """Codigos que un DML (sin comentarios) concede a `titulatec_titulacion`:
+    los `p.code IN (...)` que siguen a `r.name = 'titulatec_titulacion' AND`."""
+    out: set[str] = set()
+    for bloque in re.findall(
+            r"r\.name\s*=\s*'titulatec_titulacion'\s+AND\s+p\.code\s+IN\s*\(([^)]*)\)", sql):
+        out.update(re.findall(r"'([^']+)'", bloque))
+    return out
+
+
 @requires_dml
 def test_el_03_converge_titulacion_al_set_exacto_y_ningun_dml_le_devuelve_nada():
     """Spec 2026-10-07 D8. Un `INSERT ... ON CONFLICT DO NOTHING` no revoca, y
@@ -659,7 +674,19 @@ def test_el_03_converge_titulacion_al_set_exacto_y_ningun_dml_le_devuelve_nada()
     assert "p.app_id = v_app_id" in deletes_titulacion[0], (
         "el DELETE debe acotarse a la app titulatec")
 
+    from itcj2.cli.titulatec.fase2 import _FASE_2_EXPECTED
+
+    fase_2_otorgado: set[str] = set()
     for path in sorted(DML_DIR.rglob("*.sql")):
+        # `fase_2/` (init-titulatec-fase-2) es el camino SANCIONADO de la fase 2
+        # del desarrollo (fases 3-8): amplia a titulatec_titulacion a proposito,
+        # y se re-corre despues de cualquier init-titulatec. No se exime a
+        # ciegas: lo que concede a titulatec_titulacion debe ser EXACTAMENTE
+        # `_FASE_2_EXPECTED` (se compara tras el bucle).
+        if path.relative_to(DML_DIR).parts[0] == "fase_2":
+            fase_2_otorgado |= _otorgado_a_titulacion(
+                _sin_comentarios(path.read_text(encoding="utf-8")))
+            continue
         cuerpo = _sin_comentarios(path.read_text(encoding="utf-8"))
         for stmt in cuerpo.split(";"):
             if not re.search(r"INSERT\s+INTO\s+core_role_permissions", stmt):
@@ -670,6 +697,11 @@ def test_el_03_converge_titulacion_al_set_exacto_y_ningun_dml_le_devuelve_nada()
             assert not otorgadas, (
                 f"{path.relative_to(DML_DIR)} le concede a titulatec_titulacion "
                 f"{sorted(otorgadas)}, fuera de su set (spec 2026-10-07 D8)")
+
+    assert fase_2_otorgado == _FASE_2_EXPECTED["titulatec_titulacion"], (
+        "lo que fase_2/ concede a titulatec_titulacion debe ser EXACTAMENTE "
+        "_FASE_2_EXPECTED['titulatec_titulacion'] (itcj2/cli/titulatec/fase2.py): "
+        f"concede {sorted(fase_2_otorgado)}")
 
 
 @requires_dml

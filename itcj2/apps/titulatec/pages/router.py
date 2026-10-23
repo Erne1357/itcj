@@ -26,6 +26,8 @@ from .certificates_admin import router as certificates_admin_router
 from .mail_admin import router as mail_admin_router
 from .audit_admin import router as audit_admin_router
 from .reports_admin import router as reports_admin_router
+from .titulacion_admin import router as titulacion_admin_router
+from .titulacion_anexo import router as titulacion_anexo_router
 
 titulatec_pages_router = APIRouter(prefix="/titulatec", tags=["titulatec-pages"])
 
@@ -50,3 +52,25 @@ titulatec_pages_router.include_router(certificates_admin_router)
 titulatec_pages_router.include_router(mail_admin_router)
 titulatec_pages_router.include_router(audit_admin_router)
 titulatec_pages_router.include_router(reports_admin_router)
+# Pestaña Titulación (spec 2026-10-21 fase 3 §8): bandeja del Formato B.
+# La vista «Anexo III» (fase 6, spec 2026-10-22 §9.2) va ANTES: ninguna ruta del
+# prefijo `/admin/titulacion` debe poder capturar `anexo`.
+titulatec_pages_router.include_router(titulacion_anexo_router)
+titulatec_pages_router.include_router(titulacion_admin_router)
+# Pestaña Docentes (spec 2026-10-21 fase 4 §8): catálogo por departamento.
+from .docentes_admin import router as docentes_admin_router  # noqa: E402
+titulatec_pages_router.include_router(docentes_admin_router)
+# Pestaña Carreras por departamento (spec 2026-10-21 fase 4 §13): mapeo y oficio.
+from .carreras_admin import router as carreras_admin_router  # noqa: E402
+titulatec_pages_router.include_router(carreras_admin_router)
+# Pestaña Días inhábiles (spec 2026-10-22 fase 5 §9.1): calendario de toda la app.
+from .dias_inhabiles_admin import router as dias_inhabiles_admin_router  # noqa: E402
+titulatec_pages_router.include_router(dias_inhabiles_admin_router)
+# Pestaña Sinodales (spec 2026-10-21 fase 4 §9 y §12): bandeja, asignar,
+# sustituir y el oficio en PDF.
+from .sinodales_admin import router as sinodales_admin_router  # noqa: E402
+titulatec_pages_router.include_router(sinodales_admin_router)
+# Pestaña «Mis revisiones» (spec 2026-10-22 fase 5 §8.2): la bandeja del docente
+# sinodal y la conversación de revisión de cada proceso.
+from .revisiones_admin import router as revisiones_admin_router  # noqa: E402
+titulatec_pages_router.include_router(revisiones_admin_router)

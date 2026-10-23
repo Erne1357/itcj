@@ -1,0 +1,149 @@
+/* ===========================================================================
+   review.css — Conversación de la revisión de sinodales (fase 5) (2026-10-22)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-22-titulatec-fase5-revision-sinodales-
+   design.md §7-§8. Compartida por las dos audiencias: la cargan
+   `admin/base_admin.html` («Mis revisiones» del docente) y
+   `student/base_student.html` (conversación del alumno), una vez cada una.
+   Todo cuelga de las clases `tt-rv-*` de `partials/review/_messages.html`
+   (burbujas), `partials/review/_status.html` (panel de estado) y del hilo que
+   arma cada página:
+
+     <div class="tt-rv-thread" data-tt-review-thread>
+       <ol class="tt-rv-list" id="..." data-tt-review-list> …_messages.html… </ol>
+     </div>
+
+   Mobile-first (el alumno vive en el shell móvil); el docente lo ve en
+   escritorio con el mismo hilo. Reglas de la casa (titulatec.css): tokens
+   --tt-*; texto con --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*.
+   Sin `style=` en las plantillas.
+   =========================================================================== */
+
+/* === 1. Hilo ============================================================== */
+.tt-rv-thread {
+  max-height: min(68vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--tt-sp-3);
+  background: var(--tt-mist);
+  border: 1px solid var(--tt-line-soft);
+  border-radius: var(--tt-r);
+  min-width: 0;
+}
+.tt-rv-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--tt-sp-3);
+}
+.tt-rv-msg { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+.tt-rv-msg.is-mine { align-items: flex-end; }
+
+/* === 2. Burbuja (mensaje, versión y voto) ================================= */
+.tt-rv-bubble {
+  max-width: min(36rem, 88%); min-width: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  background: var(--tt-paper);
+  border: 1px solid var(--tt-line);
+  border-radius: var(--tt-r);
+  box-shadow: var(--tt-shadow-card);
+}
+.tt-rv-msg.is-mine .tt-rv-bubble {
+  background: var(--tt-navy-soft);
+  border-color: rgba(30, 58, 138, .18);
+}
+.tt-rv-author {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 2px var(--tt-sp-2); margin: 0 0 2px;
+}
+.tt-rv-who { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rv-body {
+  margin: 0;
+  font-size: var(--tt-fs-200); line-height: 1.5; color: var(--tt-text-1);
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+.tt-rv-meta {
+  display: block; margin-top: var(--tt-sp-1);
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tt-rv-kind {
+  display: flex; align-items: center; gap: var(--tt-sp-1);
+  margin: 0 0 var(--tt-sp-1);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-rv-file {
+  display: inline-flex; align-items: center; gap: var(--tt-sp-1);
+  max-width: 100%; margin-top: var(--tt-sp-1);
+  padding: var(--tt-sp-1) var(--tt-sp-2);
+  font-size: var(--tt-fs-200); color: var(--tt-text-1);
+  background: var(--tt-mist);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+  text-decoration: none;
+}
+a.tt-rv-file:hover { border-color: var(--tt-slate); }
+a.tt-rv-file:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-rv-file-name { min-width: 0; overflow-wrap: anywhere; }
+.tt-rv-file-size { flex: 0 0 auto; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* Versión: franja azul; voto: franja ámbar. El tipo se lee sin depender del color. */
+.tt-rv-msg--version .tt-rv-bubble { border-left: 3px solid var(--tt-navy); }
+.tt-rv-msg--version .tt-rv-kind i { color: var(--tt-navy); }
+.tt-rv-msg--vote .tt-rv-bubble { border-left: 3px solid var(--tt-amber); }
+.tt-rv-msg--vote .tt-rv-kind i { color: var(--tt-amber-ink); }
+
+/* === 3. Mensajes del sistema ============================================== */
+.tt-rv-msg--system { align-items: center; text-align: center; }
+.tt-rv-sys {
+  display: inline-flex; align-items: flex-start; gap: var(--tt-sp-2);
+  max-width: min(40rem, 100%); margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  text-align: left;
+  background: var(--tt-paper);
+  border: 1px dashed var(--tt-line); border-radius: var(--tt-r-sm);
+}
+.tt-rv-sys i { flex: 0 0 auto; color: var(--tt-text-3); margin-top: 2px; }
+.tt-rv-sys .tt-rv-body { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* === 4. Panel de estado =================================================== */
+.tt-rv-status { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+.tt-rv-status-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-2);
+}
+.tt-rv-status-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rv-status-empty {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-2);
+}
+.tt-rv-facts { display: flex; flex-direction: column; gap: var(--tt-sp-1); margin: 0; }
+.tt-rv-fact {
+  display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: var(--tt-sp-1) var(--tt-sp-3);
+}
+.tt-rv-fact dt { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-3); }
+.tt-rv-fact dd { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-rule {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-2);
+}
+.tt-rv-rule i { margin-top: 2px; color: var(--tt-text-3); }
+.tt-rv-votes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tt-rv-vote {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-1) var(--tt-sp-3);
+  padding: var(--tt-sp-2) 0;
+  border-top: 1px solid var(--tt-line-soft);
+}
+.tt-rv-vote:first-child { border-top: 0; }
+.tt-rv-vote-who { display: flex; flex-direction: column; min-width: 0; }
+.tt-rv-vote-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rv-vote-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-vote--comments .tt-rv-vote-name { font-weight: 500; color: var(--tt-text-2); }
+.tt-rv-vote-state { flex: 0 0 auto; }
+.tt-rv-vote-note { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+@media (max-width: 420px) {
+  .tt-rv-thread { padding: var(--tt-sp-2); }
+  .tt-rv-bubble { max-width: 94%; }
+  .tt-rv-fact { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}

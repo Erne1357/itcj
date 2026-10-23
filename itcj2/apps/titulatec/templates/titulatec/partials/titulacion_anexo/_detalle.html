@@ -1,0 +1,150 @@
+{# Detalle de la vista Anexo III (fase 6, spec 2026-10-22 §9.2).
+
+   - Encabezado: alumno, control, carrera, modalidad, folio y fecha de liberación
+     del Anexo, estado de la fase y liga al expediente (solo con permiso).
+   - Firmas requeridas (etiquetas de `AnexoService.signer_labels`, que sale de
+     `ReviewService.counting_roles`; aquí no se compara ninguna regla de firma).
+   - Sinodales vigentes, visor del escaneo (iframe) y liga al Anexo generado.
+   - «Observación anterior» (`prev_observation`): tras una resubida, el motivo
+     con que se observó la versión previa (molde de la nota general del Formato B).
+   - Aprobar / Observar (motivo obligatorio) dentro de UN formulario que manda la
+     vista (pestaña, búsqueda, carrera, página) y la `version` del escaneo que se
+     tenía en pantalla (R5: si el alumno subió otro, el servidor avisa y no escribe).
+   - Latido de presencia FUERA del formulario (un POST desde dentro arrastraría
+     sus campos). Ids estables: `tt-anx-*`. #}
+{% from "titulatec/_macros.html" import pill %}
+{% if not detail %}
+<div id="tt-anx-detail-empty" class="tt-card tt-tit-empty">
+  <i class="bi bi-file-earmark-check" aria-hidden="true"></i>
+  <p class="tt-tit-empty-text">{% if rows %}Elige un Anexo III de la lista para {{ 'revisarlo' if tab == 'pending' else 'verlo' }}.{% elif tab == 'pending' %}No queda ningún Anexo III por revisar.{% else %}Nada que mostrar en esta pestaña.{% endif %}</p>
+</div>
+{% else %}
+{% set d = detail %}
+{% set VISTA = 'tab=' ~ tab ~ '&selected=' ~ d.process_id ~ '&page=' ~ page.page
+               ~ (('&q=' ~ (q | urlencode)) if q else '')
+               ~ (('&carrera=' ~ carrera) if carrera else '') %}
+{% set VOLVER = ('/titulatec/admin/titulacion/anexo?' ~ VISTA) | urlencode %}
+<article id="tt-anx-detail" class="tt-tit-detail" data-process="{{ d.process_id }}" data-status="{{ d.status }}">
+  <header class="tt-card tt-tit-head">
+    <div class="tt-tit-head-main">
+      <span class="tt-kicker">{{ d.folio }}</span>
+      <h2 class="tt-display tt-tit-name">{{ d.name }}</h2>
+      <p class="tt-tit-sub"><span class="tt-mono">{{ d.control }}</span> · {{ d.program }}</p>
+      {% set partes = [] %}
+      {% if d.modality != '—' %}{% set _ = partes.append(d.modality) %}{% endif %}
+      {% if d.anexo_folio %}{% set _ = partes.append('Folio ' ~ d.anexo_folio) %}{% endif %}
+      {% if d.released_label %}{% set _ = partes.append('Liberado el ' ~ d.released_label) %}{% endif %}
+      {% if partes %}<p class="tt-tit-sub" id="tt-anx-meta">{{ partes | join(' · ') }}</p>{% endif %}
+      {% if d.sent_label and d.scan %}<p class="tt-tit-sub">Escaneo subido el {{ d.sent_label }} (versión {{ d.scan.version }})</p>{% endif %}
+      {% if d.reviewed_label %}<p class="tt-tit-sub">{{ d.reviewed_label }}</p>{% endif %}
+    </div>
+    <div class="tt-tit-head-aside">
+      {% if d.status == 'in_review' %}{{ pill("Por revisar", "amber", "hourglass-split") }}
+      {% elif d.status == 'rejected' %}{{ pill("Con observaciones", "danger", "arrow-return-left") }}
+      {% elif d.status == 'approved' %}{{ pill("Aprobado", "success", "check-lg") }}
+      {% else %}{{ pill("Sin enviar", "neutral", "dash-circle") }}{% endif %}
+      {% if d.can_open_exp %}
+      <a class="btn btn-sm tt-btn-ghost"
+         href="/titulatec/admin/processes/{{ d.process_id }}?fase={{ d.phase_number }}&from={{ VOLVER }}">
+        <i class="bi bi-clock-history me-1" aria-hidden="true"></i>Expediente</a>
+      {% endif %}
+    </div>
+  </header>
+
+  {% if d.others %}
+  <p class="tt-tit-presence"><i class="bi bi-eye" aria-hidden="true"></i>{{ d.others | join(', ') }} también {{ 'lo están revisando' if d.others | length > 1 else 'lo está revisando' }}.</p>
+  {% endif %}
+  {% if d.beat %}
+  <span id="tt-anx-beat" hidden
+        hx-post="/titulatec/admin/titulacion/anexo/{{ d.process_id }}/viendo"
+        hx-trigger="every 60s" hx-swap="none"></span>
+  {% endif %}
+
+  <section id="tt-anx-signers" class="tt-card tt-tit-section" aria-label="Firmas requeridas">
+    <h3 class="tt-kicker tt-tit-section-title">Firmas requeridas</h3>
+    {% if d.signers %}
+    <ul class="tt-anx-signers-list">
+      {% for s in d.signers %}<li data-tt-anx-signer>{{ s }}</li>{% endfor %}
+    </ul>
+    {% else %}
+    <p class="tt-tit-sub">La regla de firma de la modalidad no está definida.</p>
+    {% endif %}
+  </section>
+
+  {% if d.sinodales %}
+  <section id="tt-anx-sinodales" class="tt-card tt-tit-section" aria-label="Sinodales vigentes">
+    <h3 class="tt-kicker tt-tit-section-title">Sinodales</h3>
+    <div class="tt-tit-fields">
+      {% for s in d.sinodales %}
+      <div class="tt-tit-field" data-tt-sinodal-rol="{{ s.role }}">
+        <div class="tt-tit-label">{{ s.role_label }}</div>
+        <div class="tt-tit-val"><span class="tt-tit-value">{{ s.name }}</span></div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section id="tt-anx-scan" class="tt-card tt-tit-section" aria-label="Escaneo firmado">
+    <div class="tt-tit-section-head">
+      <h3 class="tt-kicker tt-tit-section-title">Escaneo firmado</h3>
+      <a class="btn btn-sm tt-btn-ghost" id="tt-anx-pdf" href="{{ d.pdf_url }}" target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Ver Anexo generado</a>
+    </div>
+    {% if d.scan %}
+    {% if d.scan.mime == 'application/pdf' %}
+    <iframe id="tt-anx-viewer" class="tt-anx-viewer" title="Escaneo firmado del Anexo III"
+            src="{{ d.scan.url }}"></iframe>
+    {% else %}
+    <a id="tt-anx-viewer-link" class="btn btn-sm tt-btn-ghost" href="{{ d.scan.url }}" target="_blank" rel="noopener">Abrir el escaneo</a>
+    {% endif %}
+    {% if d.scan.status == 'rejected' and d.scan.note %}
+    <p class="tt-tit-prevgeneral-text" id="tt-anx-prevnote"><i class="bi bi-chat-left-text" aria-hidden="true"></i> {{ d.scan.note }}</p>
+    {% endif %}
+    {% else %}
+    <p class="tt-tit-sub" id="tt-anx-noscan">El alumno todavía no sube el escaneo firmado.</p>
+    {% endif %}
+  </section>
+
+  {% if d.prev_observation %}
+  <div id="tt-anx-prevobs" class="tt-card tt-tit-prevgeneral">
+    <span class="tt-kicker">Observación anterior</span>
+    <p class="tt-tit-prevgeneral-text">{{ d.prev_observation }}</p>
+  </div>
+  {% endif %}
+
+  {% if d.can_review %}
+  <form id="tt-anx-review" class="tt-tit-review">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+    <input type="hidden" name="page" value="{{ page.page }}">
+    <input type="hidden" name="version" value="{{ d.scan.version }}">
+    <div class="tt-card tt-tit-actions">
+      <label class="tt-label" for="tt-anx-reason">Motivo de la observación <span class="tt-tit-optional">(obligatorio para observar)</span></label>
+      <textarea id="tt-anx-reason" name="reason" class="tt-field" rows="3" maxlength="500"
+                placeholder="Qué debe corregir el alumno en su escaneo…">{{ d.form_reason }}</textarea>
+      {% if d.form_error %}
+      <p id="tt-anx-error" class="tt-tit-warn" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.form_error }}</p>
+      {% endif %}
+      <div class="tt-tit-buttons">
+        <button type="button" id="tt-anx-observe" class="btn btn-sm tt-btn-danger-soft"
+                hx-post="/titulatec/admin/titulacion/anexo/{{ d.process_id }}/observar"
+                hx-target="#tt-tit-body" hx-swap="innerHTML"
+                hx-disabled-elt="#tt-anx-observe, #tt-anx-approve"
+                hx-confirm="Regresar con observaciones|El alumno recibirá tu motivo por aviso y correo, y podrá volver a subir su escaneo."
+                data-tt-confirm-ok="Regresar al alumno">
+          <i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i>Observar</button>
+        <button type="button" id="tt-anx-approve" class="btn btn-sm tt-btn-ink"
+                hx-post="/titulatec/admin/titulacion/anexo/{{ d.process_id }}/aprobar"
+                hx-target="#tt-tit-body" hx-swap="innerHTML"
+                hx-disabled-elt="#tt-anx-observe, #tt-anx-approve"
+                hx-confirm="Aprobar el Anexo III|{{ d.name }} pasará a la siguiente fase y recibirá el aviso. El dictamen ya no se podrá cambiar."
+                data-tt-confirm-ok="Aprobar">
+          <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Aprobar</button>
+      </div>
+    </div>
+  </form>
+  {% endif %}
+</article>
+{% endif %}
