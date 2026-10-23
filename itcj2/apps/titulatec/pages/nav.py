@@ -350,7 +350,7 @@ def _student_item(code: str, group: str) -> dict:
     return {"key": key, "label": label, "icon": icon, "url": url, "group": group}
 
 
-def _student_nav_compute(db, user_id: int) -> list[dict]:
+def _student_nav_compute(db, user_id: int, process_id: int | None = None) -> list[dict]:
     """Ítems «Ahora» y «Consultar» del alumno (sin Inicio ni Perfil, que pone la macro).
 
     Reusa los predicados que ya deciden si la página abre: `PhaseService.can_student_act`
@@ -359,13 +359,20 @@ def _student_nav_compute(db, user_id: int) -> list[dict]:
     Formato B `approved` que `pages/student.py::formato_b` sirve en fase >= 4. Sin
     proceso `active` no hay ítems.
     """
-    from itcj2.apps.titulatec.models import FormatB, PhaseDefinition
+    from itcj2.apps.titulatec.models import FormatB, PhaseDefinition, TitulationProcess
     from itcj2.apps.titulatec.pages.student import anexo_consultable, review_consultable
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.core.services.authz_cache import cached_perms
 
-    process = DocumentService.get_active_process(db, user_id)
+    # La página ya buscó el proceso (`student._nav_hint`): se toma por id en vez de
+    # repetir la búsqueda por alumno. 0 = la página no encontró proceso. Sin pista
+    # (o si no es de este alumno), la búsqueda de siempre.
+    if process_id == 0:
+        return []
+    process = db.get(TitulationProcess, process_id) if process_id else None
+    if process is None or process.student_id != user_id:
+        process = DocumentService.get_active_process(db, user_id)
     if process is None or process.status != "active":
         return []
     perms = cached_perms(db, user_id, "titulatec")
@@ -416,7 +423,7 @@ def _student_nav_compute(db, user_id: int) -> list[dict]:
             + [_student_item(c, "consult") for c in consultar])
 
 
-def student_nav_items(user_id: int) -> list[dict]:
+def student_nav_items(user_id: int, process_id: int | None = None) -> list[dict]:
     """Ítems de etapa del menú del alumno; `[]` (solo Inicio y Perfil) si falla.
 
     Abre su propia sesión (`render_titulatec` no tiene la de la ruta) y nunca rompe
@@ -426,7 +433,7 @@ def student_nav_items(user_id: int) -> list[dict]:
         from itcj2.database import SessionLocal
         db = SessionLocal()
         try:
-            return _student_nav_compute(db, user_id)
+            return _student_nav_compute(db, user_id, process_id)
         finally:
             db.close()
     except Exception as exc:
@@ -476,5 +483,7 @@ def render_titulatec(
         except Exception:
             ctx["student_nav_items"] = lambda: []
         else:
-            ctx["student_nav_items"] = lambda: student_nav_items(suid)
+            # Pista de la página (`student._nav_hint`): el proceso que ya cargó.
+            pista = getattr(getattr(request, "state", None), "tt_student_process_id", None)
+            ctx["student_nav_items"] = lambda: student_nav_items(suid, pista)
     return titulatec_templates.TemplateResponse(request, template, ctx, status_code=status_code)

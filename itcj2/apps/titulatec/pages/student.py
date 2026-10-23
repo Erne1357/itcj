@@ -451,6 +451,16 @@ _LIBRARY_BLOCK_WITH_CITA_MSG = (
 # `#formato-b-body`.
 
 
+def _nav_hint(request, process) -> None:
+    """Le pasa al menú del alumno (`nav.student_nav_items`) el proceso que la
+    página YA cargó, para que no lo vuelva a buscar por alumno (Mi cita: una sola
+    búsqueda, `test_perf_rutas_lentas.py`). 0 = la página no encontró proceso."""
+    try:
+        request.state.tt_student_process_id = int(process.id) if process is not None else 0
+    except Exception:   # nunca rompe la página por el menú
+        pass
+
+
 def _phase_of(db, code: str) -> int | None:
     """Número de la fase de este código, desde el catálogo. None = fallo cerrado."""
     from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -1178,6 +1188,7 @@ def dashboard(
         user_id = int(user["sub"])
         u = db.get(User, user_id)
         process = DocumentService.get_active_process(db, user_id)
+        _nav_hint(request, process)
 
         ctx = _phases_ctx(db, process, open_phase=_parse_open_phase(fase))
         ctx["first_name"] = u.first_name if u else None
@@ -1218,6 +1229,7 @@ def perfil(
         user_id = int(user["sub"])
         u = db.get(User, user_id)
         process = DocumentService.get_active_process(db, user_id)
+        _nav_hint(request, process)
 
         proc_ctx = None
         if process:
@@ -1314,6 +1326,7 @@ def documents(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        _nav_hint(request, process)
         # Una sola lectura del catálogo: la guarda y, en modo reemplazo, la
         # dispensa R-G de los extras de posgrado (R11) usan el mismo número.
         fase_inicial = _phase_of(db, "initial_docs")
@@ -1692,6 +1705,7 @@ def formato_b(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        _nav_hint(request, process)
         ctx = {"process": process.to_dict() if process else None}
         if process:
             existente = db.get(FormatB, process.id)
@@ -2319,6 +2333,7 @@ def cita(
     try:
         user_id = int(user["sub"])
         process = ProcessService.creditable_process(db, user_id)
+        _nav_hint(request, process)
         if process is None:
             return RedirectResponse(_DASHBOARD_URL, status_code=302)
         # Lo que decide parcial-contra-página es `HX-Request`, NO la mera
@@ -2686,6 +2701,7 @@ def revision(
     try:
         uid = int(user["sub"])
         process = DocumentService.get_active_process(db, uid)
+        _nav_hint(request, process)
         bloqueo = _review_read_guard(db, process, page=True)
         if bloqueo:
             return bloqueo
@@ -3095,6 +3111,7 @@ def anexo(
     db = SessionLocal()
     try:
         process = DocumentService.get_active_process(db, int(user["sub"]))
+        _nav_hint(request, process)
         bloqueo = _anexo_read_guard(db, process, page=True)
         if bloqueo:
             return bloqueo
