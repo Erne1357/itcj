@@ -2,10 +2,6 @@
 
    - Encabezado: nombre, control, carrera, modalidad, ronda y liga al
      expediente (solo si el usuario puede abrirlo; `?from=` con esta vista).
-   - Documentos de la fase 1 con el visor existente (`TitulaTecDocViewer`,
-     `#tt-doc-review` + `.tt-docpick`): cada botón abre el modal grande del
-     visor (`js/admin/titulacion.js`), para cotejar el nombre con el acta y la
-     CURP. Sin `#tt-doc-stage`: no se descarga ningún PDF hasta pedirlo.
    - Tres bloques con TODOS los campos (`FormatBService.display_sections`).
      Los del registro llevan «del registro», no se marcan y se corrigen con el
      lápiz (§8.5); cada campo editable tiene su ⚑ que despliega su nota.
@@ -29,7 +25,7 @@
     <div class="tt-tit-head-main">
       <span class="tt-kicker">{{ d.folio }}</span>
       <h2 class="tt-display tt-tit-name">{{ d.name }}</h2>
-      <p class="tt-tit-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
+      <p class="tt-tit-sub"><span class="tt-mono">{{ d.control }}</span> · {{ d.program }}</p>
       {% set partes = [] %}
       {% if d.modality != '—' %}{% set _ = partes.append(d.modality) %}{% endif %}
       {% if d.round %}{% set _ = partes.append('Ronda ' ~ d.round) %}{% endif %}
@@ -57,24 +53,6 @@
   <span id="tt-tit-beat" hidden
         hx-post="/titulatec/admin/titulacion/formato-b/{{ d.process_id }}/viendo"
         hx-trigger="every 60s" hx-swap="none"></span>
-  {% endif %}
-
-  {% if d.docs %}
-  <section id="tt-doc-review" class="tt-card tt-tit-docs" data-process="{{ d.process_id }}"
-           data-phase-closed="0" aria-label="Documentos de la fase 1">
-    <span class="tt-kicker">Documentos de la fase 1 · cotejar el nombre</span>
-    <div class="tt-tit-docpicks">
-      {% for doc in d.docs %}
-      <button type="button" class="btn btn-sm tt-btn-ghost tt-docpick"
-              data-type="{{ doc.type_code }}" data-url="{{ doc.url }}" data-name="{{ doc.name }}"
-              data-mime="{{ doc.mime }}" data-status="{{ doc.status }}">
-        <i class="bi bi-file-earmark-text me-1" aria-hidden="true"></i>{{ doc.name }}</button>
-      {% endfor %}
-      {# Lo «pulsa» `titulacion.js` tras elegir un documento: abre el modal
-         grande de `doc-viewer.js` (su `expand()`), que no expone otra API. #}
-      <button type="button" id="tt-doc-expand" hidden tabindex="-1">Ver documento</button>
-    </div>
-  </section>
   {% endif %}
 
   {% if d.can_correct %}

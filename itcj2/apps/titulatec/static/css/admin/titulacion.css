@@ -9,7 +9,11 @@
    Master-detail desktop primero: lista (5/12) y detalle (7/12) lado a lado
    cuando la BANDEJA mide lo suficiente -consulta de contenedor sobre
    #tt-tit-body, no @media: el ancho útil depende del sidebar, del tope de
-   #tt-admin-content y del zoom-; debajo, una columna (la lista arriba).
+   #tt-admin-content y del zoom-. Ahí la lista se queda fija (sticky) con su
+   propio scroll y el detalle siempre queda a la vista. Debajo, lista y
+   detalle son VISTAS separadas (2026-10-23, «si no caben, no conviven»):
+   sin elegido se ve la lista; con elegido, solo el detalle y «Volver a la
+   lista» (`.tt-tit-wrap.has-selection`).
 
    Reglas de la casa (titulatec.css): tokens --tt-*; texto con
    --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*. Sin `style=` en
@@ -35,6 +39,13 @@
 
 #tt-tit-body { container: tt-tit / inline-size; }
 
+/* Ancho de trabajo (2026-10-23): las vistas lista + detalle de Titulación
+   (Formato B y Anexo III) usan hasta 1600 px; el resto del admin sigue en
+   1240 (titulatec.css, «Ancho de lectura del admin»). */
+@media (min-width: 1280px) {
+  .tt-admin .main > #tt-admin-content[data-tt-view^="titulacion"] { max-width: 1600px; }
+}
+
 /* === 2. Filtros =========================================================== */
 .tt-tit-filters {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
@@ -42,15 +53,28 @@
 }
 .tt-tit-tabs { display: flex; flex-wrap: wrap; gap: var(--tt-sp-1); }
 .tt-tit-count { font-variant-numeric: tabular-nums; opacity: .8; }
-.tt-tit-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); min-width: 0; }
-.tt-tit-carrera { width: auto; max-width: 100%; min-width: 0; }
+.tt-tit-search-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); min-width: 0; flex: 1 1 32rem; justify-content: flex-end; }
+.tt-tit-search-row .tt-search { flex: 1 1 16rem; min-width: 0; max-width: 26rem; }
+.tt-tit-carrera { flex: 0 1 18rem; width: auto; max-width: 100%; min-width: 0; }
 
 /* === 3. Master-detail ===================================================== */
 .tt-tit-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3); align-items: start; }
+.tt-tit-master, .tt-tit-detail-col { min-width: 0; }
 @container tt-tit (min-width: 760px) {
   .tt-tit-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  /* La lista se queda fija y hace scroll por dentro; el pager queda al pie. */
+  .tt-tit-master { position: sticky; top: var(--tt-sp-3); }
+  .tt-tit-list-card { display: flex; flex-direction: column; max-height: calc(100dvh - 2 * var(--tt-sp-3)); }
+  .tt-tit-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .tt-tit-list-card .tt-pager, .tt-tit-list-card .tt-pager-range { flex: 0 0 auto; margin-top: var(--tt-sp-2); }
+  .tt-tit-back { display: none; }
 }
-.tt-tit-master, .tt-tit-detail-col { min-width: 0; }
+@container tt-tit (max-width: 759.98px) {
+  .tt-tit-wrap.has-selection .tt-tit-filters,
+  .tt-tit-wrap.has-selection .tt-tit-master,
+  .tt-tit-wrap:not(.has-selection) .tt-tit-detail-col { display: none; }
+}
+.tt-tit-back { margin-bottom: var(--tt-sp-2); }
 
 /* Lista: una fila es un <button> a todo lo ancho. */
 .tt-tit-list { display: flex; flex-direction: column; gap: var(--tt-sp-1); }
@@ -71,10 +95,11 @@
 .tt-tit-row-main { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
 .tt-tit-row-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
 .tt-tit-row-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); overflow-wrap: anywhere; }
+.tt-tit-row-meta .tt-mono { font-variant-numeric: tabular-nums; }
 .tt-tit-resend { align-self: flex-start; margin-top: 2px; }
 .tt-tit-viewing {
   display: inline-flex; align-items: center; gap: var(--tt-sp-1);
-  font-size: var(--tt-fs-100); color: #1E3A8A;
+  font-size: var(--tt-fs-100); color: var(--tt-navy);
 }
 .tt-tit-wait { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .tt-tit-list-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
@@ -91,13 +116,8 @@
 .tt-tit-presence {
   display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
   padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
-  background: var(--tt-navy-soft); color: #1E3A8A; font-size: var(--tt-fs-100);
+  background: var(--tt-navy-soft); color: var(--tt-navy); font-size: var(--tt-fs-100);
 }
-
-.tt-tit-docpicks { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); margin-top: var(--tt-sp-2); }
-
-/* Modal del visor abierto desde aquí: solo lectura, sin el pie de dictamen. */
-#tt-doc-modal.tt-doc-modal--readonly .modal-footer { display: none; }
 
 .tt-tit-prevgeneral-text { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); white-space: pre-line; }
 
@@ -114,11 +134,15 @@
 .tt-tit-label { font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
 .tt-tit-tag {
   display: inline-block; padding: 0 var(--tt-sp-1); border-radius: 4px;
-  font-size: .7rem; color: var(--tt-text-3); border: 1px solid var(--tt-line);
+  font-size: .75rem; color: var(--tt-text-3); border: 1px solid var(--tt-line);
 }
 .tt-tit-val { min-width: 0; display: flex; flex-direction: column; gap: var(--tt-sp-1); }
 .tt-tit-value { font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; white-space: pre-line; }
-.tt-tit-field.has-obs { background: linear-gradient(90deg, var(--tt-amber-soft), transparent 70%); }
+/* Campo observado: tinte plano (antes un degradado que se desvanecía). */
+.tt-tit-field.has-obs {
+  background: var(--tt-amber-soft); border-radius: var(--tt-r-sm);
+  padding-inline: var(--tt-sp-2); margin-inline: calc(-1 * var(--tt-sp-2));
+}
 .tt-tit-field.is-flagged .tt-tit-value { font-weight: 600; }
 .tt-tit-prev { display: flex; flex-direction: column; gap: 2px; font-size: var(--tt-fs-100); }
 .tt-tit-prev-note { display: inline-flex; gap: var(--tt-sp-1); color: var(--tt-amber-ink); overflow-wrap: anywhere; }

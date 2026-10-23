@@ -15,10 +15,12 @@
        vuelve a exigir (400 + `X-Tt-Error`);
      - lápiz «Corregir» (`data-tt-tit-toggle`): despliega/pliega el form del
        registro;
-     - documentos de la fase 1: al elegir uno abre el modal grande del visor
-       existente (`doc-viewer.js`, `#tt-doc-modal`) pulsando su `#tt-doc-expand`
-       oculto, y le pone la clase de solo lectura (sin pie de dictamen) mientras
-       está abierto.
+     - lista + detalle (2026-10-23): la lista conserva su scroll interno al
+       elegir una fila o dictaminar (el swap de `#tt-tit-body` cambia su contenido y
+       la reconstruye) y mantiene la fila activa a la vista; si el detalle quedó
+       arriba de la pantalla, la página sube hasta él; al «Volver a la lista»
+       (angosto) la página baja hasta la fila que se tenía abierta. Sin scroll
+       suave: lo que no cambia no se mueve.
 
    Las confirmaciones son `hx-confirm` + `data-tt-confirm-ok`: el puente de
    `titulatec-utils.js` las convierte en `confirmDialog` (nunca el diálogo
@@ -29,9 +31,7 @@
    `document.body` leyendo el DOM VIGENTE; el contenido de `#tt-tit-body` se
    reemplaza en cada swap y el estado se recalcula en `htmx:afterSettle`,
    `htmx:historyRestore` y `htmx:afterRequest` (htmx re-habilita lo que
-   deshabilitó `hx-disabled-elt` sin mirar las marcas). El listener del modal,
-   que vive fuera de todo swap, se enlaza una vez con un expando
-   (`_ttTitBound`), no con un atributo.
+   deshabilitó `hx-disabled-elt` sin mirar las marcas).
 
    Expone solo `window.TitulaTecTitulacion = { init() }`.
    =========================================================================== */
@@ -101,23 +101,78 @@
     aprobar.title = n > 0 ? 'Quita las marcas ⚑ para aprobar.' : '';
   }
 
-  // ————————————————————————————————— visor de documentos (doc-viewer.js)
-  function abrirVisor() {
-    var expandir = $('tt-doc-expand');
-    if (!expandir) return;
-    var modal = $('tt-doc-modal');
-    if (modal) modal.classList.add('tt-doc-modal--readonly');
-    expandir.click();
+  // ————————————————————————————————— lista + detalle
+  // Lo que se recuerda del swap en curso de `#tt-tit-body`.
+  var pendiente = null;   // {scroll, keep, back}
+
+  function detalle() {
+    return document.querySelector('#tt-tit-body .tt-tit-detail');
   }
 
-  function bindModal() {
-    var modal = $('tt-doc-modal');
-    if (!modal || modal._ttTitBound) return;
-    modal._ttTitBound = true;
-    modal.addEventListener('hidden.bs.modal', function () {
-      modal.classList.remove('tt-doc-modal--readonly');
-    });
+  // Lleva la fila activa a la vista DENTRO de la lista (sin mover la página).
+  function filaVisible(lista) {
+    var fila = lista.querySelector('.tt-tit-row.is-active');
+    if (!fila || lista.scrollHeight <= lista.clientHeight) return;
+    var arriba = fila.offsetTop - lista.offsetTop;
+    if (arriba < lista.scrollTop) lista.scrollTop = arriba;
+    else if (arriba + fila.offsetHeight > lista.scrollTop + lista.clientHeight) {
+      lista.scrollTop = arriba + fila.offsetHeight - lista.clientHeight;
+    }
   }
+
+  // Alto de la barra superior fija del admin (solo existe bajo 992 px).
+  function barra() {
+    var b = document.querySelector('.tt-admin-topbar');
+    if (!b) return 0;
+    var r = b.getBoundingClientRect();
+    return r.height > 0 && r.top <= 0 ? r.bottom : 0;
+  }
+
+  // Sube la página si `el` quedó arriba de la pantalla (o debajo de la barra),
+  // o la baja si quedó abajo. `margen`: aire sobre el elemento.
+  function aLaVista(el, margen) {
+    if (!el) return;
+    var tope = barra();
+    var r = el.getBoundingClientRect();
+    if (r.top < tope || r.top > window.innerHeight - 48) {
+      // `instant`: Bootstrap pone `scroll-behavior: smooth` en :root y un
+      // recorrido animado de miles de píxeles marea más de lo que orienta.
+      window.scrollTo({ top: Math.max(0, window.pageYOffset + r.top - tope - margen),
+                        behavior: 'instant' });
+    }
+  }
+
+  document.body.addEventListener('htmx:beforeSwap', function (e) {
+    var target = e.detail && e.detail.target;
+    if (!target || target.id !== 'tt-tit-body') return;
+    var elt = e.detail.requestConfig && e.detail.requestConfig.elt;
+    var lista = $('tt-tit-list');
+    var back = elt && elt.closest ? elt.closest('[data-tt-tit-back]') : null;
+    pendiente = {
+      scroll: lista ? lista.scrollTop : 0,
+      // Elegir una fila o dictaminar: misma lista, mismo scroll. Pestaña,
+      // búsqueda, carrera o página: lista nueva, desde arriba.
+      keep: !!(elt && elt.closest && elt.closest('.tt-tit-row, .tt-tit-detail, #tt-tit-registro')),
+      back: back ? back.getAttribute('data-tt-tit-back') : null,
+    };
+  });
+
+  document.body.addEventListener('htmx:afterSettle', function (e) {
+    var target = e.detail && e.detail.target;
+    if (!target || target.id !== 'tt-tit-body' || !pendiente) return;
+    var p = pendiente;
+    pendiente = null;
+    var lista = $('tt-tit-list');
+    if (lista && p.keep) {
+      lista.scrollTop = p.scroll;
+      filaVisible(lista);
+    }
+    if (p.back) {
+      aLaVista($('tt-tit-row-' + p.back) || $('tt-anx-row-' + p.back), 16);
+    } else if (detalle()) {
+      aLaVista(target, 16);
+    }
+  });
 
   // ————————————————————————————————— delegación (una sola vez)
   // «Regresar con observaciones»: al menos una observación y cada campo marcado
@@ -183,14 +238,10 @@
       return;
     }
 
-    // `doc-viewer.js` ya marcó este documento como activo (su listener se
-    // enlazó antes: se carga antes). En el siguiente tick se abre su modal.
-    if (t.closest('#tt-tit-detail .tt-docpick')) setTimeout(abrirVisor, 0);
   });
 
   // ————————————————————————————————— init
   function init() {
-    bindModal();
     sync();
   }
 

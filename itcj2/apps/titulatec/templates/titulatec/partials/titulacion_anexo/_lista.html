@@ -22,7 +22,7 @@
       {% endif %}
       <span class="tt-tit-row-main">
         <span class="tt-tit-row-name">{{ r.student_name }}</span>
-        <span class="tt-tit-row-meta tt-mono">{{ r.control_number or '—' }} · {{ r.program_name or '—' }}{% if r.anexo_folio %} · {{ r.anexo_folio }}{% endif %}</span>
+        <span class="tt-tit-row-meta"><span class="tt-mono">{{ r.control_number or '—' }}</span> · {{ r.program_name or '—' }}{% if r.anexo_folio %} · <span class="tt-mono">{{ r.anexo_folio }}</span>{% endif %}</span>
         {% if r.viewers %}
         <span class="tt-tit-viewing"><i class="bi bi-eye" aria-hidden="true"></i>{{ r.viewers | join(', ') }} {{ 'lo están revisando' if r.viewers | length > 1 else 'lo está revisando' }}</span>
         {% endif %}

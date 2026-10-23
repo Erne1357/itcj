@@ -3,8 +3,9 @@
 Spec `docs/superpowers/specs/2026-10-21-titulatec-fase3-formato-b-titulacion-design.md`
 §8. Hoy hospeda una sola vista, el Formato B (fase 3): bandeja FIFO
 master-detail (mismo patrón que `pages/documents.py`), observaciones por campo,
-aprobar, corregir los datos del registro (§8.5), visor de los documentos de la
-fase 1 y la presencia «quién lo está revisando» (§8.3).
+aprobar, corregir los datos del registro (§8.5) y la presencia «quién lo está
+revisando» (§8.3). Sin visor de los documentos de la fase 1 (2026-10-23, pedido
+del usuario: estorbaba; el nombre se corrige desde el registro).
 
 Reparto: el dictamen vive en `FormatBService`, la bandeja en
 `FormatBInboxService` y la presencia en `ReviewPresence` (Redis, cosmética y
@@ -22,7 +23,7 @@ responden 400 (en producción el corte es 3).
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
 from itcj2.dependencies import require_page_app
@@ -148,14 +149,13 @@ _programs = _shared.programs
 
 
 def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
-    """El detalle de UN proceso: datos de pantalla, permisos de acción y docs.
+    """El detalle de UN proceso: datos de pantalla y permisos de acción.
 
     Todo lo que llega a la plantilla es un dict plano (la sesión se cierra antes
     de pintar la página completa).
     """
-    from itcj2.apps.titulatec.models import Document, DocumentType, FormatB, TitulationProcess
+    from itcj2.apps.titulatec.models import FormatB, TitulationProcess
     from itcj2.apps.titulatec.pages.admin import _PROCESS_VIEW_PERMS
-    from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.format_b_service import NO_MODALITY_MSG, FormatBService
     from itcj2.apps.titulatec.services.track_service import TrackService
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
@@ -189,22 +189,6 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
         quien = _nombre(db.get(User, fb.reviewed_by_id)) if fb.reviewed_by_id else ""
         revisado = ("Revisado" + (f" por {quien}" if quien else "")
                     + f" el {dia_mes_hora(fb.reviewed_at)}")
-
-    # Documentos de la fase 1 que el alumno sí subió, en el orden de su perfil
-    # (3 en licenciatura, 7 en posgrado): para cotejar el nombre con el acta y
-    # la CURP. Dos consultas fijas.
-    codigos = DocumentService.initial_doc_types_for(db, proc)
-    presentes = {d.type_code: d for d in db.query(
-        Document.type_code, Document.mime_type, Document.review_status)
-        .filter(Document.process_id == process_id, Document.type_code.in_(codigos)).all()}
-    nombres = (dict(db.query(DocumentType.code, DocumentType.name)
-                    .filter(DocumentType.code.in_(list(presentes))).all())
-               if presentes else {})
-    docs = [{"type_code": c, "name": nombres.get(c, c),
-             "mime": presentes[c].mime_type or "application/pdf",
-             "status": presentes[c].review_status,
-             "url": f"{_BASE_URL}/formato-b/{process_id}/documento/{c}"}
-            for c in codigos if c in presentes]
 
     registro, carreras = {}, []
     if can_correct:
@@ -256,7 +240,6 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others) -> dict:
                             if fb is not None and fb.submitted_at else None),
         "reviewed_label": revisado,
         "sections": secciones, "show_obs": show_obs, "general_prev": general_prev,
-        "docs": docs,
         "can_approve": can_approve, "can_reject": can_reject, "can_correct": can_correct,
         "can_review": can_approve or can_reject,
         "no_modality_msg": NO_MODALITY_MSG if sin_modalidad else None,
@@ -522,7 +505,7 @@ def _cuerpo_registry(process_id, request, user, form):
 
 
 # ===========================================================================
-# Presencia y documentos
+# Presencia
 # ===========================================================================
 @router.post("/formato-b/{process_id}/viendo", name="titulatec.pages.titulacion.viewing")
 def viewing(process_id: int, request: Request,
@@ -545,47 +528,3 @@ def viewing(process_id: int, request: Request,
     finally:
         db.close()
     return Response(status_code=204)
-
-
-@router.get("/formato-b/{process_id}/documento/{type_code}",
-            name="titulatec.pages.titulacion.document")
-def document_file(process_id: int, type_code: str, request: Request,
-                  user: dict = Depends(require_page_app("titulatec", perms=[_READ_PERM]))):
-    """Sirve INLINE un documento de la fase 1 (acta, CURP…) para cotejar el
-    nombre (patrón `appointments.py::document_file`). Solo tipos cuyo
-    `DocumentType.phase_number` es la fase `initial_docs`: esta vista no abre
-    documentos de otras fases."""
-    from itcj2.database import SessionLocal
-    from itcj2.apps.titulatec.models import DocumentType
-    from itcj2.apps.titulatec.services.document_service import DocumentService
-    from itcj2.apps.titulatec.services.phase_service import PhaseService
-    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
-    from itcj2.apps.titulatec.utils import storage
-
-    uid = int(user["sub"])
-    db = SessionLocal()
-    try:
-        # Antes de tocar disco: aquí viaja el acta de nacimiento / la CURP.
-        proc = assert_process_in_scope(db, uid, process_id)
-        _exigir_bandeja(db, uid)
-        if not _operable(db):
-            return Response(status_code=404)
-        fase_1 = PhaseService.phase_number_for_code(db, "initial_docs")
-        fase_tipo = (db.query(DocumentType.phase_number)
-                     .filter(DocumentType.code == type_code).scalar())
-        if fase_1 is None or fase_tipo != fase_1:
-            return Response(status_code=404)
-        doc = DocumentService.get_document(db, process_id, type_code)
-        if not doc:
-            return Response(status_code=404)
-        path = storage.abs_path(doc.file_path)
-        mime = doc.mime_type
-        # Mismo nombre que las otras bandejas: `{control}_{ETIQUETA}.{ext}`.
-        _period, control = DocumentService._storage_keys(db, proc)
-        filename = storage.download_filename(control, type_code, doc.file_path)
-    finally:
-        db.close()
-    if not path.exists():
-        return Response(status_code=404)
-    return FileResponse(str(path), media_type=mime,
-                        headers={"Content-Disposition": f'inline; filename="{filename}"'})

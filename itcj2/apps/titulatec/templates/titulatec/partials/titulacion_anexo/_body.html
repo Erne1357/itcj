@@ -21,6 +21,10 @@
   <p class="tt-tit-empty-text">Tu puesto puede abrir esta pestaña, pero no revisar los Anexos III. Pide el acceso a tu jefatura.</p>
 </div>
 {% else %}
+{# Envoltura de la vista: con un elegido (`has-selection`), en angosto se ve
+   solo el detalle con «Volver a la lista» (titulacion.css, consulta de
+   contenedor); en ancho, lista y detalle conviven. #}
+<div class="tt-tit-wrap{{ ' has-selection' if detail }}">
 <div id="tt-tit-filters" class="tt-tit-filters" data-tt-q-server="{{ q or '' }}">
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="hidden" name="selected" value="{{ selected_id or '' }}">
@@ -65,7 +69,14 @@
     {% include "titulatec/partials/titulacion_anexo/_lista.html" %}
   </section>
   <section class="tt-tit-detail-col" aria-label="Detalle del Anexo III">
+    {% if detail %}
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-tit-back" data-tt-tit-back="{{ detail.process_id }}"
+            hx-get="/titulatec/admin/titulacion/anexo/body" hx-vals='{"selected": "", "page": {{ page.page }}}'
+            hx-include="#tt-tit-filters" hx-target="#tt-tit-body" hx-swap="innerHTML"
+            hx-indicator="#tt-tit-skel"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la lista</button>
+    {% endif %}
     {% include "titulatec/partials/titulacion_anexo/_detalle.html" %}
   </section>
+</div>
 </div>
 {% endif %}

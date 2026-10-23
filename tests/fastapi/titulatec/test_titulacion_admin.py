@@ -2,8 +2,8 @@
 
 La pantalla de trabajo del Departamento de Titulación: bandeja FIFO del
 Formato B (master-detail), observaciones por campo, aprobar, corregir el
-registro (nombre y carrera), visor de los documentos de la fase 1 y «quién lo
-está revisando».
+registro (nombre y carrera) y «quién lo está revisando» (el visor de los
+documentos de la fase 1 se retiró el 2026-10-23).
 
 - Corte a T-soft EXPLÍCITO en cada prueba (Ruling R7): `corte(9)` opera la
   fase 3; `corte(3)` es producción y debe dejar la pestaña sin acciones.
@@ -373,11 +373,9 @@ def test_el_detalle_muestra_todos_los_campos_y_marca_el_registro(esc, client_as,
     # Lápiz «Corregir» (permiso correct_registry) y el form inline del registro.
     assert det.xpath('.//*[@data-tt-tit-toggle="tt-tit-registro"]')
     assert det.xpath('.//form[@id="tt-tit-registro"]//textarea[@name="reason"]')
-    # Documentos de la fase 1 con el visor existente (TitulaTecDocViewer).
-    picks = det.xpath('.//*[@id="tt-doc-review"]//button[contains(@class,"tt-docpick")]')
-    urls = {b.get("data-url") for b in picks}
-    assert f"{URL}/formato-b/{p.id}/documento/birth_certificate" in urls
-    assert f"{URL}/formato-b/{p.id}/documento/curp" in urls
+    # Sin visor de los documentos de la fase 1 (2026-10-23, pedido del usuario).
+    assert not det.xpath('.//*[@id="tt-doc-review"]')
+    assert not det.xpath('.//button[contains(@class,"tt-docpick")]')
     # Acciones y latido de presencia.
     assert det.xpath('.//*[@id="tt-tit-approve"]') and det.xpath('.//*[@id="tt-tit-observe"]')
     (latido,) = det.xpath('.//*[@id="tt-tit-beat"]')
@@ -590,27 +588,22 @@ def test_programs_same_level_vive_en_track_service(esc, db_session):
 # ---------------------------------------------------------------------------
 # 4. Documentos de la fase 1
 # ---------------------------------------------------------------------------
-def test_el_documento_solo_sirve_tipos_de_la_fase_1(esc, client_as, make_document,
-                                                     seed_document_types, tmp_path,
-                                                     monkeypatch):
+def test_ya_no_se_sirven_documentos_de_la_fase_1(esc, client_as, make_document,
+                                                 tmp_path, monkeypatch):
+    """2026-10-23: la vista ya no muestra ni sirve el acta o la CURP (la ruta se
+    retiró con la sección). La URL vieja responde 404 aunque el archivo exista."""
     monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
     e = esc()
-    seed_document_types(types=(("tt_test_anexo_t6", "Anexo III de prueba", 6),))
     a = e.revisor("LUISA")
     p = e.enviado("ANA")
-    for code, fase in (("curp", 1), ("tt_test_anexo_t6", 6)):
-        doc = make_document(p, type_code=code, phase_number=fase)
-        dest = tmp_path / doc.file_path
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(b"%PDF-1.4 documento de prueba")
-    cli = client_as(a)
+    doc = make_document(p, type_code="curp", phase_number=1)
+    dest = tmp_path / doc.file_path
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"%PDF-1.4 documento de prueba")
 
-    ok = cli.get(f"{URL}/formato-b/{p.id}/documento/curp")
-    otra = cli.get(f"{URL}/formato-b/{p.id}/documento/tt_test_anexo_t6")
+    resp = client_as(a).get(f"{URL}/formato-b/{p.id}/documento/curp")
 
-    assert ok.status_code == 200
-    assert ok.headers["content-disposition"].startswith("inline")
-    assert otra.status_code == 404
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -621,7 +614,6 @@ def test_el_documento_solo_sirve_tipos_de_la_fase_1(esc, client_as, make_documen
     ("POST", "observar", {"general_note": "Revisa"}),
     ("POST", "viendo", None),
     ("POST", "registro", {"first_name": "X", "last_name": "Y", "reason": "z"}),
-    ("GET", "documento/curp", None),
 ])
 def test_proceso_fuera_de_alcance_responde_404(metodo, sufijo, form, esc, client_as,
                                               db_session):
@@ -746,25 +738,8 @@ def test_css_comentarios_cerrados_y_llaves_balanceadas():
 
 
 # ---------------------------------------------------------------------------
-# 7. Ronda final: documento con corte, siguiente filtrado
+# 7. Ronda final: siguiente filtrado
 # ---------------------------------------------------------------------------
-def test_con_el_corte_en_3_el_documento_no_se_sirve(esc, client_as, make_document,
-                                                     tmp_path, monkeypatch):
-    """Producción (corte 3): ni el acta ni la CURP salen por URL directa."""
-    monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
-    e = esc(cut=3)
-    a = e.revisor("LUISA")
-    p = e.enviado("ANA")
-    doc = make_document(p, type_code="curp", phase_number=1)
-    dest = tmp_path / doc.file_path
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(b"%PDF-1.4 documento de prueba")
-
-    resp = client_as(a).get(f"{URL}/formato-b/{p.id}/documento/curp")
-
-    assert resp.status_code == 404
-
-
 def test_el_siguiente_respeta_el_filtro_de_carrera(esc, client_as, db_session):
     """Con un filtro de carrera activo el siguiente es de ESA carrera: antes era
     de toda la cola y el detalle salía vacío."""

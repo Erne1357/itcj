@@ -22,7 +22,7 @@
       {% endif %}
       <span class="tt-tit-row-main">
         <span class="tt-tit-row-name">{{ r.student_name }}</span>
-        <span class="tt-tit-row-meta tt-mono">{{ r.control_number or '—' }} · {{ r.program_name or '—' }}</span>
+        <span class="tt-tit-row-meta"><span class="tt-mono">{{ r.control_number or '—' }}</span> · {{ r.program_name or '—' }}</span>
         {% if r.round >= 2 %}
         <span class="tt-pill tt-pill--violet tt-tit-resend"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reenvío (ronda {{ r.round }})</span>
         {% endif %}

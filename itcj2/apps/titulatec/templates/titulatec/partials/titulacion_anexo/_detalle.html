@@ -29,7 +29,7 @@
     <div class="tt-tit-head-main">
       <span class="tt-kicker">{{ d.folio }}</span>
       <h2 class="tt-display tt-tit-name">{{ d.name }}</h2>
-      <p class="tt-tit-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
+      <p class="tt-tit-sub"><span class="tt-mono">{{ d.control }}</span> · {{ d.program }}</p>
       {% set partes = [] %}
       {% if d.modality != '—' %}{% set _ = partes.append(d.modality) %}{% endif %}
       {% if d.anexo_folio %}{% set _ = partes.append('Folio ' ~ d.anexo_folio) %}{% endif %}
