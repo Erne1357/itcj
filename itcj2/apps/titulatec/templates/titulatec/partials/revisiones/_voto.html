@@ -1,8 +1,14 @@
-{# Panel de voto del sinodal (spec 2026-10-22 fase 5 §6.3, §8.2; D3, D4, D6).
-   Recibe `conv` y `oob` (el refresco lo reemplaza fuera de banda al cerrarse).
+{# Panel de voto del sinodal (spec 2026-10-22 fase 5 §6.3, §8.2; D3, D4, D6;
+   rediseño de chat 2026-10-27). Recibe `conv` y `oob` (el refresco lo
+   reemplaza fuera de banda al cerrarse la revisión o al llegar una versión
+   nueva: el borrador era de la versión anterior).
 
-   - Conversación cerrada: nada que votar (el porqué ya lo dice `#tt-rev-live`).
-   - Regla de firma desconocida / su voto no cuenta / sin versión: el aviso.
+   Se despliega bajo la franja fijada (`_pin.html`) con «Votar» o con el botón
+   de la tarjeta de la versión vigente (`data-tt-chat-toggle`). Nace abierto
+   solo si trae algo que el sinodal tiene que ver: la reconfirmación, un error
+   o su borrador. Sin voto que dar (cerrada, su voto no cuenta, sin versión,
+   sin permiso) queda vacío y oculto: el porqué lo dice la franja.
+
    - Vota: UN formulario con las observaciones y dos botones («Pedir cambios»
      y «Aprobar versión N»), cada uno con su `hx-post` (htmx incluye el
      formulario y el `name`/`value` del botón). Manda la `version` que el
@@ -21,21 +27,14 @@
    y htmx 2.0.3 truena (`getInternalData(null)`) sin mandar el voto (visto en
    Chromium). #}
 {% set c = conv %}
-<section id="tt-rev-vote" class="tt-card tt-rev-vote" aria-labelledby="tt-rev-vote-title"{% if oob %} hx-swap-oob="true"{% endif %}>
-  <h2 id="tt-rev-vote-title" class="tt-kicker tt-rev-vote-title">Tu voto</h2>
-  {% if not c.is_open %}
-  <p class="tt-rev-note">La revisión ya no admite votos.</p>
-  {% elif c.rule_error %}
-  <p class="tt-rev-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ c.rule_unknown_msg }}</p>
-  {% elif not c.counts %}
-  <p id="tt-rev-not-counting" class="tt-rev-note"><i class="bi bi-chat-left-text" aria-hidden="true"></i>{{ c.not_counting_msg }}</p>
-  {% elif c.version is none %}
-  <p class="tt-rev-note"><i class="bi bi-hourglass-split" aria-hidden="true"></i>{{ c.no_version_msg }}</p>
-  {% elif not c.can_vote %}
-  <p class="tt-rev-note">No tienes permiso para votar en esta revisión.</p>
-  {% elif c.vote_mode == "confirm" %}
-  <div id="tt-rev-confirm" class="tt-rev-confirm" role="alertdialog" aria-labelledby="tt-rev-confirm-title">
-    <p id="tt-rev-confirm-title" class="tt-rev-confirm-title"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>Tu aprobación cerrará la revisión</p>
+{% set votable = c.is_open and c.counts and not c.rule_error and c.version is not none and c.can_vote %}
+{% set abierto = c.vote_mode == "confirm" or c.vote_error or c.draft or (c.is_open and c.rule_error) %}
+<section id="tt-rev-vote" class="tt-chat-vote" aria-labelledby="tt-rev-vote-title"{% if oob %} hx-swap-oob="true"{% endif %}{% if not ((votable or (c.is_open and c.rule_error)) and abierto) %} hidden{% endif %}>
+  {% if c.is_open and c.rule_error %}
+  <p id="tt-rev-vote-title" class="tt-rev-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ c.rule_unknown_msg }}</p>
+  {% elif votable and c.vote_mode == "confirm" %}
+  <div id="tt-rev-confirm" class="tt-rev-confirm" role="alertdialog" aria-labelledby="tt-rev-vote-title">
+    <p id="tt-rev-vote-title" class="tt-rev-confirm-title"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>Tu aprobación cerrará la revisión</p>
     <p class="tt-rev-confirm-text">{{ c.confirm_msg }}</p>
     <form id="tt-rev-confirm-form" class="tt-rev-buttons"
           hx-post="{{ c.url }}/voto" hx-target="#tt-rev-conv" hx-swap="morph:outerHTML"
@@ -51,17 +50,16 @@
         <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Sí, aprobar y cerrar</button>
     </form>
   </div>
-  {% else %}
-  {% if c.my_verdict %}
-  <p class="tt-rev-mine">
-    {% if c.my_verdict == "approved" %}<i class="bi bi-check-circle" aria-hidden="true"></i>Aprobaste la versión {{ c.version }}.
-    {% else %}<i class="bi bi-pencil" aria-hidden="true"></i>Pediste cambios en la versión {{ c.version }}.{% endif %}
-    Puedes cambiar tu voto mientras la revisión siga abierta.
-  </p>
-  {% endif %}
+  {% elif votable %}
   <form id="tt-rev-vote-form" class="tt-rev-vote-form"
         hx-target="#tt-rev-conv" hx-swap="morph:outerHTML"
         hx-disabled-elt="#tt-rev-vote-form button">
+    <div class="tt-chat-vote-head">
+      <h3 id="tt-rev-vote-title" class="tt-chat-vote-title">Tu voto sobre la versión {{ c.version }}</h3>
+      <button type="button" class="tt-iconbtn tt-iconbtn-sm" data-tt-chat-toggle="tt-rev-vote"
+              aria-controls="tt-rev-vote" aria-expanded="true" aria-label="Cerrar el voto">
+        <i class="bi bi-x-lg" aria-hidden="true"></i></button>
+    </div>
     <input type="hidden" name="version" value="{{ c.version }}">
     {% if c.would_close %}<input type="hidden" name="confirm" value="1">{% endif %}
     <label class="tt-label" for="tt-rev-comment">Observaciones sobre la versión {{ c.version }}</label>

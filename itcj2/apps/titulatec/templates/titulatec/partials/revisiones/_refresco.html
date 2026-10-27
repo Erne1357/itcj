@@ -3,15 +3,19 @@
 
    - `items`: SOLO los mensajes posteriores a `after` (vacío = respuesta vacía:
      htmx no agrega nada). `js/shared/review-thread.js` quita duplicados por id.
-   - `oob_status`: con mensajes nuevos (o la revisión ya cerrada), el panel de
-     estado se reemplaza fuera de banda (versión, votos, plazo).
+   - `oob_status`: con mensajes nuevos (o la revisión ya cerrada), la franja
+     fijada y el panel de estado se reemplazan fuera de banda (versión, votos,
+     plazo).
+   - `oob_vote`: llegó una versión nueva: el panel de voto se re-pinta con su
+     número (el borrador era de la anterior).
    - `oob_live`: la revisión se cerró con la conversación en pantalla: la zona
      viva y el panel de voto se reemplazan fuera de banda; el sondeo viejo sale
      del documento y se detiene.
    - `oob_error`: el error del formulario de mensaje (validación: 200 con
      `X-Tt-Review-Keep: 1`) o su limpieza tras un envío bueno. #}
-{% if items %}{% include "titulatec/partials/review/_messages.html" %}{% endif %}
+{% if items %}{% with vote_ctx=conv %}{% include "titulatec/partials/review/_messages.html" %}{% endwith %}{% endif %}
 {% if oob_status and conv %}
+{% with oob=True %}{% include "titulatec/partials/revisiones/_pin.html" %}{% endwith %}
 <div id="tt-rev-status-slot" class="tt-rev-status-slot" hx-swap-oob="true">
   {% with review_status=conv.review_status %}{% include "titulatec/partials/review/_status.html" %}{% endwith %}
 </div>
@@ -21,6 +25,8 @@
 {% include "titulatec/partials/revisiones/_vivo.html" %}
 {% include "titulatec/partials/revisiones/_voto.html" %}
 {% endwith %}
+{% elif oob_vote and conv %}
+{% with oob=True %}{% include "titulatec/partials/revisiones/_voto.html" %}{% endwith %}
 {% endif %}
 {% if oob_error %}
 <p id="tt-rev-composer-error" class="tt-rev-error" role="alert" hx-swap-oob="true"{% if not composer_error %} hidden{% endif %}>{{ composer_error or '' }}</p>

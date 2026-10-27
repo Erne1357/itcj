@@ -131,6 +131,19 @@ def _user_name(user) -> str:
     return _name(user.first_name, user.last_name, user.middle_name) if user else ""
 
 
+def _initials(first, last) -> str:
+    """«AG» (nombre + paterno) para el avatar de la burbuja."""
+    return "".join((p or "").strip()[:1] for p in (first, last)).upper()
+
+
+def _vote_parts(body: str | None) -> tuple[str, str, str]:
+    """Inversa de `ReviewService._vote_text` (único escritor de los mensajes
+    `vote`): `(veredicto, encabezado, observaciones)`."""
+    head, _, note = (body or "").partition("\n")
+    verdict = "approved" if " aprobó la versión " in head else "changes_requested"
+    return verdict, head.rstrip(":"), note.strip()
+
+
 def _to_int(raw) -> int | None:
     if raw is None or isinstance(raw, bool):
         return None
@@ -596,7 +609,12 @@ class ReviewService:
             role = None if es_alumno else roles.get(f.author_id)
             con_archivo = bool(f.attachment_path) or (f.kind == "version" and f.version_id)
             ext = os.path.splitext(f.attachment_name or "")[1].lstrip(".").lower()
+            voto = _vote_parts(f.body) if f.kind == "vote" else (None, "", "")
             salida.append({
+                "initials": _initials(f.first_name, f.last_name),
+                "vote_verdict": voto[0],
+                "vote_head": voto[1],
+                "vote_note": voto[2],
                 "id": f.id,
                 "kind": f.kind,
                 "body": f.body,
@@ -885,7 +903,7 @@ class ReviewService:
             SynodalAssignment,
             TitulationProcess,
         )
-        from itcj2.apps.titulatec.utils.dates_es import dia_largo, dia_mes_hora
+        from itcj2.apps.titulatec.utils.dates_es import dia_largo, dia_mes, dia_mes_hora
         from itcj2.core.models.user import User
 
         chat = ReviewService._chat_of(db, process_id)
@@ -935,6 +953,8 @@ class ReviewService:
             "uploaded_at": version.uploaded_at if version is not None else None,
             "uploaded_label": (dia_mes_hora(version.uploaded_at)
                                if version is not None and version.uploaded_at else ""),
+            "uploaded_day": (dia_mes(version.uploaded_at)
+                             if version is not None and version.uploaded_at else ""),
             "due": due,
             "due_label": dia_largo(due) if due else "",
             "semaphore": semaforo,

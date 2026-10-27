@@ -1,24 +1,16 @@
-{# Cuerpo de «Mis revisiones». Re-render en #tt-rev-body (innerHTML) con cada
-   pestaña, búsqueda o página (`pages/revisiones_admin.py::_body_ctx`).
+{# Cuerpo de la lista de «Mis revisiones». Re-render en #tt-rev-body (innerHTML)
+   con cada pestaña, búsqueda o página (`pages/revisiones_admin.py::_body_ctx`).
 
    Filtros en `#tt-rev-filters` (un <div>): sus hidden y el buscador los toman
    las pestañas, la búsqueda y el pager con `hx-include`, y `hx-vals` pisa lo
    que cambia. Cambiar de pestaña o de búsqueda vuelve a la página 1 (hidden
-   `page=1`). Los contadores respetan la búsqueda. El buscador conserva lo
-   tecleado en vuelo (`hx-preserve`, CLAUDE.md de la app §18). #}
+   `page=1`). `conv` es la conversación abierta: la fila sale marcada. Los
+   contadores respetan la búsqueda. El buscador conserva lo tecleado en vuelo
+   (`hx-preserve`, CLAUDE.md de la app §18). #}
 <div id="tt-rev-filters" class="tt-rev-filters" data-tt-q-server="{{ q or '' }}">
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="hidden" name="page" value="1">
-  <div class="tt-rev-tabs" role="tablist" aria-label="Pestañas de Mis revisiones">
-    {% for key, label in tabs %}
-    <button type="button" id="tt-rev-tab-{{ key }}" role="tab"
-            class="btn btn-sm {{ 'tt-btn-ink' if tab == key else 'tt-btn-ghost' }}"
-            aria-selected="{{ 'true' if tab == key else 'false' }}"
-            hx-get="{{ base_url }}/body" hx-vals='{"tab": "{{ key }}"}'
-            hx-include="#tt-rev-filters" hx-target="#tt-rev-body" hx-swap="innerHTML"
-            hx-indicator="#tt-rev-skel">{{ label }} <span class="tt-rev-count">({{ counts[key] }})</span></button>
-    {% endfor %}
-  </div>
+  <input type="hidden" name="conv" value="{{ active_id or '' }}">
   <div class="tt-search tt-rev-search">
     <i class="bi bi-search" aria-hidden="true"></i>
     <input type="search" id="tt-rev-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
@@ -27,6 +19,16 @@
            hx-get="{{ base_url }}/body" hx-target="#tt-rev-body"
            hx-swap="innerHTML" hx-trigger="keyup changed delay:400ms, search"
            hx-include="#tt-rev-filters" hx-indicator="#tt-rev-skel">
+  </div>
+  <div class="tt-rev-tabs" role="tablist" aria-label="Pestañas de Mis revisiones">
+    {% for key, label in tabs %}
+    <button type="button" id="tt-rev-tab-{{ key }}" role="tab"
+            class="tt-rev-tab{% if tab == key %} is-active{% endif %}"
+            aria-selected="{{ 'true' if tab == key else 'false' }}"
+            hx-get="{{ base_url }}/body" hx-vals='{"tab": "{{ key }}"}'
+            hx-include="#tt-rev-filters" hx-target="#tt-rev-body" hx-swap="innerHTML"
+            hx-indicator="#tt-rev-skel">{{ label }} <span class="tt-rev-count">{{ counts[key] }}</span></button>
+    {% endfor %}
   </div>
 </div>
 

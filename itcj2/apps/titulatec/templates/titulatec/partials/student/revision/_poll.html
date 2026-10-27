@@ -1,11 +1,14 @@
-{# Respuesta del refresco periódico: solo lo nuevo. Con novedades agrega el panel
-   de estado fuera de banda y, si la revisión ya no está abierta, detiene el
-   sondeo y cambia los formularios por el aviso de consulta. #}
+{# Respuesta del refresco periódico: solo lo nuevo. Con novedades agrega, fuera
+   de banda, la franja fijada y el panel de estado y, si la revisión ya no está
+   abierta, detiene el sondeo, cambia el compositor por el aviso de consulta y
+   retira el panel de subida. #}
 {% if items %}{% include "titulatec/partials/review/_messages.html" %}{% endif %}
 {% if oob %}
+{% include "titulatec/partials/student/revision/_pin.html" %}
 {% include "titulatec/partials/student/revision/_status_slot.html" %}
 {% if not is_open %}
 <div id="tt-rv-poll" hx-swap-oob="outerHTML" hidden></div>
 {% include "titulatec/partials/student/revision/_actions.html" %}
+{% include "titulatec/partials/student/revision/_upload.html" %}
 {% endif %}
 {% endif %}

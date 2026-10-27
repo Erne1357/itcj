@@ -1,0 +1,35 @@
+{# Franja fijada de la conversación del alumno (rediseño de chat 2026-10-27):
+   su versión vigente, cuántas aprobaciones lleva y su acción principal,
+   «Subir versión N», que despliega `#tt-rv-upload` (`data-tt-chat-toggle`,
+   `js/shared/review-thread.js`). «Detalles» muestra a los sinodales y quién
+   votó qué (`#tt-rv-details`). Necesita `review_status` e `is_open`; con `oob`
+   la reemplazan el refresco y la respuesta de un envío (una versión nueva
+   cambia el número y reinicia las aprobaciones). #}
+{% set st = review_status if review_status is defined else none %}
+{% set _ver = st.version if st and st.version is not none else none %}
+<div id="tt-rv-pin" class="tt-chat-pin"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <span class="tt-chat-pin-ico" aria-hidden="true"><i class="bi bi-{{ 'check2-circle' if st and st.closed else 'file-earmark-text' }}"></i></span>
+  <div class="tt-chat-pin-main">
+    {% if st and st.closed %}
+    <p class="tt-chat-pin-title">Proyecto liberado</p>
+    <p class="tt-chat-pin-sub">Versión {{ _ver }} · {{ st.approvals }} de {{ st.required }} {{ "aprobación" if st.required == 1 else "aprobaciones" }}</p>
+    {% elif _ver is none %}
+    <p class="tt-chat-pin-title">Sin versiones todavía</p>
+    <p class="tt-chat-pin-sub">Sube tu proyecto para que tus sinodales lo revisen.</p>
+    {% else %}
+    <p class="tt-chat-pin-title">Versión {{ _ver }}<span class="tt-chat-pin-day"> · subida el {{ st.uploaded_day }}</span></p>
+    <p class="tt-chat-pin-sub">{% if st.required %}{{ st.approvals }} de {{ st.required }} {{ "aprobación" if st.required == 1 else "aprobaciones" }}{% endif %}{% if st.due_label %} · revisión hasta el {{ st.due_label }}{% endif %}</p>
+    {% endif %}
+  </div>
+  <div class="tt-chat-pin-side">
+    {% if is_open and _ver is not none %}
+    <button type="button" id="tt-rv-upload-open" class="btn btn-sm tt-btn-ink tt-chat-pin-cta"
+            data-tt-chat-toggle="tt-rv-upload" aria-controls="tt-rv-upload" aria-expanded="false"
+            aria-label="Subir versión {{ _ver + 1 }}">
+      <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Subir<span class="d-none d-sm-inline"> versión {{ _ver + 1 }}</span></button>
+    {% endif %}
+    <button type="button" class="tt-iconbtn tt-chat-info" data-tt-chat-toggle="tt-rv-details"
+            aria-controls="tt-rv-details" aria-expanded="false" aria-label="Detalles: tus sinodales y sus votos">
+      <i class="bi bi-info-circle" aria-hidden="true"></i></button>
+  </div>
+</div>

@@ -239,11 +239,14 @@ def test_la_pagina_lista_mis_revisiones(esc, client_as):
                                      filters_id="tt-rev-filters", q="")
     (fila,) = doc.xpath(f'//*[@id="tt-rev-row-{c.process.id}"]')
     assert c.student.control_number in fila.text_content()
-    # Abrir la conversación es navegación admin: hx-select == hx-target -> outerHTML.
+    # Abrir la conversación reemplaza el panel (hx-select == hx-target -> outerHTML) y
+    # trae la lista fuera de banda: la fila abierta sale marcada y sin «nuevos».
     assert fila.get("hx-get") == c.url
-    assert fila.get("hx-target") == fila.get("hx-select") == "#tt-admin-content"
-    assert fila.get("hx-swap") == "morph:outerHTML"
-    assert doc.xpath('//*[@id="tt-rev-tab-por_revisar"]')[0].text_content().count("(1)") == 1
+    assert fila.get("hx-target") == fila.get("hx-select") == "#tt-rev-pane"
+    assert fila.get("hx-swap") == "outerHTML"
+    assert fila.get("hx-select-oob") == "#tt-rev-list:morph"
+    (cuenta,) = doc.xpath('//*[@id="tt-rev-tab-por_revisar"]//*[@class="tt-rev-count"]')
+    assert cuenta.text_content().strip() == "1"
 
     otra = cli.get(BODY + "?tab=en_curso")
     assert otra.status_code == 200
@@ -909,3 +912,85 @@ def test_con_el_corte_en_la_fase_5_todo_es_inerte(corte, esc, client_as, db_sess
             assert resp.status_code == 400, (cut, url)
             assert resp.headers["X-Tt-Error"] == _hdr(INERT_MSG)
     assert (len(_mensajes(db_session, c)), len(_votos(db_session, c))) == antes
+
+
+# ---------------------------------------------------------------------------
+# Rediseño de chat (2026-10-27): lista + conversación en la misma página
+# ---------------------------------------------------------------------------
+def test_la_conversacion_va_junto_a_la_lista_con_su_fila_marcada(esc, client_as):
+    c = esc()
+
+    resp = client_as(c.pres).get(c.url)
+
+    assert resp.status_code == 200
+    doc = lxml.html.fromstring(resp.text)
+    (fila,) = doc.xpath(f'//*[@id="tt-rev-row-{c.process.id}"]')
+    assert fila.get("aria-current") == "true" and "is-active" in fila.get("class")
+    assert doc.xpath('//*[@id="tt-rev-pane"]//*[@id="tt-rev-conv"]')
+    (atras,) = doc.xpath('//*[@id="tt-rev-back"]')
+    assert atras.get("href") == URL and atras.get("hx-target") == "#tt-rev-pane"
+
+
+def test_la_conversacion_conserva_pestana_y_busqueda_de_la_lista(esc, client_as):
+    c = esc()
+
+    resp = client_as(c.pres).get(c.url + "?tab=en_curso&q=zz")
+
+    doc = lxml.html.fromstring(resp.text)
+    assert doc.xpath('//*[@id="tt-rev-back"]')[0].get("href") == URL + "?tab=en_curso&q=zz"
+    assert doc.xpath('//*[@id="tt-rev-tab-en_curso"]')[0].get("aria-selected") == "true"
+
+
+def test_el_cuerpo_de_la_lista_actualiza_la_url_con_la_conversacion(esc, client_as):
+    c = esc()
+
+    resp = client_as(c.pres).get(BODY, params={"tab": "en_curso", "conv": c.process.id})
+
+    assert resp.status_code == 200
+    assert resp.headers["HX-Replace-Url"] == f"{URL}/{c.process.id}?tab=en_curso"
+    assert 'name="conv" value="%d"' % c.process.id in resp.text
+
+
+def test_solo_la_version_vigente_ofrece_votar(esc, client_as, db_session):
+    c = esc(versions=0)                 # las versiones del andamiaje no dejan mensaje
+    _subir(db_session, c, name="primera.pdf")
+    _subir(db_session, c, name="segunda.pdf")
+    db_session.commit()
+
+    doc = lxml.html.fromstring(client_as(c.pres).get(c.url).text)
+
+    versiones = doc.xpath('//li[contains(@class, "tt-rv-msg--version")]')
+    assert len(versiones) == 2
+    assert not versiones[0].xpath('.//*[contains(@class, "tt-rv-vote-cta")]')
+    (cta,) = versiones[1].xpath('.//*[contains(@class, "tt-rv-vote-cta")]')
+    assert cta.get("data-tt-chat-toggle") == "tt-rev-vote"
+    # Quien solo comenta no tiene botón de votar.
+    otro = lxml.html.fromstring(client_as(c.teachers["vocal"]).get(c.url).text)
+    assert not otro.xpath('//*[contains(@class, "tt-rv-vote-cta")]')
+
+
+def test_el_refresco_con_version_nueva_repinta_franja_y_voto(esc, client_as, db_session):
+    c = esc()
+    ultimo = max([m.id for m in _mensajes(db_session, c)] or [0])
+    _subir(db_session, c, name="segunda.pdf")
+    db_session.commit()
+
+    resp = client_as(c.pres).get(c.url + "/mensajes", params={"after": ultimo})
+
+    doc = lxml.html.fromstring(f"<div>{resp.text}</div>")
+    (pin,) = doc.xpath('//*[@id="tt-rev-pin"]')
+    assert pin.get("hx-swap-oob") == "true" and "Versión 2" in pin.text_content()
+    (voto,) = doc.xpath('//*[@id="tt-rev-vote"]')
+    assert voto.get("hx-swap-oob") == "true"
+    assert [i.get("value") for i in voto.xpath('.//input[@name="version"]')] == ["2"], resp.text[-3000:]
+
+
+@pytest.mark.parametrize("verdict, comment", [("approved", ""), ("approved", "Bien hecho"),
+                                              ("changes_requested", "Corrige X\ny también Y")])
+def test_las_partes_del_voto_invierten_su_texto(verdict, comment):
+    from itcj2.apps.titulatec.services.review_service import ReviewService, _vote_parts
+
+    v, head, note = _vote_parts(ReviewService._vote_text("president", verdict, 3, comment))
+
+    assert v == verdict and "versión 3" in head and not head.endswith(":")
+    assert note == comment

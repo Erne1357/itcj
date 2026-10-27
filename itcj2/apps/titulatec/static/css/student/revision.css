@@ -1,59 +1,88 @@
 /* ===========================================================================
    student/revision.css — página de la conversación del alumno (fase 5)
    ---------------------------------------------------------------------------
-   Spec 2026-10-22-titulatec-fase5-revision-sinodales §8.1. Solo el armado de la
-   PÁGINA (rejilla, formularios, tarjeta del tablero); las burbujas y el panel de
-   estado son de `css/review.css` (clases `tt-rv-*`). Mobile-first: una columna
-   (estado, hilo, formularios) y a >= 992px el estado pasa a una columna lateral.
-   Invariante: `scrollWidth <= innerWidth` en 360/390/768/1280/1440/1920 (todo hijo
-   de flex/grid lleva `min-width: 0`). Tokens `--tt-*`; sin `style=` en plantillas.
+   Spec 2026-10-22-titulatec-fase5-revision-sinodales §8.1; rediseño estilo
+   mensajería 2026-10-27. Solo el armado de la PÁGINA (altura, panel de subida,
+   detalles en columna, tarjeta del tablero); la conversación (`tt-chat-*`,
+   burbujas `tt-rv-*`) es de `css/review.css`.
+
+   Mobile-first: la conversación ocupa la ventana bajo el appbar, de orilla a
+   orilla; el hilo hace su propio scroll y el compositor queda al pie. Desde
+   992 px va en una tarjeta dentro del lienzo, y desde 1280 px los detalles (tus
+   sinodales y sus votos) son una columna fija a la derecha (sin «Detalles»).
+   Invariante: `scrollWidth <= innerWidth` en 360/390/768/1280/1440/1920 (todo
+   hijo de flex/grid lleva `min-width: 0`). Tokens `--tt-*`; sin `style=` en
+   plantillas.
    =========================================================================== */
 
-/* === 1. Página ============================================================ */
-.tt-rvs { min-width: 0; }
-.tt-rvs-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr);
-  gap: var(--tt-sp-4); min-width: 0;
+/* === 1. La página a la altura de la ventana ============================== */
+.tt-shell:has(.tt-chat--student) { height: 100vh; height: 100dvh; min-height: 0; }
+.tt-shell:has(.tt-chat--student) .tt-main { min-height: 0; }
+.tt-shell:has(.tt-chat--student) .tt-canvas {
+  display: flex; flex-direction: column; min-height: 0; padding-bottom: 0;
 }
-.tt-rvs-side, .tt-rvs-main { min-width: 0; }
-.tt-rvs-main { display: flex; flex-direction: column; gap: var(--tt-sp-3); }
+.tt-shell:has(.tt-chat--student) .tt-canvas-inner { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.tt-chat--student { flex: 1 1 auto; height: auto; }
+/* El FAB de avisos (core) taparía el botón de enviar: aquí los avisos de la
+   revisión ya están en la propia conversación. */
+body:has(.tt-chat--student) [id^="notifFab-"],
+body:has(.tt-chat--student) [id^="notifPanel-"] { display: none !important; }
+
 .tt-rvs-appbar-sub { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
 @media (min-width: 992px) {
-  .tt-rvs-grid { grid-template-columns: minmax(16rem, 22rem) minmax(0, 1fr); align-items: start; }
-  .tt-rvs-side { position: sticky; top: var(--tt-sp-4); }
+  .tt-chat--student {
+    border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg); overflow: hidden;
+  }
+  /* Los `p` del lienzo se topan a 48ch (prosa); en el chat manda la burbuja. */
+  .tt-stu .tt-canvas-inner .tt-chat--student p { max-width: none; }
+}
+@media (min-width: 1280px) {
+  /* `!important`: Bootstrap fija `[hidden] { display: none !important }`; aquí
+     los detalles son columna fija, abiertos o no. */
+  .tt-chat--student .tt-chat-details,
+  .tt-chat--student .tt-chat-details[hidden] {
+    display: flex !important; flex: 0 0 22rem; border-left: 1px solid var(--tt-line);
+  }
+  .tt-chat--student .tt-chat-cols:has(> .tt-chat-details:not([hidden])) > .tt-chat-main { display: flex; }
+  .tt-chat--student .tt-chat-info, .tt-chat--student .tt-chat-details-back { display: none; }
+}
+@media (min-width: 1600px) {
+  .tt-chat--student .tt-chat-details,
+  .tt-chat--student .tt-chat-details[hidden] { flex-basis: 26rem; }
 }
 
-/* === 2. Formularios ======================================================= */
-.tt-rvs-actions { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+/* === 2. Panel de subida de versión ======================================= */
 .tt-rvs-form { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
-/* Encabezado del formulario de versión (`_ver_head.html`, se reemplaza fuera de banda). */
-.tt-rvs-ver-head { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rvs-ver-head { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tt-rvs-h { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
-.tt-rvs-label { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
 .tt-rvs-hint { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
-.tt-rvs-row {
-  display: flex; flex-direction: column; align-items: stretch; gap: var(--tt-sp-2); min-width: 0;
+.tt-upload-pick {
+  display: flex; align-items: center; gap: var(--tt-sp-3); width: 100%; min-height: 56px;
+  padding: var(--tt-sp-3) var(--tt-sp-4); text-align: left;
+  background: var(--tt-paper); color: var(--tt-text-1);
+  border: 1px dashed var(--tt-slate); border-radius: var(--tt-r);
+  font-size: var(--tt-fs-200); font-weight: 600; cursor: pointer;
 }
-.tt-rvs-file { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
-.tt-rvs-send { align-self: stretch; white-space: nowrap; }
-@media (min-width: 576px) {
-  .tt-rvs-row { flex-direction: row; align-items: flex-end; }
-  .tt-rvs-send { align-self: flex-end; }
+.tt-upload-pick i { font-size: var(--tt-fs-500); color: var(--tt-navy); }
+.tt-upload-pick:hover { background: var(--tt-mist); }
+.tt-upload-pick:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-upload-pick.has-file { border-style: solid; border-color: var(--tt-navy); background: var(--tt-navy-soft); }
+.tt-upload-pick-text { min-width: 0; overflow-wrap: anywhere; }
+.tt-chat-upload .tt-rev-buttons { display: flex; justify-content: flex-end; }
+.tt-rvs-send { white-space: nowrap; }
+@media (max-width: 575.98px) {
+  .tt-chat-upload .tt-rvs-send { flex: 1 1 auto; min-height: 40px; }
 }
-.tt-rvs-form textarea { font-size: var(--tt-fs-200); resize: vertical; min-height: 5rem; }
 .tt-rvs-err:empty { display: none; }
 .tt-rvs-err-text {
   display: flex; gap: var(--tt-sp-2); align-items: flex-start; margin: 0;
   padding: var(--tt-sp-2) var(--tt-sp-3);
-  font-size: var(--tt-fs-100); color: var(--tt-danger);
+  font-size: var(--tt-fs-100); color: #B91C1C;
   background: var(--tt-danger-soft); border-radius: var(--tt-r);
   overflow-wrap: anywhere;
 }
 .tt-rvs-err-text i { flex: 0 0 auto; margin-top: 2px; }
-.tt-rvs-readonly {
-  display: flex; gap: var(--tt-sp-3); align-items: flex-start; min-width: 0;
-}
-.tt-rvs-readonly i { flex: 0 0 auto; color: var(--tt-text-3); margin-top: 2px; }
 
 /* === 3. Tarjeta del tablero (fase 5) ======================================= */
 .tt-rvc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }

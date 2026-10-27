@@ -142,8 +142,37 @@ def _nombre(user) -> str:
 # ===========================================================================
 # Contextos
 # ===========================================================================
-def _body_ctx(db, *, user_id: int, tab, q, page, per_page: int | None = None) -> dict:
-    """Contexto del parcial `_body.html` (y de la página completa)."""
+def _list_qs(tab, q, page) -> str:
+    """Query string de la lista (pestaña, búsqueda, página) para las ligas de
+    las filas y el «regresar»: la conversación abierta conserva dónde estaba
+    el docente. Omite lo que es por omisión."""
+    from urllib.parse import urlencode
+
+    params = [(k, v) for k, v in (("tab", tab if tab != _TABS[0][0] else ""),
+                                  ("q", q or ""),
+                                  ("page", "" if str(page or 1) == "1" else str(page)))
+              if v]
+    return ("?" + urlencode(params)) if params else ""
+
+
+def _list_qs_current(request) -> str:
+    """La query string de la lista que el navegador tiene en pantalla
+    (`HX-Current-URL`), para re-pintar la conversación tras un voto sin
+    perder la pestaña ni la búsqueda."""
+    from urllib.parse import parse_qs, urlsplit
+
+    qs = parse_qs(urlsplit(request.headers.get("HX-Current-URL") or "").query)
+
+    def primero(k):
+        return (qs.get(k) or [""])[0]
+
+    return _list_qs(primero("tab"), primero("q")[:100], _to_int(primero("page")) or 1)
+
+
+def _body_ctx(db, *, user_id: int, tab, q, page, per_page: int | None = None,
+              active_id: int | None = None) -> dict:
+    """Contexto del parcial `_body.html` (y de la página completa). `active_id`
+    es la conversación abierta (su fila sale marcada)."""
     from itcj2.apps.titulatec.services.review_inbox_service import ReviewInboxService
     from itcj2.apps.titulatec.utils.paging import PAGE_SIZE, normalize_q
 
@@ -151,7 +180,9 @@ def _body_ctx(db, *, user_id: int, tab, q, page, per_page: int | None = None) ->
     data = ReviewInboxService.list(db, user_id, tab=tab, q=q, page=page,
                                    per_page=per_page or PAGE_SIZE)
     return {"tab": data["tab"], "tabs": _TABS, "q": q, "page": data["page"],
-            "rows": data["page"].items, "counts": data["counts"], "base_url": _BASE_URL}
+            "rows": data["page"].items, "counts": data["counts"], "base_url": _BASE_URL,
+            "active_id": active_id,
+            "list_qs": _list_qs(data["tab"], q, data["page"].page)}
 
 
 def _state(db, proc, chat, *, user_id: int, perms) -> dict:
@@ -231,7 +262,7 @@ def _state(db, proc, chat, *, user_id: int, perms) -> dict:
 
 
 def _conv_ctx(db, proc, chat, *, user_id: int, vote_mode: str = "form",
-              vote_error: str | None = None, draft: str = "") -> dict:
+              vote_error: str | None = None, draft: str = "", list_qs: str = "") -> dict:
     """La conversación completa: encabezado de D13, mensajes y paneles. Con
     `chat` None (proceso sin conversación fuera de una revisión viva) es la
     vista de solo lectura «sin conversación»: el encabezado y el porqué.
@@ -257,6 +288,9 @@ def _conv_ctx(db, proc, chat, *, user_id: int, vote_mode: str = "form",
     conv.update({
         "folio": proc.folio,
         "name": _nombre(alumno) or _VACIO,
+        "initials": "".join((p or "")[:1] for p in (getattr(alumno, "first_name", None),
+                                                     getattr(alumno, "last_name", None))).upper(),
+        "list_url": _BASE_URL + (list_qs or ""),
         "control": (alumno.control_number if alumno else None) or _VACIO,
         "program": programa.name if programa else _VACIO,
         "modality": modalidad.name if modalidad is not None else _VACIO,
@@ -289,7 +323,8 @@ def _conv_response(request, db, proc, user_id: int, **kw):
     chat = ReviewService.chat_for(db, proc)
     if chat is None:
         return Response(status_code=404)
-    ctx = {"conv": _conv_ctx(db, proc, chat, user_id=user_id, **kw)}
+    ctx = {"conv": _conv_ctx(db, proc, chat, user_id=user_id,
+                             list_qs=_list_qs_current(request), **kw)}
     _marcar_leido(db, chat.id, user_id, ctx["conv"]["thread"])
     return render_titulatec(request, _CONV_TPL, ctx)
 
@@ -297,9 +332,11 @@ def _conv_response(request, db, proc, user_id: int, **kw):
 def _refresh_ctx(db, proc, chat, *, user_id: int, after) -> dict:
     """Lo nuevo de la conversación (`after` = último id que el cliente tiene).
 
-    Con mensajes nuevos, además el panel de estado fuera de banda; con la
-    conversación ya cerrada, también el formulario (sin sondeo: el refresco se
-    detiene) y el panel de voto, fuera de banda (D10, §7.1).
+    Con mensajes nuevos, además la franja fijada y el panel de estado fuera de
+    banda (y el panel de voto si entre ellos llegó una versión: su número
+    cambió); con la conversación ya cerrada, también el formulario (sin
+    sondeo: el refresco se detiene) y el panel de voto, fuera de banda (D10,
+    §7.1).
     """
     from itcj2.apps.titulatec.services.review_service import ReviewService
     from itcj2.core.services.authz_cache import cached_perms
@@ -313,6 +350,7 @@ def _refresh_ctx(db, proc, chat, *, user_id: int, after) -> dict:
     return {"items": items, "me_id": user_id, "conv": conv,
             "file_base": f"{_BASE_URL}/{proc.id}/archivo/",
             "oob_status": bool(conv), "oob_live": conv is not None and not abierta,
+            "oob_vote": any(i["kind"] == "version" for i in items),
             "composer_error": None, "oob_error": False}
 
 
@@ -336,31 +374,44 @@ def home(request: Request, tab: str = "", q: str = "", page: str = "",
 
 
 @router.get("/body", name="titulatec.pages.revisiones.body")
-def body(request: Request, tab: str = "", q: str = "", page: str = "",
+def body(request: Request, tab: str = "", q: str = "", page: str = "", conv: str = "",
          user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
-    """Parcial `#tt-rev-body`: pestañas, búsqueda y la página de la lista."""
+    """Parcial `#tt-rev-body`: pestañas, búsqueda y la página de la lista.
+    `conv` es la conversación abierta al lado (solo marca su fila; no se lee
+    nada de ella). La URL del navegador se actualiza (`HX-Replace-Url`) para
+    que recargar conserve pestaña y búsqueda."""
     from itcj2.database import SessionLocal
+    activa = _to_int(conv)
     db = SessionLocal()
     try:
         if not _operable(db):
             return Response(status_code=404)
-        ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, page=page)
+        ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, page=page,
+                        active_id=activa)
     finally:
         db.close()
-    return render_titulatec(request, _BODY_TPL, ctx)
+    resp = render_titulatec(request, _BODY_TPL, ctx)
+    resp.headers["HX-Replace-Url"] = (_BASE_URL + (f"/{activa}" if activa else "")
+                                      + ctx["list_qs"])
+    return resp
 
 
 # ===========================================================================
 # Conversación
 # ===========================================================================
 @router.get("/{process_id}", name="titulatec.pages.revisiones.conversation")
-def conversation(process_id: int, request: Request,
+def conversation(process_id: int, request: Request, tab: str = "", q: str = "",
+                 page: str = "",
                  user: dict = Depends(require_page_app("titulatec", perms=[_READ_PERM]))):
     """La conversación completa (página admin). Crea la conversación si el
     proceso ya estaba en la fase 5 sin ella (`chat_for(create=True)`, §6.2) y
     la marca leída. El servicio solo la crea con la revisión viva (proceso
     `active`, fase 5 `in_progress`); si no, la fila de la bandeja abre la vista
-    de solo lectura «sin conversación» (encabezado y porqué, nada escrito)."""
+    de solo lectura «sin conversación» (encabezado y porqué, nada escrito).
+
+    Es la misma página que la lista, con la conversación en el panel: la lista
+    (`tab`, `q`, `page`) se arma DESPUÉS de marcar leído, así la fila abierta
+    ya no cuenta sus «nuevos»."""
     from itcj2.apps.titulatec.services.review_service import ReviewService
     from itcj2.database import SessionLocal
 
@@ -372,9 +423,11 @@ def conversation(process_id: int, request: Request,
         if not _operable(db):
             return Response(status_code=404)
         chat = ReviewService.chat_for(db, proc, create=True)
-        ctx = {"conv": _conv_ctx(db, proc, chat, user_id=uid)}
+        conv = _conv_ctx(db, proc, chat, user_id=uid, list_qs=_list_qs(tab, q, page))
         if chat is not None:
-            _marcar_leido(db, chat.id, uid, ctx["conv"]["thread"])
+            _marcar_leido(db, chat.id, uid, conv["thread"])
+        ctx = _body_ctx(db, user_id=uid, tab=tab, q=q, page=page, active_id=process_id)
+        ctx["conv"] = conv
     finally:
         db.close()
     return render_titulatec(request, _PAGE_TPL, ctx)
@@ -490,7 +543,7 @@ def _composer_error(request, msg: str):
     formulario (fuera de banda). `X-Tt-Review-Keep` para que el texto se quede."""
     resp = render_titulatec(request, _REFRESH_TPL, {
         "items": [], "conv": None, "oob_status": False, "oob_live": False,
-        "composer_error": msg, "oob_error": True})
+        "oob_vote": False, "composer_error": msg, "oob_error": True})
     resp.headers["X-Tt-Review-Keep"] = "1"
     return resp
 

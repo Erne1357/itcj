@@ -1,41 +1,62 @@
 {% extends "titulatec/admin/base_admin.html" %}
-{# Pestaña «Mis revisiones» (spec 2026-10-22 fase 5 §8.2): la pantalla del
-   docente sinodal. Dos vistas en la misma plantilla de página:
+{# Pestaña «Mis revisiones» (spec 2026-10-22 fase 5 §8.2; rediseño de chat
+   2026-10-27): la pantalla del docente sinodal, estilo mensajería.
 
-   - sin `conv`: la bandeja (Por revisar / En curso / Completados), cuyo cuerpo
-     `#tt-rev-body` re-pintan las pestañas, la búsqueda y el pager;
-   - con `conv`: la conversación de un proceso (`partials/revisiones/
-     _conversacion.html`), con su propia identidad de vista para que entrar y
-     salir de ella anime la entrada.
+   - `#tt-rev-inbox`: la lista de conversaciones (Por revisar / En curso /
+     Completados, búsqueda y pager). Su cuerpo `#tt-rev-body` lo re-pintan las
+     pestañas, la búsqueda y el pager (`innerHTML`).
+   - `#tt-rev-pane`: la conversación abierta (`partials/revisiones/
+     _conversacion.html`) o el estado vacío. Una fila la reemplaza con
+     `outerHTML` (`hx-select` == `hx-target`) y trae también la lista fuera de
+     banda (`hx-select-oob`, morph: conserva su scroll) para marcar la activa y
+     limpiar sus «nuevos».
+
+   A partir de ~960 px de contenido van lado a lado, cada una con su scroll;
+   debajo, una sola vista: la lista o la conversación (nada se encoge). La
+   identidad de vista es la misma con o sin conversación, así que abrir otra
+   no re-anima la página: anima solo el panel (su `data-tt-view` cambia).
 
    Sin etiquetas de script ni estilos aquí: la hoja de esta pestaña, la de la
    conversación compartida y su módulo JS se cargan UNA vez desde
    `base_admin.html` (la navegación del menú solo morphea `#tt-admin-content`). #}
 {% block title %}{% if conv is defined %}Revisión · {{ conv.name }}{% else %}Mis revisiones{% endif %} · TitulaTec{% endblock %}
-{% block admin_view %}{% if conv is defined %}revision{% else %}revisiones{% endif %}{% endblock %}
+{% block admin_view %}revisiones{% endblock %}
 {% block admin_main %}
 <div class="tt-rev-page">
-  {% if conv is defined %}
-  {% include "titulatec/partials/revisiones/_conversacion.html" %}
-  {% else %}
-  <header class="tt-rev-header">
-    <span class="tt-kicker">Fase 05 · Revisión de sinodales</span>
-    <h1 class="tt-display tt-rev-title">Mis revisiones</h1>
-    <p class="tt-rev-lead">Los proyectos de los egresados de los que eres sinodal. Primero los que esperan tu revisión, en el orden en que llegaron.</p>
-  </header>
-  <div class="tt-rev-host tt-ind-host">
-    {# Indicador de recarga: overlay (primitiva `tt-ind--overlay`,
-       docs/design/ui_motion.md), fuera del flujo. #}
-    <div id="tt-rev-skel" class="tt-ind tt-ind--overlay htmx-indicator"
-         role="status" aria-live="polite">
-      <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
-    </div>
-    {# Swap `innerHTML`: el contenedor no se reemplaza y su `data-tt-view` es
-       constante, así que las recargas de la bandeja no re-animan la entrada. #}
-    <div id="tt-rev-body" data-tt-view="revisiones-body">
-      {% include "titulatec/partials/revisiones/_body.html" %}
-    </div>
+  <div id="tt-rev-split" class="tt-rev-split">
+    <aside id="tt-rev-inbox" class="tt-rev-inbox" aria-label="Conversaciones">
+      <header class="tt-rev-inbox-head">
+        <h1 class="tt-rev-title">Mis revisiones</h1>
+        <p class="tt-rev-lead">Proyectos de los que eres sinodal. Arriba, los que esperan tu voto, en el orden en que llegaron.</p>
+      </header>
+      <div class="tt-rev-host tt-ind-host">
+        {# Indicador de recarga: overlay (primitiva `tt-ind--overlay`,
+           docs/design/ui_motion.md), fuera del flujo. #}
+        <div id="tt-rev-skel" class="tt-ind tt-ind--overlay htmx-indicator"
+             role="status" aria-live="polite">
+          <span class="tt-ind-badge"><span class="tt-spinner"></span>Cargando…</span>
+        </div>
+        {# Swap `innerHTML`: el contenedor no se reemplaza y su `data-tt-view` es
+           constante, así que las recargas de la lista no re-animan la entrada. #}
+        <div id="tt-rev-body" class="tt-rev-body" data-tt-view="revisiones-body">
+          {% include "titulatec/partials/revisiones/_body.html" %}
+        </div>
+      </div>
+    </aside>
+
+    <section id="tt-rev-pane" class="tt-rev-pane"
+             data-tt-view="revision-{{ conv.process_id if conv is defined else 'vacia' }}"
+             aria-label="Conversación">
+      {% if conv is defined %}
+      {% include "titulatec/partials/revisiones/_conversacion.html" %}
+      {% else %}
+      <div class="tt-rev-pane-empty">
+        <i class="bi bi-chat-square-text" aria-hidden="true"></i>
+        <p class="tt-rev-pane-empty-title">Elige una conversación</p>
+        <p class="tt-rev-pane-empty-text">Ahí ves las versiones del proyecto, escribes al alumno y a los otros sinodales, y votas.</p>
+      </div>
+      {% endif %}
+    </section>
   </div>
-  {% endif %}
 </div>
 {% endblock %}

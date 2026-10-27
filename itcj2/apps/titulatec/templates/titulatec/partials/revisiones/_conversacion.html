@@ -1,77 +1,94 @@
-{# Conversación de revisión de un proceso, vista del sinodal (spec 2026-10-22
-   fase 5 §7, §8.2; D1, D6, D7, D10, D13). Recibe `conv`
-   (`pages/revisiones_admin.py::_conv_ctx`).
+{# Conversación de revisión de un proceso, vista del sinodal, estilo mensajería
+   (spec 2026-10-22 fase 5 §7, §8.2; D1, D6, D7, D10, D13; rediseño de chat
+   2026-10-27). Recibe `conv` (`pages/revisiones_admin.py::_conv_ctx`).
 
-   Raíz `#tt-rev-conv`: la re-pinta el voto (`morph:outerHTML`). Ids estables
-   en cada zona para que el morph las empareje:
-   - `#tt-rev-head`: SOLO lo que D13 permite (nombre, número de control,
-     carrera, modalidad, título del proyecto y los otros sinodales con su rol).
-     Nunca teléfono, domicilio, CURP ni documentos de las fases 1-3.
+   Raíz `#tt-rev-conv` (data-tt-view constante: el voto la re-pinta con
+   `morph:outerHTML` y no se re-anima). De arriba abajo:
+   - `#tt-rev-bar`: quién es (avatar, nombre, modalidad, tu papel), regresar a
+     la lista (solo en angosto) y «Detalles».
+   - `#tt-rev-pin` (`_pin.html`): la franja fijada con la versión vigente, el
+     plazo, las aprobaciones y «Votar»; el refresco la reemplaza fuera de banda.
+   - `#tt-rev-vote` (`_voto.html`): el voto, que se despliega bajo la franja.
+   - `#tt-rev-details`: la ficha de D13 (`#tt-rev-head`: SOLO nombre, número
+     de control, carrera, modalidad, título del proyecto y los otros sinodales
+     con su rol; nunca teléfono, domicilio, CURP ni documentos de las fases 1-3)
+     y el panel de estado (`#tt-rev-status-slot`). Oculta tras «Detalles»
+     (en angosto reemplaza a la conversación, con su «Volver»), salvo con el
+     panel muy ancho, donde va como columna fija a la derecha.
    - El hilo (`[data-tt-review-thread]` + `ol#tt-rv-list[data-tt-review-list]`,
      contrato de `js/shared/review-thread.js`) con las burbujas de
      `partials/review/_messages.html`; los archivos salen por la ruta con
      guarda (`file_base`).
-   - `#tt-rev-live` (`_vivo.html`): el sondeo cada 15 s y el formulario de
-     mensaje, solo con la conversación abierta.
-   - `#tt-rev-status-slot`: el panel de estado de `partials/review/_status.html`.
-   - `#tt-rev-vote` (`_voto.html`): el voto, la reconfirmación o por qué no
-     votas. #}
+   - `#tt-rev-live` (`_vivo.html`): el sondeo cada 15 s y el compositor, solo
+     con la conversación abierta. #}
 {% set c = conv %}
-<article id="tt-rev-conv" class="tt-rev-conv" data-process="{{ c.process_id }}">
-  <nav class="tt-rev-crumbs" aria-label="Regresar">
-    <a id="tt-rev-back" class="btn btn-sm tt-btn-ghost" href="/titulatec/admin/revisiones"
-       hx-get="/titulatec/admin/revisiones" hx-target="#tt-admin-content"
-       hx-select="#tt-admin-content" hx-swap="morph:outerHTML" hx-push-url="true">
-      <i class="bi bi-arrow-left" aria-hidden="true"></i><span class="d-none d-sm-inline"> Mis revisiones</span></a>
-  </nav>
-
-  <header id="tt-rev-head" class="tt-card tt-rev-head">
-    <div class="tt-rev-head-main">
-      <span class="tt-kicker">Revisión de sinodales · {{ c.folio }}</span>
-      <h1 class="tt-display tt-rev-name">{{ c.name }}</h1>
-      <p class="tt-rev-sub tt-mono">{{ c.control }} · {{ c.program }}</p>
+<article id="tt-rev-conv" class="tt-chat tt-rev-conv" data-process="{{ c.process_id }}" data-tt-view="revision-conv">
+  <header id="tt-rev-bar" class="tt-chat-bar">
+    <a id="tt-rev-back" class="tt-iconbtn tt-chat-back" href="{{ c.list_url }}" aria-label="Regresar a Mis revisiones"
+       hx-get="{{ c.list_url }}" hx-target="#tt-rev-pane" hx-select="#tt-rev-pane" hx-swap="outerHTML"
+       hx-select-oob="#tt-rev-list:morph" hx-push-url="true"><i class="bi bi-arrow-left" aria-hidden="true"></i></a>
+    <span class="tt-avatar" aria-hidden="true">{{ c.initials }}</span>
+    <div class="tt-chat-who">
+      <h2 class="tt-chat-name">{{ c.name }}</h2>
+      <p class="tt-chat-sub">{{ c.modality }} · Eres {{ c.role_label or 'sinodal' }}</p>
     </div>
-    <dl class="tt-rev-facts">
-      <div class="tt-rev-fact">
-        <dt>Modalidad</dt>
-        <dd>{{ c.modality }}</dd>
-      </div>
-      <div class="tt-rev-fact">
-        <dt>Título del proyecto</dt>
-        <dd id="tt-rev-project" class="tt-rev-project">{{ c.project }}</dd>
-      </div>
-      <div class="tt-rev-fact">
-        <dt>Sinodales</dt>
-        <dd>
-          <ul class="tt-rev-synodals">
-            <li class="tt-rev-synodal is-me"><span class="tt-rev-synodal-role">{{ c.role_label }}</span><span class="tt-rev-synodal-name">Tú</span></li>
-            {% for s in c.others %}
-            <li class="tt-rev-synodal"><span class="tt-rev-synodal-role">{{ s.role_label }}</span><span class="tt-rev-synodal-name">{{ s.name }}</span></li>
-            {% endfor %}
-          </ul>
-        </dd>
-      </div>
-    </dl>
+    <button type="button" class="tt-iconbtn tt-chat-info" data-tt-chat-toggle="tt-rev-details"
+            aria-controls="tt-rev-details" aria-expanded="false" aria-label="Detalles del proyecto y de los votos">
+      <i class="bi bi-info-circle" aria-hidden="true"></i></button>
   </header>
 
-  <div class="tt-rev-grid">
-    <section class="tt-rev-thread-col" aria-label="Conversación">
-      <div id="tt-rev-thread" class="tt-rv-thread" data-tt-review-thread>
-        <ol class="tt-rv-list" id="tt-rv-list" data-tt-review-list>
-          <li class="tt-rev-thread-empty">Todavía no hay mensajes en esta conversación.</li>
-          {% with items=c.thread, me_id=c.me_id, file_base=c.file_base %}
-          {% include "titulatec/partials/review/_messages.html" %}
-          {% endwith %}
-        </ol>
-      </div>
-      {% with conv=c, oob=False %}{% include "titulatec/partials/revisiones/_vivo.html" %}{% endwith %}
-    </section>
+  <div class="tt-chat-cols">
+  <div class="tt-chat-main">
+  {% with conv=c, oob=False %}{% include "titulatec/partials/revisiones/_pin.html" %}{% endwith %}
+  {% with conv=c, oob=False %}{% include "titulatec/partials/revisiones/_voto.html" %}{% endwith %}
 
-    <aside class="tt-rev-side" aria-label="Estado y voto">
-      <div id="tt-rev-status-slot" class="tt-rev-status-slot">
-        {% with review_status=c.review_status %}{% include "titulatec/partials/review/_status.html" %}{% endwith %}
-      </div>
-      {% with conv=c, oob=False %}{% include "titulatec/partials/revisiones/_voto.html" %}{% endwith %}
-    </aside>
+  <div id="tt-rev-thread" class="tt-rv-thread" data-tt-review-thread tabindex="0" aria-label="Mensajes">
+    <ol class="tt-rv-list" id="tt-rv-list" data-tt-review-list aria-live="polite" aria-relevant="additions">
+      <li class="tt-rev-thread-empty">Todavía no hay mensajes en esta conversación.</li>
+      {% with items=c.thread, me_id=c.me_id, file_base=c.file_base, vote_ctx=c %}
+      {% include "titulatec/partials/review/_messages.html" %}
+      {% endwith %}
+    </ol>
+  </div>
+
+  {% with conv=c, oob=False %}{% include "titulatec/partials/revisiones/_vivo.html" %}{% endwith %}
+  </div>
+
+  <aside id="tt-rev-details" class="tt-chat-details" aria-label="Detalles" hidden>
+    <button type="button" class="tt-chat-details-back" data-tt-chat-toggle="tt-rev-details" aria-controls="tt-rev-details" aria-expanded="false">
+      <i class="bi bi-arrow-left" aria-hidden="true"></i>Volver a la conversación</button>
+    {% if c.is_open and not c.counts and not c.rule_error %}
+    <p id="tt-rev-not-counting" class="tt-rev-note"><i class="bi bi-chat-left-text" aria-hidden="true"></i>{{ c.not_counting_msg }}</p>
+    {% endif %}
+    <section id="tt-rev-head" class="tt-chat-card">
+      <p class="tt-chat-card-kicker tt-mono">{{ c.folio }}</p>
+      <p class="tt-chat-card-name">{{ c.name }}</p>
+      <p class="tt-chat-card-sub"><span class="tt-mono">{{ c.control }}</span> · {{ c.program }}</p>
+      <dl class="tt-chat-facts">
+        <div class="tt-chat-fact">
+          <dt>Modalidad</dt>
+          <dd>{{ c.modality }}</dd>
+        </div>
+        <div class="tt-chat-fact">
+          <dt>Título del proyecto</dt>
+          <dd id="tt-rev-project" class="tt-rev-project">{{ c.project }}</dd>
+        </div>
+        <div class="tt-chat-fact">
+          <dt>Sinodales</dt>
+          <dd>
+            <ul class="tt-rev-synodals">
+              <li class="tt-rev-synodal is-me"><span class="tt-rev-synodal-role">{{ c.role_label }}</span><span class="tt-rev-synodal-name">Tú</span></li>
+              {% for s in c.others %}
+              <li class="tt-rev-synodal"><span class="tt-rev-synodal-role">{{ s.role_label }}</span><span class="tt-rev-synodal-name">{{ s.name }}</span></li>
+              {% endfor %}
+            </ul>
+          </dd>
+        </div>
+      </dl>
+    </section>
+    <div id="tt-rev-status-slot" class="tt-rev-status-slot">
+      {% with review_status=c.review_status %}{% include "titulatec/partials/review/_status.html" %}{% endwith %}
+    </div>
+  </aside>
   </div>
 </article>

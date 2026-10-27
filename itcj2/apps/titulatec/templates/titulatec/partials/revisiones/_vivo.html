@@ -1,46 +1,55 @@
-{# Zona VIVA de la conversación: el sondeo cada 15 s y el formulario de
-   mensaje, SOLO con la conversación abierta (D10). Recibe `conv` y `oob`.
+{# Zona VIVA de la conversación: el sondeo cada 15 s y el compositor, SOLO con
+   la conversación abierta (D10). Recibe `conv` y `oob`.
 
    Con `oob` la pinta el refresco fuera de banda (`hx-swap-oob="true"`: un
    outerHTML normal que REEMPLAZA el nodo) cuando la conversación se cerró
    mientras estaba abierta en pantalla: el `#tt-rev-poll` viejo sale del
    documento y htmx deja de sondear.
 
-   El formulario (contrato de `js/shared/review-thread.js`): agrega lo que
-   devuelve a la lista (`beforeend`), se limpia tras un 2xx salvo con
-   `X-Tt-Review-Keep: 1` (validación) y lleva también `data-tt-review-poll`
-   para que el envío mande `after` (el último id pintado) y la respuesta traiga
-   lo que el docente todavía no tenía, no solo lo suyo. #}
+   El compositor (contrato de `js/shared/review-thread.js`): una sola caja que
+   crece con el texto, clip para adjuntar (el archivo elegido sale como ficha
+   encima, con su botón para quitarlo) y enviar; Enter envía en escritorio,
+   Mayús+Enter salta de línea. Agrega lo que devuelve a la lista
+   (`beforeend`), se limpia tras un 2xx salvo con `X-Tt-Review-Keep: 1`
+   (validación) y lleva también `data-tt-review-poll` para que el envío mande
+   `after` (el último id pintado) y la respuesta traiga lo que el docente
+   todavía no tenía, no solo lo suyo. #}
 {% set c = conv %}
-<div id="tt-rev-live" class="tt-rev-live"{% if oob %} hx-swap-oob="true"{% endif %}>
+<div id="tt-rev-live" class="tt-chat-foot"{% if oob %} hx-swap-oob="true"{% endif %}>
   {% if c.is_open %}
   <div id="tt-rev-poll" class="tt-rev-poll" aria-hidden="true"
        data-tt-review-poll="#tt-rv-list" hx-get="{{ c.url }}/mensajes"
        hx-trigger="every 15s [document.visibilityState=='visible']"
        hx-target="#tt-rv-list" hx-swap="beforeend"></div>
   {% if c.can_send %}
-  <form id="tt-rev-composer" class="tt-card tt-rev-composer"
+  <form id="tt-rev-composer" class="tt-composer"
         hx-post="{{ c.url }}/mensaje" hx-target="#tt-rv-list" hx-swap="beforeend"
         hx-encoding="multipart/form-data" hx-disabled-elt="find button[type='submit']"
         data-tt-review-form="#tt-rv-list" data-tt-review-poll="#tt-rv-list">
-    <label class="tt-label" for="tt-rev-body-input">Escribe al alumno y a los sinodales</label>
-    <textarea id="tt-rev-body-input" name="body" class="tt-field tt-rev-textarea" rows="3"
-              maxlength="4000" placeholder="Observaciones, dudas o comentarios sobre el proyecto…"></textarea>
     <p id="tt-rev-composer-error" class="tt-rev-error" role="alert"{% if not c.composer_error %} hidden{% endif %}>{{ c.composer_error or '' }}</p>
-    <div class="tt-rev-composer-actions">
+    {% if c.can_upload %}
+    <p class="tt-composer-file" data-tt-composer-file hidden>
+      <i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-composer-file-name" data-tt-composer-file-name></span>
+      <button type="button" class="tt-iconbtn tt-iconbtn-sm" data-tt-composer-clear aria-label="Quitar el archivo"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+    </p>
+    {% endif %}
+    <div class="tt-composer-row">
       {% if c.can_upload %}
-      <div class="tt-rev-attach">
-        <label class="tt-label" for="tt-rev-file">Adjuntar (PDF o Word)</label>
-        <input type="file" id="tt-rev-file" name="archivo" class="tt-field tt-rev-file-input"
-               accept=".pdf,.doc,.docx">
-      </div>
+      <input type="file" id="tt-rev-file" name="archivo" class="tt-composer-input-file" tabindex="-1"
+             accept=".pdf,.doc,.docx" aria-label="Adjuntar un archivo PDF o Word">
+      <button type="button" class="tt-composer-btn" data-tt-pick="tt-rev-file"
+              aria-label="Adjuntar un archivo (PDF o Word)" title="Adjuntar PDF o Word">
+        <i class="bi bi-paperclip" aria-hidden="true"></i></button>
       {% endif %}
-      <button type="submit" id="tt-rev-send" class="btn btn-sm tt-btn-ink">
-        <i class="bi bi-send me-1" aria-hidden="true"></i>Enviar</button>
+      <label class="visually-hidden" for="tt-rev-body-input">Mensaje al alumno y a los sinodales</label>
+      <textarea id="tt-rev-body-input" name="body" class="tt-composer-text" rows="1"
+                maxlength="4000" placeholder="Escribe un mensaje…" data-tt-composer-text></textarea>
+      <button type="submit" id="tt-rev-send" class="tt-composer-send" aria-label="Enviar">
+        <i class="bi bi-send-fill" aria-hidden="true"></i></button>
     </div>
   </form>
   {% endif %}
   {% else %}
-  <p id="tt-rev-readonly" class="tt-rev-note"><i class="bi bi-lock" aria-hidden="true"></i>{{ c.readonly_msg }}</p>
+  <p id="tt-rev-readonly" class="tt-chat-readonly"><i class="bi bi-lock" aria-hidden="true"></i>{{ c.readonly_msg }}</p>
   {% endif %}
 </div>

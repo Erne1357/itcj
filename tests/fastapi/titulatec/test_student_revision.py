@@ -19,6 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
 
+import lxml.html
 import pytest
 
 from itcj2.apps.titulatec.pages import student as student_pages
@@ -215,6 +216,21 @@ class TestPagina:
         assert "Sube la primera versión de tu proyecto" in html
         assert "Sin versiones todavía." in html
         assert "Subir nueva versión" not in html
+        # El panel de subida nace abierto: es lo único que le toca hacer.
+        (panel,) = lxml.html.fromstring(html).xpath('//*[@id="tt-rv-upload"]')
+        assert panel.get("hidden") is None
+        assert 'id="tt-rv-upload-open"' not in html
+
+    def test_con_version_la_franja_ofrece_la_siguiente(self, caso, client_as):
+        c = caso()
+
+        doc = lxml.html.fromstring(client_as(c.student).get(BASE).text)
+
+        (abrir,) = doc.xpath('//*[@id="tt-rv-upload-open"]')
+        assert abrir.get("aria-label") == "Subir versión 2"
+        assert abrir.get("data-tt-chat-toggle") == "tt-rv-upload"
+        assert doc.xpath('//*[@id="tt-rv-upload"]')[0].get("hidden") is not None
+        assert "Se sube como versión 2" in doc.xpath('//*[@id="tt-rv-ver-head"]')[0].text_content()
 
     def test_el_panel_muestra_los_votos_de_la_version_vigente(self, caso, client_as,
                                                               db_session):
@@ -499,6 +515,8 @@ class TestRefresco:
         assert 'id="tt-rv-poll" hx-swap-oob="outerHTML" hidden' in resp.text
         assert 'id="tt-rv-actions"' in resp.text and "solo para consulta" in resp.text
         assert "tt-rv-form-msg" not in resp.text
+        assert 'id="tt-rv-upload" class="tt-chat-upload" hx-swap-oob="true" hidden' in resp.text
+        assert 'id="tt-rv-pin" class="tt-chat-pin" hx-swap-oob="true"' in resp.text
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,44 @@
+{# Panel para subir una versión del proyecto (rediseño de chat 2026-10-27). Lo
+   despliega «Subir versión N» de la franja fijada; nace ABIERTO mientras no
+   haya ninguna versión (es lo único que el alumno tiene que hacer). Tras una
+   subida buena se pliega solo (`data-tt-close-on-success`). Raíz
+   `#tt-rv-upload`: el refresco la reemplaza fuera de banda (`oob`) cuando la
+   revisión deja de estar abierta. Variables: is_open, has_version,
+   review_max_mb, err_ver_id, review_status (el número de la versión que se
+   subirá lo dice `_ver_head.html`, que la respuesta de cada envío re-pinta).
+
+   El formulario lleva `data-tt-review-poll`: `js/shared/review-thread.js` le
+   agrega `after` (el último id pintado) y la respuesta del POST trae también
+   lo que otros escribieron entre refrescos, no solo lo propio. #}
+{% if is_open %}
+<section id="tt-rv-upload" class="tt-chat-vote tt-chat-upload" aria-labelledby="tt-rv-ver-title"{% if oob %} hx-swap-oob="true"{% endif %}{% if has_version %} hidden{% endif %}>
+  <form id="tt-rv-form-ver" class="tt-rvs-form" novalidate
+        data-tt-review-form="#tt-rv-list" data-tt-review-poll="#tt-rv-list"
+        data-tt-close-on-success="tt-rv-upload"
+        hx-post="/titulatec/student/revision/version" hx-encoding="multipart/form-data"
+        hx-target="#tt-rv-list" hx-swap="beforeend"
+        hx-disabled-elt="find button[type=submit]">
+    <div class="tt-chat-vote-head">
+      {% with oob=False %}{% include "titulatec/partials/student/revision/_ver_head.html" %}{% endwith %}
+      {% if has_version %}
+      <button type="button" class="tt-iconbtn tt-iconbtn-sm" data-tt-chat-toggle="tt-rv-upload"
+              aria-controls="tt-rv-upload" aria-expanded="true" aria-label="Cerrar"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+      {% endif %}
+    </div>
+    <input id="tt-rv-file-ver" type="file" name="archivo" accept=".pdf,.doc,.docx"
+           class="tt-composer-input-file" tabindex="-1" aria-label="Archivo de tu proyecto">
+    <button type="button" class="tt-upload-pick" data-tt-pick="tt-rv-file-ver">
+      <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i>
+      <span class="tt-upload-pick-text" data-tt-pick-label="Elegir el archivo de tu proyecto">Elegir el archivo de tu proyecto</span>
+    </button>
+    <div id="{{ err_ver_id }}" class="tt-rvs-err" role="alert"></div>
+    <div class="tt-rev-buttons">
+      <button type="submit" class="btn tt-btn-ink tt-rvs-send">
+        <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Subir versión
+      </button>
+    </div>
+  </form>
+</section>
+{% else %}
+<section id="tt-rv-upload" class="tt-chat-upload"{% if oob %} hx-swap-oob="true"{% endif %} hidden></section>
+{% endif %}
