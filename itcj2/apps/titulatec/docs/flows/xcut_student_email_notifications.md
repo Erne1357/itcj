@@ -621,6 +621,7 @@ reasignar NIP, reenviar el aviso de acceso) siguen en línea.
 | `enrollment_rejected` | `EnrollmentRequestService.reject` → `StudentMail.enrollment_rejected` | SOLO la solicitud (`user_id` NULL) | `req.contact_email` (personal) | la solicitud ya no está `rejected` | `rejection_sent_at` |
 | `already_enrolled` | `EnrollmentRequestService.create` (rama del proceso vivo, `POST /inscripcion`) → `StudentMail.already_enrolled` | proceso vivo + alumno | institucional (E8: nunca el tecleado) | nunca | — |
 | `process_cancelled` | `ProcessService.cancel` → `StudentMail.process_cancelled` | proceso + alumno | institucional + personal (`email_helper.process_cancelled_recipients`, compartido con el envío en línea) | el proceso ya no está `cancelled` | — |
+| `process_reactivated` | `ProcessService.reactivate` → `StudentMail.process_reactivated` | proceso + alumno | los mismos que `process_cancelled` | el proceso se volvió a revocar | — |
 
 - **Esquema**: `titulatec_email_outbox.enrollment_request_id` (BigInteger, FK, NULL, índice) y
   `user_id` NULL-able. La regla «toda fila lleva alumno o solicitud» es de la aplicación

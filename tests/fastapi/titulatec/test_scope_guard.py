@@ -647,7 +647,8 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # `POST /admin/appointments/{id}/documents/{tipo}/reemplazo` y `/aprobar`
     # (panel de atender) y `POST /admin/processes/{id}/documents/{tipo}/reemplazo`
     # (expediente).
-    assert revisadas == 29, (
+    # 30 desde 2026-10-27: + `POST /admin/processes/{id}/reactivar`.
+    assert revisadas == 30, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

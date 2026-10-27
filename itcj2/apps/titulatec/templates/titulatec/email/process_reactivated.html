@@ -1,0 +1,21 @@
+{# Aviso de revocación deshecha (`TitulaTecEmailHelper.send_process_reactivated`).
+   Mismas reglas que `process_cancelled.html`: sin folio ni número de control,
+   porque va también al correo PERSONAL que tecleó quien llenó el formulario. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% block titulo %}Tu inscripción está activa de nuevo — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  <strong>Tu inscripción al proceso de titulación fue reactivada</strong>.
+  Puedes continuar tu trámite desde donde se quedó.
+</p>
+<p style="margin:0 0 24px;text-align:center;">
+  <a href="{{ app_url|e }}"
+     style="display:inline-block;background-color:#1F3D7A;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:6px;font-weight:700;">
+    Ver mi proceso</a>
+</p>
+<p style="margin:0;color:#607D8B;font-size:13px;">
+  Si tenías una cita de cotejo, se canceló al revocarse tu inscripción;
+  revisa en la plataforma cómo agendar una nueva.
+</p>
+{% endblock %}

@@ -87,7 +87,7 @@ OUTBOX_STATUSES = ("pending", "sent", "failed", "no_recipient", "obsolete")
 # §3.3): observar (con el motivo) y rehabilitar; tambien individuales. Despues,
 # `library_payment_held` (spec 2026-10-07-titulatec-liberados-biblioteca-
 # helpdesk-design.md §2): Caja cobro una observacion CON ADEUDO y el pago
-# queda retenido hasta que Biblioteca active; individual. Los 4
+# queda retenido hasta que Biblioteca active; individual. Los 5
 # del final son los correos de INSCRIPCION sin secreto (`ENROLLMENT_KINDS`,
 # abajo; spec 2026-10-05-titulatec-rendimiento-design.md §3.7): individuales,
 # sin `group_key`. Sin CHECK en la BD: crecer el catalogo no lleva migracion
@@ -115,16 +115,17 @@ OUTBOX_KINDS = (
     "enrollment_rejected",
     "already_enrolled",
     "process_cancelled",
+    "process_reactivated",
 )
 
 # Correos de la INSCRIPCION que pasan por la bandeja (P-D1): el aviso con folio
 # al abrir la liga (`EnrollmentRequestService.verify`), el rechazo
 # (`.reject`), «ya tienes un proceso» (`.create`, rama del proceso vivo) y la
-# revocacion (`ProcessService.cancel`). Mismas plantillas y destinatarios que
+# revocacion (`ProcessService.cancel`) y su reversa (`.reactivate`). Mismas plantillas y destinatarios que
 # su `TitulaTecEmailHelper.send_*`; el despachador los manda por su propio
 # camino (`MailDispatcher._unidad_inscripcion`), no por el del proceso.
 ENROLLMENT_KINDS = ("enrollment_verified", "enrollment_rejected", "already_enrolled",
-                    "process_cancelled")
+                    "process_cancelled", "process_reactivated")
 
 # Mensaje de la regla «alumno o solicitud» (lo que levanta el `before_insert`).
 _SIN_ANCLA = ("Toda fila del outbox lleva alumno o solicitud "
