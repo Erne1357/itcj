@@ -374,4 +374,60 @@ def test_presupuesto_de_consultas_no_crece_con_los_procesos(tab, db_session, yo,
         medidas.append(cont.sentencias)
 
     assert len(medidas[0]) == len(medidas[1]), medidas
-    assert len(medidas[0]) <= 4, medidas
+    assert len(medidas[0]) <= 5, medidas      # + el último mensaje de cada fila
+
+
+# ---------------------------------------------------------------------------
+# Vista previa del último mensaje (rediseño de chat, 2026-10-27)
+# ---------------------------------------------------------------------------
+class TestVistaPrevia:
+    def test_ultimo_mensaje_con_autor_y_marca_corta(self, db_session, yo, caso):
+        from itcj2.apps.titulatec.services.review_service import ReviewService
+
+        c = caso(yo)
+        ReviewService.post_message(db_session, c.process, c.student.id, body="Buenas tardes")
+        ReviewService.post_message(db_session, c.process, c.teachers["vocal"].id,
+                                   body="Revisen   el\nanexo B")
+
+        (fila,) = _listar(db_session, yo.id, "por_revisar")["page"].items
+        assert fila["last_text"] == "Revisen el anexo B"            # espacios colapsados
+        assert fila["last_who"] == c.teachers["vocal"].first_name.split()[0].capitalize()
+        assert fila["last_label"] and fila["last_icon"] is None
+        assert fila["initials"] == (c.student.first_name[:1] + c.student.last_name[:1]).upper()
+
+        ReviewService.post_message(db_session, c.process, yo.id, body="Lo reviso")
+        (fila,) = _listar(db_session, yo.id, "por_revisar")["page"].items
+        assert (fila["last_who"], fila["last_text"]) == ("Tú", "Lo reviso")
+
+    def test_adjunto_sin_texto_y_texto_largo(self, db_session, yo, caso):
+        from itcj2.apps.titulatec.services.review_service import ReviewService
+
+        c = caso(yo)
+        ReviewService.post_message(db_session, c.process, c.student.id, body=None,
+                                   raw=PDF, original_name="anexo.pdf")
+        (fila,) = _listar(db_session, yo.id, "por_revisar")["page"].items
+        assert (fila["last_text"], fila["last_icon"]) == ("anexo.pdf", "paperclip")
+
+        ReviewService.post_message(db_session, c.process, c.student.id, body="x" * 600)
+        (fila,) = _listar(db_session, yo.id, "por_revisar")["page"].items
+        assert len(fila["last_text"]) <= 140 and fila["last_text"].endswith("…")
+
+    def test_sin_mensajes_queda_vacia(self, db_session, yo, caso):
+        from itcj2.apps.titulatec.models import ChatMessage
+
+        c = caso(yo)
+        db_session.query(ChatMessage).filter_by(chat_id=c.chat.id).delete()
+        db_session.flush()
+        (fila,) = _listar(db_session, yo.id, "por_revisar")["page"].items
+        assert (fila["last_text"], fila["last_who"], fila["last_label"]) == ("", "", "")
+
+
+@pytest.mark.parametrize("cuando, esperado", [
+    (datetime(2026, 10, 27, 9, 5), "09:05"),
+    (datetime(2026, 10, 26, 23, 59), "Ayer"),
+    (datetime(2026, 3, 4, 8, 0), "4 mar"),
+    (datetime(2025, 12, 31, 8, 0), "31 dic 2025"),
+])
+def test_cuando_corto(cuando, esperado):
+    from itcj2.apps.titulatec.utils.dates_es import cuando_corto
+    assert cuando_corto(cuando, hoy=date(2026, 10, 27)) == esperado

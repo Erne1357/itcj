@@ -60,6 +60,19 @@ def dia_mes_hora(dt: datetime) -> str:
     return f"{dia_mes(dt)} a las {hora(dt)}"
 
 
+def cuando_corto(dt: datetime, *, hoy: date | None = None) -> str:
+    """Marca de una lista de conversaciones: '14:00' hoy, 'Ayer', '12 oct' este
+    año, '12 oct 2025' otro año."""
+    hoy = hoy or db_now().date()
+    d = _fecha(dt)
+    if d == hoy:
+        return hora(dt)
+    if (hoy - d).days == 1:
+        return "Ayer"
+    corto = f"{d.day} {MESES[d.month][:3]}"
+    return corto if d.year == hoy.year else f"{corto} {d.year}"
+
+
 def faltan_dias(d: date | datetime, *, hoy: date | None = None) -> int:
     """Días de calendario de hoy a la fecha de `d`. Negativo si ya pasó."""
     return (_fecha(d) - (hoy or db_now().date())).days

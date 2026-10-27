@@ -26,8 +26,9 @@ Dos pasadas, como Documentos y Procesos (CLAUDE.md de la app §18): el universo
 del docente (una consulta, con búsqueda y alcance en SQL) se clasifica, se
 cuenta y se ordena en Python -son sus asignaciones: decenas, no miles-; la
 segunda pasada solo presenta la página: «N nuevos» (`unread_counts`, una
-consulta) y el plazo con el calendario de días inhábiles (una consulta, solo
-si alguna fila de la página lo necesita). Número FIJO de consultas: no crece
+consulta), el último mensaje de cada conversación (una consulta) y el plazo
+con el calendario de días inhábiles (una consulta, solo si alguna fila de la
+página lo necesita). Número FIJO de consultas: no crece
 con los procesos.
 """
 from __future__ import annotations
@@ -63,6 +64,40 @@ def _nombre_lista(first, last, middle) -> str:
     """«PATERNO MATERNO, NOMBRE» (como las otras bandejas)."""
     apellidos = " ".join(p for p in (last, middle) if p)
     return f"{apellidos}, {first}" if first else apellidos
+
+
+def _iniciales(first, last) -> str:
+    """«AG» para el avatar de la fila (nombre + paterno)."""
+    return "".join((p or "").strip()[:1] for p in (first, last)).upper() or "?"
+
+
+# Vista previa del último mensaje de la fila (estilo lista de chats).
+_PREVIEW_MAX = 140
+_PREVIEW_ICON = {"version": "file-earmark-arrow-up", "vote": "check2-square",
+                 "system": "info-circle"}
+
+
+def _preview(m) -> tuple[str, str | None]:
+    """`(texto, icono)` de la vista previa: la primera línea útil del cuerpo
+    (en un voto, su encabezado), o el nombre del adjunto si no hay texto."""
+    texto = " ".join((m.body or "").split("\n", 1)[0].split()) if m.kind == "vote" \
+        else " ".join((m.body or "").split())
+    icono = _PREVIEW_ICON.get(m.kind)
+    if not texto and m.attachment_name:
+        texto, icono = m.attachment_name, "paperclip"
+    if len(texto) > _PREVIEW_MAX:
+        texto = texto[:_PREVIEW_MAX - 1].rstrip() + "…"
+    return texto, icono
+
+
+def _quien(m, user_id: int) -> str:
+    """Prefijo de la vista previa: «Tú», el nombre de pila del autor o nada
+    (mensaje del sistema)."""
+    if m.author_id is None:
+        return ""
+    if m.author_id == user_id:
+        return "Tú"
+    return ((m.first_name or "").split() or [""])[0].capitalize()
 
 
 class ReviewInboxService:
@@ -186,6 +221,7 @@ class ReviewInboxService:
             "folio": proc.folio,
             "process_status": proc.status,
             "student_name": _nombre_lista(row.first_name, row.last_name, row.middle_name),
+            "initials": _iniciales(row.first_name, row.last_name),
             "control_number": row.control_number,
             "program_name": row.program_name,
             "modality_name": proc.modality.name if proc.modality is not None else None,
@@ -204,6 +240,7 @@ class ReviewInboxService:
             # Segunda pasada (solo la página):
             "unread": 0, "due": None, "due_label": "", "semaphore": None,
             "version_label": "", "closed_label": "",
+            "last_text": "", "last_who": "", "last_icon": None, "last_label": "",
         }
 
     @staticmethod
@@ -232,7 +269,9 @@ class ReviewInboxService:
         `process_id, folio, process_status, student_name, control_number,
         program_name, modality_name, role, role_label, counts, rule_error,
         chat_id, version, version_at, version_label, my_verdict, state_label,
-        released, revoked, closed_at, closed_label, unread` («N nuevos») y,
+        released, revoked, closed_at, closed_label, unread` («N nuevos»),
+        `initials`, el último mensaje (`last_text`, `last_who`, `last_icon`,
+        `last_label`: «14:00», «Ayer», «12 oct») y,
         solo en «Por revisar», `due`, `due_label`, `semaphore` (`ok|warn|late`,
         plazo de §9.3 con el calendario de días inhábiles). `counts` respeta la
         búsqueda (no la pestaña ni la página). Pestaña desconocida ->
@@ -261,16 +300,39 @@ class ReviewInboxService:
     # Pasada 2: solo la página
     # ------------------------------------------------------------------
     @staticmethod
+    def _last_messages(db: Session, chat_ids) -> dict:
+        """`{chat_id: fila}` con el último mensaje (mayor id) de cada
+        conversación y el nombre de pila de su autor. UNA consulta; sin ids,
+        ninguna."""
+        from itcj2.apps.titulatec.models import ChatMessage
+        from itcj2.core.models.user import User
+
+        if not chat_ids:
+            return {}
+        ultimo = (select(func.max(ChatMessage.id))
+                  .where(ChatMessage.chat_id.in_(chat_ids))
+                  .group_by(ChatMessage.chat_id))
+        filas = (db.query(ChatMessage.chat_id, ChatMessage.kind, ChatMessage.body,
+                          ChatMessage.author_id, ChatMessage.attachment_name,
+                          ChatMessage.created_at, User.first_name)
+                 .outerjoin(User, User.id == ChatMessage.author_id)
+                 .filter(ChatMessage.id.in_(ultimo))
+                 .all())
+        return {f.chat_id: f for f in filas}
+
+    @staticmethod
     def _present(db: Session, user_id: int, rows: list, *, tab: str) -> None:
-        """«N nuevos», fechas legibles y, en «Por revisar», el plazo con su
-        semáforo. A lo más 2 consultas, sin importar cuántas filas."""
+        """«N nuevos», el último mensaje (vista previa), fechas legibles y, en
+        «Por revisar», el plazo con su semáforo. A lo más 3 consultas, sin
+        importar cuántas filas."""
         from itcj2.apps.titulatec.services.review_service import ReviewService
-        from itcj2.apps.titulatec.utils.dates_es import dia_largo
+        from itcj2.apps.titulatec.utils.dates_es import cuando_corto, dia_largo
 
         if not rows:
             return
-        nuevos = ReviewService.unread_counts(db, user_id,
-                                             [r["chat_id"] for r in rows if r["chat_id"]])
+        chat_ids = [r["chat_id"] for r in rows if r["chat_id"]]
+        nuevos = ReviewService.unread_counts(db, user_id, chat_ids)
+        ultimos = ReviewInboxService._last_messages(db, chat_ids)
         con_plazo = [r for r in rows if tab == "por_revisar" and r["version_at"] is not None]
         feriados = frozenset()
         if con_plazo:
@@ -281,6 +343,11 @@ class ReviewInboxService:
         hoy = db_now().date()
         for r in rows:
             r["unread"] = int(nuevos.get(r["chat_id"], 0)) if r["chat_id"] else 0
+            ultimo = ultimos.get(r["chat_id"])
+            if ultimo is not None:
+                r["last_text"], r["last_icon"] = _preview(ultimo)
+                r["last_who"] = _quien(ultimo, user_id)
+                r["last_label"] = cuando_corto(ultimo.created_at, hoy=hoy)
             if r["version_at"] is not None:
                 r["version_label"] = dia_largo(r["version_at"])
             if r["closed_at"] is not None:
