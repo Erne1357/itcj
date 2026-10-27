@@ -121,6 +121,7 @@ símbolo del servicio retirado vuelve a aparecer en un `.py`.
    NIP, la devuelve con nota o reasigna el NIP ([Accesos](xcut_computer_center_access.md)).
 9. 🏛️ **Revocar inscripción** (motivo obligatorio): en el expediente (`#exp-revocar-abrir` → modal
    `#exp-modal-revocar`) y en Solicitudes › Inscritas. Ver [Revocar](#revocar-inscripción).
+   Se deshace con «Reactivar inscripción» en los mismos dos sitios ([Reactivar](#reactivar-inscripción)).
 
 ## Secuencia
 
@@ -403,7 +404,25 @@ resucita.
 la persona **sí** puede inscribirse en **otra** convocatoria. En la **misma** no: hay una sola fila
 por `(alumno, convocatoria)` e `import_rows` reutilizaría la revocada; aprobar y abrir la liga
 responden «Esa persona tiene una inscripción revocada en esta convocatoria; solo puede inscribirse
-en otra.». No existe «des-revocar».
+en otra.». Para readmitirla en la misma, se **reactiva** (abajo).
+
+## Reactivar inscripción
+
+Desde 2026-10-27. «Reactivar inscripción» en el banner `#exp-revocada` del expediente
+(`#exp-reactivar`, `POST /titulatec/admin/processes/{pid}/reactivar`) y en la fila revocada de
+Solicitudes › Inscritas (`POST /titulatec/admin/solicitudes/{id}/reactivar`). Mismo permiso
+(`titulatec.process.api.cancel`), alcance y cortes que revocar; sin motivo, con confirmación
+(`hx-confirm` → modal). Escritor único: `ProcessService.reactivate`, con los mismos candados que
+`cancel`:
+
+- vuelve al `previous_status` del último `process_cancelled`; si era `on_hold` y hoy hay una
+  convocatoria abierta, a `active` (la reanudación ya lo habría movido);
+- fases, documentos y requisitos quedan como estaban; la cita que la revocación canceló no revive;
+- se niega (400) si no está revocada o si el alumno ya tiene **otro** proceso vivo (se inscribió en
+  otra convocatoria): «El alumno ya tiene otra inscripción vigente (folio …)»;
+- evento `process_reactivated` (`payload.status`), aviso en la app `PROCESS_REACTIVATED` y correo
+  `process_reactivated` (outbox, mismos buzones que la revocación; obsoleto si se vuelve a revocar
+  antes de salir). El correo de la revocación que siga en cola sale obsoleto.
 
 ## CLI
 

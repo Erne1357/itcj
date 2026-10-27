@@ -52,8 +52,9 @@ stateDiagram-v2
     active --> completed: 🤖 se aprueba la última fase aplicable
     active --> cancelled: 🏛️ revocar inscripción (motivo obligatorio)
     on_hold --> cancelled: 🏛️ revocar inscripción
+    cancelled --> active: 🏛️ reactivar inscripción (2026-10-27)
+    cancelled --> on_hold: 🏛️ reactivar (estaba pausado y no hay convocatoria abierta)
     completed --> [*]
-    cancelled --> [*]
 ```
 
 **Regla de pausa (D12, 2026-10-22).** Cerrar una convocatoria **solo pausa a quien aún no llegó a su primer
@@ -67,8 +68,9 @@ convocatoria. Detalle: [Detalle de convocatoria](phase0_school_services_cohort_d
 
 **`cancelled` se escribe desde 2026-09-25** y tiene un solo escritor: `ProcessService.cancel`
 (revocables = `REVOCABLE_STATUSES` = `active`/`on_hold`; `completed` no; una ya revocada responde
-«Esta inscripción ya estaba revocada.» sin escribir). Es terminal: no hay «des-revocar», y reabrir
-la convocatoria no la resucita (la pausa/reanudación solo mueve `active`↔`on_hold`). Deja
+«Esta inscripción ya estaba revocada.» sin escribir). Desde 2026-10-27 se deshace con
+`ProcessService.reactivate` (ver [Reactivar](xcut_sii_eligibility.md#reactivar-inscripción)); fuera de
+eso, reabrir la convocatoria no la resucita (la pausa/reanudación solo mueve `active`↔`on_hold`). Deja
 `ProcessEvent(process_cancelled)` con el motivo en el payload, cancela la cita vigente si está
 `scheduled`/`confirmed`, y avisa al alumno después del commit. Los lectores de `status` se decidieron
 sitio por sitio (excluir / etiquetar «Revocado» / bloquear); una revocada no cuenta como proceso

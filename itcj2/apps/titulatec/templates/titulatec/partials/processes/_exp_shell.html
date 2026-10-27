@@ -75,6 +75,16 @@
         {%- if revocada.when %} · {{ revocada.when }}{% endif %}
         {%- if revocada.actor %} · {{ revocada.actor }}{% endif %}
         {% if revocada.reason %}<p class="mb-0">{{ revocada.reason }}</p>{% endif %}
+        {# Reactivar: confirmación por el puente `hx-confirm` de titulatec-utils.js
+           (modal, nunca el confirm() nativo). #}
+        {% if can_reactivate %}
+        <button type="button" id="exp-reactivar" class="btn btn-sm tt-btn-ghost mt-2"
+                hx-post="{{ BASE }}/reactivar{{ Q }}"
+                hx-target="#exp-shell" hx-swap="morph:outerHTML"
+                hx-confirm="Reactivar inscripción|{{ student.name }} vuelve a estar inscrito y su proceso sigue donde se quedó. Si tenía cita de cotejo, tendrá que agendar otra. Se le avisa en la app y por correo."
+                data-tt-confirm-ok="Reactivar">
+          <i class="bi bi-arrow-counterclockwise me-1" aria-hidden="true"></i>Reactivar inscripción</button>
+        {% endif %}
       </div>
     </div>
     {% endif %}

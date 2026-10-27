@@ -685,7 +685,8 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # 47: + `GET /admin/sinodales/{id}/anexo.pdf` (fase 6 §9.3, PDF desde Sinodales).
     # 46 desde 2026-10-23: − `GET /admin/titulacion/formato-b/{id}/documento/{tipo}`
     # (la pestaña Titulación ya no muestra los documentos de la fase 1).
-    assert revisadas == 46, (
+    # 47 desde 2026-10-27: + `POST /admin/processes/{id}/reactivar` (main, PR #87).
+    assert revisadas == 47, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` (o, en una\n"
         "ruta del sinodal, `ReviewService.assert_participant`) como PRIMERA\n"

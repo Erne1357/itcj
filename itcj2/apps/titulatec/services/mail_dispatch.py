@@ -234,7 +234,7 @@ def _destinatarios_inscripcion(db: Session, kind: str, *, req, process, user) ->
     `TitulaTecEmailHelper` en línea (spec 2026-10-05 §3.7, «el mismo que hoy»;
     tabla en el docstring de `email_helper`). El rechazo, al correo PERSONAL
     de la solicitud; el folio y «ya inscrito», al INSTITUCIONAL de la cuenta
-    (E8: nunca al correo tecleado); la revocación, a los dos
+    (E8: nunca al correo tecleado); la revocación y su reversa, a los dos
     (`process_cancelled_recipients`, compartido con el envío en línea)."""
     from itcj2.apps.titulatec.services import email_helper
     from itcj2.core.utils.email_tools import student_email
@@ -244,7 +244,7 @@ def _destinatarios_inscripcion(db: Session, kind: str, *, req, process, user) ->
         return [req.contact_email] if correo else []
     if user is None:
         return []
-    if kind == "process_cancelled":
+    if kind in ("process_cancelled", "process_reactivated"):
         return email_helper.process_cancelled_recipients(db, process, user)
     correo = student_email(user)
     return [correo] if correo else []

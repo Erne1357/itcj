@@ -289,6 +289,7 @@ _EVENT_LABELS = {
     # `ProcessService.cancel`: la inscripción se revocó (texto neutro: no se
     # atribuye a un área; mismo término que la tarjeta del dashboard).
     "process_cancelled":           "Tu inscripción fue revocada",
+    "process_reactivated":         "Tu inscripción fue reactivada",
     "enrollment_self_service":     "Te inscribiste desde el formulario público",
     # `EnrollmentRequestService.reassign_nip` (el correo con tu NIP no salió).
     "enrollment_access_reset":     "Se reasignó tu NIP de acceso",

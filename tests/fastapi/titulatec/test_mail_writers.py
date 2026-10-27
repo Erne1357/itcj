@@ -86,6 +86,7 @@ EVENTO_A_CORREO = {
     # Revocar la inscripción (spec 2026-10-05-titulatec-rendimiento §3.7, P-D1):
     # su aviso ya no sale en línea, se encola.
     "process_cancelled": "process_cancelled",
+    "process_reactivated": "process_reactivated",
 }
 
 # Escritores que SÍ encolan: función -> la de `StudentMail` que deben llamar.
@@ -121,6 +122,7 @@ MAPEO = {
     # sus escritores (`verify`, `create`) no escribe estados vigilados; su
     # barrido propio vive en `test_outbox_inscripcion.py`.
     "ProcessService.cancel": "process_cancelled",
+    "ProcessService.reactivate": "process_reactivated",
     "EnrollmentRequestService.reject": "enrollment_rejected",
 }
 

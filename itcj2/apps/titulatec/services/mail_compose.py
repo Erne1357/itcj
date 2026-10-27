@@ -1277,6 +1277,20 @@ def _compose_process_cancelled(db: Session, rows: list, process, user) -> Compos
         {"first_name": user.first_name, "app_url": email_helper.STUDENT_URL})
 
 
+def _compose_process_reactivated(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Revocación deshecha (`send_process_reactivated`). Obsoleto si el
+    proceso se volvió a revocar antes de que saliera (D8)."""
+    from itcj2.apps.titulatec.services import email_helper
+
+    if process is None or user is None:
+        return Obsolete(_SIN_PROCESO)
+    if process.status == "cancelled":
+        return Obsolete("la inscripción se volvió a revocar")
+    return _inscripcion(
+        email_helper.SUBJECT_PROCESS_REACTIVATED, "process_reactivated.html",
+        {"first_name": user.first_name, "app_url": email_helper.STUDENT_URL})
+
+
 def _compose_enrollment(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """Entrada de los 4 de inscripción: una sola fila, coherente con el
     proceso y el alumno que se pasan (cualquiera de los dos puede faltar)."""
@@ -1335,6 +1349,7 @@ class MailComposer:
         "enrollment_rejected": _compose_enrollment_rejected,
         "already_enrolled": _compose_already_enrolled,
         "process_cancelled": _compose_process_cancelled,
+        "process_reactivated": _compose_process_reactivated,
     }
 
     @staticmethod

@@ -47,7 +47,7 @@
    ver survey_reviews_body.html): el puente `htmx:confirm` de
    titulatec-utils.js abre `TitulaTecUtils.confirmDialog` con el motivo (el SII
    no dijo «Apta», no hay consulta, el nombre no coincide o no se pudo
-   comparar; D7). Es el ÚNICO `hx-confirm` de la bandeja. Con el SII sin
+   comparar; D7). El otro `hx-confirm` es «Reactivar inscripción». Con el SII sin
    configurar (D11) hay un aviso arriba de la tabla, `#tt-req-sii-off`, sin
    «Reintentar consulta» ni «Se reintenta sola»; solo confirma una consulta
    VIEJA que marcó «No apta» o la identidad (`_approve_action`).
@@ -472,6 +472,17 @@
             {% if r.revoked %}
             <p class="small mt-1 mb-1"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i><strong>Inscripción
                revocada{% if r.revoked.reason %}:{% endif %}</strong> {{ r.revoked.reason }}</p>
+            {% if can_revoke and r.reactivable %}
+            <form class="tt-req-form tt-req-form--inline mt-1"
+                  hx-post="/titulatec/admin/solicitudes/{{ r.id }}/reactivar"
+                  hx-target="#tt-requests-body" hx-swap="outerHTML"
+                  hx-disabled-elt="find button"
+                  hx-confirm="Reactivar inscripción|Vuelve a estar inscrito y su proceso sigue donde se quedó. Si tenía cita de cotejo, tendrá que agendar otra. Se le avisa en la app y por correo."
+                  data-tt-confirm-ok="Reactivar">
+              {{ tab_fields(status, cohort_id, page.page, q) }}
+              <button type="submit" class="btn btn-sm tt-btn-ghost">Reactivar inscripción</button>
+            </form>
+            {% endif %}
             {% elif can_revoke and r.revocable %}
             <form class="tt-req-form tt-req-form--inline mt-1"
                   hx-post="/titulatec/admin/solicitudes/{{ r.id }}/revocar"
