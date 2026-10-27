@@ -519,7 +519,8 @@ def test_la_pagina_explica_los_dos_caminos(client_as, db_session, make_head, mon
 
 
 def test_la_bandeja_solo_confirma_al_aprobar_y_sin_js_ni_css_inline():
-    """`hx-confirm` SOLO en el formulario de aprobar (spec 2026-09-27 D7) y
+    """`hx-confirm` SOLO en los formularios de aprobar (spec 2026-09-27 D7) y
+    de reactivar una inscripción revocada (2026-10-27), y
     siempre con `data-tt-confirm-ok`, que es lo que lee el puente
     `htmx:confirm` → `TitulaTecUtils.confirmDialog`; sin él el modal diría
     «Confirmar» en el botón. Los estáticos viven en archivos externos."""
@@ -536,7 +537,8 @@ def test_la_bandeja_solo_confirma_al_aprobar_y_sin_js_ni_css_inline():
             f"{ruta.name}: hx-confirm fuera de una etiqueta")
         for etiqueta in etiquetas:
             assert etiqueta.startswith("<form"), f"{ruta.name}: {etiqueta}"
-            assert '/aprobar"' in etiqueta, f"{ruta.name}: hx-confirm fuera de aprobar"
+            assert ('/aprobar"' in etiqueta or '/reactivar"' in etiqueta), (
+                f"{ruta.name}: hx-confirm fuera de aprobar/reactivar")
             assert 'data-tt-confirm-ok="' in etiqueta, f"{ruta.name}: {etiqueta}"
 
 

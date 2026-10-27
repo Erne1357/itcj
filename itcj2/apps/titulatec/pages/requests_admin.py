@@ -97,6 +97,7 @@ _MSG_RECHECK_QUEUED = "Consulta al SII solicitada: el veredicto aparece al termi
 _MSG_RECHECK_NOT_QUEUED = "No se pudo solicitar la consulta; intenta de nuevo."
 _MSG_NO_REASON = "Escribe el motivo de la revocación: es lo que el alumno lee."
 _MSG_NOT_ENROLLED = "Esa solicitud no tiene una inscripción que revocar."
+_MSG_NOT_ENROLLED_REACT = "Esa solicitud no tiene una inscripción que reactivar."
 _MSG_NOTICE_RESENT = "Aviso reenviado."
 # Tras rechazar: el correo con el motivo quedó en el outbox (spec 2026-10-05
 # §3.7); sale con el despachador, no en la petición. Gemelo en
@@ -847,6 +848,9 @@ def _body_ctx(db, *, user_id: int, status, cohort_id, q=None, page=1,
             # lo pone `can_revoke`, arriba.
             "revocable": (r.status == "converted" and proc is not None
                           and proc.status in ProcessService.REVOCABLE_STATUSES),
+            # «Reactivar inscripción»: lo que `ProcessService.reactivate` acepta.
+            "reactivable": (r.status == "converted" and proc is not None
+                            and proc.status == "cancelled"),
             "revoked": ({"reason": revoked["reason"] or ""}
                         if revoked is not None else None),
             "note": r.review_note or "",
@@ -1313,6 +1317,51 @@ def _cuerpo_revocar(req_id, request, user, form):
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(_MSG_NOT_ENROLLED)})
         ok, msg = ProcessService.cancel(db, req.converted_process_id, reason=reason,
                                         actor_id=uid)
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+        ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,
+                        q=tab_q, page=tab_page, **_filters_from(form))
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/partials/requests_body.html", ctx)
+
+
+@router.post("/{req_id}/reactivar", name="titulatec.pages.requests.reactivate")
+async def reactivar(req_id: int, request: Request,
+                    user: dict = Depends(require_page_app("titulatec", perms=_CANCEL))):
+    """«Reactivar inscripción» desde Inscritas: deshace la revocación del
+    proceso de la solicitud con `ProcessService.reactivate`. Mismos cortes que
+    `revocar` (modo alterno, alcance por carrera con 404 liso, bandeja), sin
+    motivo; los rechazos del servicio son 400 con el mensaje."""
+    bloqueo = _alternate_mode_block()
+    if bloqueo is not None:
+        return bloqueo
+
+    form = await request.form()
+    return await run_in_threadpool(
+        _cuerpo_reactivar, req_id=req_id, request=request, user=user, form=form)
+
+
+def _cuerpo_reactivar(req_id, request, user, form):
+    """Cuerpo síncrono de `reactivar`: corre en el threadpool, no en el event loop."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    tab, tab_cohort = form.get("status"), _to_int(form.get("cohort_id"))
+    tab_q, tab_page = form.get("q"), form.get("page")
+
+    db = SessionLocal()
+    try:
+        uid = int(user["sub"])
+        scope = _officer_scope(db, uid)
+        req = _load_scoped_request(db, scope, req_id)
+        if req is None:
+            return Response(status_code=404)
+        _exigir_bandeja(db, uid)
+        if req.status != "converted" or not req.converted_process_id:
+            return Response(status_code=400,
+                            headers={"X-Tt-Error": _hdr(_MSG_NOT_ENROLLED_REACT)})
+        ok, msg = ProcessService.reactivate(db, req.converted_process_id, actor_id=uid)
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
         ctx = _body_ctx(db, user_id=uid, status=tab, cohort_id=tab_cohort,

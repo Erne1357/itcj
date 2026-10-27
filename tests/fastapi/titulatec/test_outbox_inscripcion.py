@@ -50,7 +50,7 @@ import itcj2.models  # noqa: F401
 AHORA = datetime(2001, 2, 3, 10, 0)
 PERSONAL = "personal.r6@example.invalid"
 KINDS = ("enrollment_verified", "enrollment_rejected", "already_enrolled",
-         "process_cancelled")
+         "process_cancelled", "process_reactivated")
 PREFIJO = "[TitulaTec ITCJ] "
 ASUNTO_RECHAZO = PREFIJO + "Sobre tu solicitud de inscripción"
 ASUNTO_FOLIO = PREFIJO + "Tu inscripción quedó registrada"
@@ -247,7 +247,7 @@ def make_cc(make_user, make_role, grant_user_role):
 # ===========================================================================
 # 1. Esquema: modelo y migración
 # ===========================================================================
-def test_el_catalogo_suma_los_4_kinds_de_inscripcion():
+def test_el_catalogo_suma_los_kinds_de_inscripcion():
     from itcj2.apps.titulatec.models.email_outbox import ENROLLMENT_KINDS, OUTBOX_KINDS
 
     assert ENROLLMENT_KINDS == KINDS
@@ -647,6 +647,50 @@ def test_la_revocacion_de_un_proceso_reactivado_queda_obsoleta(
         "obsolete", "la inscripción ya no está revocada")
 
 
+def test_la_reactivacion_se_encola_y_sale_a_los_dos_buzones(
+    db_session, make_student, make_process, make_user, graph,
+):
+    """`ProcessService.reactivate` encola su aviso en la misma transacción; al
+    despachar, la revocación pendiente queda obsoleta y sale la reactivación,
+    a los mismos buzones que la revocación."""
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    proc, _req = _revocable(db_session, make_student, make_process)
+    actor = make_user().id
+    assert ProcessService.cancel(db_session, proc.id, reason="x", actor_id=actor)[0]
+    assert ProcessService.reactivate(db_session, proc.id, actor_id=actor)[0]
+    _vencer(db_session, _filas(db_session, process_id=proc.id))
+    db_session.commit()
+
+    assert _despachar(db_session) == _conteo(sent=1, obsolete=1)
+
+    ((asunto, destinatarios, _html),) = graph.enviados
+    assert asunto == PREFIJO + "Tu inscripción a titulación está activa de nuevo"
+    assert len(destinatarios) == 2 and PERSONAL in destinatarios
+
+
+def test_la_reactivacion_de_una_revocada_otra_vez_queda_obsoleta(
+    db_session, make_student, make_process, make_user, graph,
+):
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+
+    proc, _req = _revocable(db_session, make_student, make_process)
+    actor = make_user().id
+    assert ProcessService.cancel(db_session, proc.id, reason="x", actor_id=actor)[0]
+    assert ProcessService.reactivate(db_session, proc.id, actor_id=actor)[0]
+    assert ProcessService.cancel(db_session, proc.id, reason="y", actor_id=actor)[0]
+    filas = _filas(db_session, process_id=proc.id, kind="process_reactivated")
+    _vencer(db_session, filas)
+    db_session.commit()
+
+    assert _despachar(db_session) == _conteo(obsolete=1)
+
+    assert graph.enviados == []
+    db_session.refresh(filas[0])
+    assert (filas[0].status, filas[0].last_error) == (
+        "obsolete", "la inscripción se volvió a revocar")
+
+
 def test_ya_inscrito_sale_al_institucional(db_session, make_cohort, make_student,
                                            make_process, seed_phase_defs, graph):
     from itcj2.core.utils.email_tools import student_email
@@ -724,6 +768,16 @@ def _escenario(kind, db, *, make_cohort, make_user, make_student, make_process,
 
     proc, _req = _revocable(db, make_student, make_process)
     actor = make_user().id
+
+    if kind == "process_reactivated":
+        assert ProcessService.cancel(db, proc.id, reason="x", actor_id=actor)[0]
+
+        def _encolar():
+            assert ProcessService.reactivate(db, proc.id, actor_id=actor)[0]
+
+        def _en_linea():
+            H.send_process_reactivated(db, proc)
+        return _en_linea, _encolar
 
     def _encolar():
         assert ProcessService.cancel(db, proc.id, reason="x", actor_id=actor)[0]
@@ -966,6 +1020,7 @@ def test_ningun_payload_de_inscripcion_lleva_secretos(
                   client_ip=None)
     assert ProcessService.cancel(db_session, proc.id, reason="x",
                                  actor_id=make_user().id)[0]
+    assert ProcessService.reactivate(db_session, proc.id, actor_id=make_user().id)[0]
 
     filas = (_filas(db_session, enrollment_request_id=verificada.id)
              + _filas(db_session, enrollment_request_id=rechazada.id)
@@ -991,6 +1046,7 @@ _EN_LINEA_A_COLA = {
     "send_enrollment_rejected": "enrollment_rejected",
     "send_already_enrolled": "already_enrolled",
     "send_process_cancelled": "process_cancelled",
+    "send_process_reactivated": "process_reactivated",
 }
 # Los ÚNICOS lugares que hoy mandan esos 4 correos (todo lo demás es el helper).
 _ESCRITORES = {
@@ -998,6 +1054,7 @@ _ESCRITORES = {
     "EnrollmentRequestService.reject": "send_enrollment_rejected",
     "EnrollmentRequestService.create": "send_already_enrolled",
     "ProcessService.cancel": "send_process_cancelled",
+    "ProcessService.reactivate": "send_process_reactivated",
 }
 
 

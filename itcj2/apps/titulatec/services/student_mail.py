@@ -257,6 +257,7 @@ class StudentMail:
         "enrollment_rejected": "Solicitud de inscripción rechazada",
         "already_enrolled": "Aviso de que ya tiene un proceso",
         "process_cancelled": "Inscripción revocada",
+        "process_reactivated": "Inscripción reactivada",
     }
 
     # ------------------------------------------------------------------
@@ -616,6 +617,15 @@ class StudentMail:
         folio ni número de control (va también al correo tecleado). Al ENVIAR
         solo sale si el proceso sigue revocado (D8)."""
         return StudentMail.enqueue(db, kind="process_cancelled", process=process,
+                                   payload={})
+
+    @staticmethod
+    @_best_effort
+    def process_reactivated(db: Session, process) -> bool:
+        """Revocación deshecha (`ProcessService.reactivate`): mismos buzones y
+        mismo payload VACÍO que `process_cancelled`. Al ENVIAR solo sale si el
+        proceso sigue sin revocar (D8)."""
+        return StudentMail.enqueue(db, kind="process_reactivated", process=process,
                                    payload={})
 
     @staticmethod

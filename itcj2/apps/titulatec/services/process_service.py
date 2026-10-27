@@ -34,6 +34,10 @@ _MSG_REASON_LONG = f"El motivo no puede pasar de {_REASON_MAX} caracteres."
 _MSG_ALREADY = "Esta inscripción ya estaba revocada."
 _MSG_COMPLETED = "El proceso ya concluyó: no se puede revocar."
 _MSG_OK = "Inscripción revocada."
+_MSG_NOT_CANCELLED = "Esta inscripción no está revocada."
+_MSG_OTHER_LIVE = ("El alumno ya tiene otra inscripción vigente (folio {folio}): "
+                   "no se puede reactivar esta.")
+_MSG_REACTIVATED = "Inscripción reactivada."
 
 
 class ProcessService:
@@ -166,6 +170,77 @@ class ProcessService:
                 logger.exception("[titulatec] No se pudo avisar la revocación del proceso %s",
                                  proc.id)
         return True, _MSG_OK
+
+    @staticmethod
+    def reactivate(db: Session, process_id: int, *,
+                   actor_id: int | None) -> tuple[bool, str]:
+        """Deshace la revocación. Dueña de la transacción. `(ok, mensaje)`.
+
+        Mismos candados que `cancel` (advisory de citas + `FOR NO KEY UPDATE`).
+        El proceso vuelve al estado que tenía al revocarse (`previous_status`
+        del último `process_cancelled`), salvo que fuera `on_hold` y hoy haya
+        una convocatoria abierta: la reanudación de `CohortService.set_window`
+        ya lo habría pasado a `active`. Fases, documentos y requisitos quedan
+        como estaban; la cita que `cancel` canceló NO revive (el alumno agenda
+        otra).
+
+        Se niega si el alumno ya tiene OTRO proceso vivo (se inscribió en otra
+        convocatoria tras la revocación): dos vivos rompen D5. Avisa en la app
+        y por correo (`StudentMail.process_reactivated`, mismo camino que el de
+        la revocación); el correo de la revocación que siga en cola sale como
+        obsoleto (`_compose_process_cancelled`).
+        """
+        from itcj2.apps.titulatec.models import Cohort, ProcessEvent, TitulationProcess
+        from itcj2.apps.titulatec.services.notify import notify_student
+        from itcj2.apps.titulatec.services.slot_service import SlotService
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+        from itcj2.core.utils.timezone import db_now
+
+        SlotService._lock_process(db, process_id)
+        proc = (db.query(TitulationProcess).filter_by(id=process_id)
+                .with_for_update(key_share=True).first())
+        if proc is None:
+            return False, _MSG_NOT_FOUND
+        db.refresh(proc)
+        if proc.status != "cancelled":
+            return False, _MSG_NOT_CANCELLED
+        otro = ProcessService.creditable_process(db, proc.student_id)
+        if otro is not None:
+            return False, _MSG_OTHER_LIVE.format(folio=otro.folio)
+
+        ev = (db.query(ProcessEvent)
+              .filter_by(process_id=proc.id, event_type="process_cancelled")
+              .order_by(ProcessEvent.created_at.desc(), ProcessEvent.id.desc())
+              .first())
+        nuevo = ((ev.payload or {}).get("previous_status") if ev is not None else None)
+        if nuevo not in ProcessService.REVOCABLE_STATUSES:
+            nuevo = "active"
+        if nuevo == "on_hold" and db.query(Cohort.id).filter(Cohort.status == "open").first():
+            nuevo = "active"
+
+        proc.status = nuevo
+        proc.updated_at = db_now()
+        db.add(ProcessEvent(
+            process_id=proc.id, actor_id=actor_id,
+            event_type="process_reactivated", phase_number=proc.current_phase,
+            payload={"status": nuevo},
+        ))
+        notify_student(db, proc.student_id, type="PROCESS_REACTIVATED",
+                       title="Tu inscripción a titulación fue reactivada",
+                       body="Entra a TitulaTec para continuar tu trámite.",
+                       process_id=proc.id)
+        encolado = StudentMail.process_reactivated(db, proc)
+        db.commit()
+
+        if not encolado:
+            # Correo apagado: en línea, como la revocación (invariante 5).
+            try:
+                from itcj2.apps.titulatec.services.email_helper import TitulaTecEmailHelper
+                TitulaTecEmailHelper.send_process_reactivated(db, proc)
+            except Exception:
+                logger.exception("[titulatec] No se pudo avisar la reactivación del proceso %s",
+                                 proc.id)
+        return True, _MSG_REACTIVATED
 
     @staticmethod
     def cancellation_info(db: Session, process) -> dict | None:

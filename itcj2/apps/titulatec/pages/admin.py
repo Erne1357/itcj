@@ -1319,6 +1319,7 @@ _EVENT_UI = {
     # `ProcessService.cancel`. El motivo viaja en el payload (`reason`) y
     # `_evento_detalle` ya lo pinta.
     "process_cancelled":            ("Inscripción revocada",      "slash-circle",           "danger"),
+    "process_reactivated":          ("Inscripción reactivada",    "arrow-counterclockwise", "success"),
     "document_uploaded":            ("Subió un documento",        "cloud-arrow-up",         "neutral"),
     "document_approved":            ("Documento aprobado",        "check-lg",               "success"),
     "document_rejected":            ("Documento rechazado",       "x-lg",                   "danger"),
@@ -1805,6 +1806,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     can_dictaminar_fase = False
     can_dictaminar_fb = False
     can_revoke = False
+    can_reactivate = False
     can_register_prior = False
     can_request_replacement = False
     # Pestañas que el actor puede abrir (spec 2026-10-07 §1.2): decide qué
@@ -1829,6 +1831,9 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         # solo sobre lo que `ProcessService.cancel` acepta revocar.
         can_revoke = ("titulatec.process.api.cancel" in _user_perms
                       and proc.status in ProcessService.REVOCABLE_STATUSES)
+        # «Reactivar inscripción»: el mismo permiso, sobre una revocada.
+        can_reactivate = ("titulatec.process.api.cancel" in _user_perms
+                          and proc.status == "cancelled")
         # Respaldo «Constancia previa…» / «Deshacer» (D9, spec 2026-10-01-
         # titulatec-biblioteca-caja-design.md §4.9): mismo criterio que
         # `can_mark_reqs` -sobre una inscripción revocada no hay nada que
@@ -1944,6 +1949,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "can_dictaminar_fase": can_dictaminar_fase,
         "can_dictaminar_fb": can_dictaminar_fb,
         "can_revoke": can_revoke,
+        "can_reactivate": can_reactivate,
         "revocada": revocada,
         "survey": survey,
         "library": library,
@@ -2504,6 +2510,41 @@ def _cuerpo_process_cancel(process_id, request, user, form):
         _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
         ok, msg = ProcessService.cancel(db, process_id, reason=reason,
                                         actor_id=int(user["sub"]))
+        if not ok:
+            return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
+        return _render_detail_body(request, db, process_id, int(user["sub"]))
+    finally:
+        db.close()
+
+
+@router.post("/processes/{process_id}/reactivar", name="titulatec.pages.admin.process_reactivate")
+async def process_reactivate(
+    process_id: int,
+    request: Request,
+    user: dict = Depends(require_page_app("titulatec", perms=["titulatec.process.api.cancel"])),
+):
+    """«Reactivar inscripción» desde el expediente: deshace la revocación.
+
+    Mismo permiso, alcance y respuesta que `process_cancel`; sin motivo (el
+    historial guarda quién y cuándo). Los rechazos de
+    `ProcessService.reactivate` (no revocada, otro proceso vivo) son 400 +
+    `X-Tt-Error`.
+    """
+    return await run_in_threadpool(
+        _cuerpo_process_reactivate, process_id=process_id, request=request, user=user)
+
+
+def _cuerpo_process_reactivate(process_id, request, user):
+    """Cuerpo síncrono de `process_reactivate`: corre en el threadpool."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.process_service import ProcessService
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+
+    db = SessionLocal()
+    try:
+        assert_process_in_scope(db, int(user["sub"]), process_id)
+        _exigir_vista_completa(db, int(user["sub"]))   # resumen -> 403 (D7)
+        ok, msg = ProcessService.reactivate(db, process_id, actor_id=int(user["sub"]))
         if not ok:
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(msg)})
         return _render_detail_body(request, db, process_id, int(user["sub"]))

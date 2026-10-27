@@ -23,14 +23,15 @@ class TestTablaYDominios:
     def test_dominio_de_status_es_el_del_spec(self):
         assert OUTBOX_STATUSES == ("pending", "sent", "failed", "no_recipient", "obsolete")
 
-    def test_dominio_de_kind_tiene_los_22_del_catalogo(self):
+    def test_dominio_de_kind_tiene_los_23_del_catalogo(self):
         """Los 11 del catálogo de 2026-09-28; los 4 del no adeudo de biblioteca
         (spec 2026-10-01-titulatec-biblioteca-caja-design.md §4.11); los 2 de
         «Con observaciones» (spec 2026-10-05-titulatec-biblioteca-observaciones);
         el pago retenido de la observación con adeudo (spec 2026-10-07-
         titulatec-liberados-biblioteca-helpdesk-design.md §2) y, al final y en
         este orden, los 4 correos de inscripción sin secreto (spec
-        2026-10-05-titulatec-rendimiento-design.md §3.7)."""
+        2026-10-05-titulatec-rendimiento-design.md §3.7) y la reactivación
+        (2026-10-27)."""
         assert OUTBOX_KINDS == (
             "docs_review",
             "phase_approved",
@@ -54,6 +55,7 @@ class TestTablaYDominios:
             "enrollment_rejected",
             "already_enrolled",
             "process_cancelled",
+            "process_reactivated",
         )
 
     def test_cada_kind_cabe_en_su_columna(self):

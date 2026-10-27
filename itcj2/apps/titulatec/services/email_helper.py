@@ -22,6 +22,7 @@ El destinatario lo decide CADA MÉTODO, nunca el llamador: ninguno recibe `to`.
   send_already_enrolled     "ya tienes un proceso"          INSTITUCIONAL (student_email(user))
   send_enrollment_done      folio al activarse la cuenta    INSTITUCIONAL
   send_process_cancelled    inscripción revocada (sin motivo) INSTITUCIONAL + PERSONAL
+  send_process_reactivated  revocación deshecha              INSTITUCIONAL + PERSONAL
 
 La liga de una cuenta existente viaja al correo que se tecleó en el formulario
 público. Es un riesgo aceptado, y la contención vive en `EnrollmentRequestService`:
@@ -82,6 +83,7 @@ SUBJECT_ALREADY_ENROLLED = "[TitulaTec ITCJ] Ya tienes un proceso de titulación
 SUBJECT_ENROLLMENT_DONE = "[TitulaTec ITCJ] Tu inscripción quedó registrada"
 SUBJECT_ENROLLMENT_REJECTED = "[TitulaTec ITCJ] Sobre tu solicitud de inscripción"
 SUBJECT_PROCESS_CANCELLED = "[TitulaTec ITCJ] Cambio en tu inscripción a titulación"
+SUBJECT_PROCESS_REACTIVATED = "[TitulaTec ITCJ] Tu inscripción a titulación está activa de nuevo"
 SUBJECT_USERNAME_CHANGED = "[TitulaTec ITCJ] Tu usuario ahora es tu número de control"
 
 
@@ -389,6 +391,28 @@ class TitulaTecEmailHelper:
             )
         except Exception:
             logger.exception("[titulatec] Error inesperado en send_process_cancelled")
+            return False
+
+    @staticmethod
+    def send_process_reactivated(db: Session, process) -> bool:
+        """Aviso de revocación DESHECHA (`ProcessService.reactivate`). `True`
+        si salió. Mismos buzones (`process_cancelled_recipients`) y mismas
+        reglas que `send_process_cancelled`: sin folio ni número de control."""
+        try:
+            from itcj2.core.models.user import User
+
+            user = db.get(User, process.student_id)
+            if user is None:
+                return False
+            return _deliver(
+                template="process_reactivated.html",
+                context={"first_name": user.first_name, "app_url": _STUDENT_URL},
+                subject=SUBJECT_PROCESS_REACTIVATED,
+                to=process_cancelled_recipients(db, process, user),
+                que="process_reactivated",
+            )
+        except Exception:
+            logger.exception("[titulatec] Error inesperado en send_process_reactivated")
             return False
 
     @staticmethod
