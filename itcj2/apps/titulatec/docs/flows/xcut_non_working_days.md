@@ -16,6 +16,7 @@
 1. Menú admin «Días inhábiles» → `/titulatec/admin/dias-inhabiles` (`pages/dias_inhabiles_admin.py`, nombres `titulatec.pages.dias_inhabiles.{home,body,add,remove}`). Fila de `_ADMIN_NAV` con el permiso `non_working_day.page.list` y **sin** entrada en `_NAV_PHASE_GATE`.
 2. Lista **por año** (el año por omisión es el de `db_now().date().year`; `?anio=` fuera de 2000-2100 o basura cae al actual) con navegación al año anterior y siguiente por `hx-get` a `/body`.
 3. Con `api.manage` ve los formularios: **agregar** (fecha de inicio, fecha de fin opcional, descripción) y **quitar** por día (la X de cada fila) o por rango (con confirmación `hx-confirm` + `data-tt-confirm-ok`). El formulario «Quitar un rango» manda `mode=range` y el servidor exige las DOS fechas: con «Al» vacío responde 200 con el error y no borra nada (antes tomaba `end = start` y quitaba un solo día tras una confirmación que hablaba de un rango). Sin `api.manage`, solo lectura.
+   **Periodos (2026-10-27):** la lista no pinta un renglón por día sino por PERIODO: días registrados seguidos con la misma descripción (los fines de semana no cortan, no se guardan), `pages/dias_inhabiles_admin.py::_agrupar`. El renglón dice el rango («lun 6 – vie 31 jul 2026»), la descripción y «N días hábiles»; su X quita el periodo entero (`mode=range` con sus dos fechas) y «Ver los N días» (`<details>`) despliega cada día con su propia X. 38 días de un año típico quedan en ~9 renglones.
 
 ## Secuencia
 

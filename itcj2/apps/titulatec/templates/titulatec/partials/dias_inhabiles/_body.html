@@ -54,22 +54,64 @@
 
 <section class="tt-dias-block" aria-labelledby="tt-dias-h-list">
   <h2 id="tt-dias-h-list" class="tt-dias-h">Registrados en {{ anio }}</h2>
+  {% if rows %}<p class="tt-dias-help">{{ rows|length }} {{ "día" if rows|length == 1 else "días" }} en {{ groups|length }} {{ "periodo" if groups|length == 1 else "periodos" }}. Los días seguidos con la misma descripción van juntos (los fines de semana no cortan el periodo).</p>{% endif %}
+  {# Un renglón por PERIODO (`_agrupar`): días seguidos con la misma descripción.
+     Su X quita el periodo entero (`mode=range`); los días sueltos de un periodo
+     se ven y se quitan uno por uno dentro de «Ver los N días». #}
   <div id="tt-dias-list" class="tt-dias-list">
-    {% for r in rows %}
-    <div id="tt-dia-{{ r.id }}" class="tt-card tt-dias-row">
-      <span class="tt-dias-date tt-mono">{{ r.label }}</span>
-      <span class="tt-dias-desc">{{ r.description }}</span>
+    {% for g in groups %}
+    <div id="tt-dia-{{ g.id }}" class="tt-card tt-dias-row">
+      <span class="tt-dias-date tt-mono">{{ g.label }}</span>
+      <span class="tt-dias-desc">{{ g.description }}{% if g.count > 1 %} <span class="tt-dias-count">· {{ g.count }} días hábiles</span>{% endif %}</span>
       {% if can_manage %}
+      {% if g.count == 1 %}
       <form class="tt-dias-rm" hx-post="/titulatec/admin/dias-inhabiles/quitar"
             hx-target="#tt-dias-body" hx-swap="innerHTML" hx-disabled-elt="find button"
-            hx-confirm="Quitar día inhábil|{{ r.label }} volverá a contar como día hábil."
+            hx-confirm="Quitar día inhábil|{{ g.label }} volverá a contar como día hábil."
             data-tt-confirm-ok="Quitar">
         <input type="hidden" name="anio" value="{{ anio }}">
-        <input type="hidden" name="start" value="{{ r.iso }}">
-        <button type="submit" class="btn btn-sm tt-btn-ghost" aria-label="Quitar {{ r.label }}">
+        <input type="hidden" name="start" value="{{ g.start_iso }}">
+        <button type="submit" class="btn btn-sm tt-btn-ghost" aria-label="Quitar {{ g.label }}">
           <i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Quitar</span>
         </button>
       </form>
+      {% else %}
+      <form class="tt-dias-rm tt-dias-rm--range" hx-post="/titulatec/admin/dias-inhabiles/quitar"
+            hx-target="#tt-dias-body" hx-swap="innerHTML" hx-disabled-elt="find button"
+            hx-confirm="Quitar {{ g.count }} días inhábiles|Del {{ g.label }}: volverán a contar como días hábiles."
+            data-tt-confirm-ok="Quitar {{ g.count }} días">
+        <input type="hidden" name="anio" value="{{ anio }}">
+        <input type="hidden" name="mode" value="range">
+        <input type="hidden" name="start" value="{{ g.start_iso }}">
+        <input type="hidden" name="end" value="{{ g.end_iso }}">
+        <button type="submit" class="btn btn-sm tt-btn-ghost" aria-label="Quitar los {{ g.count }} días ({{ g.label }})">
+          <i class="bi bi-x-lg" aria-hidden="true"></i><span class="d-none d-sm-inline"> Quitar</span>
+        </button>
+      </form>
+      {% endif %}
+      {% endif %}
+      {% if g.count > 1 %}
+      <details class="tt-dias-days">
+        <summary>Ver los {{ g.count }} días</summary>
+        <ul class="tt-dias-daylist">
+          {% for r in g.days %}
+          <li id="tt-dia-dia-{{ r.id }}" class="tt-dias-day">
+            <span class="tt-mono">{{ r.label }}</span>
+            {% if can_manage %}
+            <form class="tt-dias-rm-day" hx-post="/titulatec/admin/dias-inhabiles/quitar"
+                  hx-target="#tt-dias-body" hx-swap="innerHTML" hx-disabled-elt="find button"
+                  hx-confirm="Quitar día inhábil|{{ r.label }} volverá a contar como día hábil."
+                  data-tt-confirm-ok="Quitar">
+              <input type="hidden" name="anio" value="{{ anio }}">
+              <input type="hidden" name="start" value="{{ r.iso }}">
+              <button type="submit" class="tt-iconbtn tt-iconbtn-sm" aria-label="Quitar {{ r.label }}">
+                <i class="bi bi-x-lg" aria-hidden="true"></i></button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
       {% endif %}
     </div>
     {% else %}

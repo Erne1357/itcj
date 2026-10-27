@@ -45,8 +45,42 @@
 .tt-dias-desc { grid-column: 1; font-size: var(--tt-fs-100); color: var(--tt-text-2); min-width: 0; overflow-wrap: anywhere; }
 .tt-dias-rm { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
 @media (min-width: 768px) {
-  .tt-dias-row { grid-template-columns: 11rem minmax(0, 1fr) auto; }
+  .tt-dias-row { grid-template-columns: 15rem minmax(0, 1fr) auto; }  /* cabe «lun 29 jun – vie 3 jul 2026» */
   .tt-dias-desc { grid-column: 2; font-size: var(--tt-fs-200); color: inherit; }
   .tt-dias-rm { grid-column: 3; grid-row: 1; }
 }
 .tt-dias-empty { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+/* Periodo de varios días: total y el detalle plegado (2026-10-27). */
+.tt-dias-count { color: var(--tt-text-2); white-space: nowrap; }
+.tt-dias-days { grid-column: 1 / -1; margin: 0; }
+.tt-dias-days > summary {
+  display: inline-flex; align-items: center; min-height: 32px; cursor: pointer;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2);
+}
+.tt-dias-days > summary { gap: 6px; list-style: none; }
+.tt-dias-days > summary::-webkit-details-marker { display: none; }
+.tt-dias-days > summary::before {
+  content: ""; border-left: 5px solid currentColor;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform var(--tt-dur-1) var(--tt-ease-out);
+}
+.tt-dias-days[open] > summary::before { transform: rotate(90deg); }
+.tt-dias-days > summary:hover { color: var(--tt-text-1); }
+@media (prefers-reduced-motion: reduce) { .tt-dias-days > summary::before { transition: none; } }
+.tt-dias-days > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; border-radius: 4px; }
+.tt-dias-daylist {
+  list-style: none; margin: var(--tt-sp-1) 0 0; padding: 0;
+  display: grid; gap: 2px var(--tt-sp-4);
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+}
+.tt-dias-day {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2);
+  padding: 2px 0 2px var(--tt-sp-2); border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-100);
+}
+.tt-dias-day:hover { background: var(--tt-mist); }
+.tt-dias-rm-day { margin: 0; }
+@media (max-width: 991.98px) {
+  .tt-dias-days > summary { min-height: 40px; }
+}

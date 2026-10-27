@@ -119,7 +119,13 @@ def test_alta_de_rango_cuenta_solo_habiles(esc, client_as, db_session):
     reg = audit_query(db_session).filter_by(action="non_working_day.added").all()
     assert len(reg) == 1 and reg[0].actor_id == esc.admin.id
     doc = lxml.html.fromstring(resp.text)
-    assert len(doc.xpath('//div[@id="tt-dias-list"]/div')) == 5
+    # Un solo periodo (días seguidos, misma descripción), con sus 5 días plegados.
+    (periodo,) = doc.xpath('//div[@id="tt-dias-list"]/div')
+    assert "5 días hábiles" in periodo.text_content()
+    assert len(periodo.xpath('.//li[contains(@class, "tt-dias-day")]')) == 5
+    (rango,) = periodo.xpath('./form[contains(@class, "tt-dias-rm--range")]')
+    assert rango.xpath('.//input[@name="mode"]/@value') == ["range"]
+    assert rango.xpath('.//input[@name="end"]/@value') == [f"{ANIO}-03-09"]
 
 
 def test_alta_de_un_dia_sin_fin_usa_el_mismo_dia(esc, client_as, db_session):
@@ -255,3 +261,22 @@ def test_sin_api_manage_no_ve_formularios_y_el_post_da_400(esc, client_as, db_se
 def test_usuario_sin_permiso_no_puede_postear(esc, client_as):
     assert client_as(esc.otro).post(URL + "/agregar", data={
         "start": f"{ANIO}-04-01", "description": "No"}).status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Periodos: días seguidos con la misma descripción (2026-10-27)
+# ---------------------------------------------------------------------------
+def test_agrupar_salta_fines_de_semana_y_corta_por_descripcion():
+    from itcj2.apps.titulatec.pages.dias_inhabiles_admin import _agrupar
+
+    def fila(i, d, desc):
+        return {"id": i, "iso": d.isoformat(), "label": str(d), "description": desc}
+
+    # Vie 2 de marzo de 2091 y lun 5: seguidos (el fin de semana no corta).
+    filas = [fila(1, date(ANIO, 3, 2), "Vacaciones"), fila(2, date(ANIO, 3, 5), "Vacaciones"),
+             fila(3, date(ANIO, 3, 6), "Otra cosa"), fila(4, date(ANIO, 3, 8), "Otra cosa")]
+    grupos = _agrupar(filas)
+
+    assert [(g["id"], g["count"]) for g in grupos] == [(1, 2), (3, 1), (4, 1)]
+    assert grupos[0]["start_iso"] == f"{ANIO}-03-02" and grupos[0]["end_iso"] == f"{ANIO}-03-05"
+    assert grupos[0]["label"].endswith(f"5 mar {ANIO}") and "–" in grupos[0]["label"]

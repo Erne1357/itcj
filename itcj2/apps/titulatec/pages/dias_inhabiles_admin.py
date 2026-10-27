@@ -51,6 +51,44 @@ def _fecha_es(d: date) -> str:
     return f"{_DIAS[d.weekday()]} {d.day} {_MESES[d.month - 1]} {d.year}"
 
 
+def _rango_es(a: date, b: date) -> str:
+    """`lun 6 – vie 31 jul 2026` (mismo mes) o `lun 29 jun – vie 3 jul 2026`."""
+    if a == b:
+        return _fecha_es(a)
+    if a.month == b.month:
+        return f"{_DIAS[a.weekday()]} {a.day} – {_DIAS[b.weekday()]} {b.day} {_MESES[b.month - 1]} {b.year}"
+    return (f"{_DIAS[a.weekday()]} {a.day} {_MESES[a.month - 1]} – "
+            f"{_DIAS[b.weekday()]} {b.day} {_MESES[b.month - 1]} {b.year}")
+
+
+def _agrupar(filas: list) -> list:
+    """Junta en un renglón los días registrados SEGUIDOS con la misma
+    descripción. «Seguidos» salta fines de semana (no se guardan): el viernes 10
+    y el lunes 13 van juntos. Un grupo es `{id, start, end, label, count,
+    description, days}`; `days` son las filas originales, en orden."""
+    from datetime import timedelta
+
+    grupos: list[dict] = []
+    for f in filas:
+        d = date.fromisoformat(f["iso"])
+        g = grupos[-1] if grupos else None
+        if g is not None and g["description"] == f["description"]:
+            hueco = g["end"] + timedelta(days=1)
+            while hueco < d and hueco.weekday() >= 5:
+                hueco += timedelta(days=1)
+            if hueco == d:
+                g["end"] = d
+                g["days"].append(f)
+                continue
+        grupos.append({"id": f["id"], "start": d, "end": d, "description": f["description"],
+                       "days": [f]})
+    for g in grupos:
+        g["count"] = len(g["days"])
+        g["label"] = _rango_es(g["start"], g["end"])
+        g["start_iso"], g["end_iso"] = g["start"].isoformat(), g["end"].isoformat()
+    return grupos
+
+
 def _parse_iso(raw):
     """`YYYY-MM-DD` → date; vacío o basura → None."""
     try:
@@ -80,6 +118,7 @@ def _body_ctx(db, user_id: int, anio: int, error: str = "", values: dict | None 
         "anio_prev": anio - 1 if anio > _ANIO_MIN else None,
         "anio_next": anio + 1 if anio < _ANIO_MAX else None,
         "rows": filas,
+        "groups": _agrupar(filas),
         "can_manage": can_manage,
         "error": error,
         "values": values or {},
