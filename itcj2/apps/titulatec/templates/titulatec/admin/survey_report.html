@@ -1,0 +1,256 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Reporte Excel · Encuestas · TitulaTec{% endblock %}
+{% block admin_view %}survey-report{% endblock %}
+{% block admin_main %}
+{# Constructor del reporte Excel de la encuesta de egresados
+   (`pages/surveys_admin.py::report`). El estado inicial sale SIEMPRE del
+   servidor (`parse_params(query)`): una liga compartida se pinta igual. El JS
+   (`js/admin/survey-report.js`, cargado una vez en `base_admin.html`) solo
+   mantiene los ocultos `cols`/`orden` y el portapapeles. Sin <script> inline. #}
+{% set _ap = "/titulatec/admin/encuestas" %}
+<div class="px-4 pt-4 pb-2">
+  <a class="tt-kicker" id="tt-sr-back" href="{{ _ap }}{% if form %}?form_id={{ form.id }}{% endif %}">
+    <i class="bi bi-arrow-left me-1"></i>Encuestas</a>
+  <h1 class="tt-display tt-h1">Reporte Excel</h1>
+  <p class="mb-0">Arma el reporte que te pidan: elige columnas, filtros y hojas; la vista previa
+     se actualiza sola.</p>
+</div>
+
+{% if not form %}
+<div class="px-4 pb-4"><div class="tt-card"><span class="tt-kicker">Sin formulario</span>
+  <p class="mb-0">No hay ningún formulario de encuesta.</p></div></div>
+{% else %}
+{% set p = params %}
+<div class="px-4 pb-4 tt-sr" id="tt-report-root">
+  <div class="tt-sr__grid">
+
+    <form id="tt-report-form" class="tt-sr__main" method="get" action="{{ _ap }}/reporte.xlsx" novalidate>
+      <input type="hidden" name="form_id" value="{{ form.id }}">
+      <input type="hidden" name="cols" id="tt-sr-cols" value="{{ p.cols|join(',') }}">
+      <input type="hidden" name="orden" id="tt-sr-orden"
+             value="{% for k, d in p.orden %}{{ k }}:{{ d }}{% if not loop.last %},{% endif %}{% endfor %}">
+      <input type="hidden" name="hojas" value="respuestas">
+
+      <section class="tt-card tt-sr__card" id="tt-sr-presets">
+        <h2 class="tt-sr__h">Plantillas</h2>
+        <div class="d-flex flex-wrap gap-2">
+          {% for pr in catalog.presets %}
+          <a class="btn btn-sm tt-btn-soft" id="tt-sr-preset-{{ pr.key }}" title="{{ pr.description }}"
+             href="{{ _ap }}/reporte?{{ pr.query }}">{{ pr.title }}</a>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="tt-card tt-sr__card" id="tt-sr-columns">
+        <h2 class="tt-sr__h">Columnas</h2>
+        <div class="tt-sr__cols">
+          <div class="tt-sr__avail">
+            <input class="tt-field mb-2" type="search" id="tt-sr-search" data-tt-sr-search
+                   placeholder="Buscar columna…" aria-label="Buscar columna" autocomplete="off">
+            <div class="tt-sr__avail-scroll">
+              {% macro secblock(sid, title, cols) %}
+              <fieldset class="tt-sr__set" id="tt-sr-sec-{{ sid }}">
+                <legend>{{ title }}
+                  <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sr-sec-all="{{ sid }}">Todas</button>
+                  <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sr-sec-none="{{ sid }}">Ninguna</button>
+                </legend>
+                {% for c in cols %}
+                <label class="tt-sr__chk" data-tt-sr-label="{{ (c.short ~ ' ' ~ c.label)|lower }}">
+                  <input type="checkbox" data-tt-sr-col value="{{ c.key }}"
+                         data-label="{{ c.short }}"{% if c.key in p.cols %} checked{% endif %}>
+                  <span title="{{ c.label }}">{{ c.short }}</span></label>
+                {% endfor %}
+              </fieldset>
+              {% endmacro %}
+              {{ secblock('meta', 'Datos de la respuesta', catalog.meta) }}
+              {% for s in catalog.sections %}{{ secblock(s.key, s.title, s.columns) }}{% endfor %}
+            </div>
+          </div>
+          <div class="tt-sr__sel">
+            <span class="tt-kicker">En el reporte (en este orden)</span>
+            <ol class="tt-sr__list" id="tt-sr-cols-list">
+              {% for k in p.cols %}{% if k in colmap %}
+              <li id="tt-sr-col-{{ k }}" draggable="true" data-key="{{ k }}" class="tt-sr__item">
+                <i class="bi bi-grip-vertical tt-sr__grip" aria-hidden="true"></i>
+                <span class="tt-sr__name">{{ colmap[k].short }}</span>
+                <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sr-up aria-label="Subir"><i class="bi bi-arrow-up"></i></button>
+                <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sr-down aria-label="Bajar"><i class="bi bi-arrow-down"></i></button>
+                <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sr-remove aria-label="Quitar"><i class="bi bi-x-lg"></i></button>
+              </li>
+              {% endif %}{% endfor %}
+            </ol>
+            <p class="tt-sr__hint" id="tt-sr-cols-empty"{% if p.cols %} hidden{% endif %}>
+              Sin columnas: se usará la plantilla de seguimiento.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="tt-card tt-sr__card" id="tt-sr-filters">
+        <h2 class="tt-sr__h">Filtros</h2>
+        <div class="tt-sr__fields">
+          <label class="tt-sr__f">Formulario
+            <select class="tt-field" id="tt-sr-form-select" data-tt-sr-base="{{ _ap }}/reporte">
+              {% for f in forms %}
+              <option value="{{ f.id }}"{% if f.id == form.id %} selected{% endif %}>{{ f.label }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="tt-sr__f">Origen
+            <select class="tt-field" name="origen">
+              <option value=""{% if not p.origen %} selected{% endif %}>Todos</option>
+              <option value="plataforma"{% if p.origen == 'plataforma' %} selected{% endif %}>Plataforma</option>
+              <option value="importada"{% if p.origen == 'importada' %} selected{% endif %}>Importada</option>
+            </select>
+          </label>
+          <label class="tt-sr__f">Respondió desde
+            <input class="tt-field" type="date" name="desde" value="{{ p.desde.isoformat() if p.desde }}"></label>
+          <label class="tt-sr__f">Respondió hasta
+            <input class="tt-field" type="date" name="hasta" value="{{ p.hasta.isoformat() if p.hasta }}"></label>
+        </div>
+        {% if semesters %}
+        <div class="tt-sr__chips" id="tt-sr-semesters">
+          <span class="tt-kicker">Atajos</span>
+          {% for sm in semesters %}
+          <button type="button" class="btn btn-sm tt-btn-ghost" id="tt-sr-sem-{{ sm.code }}"
+                  data-tt-sr-sem data-desde="{{ sm.desde.isoformat() }}"
+                  data-hasta="{{ sm.hasta.isoformat() }}">{{ sm.label }}</button>
+          {% endfor %}
+          <button type="button" class="btn btn-sm tt-btn-ghost" id="tt-sr-sem-all"
+                  data-tt-sr-sem data-desde="" data-hasta="">Todas las fechas</button>
+        </div>
+        {% endif %}
+
+        {% if 'anio_egreso' in colmap %}
+        <div class="tt-sr__fields mt-3">
+          <label class="tt-sr__f">Año de egreso desde
+            <input class="tt-field" type="number" name="egreso_desde" min="1950" max="2100"
+                   value="{{ p.egreso_desde or '' }}"></label>
+          <label class="tt-sr__f">Año de egreso hasta
+            <input class="tt-field" type="number" name="egreso_hasta" min="1950" max="2100"
+                   value="{{ p.egreso_hasta or '' }}"></label>
+        </div>
+        {% endif %}
+
+        {% macro checks(key, legend=True) %}
+          {% set c = colmap[key] %}
+          <fieldset class="tt-sr__set" id="tt-sr-f-{{ key }}">
+            <legend{% if not legend %} class="visually-hidden"{% endif %}>{{ c.short }}</legend>
+            <div class="tt-sr__checks">
+              {% for o in c.options %}
+              <label class="tt-sr__chk"><input type="checkbox" name="f_{{ key }}" value="{{ o.value }}"
+                {% if o.value in filtros.get(key, ()) %}checked{% endif %}> {{ o.label }}</label>
+              {% endfor %}
+              <label class="tt-sr__chk"><input type="checkbox" name="f_{{ key }}" value="__vacio__"
+                {% if '__vacio__' in filtros.get(key, ()) %}checked{% endif %}> <em>Sin respuesta</em></label>
+            </div>
+          </fieldset>
+        {% endmacro %}
+
+        {% if 'periodo_egreso' in colmap and colmap['periodo_egreso'].choice %}{{ checks('periodo_egreso') }}{% endif %}
+        {% if 'carrera_egreso' in colmap and colmap['carrera_egreso'].choice %}{{ checks('carrera_egreso') }}{% endif %}
+
+        {% if 'recibir_correos' in colmap and colmap['recibir_correos'].choice %}
+        <fieldset class="tt-sr__set" id="tt-sr-f-recibir_correos">
+          <legend>{{ colmap['recibir_correos'].short }}</legend>
+          <div class="tt-sr__checks">
+            {% set sel = filtros.get('recibir_correos', ()) %}
+            <label class="tt-sr__chk"><input type="radio" name="f_recibir_correos" value=""
+              {% if not sel %}checked{% endif %}> Todos</label>
+            {% for o in colmap['recibir_correos'].options %}
+            <label class="tt-sr__chk"><input type="radio" name="f_recibir_correos" value="{{ o.value }}"
+              {% if o.value in sel %}checked{% endif %}> {{ o.label }}</label>
+            {% endfor %}
+          </div>
+        </fieldset>
+        {% endif %}
+
+        <label class="tt-sr__chk mt-3"><input type="checkbox" name="unico" value="1"
+          {% if p.unico %}checked{% endif %}> Un registro por egresado (el más reciente)</label>
+
+        {# Plegado salvo que haya un filtro activo AQUÍ (carrera, periodo y
+           correos ya se ven arriba); cada pregunta es su propio plegable. #}
+        {% set _fijos = ('periodo_egreso', 'carrera_egreso', 'recibir_correos') %}
+        {% set _otros = [] %}
+        {% for key in catalog.choice_keys if key not in _fijos and filtros.get(key) %}{% set _ = _otros.append(key) %}{% endfor %}
+        <details class="tt-sr__more mt-3" id="tt-sr-more-filters"{% if _otros %} open{% endif %}>
+          <summary class="tt-kicker">Más filtros por respuesta{% if _otros %} · {{ _otros|length }} activo{{ 's' if _otros|length > 1 }}{% endif %}</summary>
+          {% for key in catalog.choice_keys if key not in _fijos %}
+          <details class="tt-sr__q" id="tt-sr-q-{{ key }}"{% if key in _otros %} open{% endif %}>
+            <summary>{{ colmap[key].short }}{% if key in _otros %} <span class="tt-pill tt-pill--neutral">{{ filtros[key]|length }}</span>{% endif %}</summary>
+            {{ checks(key, legend=False) }}
+          </details>
+          {% endfor %}
+        </details>
+      </section>
+
+
+      <section class="tt-card tt-sr__card" id="tt-sr-order">
+        <h2 class="tt-sr__h">Orden de filas</h2>
+        {% for i in range(3) %}
+        {% set cur = p.orden[i] if i < p.orden|length else ('', 'asc') %}
+        <div class="tt-sr__ord">
+          <select class="tt-field" data-tt-sr-ord-col id="tt-sr-ord-col-{{ i }}" aria-label="Ordenar por {{ i + 1 }}">
+            <option value="">{% if i == 0 %}(sin orden){% else %}(y luego…){% endif %}</option>
+            {% for k, c in colmap.items() %}
+            <option value="{{ k }}"{% if cur[0] == k %} selected{% endif %}>{{ c.short }}</option>
+            {% endfor %}
+          </select>
+          <select class="tt-field" data-tt-sr-ord-dir id="tt-sr-ord-dir-{{ i }}" aria-label="Dirección {{ i + 1 }}">
+            <option value="asc"{% if cur[1] == 'asc' %} selected{% endif %}>Ascendente</option>
+            <option value="desc"{% if cur[1] == 'desc' %} selected{% endif %}>Descendente</option>
+          </select>
+        </div>
+        {% endfor %}
+      </section>
+
+      <section class="tt-card tt-sr__card" id="tt-sr-sheets">
+        <h2 class="tt-sr__h">Hojas y formato</h2>
+        <div class="tt-sr__checks">
+          <span class="tt-sr__chk"><i class="bi bi-check2-square"></i> Respuestas (siempre)</span>
+          {% for h, t in (('resumen', 'Resumen'), ('distribucion', 'Distribución'), ('cruce', 'Cruce'), ('parametros', 'Parámetros')) %}
+          <label class="tt-sr__chk"><input type="checkbox" name="hojas" value="{{ h }}"
+            {% if h in p.hojas %}checked{% endif %}> {{ t }}</label>
+          {% endfor %}
+        </div>
+        <div class="tt-sr__fields mt-3">
+          <label class="tt-sr__f">Encabezados
+            <select class="tt-field" name="encabezado">
+              {% for v, t in (('corto', 'Corto'), ('pregunta', 'Pregunta completa'), ('clave', 'Clave')) %}
+              <option value="{{ v }}"{% if p.encabezado == v %} selected{% endif %}>{{ t }}</option>
+              {% endfor %}
+            </select></label>
+          <label class="tt-sr__f">Cruce: filas
+            <select class="tt-field" name="cruce_filas">
+              <option value="">(automático)</option>
+              {% for k in catalog.choice_keys %}
+              <option value="{{ k }}"{% if p.cruce_filas == k %} selected{% endif %}>{{ colmap[k].short }}</option>{% endfor %}
+            </select></label>
+          <label class="tt-sr__f">Cruce: columnas
+            <select class="tt-field" name="cruce_cols">
+              <option value="">(automático)</option>
+              {% for k in catalog.choice_keys %}
+              <option value="{{ k }}"{% if p.cruce_cols == k %} selected{% endif %}>{{ colmap[k].short }}</option>{% endfor %}
+            </select></label>
+        </div>
+      </section>
+    </form>
+
+    <aside class="tt-sr__side" id="tt-sr-side">
+      <div class="tt-card tt-sr__card">
+        <h2 class="tt-sr__h">Vista previa</h2>
+        <div id="tt-report-preview" hx-get="{{ _ap }}/reporte/vista" hx-include="#tt-report-form"
+             hx-trigger="load" hx-target="this" hx-swap="outerHTML">
+          <p class="tt-sr__hint mb-0">Cargando…</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button type="submit" form="tt-report-form" class="btn btn-sm tt-btn-ink" id="tt-sr-download" data-tt-sr-download>
+            <i class="bi bi-file-earmark-excel me-1"></i>Descargar Excel</button>
+          <button type="button" class="btn btn-sm tt-btn-ghost" id="tt-sr-copy" data-tt-sr-copy>
+            <i class="bi bi-link-45deg me-1"></i>Copiar liga</button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

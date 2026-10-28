@@ -1,6 +1,7 @@
 """Bandeja de respuestas de encuestas + exportación CSV (Servicios Escolares).
 
-ORDEN DE DECLARACIÓN — invariante del archivo: `/export.csv` y `/body` van
+ORDEN DE DECLARACIÓN — invariante del archivo: `/export.csv`, `/body` y las
+tres del reporte (`/reporte`, `/reporte/vista`, `/reporte.xlsx`) van
 SIEMPRE antes que `/{response_id}`. FastAPI resuelve en orden de declaración y
 `{response_id}: int` no "falla hacia la siguiente ruta": `solve_dependencies`
 llama las sub-dependencias ANTES de validar los path params, así que un
@@ -192,6 +193,83 @@ def export(request: Request, form_id: str = "",
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _report_ctx(db, request, *, preview: bool):
+    """Contexto del reporte Excel: formulario + `ReportParams` del query string
+    (una liga compartida se pinta igual). `None` si no hay formulario."""
+    from itcj2.apps.titulatec.services.survey_report_service import SurveyReportService as R
+
+    form = _resolve_form(db, _to_int(request.query_params.get("form_id")))
+    if form is None:
+        return None
+    params = R.parse_params(request.query_params, form)
+    ctx = {"form": form, "params": params, "query": R.to_query(params)}
+    if preview:
+        ctx["preview"] = R.preview(db, form, params)
+    else:
+        cat = R.catalog(form, R.extra_keys(db, form))
+        colmap = {c["key"]: c for c in cat["meta"]}
+        colmap.update({c["key"]: c for s in cat["sections"] for c in s["columns"]})
+        ctx.update(forms=[{"id": f.id, "label": f"{f.code} v{f.version} ({f.status})"}
+                          for f in _forms(db)],
+                   catalog=cat, colmap=colmap, filtros=dict(params.filtros),
+                   semesters=R.semesters(db, form))
+    return ctx
+
+
+@router.get("/reporte", name="titulatec.pages.surveys.report")
+def report(request: Request,
+           user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _report_ctx(db, request, preview=False) or {"form": None}
+    finally:
+        db.close()
+    return render_titulatec(request, "titulatec/admin/survey_report.html", ctx)
+
+
+@router.get("/reporte/vista", name="titulatec.pages.surveys.report_preview")
+def report_preview(request: Request,
+                   user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+    from itcj2.database import SessionLocal
+    db = SessionLocal()
+    try:
+        ctx = _report_ctx(db, request, preview=True)
+    finally:
+        db.close()
+    if ctx is None:
+        return Response(status_code=404, headers={"X-Tt-Error": "Formulario no encontrado"})
+    return render_titulatec(request, "titulatec/admin/partials/survey_report_preview.html", ctx)
+
+
+@router.get("/reporte.xlsx", name="titulatec.pages.surveys.report_xlsx")
+def report_xlsx(request: Request,
+                user: dict = Depends(require_page_app("titulatec", perms=_EXPORT))):
+    from itcj2.core.models.user import User
+    from itcj2.core.utils.timezone import db_now
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.services.survey_report_service import SurveyReportService as R
+
+    db = SessionLocal()
+    try:
+        form = _resolve_form(db, _to_int(request.query_params.get("form_id")))
+        if form is None:
+            return Response(status_code=404)
+        params = R.parse_params(request.query_params, form)
+        u = db.get(User, int(user["sub"]))
+        ahora = db_now()
+        data = R.build_xlsx(db, form, params,
+                            generated_by=(u.full_name if u else "") or "—",
+                            generated_at=ahora)
+        name = R.filename(form, ahora)
+    finally:
+        db.close()
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.get("/{response_id}", name="titulatec.pages.surveys.detail")

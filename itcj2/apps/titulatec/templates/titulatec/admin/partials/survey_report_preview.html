@@ -1,0 +1,30 @@
+{# Vista previa del reporte (`pages/surveys_admin.py::report_preview`). Raíz
+   `#tt-report-preview` con los mismos atributos hx que el marcador de la
+   página: se reemplaza a sí misma (`outerHTML`) en cada cambio del formulario. #}
+<div id="tt-report-preview" data-tt-sr-query="{{ preview.query }}"
+     hx-get="/titulatec/admin/encuestas/reporte/vista" hx-include="#tt-report-form"
+     hx-trigger="change from:#tt-report-form delay:400ms, tt-report-refresh from:body delay:100ms"
+     hx-target="this" hx-swap="outerHTML">
+  {% for w in preview.warnings %}
+  <div class="tt-sr__warn" role="status"><i class="bi bi-exclamation-triangle me-1"></i>{{ w }}</div>
+  {% endfor %}
+  <p class="mb-2">
+    <span class="tt-pill tt-pill--ink">{{ preview.total }} respuestas</span>
+    <span class="tt-pill tt-pill--neutral">{{ preview.unique }} egresados únicos</span>
+  </p>
+  {% if preview.rows %}
+  <div class="tt-sr__scroll">
+    <table class="table table-sm align-middle mb-1">
+      <thead><tr>{% for c in preview.columns %}<th title="{{ c.full }}">{{ c.header }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for row in preview.rows %}
+      <tr id="tt-sr-row-{{ loop.index }}">{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="tt-sr__hint mb-0">Primeras {{ preview.rows|length }} de {{ preview.total }} filas.</p>
+  {% else %}
+  <p class="tt-sr__hint mb-0">Sin respuestas con estos filtros.</p>
+  {% endif %}
+</div>
