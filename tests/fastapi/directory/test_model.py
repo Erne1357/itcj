@@ -30,5 +30,7 @@ def test_settings_table_shape():
     flag = t.c.show_unofficial_departments
     assert flag.nullable is False
     assert flag.server_default is not None
+    ids = t.c.visible_unofficial_department_ids
+    assert ids.nullable is False and ids.server_default is not None
     assert t.c.id.autoincrement is False
     assert any("singleton" in (c.name or "") for c in t.constraints if c.name)

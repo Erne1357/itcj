@@ -132,9 +132,9 @@ def test_list_partial_valid_dept_coerced(mock_list, app_client):
         app_client.app.dependency_overrides.pop(get_db, None)
 
 
-# ── Ajuste global y flags de vista ───────────────────────────────────────────
-@patch("itcj2.apps.directory.pages.directory.settings_service.hidden_row_count", return_value=0)
-@patch("itcj2.apps.directory.pages.directory.settings_service.show_unofficial", return_value=False)
+# ── Ajuste por departamento y flags de vista ───────────────────────────────────────────
+@patch("itcj2.apps.directory.pages.directory.settings_service.unofficial_departments", return_value=[])
+@patch("itcj2.apps.directory.pages.directory.settings_service.visible_unofficial", return_value=set())
 @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
 @patch("itcj2.core.services.authz_cache.cached_perms",
        return_value={"directory.entries.api.manage"})
@@ -146,14 +146,14 @@ def test_list_passes_include_unofficial(mock_list, mock_perms, mock_assign, mock
         resp = app_client.get("/directory/list", headers=_hdr(role="staff", uid=300))
         assert resp.status_code == 200
         _, kwargs = mock_list.call_args
-        assert kwargs["include_unofficial"] is False
+        assert kwargs["include_unofficial"] == set()
         assert kwargs["include_empty_unofficial"] is False
     finally:
         app_client.app.dependency_overrides.pop(get_db, None)
 
 
-@patch("itcj2.apps.directory.pages.directory.settings_service.hidden_row_count", return_value=0)
-@patch("itcj2.apps.directory.pages.directory.settings_service.show_unofficial", return_value=True)
+@patch("itcj2.apps.directory.pages.directory.settings_service.unofficial_departments", return_value=[])
+@patch("itcj2.apps.directory.pages.directory.settings_service.visible_unofficial", return_value={7})
 @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
 @patch("itcj2.core.services.authz_cache.cached_perms",
        return_value={"directory.entries.api.manage"})
@@ -169,8 +169,8 @@ def test_ghost_groups_only_for_manager(mock_list, mock_perms, mock_assign, mock_
         app_client.app.dependency_overrides.pop(get_db, None)
 
 
-@patch("itcj2.apps.directory.pages.directory.settings_service.hidden_row_count", return_value=0)
-@patch("itcj2.apps.directory.pages.directory.settings_service.show_unofficial", return_value=True)
+@patch("itcj2.apps.directory.pages.directory.settings_service.unofficial_departments", return_value=[])
+@patch("itcj2.apps.directory.pages.directory.settings_service.visible_unofficial", return_value={7})
 @patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True)
 @patch("itcj2.core.services.authz_cache.cached_perms", return_value=set())
 @patch("itcj2.apps.directory.pages.directory.directory_service.list_directory", return_value=[])
@@ -252,3 +252,33 @@ def test_email_conflict_marks_the_field(mock_list, app_client):
             assert resp.headers["X-Dir-Field"] == "email"
         finally:
             app_client.app.dependency_overrides.pop(get_db, None)
+
+
+@patch("itcj2.apps.directory.pages.directory.settings_service.set_unofficial_visible",
+       return_value={7})
+@patch("itcj2.apps.directory.pages.directory.directory_service.list_directory", return_value=[])
+def test_settings_toggles_one_department(mock_list, mock_set, app_client):
+    _override_db(app_client)
+    try:
+        resp = app_client.post("/directory/settings/unofficial", headers=_hdr(),
+                               data={"department_id": "7", "visible": "true"})
+        assert resp.status_code == 200
+        args, kwargs = mock_set.call_args
+        assert args[1:] == (7, True)
+        assert kwargs["by_user_id"] == 200
+    finally:
+        app_client.app.dependency_overrides.pop(get_db, None)
+
+
+@patch("itcj2.apps.directory.pages.directory.settings_service.set_unofficial_visible",
+       side_effect=ValueError("El departamento no existe, está inactivo o es oficial"))
+@patch("itcj2.apps.directory.pages.directory.directory_service.list_directory", return_value=[])
+def test_settings_rejects_official_department(mock_list, mock_set, app_client):
+    _override_db(app_client)
+    try:
+        resp = app_client.post("/directory/settings/unofficial", headers=_hdr(),
+                               data={"department_id": "1", "visible": "true"})
+        assert resp.status_code == 200
+        assert "X-Dir-Error" in resp.headers
+    finally:
+        app_client.app.dependency_overrides.pop(get_db, None)
