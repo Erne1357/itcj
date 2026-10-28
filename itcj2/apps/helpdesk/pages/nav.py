@@ -48,6 +48,8 @@ HD_PAGE_MODULES: dict[str, list[str]] = {
         "js/admin/config/areas_tab.js",
         "js/admin/config/audit_tab.js",
         "js/admin/config/notifications_tab.js",
+        "js/admin/config/assignment_email_tab.js",
+        "js/admin/config/auto_assign_tab.js",
         "js/admin/config/config_main.js",
     ],
     "admin_stats": ["https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js", "js/shared/ticket-summary.js", "js/admin/stats.js"],

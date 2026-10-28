@@ -51,6 +51,9 @@ async def assign_ticket(
         except Exception as notif_error:
             logger.error(f"Error al enviar notificación de asignación: {notif_error}")
 
+        from itcj2.apps.helpdesk.services.assignment_email_service import enqueue_assignment_email
+        enqueue_assignment_email(db, ticket.id, ticket.assigned_to_user_id)
+
         try:
             from itcj2.sockets.helpdesk import broadcast_ticket_assigned
             await broadcast_ticket_assigned(
@@ -119,6 +122,9 @@ async def reassign_ticket(
         logger.error(f"Error al enviar notificación de reasignación: {notif_error}")
 
     if ticket.assigned_to_user_id:
+        from itcj2.apps.helpdesk.services.assignment_email_service import enqueue_assignment_email
+        enqueue_assignment_email(db, ticket.id, ticket.assigned_to_user_id)
+
         try:
             from itcj2.sockets.helpdesk import broadcast_ticket_reassigned
             prev_id = previous_user.id if previous_user else None

@@ -68,6 +68,20 @@
       </button>
     </li>
     <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-correo-btn" data-bs-toggle="tab"
+        data-bs-target="#correo" type="button" role="tab" aria-controls="correo"
+        aria-selected="false">
+        <i class="fas fa-envelope me-1"></i>Correo
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-autoasig-btn" data-bs-toggle="tab"
+        data-bs-target="#autoasig" type="button" role="tab" aria-controls="autoasig"
+        aria-selected="false">
+        <i class="fas fa-random me-1"></i>Asignación automática
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
       <button class="nav-link" id="tab-audit-btn" data-bs-toggle="tab"
         data-bs-target="#audit" type="button" role="tab" aria-controls="audit"
         aria-selected="false">
@@ -144,6 +158,24 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body">
           <div id="notif-root">{# Populated by notifications_tab.js #}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== CORREO ===================== -->
+    <div class="tab-pane fade" id="correo" role="tabpanel" aria-labelledby="tab-correo-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="correo-root">{# Populated by assignment_email_tab.js #}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== ASIGNACIÓN AUTOMÁTICA ===================== -->
+    <div class="tab-pane fade" id="autoasig" role="tabpanel" aria-labelledby="tab-autoasig-btn">
+      <div class="card border-0 shadow-sm">
+        <div class="card-body">
+          <div id="autoasig-root">{# Populated by auto_assign_tab.js #}</div>
         </div>
       </div>
     </div>
@@ -920,6 +952,59 @@
           <i class="fas fa-pencil-alt me-1"></i>Editar
         </button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: crear/editar regla de asignación automática -->
+<div class="modal fade" id="modal-assign-rule" tabindex="-1" aria-labelledby="modal-assign-rule-label" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-assign-rule-label">
+          <i class="fas fa-random me-2"></i><span id="assign-rule-title">Nueva regla</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label" for="assign-rule-area">Área</label>
+          <select class="form-select" id="assign-rule-area"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="assign-rule-category">Categoría</label>
+          <select class="form-select" id="assign-rule-category"></select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="assign-rule-priority">Prioridad</label>
+          <select class="form-select" id="assign-rule-priority"></select>
+        </div>
+        <div class="mb-3">
+          <span class="form-label d-block">Reparto</span>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="assign-rule-strategy" id="assign-rule-strategy-rr" value="round_robin" checked>
+            <label class="form-check-label" for="assign-rule-strategy-rr">Turnos</label>
+            <div class="form-text mt-0">Uno y uno, en el orden de la lista. Con un solo técnico es una persona fija.</div>
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="radio" name="assign-rule-strategy" id="assign-rule-strategy-ll" value="least_loaded">
+            <label class="form-check-label" for="assign-rule-strategy-ll">Menor carga</label>
+            <div class="form-text mt-0">Quien tenga menos tickets asignados o en proceso; si empatan, por turnos.</div>
+          </div>
+        </div>
+        <div class="mb-1">
+          <span class="form-label d-block">Técnicos del área</span>
+          <div id="assign-rule-technicians" class="border rounded p-2"></div>
+          <div class="form-text">El orden de turnos es el orden alfabético mostrado.</div>
+        </div>
+        <div class="text-danger small mt-2 d-none" id="assign-rule-error"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-assign-rule-save">
+          <i class="fas fa-save me-1"></i>Guardar
+        </button>
       </div>
     </div>
   </div>

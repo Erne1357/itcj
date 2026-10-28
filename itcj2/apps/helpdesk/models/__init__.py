@@ -22,6 +22,8 @@ from itcj2.apps.helpdesk.models.ticket_status import TicketStatus
 from itcj2.apps.helpdesk.models.status_transition import StatusTransition
 from itcj2.apps.helpdesk.models.area import Area
 from itcj2.apps.helpdesk.models.notification_template import NotificationTemplate
+from itcj2.apps.helpdesk.models.helpdesk_settings import HelpdeskSettings
+from itcj2.apps.helpdesk.models.assignment_rule import AssignmentRule
 
 __all__ = [
     "Ticket",
@@ -50,4 +52,6 @@ __all__ = [
     "StatusTransition",
     "Area",
     "NotificationTemplate",
+    "HelpdeskSettings",
+    "AssignmentRule",
 ]

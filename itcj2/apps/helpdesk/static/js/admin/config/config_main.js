@@ -21,6 +21,8 @@
         '#estados':     'tab-estados-btn',
         '#areas':       'tab-areas-btn',
         '#notif':       'tab-notif-btn',
+        '#correo':      'tab-correo-btn',
+        '#autoasig':    'tab-autoasig-btn',
         '#audit':       'tab-audit-btn',
     };
 

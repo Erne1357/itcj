@@ -76,31 +76,68 @@ def _assign(db, user, pos, start=None, end=None, active=True):
 
 
 # ── settings_service ─────────────────────────────────────────────────────────
-def test_show_unofficial_reads_persisted_true(db_session, settings_row):
+def test_visible_unofficial_reads_persisted_ids(db_session, settings_row):
     db_session.execute(text(
-        "UPDATE directory_settings SET show_unofficial_departments = true WHERE id = 1"))
-    assert settings_service.show_unofficial(db_session) is True
+        "UPDATE directory_settings SET visible_unofficial_department_ids = '[3, 5]' WHERE id = 1"))
+    assert settings_service.visible_unofficial(db_session) == {3, 5}
 
 
-def test_show_unofficial_defaults_false_without_row(db_session):
+def test_visible_unofficial_empty_without_row(db_session):
     db_session.execute(text("DELETE FROM directory_settings"))
-    assert settings_service.show_unofficial(db_session) is False
+    assert settings_service.visible_unofficial(db_session) == set()
 
 
-def test_set_show_unofficial_recreates_missing_row(db_session):
+def test_set_unofficial_visible_one_by_one(db_session, settings_row):
+    root = _mk_dept(db_session, "tst_vis_root", "Raíz VIS")
+    a = _mk_dept(db_session, "tst_vis_a", "No oficial A", root.id, official=False)
+    b = _mk_dept(db_session, "tst_vis_b", "No oficial B", root.id, official=False)
+    db_session.execute(text(
+        "UPDATE directory_settings SET visible_unofficial_department_ids = '[]' WHERE id = 1"))
+
+    assert settings_service.set_unofficial_visible(db_session, a.id, True, by_user_id=None) == {a.id}
+    # Idempotente: repetir el mismo estado no duplica.
+    assert settings_service.set_unofficial_visible(db_session, a.id, True, by_user_id=None) == {a.id}
+    assert settings_service.set_unofficial_visible(db_session, b.id, True, by_user_id=None) == {a.id, b.id}
+    assert settings_service.set_unofficial_visible(db_session, a.id, False, by_user_id=None) == {b.id}
+
+    ids = {r["id"] for r in svc.department_rows(
+        db_session, include_unofficial=settings_service.visible_unofficial(db_session))}
+    assert b.id in ids and a.id not in ids and root.id in ids
+
+
+def test_set_unofficial_visible_rejects_official(db_session, settings_row):
+    root = _mk_dept(db_session, "tst_vis_off", "Oficial VIS")
+    with pytest.raises(ValueError):
+        settings_service.set_unofficial_visible(db_session, root.id, True, by_user_id=None)
+
+
+def test_set_unofficial_visible_recreates_missing_row(db_session):
+    root = _mk_dept(db_session, "tst_vis_root2", "Raíz VIS2")
+    a = _mk_dept(db_session, "tst_vis_a2", "No oficial A2", root.id, official=False)
     db_session.execute(text("DELETE FROM directory_settings"))
-    settings_service.set_show_unofficial(db_session, True, by_user_id=None)
-    assert settings_service.show_unofficial(db_session) is True
+    settings_service.set_unofficial_visible(db_session, a.id, True, by_user_id=None)
+    assert settings_service.visible_unofficial(db_session) == {a.id}
 
 
-def test_set_show_unofficial_records_author_and_timestamp(db_session, settings_row, some_user_id):
+def test_set_unofficial_visible_records_author_and_timestamp(db_session, settings_row, some_user_id):
+    root = _mk_dept(db_session, "tst_vis_root3", "Raíz VIS3")
+    a = _mk_dept(db_session, "tst_vis_a3", "No oficial A3", root.id, official=False)
     before = db_session.execute(
         text("SELECT updated_at FROM directory_settings WHERE id = 1")).scalar()
-    settings_service.set_show_unofficial(db_session, True, by_user_id=some_user_id)
+    settings_service.set_unofficial_visible(db_session, a.id, True, by_user_id=some_user_id)
     row = db_session.execute(text(
         "SELECT updated_by_id, updated_at FROM directory_settings WHERE id = 1")).one()
     assert row[0] == some_user_id
     assert row[1] >= before
+
+
+def test_unofficial_departments_lists_with_extension_count(db_session):
+    root = _mk_dept(db_session, "tst_vis_root4", "Raíz VIS4")
+    a = _mk_dept(db_session, "tst_vis_a4", "No oficial A4", root.id, official=False)
+    rows = {r["id"]: r for r in settings_service.unofficial_departments(db_session)}
+    assert rows[a.id]["parent"] == "Raíz VIS4"
+    assert rows[a.id]["extensions"] == 0
+    assert root.id not in rows
 
 
 def test_second_row_rejected_by_check(db_session, settings_row):

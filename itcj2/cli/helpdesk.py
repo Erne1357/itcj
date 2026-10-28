@@ -16,6 +16,7 @@ DML_INVENTORY = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory"
 DML_INVENTORY_ASSIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "inventory" / "assign"
 DML_CONFIG = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "config"
 DML_TICKET_SPLIT = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "ticket_split"
+DML_AUTO_ASSIGN = PROJECT_ROOT / "database" / "DML" / "helpdesk" / "auto_assign"
 
 
 def _run_sql_files(base_dir: Path, files: list[str]) -> None:
@@ -395,6 +396,32 @@ def init_split_permissions_command():
         raise
 
 
+@click.command("init-auto-assign")
+def init_auto_assign_command():
+    """Carga los permisos de asignación automática y correo, y ajusta TK-2026-0661.
+
+    Ejecuta en orden (database/DML/helpdesk/auto_assign/):
+      01_insert_permissions.sql        — Inserta los 4 permisos
+                                          helpdesk.config.{auto_assign,assignment_email}.api.{read,update}.
+      02_assign_permissions.sql        — Los asigna al rol admin.
+      03_fix_tk_2026_0661_fechas.sql   — Corre las fechas del ticket TK-2026-0661
+                                          (Generación de Cuentas de Correo) a
+                                          2026-08-20 11:00. Idempotente: si ya
+                                          está ajustado no hace nada.
+    """
+    click.echo("🤖 Inicializando asignación automática y correo al técnico...")
+    try:
+        _run_sql_files(DML_AUTO_ASSIGN, [
+            "01_insert_permissions.sql",
+            "02_assign_permissions.sql",
+            "03_fix_tk_2026_0661_fechas.sql",
+        ])
+        click.echo("\n🎉 Permisos y ajuste de fechas aplicados.")
+    except Exception as e:
+        click.echo(f"\n💥 Error: {e}")
+        raise
+
+
 @click.command("seed-config")
 def seed_config_command():
     """Ejecuta los SQL de la pestaña de Configuración del Helpdesk.
@@ -443,4 +470,5 @@ helpdesk_cli.add_command(init_inventory_campaign_command)
 helpdesk_cli.add_command(init_retirement_permissions_command)
 helpdesk_cli.add_command(init_assign_permissions_command)
 helpdesk_cli.add_command(init_split_permissions_command)
+helpdesk_cli.add_command(init_auto_assign_command)
 helpdesk_cli.add_command(seed_config_command)

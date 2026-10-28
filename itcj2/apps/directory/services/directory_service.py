@@ -7,11 +7,14 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
-def department_rows(db: Session, *, include_unofficial: bool) -> list[dict]:
+def department_rows(db: Session, *, include_unofficial) -> list[dict]:
     """Esqueleto ordenado (DFS preorden) del conjunto de departamentos RENDERIZADO.
 
     Devuelve [{id, name, is_official, depth, ancestors}] con `depth` y `ancestors`
     recalculados sobre lo que se va a pintar, no sobre el árbol completo.
+
+    `include_unofficial`: True = todos los no oficiales, False = ninguno, o un
+    conjunto con los ids de los no oficiales que se muestran (ajuste por depto).
 
     Invariante duro: un departamento OFICIAL nunca desaparece. Si su ancestro no
     oficial está oculto, se recuelga del ancestro superviviente más cercano; así
@@ -23,7 +26,8 @@ def department_rows(db: Session, *, include_unofficial: bool) -> list[dict]:
 
     def walk(nodes, ancestors):
         for node in nodes:
-            if include_unofficial or node["is_official"]:
+            if node["is_official"] or include_unofficial is True or (
+                    include_unofficial and node["id"] in include_unofficial):
                 out.append({
                     "id": node["id"],
                     "name": node["name"],
@@ -355,12 +359,13 @@ def nest_groups(groups):
 
 
 def list_directory(db: Session, *, q=None, department_id=None, source="all",
-                   include_unofficial: bool, include_empty_unofficial: bool = False):
+                   include_unofficial, include_empty_unofficial: bool = False):
     """Lista unificada agrupada por departamento, en orden jerárquico.
 
-    `include_unofficial` es keyword OBLIGATORIO y sin default a propósito: un call
-    site olvidado revienta con TypeError en el test, mientras que un default
-    degradaría en silencio al comportamiento viejo.
+    `include_unofficial` (True/False o conjunto de ids, ver `department_rows`) es
+    keyword OBLIGATORIO y sin default a propósito: un call site olvidado revienta
+    con TypeError en el test, mientras que un default degradaría en silencio al
+    comportamiento viejo.
 
     Este módulo NO conoce settings_service: el ajuste se resuelve una sola vez por
     request, en la capa de pages.
