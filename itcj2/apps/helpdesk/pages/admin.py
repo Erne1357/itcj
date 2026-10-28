@@ -650,6 +650,8 @@ async def config(
       - Estados y transiciones
       - Áreas
       - Plantillas de notificación
+      - Correo (técnicos que reciben aviso al asignarles un ticket)
+      - Asignación automática (reglas del motor y switch maestro)
       - Auditoría
     """
     user_id = int(user["sub"])
