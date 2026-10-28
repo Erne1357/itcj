@@ -438,7 +438,7 @@ def _query_assign_lists_ctx(request: Request, user_id: int, user_roles: set, tab
             per_page   = _PER_PAGE_MAP.get(tab, 200)
             result     = ticket_service.list_tickets(
                 _db, user_id=user_id, user_roles=user_roles,
-                status=statuses, per_page=per_page,
+                status=statuses, per_page=per_page, sort="oldest",
             )
             tickets = result["tickets"]
             return {"tickets": tickets, "count": len(tickets), "tab": tab}
@@ -446,15 +446,15 @@ def _query_assign_lists_ctx(request: Request, user_id: int, user_roles: set, tab
         # Full page: three lists
         r_pending = ticket_service.list_tickets(
             _db, user_id=user_id, user_roles=user_roles,
-            status=["PENDING"], per_page=500,
+            status=["PENDING"], per_page=500, sort="oldest",
         )
         r_assigned = ticket_service.list_tickets(
             _db, user_id=user_id, user_roles=user_roles,
-            status=["ASSIGNED"], per_page=200,
+            status=["ASSIGNED"], per_page=200, sort="oldest",
         )
         r_inprogress = ticket_service.list_tickets(
             _db, user_id=user_id, user_roles=user_roles,
-            status=["IN_PROGRESS"], per_page=200,
+            status=["IN_PROGRESS"], per_page=200, sort="oldest",
         )
     finally:
         _db.close()

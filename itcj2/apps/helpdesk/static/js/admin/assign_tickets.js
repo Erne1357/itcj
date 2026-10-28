@@ -279,9 +279,10 @@
             document.getElementById('todayCount').textContent = todayTickets;
 
             // Check urgent tickets (only PENDING, assigned tickets should not appear here)
+            // FIFO: el más antiguo primero (created_at ASC, igual que las listas del servidor)
             const urgentTickets = allTickets.filter(t =>
                 t.priority === 'URGENTE' && t.status === 'PENDING'
-            );
+            ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             if (urgentTickets.length > 0) {
                 document.getElementById('urgentBadge').style.display = 'inline-block';
