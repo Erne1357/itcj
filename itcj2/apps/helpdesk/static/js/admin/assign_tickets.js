@@ -255,34 +255,29 @@
     // ==================== DASHBOARD STATS ====================
     async function loadDashboardStats() {
         try {
-            // Get all tickets and calculate stats
-            const response = await HelpdeskUtils.api.getTickets({});
-            const allTickets = response.tickets || [];
+            // Totales del servidor (`total`), no un conteo sobre la primera página:
+            // la lista sin filtros trae solo la primera página (20) y las tarjetas mentían.
+            const api = HelpdeskUtils.api;
+            const now = new Date();
+            const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            const [pendingRes, inProgressRes, todayRes, urgentRes] = await Promise.all([
+                api.getTickets({ status: 'PENDING', per_page: 1 }),
+                api.getTickets({ status: 'IN_PROGRESS', per_page: 1 }),
+                api.getTickets({ created_from: today, per_page: 1 }),
+                api.getTickets({ status: 'PENDING', priority: 'URGENTE', per_page: 0 }),
+            ]);
 
-            // Count by status
-            const pending = allTickets.filter(t => t.status === 'PENDING').length;
-            const unassigned = allTickets.filter(t => t.status === 'PENDING' && !t.assigned_to?.id).length;
-            const inProgress = allTickets.filter(t => t.status === 'IN_PROGRESS').length;
-
-            // Count today's tickets
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            const todayTickets = allTickets.filter(t => {
-                const createdDate = new Date(t.created_at);
-                return createdDate >= today;
-            }).length;
-
-            // Update cards
+            // Un ticket PENDING no tiene asignación (asignar lo pasa a ASSIGNED).
+            const pending = pendingRes.total || 0;
             document.getElementById('pendingCount').textContent = pending;
-            document.getElementById('unassignedCount').textContent = unassigned;
-            document.getElementById('inProgressCount').textContent = inProgress;
-            document.getElementById('todayCount').textContent = todayTickets;
+            document.getElementById('unassignedCount').textContent = pending;
+            document.getElementById('inProgressCount').textContent = inProgressRes.total || 0;
+            document.getElementById('todayCount').textContent = todayRes.total || 0;
 
-            // Check urgent tickets (only PENDING, assigned tickets should not appear here)
-            // FIFO: el más antiguo primero (created_at ASC, igual que las listas del servidor)
-            const urgentTickets = allTickets.filter(t =>
-                t.priority === 'URGENTE' && t.status === 'PENDING'
-            ).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+            // Urgentes pendientes. FIFO: el más antiguo primero (created_at ASC,
+            // igual que las listas del servidor)
+            const urgentTickets = (urgentRes.tickets || [])
+                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
             if (urgentTickets.length > 0) {
                 document.getElementById('urgentBadge').style.display = 'inline-block';
@@ -394,7 +389,7 @@
         try {
             const response = await HelpdeskUtils.api.getTickets({
                 status: 'ASSIGNED,IN_PROGRESS',
-                per_page: 100
+                per_page: 0  // sin tope de página: los badges cuentan este arreglo
             });
 
             const tickets = response.tickets || [];

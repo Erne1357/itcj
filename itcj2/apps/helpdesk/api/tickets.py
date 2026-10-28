@@ -279,6 +279,14 @@ def list_tickets(
     page = int(params.get("page", "1"))
     requested_per_page = int(params.get("per_page", "20"))
     include_metrics = params.get("include_metrics", "false").lower() == "true"
+    created_from = None
+    if params.get("created_from"):
+        from datetime import date
+        try:
+            created_from = date.fromisoformat(params["created_from"])
+        except ValueError:
+            raise HTTPException(400, detail={"error": "invalid_created_from",
+                                             "message": "created_from debe ser AAAA-MM-DD"})
 
     if requested_per_page <= 0:
         per_page = 1000
@@ -303,6 +311,7 @@ def list_tickets(
             page=page,
             per_page=per_page,
             include_metrics=include_metrics,
+            created_from=created_from,
         )
         return result
     except Exception as e:
