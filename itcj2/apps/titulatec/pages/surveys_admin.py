@@ -118,13 +118,8 @@ def _who(response, user) -> str:
     importó del Excel de Forms (spec 2026-10-05-titulatec-import-encuesta-xlsx
     §4.4), el `nombre_completo` que trae la propia respuesta; si no,
     «Anónimo»."""
-    if user is not None:
-        return user.full_name
-    if response.identity_source == "import":
-        nombre = str((response.answers or {}).get("nombre_completo") or "").strip()
-        if nombre:
-            return nombre
-    return "Anónimo"
+    from itcj2.apps.titulatec.services.survey_report_service import SurveyReportService
+    return SurveyReportService.quien(response, user)
 
 
 # Llaves de una respuesta importada que NO son preguntas del formulario (R9):
