@@ -188,6 +188,53 @@ async def create_ticket(
         except Exception as ws_err:
             logger.warning(f"WS broadcast ticket_created error: {ws_err}")
 
+        # Asignación automática: el ticket ya está commiteado, nada de aquí puede romper el 201.
+        try:
+            from itcj2.apps.helpdesk.services.auto_assign_service import AutoAssignService
+            if AutoAssignService.try_auto_assign(db, ticket):
+                db.refresh(ticket)
+                tech = ticket.assigned_to
+                try:
+                    HelpdeskNotificationHelper.notify_ticket_assigned(db, ticket, tech)
+                    db.commit()
+                except Exception as notif_error:
+                    logger.error(f"Error al notificar asignación automática: {notif_error}")
+                try:
+                    from itcj2.sockets.helpdesk import broadcast_ticket_assigned
+                    await broadcast_ticket_assigned(
+                        ticket.id, ticket.assigned_to_user_id, ticket.area,
+                        {
+                            "ticket_id": ticket.id,
+                            "ticket_number": ticket.ticket_number,
+                            "title": ticket.title,
+                            "assigned_to_id": ticket.assigned_to_user_id,
+                            "assigned_to_name": tech.full_name if tech else None,
+                            "area": ticket.area,
+                            "priority": ticket.priority,
+                            "status": ticket.status,
+                        },
+                        department_id=ticket.requester_department_id,
+                        actor_id=None,
+                    )
+                except Exception as ws_err:
+                    logger.warning(f"WS broadcast ticket_assigned (auto) error: {ws_err}")
+                try:
+                    from itcj2.apps.helpdesk.services.assignment_email_service import enqueue_assignment_email
+                    enqueue_assignment_email(db, ticket.id, ticket.assigned_to_user_id)
+                except Exception as mail_err:
+                    logger.warning(f"Encolado de correo de asignación (auto) falló: {mail_err}")
+        except Exception as auto_err:
+            logger.error(f"Asignación automática falló para ticket {ticket.id}: {auto_err}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+        try:
+            db.refresh(ticket)
+        except Exception:
+            pass
+
         return {"message": "Ticket creado exitosamente", "ticket": ticket.to_dict(include_relations=True)}
 
     except Exception as e:
