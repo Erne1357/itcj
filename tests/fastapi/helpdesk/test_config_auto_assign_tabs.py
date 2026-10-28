@@ -33,3 +33,22 @@ def test_new_js_has_no_native_dialogs():
     for name in NEW_JS:
         src = (JS_DIR / name).read_text(encoding="utf-8")
         assert not re.search(r"(?<![\w.])(alert|confirm|prompt)\s*\(", src), name
+
+
+def test_menu_configuracion_ofrece_correo_y_asignacion():
+    from itcj2.apps.helpdesk.utils.navigation import get_helpdesk_navigation
+
+    perms = {"helpdesk.config.page.view", "helpdesk.config.assignment_email.api.read",
+             "helpdesk.config.auto_assign.api.read"}
+    cfg = next(i for i in get_helpdesk_navigation(perms, {"admin"}) if i["label"] == "Configuración")
+    items = {s["label"]: s for s in cfg["dropdown"]}
+    assert items["Correo"]["fragment"] == "#correo"
+    assert items["Asignación automática"]["fragment"] == "#autoasig"
+    assert items["Correo"]["endpoint"] == items["Asignación automática"]["endpoint"] \
+        == "helpdesk_pages.admin_pages.config"
+
+    # Sin los permisos de lectura, las entradas no aparecen.
+    cfg = next(i for i in get_helpdesk_navigation({"helpdesk.config.page.view"}, {"admin"})
+               if i["label"] == "Configuración")
+    labels = {s["label"] for s in cfg["dropdown"]}
+    assert not labels & {"Correo", "Asignación automática"}
