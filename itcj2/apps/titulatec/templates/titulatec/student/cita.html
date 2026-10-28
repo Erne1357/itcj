@@ -38,6 +38,7 @@
        información, así que el costo en DOM es despreciable.
    El contenido sale de `_checklist_ctx`, que re-sanitiza al pintar. #}
 {% block modals %}
+{{ super() }}
 {% for it in (checklist or []) if it.info_html %}
 <div class="modal fade tt-reqinfo-modal" id="tt-reqinfo-modal-{{ it.id }}" tabindex="-1"
      aria-labelledby="tt-reqinfo-modal-{{ it.id }}-t" aria-hidden="true">
