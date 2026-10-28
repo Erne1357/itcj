@@ -5,6 +5,7 @@ Tareas disponibles:
     cleanup_attachments     — elimina adjuntos expirados y marca los de tickets cerrados
     convert_document        — genera solicitud/orden_trabajo como PDF en background
     export_inventory_report — exporta inventario a CSV o XLSX en background
+    send_assignment_email   — correo al técnico cuando se le asigna un ticket
 """
 import json
 import logging
@@ -771,3 +772,55 @@ def _write_equipment_xlsx(file_path: str, items: list[dict]) -> None:
         ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 40)
 
     wb.save(file_path)
+
+
+# ---------------------------------------------------------------------------
+# send_assignment_email
+# ---------------------------------------------------------------------------
+
+@celery_app.task(
+    bind=True,
+    base=LoggedTask,
+    name="itcj2.tasks.helpdesk_tasks.send_assignment_email",
+    max_retries=2,
+    default_retry_delay=60,
+    soft_time_limit=30,
+    time_limit=45,
+)
+def send_assignment_email(self, ticket_id: int, user_id: int):
+    """Envía por Graph el correo de "ticket asignado" al técnico, si sigue vigente."""
+    from itcj2.database import SessionLocal
+    from itcj2.apps.helpdesk.models.ticket import Ticket
+    from itcj2.apps.helpdesk.services.assignment_email_service import (
+        build_assignment_email, wants_assignment_email,
+    )
+    from itcj2.core.models.user import User
+    from itcj2.core.utils import msgraph_mail
+
+    with SessionLocal() as db:
+        ticket = db.get(Ticket, ticket_id)
+        if not ticket:
+            return {"skipped": "ticket_not_found"}
+        if ticket.assigned_to_user_id != user_id:
+            return {"skipped": "reassigned"}
+        tech = db.get(User, user_id)
+        if not tech or not tech.is_active or not (tech.email or "").strip():
+            return {"skipped": "technician_unavailable"}
+        if not wants_assignment_email(db, user_id):
+            return {"skipped": "not_in_list"}
+
+        token = msgraph_mail.acquire_token_silent("helpdesk")
+        if token is None:
+            logger.warning("[send_assignment_email] buzón helpdesk sin conectar (ticket %s)", ticket_id)
+            return {"skipped": "no_token"}
+
+        subject, html = build_assignment_email(db, ticket, tech)
+        to = tech.email.strip()
+
+    try:
+        resp = msgraph_mail.graph_send_mail(token, subject, html, [to])
+    except Exception as exc:
+        raise self.retry(exc=exc)
+    if resp.status_code not in (200, 202):
+        raise self.retry(exc=RuntimeError(f"Graph respondió {resp.status_code}"))
+    return {"sent": True, "ticket_id": ticket_id, "user_id": user_id}
