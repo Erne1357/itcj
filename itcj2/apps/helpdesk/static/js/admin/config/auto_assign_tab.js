@@ -310,6 +310,8 @@
         const el = document.getElementById('assign-rule-error');
         el.textContent = msg || '';
         el.classList.toggle('d-none', !msg);
+        // Va al final del cuerpo con scroll (debajo de la lista de técnicos).
+        if (msg) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
     function openModal(ruleId) {
