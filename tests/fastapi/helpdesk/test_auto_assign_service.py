@@ -285,6 +285,26 @@ def test_ticket_ya_asignado_no_se_toca(db_session, mundo):
     assert a_equipo.status == "PENDING" and a_equipo.assigned_to_user_id is None
 
 
+def test_asignacion_manual_colada_no_se_pisa(db_session, mundo):
+    """El objeto en memoria dice PENDING, pero en la base ya lo asignaron a mano
+    (entre el broadcast de ticket_created y el motor): el motor relee y no toca."""
+    from sqlalchemy import text
+    m = mundo
+    _rule(db_session, m, ["A"], cat="sii")
+    t = _ticket(db_session, m)
+    db_session.execute(
+        text("UPDATE helpdesk_ticket SET status='ASSIGNED', assigned_to_user_id=:u WHERE id=:i"),
+        {"u": m["B"].id, "i": t.id},
+    )
+    db_session.commit()
+    assert t.status == "PENDING"  # foto vieja en el identity map
+
+    assert AutoAssignService.try_auto_assign(db_session, t) is None
+    db_session.refresh(t)
+    assert t.assigned_to_user_id == m["B"].id
+    assert db_session.query(Assignment).filter_by(ticket_id=t.id).count() == 0
+
+
 def test_fallo_en_assign_no_lanza(db_session, mundo):
     m = mundo
     regla = _rule(db_session, m, ["A"], cat="sii")

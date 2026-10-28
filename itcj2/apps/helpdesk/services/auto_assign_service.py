@@ -9,7 +9,7 @@ técnico.
 """
 import logging
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from itcj2.apps.helpdesk.models.assignment_rule import AssignmentRule
@@ -93,15 +93,23 @@ class AutoAssignService:
         try:
             if not get_settings(db).auto_assign_enabled:
                 return None
+            # Corre dentro de un endpoint async: una fila retenida por otra
+            # transacción no debe colgar el event loop (SET LOCAL muere en el commit).
+            db.execute(text("SET LOCAL lock_timeout = '2s'"))
+            # Releer el ticket bloqueado: una asignación manual que se haya
+            # colado desde el broadcast de ticket_created ya se ve aquí.
+            ticket = (
+                db.query(Ticket).filter(Ticket.id == ticket.id)
+                .with_for_update().populate_existing().one()
+            )
             if ticket.status != "PENDING" or ticket.assigned_to_user_id or ticket.assigned_to_team:
+                db.rollback()  # suelta el lock del ticket
                 return None
 
             rule = AutoAssignService.match_rule(db, ticket, lock=True)
-            if rule is None:
-                return None
-            pick = AutoAssignService.pick_technician(db, rule)
+            pick = AutoAssignService.pick_technician(db, rule) if rule else None
             if pick is None:
-                db.rollback()  # suelta el lock de la regla
+                db.rollback()  # suelta los locks del ticket y la regla
                 return None
 
             rule.last_assigned_user_id = pick

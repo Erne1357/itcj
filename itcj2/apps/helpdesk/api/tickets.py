@@ -198,6 +198,9 @@ async def create_ticket(
                     HelpdeskNotificationHelper.notify_ticket_assigned(db, ticket, tech)
                     db.commit()
                 except Exception as notif_error:
+                    # Sin rollback la sesión queda inutilizable y el to_dict final
+                    # daría 500 con el ticket ya creado (el cliente lo duplicaría).
+                    db.rollback()
                     logger.error(f"Error al notificar asignación automática: {notif_error}")
                 try:
                     from itcj2.sockets.helpdesk import broadcast_ticket_assigned
@@ -233,7 +236,7 @@ async def create_ticket(
         try:
             db.refresh(ticket)
         except Exception:
-            pass
+            db.rollback()
 
         return {"message": "Ticket creado exitosamente", "ticket": ticket.to_dict(include_relations=True)}
 

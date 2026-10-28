@@ -27,7 +27,9 @@ def enqueue_assignment_email(db: Session, ticket_id: int, user_id: int) -> bool:
             return False
         from itcj2.tasks.helpdesk_tasks import send_assignment_email
 
-        send_assignment_email.delay(ticket_id, user_id)
+        # retry=False: con Redis caído, .delay() reintentaría la publicación
+        # varios segundos dentro de un endpoint async (bloquea el event loop).
+        send_assignment_email.apply_async((ticket_id, user_id), retry=False)
         return True
     except Exception as e:
         logger.warning("No se pudo encolar el correo de asignación (ticket %s): %s", ticket_id, e)
@@ -36,19 +38,28 @@ def enqueue_assignment_email(db: Session, ticket_id: int, user_id: int) -> bool:
 
 def build_assignment_email(db: Session, ticket, technician) -> tuple[str, str]:
     """Devuelve (asunto, html)."""
+    from markupsafe import Markup
+
+    from itcj2.apps.helpdesk.models.notification_template import NotificationTemplate
     from itcj2.apps.helpdesk.services.notification_helper import _build_context, _safe_render
-    from itcj2.apps.helpdesk.utils.catalog_cache import get_notification_template
     from itcj2.templates import templates
 
     subject = f"[Help Desk ITCJ] Ticket #{ticket.ticket_number} asignado a ti"
     try:
-        tpl = get_notification_template(db, "ticket_assigned")
-        if tpl and tpl.get("is_active") and tpl.get("subject_template"):
+        # Directo de la BD, no de catalog_cache: corre en el worker de celery,
+        # cuya caché en memoria no se entera de las ediciones hechas en la web.
+        tpl = (db.query(NotificationTemplate)
+               .filter_by(code="ticket_assigned", is_active=True).first())
+        if tpl and tpl.subject_template:
             # Mismo contexto que la notificación in-app (`ticket`, `assignee`):
             # la plantilla se edita una vez y sirve para los dos canales.
-            subject = _safe_render(
-                tpl["subject_template"], _build_context(ticket=ticket, assignee=technician),
+            rendered = _safe_render(
+                tpl.subject_template, _build_context(ticket=ticket, assignee=technician),
             )
+            # _safe_render devuelve la plantilla cruda si falla, y escapa HTML
+            # (el asunto es texto plano).
+            if "{{" not in rendered and "{%" not in rendered:
+                subject = str(Markup(rendered).unescape()).strip() or subject
     except Exception as e:
         logger.warning("Plantilla ticket_assigned no usable, asunto por defecto: %s", e)
 

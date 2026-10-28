@@ -784,8 +784,10 @@ def _write_equipment_xlsx(file_path: str, items: list[dict]) -> None:
     name="itcj2.tasks.helpdesk_tasks.send_assignment_email",
     max_retries=2,
     default_retry_delay=60,
-    soft_time_limit=30,
-    time_limit=45,
+    # Mayor que el timeout=30 de graph_send_mail: el límite suave no debe
+    # cortar un envío que Graph quizá ya aceptó.
+    soft_time_limit=45,
+    time_limit=60,
 )
 def send_assignment_email(self, ticket_id: int, user_id: int):
     """Envía por Graph el correo de "ticket asignado" al técnico, si sigue vigente."""
@@ -817,10 +819,21 @@ def send_assignment_email(self, ticket_id: int, user_id: int):
         subject, html = build_assignment_email(db, ticket, tech)
         to = tech.email.strip()
 
+    import requests
+
+    # Solo se reintenta lo que seguro no salió (sin conexión, 429, 5xx): un
+    # timeout de lectura o un 4xx reintentado duplicaría o fallaría igual.
     try:
         resp = msgraph_mail.graph_send_mail(token, subject, html, [to])
-    except Exception as exc:
+    except requests.ConnectionError as exc:
         raise self.retry(exc=exc)
-    if resp.status_code not in (200, 202):
+    except requests.Timeout:
+        logger.warning("[send_assignment_email] timeout de Graph (ticket %s); no se reintenta", ticket_id)
+        return {"failed": "timeout"}
+    if resp.status_code in (200, 202):
+        return {"sent": True, "ticket_id": ticket_id, "user_id": user_id}
+    if resp.status_code == 429 or resp.status_code >= 500:
         raise self.retry(exc=RuntimeError(f"Graph respondió {resp.status_code}"))
-    return {"sent": True, "ticket_id": ticket_id, "user_id": user_id}
+    logger.warning("[send_assignment_email] Graph respondió %s (ticket %s): %s",
+                   resp.status_code, ticket_id, resp.text[:200])
+    return {"failed": resp.status_code}

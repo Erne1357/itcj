@@ -100,20 +100,20 @@ def test_enqueue_solo_si_esta_en_la_lista(db_session, monkeypatch):
     from itcj2.apps.helpdesk.services.assignment_email_service import enqueue_assignment_email
     from itcj2.tasks.helpdesk_tasks import send_assignment_email
     delay = MagicMock()
-    monkeypatch.setattr(send_assignment_email, "delay", delay)
+    monkeypatch.setattr(send_assignment_email, "apply_async", delay)
     u = _user(db_session, "A")
     _set_list(db_session, [])
     assert enqueue_assignment_email(db_session, 1, u.id) is False
     delay.assert_not_called()
     _set_list(db_session, [u.id])
     assert enqueue_assignment_email(db_session, 1, u.id) is True
-    delay.assert_called_once_with(1, u.id)
+    delay.assert_called_once_with((1, u.id), retry=False)
 
 
 def test_enqueue_traga_error_de_redis(db_session, monkeypatch):
     from itcj2.apps.helpdesk.services.assignment_email_service import enqueue_assignment_email
     from itcj2.tasks.helpdesk_tasks import send_assignment_email
-    monkeypatch.setattr(send_assignment_email, "delay", MagicMock(side_effect=ConnectionError("redis")))
+    monkeypatch.setattr(send_assignment_email, "apply_async", MagicMock(side_effect=ConnectionError("redis")))
     u = _user(db_session, "B")
     _set_list(db_session, [u.id])
     assert enqueue_assignment_email(db_session, 1, u.id) is False
@@ -152,9 +152,15 @@ def test_html_escapa_titulo(db_session):
 
 # ---------------- tarea ----------------
 
+def _sin_asunto_de_plantilla(db):
+    # La tarea lee la plantilla directo de la BD (dev puede traer una con asunto).
+    db.query(NotificationTemplate).filter_by(code="ticket_assigned").update(
+        {"subject_template": None})
+    db.commit()
+
+
 def test_tarea_envia_si_sigue_asignado(db_session, env, monkeypatch):
-    monkeypatch.setattr("itcj2.apps.helpdesk.utils.catalog_cache.get_notification_template",
-                        lambda db, code: None)
+    _sin_asunto_de_plantilla(db_session)
     from itcj2.tasks.helpdesk_tasks import send_assignment_email
     _, send = env
     u = _user(db_session, "E", email="tec-e@example.com")
@@ -275,3 +281,67 @@ def test_autoasignarse_no_encola(client, db_session, auth_headers, api, monkeypa
                     headers={"Cookie": f"itcj_token={tok}"})
     assert r.status_code == 200, r.text
     api.assert_not_called()
+
+
+def test_asunto_de_plantilla_sale_sin_escapes(db_session):
+    from itcj2.apps.helpdesk.services.assignment_email_service import build_assignment_email
+    u = _user(db_session, "I")
+    t = _ticket(db_session, "AA5-0007", u, u, title="Red & correo")
+    tpl = db_session.query(NotificationTemplate).filter_by(code="ticket_assigned").first()
+    if tpl is None:
+        tpl = NotificationTemplate(code="ticket_assigned", name="aa5", body_template="x",
+                                   is_active=True)
+        db_session.add(tpl)
+    tpl.is_active = True
+    tpl.subject_template = "{{ ticket.title }} para {{ assignee.email }}"
+    db_session.commit()
+    subject, _ = build_assignment_email(db_session, t, u)
+    assert subject == "Red & correo para aa5@example.com"
+
+
+def test_asunto_de_plantilla_rota_usa_el_default(db_session):
+    from itcj2.apps.helpdesk.services.assignment_email_service import build_assignment_email
+    u = _user(db_session, "J")
+    t = _ticket(db_session, "AA5-0008", u, u)
+    tpl = db_session.query(NotificationTemplate).filter_by(code="ticket_assigned").first()
+    if tpl is None:
+        tpl = NotificationTemplate(code="ticket_assigned", name="aa5", body_template="x",
+                                   is_active=True)
+        db_session.add(tpl)
+    tpl.is_active = True
+    tpl.subject_template = "{{ ticket.no_existe }}"
+    db_session.commit()
+    subject, _ = build_assignment_email(db_session, t, u)
+    assert subject == "[Help Desk ITCJ] Ticket #AA5-0008 asignado a ti"
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+def test_tarea_no_reintenta_en_4xx(db_session, env, monkeypatch, status):
+    from itcj2.tasks.helpdesk_tasks import send_assignment_email
+    _, send = env
+    send.return_value = MagicMock(status_code=status, text="no")
+    monkeypatch.setattr(send_assignment_email, "retry",
+                        MagicMock(side_effect=AssertionError("no debe reintentar")))
+    u = _user(db_session, f"K{status}")
+    t = _ticket(db_session, f"AA5-1{status}", u, u)
+    _set_list(db_session, [u.id])
+    assert send_assignment_email.run(t.id, u.id) == {"failed": status}
+
+
+def test_tarea_reintenta_si_no_conecta_y_no_en_timeout(db_session, env, monkeypatch):
+    import requests
+    from itcj2.tasks.helpdesk_tasks import send_assignment_email
+    _, send = env
+    retry = MagicMock(side_effect=RuntimeError("retry-called"))
+    monkeypatch.setattr(send_assignment_email, "retry", retry)
+    u = _user(db_session, "L")
+    t = _ticket(db_session, "AA5-0009", u, u)
+    _set_list(db_session, [u.id])
+
+    send.side_effect = requests.ConnectionError("sin red")
+    with pytest.raises(RuntimeError, match="retry-called"):
+        send_assignment_email.run(t.id, u.id)
+
+    send.side_effect = requests.ReadTimeout("lento")
+    assert send_assignment_email.run(t.id, u.id) == {"failed": "timeout"}
+    retry.assert_called_once()

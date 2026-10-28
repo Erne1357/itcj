@@ -171,7 +171,8 @@
                 return;
             }
             tech.enabled = wanted;
-            toast(wanted ? 'Se enviará correo a ' + tech.name : 'Ya no se enviará correo a ' + tech.name, 'success');
+            // showToast pinta por innerHTML: el nombre va escapado.
+            toast((wanted ? 'Se enviará correo a ' : 'Ya no se enviará correo a ') + escapeHtml(tech.name), 'success');
         } catch (_) {
             sw.checked = !wanted;
             toast('Error de conexión', 'error');
