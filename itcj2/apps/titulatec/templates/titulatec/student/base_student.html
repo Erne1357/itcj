@@ -69,6 +69,19 @@
         <div class="title">{% block student_appbar_title %}TitulaTec{% endblock %}</div>
         {% block student_appbar_sub %}{% endblock %}
       </div>
+      {# Ayuda discreta, solo en fases 1 y 2: abre el directorio de encargadas
+         (`#tt-help-modal`, abajo). Cada vista trae la fase con otro nombre:
+         `current_phase` (dashboard), `proc` (perfil) o `process` (el resto). #}
+      {% set _tt_fase = current_phase if current_phase is defined
+           else (proc.current_phase if proc is defined and proc
+           else (process.current_phase if process is defined and process else 0)) %}
+      {% if _tt_fase in (1, 2) %}
+      <button type="button" class="tt-iconbtn text-body-secondary" id="tt-help-btn"
+              data-bs-toggle="modal" data-bs-target="#tt-help-modal"
+              aria-label="Directorio de encargadas de carrera" title="Directorio de encargadas de carrera">
+        <i class="bi bi-question-lg" aria-hidden="true"></i>
+      </button>
+      {% endif %}
       <button type="button" class="tt-burger" id="sidebarTrigger" aria-label="Abrir menú">
         <i class="bi bi-list"></i>
       </button>
@@ -111,6 +124,32 @@
     </button>
   </div>
 </aside>
+{% endblock %}
+
+{# Directorio de encargadas de carrera (lo abre `#tt-help-btn`). Siempre en el
+   DOM: la imagen es `loading="lazy"` y no se descarga hasta abrir el modal.
+   Para actualizar el directorio basta reemplazar el .jpg. Una vista que pise
+   este bloque debe llamar `{{ super() }}` (cita.html lo hace). #}
+{% block modals %}
+<div class="modal fade" id="tt-help-modal" tabindex="-1" aria-labelledby="tt-help-modal-t" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-6" id="tt-help-modal-t">Directorio de encargadas de carrera</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-body-secondary mb-2">Si tienes dudas con tu trámite, escríbele a la encargada de tu carrera. Toca la imagen para verla en grande.</p>
+        <a href="/static/titulatec/images/directorio-encargadas.jpg?v={{ sv('images/directorio-encargadas.jpg') }}"
+           target="_blank" rel="noopener">
+          <img class="img-fluid rounded border" loading="lazy" width="1920" height="1080"
+               src="/static/titulatec/images/directorio-encargadas.jpg?v={{ sv('images/directorio-encargadas.jpg') }}"
+               alt="Directorio de encargadas de carreras de Servicios Escolares: nombre, carreras a cargo y correo de cada una">
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

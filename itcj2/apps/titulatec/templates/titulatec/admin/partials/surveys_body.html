@@ -20,9 +20,12 @@
     </select>
     <span class="tt-pill tt-pill--neutral">{{ total }} respuestas</span>
     {% if form %}
+    <a class="btn btn-sm tt-btn-ink" id="tt-surveys-report-link"
+       href="/titulatec/admin/encuestas/reporte?form_id={{ form.id }}">
+      <i class="bi bi-file-earmark-excel me-1"></i>Reporte Excel</a>
     <a class="btn btn-sm tt-btn-ghost"
        href="/titulatec/admin/encuestas/export.csv?form_id={{ form.id }}">
-      <i class="bi bi-download me-1"></i>Exportar CSV</a>
+      <i class="bi bi-download me-1"></i>CSV (datos crudos)</a>
     {% endif %}
   </div>
 
