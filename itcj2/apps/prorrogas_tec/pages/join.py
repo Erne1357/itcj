@@ -11,7 +11,6 @@ from fastapi.responses import RedirectResponse
 
 from itcj2.apps.prorrogas_tec.services import invitation_service as inv
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
-from itcj2.core.utils.timezone import db_now
 from itcj2.dependencies import DbSession
 from itcj2.templates import render
 
@@ -64,16 +63,13 @@ def _nip_form(request, token, status=200, error=None):
 
 @router.get("/invitacion/{token}", name="prorrogas_tec.pages.unirse.invitacion")
 async def unirse_invitacion(request: Request, db: DbSession, token: str):
-    invitacion = inv.invitation_for_token(db, token)
-    if invitacion is None:
-        return _error(request, "La invitación no es válida.", 404)
-    if invitacion.used_at is not None:
-        return _error(request, "Esta invitación ya se usó.", 409)
+    try:
+        invitacion = inv.validate_invitation(db, token)
+    except ServiceError as e:
+        return _error(request, e.message, e.status)
     uid = _user_id(request)
     if uid is None and not invitacion.user.password_hash:
         # Cuenta nueva sin sesión: aún no puede iniciarla, así que crea su NIP primero.
-        if invitacion.expires_at is None or db_now() >= invitacion.expires_at:
-            return _error(request, "La invitación venció. Pide otra.", 410)
         return _nip_form(request, token)
     if uid is None:
         return _login(f"/prorrogas/unirse/invitacion/{token}")

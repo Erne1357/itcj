@@ -161,6 +161,11 @@ def _usable(db, raw_token: str, now: datetime, *, lock: bool = False) -> Prorrog
     return invitacion
 
 
+def validate_invitation(db, raw_token: str, *, now: datetime | None = None) -> ProrrogaInvitation:
+    """Invitación usable (404 inválida, 409 usada, 410 vencida o revocada); no la consume."""
+    return _usable(db, raw_token, now or db_now())
+
+
 def join(db, user_id: int, *, via: str, issued_by_id: int | None, invitation_id: int | None = None,
          now: datetime | None = None) -> ProrrogaJoin:
     row = ProrrogaJoin(user_id=user_id, via=via, invitation_id=invitation_id,

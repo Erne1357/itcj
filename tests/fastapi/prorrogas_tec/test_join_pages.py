@@ -56,3 +56,24 @@ def test_invitacion_abierta_con_otra_cuenta(client_as, secretaria, make_user, en
     invitacion, token = inv.invite(db_session, raw_control="99300004", email=None, actor_id=secretaria.id)
     r = client_as(otro).get(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
     assert r.status_code == 403 and invitacion.used_at is None
+
+
+def test_invitacion_vencida_con_nip_muestra_410_sin_sesion(client, secretaria, make_user, enviar_correo, db_session):
+    from itcj2.core.utils.security import hash_nip
+    u = make_user(control_number="99300007")
+    u.password_hash = hash_nip("1234")
+    _, token = inv.invite(db_session, raw_control="99300007", email=None, actor_id=secretaria.id,
+                          now=db_now() - timedelta(hours=49))
+    r = client.get(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
+    assert r.status_code == 410
+
+
+def test_invitacion_usada_da_409(client, client_as, secretaria, make_user, enviar_correo, db_session):
+    u = make_user(control_number="99300008")
+    _, token = inv.invite(db_session, raw_control="99300008", email=None, actor_id=secretaria.id)
+    inv.consume_invitation(db_session, token, user_id=u.id)
+    assert client.get(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False).status_code == 409
+
+
+def test_invitacion_desconocida_da_404(client):
+    assert client.get("/prorrogas/unirse/invitacion/nope", follow_redirects=False).status_code == 404
