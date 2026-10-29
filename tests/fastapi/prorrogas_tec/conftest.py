@@ -272,3 +272,33 @@ def pdf_falso(monkeypatch):
 
     monkeypatch.setattr(docx_pdf, "docx_to_pdf", fake)
     return SimpleNamespace(calls=calls)
+
+
+@pytest.fixture()
+def enviar_correo(monkeypatch):
+    """Parcha `notify.send_email`; `.calls` guarda los kwargs de cada envío."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services import notify
+
+    calls = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(notify, "send_email", fake)
+    return SimpleNamespace(calls=calls)
+
+
+@pytest.fixture()
+def avisos(monkeypatch):
+    """Parcha `notify.notify_student`; `.calls` guarda `(kind, req.id, link)`."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services import notify
+
+    calls = []
+    monkeypatch.setattr(notify, "notify_student",
+                        lambda db, req, *, kind, link: calls.append((kind, req.id, link)))
+    return SimpleNamespace(calls=calls)

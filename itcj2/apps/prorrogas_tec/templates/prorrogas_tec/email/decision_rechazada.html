@@ -1,0 +1,6 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% block cuerpo %}
+<p>Tu solicitud de prórroga <strong>{{ folio }}</strong> no fue autorizada.</p>
+{% if comentario %}<p><strong>Motivo:</strong> {{ comentario }}</p>{% endif %}
+{% endblock %}
+{% block boton %}Ver mi solicitud{% endblock %}
