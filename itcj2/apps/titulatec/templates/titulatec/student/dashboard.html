@@ -81,7 +81,9 @@
               {% if current.survey %}{{ survey_review_pill(current.survey.status) }}{% endif %}
               {% if current.library %}{{ library_clearance_pill(current.library.status, current.library.via) }}{% endif %}
               {# Al alumno no se le dice «Rechazado»: se le dice qué hacer. #}
-              {% if current.status == 'rejected' %}{{ pill("Necesita corrección", "danger", "exclamation-triangle") }}
+              {# Reimpresión del Anexo III: la fase va «rejected», pero al alumno no le toca corregir nada. #}
+              {% if current.anexo_stage == 'reprint' %}{{ pill("Reimpresión", "amber", "printer") }}
+              {% elif current.status == 'rejected' %}{{ pill("Necesita corrección", "danger", "exclamation-triangle") }}
               {% else %}{{ estado_pill(current.status) }}{% endif %}
             </div>
           </div>
@@ -107,7 +109,14 @@
           <p class="tt-prose mt-3 mb-0">Constancia previa registrada: no necesitas llevar nada; tu liberación ya quedó registrada para Servicios Escolares.</p>
           {% endif %}
 
-          {% if current.status == 'rejected' and current.rejection_reason %}
+          {% if current.anexo_stage == 'reprint' %}
+          {# Misma frase que la pantalla del Anexo III (partials/student/anexo/_body.html). #}
+          <div class="mt-3" id="tt-now-reprint">
+            <p class="tt-prose mb-0">Titulación pidió reimprimir tu Anexo III:</p>
+            {% if current.anexo_reprint_reason %}<p class="tt-prose fw-semibold mb-0 mt-1">{{ current.anexo_reprint_reason }}</p>{% endif %}
+            <p class="tt-prose mb-0 mt-1">Vinculación lo vuelve a preparar; te avisaremos.</p>
+          </div>
+          {% elif current.status == 'rejected' and current.rejection_reason %}
           <div class="tt-now-fix mt-3" id="tt-now-fix">
             <div class="tt-now-fix-title"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Lo que te pidieron corregir</div>
             <p class="tt-prose mb-0 mt-1">{{ current.rejection_reason }}</p>
@@ -407,7 +416,8 @@
               </div>
               {% if not cancelled %}
               <a class="tt-acc-hint" href="#tt-fase-actual" data-tt-acc-goto>
-                <i class="bi bi-arrow-up-circle"></i> Lo que tienes que hacer está en «Tu proceso»
+                {#- Anexo III: cuando la pelota no es del alumno, no hay «lo que tienes que hacer». #}
+                <i class="bi bi-arrow-up-circle"></i> {% if ph.anexo_stage and ph.responsible != 'student' %}Por ahora no tienes nada que hacer: el estado está en «Tu proceso»{% else %}Lo que tienes que hacer está en «Tu proceso»{% endif %}
               </a>
               {% endif %}
               {% endif %}

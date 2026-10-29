@@ -26,7 +26,10 @@
 </p>
 {% endif %}
 
-{% if f.status == 'rejected' and f.rejection_reason %}
+{# Fase 6 en reimpresión: el motivo ya va en «Reimpresión pendiente» de su tarjeta
+   (y no es una corrección del alumno); aquí no se repite en rojo. #}
+{% if f.status == 'rejected' and f.rejection_reason
+      and not (f.number == anexo_phase and anexo and anexo.stage == 'reprint') %}
 <div class="tt-exp-nota tt-exp-nota--mal">
   <i class="bi bi-exclamation-triangle me-1" aria-hidden="true"></i>{{ f.rejection_reason }}
 </div>
@@ -443,7 +446,12 @@
       <div><dt>Liberado de la revisión</dt><dd>{{ anexo.released_label }}</dd></div>
       {% endif %}
       <div><dt>Escaneo firmado</dt>
-        <dd>{{ 'Ya lo subió el alumno' if anexo.has_scan else 'Sin enviar' }}</dd></div>
+        <dd data-tt-anexo-scan-status="{{ anexo.scan_status or '' }}">
+          {%- if not anexo.has_scan %}Sin enviar
+          {%- elif anexo.scan_status == 'rejected' and anexo.stage == 'reprint' %}El anterior ya no cuenta: se reimprime el Anexo
+          {%- elif anexo.scan_status == 'rejected' %}Observado: el alumno sube otro
+          {%- else %}Ya lo subió el alumno{% endif -%}
+        </dd></div>
     </dl>
     {% if anexo.ready_label or anexo.reprint_label %}
     <dl class="tt-exp-datos mt-3">

@@ -163,7 +163,9 @@
          target="_blank" rel="noopener">
         <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
       {% endif %}
-      {% if d.can_anexo %}
+      {# Mientras el panel del Anexo muestra el paso 1 «Imprimir Anexo III» (mismo PDF),
+         aquí no se repite con otra etiqueta. #}
+      {% if d.can_anexo and not (d.anexo and d.anexo.can_print and d.anexo.stage in ('preparing', 'reprint', 'ready')) %}
       <a id="tt-sin-anexo" class="btn btn-sm tt-btn-ink" href="{{ d.anexo_url }}"
          target="_blank" rel="noopener">
         <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar Anexo III</a>

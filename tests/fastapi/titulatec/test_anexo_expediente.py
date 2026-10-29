@@ -263,3 +263,39 @@ def test_tarjeta_con_corte_3_sin_etapa(lector, db_session, monkeypatch):
     db_session.commit()
     _corte(monkeypatch, 3)
     assert "data-tt-anexo-stage" not in cli.get(f"{URL}/{c.process.id}?fase=6").text
+
+
+def test_reimpresion_sin_nota_roja_y_el_escaneo_anterior_ya_no_cuenta(lector, db_session, monkeypatch):
+    """UI ronda 2 (E3/E4): en reimpresión el motivo sale UNA vez («Reimpresión
+    pendiente», no además la nota roja de fase rechazada) y el escaneo que quedó
+    en disco dice que ya no cuenta."""
+    from datetime import datetime
+
+    from itcj2.apps.titulatec.models import Document
+    _corte(monkeypatch, 9)
+    c, cli = lector(phase_status="rejected")
+    db_session.query(ProcessPhase).filter_by(
+        process_id=c.process.id, phase_number=c.anexo_phase).one().rejection_reason = "Sello ilegible"
+    anexo = AnexoService.ensure_folio(db_session, c.process, None)
+    anexo.reprint_requested_at = datetime(2026, 3, 25, 10, 0)
+    anexo.reprint_reason = "Sello ilegible"
+    _con_escaneo(db_session, c)
+    db_session.query(Document).filter_by(
+        process_id=c.process.id, type_code="anexo_iii").one().review_status = "rejected"
+    db_session.commit()
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert 'data-tt-anexo-stage="reprint"' in t
+    assert t.count("Sello ilegible") == 1 and "tt-exp-nota--mal" not in t
+    assert 'data-tt-anexo-scan-status="rejected"' in t and "El anterior ya no cuenta" in t
+
+
+def test_observado_conserva_la_nota_roja(lector, db_session, monkeypatch):
+    """La nota de fase rechazada solo se omite en reimpresión: una observación
+    normal la sigue pintando."""
+    _corte(monkeypatch, 9)
+    c, cli = lector(phase_status="rejected")
+    db_session.query(ProcessPhase).filter_by(
+        process_id=c.process.id, phase_number=c.anexo_phase).one().rejection_reason = "Falta una firma"
+    db_session.commit()
+    t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert 'data-tt-anexo-stage="observed"' in t and "tt-exp-nota--mal" in t and "Falta una firma" in t

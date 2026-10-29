@@ -121,11 +121,22 @@ def test_la_pestana_lista_los_procesos_en_fase_6_y_los_cuenta(esc):
     assert c.process.id not in _filas(cli.get(BODY, params={"tab": "assigned"}))
 
 
-def test_el_detalle_ofrece_el_pdf_del_anexo(esc):
+def test_el_detalle_ofrece_el_pdf_del_anexo(esc, db_session):
+    """UI ronda 2 (V4): mientras el panel muestra el paso 1 «Imprimir Anexo III»
+    (en preparación, reimpresión o por recoger) el PDF sale de ahí y «Descargar
+    Anexo III» no se repite con otra etiqueta; en Titulación (solo lectura) la
+    liga vuelve a «Sinodales vigentes»."""
     c = esc.caso()
-    resp = esc.client_as(c.head).get(BODY, params={"tab": "anexo", "selected": c.process.id})
-    ligas = _html(resp).xpath('//a[@id="tt-sin-anexo"]')
-    assert ligas and ligas[0].get("href") == f"{URL}/{c.process.id}/anexo.pdf"
+    cli = esc.client_as(c.head)
+    pdf = f"{URL}/{c.process.id}/anexo.pdf"
+    h = _html(cli.get(BODY, params={"tab": "anexo", "selected": c.process.id}))
+    assert [a.get("href") for a in h.xpath('//a[@id="tt-sin-anexo-print"]')] == [pdf]
+    assert not h.xpath('//a[@id="tt-sin-anexo"]')
+    _fase(db_session, c, "in_review")
+    h = _html(cli.get(BODY, params={"tab": "anexo", "etapa": "titulacion",
+                                    "selected": c.process.id}))
+    assert [a.get("href") for a in h.xpath('//a[@id="tt-sin-anexo"]')] == [pdf]
+    assert not h.xpath('//a[@id="tt-sin-anexo-print"]')
 
 
 def test_corte_6_sin_pestana_y_sin_filas(esc, corte):

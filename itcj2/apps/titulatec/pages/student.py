@@ -255,6 +255,18 @@ _RESPONSIBLE_LABEL = {
 }
 
 
+# Fase 6 v2 (2026-10-29): quién tiene la pelota en el Anexo III según su etapa
+# (`AnexoService.stage`), no el responsable fijo del catálogo. `approved` no
+# está: se queda el del catálogo, como antes.
+_ANEXO_STAGE_RESPONSIBLE = {
+    "preparing": "vinculacion",
+    "reprint":   "vinculacion",
+    "ready":     "student",
+    "observed":  "student",
+    "in_review": "titulaciones",
+}
+
+
 def _con_de(label: str) -> str:
     """"de" + `label`, con la contracción obligatoria "del" cuando `label`
     empieza con "el " (regla dura del español: "de"+"el"→"del", "a"+"el"→"al";
@@ -875,6 +887,19 @@ def _review_card(db, process) -> dict | None:
     }
 
 
+def _anexo_overrides(code: str, stage: str | None, reprint_reason: str | None) -> dict:
+    """Campos de la card del Anexo III según su etapa (puro). Fuera de esa card
+    o sin etapa, nada: la card se queda con el responsable del catálogo."""
+    if code != "anexo_iii" or stage is None:
+        return {}
+    over = {"anexo_stage": stage, "anexo_reprint_reason": reprint_reason}
+    quien = _ANEXO_STAGE_RESPONSIBLE.get(stage)
+    if quien:
+        label = _RESPONSIBLE_LABEL[quien]
+        over.update(responsible=quien, responsible_label=label, responsible_label_de=_con_de(label))
+    return over
+
+
 def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     """Contexto del acordeón de las 9 fases + la tarjeta grande de la fase actual.
 
@@ -1005,6 +1030,10 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             "replacements": None,
             "synodals": None,
             "review": None,
+            # Etapa del Anexo III (`AnexoService.stage`) SOLO en su card y solo
+            # si es la fase actual; None en cualquier otro caso.
+            "anexo_stage": None,
+            "anexo_reprint_reason": None,
         }
         card.update(over)
         return card
@@ -1098,6 +1127,18 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
     if n_revision is not None and current_phase >= n_revision and handoff_phase > n_revision:
         review = _review_card(db, process)
 
+    # Anexo III (fase 6 v2): la etapa decide quién tiene la pelota y cómo se
+    # pinta la card. UNA lectura (`AnexoService.stage`, consultas fijas) y solo
+    # si el proceso está en la fase del Anexo y esta app la opera; el motivo de
+    # la reimpresión sale de `ready_info` y solo en esa etapa.
+    n_anexo = next((p.number for p in pdefs if p.code == "anexo_iii"), None)
+    anexo_stage = anexo_reprint = None
+    if n_anexo is not None and current_phase == n_anexo and handoff_phase > n_anexo:
+        from itcj2.apps.titulatec.services.anexo_service import AnexoService
+        anexo_stage = AnexoService.stage(db, process)
+        if anexo_stage == "reprint":
+            anexo_reprint = (AnexoService.ready_info(db, process) or {}).get("reprint_reason")
+
     cards = []
     for pd in pdefs:
         ph = ph_by_number.get(pd.number)
@@ -1132,6 +1173,7 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
                      _cta_for(pd.code, is_current=is_current, status=status, handoff=handoff),
                      progress if pd.code == "format_b" else None)),
             review=(review if pd.code == "synodal_review" else None),
+            **_anexo_overrides(pd.code, anexo_stage, anexo_reprint),
             rejection_reason=(ph.rejection_reason if ph else None),
             events=events_by_phase.get(pd.number, []),
             progress=progress,

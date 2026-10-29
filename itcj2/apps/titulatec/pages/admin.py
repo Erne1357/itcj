@@ -1940,8 +1940,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         puede_revisar = _puede_ver_anexo(anexo_perms)
         puede_generar = ("titulatec.anexo_iii.api.generate" in anexo_perms
                          and "titulatec.synodal.api.read" in anexo_perms)
-        tiene_escaneo = db.query(Document.id).filter_by(
-            process_id=process_id, type_code=_ANEXO_DOC).first() is not None
+        # El estado del escaneo viaja con él (misma consulta): en reimpresión u
+        # observado, el que está en disco ya no cuenta y la tarjeta lo dice.
+        escaneo = db.query(Document.review_status).filter_by(
+            process_id=process_id, type_code=_ANEXO_DOC).first()
+        tiene_escaneo = escaneo is not None
         # Revisión final, punto 6: sin ligas que contestarían 400 o caerían sin
         # detalle. El PDF exige el MISMO predicado que su ruta (`reached`: fase 6
         # alcanzada y proceso no revocado); «Abrir en Titulación», un proceso
@@ -1965,6 +1968,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "released_label": (_fecha_larga(folio_row.released_at)
                                if folio_row and folio_row.released_at else None),
             "has_scan": tiene_escaneo,
+            "scan_status": escaneo[0] if escaneo else None,
             "pdf_url": pdf_url,
             "scan_url": (f"/titulatec/admin/titulacion/anexo/{process_id}/escaneo"
                          if puede_revisar and tiene_escaneo else None),
