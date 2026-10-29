@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterator, Mapping
-from copy import deepcopy
 from io import BytesIO
 
 import docx
 from docx.document import Document as DocxDocument
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm
 from docx.text.paragraph import Paragraph
@@ -27,7 +27,6 @@ from docx.text.run import Run
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
 
 _W_P = qn("w:p")
-_W_R = qn("w:r")
 _W_T = qn("w:t")
 _XML_SPACE = qn("xml:space")
 
@@ -88,17 +87,18 @@ def _owner_paragraph(el):
     return parent
 
 
-def _runs_of(p_el) -> list:
-    """Runs del párrafo, sin los de párrafos anidados (cuadros de texto)."""
-    return [r for r in p_el.iter(_W_R) if _owner_paragraph(r) is p_el]
+def _texts_of(p_el) -> list:
+    """Los ``w:t`` del párrafo, en orden, sin los de párrafos anidados (cuadros de texto).
 
-
-def _run_text(r) -> str:
-    return "".join(t.text or "" for t in r.findall(_W_T))
+    Se trabaja a nivel ``w:t`` y no de run: Word guarda texto, tabuladores y
+    saltos de línea en un mismo run (``<w:t/><w:tab/><w:t/>``) y reescribir el
+    run entero los movería al final.
+    """
+    return [t for t in p_el.iter(_W_T) if _owner_paragraph(t) is p_el]
 
 
 def _paragraph_text(p_el) -> str:
-    return "".join(_run_text(r) for r in _runs_of(p_el))
+    return "".join(t.text or "" for t in _texts_of(p_el))
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +112,8 @@ def _replace_spans(paragraph: Paragraph, spans: list[tuple[int, int, str, bytes 
     Los tramos no se traslapan. Se aplican de atrás hacia adelante para que los
     desplazamientos de los anteriores sigan siendo válidos.
     """
-    runs = _runs_of(paragraph._p)
-    texts = [_run_text(r) for r in runs]
+    ts = _texts_of(paragraph._p)
+    texts = [t.text or "" for t in ts]
     original = list(texts)
     starts, acc = [], 0
     for t in texts:
@@ -132,7 +132,7 @@ def _replace_spans(paragraph: Paragraph, spans: list[tuple[int, int, str, bytes 
                 return i, pos - s
         raise IndexError(pos)
 
-    pictures: list[tuple[int, str, bytes]] = []  # (run, texto que va después, png)
+    pictures: list[tuple[int, str, bytes]] = []  # (w:t, texto que va después, png)
     for start, end, repl, image in sorted(spans, key=lambda s: s[0], reverse=True):
         rs, os_ = locate_start(start)
         re_, oe = locate_end(end)
@@ -149,29 +149,28 @@ def _replace_spans(paragraph: Paragraph, spans: list[tuple[int, int, str, bytes 
                 texts[k] = ""
             texts[re_] = texts[re_][oe:]
             if image:
-                # Lo que sigue al marcador ya vive en el run `re_`: la imagen va
-                # al final del run `rs` y queda en su lugar.
+                # Lo que sigue al marcador ya vive en el `w:t` `re_`: la imagen
+                # va justo después del `w:t` `rs` y queda en su lugar.
                 pictures.append((rs, "", image))
 
-    for r, new, old in zip(runs, texts, original):
-        if new == old:
-            continue
-        ts = r.findall(_W_T)
-        ts[0].text = new
-        ts[0].set(_XML_SPACE, "preserve")
-        for extra in ts[1:]:
-            r.remove(extra)
+    for t, new, old in zip(ts, texts, original):
+        if new != old:
+            t.text = new
+            t.set(_XML_SPACE, "preserve")
 
+    # En el orden en que se registraron (de atrás hacia adelante): cada imagen
+    # se inserta pegada a su `w:t`, así que las anteriores quedan delante.
     for idx, tail, image in pictures:
-        run_el = runs[idx]
+        t_el = ts[idx]
+        run = Run(t_el.getparent(), paragraph)
+        drawing = OxmlElement("w:drawing")
+        drawing.append(run.part.new_pic_inline(BytesIO(image), None, Cm(image_height_cm)))
+        t_el.addnext(drawing)
         if tail:
-            tail_el = deepcopy(run_el)
-            ts = tail_el.findall(_W_T)
-            ts[0].text = tail
-            for extra in ts[1:]:
-                tail_el.remove(extra)
-            run_el.addnext(tail_el)
-        Run(run_el, paragraph).add_picture(BytesIO(image), height=Cm(image_height_cm))
+            tail_el = OxmlElement("w:t")
+            tail_el.text = tail
+            tail_el.set(_XML_SPACE, "preserve")
+            drawing.addnext(tail_el)
 
 
 # ---------------------------------------------------------------------------

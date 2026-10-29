@@ -89,3 +89,32 @@ def test_replace_literals_cuenta_y_cruza_runs():
     out, counts = replace_literals(_docx(build), {"PAYAN FLORES ITZEL": "{{nombre}}", "NO EXISTE": "x"})
     assert counts == {"PAYAN FLORES ITZEL": 2, "NO EXISTE": 0}
     assert _text(out) == "{{nombre}} y {{nombre}}"
+
+
+# Revisión final del Plan 1 (#2): Word junta texto, tabuladores y saltos de línea
+# en un mismo run; llenar un marcador no debe moverlos.
+def test_tabulador_en_el_mismo_run_se_queda_en_su_lugar():
+    def build(d):
+        r = d.add_paragraph().add_run("{{nombre}}")
+        r.add_tab()
+        r.add_text("{{no_control}}")
+    out = fill_docx(_docx(build), {"nombre": "ANA", "no_control": "22111670"})
+    assert _text(out) == "ANA\t22111670"
+
+
+def test_salto_de_linea_en_el_mismo_run_se_queda_en_su_lugar():
+    def build(d):
+        r = d.add_paragraph().add_run("{{nombre}}")
+        r.add_break()
+        r.add_text("No. {{no_control}}")
+    out = fill_docx(_docx(build), {"nombre": "ANA", "no_control": "22111670"})
+    assert _text(out) == "ANA\nNo. 22111670"
+
+
+def test_imagen_en_medio_del_texto_queda_en_su_lugar():
+    out = fill_docx(_docx(lambda d: d.add_paragraph("Firma: {{firma_estudiante}} fin")), {},
+                    images={"firma_estudiante": _png()})
+    p = Document(BytesIO(out)).paragraphs[0]
+    assert p.text == "Firma:  fin"
+    tags = [el.tag.split("}")[1] for el in p._p.iter() if el.tag.split("}")[1] in ("t", "drawing")]
+    assert tags == ["t", "drawing", "t"]
