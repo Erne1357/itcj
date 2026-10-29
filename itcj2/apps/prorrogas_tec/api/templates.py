@@ -9,8 +9,9 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, Query, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, Response
 
+from itcj2.apps.prorrogas_tec.api._common import error_response
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES, default_template_path, sample_values
 from itcj2.apps.prorrogas_tec.services.docx_fill import fill_docx
 from itcj2.apps.prorrogas_tec.services.template_service import (
@@ -29,10 +30,6 @@ _UPLOAD = ["prorrogas_tec.templates.api.upload"]
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 PDF_KIND = "prorrogas_documento"
-
-
-def _error(status: int, code: str, message: str, **detail) -> JSONResponse:
-    return JSONResponse(status_code=status, content={"error": code, "message": message, **detail})
 
 
 def _template_out(t: ProrrogaTemplate) -> dict:
@@ -87,7 +84,7 @@ def upload_template(
             data=data, actor_id=int(user["sub"]),
         )
     except TemplateError as e:
-        return _error(400, e.code, e.message, **e.detail)
+        return error_response(400, e.code, e.message, **e.detail)
     logger.info("Plantilla de prórrogas subida", extra={
         "template_id": t.id, "doc_type": t.doc_type, "year": t.year,
     })
@@ -98,7 +95,7 @@ def upload_template(
 @router.get("/sistema/{doc_type}/archivo", name="prorrogas_tec.api.templates.system_file")
 def system_template_file(doc_type: str, user: dict = require_perms("prorrogas_tec", _READ)):
     if doc_type not in DOC_TYPES:
-        return _error(404, "tipo_invalido", "El tipo de documento no existe.")
+        return error_response(404, "tipo_invalido", "El tipo de documento no existe.")
     return Response(
         content=default_template_path(doc_type).read_bytes(),
         media_type=DOCX_MIME,
@@ -115,17 +112,17 @@ def preview_template(
 ):
     """La plantilla en uso para ``doc_type`` y ``anio``, llena con datos de ejemplo."""
     if doc_type not in DOC_TYPES:
-        return _error(404, "tipo_invalido", "El tipo de documento no existe.")
+        return error_response(404, "tipo_invalido", "El tipo de documento no existe.")
     anio = anio or db_now().year
     if not YEAR_MIN <= anio <= YEAR_MAX:
-        return _error(400, "anio_invalido", f"El año debe estar entre {YEAR_MIN} y {YEAR_MAX}.")
+        return error_response(400, "anio_invalido", f"El año debe estar entre {YEAR_MIN} y {YEAR_MAX}.")
     data, _ = TemplateService.resolve(db, doc_type, anio)
     filled = fill_docx(data, *sample_values(doc_type))
     try:
         pdf = docx_pdf.docx_to_pdf(filled, kind=PDF_KIND)
     except docx_pdf.CONVERSION_ERRORS:
         logger.exception("Vista previa de plantilla sin PDF", extra={"doc_type": doc_type, "year": anio})
-        return _error(503, "pdf_no_disponible",
+        return error_response(503, "pdf_no_disponible",
                       "No se pudo generar el PDF. Intenta de nuevo o descarga la plantilla.")
     return Response(
         content=pdf,
@@ -138,7 +135,7 @@ def preview_template(
 def template_file(template_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
     t = db.get(ProrrogaTemplate, template_id)
     if t is None:
-        return _error(404, "plantilla_no_encontrada", "La plantilla no existe.")
+        return error_response(404, "plantilla_no_encontrada", "La plantilla no existe.")
     return FileResponse(
         str(TemplateService.abs_path(t.file_path)),
         media_type=DOCX_MIME,

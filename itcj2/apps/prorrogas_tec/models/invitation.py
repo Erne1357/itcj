@@ -1,4 +1,5 @@
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Index, String, Text
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
 
 from itcj2.models.base import Base
@@ -18,6 +19,8 @@ class ProrrogaInvitation(Base):
     user_created = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     used_at = Column(DateTime)
+
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class ProrrogaJoin(Base):

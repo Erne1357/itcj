@@ -20,6 +20,7 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.secretaria.page.view",
     "prorrogas_tec.templates.api.read",
     "prorrogas_tec.templates.api.upload",
+    "prorrogas_tec.invitations.api.create",
 ]
 
 _seq = count(1)
