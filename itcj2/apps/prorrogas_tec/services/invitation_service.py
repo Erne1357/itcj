@@ -6,6 +6,7 @@ escriben jamás en logs ni en la bitácora.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import re
 import secrets
 import uuid
@@ -35,6 +36,11 @@ QR_PURPOSE = "prorrogas_join"
 _NIP = re.compile(r"\d{4}")
 
 
+def _qr_key() -> bytes:
+    # Llave propia del QR: con SECRET_KEY a secas, el QR en pantalla valdría como cookie de sesión.
+    return hmac.new(get_settings().SECRET_KEY.encode(), QR_PURPOSE.encode(), hashlib.sha256).digest()
+
+
 def _sha(token: str) -> str:
     return hashlib.sha256((token or "").encode()).hexdigest()
 
@@ -45,14 +51,14 @@ def issue_qr(secretary_id: int, *, now: datetime | None = None) -> dict:
     now = now or db_now()
     exp = now + QR_TTL
     token = jwt.encode({"p": QR_PURPOSE, "by": secretary_id, "exp": int(exp.timestamp()),
-                        "jti": uuid.uuid4().hex}, get_settings().SECRET_KEY, algorithm="HS256")
+                        "jti": uuid.uuid4().hex}, _qr_key(), algorithm="HS256")
     return {"token": token, "path": f"/prorrogas/unirse?t={token}", "expires_at": exp.isoformat()}
 
 
 def read_qr(token: str, *, now: datetime | None = None) -> int:
     now = now or db_now()
     try:  # el vencimiento lo decide el reloj inyectado, no el de PyJWT
-        claims = jwt.decode(token, get_settings().SECRET_KEY, algorithms=["HS256"],
+        claims = jwt.decode(token, _qr_key(), algorithms=["HS256"],
                             options={"verify_exp": False, "require": ["exp", "p", "by"]})
         if claims["p"] != QR_PURPOSE:
             raise jwt.InvalidTokenError("propósito")
@@ -117,6 +123,11 @@ def invite(db, *, raw_control, email, actor_id, nombres=None, apellido_paterno=N
         db.flush()
         StudentProfileService.set_fields(db, user.id, program_id=program_id)
 
+    # Una invitación nueva revoca las anteriores sin usar (p. ej. las enviadas a un correo mal escrito).
+    for previa in db.query(ProrrogaInvitation).filter(
+            ProrrogaInvitation.user_id == user.id, ProrrogaInvitation.used_at.is_(None),
+            ProrrogaInvitation.expires_at > now).with_for_update():
+        previa.expires_at = now
     token = secrets.token_urlsafe(32)
     invitacion = ProrrogaInvitation(
         control_number=control, email=correo, user_id=user.id, token_sha256=_sha(token),

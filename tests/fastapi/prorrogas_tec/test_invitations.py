@@ -110,3 +110,30 @@ def test_api_invitar_y_resumen_del_dia(client_as, secretaria, make_user, enviar_
     r = c.post("/api/prorrogas/v2/invitaciones", json={"control_number": "99200010"})
     assert r.status_code == 201 and r.json()["correo"] == "L99200010@cdjuarez.tecnm.mx"
     assert c.get("/api/prorrogas/v2/invitaciones/hoy").json()["invitaciones_hoy"] >= 1
+
+
+def test_qr_no_sirve_como_cookie_de_sesion_ni_al_reves():
+    import jwt
+    from itcj2.config import get_settings
+    from itcj2.middleware import _decode_jwt
+
+    assert _decode_jwt(inv.issue_qr(1)["token"]) is None
+    sesion = jwt.encode({"sub": "1", "p": inv.QR_PURPOSE, "by": 1, "exp": int((T0 + timedelta(minutes=5)).timestamp())},
+                        get_settings().SECRET_KEY, algorithm="HS256")
+    with pytest.raises(ServiceError) as e:
+        inv.read_qr(sesion, now=T0)
+    assert e.value.code == "qr_invalido"
+
+
+def test_reinvitar_revoca_la_invitacion_anterior(db_session, secretaria, make_user, enviar_correo):
+    u = make_user(control_number="99200012")
+    _, primero = inv.invite(db_session, raw_control="99200012", email="mal@example.invalid", actor_id=secretaria.id)
+    _, segundo = inv.invite(db_session, raw_control="99200012", email="bien@example.invalid", actor_id=secretaria.id)
+    with pytest.raises(ServiceError) as e:
+        inv.consume_invitation(db_session, primero, user_id=u.id)
+    assert e.value.code == "invitacion_expirada"
+    with pytest.raises(ServiceError) as e:
+        inv.set_initial_nip(db_session, primero, "1234", "1234")
+    assert e.value.code == "invitacion_expirada"
+    inv.set_initial_nip(db_session, segundo, "1234", "1234")
+    assert inv.consume_invitation(db_session, segundo, user_id=u.id).via == "invitacion"
