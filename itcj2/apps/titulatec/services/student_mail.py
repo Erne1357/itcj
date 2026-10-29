@@ -259,6 +259,7 @@ class StudentMail:
         "process_cancelled": "Inscripción revocada",
         "review_changes_requested": "Los sinodales pidieron cambios a tu proyecto",
         "process_reactivated": "Inscripción reactivada",
+        "anexo_ready": "Tu Anexo III está listo para recoger",
     }
 
     # ------------------------------------------------------------------
@@ -434,6 +435,16 @@ class StudentMail:
             db, kind="phase_rejected", process=process,
             payload={"phase_number": phase_number, "phase_name": phase_name,
                      "reason": reason})
+
+    @staticmethod
+    @_best_effort
+    def anexo_ready(db: Session, process, *, folio: str, note: str) -> bool:
+        """Vinculación dejó listo el Anexo III (spec 2026-10-29 §9). Individual.
+        La nota del payload es solo un registro: al componer sale la VIGENTE de
+        `titulatec_anexos.pickup_note`. Obsoleto si la etapa ya no es `ready`."""
+        return StudentMail.enqueue(
+            db, kind="anexo_ready", process=process,
+            payload={"folio": folio, "note": note})
 
     @staticmethod
     @_best_effort

@@ -57,6 +57,7 @@ class TestTablaYDominios:
             "process_cancelled",
             "review_changes_requested",
             "process_reactivated",
+            "anexo_ready",
         )
 
     def test_cada_kind_cabe_en_su_columna(self):

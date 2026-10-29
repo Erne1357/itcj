@@ -626,6 +626,30 @@ def _compose_review_changes_requested(db: Session, rows: list, process,
                    version=version, observaciones=observaciones)
 
 
+_ASUNTO_ANEXO_LISTO = "Tu Anexo III está listo para recoger"
+_ANEXO = "/titulatec/student/anexo"
+
+
+def _compose_anexo_ready(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Fase 6 v2 (spec 2026-10-29 §9): el Anexo III está listo para recoger.
+    Re-validado al enviar (D8): obsoleto si la etapa ya no es `ready` (el
+    alumno ya subió, o se pidió reimpresión). La nota es la VIGENTE de la fila
+    del Anexo, no la congelada en el payload."""
+    from itcj2.apps.titulatec.services.anexo_service import SIGNERS_FALLBACK_TEXT, AnexoService
+
+    if AnexoService.stage(db, process) != "ready":
+        return Obsolete("el Anexo III ya no está listo para recoger")
+    anexo = AnexoService.get(db, process.id)
+    try:
+        firmantes = AnexoService.signers_text(process)
+    except ValueError:                 # regla de firma ilegible: texto neutro
+        firmantes = SIGNERS_FALLBACK_TEXT
+    return _correo(user, _ASUNTO_ANEXO_LISTO, "anexo_ready.html", _ANEXO,
+                   folio=_texto(_datos(rows[-1]).get("folio")),
+                   note=_texto(getattr(anexo, "pickup_note", None)),
+                   signers_text=firmantes)
+
+
 def _compose_phase_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:
     """#3, fase rechazada: el motivo tal como quedó y qué hacer."""
     datos = _datos(rows[-1])
@@ -1339,6 +1363,7 @@ class MailComposer:
         "library_reenabled": _compose_library_reenabled,
         "library_payment_held": _compose_library_payment_held,
         "review_changes_requested": _compose_review_changes_requested,
+        "anexo_ready": _compose_anexo_ready,
     }
 
     # Los 4 correos de inscripción sin secreto (spec 2026-10-05 §3.7): con las

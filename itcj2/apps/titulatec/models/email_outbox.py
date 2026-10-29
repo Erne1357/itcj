@@ -119,6 +119,8 @@ OUTBOX_KINDS = (
     # versión (`review:{pid}:{version}`), individual por lo demás.
     "review_changes_requested",
     "process_reactivated",
+    # Fase 6 v2 (spec 2026-10-29 §9): vinculación marcó el Anexo III listo para recoger.
+    "anexo_ready",
 )
 
 # Correos de la INSCRIPCION que pasan por la bandeja (P-D1): el aviso con folio

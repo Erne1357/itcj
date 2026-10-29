@@ -2521,7 +2521,7 @@ def test_toda_variable_de_las_plantillas_de_correo_lleva_e():
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def todos(db_session, proceso, make_appointment, make_document, seed_document_types,
-          make_survey_review, con_biblioteca, reloj, make_review_case):
+          make_survey_review, con_biblioteca, reloj, make_review_case, monkeypatch):
     """Un correo de CADA tipo y variante, con los huecos opcionales en `None`
     donde el contrato lo permite (sin motivo, sin nota, sin lugar, sin
     requisitos). Devuelve `({variante: Composed}, {kinds cubiertos})`."""
@@ -2719,6 +2719,17 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
                                    next_phase=siguiente, next_name="Fase 06 · Anexo III",
                                    handoff=handoff)
         _anota(nombre, c5.process)
+
+    # Fase 6 v2 (spec 2026-10-29 §9): Anexo III listo (etapa y nota parchadas: son de T1).
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(AnexoService, "stage", staticmethod(lambda d, pr: "ready"), raising=False)
+    monkeypatch.setattr(AnexoService, "get", staticmethod(
+        lambda d, pid: SimpleNamespace(pickup_note="Ventanilla 2, jueves 10:00")))
+    p = proceso()
+    StudentMail.anexo_ready(db, p, folio="AN-2026-001", note="Ventanilla 2, jueves 10:00")
+    _anota("anexo listo para recoger", p)
 
     return correos, tipos
 
