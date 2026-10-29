@@ -72,7 +72,7 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 
 ## Solo de desarrollo
 
-- Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
+- Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`, más el mismo acceso que el usuario 7636 en las otras apps: `instance/tmp/mirror_access.py --apply`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
 - Prueba de humo del Plan 2 (`instance/tmp/smoke_prorrogas_plan2.py`, no versionado) dejó en la base de desarrollo: usuario 13152 (control `99999901` desde H6, correo `humo99000001@example.invalid`, NIP en el script), solicitud 271 (PR-00271, aceptada), documentos 138–139, unión 89, eventos 306–309. Ver H6.
 
 ---
