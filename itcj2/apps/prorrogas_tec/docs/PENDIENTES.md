@@ -1,5 +1,51 @@
 # Prórrogas · Pendientes
 
+Lista viva de lo que le falta a la app. Lo más nuevo va primero.
+
+---
+
+# Módulo 1 (vista de secretaría) · pendientes vivos
+
+Se actualiza conforme avanza el módulo. Spec: `docs/superpowers/specs/2026-10-29-prorrogas-modulo1-design.md`.
+Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
+
+## Para ti (requieren a una persona)
+
+| # | Pendiente | Por qué importa | Qué hacer |
+|---|---|---|---|
+| H1 | Revisar a ojo las 6 cartas generadas (Plan 1, Task 5, Step 6) | No hubo forma de ver los PDF desde la sesión. Lo más delicado: la firma del estudiante sobre su nombre no debe desalinear la columna del Director en las cartas compromiso | Abrir `instance/tmp/preview/ejemplo-*.pdf` (llenas con datos de ejemplo). Si algo se ve mal, corregir el `.docx` en `documents/defaults/` con Word |
+| H2 | Conectar el buzón `agendatec@cdjuarez.tecnm.mx` para la app **Prórrogas** | Sin eso, las invitaciones y decisiones del Plan 2 solo avisan dentro de la plataforma | `/itcj/config/email` → app Prórrogas → iniciar sesión con la cuenta (OAuth) |
+| H3 | Confirmar las decisiones del Plan 2 | Cambian cómo entra el estudiante | Ver "Decisiones de este plan" en `docs/superpowers/plans/2026-10-29-prorrogas-plan2-invitacion-solicitud-decision.md` |
+
+## Técnicos (diferidos de la revisión final del Plan 1, 2026-10-29)
+
+| # | Pendiente | Efecto | Arreglo propuesto |
+|---|---|---|---|
+| T1 | Documentos no ofrece el año siguiente, y el año que se selecciona por omisión es el más nuevo, no el actual | En diciembre no se puede preparar el membrete del año que entra desde la pantalla (la API sí lo acepta) | `TemplateService.years` incluye `año actual + 1`; `documentos.js` selecciona el año actual |
+| T2 | Si el archivo de una plantilla falta en disco, descargarla, verla o generar con ella da 500 | Pasa tras una restauración o un borrado manual de `instance/` | Mapear `FileNotFoundError` a 404 `plantilla_no_encontrada` y registrarlo en el log |
+| T3 | No hay tope de descompresión al abrir un `.docx` subido | Un `.docx` de 5 MB puede crecer a gigas en memoria (solo lo suben roles de confianza) | Sumar `ZipFile(...).infolist()` y rechazar si pasa de un tope antes de `docx.Document()` |
+| T4 | `InvalidDocx` solo cubre abrir el archivo; un error al recorrerlo da 500 al subir | Un `.docx` raro (p. ej. un encabezado que apunta a una parte que no existe) da error genérico | Envolver todo el escaneo de `find_placeholders` / `find_malformed` |
+| T5 | Faltan las fuentes **Noto Sans** y **Montserrat** en la imagen (`docker/backend/Dockerfile.fastapi`) | LibreOffice sustituye la fuente y el acomodo de la carta puede cambiar (ligado a H1) | Agregar `fonts-noto-core` y `fonts-montserrat` al Dockerfile y reconstruir |
+| T6 | Las plantillas del sistema conservan en sus metadatos (`docProps/core.xml`) los nombres "olivia" e "Iliana Esmeralda Sagarnaga Razcón" | Nombres de personal dentro de archivos del repo | El builder también limpia `author` y `last_modified_by`; regenerar y commitear los 6 `.docx` |
+| T7 | Vista previa con `anio=0` usa el año actual en vez de rechazarlo | Menor | `if anio is None` en `api/templates.py` |
+| T8 | Detalles: el ejemplo `{{así}}` de la página Documentos no es un marcador válido; el docstring de `fill_docx` sobre la firma vacía es impreciso; la lista de marcadores solo se ve en el diálogo de subida | Cosmético / claridad | Cambiar el ejemplo por `{{nombre}}`, corregir el docstring, mostrar los marcadores también en cada tarjeta |
+
+## Del fork, todavía en el árbol (se van con el Plan 2, Task 1)
+
+| # | Pendiente | Nota |
+|---|---|---|
+| F1 | La vista de admin vieja (`/prorrogas/admin/*`, copia de AgendaTec) sigue abriéndose si alguien escribe la URL | Desde `f24ba11` nadie aterriza ahí; el Plan 2 la elimina con el resto del código del fork (puntos 1–7 de abajo) |
+| F2 | Prueba roja preexistente `tests/fastapi/observability/test_json_logging.py::test_no_app_log_extra_uses_a_context_id_key` | La causa es `services/request_service.py` del fork (`extra={"request_id": …}`); desaparece al borrarlo |
+| F3 | Los 12 permisos viejos del fork (`01`/`02` del DML) quedan en BD sin uso después del Plan 2 | Decidir si un DML de limpieza los borra o se dejan |
+
+## Solo de desarrollo
+
+- Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
+
+---
+
+# Herencia del fork (estado al 2026-09-01)
+
 Estado al **2026-09-01**, día en que la app se importó del fork donde estuvo
 congelada desde junio. Lo de abajo es lo que le falta para estar al nivel del
 resto de las apps del repo (la referencia es `titulatec`).
@@ -153,6 +199,8 @@ mezclado con features.
 
 ## 8. Sin tests
 
+> **[parcial 2026-10-29]** Ya hay pruebas en `tests/fastapi/prorrogas_tec/` para lo nuevo (Plan 1). El código del fork sigue sin pruebas y se elimina en el Plan 2.
+
 Cero. La referencia es `tests/fastapi/titulatec/` y `tests/fastapi/directory/`.
 Lo mínimo, en este orden:
 
@@ -166,6 +214,8 @@ Lo mínimo, en este orden:
 ---
 
 ## 9. Sin `docs/flows/`
+
+> **[parcial 2026-10-29]** Existe `docs/flows/secretaria_documentos.md`; los flujos de solicitud y decisión llegan con el Plan 2.
 
 La convención del repo (ver `apps/titulatec/docs/flows/README.md`) es documentar
 cada flujo: UI → endpoint → service → BD → eventos. Los tres que valen para esta
