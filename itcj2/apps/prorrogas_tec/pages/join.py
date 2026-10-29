@@ -25,8 +25,12 @@ def _redirect(url: str) -> RedirectResponse:
     return RedirectResponse(url, status_code=302, headers=_HEADERS)
 
 
+def _login_url(next_path: str) -> str:
+    return f"/itcj/login?next={quote(next_path, safe='')}"
+
+
 def _login(next_path: str) -> RedirectResponse:
-    return _redirect(f"/itcj/login?next={quote(next_path, safe='')}")
+    return _redirect(_login_url(next_path))
 
 
 def _page(request, template, context, status=200):
@@ -45,15 +49,16 @@ def _user_id(request) -> int | None:
 
 
 @router.get("", name="prorrogas_tec.pages.unirse.qr")
-async def unirse_qr(request: Request, db: DbSession, t: str = ""):
+def unirse_qr(request: Request, db: DbSession, t: str = ""):
     uid = _user_id(request)
-    if uid is None:
-        return _login(f"/prorrogas/unirse?t={t}")
+    if uid is None:  # spec 5 y 8.2: decirle cómo entrar, y que sin cuenta pida la invitación
+        return _page(request, "unirse_login.html",
+                     {"title": "Prórrogas · Unirse", "login_url": _login_url(f"/prorrogas/unirse?t={t}")})
     try:
         by = inv.read_qr(t)
         inv.join(db, uid, via="qr", issued_by_id=by)
     except ServiceError as e:
-        return _error(request, _QR_MENSAJE, e.status)
+        return _error(request, e.message if e.code == "cuenta_sin_numero_de_control" else _QR_MENSAJE, e.status)
     return _redirect(SOLICITUD)
 
 
@@ -62,7 +67,7 @@ def _nip_form(request, token, status=200, error=None):
 
 
 @router.get("/invitacion/{token}", name="prorrogas_tec.pages.unirse.invitacion")
-async def unirse_invitacion(request: Request, db: DbSession, token: str):
+def unirse_invitacion(request: Request, db: DbSession, token: str):
     try:
         invitacion = inv.validate_invitation(db, token)
     except ServiceError as e:
@@ -70,7 +75,10 @@ async def unirse_invitacion(request: Request, db: DbSession, token: str):
     uid = _user_id(request)
     if uid is None and not invitacion.user.password_hash:
         # Cuenta nueva sin sesión: aún no puede iniciarla, así que crea su NIP primero.
-        return _nip_form(request, token)
+        # Una cuenta previa sin NIP no: crearlo aquí sería tomarla (spec 8.2).
+        if inv.can_set_initial_nip(db, invitacion.user):
+            return _nip_form(request, token)
+        return _error(request, inv.SIN_INVITACION_DE_ALTA, 403)
     if uid is None:
         return _login(f"/prorrogas/unirse/invitacion/{token}")
     try:
@@ -81,8 +89,8 @@ async def unirse_invitacion(request: Request, db: DbSession, token: str):
 
 
 @router.post("/invitacion/{token}", name="prorrogas_tec.pages.unirse.crear_nip")
-async def unirse_crear_nip(request: Request, db: DbSession, token: str,
-                           nip: str = Form(""), nip2: str = Form("")):
+def unirse_crear_nip(request: Request, db: DbSession, token: str,
+                     nip: str = Form(""), nip2: str = Form("")):
     try:
         inv.set_initial_nip(db, token, nip, nip2)
     except ServiceError as e:

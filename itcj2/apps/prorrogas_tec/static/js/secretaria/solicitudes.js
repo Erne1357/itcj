@@ -54,9 +54,13 @@
   $("modeMan").addEventListener("click", () => { setMode(false); loadPrograms(); });
 
   // ── QR ──────────────────────────────────────────────────────────────
-  let qrExpires = 0;
+  let qrExpires = 0;   // en el reloj del navegador: Date.now() + ttl del servidor
   let qrTimer = null;
   let qrBusy = false;
+  let qrIssued = 0;    // última emisión; frena un ciclo de regeneraciones si el reloj o el ttl fallan
+  const QR_MIN_GAP = 5000;
+
+  function armQr() { clearInterval(qrTimer); qrTimer = setInterval(tick, 1000); }
 
   function drawQr(link) {
     const box = $("qrBox");
@@ -76,7 +80,7 @@
   function tick() {
     const left = Math.max(0, Math.round((qrExpires - Date.now()) / 1000));
     $("qrTimer").textContent = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
-    if (left === 0) regenQr();
+    if (left === 0 && Date.now() - qrIssued >= QR_MIN_GAP) regenQr();
   }
 
   async function regenQr() {
@@ -85,22 +89,18 @@
     clearInterval(qrTimer);
     const r = await api("/invitaciones/qr", { method: "POST", body: {} });
     qrBusy = false;
+    qrIssued = Date.now();
     if (!r.ok) {
       show($("qrError"), r.data.message || "No se pudo generar el código.");
       return;
     }
     show($("qrError"), "");
-    qrExpires = new Date(r.data.expires_at).getTime();
+    qrExpires = Date.now() + r.data.ttl * 1000;   // nunca contra expires_at: es hora del servidor sin zona
     drawQr(location.origin + r.data.path);
     tick();
-    qrTimer = setInterval(tick, 1000);
+    armQr();
   }
   $("qrRegen").addEventListener("click", regenQr);
-  // Pestaña oculta: se detiene el contador; al volver se regenera si ya venció.
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden) { clearInterval(qrTimer); return; }
-    if (qrExpires) { tick(); if (Date.now() < qrExpires) qrTimer = setInterval(tick, 1000); }
-  });
 
   // ── Resumen del día ─────────────────────────────────────────────────
   async function loadToday() {
@@ -166,16 +166,18 @@
     const r = await api("/invitaciones", { body });
     $("invSend").disabled = false;
     if (!r.ok) { show($("invError"), r.data.message || "No se pudo enviar la invitación."); return; }
-    toast(`Invitación enviada a ${r.data.correo}`);
     $("paneMan").reset();
     $("invExtra").hidden = true;
     show($("invFound"), "");
     lookedUp = null;
+    // Sin buzón la invitación no llega a nadie: no tiene aviso en la plataforma.
+    if (r.data.enviado) toast(`Invitación enviada a ${r.data.correo}`);
+    else show($("invError"), "La invitación quedó registrada pero el correo no salió. Revisa la conexión del correo en /itcj/config/email.");
     loadToday();
   });
 
   // ── Pendientes ──────────────────────────────────────────────────────
-  let items = [];
+  let items = null;   // null hasta la primera carga, para que esa siempre pinte (aunque venga vacía)
 
   function renderRows() {
     const box = $("pendRows");
@@ -199,7 +201,9 @@
     const r = await api("/solicitudes");
     show($("pendError"), r.ok ? "" : (r.data.message || "No se pudieron cargar las solicitudes."));
     if (!r.ok) return;
-    items = r.data.items || [];
+    const next = r.data.items || [];
+    if (JSON.stringify(next) === JSON.stringify(items)) return;   // sin cambios: no rehacer filas (ni perder el foco)
+    items = next;
     renderRows();
   }
 
@@ -271,7 +275,24 @@
   $("revAccept").addEventListener("click", () => decide(true));
   $("revReject").addEventListener("click", () => decide(false));
 
+  // ── Refresco y pestaña oculta ───────────────────────────────────────
+  let listTimer = null;
+  function refresh() {
+    loadToday();
+    if (!dlg.open) loadPending();   // con el modal abierto no se toca la tabla; entra en el siguiente ciclo
+  }
+  function armRefresh() { clearInterval(listTimer); listTimer = setInterval(refresh, 20000); }
+
+  // Oculta: se detienen el contador y el refresco. Al volver: se regenera el QR si venció y se refresca la lista.
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { clearInterval(qrTimer); clearInterval(listTimer); return; }
+    if (qrExpires) { tick(); armQr(); }   // si venció, tick() regenera; el intervalo reintenta si el freno lo detuvo
+    refresh();
+    armRefresh();
+  });
+
   regenQr();
   loadToday();
   loadPending();
+  armRefresh();
 })();

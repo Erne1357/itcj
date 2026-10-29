@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import jwt
+from sqlalchemy import distinct, func
 
 from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaInvitation, ProrrogaJoin
 from itcj2.apps.prorrogas_tec.services import notify
@@ -52,7 +53,9 @@ def issue_qr(secretary_id: int, *, now: datetime | None = None) -> dict:
     exp = now + QR_TTL
     token = jwt.encode({"p": QR_PURPOSE, "by": secretary_id, "exp": int(exp.timestamp()),
                         "jti": uuid.uuid4().hex}, _qr_key(), algorithm="HS256")
-    return {"token": token, "path": f"/prorrogas/unirse?t={token}", "expires_at": exp.isoformat()}
+    # `ttl`: el navegador cuenta con su propio reloj; `expires_at` es hora local sin zona.
+    return {"token": token, "path": f"/prorrogas/unirse?t={token}", "expires_at": exp.isoformat(),
+            "ttl": int(QR_TTL.total_seconds())}
 
 
 def read_qr(token: str, *, now: datetime | None = None) -> int:
@@ -98,7 +101,8 @@ def lookup(db, raw_control: str) -> dict:
 
 
 def invite(db, *, raw_control, email, actor_id, nombres=None, apellido_paterno=None,
-           apellido_materno=None, program_id=None, now=None) -> tuple[ProrrogaInvitation, str]:
+           apellido_materno=None, program_id=None, now=None) -> tuple[ProrrogaInvitation, str, bool]:
+    """Registra la invitación y luego manda el correo. Devuelve `(invitación, token, enviado)`."""
     now = now or db_now()
     control = _control(raw_control)
     user = _user_by_control(db, control)
@@ -134,13 +138,13 @@ def invite(db, *, raw_control, email, actor_id, nombres=None, apellido_paterno=N
         expires_at=now + INVITATION_TTL, created_by_id=actor_id, user_created=created, created_at=now)
     db.add(invitacion)
     db.flush()
-    link = f"{get_settings().DOMAIN}/prorrogas/unirse/invitacion/{token}"
-    notify.send_email(template="invitacion.html", context={"link": link},
-                      subject="Invitación al módulo de Prórrogas", to=correo, link=link)
     log_event(db, event_type="invitacion_enviada", actor_id=actor_id,
               payload={"invitation_id": invitacion.id, "control_number": control})
-    db.commit()
-    return invitacion, token
+    db.commit()  # antes del correo: sin candados durante Graph y sin ligas a una invitación que no se guardó
+    link = f"{get_settings().DOMAIN}/prorrogas/unirse/invitacion/{token}"
+    enviado = notify.send_email(template="invitacion.html", context={"link": link},
+                                subject="Invitación al módulo de Prórrogas", to=correo, link=link)
+    return invitacion, token, enviado
 
 
 # --- Uso ------------------------------------------------------------------
@@ -168,6 +172,9 @@ def validate_invitation(db, raw_token: str, *, now: datetime | None = None) -> P
 
 def join(db, user_id: int, *, via: str, issued_by_id: int | None, invitation_id: int | None = None,
          now: datetime | None = None) -> ProrrogaJoin:
+    user = db.get(User, user_id)
+    if user is None or not user.control_number:  # p. ej. una cuenta de personal que escanea el QR
+        raise ServiceError("cuenta_sin_numero_de_control", "Esta cuenta no es de estudiante.", status=403)
     row = ProrrogaJoin(user_id=user_id, via=via, invitation_id=invitation_id,
                        issued_by_id=issued_by_id, joined_at=now or db_now())
     db.add(row)
@@ -188,11 +195,27 @@ def consume_invitation(db, raw_token: str, *, user_id: int, now: datetime | None
                 invitation_id=invitacion.id, now=now)
 
 
+SIN_INVITACION_DE_ALTA = ("Esta cuenta ya existe. Entra con tu número de control y tu NIP; "
+                          "si no lo recuerdas, pide ayuda en la Subdirección Académica.")
+
+
+def can_set_initial_nip(db, user: User) -> bool:
+    """Spec 8.2: "Crea tu NIP" solo para cuentas sin NIP que nacieron de una invitación manual.
+
+    Basta con cualquier invitación que la haya creado, no solo la actual: así una
+    reinvitación (p. ej. tras un correo mal escrito) sigue sirviendo.
+    """
+    return not user.password_hash and db.query(ProrrogaInvitation.id).filter(
+        ProrrogaInvitation.user_id == user.id, ProrrogaInvitation.user_created.is_(True)).first() is not None
+
+
 def set_initial_nip(db, raw_token: str, nip: str, nip2: str) -> None:
     invitacion = _usable(db, raw_token, db_now())
     user = invitacion.user
     if user.password_hash:
         raise ServiceError("cuenta_con_nip", "La cuenta ya tiene NIP.", status=409)
+    if not can_set_initial_nip(db, user):  # cuenta previa sin NIP: crearlo aquí sería tomar una cuenta ajena
+        raise ServiceError("cuenta_sin_invitacion_de_alta", SIN_INVITACION_DE_ALTA, status=403)
     if not _NIP.fullmatch(nip or ""):
         raise ServiceError("nip_invalido", "El NIP debe tener 4 dígitos.", status=400)
     if nip != nip2:
@@ -210,8 +233,8 @@ def today_summary(db, *, now: datetime | None = None) -> dict:
     invs = db.query(ProrrogaInvitation).filter(ProrrogaInvitation.created_at >= ini,
                                                ProrrogaInvitation.created_at < fin)
     return {
-        "se_unieron_hoy": db.query(ProrrogaJoin).filter(ProrrogaJoin.joined_at >= ini,
-                                                        ProrrogaJoin.joined_at < fin).count(),
+        "se_unieron_hoy": db.query(func.count(distinct(ProrrogaJoin.user_id))).filter(
+            ProrrogaJoin.joined_at >= ini, ProrrogaJoin.joined_at < fin).scalar(),
         "invitaciones_hoy": invs.count(),
         "ultimas": [{"correo": i.email, "hora": i.created_at.strftime("%H:%M")}
                     for i in invs.order_by(ProrrogaInvitation.created_at.desc(), ProrrogaInvitation.id.desc()).limit(3)],

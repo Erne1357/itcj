@@ -43,14 +43,15 @@ def lookup(db: DbSession, control: str = Query(...), user: dict = require_perms(
 @router.post("", status_code=201, name="prorrogas_tec.api.invitaciones.create")
 def create(body: InvitationIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _CREATE)):
     try:
-        inv, _token = svc.invite(
+        inv, _token, enviado = svc.invite(
             db, raw_control=body.control_number, email=body.correo, actor_id=int(user["sub"]),
             nombres=body.nombres, apellido_paterno=body.apellido_paterno,
             apellido_materno=body.apellido_materno, program_id=body.program_id)
     except ServiceError as e:
         db.rollback()
         return _err(e)
-    return {"id": inv.id, "correo": inv.email, "expira": inv.expires_at.isoformat()}
+    # `enviado` False: quedó registrada, pero el buzón no está conectado o Graph falló.
+    return {"id": inv.id, "correo": inv.email, "expira": inv.expires_at.isoformat(), "enviado": enviado}
 
 
 @router.get("/hoy", name="prorrogas_tec.api.invitaciones.hoy")

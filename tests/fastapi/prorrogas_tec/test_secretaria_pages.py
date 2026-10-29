@@ -26,7 +26,8 @@ def test_raiz_de_secretaria_lleva_a_solicitudes(client_as, secretaria):
 
 def test_pestana_qr_y_solicitudes(client_as, secretaria):
     page = client_as(secretaria).get(f"{BASE}/solicitudes").text
-    for texto in ("Código QR", "Invitar manualmente", "Regenerar código", "qrcode-generator@1.4.4", "Aceptar prórroga"):
+    for texto in ("Código QR", "Invitar manualmente", "Regenerar código", "qrcode-generator@1.4.4", 'integrity="sha384-',
+                  "Aceptar prórroga"):
         assert texto in page
 
 
