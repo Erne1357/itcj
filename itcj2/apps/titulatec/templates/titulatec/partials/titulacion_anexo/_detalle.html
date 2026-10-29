@@ -37,11 +37,19 @@
       {% if partes %}<p class="tt-tit-sub" id="tt-anx-meta">{{ partes | join(' · ') }}</p>{% endif %}
       {% if d.sent_label and d.scan %}<p class="tt-tit-sub">Escaneo subido el {{ d.sent_label }} (versión {{ d.scan.version }})</p>{% endif %}
       {% if d.reviewed_label %}<p class="tt-tit-sub">{{ d.reviewed_label }}</p>{% endif %}
+      {% if d.stage and d.stage != 'approved' %}
+      <p class="tt-tit-sub" id="tt-anx-stage">Etapa: <strong data-tt-anx-stage="{{ d.stage }}">{{ d.stage_label }}</strong></p>
+      {% endif %}
+      {% if d.ready_label %}<p class="tt-tit-sub tt-anx-wrap" id="tt-anx-pickup">Listo para recoger desde {{ d.ready_label }}{% if d.pickup_note %} · {{ d.pickup_note }}{% endif %}</p>
+      {% elif d.pickup_note %}<p class="tt-tit-sub tt-anx-wrap" id="tt-anx-pickup">Nota de recogida: {{ d.pickup_note }}</p>{% endif %}
+      {% if d.reprint_label %}<p class="tt-tit-sub tt-anx-wrap" id="tt-anx-reprint">Reimpresión pedida el {{ d.reprint_label }}{% if d.reprint_reason %} · {{ d.reprint_reason }}{% endif %}</p>{% endif %}
     </div>
     <div class="tt-tit-head-aside">
-      {% if d.status == 'in_review' %}{{ pill("Por revisar", "amber", "hourglass-split") }}
+      {% if d.stage == 'reprint' %}{{ pill(d.stage_label, "amber", "printer") }}
+      {% elif d.status == 'in_review' %}{{ pill("Por revisar", "amber", "hourglass-split") }}
       {% elif d.status == 'rejected' %}{{ pill("Con observaciones", "danger", "arrow-return-left") }}
       {% elif d.status == 'approved' %}{{ pill("Aprobado", "success", "check-lg") }}
+      {% elif d.stage_label %}{{ pill(d.stage_label, "amber" if d.stage == 'reprint' else ("success" if d.stage == 'ready' else "neutral"), "dash-circle") }}
       {% else %}{{ pill("Sin enviar", "neutral", "dash-circle") }}{% endif %}
       {% if d.can_open_exp %}
       <a class="btn btn-sm tt-btn-ghost"
@@ -127,12 +135,18 @@
       {% if d.form_error %}
       <p id="tt-anx-error" class="tt-tit-warn" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.form_error }}</p>
       {% endif %}
+      <div class="tt-anx-reprint-opt">
+        <input type="checkbox" id="tt-anx-reprint-chk" name="reimpresion" value="1" class="form-check-input"
+               aria-describedby="tt-anx-reprint-help"{{ ' checked' if d.form_reprint }}>
+        <label for="tt-anx-reprint-chk" class="tt-anx-reprint-label">Requiere reimpresión (regresa a vinculación)</label>
+        <p id="tt-anx-reprint-help" class="tt-tit-help">Úsala si el problema está en el documento impreso: datos, firma del jefe o sello. Si solo falta una firma de sinodal o el escaneo no se lee, déjala sin marcar.</p>
+      </div>
       <div class="tt-tit-buttons">
         <button type="button" id="tt-anx-observe" class="btn btn-sm tt-btn-danger-soft"
                 hx-post="/titulatec/admin/titulacion/anexo/{{ d.process_id }}/observar"
                 hx-target="#tt-tit-body" hx-swap="innerHTML"
                 hx-disabled-elt="#tt-anx-observe, #tt-anx-approve"
-                hx-confirm="Regresar con observaciones|El alumno recibirá tu motivo por aviso y correo, y podrá volver a subir su escaneo."
+                hx-confirm="Regresar con observaciones|El alumno recibirá tu motivo por aviso y correo. Con la reimpresión marcada, el Anexo regresa primero a vinculación; si no, podrá volver a subir su escaneo."
                 data-tt-confirm-ok="Regresar al alumno">
           <i class="bi bi-arrow-return-left me-1" aria-hidden="true"></i>Observar</button>
         <button type="button" id="tt-anx-approve" class="btn btn-sm tt-btn-ink"

@@ -430,8 +430,19 @@
   {% if anexo %}
   <div data-tt-exp-anexo>
     <dl class="tt-exp-datos">
+      {% if anexo.stage_label %}
+      <div><dt>Etapa</dt><dd data-tt-anexo-stage="{{ anexo.stage }}">{{ anexo.stage_label }}</dd></div>
+      {% endif %}
       <div><dt>Folio</dt>
         <dd data-tt-anexo-folio>{{ anexo.folio or 'Aún no se genera' }}</dd></div>
+      {% if anexo.ready_label %}
+      <div><dt>Listo para recoger</dt>
+        <dd data-tt-anexo-ready>Listo para recoger desde {{ anexo.ready_label }}{% if anexo.pickup_note %} · {{ anexo.pickup_note }}{% endif %}</dd></div>
+      {% endif %}
+      {% if anexo.reprint_label %}
+      <div><dt>Reimpresión pendiente</dt>
+        <dd data-tt-anexo-reprint>Pedida el {{ anexo.reprint_label }}{% if anexo.reprint_reason %} · {{ anexo.reprint_reason }}{% endif %}</dd></div>
+      {% endif %}
       {% if anexo.released_label %}
       <div><dt>Liberado de la revisión</dt><dd>{{ anexo.released_label }}</dd></div>
       {% endif %}

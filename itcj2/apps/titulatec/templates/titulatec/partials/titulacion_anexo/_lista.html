@@ -7,6 +7,9 @@
    (`ReviewPresence`, nunca uno mismo). #}
 {% from "titulatec/_macros.html" import pager %}
 {% set WAIT_TONE = {"ok": "neutral", "warn": "amber", "late": "danger"} %}
+{# Etapa de «Sin enviar» (`AnexoService.stage_map`): quién tiene la pelota. #}
+{% set STAGE_PILL = {"preparing": ("neutral", "hourglass-split"), "reprint": ("amber", "printer"),
+                     "ready": ("success", "box-seam")} %}
 <div class="tt-card tt-tit-list-card">
   <div id="tt-tit-list" class="tt-tit-list">
     {% for r in rows %}
@@ -23,6 +26,10 @@
       <span class="tt-tit-row-main">
         <span class="tt-tit-row-name">{{ r.student_name }}</span>
         <span class="tt-tit-row-meta"><span class="tt-mono">{{ r.control_number or '—' }}</span> · {{ r.program_name or '—' }}{% if r.anexo_folio %} · <span class="tt-mono">{{ r.anexo_folio }}</span>{% endif %}</span>
+        {% if r.stage %}
+        {% set sp = STAGE_PILL.get(r.stage, ("neutral", "dash-circle")) %}
+        <span class="tt-anx-stage"><span class="tt-pill tt-pill--{{ sp[0] }}" data-tt-anx-stage="{{ r.stage }}"><i class="bi bi-{{ sp[1] }}" aria-hidden="true"></i>{{ r.stage_label }}</span>{% if r.ready_label %}<span class="tt-anx-stage-since">desde {{ r.ready_label }}</span>{% endif %}</span>
+        {% endif %}
         {% if r.viewers %}
         <span class="tt-tit-viewing"><i class="bi bi-eye" aria-hidden="true"></i>{{ r.viewers | join(', ') }} {{ 'lo están revisando' if r.viewers | length > 1 else 'lo está revisando' }}</span>
         {% endif %}

@@ -97,6 +97,8 @@ class AnexoInboxService:
         from itcj2.apps.titulatec.models import (
             Anexo, Modality, ProcessPhase as PP, TitulationProcess as TP,
         )
+        from itcj2.apps.titulatec.services.anexo_service import STAGE_LABELS, AnexoService
+        from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
         from itcj2.apps.titulatec.utils.paging import (
             PAGE_SIZE, Page, normalize_q, paginate_query, parse_page,
         )
@@ -125,7 +127,7 @@ class AnexoInboxService:
             TP.id.label("process_id"), TP.folio, User.first_name, User.middle_name,
             User.last_name, User.control_number, Program.name.label("program_name"),
             Modality.name.label("modality_name"), PP.updated_at.label("sent_at"),
-            Anexo.folio.label("anexo_folio"),
+            Anexo.folio.label("anexo_folio"), Anexo.ready_at.label("ready_at"),
         )
         lista = (
             base.with_entities(*cols)
@@ -144,6 +146,10 @@ class AnexoInboxService:
         feriados = (NonWorkingDayService.holidays(db) if tab == "pending"
                     else frozenset())
         first = (pg.page - 1) * pg.per_page
+        # «Sin enviar»: la etapa de cada fila (preparando / reimpresión / por
+        # recoger) sale de `stage_map`, la UNICA lectura; +1 consulta fija.
+        etapas = (AnexoService.stage_map(db, [r.process_id for r in pg.items])
+                  if tab == "unsent" else {})
         rows = []
         for i, r in enumerate(pg.items):
             nombre = " ".join(p for p in (r.last_name, r.middle_name) if p)
@@ -160,6 +166,11 @@ class AnexoInboxService:
                 "program_name": r.program_name, "modality_name": r.modality_name,
                 "anexo_folio": r.anexo_folio, "sent_at": r.sent_at,
                 "waited_days": days, "wait_level": level, "position": pos,
+                "stage": etapas.get(r.process_id),
+                "stage_label": STAGE_LABELS.get(etapas.get(r.process_id)),
+                # Solo para el texto «desde …» de la píldora «Por recoger».
+                "ready_label": (dia_mes_hora(r.ready_at)
+                                if etapas.get(r.process_id) == "ready" and r.ready_at else None),
             })
         return {"rows": rows, "page": dataclasses.replace(pg, items=rows),
                 "counts": counts, "tab": tab}

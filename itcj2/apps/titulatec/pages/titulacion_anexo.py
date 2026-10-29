@@ -124,13 +124,14 @@ _programs = _shared.programs
 
 
 def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
-                error: str | None = None, reason: str = "") -> dict:
+                error: str | None = None, reason: str = "",
+                reprint: bool = False) -> dict:
     """El detalle de UN proceso (dict plano; la sesión se cierra antes de pintar)."""
     from itcj2.apps.titulatec.models import (
         Document, Modality, ProcessEvent, ProcessPhase, TitulationProcess,
     )
     from itcj2.apps.titulatec.pages.admin import _PROCESS_VIEW_PERMS
-    from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE, AnexoService
+    from itcj2.apps.titulatec.services.anexo_service import DOC_TYPE, STAGE_LABELS, AnexoService
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.synodal_service import SynodalService
     from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
@@ -148,6 +149,8 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
         .first() or (None, None, None)) if n is not None else (None, None, None)
     doc = (db.query(Document).filter_by(process_id=process_id, type_code=DOC_TYPE).first())
     anexo = AnexoService.get(db, process_id)
+    entrega = AnexoService.ready_info(db, proc)
+    etapa = AnexoService.stage(db, proc)
 
     # Fechas (revisión final, punto 1): `Document.updated_at` no lo reescribe
     # nadie (es la creación de la fila). Enviado = última llegada según la
@@ -202,7 +205,13 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
                              and doc.review_status == "pending" and motivo_previo
                              else None),
         "can_review": en_revision and _REVIEW_PERM in perms,
-        "form_error": error, "form_reason": reason,
+        "form_error": error, "form_reason": reason, "form_reprint": reprint,
+        "stage": etapa, "stage_label": STAGE_LABELS.get(etapa),
+        "pickup_note": entrega["pickup_note"] if entrega else None,
+        "ready_label": entrega["ready_label"] if entrega else None,
+        "reprint_reason": entrega["reprint_reason"] if entrega else None,
+        "reprint_label": (dia_mes_hora(entrega["reprint_requested_at"])
+                          if entrega and entrega["reprint_requested_at"] else None),
         "others": list(others or []),
         "beat": en_revision,
         "can_open_exp": bool(set(_PROCESS_VIEW_PERMS) & set(perms)),
@@ -212,7 +221,7 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
 
 def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
               per_page: int | None = None, error: str | None = None,
-              reason: str = "") -> dict:
+              reason: str = "", reprint: bool = False) -> dict:
     """Contexto del parcial `_body.html` (y de la página completa)."""
     from itcj2.core.services.authz_cache import cached_perms
     from itcj2.apps.titulatec.services.anexo_inbox_service import AnexoInboxService
@@ -263,7 +272,8 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, page, selected_id,
     detail = None
     if detail_id:
         detail = _detail_ctx(db, process_id=detail_id, perms=perms, operable=operable,
-                             others=viewers.get(detail_id), error=error, reason=reason)
+                             others=viewers.get(detail_id), error=error, reason=reason,
+                             reprint=reprint)
         if detail["beat"]:
             ReviewPresence.touch(_PRESENCE_KIND, detail_id, user_id,
                                  _viewer_name(db, user_id))
@@ -278,11 +288,12 @@ _vista = _shared.vista
 
 
 def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str, *,
-              kind: str = "success", error: str | None = None, reason: str = ""):
+              kind: str = "success", error: str | None = None, reason: str = "",
+              reprint: bool = False):
     """Re-pinta el cuerpo con `selected_id`, el aviso (`X-Tt-Notice`) y, si lo hay,
     el error de validación del formulario del detalle."""
     ctx = _body_ctx(db, user_id=user_id, selected_id=selected_id, error=error,
-                    reason=reason, **vista)
+                    reason=reason, reprint=reprint, **vista)
     resp = render_titulatec(request, _BODY_TPL, ctx)
     if aviso:
         resp.headers["X-Tt-Notice"] = _hdr(aviso)
@@ -399,6 +410,7 @@ def _cuerpo_observe(process_id, request, user, form):
     from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
 
     motivo = form.get("reason") or ""
+    reimpresion = form.get("reimpresion") == "1"
     uid = int(user["sub"])
     db = SessionLocal()
     try:
@@ -412,7 +424,8 @@ def _cuerpo_observe(process_id, request, user, form):
             return _repintar(request, db, uid, _vista(form), process_id,
                              VERSION_MISSING_NOTICE, kind="warning")
         try:
-            AnexoService.observe(db, proc, uid, reason=motivo, expected_version=version)
+            AnexoService.observe(db, proc, uid, reason=motivo, expected_version=version,
+                                 reprint=reimpresion)
         except AnexoVersionChanged:
             db.commit()
             return _repintar(request, db, uid, _vista(form), process_id,
@@ -422,12 +435,19 @@ def _cuerpo_observe(process_id, request, user, form):
                 # Error de validación: 200 con el formulario re-pintado (htmx no
                 # hace swap en un 4xx) y el motivo tecleado conservado.
                 return _repintar(request, db, uid, _vista(form), process_id, "",
-                                 error=str(exc), reason=motivo)
+                                 error=str(exc), reason=motivo, reprint=reimpresion)
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(str(exc))})
         ReviewPresence.clear(_PRESENCE_KIND, process_id, uid)
+        if reimpresion:
+            # Best-effort tras el commit (molde de `notify_release`).
+            try:
+                AnexoService.notify_reprint(process_id)
+            except Exception:
+                logger.exception("notify_reprint fallo (proceso %s)", process_id)
         siguiente = _next_free(db, uid, process_id, _vista(form))
         return _repintar(request, db, uid, _vista(form), siguiente,
-                         "Anexo III regresado al alumno con observaciones.")
+                         "Anexo III regresado a vinculación para reimprimirlo."
+                         if reimpresion else "Anexo III regresado al alumno con observaciones.")
     finally:
         db.close()
 

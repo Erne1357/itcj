@@ -1928,7 +1928,7 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
     # porqué (`AnexoService.empty_label`, molde de la fase 5). NO emite folio:
     # solo lo lee. Dict plano (se renderiza tras el `db.close()`).
     from itcj2.apps.titulatec.services.anexo_service import (
-        DOC_TYPE as _ANEXO_DOC, AnexoService)
+        DOC_TYPE as _ANEXO_DOC, STAGE_LABELS, AnexoService)
     anexo_phase = AnexoService.phase_number(db)
     anexo_empty_label = AnexoService.empty_label(db, proc)
     anexo = None
@@ -1952,7 +1952,15 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             pdf_url = f"/titulatec/admin/titulacion/anexo/{process_id}/anexo.pdf"
         elif alcanzado and puede_generar:
             pdf_url = f"/titulatec/admin/sinodales/{process_id}/anexo.pdf"
+        entrega = AnexoService.ready_info(db, proc) or {}
+        etapa = AnexoService.stage(db, proc)
         anexo = {
+            "stage": etapa, "stage_label": STAGE_LABELS.get(etapa),
+            "ready_label": entrega.get("ready_label"),
+            "pickup_note": entrega.get("pickup_note"),
+            "reprint_reason": entrega.get("reprint_reason"),
+            "reprint_label": (_fecha_larga(entrega["reprint_requested_at"])
+                              if entrega.get("reprint_requested_at") else None),
             "folio": folio_row.folio if folio_row else None,
             "released_label": (_fecha_larga(folio_row.released_at)
                                if folio_row and folio_row.released_at else None),

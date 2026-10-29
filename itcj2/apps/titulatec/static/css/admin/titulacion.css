@@ -211,5 +211,16 @@
 /* === Vista «Anexo III» (fase 6) ========================================== */
 a.tt-tit-view { text-decoration: none; cursor: pointer; transition: border-color var(--tt-dur-1) ease; }
 a.tt-tit-view:hover { border-color: var(--tt-text-3); color: var(--tt-text-1); }
+.tt-anx-stage { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1); }
+.tt-anx-stage-since { font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-anx-wrap { overflow-wrap: anywhere; }
+.tt-anx-reprint-opt {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--tt-sp-2); align-items: start;
+  margin-top: var(--tt-sp-3); padding: var(--tt-sp-2) var(--tt-sp-3);
+  border: 1px dashed var(--tt-line); border-radius: var(--tt-r-sm);
+}
+.tt-anx-reprint-opt .form-check-input { margin-top: .2rem; }
+.tt-anx-reprint-label { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-anx-reprint-opt .tt-tit-help { grid-column: 2; margin: 2px 0 0; }
 .tt-anx-signers-list { margin: var(--tt-sp-1) 0 0; padding-left: 1.2rem; font-size: var(--tt-fs-200); color: var(--tt-text-1); }
 .tt-anx-viewer { width: 100%; height: 60vh; min-height: 22rem; border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm); background: var(--tt-paper); }

@@ -218,3 +218,48 @@ def test_proceso_activo_si_ofrece_abrir_en_titulacion(lector, db_session, monkey
     _con_escaneo(db_session, c)
     t = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
     assert f"/titulatec/admin/titulacion/anexo?selected={c.process.id}" in t
+
+
+# ---------------------------------------------------------------------------
+# Fase 6 v2: etapa, «listo desde … · nota» y reimpresión pendiente
+# ---------------------------------------------------------------------------
+def test_tarjeta_muestra_etapa_listo_desde_y_nota(lector, db_session, monkeypatch):
+    from datetime import datetime
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    anexo = AnexoService.ensure_folio(db_session, c.process, None)
+    resp = cli.get(f"{URL}/{c.process.id}?fase=6")
+    assert 'data-tt-anexo-stage="preparing"' in resp.text
+    assert "data-tt-anexo-ready" not in resp.text
+    anexo.ready_at = datetime(2026, 3, 20, 9, 0)
+    anexo.pickup_note = "Oficina de vinculación, lunes 9 a 13"
+    db_session.commit()
+    tarjeta = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert 'data-tt-anexo-stage="ready"' in tarjeta and "Por recoger" in tarjeta
+    assert "Listo para recoger desde" in tarjeta
+    assert "Oficina de vinculación, lunes 9 a 13" in tarjeta
+    assert "data-tt-anexo-reprint" not in tarjeta
+
+
+def test_tarjeta_muestra_la_reimpresion_pendiente(lector, db_session, monkeypatch):
+    from datetime import datetime
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    anexo = AnexoService.ensure_folio(db_session, c.process, None)
+    anexo.ready_at = None
+    anexo.reprint_requested_at = datetime(2026, 3, 25, 10, 0)
+    anexo.reprint_reason = "El sello salió ilegible"
+    db_session.commit()
+    tarjeta = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
+    assert 'data-tt-anexo-stage="reprint"' in tarjeta
+    assert "El sello salió ilegible" in tarjeta
+    assert "data-tt-anexo-ready" not in tarjeta
+
+
+def test_tarjeta_con_corte_3_sin_etapa(lector, db_session, monkeypatch):
+    _corte(monkeypatch, 9)
+    c, cli = lector()
+    AnexoService.ensure_folio(db_session, c.process, None)
+    db_session.commit()
+    _corte(monkeypatch, 3)
+    assert "data-tt-anexo-stage" not in cli.get(f"{URL}/{c.process.id}?fase=6").text

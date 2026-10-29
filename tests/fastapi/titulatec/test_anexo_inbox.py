@@ -130,3 +130,28 @@ def test_numero_fijo_de_consultas(db_session, esc):
 
     contar(5)  # calienta cachés (authz, catálogo)
     assert contar(2) == contar(5)
+
+
+def test_sin_enviar_lleva_la_etapa_de_cada_fila(db_session, esc):
+    from itcj2.apps.titulatec.models import Anexo
+    prep = esc.caso("in_progress")
+    rep = esc.caso("in_progress")
+    listo = esc.caso("in_progress")
+    for c, kw in ((prep, {}), (rep, {"reprint_requested_at": datetime(2026, 3, 2)}),
+                  (listo, {"ready_at": datetime(2026, 3, 1, 9, 0)})):
+        db_session.add(Anexo(process_id=c.process.id, folio=f"AIII-T-{c.process.id}", semester="2026A",
+                         released_at=datetime(2026, 2, 1), **kw))
+    db_session.flush()
+    v = esc.revisor(prep, rep, listo)
+    filas = {r["process_id"]: r for r in
+             AnexoInboxService.list(db_session, v.id, tab="unsent")["rows"]}
+    assert filas[prep.process.id]["stage"] == "preparing"
+    assert filas[prep.process.id]["stage_label"] == "En preparación"
+    assert filas[rep.process.id]["stage"] == "reprint"
+    assert filas[listo.process.id]["stage"] == "ready"
+    assert filas[listo.process.id]["ready_label"]
+    assert filas[prep.process.id]["ready_label"] is None
+    # Las demás pestañas no calculan etapa.
+    otra = esc.caso("in_review")
+    v2 = esc.revisor(otra)
+    assert AnexoInboxService.list(db_session, v2.id, tab="pending")["rows"][0]["stage"] is None

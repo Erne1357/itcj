@@ -63,7 +63,11 @@ def esc(db_session, corte, make_anexo_case, seed_document_types, make_user, make
 
     def caso(*, subido=True, modality_code="integral_residencias"):
         c = make_anexo_case(modality_code=modality_code)
-        AnexoService.ensure_folio(db_session, c.process, c.coordinator.id)
+        anexo = AnexoService.ensure_folio(db_session, c.process, c.coordinator.id)
+        # Fase 6 v2: sin «listo» el alumno no sube el escaneo.
+        anexo.ready_at = datetime(2026, 3, 20, 9, 0)
+        anexo.pickup_note = "Oficina de vinculación, lunes 9 a 13"
+        db_session.flush()
         if subido:
             DocumentService.save(db_session, c.process, TIPO, raw=PDF,
                                  original_name="anexo.pdf", content_type="application/pdf",
@@ -378,6 +382,10 @@ def _texto(resp):
 
 
 def _resubir(db, c):
+    # Fase 6 v2: solo se sube en «Por recoger»/«Observado»; la fase en curso
+    # deja pasar la guarda y `sync_phase` la vuelve a «Por revisar».
+    _fase(db, c).status = "in_progress"
+    db.flush()
     DocumentService.save(db, c.process, TIPO, raw=PDF, original_name="anexo-v2.pdf",
                          content_type="application/pdf", uploaded_by_id=c.student.id)
     db.commit()
@@ -473,8 +481,8 @@ def test_un_solo_armado_del_nombre_del_alumno():
     persona = SimpleNamespace(first_name="ANA", last_name="PEREZ", middle_name="GOMEZ")
     assert _titulacion_shared.nombre(persona) == "ANA PEREZ GOMEZ"   # orden natural
     assert _titulacion_shared.nombre(None) == ""
-    # Nadie más lo arma a mano: el detalle del Anexo III y el aviso de liberación.
-    for fn in (titulacion_anexo._detail_ctx, AnexoService.notify_release):
+    # Nadie más lo arma a mano: el detalle del Anexo III y los avisos a vinculación (liberación y reimpresión).
+    for fn in (titulacion_anexo._detail_ctx, AnexoService._notify_vinculacion):
         fuente = inspect.getsource(fn)
         assert "middle_name" not in fuente, fn.__qualname__
         assert "nombre(" in fuente, fn.__qualname__
@@ -514,3 +522,107 @@ def test_el_kicker_de_cada_vista_es_su_fase_del_catalogo(esc, db_session):
     plantilla = (Path(pkg.__file__).resolve().parent / "templates" / "titulatec" / "admin"
                  / "titulacion.html").read_text(encoding="utf-8")
     assert "Fase 03" not in plantilla
+
+
+# ---------------------------------------------------------------------------
+# Fase 6 v2: etapa en «Sin enviar», casilla de reimpresión, detalle
+# ---------------------------------------------------------------------------
+AYUDA = ("Úsala si el problema está en el documento impreso: datos, firma del jefe o sello. "
+         "Si solo falta una firma de sinodal o el escaneo no se lee, déjala sin marcar.")
+
+
+def test_sin_enviar_pinta_la_pildora_de_etapa(esc):
+    c = esc.caso(subido=False)
+    cli = esc.client_as(esc.revisor(c))
+    h = _html(cli.get(ANX + "/body", params={"tab": "unsent"}))
+    pil = h.xpath(f'//*[@id="tt-anx-row-{c.process.id}"]//*[@data-tt-anx-stage]')
+    assert [p.get("data-tt-anx-stage") for p in pil] == ["ready"]
+    assert "Por recoger" in pil[0].text_content()
+    assert "desde" in h.xpath(f'//*[@id="tt-anx-row-{c.process.id}"]')[0].text_content()
+
+
+def test_el_detalle_ofrece_la_casilla_desmarcada_con_su_ayuda(esc):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    h = _html(cli.get(ANX + "/body", params={"selected": c.process.id}))
+    chk = h.xpath('//input[@id="tt-anx-reprint-chk"]')
+    assert len(chk) == 1 and chk[0].get("name") == "reimpresion" and chk[0].get("checked") is None
+    assert "Requiere reimpresión (regresa a vinculación)" in h.text_content()
+    assert " ".join(h.xpath('//*[@id="tt-anx-reprint-help"]')[0].text_content().split()) == AYUDA
+    assert "Oficina de vinculación, lunes 9 a 13" in h.xpath('//*[@id="tt-anx-pickup"]')[0].text_content()
+
+
+def test_observar_con_reimpresion_regresa_a_vinculacion(esc, db_session, monkeypatch):
+    avisos = []
+    monkeypatch.setattr(AnexoService, "notify_reprint", staticmethod(avisos.append))
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    resp = _post(cli, c, "observar", 1, reason="El sello salió ilegible", reimpresion="1")
+    assert resp.status_code == 200, resp.text[:300]
+    assert avisos == [c.process.id]
+    db_session.expire_all()
+    assert AnexoService.stage(db_session, c.process) == "reprint"
+    assert AnexoService.get(db_session, c.process.id).reprint_reason == "El sello salió ilegible"
+    assert _fase(db_session, c).status == "rejected"
+
+
+def test_observar_sin_casilla_no_pide_reimpresion(esc, db_session, monkeypatch):
+    avisos = []
+    monkeypatch.setattr(AnexoService, "notify_reprint", staticmethod(avisos.append))
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    assert _post(cli, c, "observar", 1, reason="No se lee").status_code == 200
+    assert avisos == []
+    db_session.expire_all()
+    assert AnexoService.stage(db_session, c.process) == "observed"
+
+
+def test_falla_del_aviso_de_reimpresion_no_tumba_la_observacion(esc, db_session, monkeypatch):
+    def boom(pid):
+        raise RuntimeError("redis caido")
+    monkeypatch.setattr(AnexoService, "notify_reprint", staticmethod(boom))
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    assert _post(cli, c, "observar", 1, reason="Falta sello", reimpresion="1").status_code == 200
+    db_session.expire_all()
+    assert AnexoService.stage(db_session, c.process) == "reprint"
+
+
+def test_motivo_vacio_conserva_la_casilla_marcada(esc):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    resp = _post(cli, c, "observar", 1, reason="  ", reimpresion="1")
+    assert resp.status_code == 200
+    chk = _html(resp).xpath('//input[@id="tt-anx-reprint-chk"]')
+    assert chk and chk[0].get("checked") is not None
+
+
+def test_observar_con_reimpresion_y_version_vieja_no_escribe(esc, db_session, monkeypatch):
+    avisos = []
+    monkeypatch.setattr(AnexoService, "notify_reprint", staticmethod(avisos.append))
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    resp = _post(cli, c, "observar", 99, reason="x", reimpresion="1")
+    assert resp.status_code == 200 and avisos == []
+    db_session.expire_all()
+    assert AnexoService.stage(db_session, c.process) == "in_review"
+
+
+def test_detalle_en_reimpresion_muestra_etapa_y_motivo(esc):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    _post(cli, c, "observar", 1, reason="Datos del alumno mal impresos", reimpresion="1")
+    h = _html(cli.get(ANX + "/body", params={"tab": "observed", "selected": c.process.id}))
+    assert h.xpath('//*[@id="tt-anx-stage"]//*[@data-tt-anx-stage="reprint"]')
+    assert "Datos del alumno mal impresos" in h.xpath('//*[@id="tt-anx-reprint"]')[0].text_content()
+    assert not h.xpath('//*[@id="tt-anx-review"]')   # sin escaneo vigente no se dictamina
+
+
+def test_corte_3_no_alcanza_la_reimpresion(esc, corte, db_session):
+    c = esc.caso()
+    cli = esc.client_as(esc.revisor(c))
+    corte(3)
+    resp = _post(cli, c, "observar", 1, reason="x", reimpresion="1")
+    assert resp.status_code == 400
+    db_session.expire_all()
+    assert AnexoService.get(db_session, c.process.id).reprint_requested_at is None
