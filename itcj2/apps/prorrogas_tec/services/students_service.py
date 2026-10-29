@@ -1,16 +1,23 @@
 """Pestaña Estudiantes de la secretaria: lista por semestre con su cuenta y expediente de una solicitud."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+import logging
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from io import BytesIO
+
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
 from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
-from itcj2.apps.prorrogas_tec.services import account
+from itcj2.apps.prorrogas_tec.services import account, notify
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
+from itcj2.apps.prorrogas_tec.services.events import log_event
+from itcj2.apps.prorrogas_tec.services.formatting import fecha_larga, pesos
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
@@ -21,11 +28,23 @@ FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada")
 _SITUACION = {"con_adeudo": "atrasada", "al_corriente": "al_corriente", "sin_plan": "sin_plan",
               "liquidada": "liquidada"}
 _ENTRE_RECORDATORIOS = timedelta(hours=24)
+logger = logging.getLogger(__name__)
+_COLUMNAS = [("No. de control", 16), ("Nombre", 36), ("Carrera", 36), ("Correo", 32),
+             ("Folio de la prórroga", 20), ("Monto total", 14), ("Pagado", 14), ("Saldo", 14),
+             ("Parcialidades vencidas", 22), ("Vencida desde", 16)]
+_DINERO = '"$"#,##0.00'
+
+
+def _tiempos(now):
+    now = now or db_now()
+    if isinstance(now, datetime):
+        return now, now.date(), now
+    return now, now, datetime.combine(now, time())
 
 
 def _puede_recordar(req, c, ahora: datetime) -> bool:
     return (c.total is not None and c.saldo > 0
-            and (req.last_reminded_at is None or ahora - req.last_reminded_at > _ENTRE_RECORDATORIOS))
+            and (req.last_reminded_at is None or ahora - req.last_reminded_at >= _ENTRE_RECORDATORIOS))
 
 
 def _avisar_desbloqueo(req, c) -> bool:
@@ -120,3 +139,110 @@ class StudentsService:
             "historial": [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": e.payload}
                           for e in eventos],
         }
+
+    @staticmethod
+    def _bloquear(db, request_id: int) -> ProrrogaRequest:
+        req = (db.query(ProrrogaRequest).filter_by(id=request_id)
+               .populate_existing().with_for_update().first())
+        if req is None or req.status != "aceptada":
+            db.rollback()
+            raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
+        return req
+
+    @staticmethod
+    def remind(db, request_id: int, actor_id: int, *, now: date | datetime | None = None) -> ProrrogaRequest:
+        """Recordatorio de pago por correo y aviso; como máximo uno cada 24 h por solicitud."""
+        _, today, ts = _tiempos(now)
+        req = StudentsService._bloquear(db, request_id)
+        try:
+            c = account.load(db, req, today)
+            if c.total is None:
+                raise ServiceError("sin_plan", "La solicitud aún no tiene plan de pagos.", status=409)
+            if c.saldo <= 0:
+                raise ServiceError("sin_saldo", "La solicitud no tiene saldo pendiente.", status=409)
+            if req.last_reminded_at and ts - req.last_reminded_at < _ENTRE_RECORDATORIOS:
+                raise ServiceError("ya_recordado", "Ya se le recordó en las últimas 24 horas.", status=409,
+                                   siguiente=(req.last_reminded_at + _ENTRE_RECORDATORIOS).isoformat())
+            p = c.proxima
+            fecha, monto = fecha_larga(p.due_date), pesos(p.amount - p.cubierto)
+            req.last_reminded_at = ts
+            log_event(db, event_type="recordatorio_enviado", request_id=req.id, actor_id=actor_id,
+                      payload={"saldo": account.money(c.saldo)})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(req)
+        notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante",
+                              body=f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.",
+                              context={"saldo": pesos(c.saldo), "proxima_fecha": fecha, "proxima_monto": monto})
+        try:
+            db.commit()
+        except Exception:
+            logger.exception("No se pudo guardar el aviso de la solicitud %s", req.id)
+            db.rollback()
+        return req
+
+    @staticmethod
+    def export_adeudos(db, period_id: int, actor_id: int, *, now: date | datetime | None = None) -> tuple[bytes, str]:
+        """Lista de estudiantes con parcialidad vencida (§16.1) para el centro de cómputo."""
+        now, today, ts = _tiempos(now)
+        period = db.get(AcademicPeriod, period_id)
+        if period is None:
+            raise ServiceError("periodo_no_encontrado", "No se encontró el semestre.", status=404)
+        reqs = (db.query(ProrrogaRequest).filter(ProrrogaRequest.period_id == period_id,
+                                                 ProrrogaRequest.status == "aceptada")
+                .order_by(ProrrogaRequest.student_name, ProrrogaRequest.id).all())
+        cuentas = account.load_many(db, reqs, today)
+        filas = [(r, cuentas[r.id]) for r in reqs if cuentas[r.id].situacion == "atrasada"]
+
+        ws = Workbook().active
+        ws.title = "Adeudos"
+        ws["A1"], ws["A2"] = "Lista de adeudos de prórrogas", f"Semestre: {period_label(period)}"
+        ws["A3"] = f"Exportado el {ts:%d/%m/%Y %H:%M}"
+        ws["A4"] = f"Criterio: estudiantes con al menos una parcialidad vencida y no cubierta al {today:%d/%m/%Y}."
+        ws["A5"] = f"Total de estudiantes: {len(filas)}"
+        ws["A1"].font = Font(bold=True, size=14)
+        for i, (titulo, ancho) in enumerate(_COLUMNAS, start=1):
+            celda = ws.cell(row=7, column=i, value=titulo)
+            celda.font = Font(bold=True)
+            ws.column_dimensions[celda.column_letter].width = ancho
+        for r, c in filas:
+            ws.append([r.control_number, r.student_name, r.program_name, r.email, folio(r.id), c.total, c.pagado,
+                       c.saldo, sum(1 for p in c.parcialidades if p.estado == "vencida"), c.vencida_desde])
+            fila = ws.max_row
+            for col in (6, 7, 8):
+                ws.cell(row=fila, column=col).number_format = _DINERO
+            ws.cell(row=fila, column=10).number_format = "DD/MM/YYYY"
+            if r.block_exported_at is None:
+                r.block_exported_at = ts
+        if not filas:
+            ws.append(["Sin estudiantes con adeudo"])
+        ws.freeze_panes = "A8"
+        ws.auto_filter.ref = f"A7:J{max(ws.max_row, 8)}"
+        log_event(db, event_type="lista_bloqueo_exportada", request_id=None, actor_id=actor_id,
+                  payload={"period_id": period_id, "estudiantes": len(filas)})
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        buf = BytesIO()
+        ws.parent.save(buf)
+        return buf.getvalue(), f"adeudos-prorrogas-{ts:%Y%m%d-%H%M}.xlsx"
+
+    @staticmethod
+    def mark_unblock(db, request_id: int, actor_id: int, *, now: date | datetime | None = None) -> ProrrogaRequest:
+        """Marca que el estudiante, ya liquidado, fue reportado para desbloqueo (§16.2)."""
+        _, today, ts = _tiempos(now)
+        req = StudentsService._bloquear(db, request_id)
+        try:
+            if not _avisar_desbloqueo(req, account.load(db, req, today)):
+                raise ServiceError("no_aplica", "No hay un desbloqueo pendiente de avisar.", status=409)
+            req.unblock_notified_at = ts
+            log_event(db, event_type="desbloqueo_avisado", request_id=req.id, actor_id=actor_id, payload={})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        return req

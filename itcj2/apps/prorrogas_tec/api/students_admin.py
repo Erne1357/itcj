@@ -4,7 +4,7 @@ Rutas bajo ``/api/prorrogas/v2/estudiantes``.
 """
 from datetime import date
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 from pydantic import BaseModel
 
 from itcj2.apps.prorrogas_tec.api._common import service_error_response as _err
@@ -23,6 +23,8 @@ _READ = ["prorrogas_tec.requests.api.read.all"]
 _PLAN = ["prorrogas_tec.plans.api.manage"]
 _RECORD = ["prorrogas_tec.payments.api.record"]
 _VOID = ["prorrogas_tec.payments.api.void"]
+_REMIND = ["prorrogas_tec.students.api.remind"]
+_EXPORT = ["prorrogas_tec.students.api.export"]
 
 
 class ParcialidadIn(BaseModel):
@@ -43,6 +45,10 @@ class ReciboIn(BaseModel):
 
 class AnularIn(BaseModel):
     motivo: str
+
+
+class ExportIn(BaseModel):
+    period_id: int
 
 
 @router.get("/periodos", name="prorrogas_tec.api.estudiantes.periodos")
@@ -66,6 +72,17 @@ def reparto(total: str, n: int, user: dict = require_perms("prorrogas_tec", _REA
         return {"montos": [money(x) for x in PlanService.reparto(total, n)]}
     except ServiceError as e:
         return _err(e)
+
+
+@router.post("/adeudos.xlsx", name="prorrogas_tec.api.estudiantes.exportar")
+def exportar(body: ExportIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _EXPORT)):
+    try:
+        data, nombre = StudentsService.export_adeudos(db, body.period_id, int(user["sub"]))
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return Response(content=data, headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @router.get("/{request_id}", name="prorrogas_tec.api.estudiantes.expediente")
@@ -103,6 +120,26 @@ def recibo_anular(request_id: int, payment_id: int, body: AnularIn, db: DbSessio
                   user: dict = require_perms("prorrogas_tec", _VOID)):
     try:
         PaymentService.void(db, payment_id, int(user["sub"]), motivo=body.motivo, request_id=request_id)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/recordar", name="prorrogas_tec.api.estudiantes.recordar")
+def recordar(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.remind(db, request_id, int(user["sub"]))
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/desbloqueo-avisado", name="prorrogas_tec.api.estudiantes.desbloqueo")
+def desbloqueo(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _EXPORT)):
+    try:
+        StudentsService.mark_unblock(db, request_id, int(user["sub"]))
     except ServiceError as e:
         db.rollback()
         return _err(e)
