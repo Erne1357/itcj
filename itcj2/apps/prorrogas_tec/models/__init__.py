@@ -3,6 +3,7 @@ from itcj2.apps.prorrogas_tec.models.prorrogas_notifications import Notification
 from itcj2.apps.prorrogas_tec.models.payment_options import Payments_options
 from itcj2.apps.prorrogas_tec.models.request import Request_pro
 from itcj2.apps.prorrogas_tec.models.payments import Payments_pro
+from itcj2.apps.prorrogas_tec.models.template import ProrrogaTemplate
 # from itcj2.apps.prorrogas_tec.models.request import request_status
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "Payments_options",
     "Payments_pro",
     "Request_pro",
+    "ProrrogaTemplate",
     # "request_status",
 ]

@@ -62,4 +62,5 @@ from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noq
 # proceso que no pase por los routers de la app (p. ej. las pruebas).
 from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
     ProrrogasPeriodConfig, Payments_options, Payments_pro, Request_pro,
+    ProrrogaTemplate,
 )
