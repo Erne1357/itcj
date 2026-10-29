@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
-from itcj2.apps.prorrogas_tec.api._common import error_response
+from itcj2.apps.prorrogas_tec.api._common import service_error_response as _err
 from itcj2.apps.prorrogas_tec.services import invitation_service as svc
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.dependencies import DbSession, require_perms
@@ -25,10 +25,6 @@ class InvitationIn(BaseModel):
     apellido_paterno: Optional[str] = None
     apellido_materno: Optional[str] = None
     program_id: Optional[int] = None
-
-
-def _err(e: ServiceError):
-    return error_response(e.status, e.code, e.message, **e.detail)
 
 
 @router.post("/qr", name="prorrogas_tec.api.invitaciones.qr")

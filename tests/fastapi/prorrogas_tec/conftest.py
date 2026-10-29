@@ -23,6 +23,13 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.invitations.api.create",
 ]
 
+STUDENT_PERMS = [
+    "prorrogas_tec.student.page.view",
+    "prorrogas_tec.requests.api.create.own",
+    "prorrogas_tec.requests.api.read.own",
+    "prorrogas_tec.requests.api.cancel.own",
+]
+
 _seq = count(1)
 
 
@@ -153,7 +160,7 @@ def secretaria(make_user, make_role, grant):
 @pytest.fixture()
 def estudiante(make_user, make_role, grant):
     user = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=f"99{next(_seq):06d}")
-    grant(user, make_role("student"))
+    grant(user, make_role("student", STUDENT_PERMS))
     return user
 
 
@@ -219,6 +226,41 @@ def periodo(db_session):
     db_session.add(p)
     db_session.flush()
     return p
+
+
+@pytest.fixture()
+def periodo_hoy(db_session):
+    """Semestre vigente hoy; el de inicio más reciente, así que `period_for` lo elige."""
+    from datetime import timedelta
+    from itcj2.core.models.academic_period import AcademicPeriod
+    from itcj2.core.utils.timezone import db_now
+
+    hoy = db_now().date()
+    n = next(_seq)
+    p = AcademicPeriod(code=f"H{n:05d}", name=f"Prórrogas hoy {n}", start_date=hoy - timedelta(days=1),
+                       end_date=hoy + timedelta(days=60), status="INACTIVE")
+    db_session.add(p)
+    db_session.flush()
+    return p
+
+
+@pytest.fixture()
+def alumno_unido(db_session, estudiante, periodo_hoy):
+    """Estudiante que ya se unió (por QR) hace un minuto, dentro del semestre."""
+    from datetime import timedelta
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+
+    db_session.add(ProrrogaJoin(user_id=estudiante.id, via="qr", joined_at=db_now() - timedelta(minutes=1)))
+    db_session.flush()
+    return estudiante
+
+
+@pytest.fixture()
+def firma_png():
+    from itcj2.apps.prorrogas_tec.documents.catalog import sample_signature_png
+
+    return sample_signature_png()
 
 
 @pytest.fixture()
