@@ -30,14 +30,14 @@ ADVERTENCIA: no ejecutar este SQL a mano. Solo via `alembic upgrade head` /
 `alembic downgrade`.
 
 Revision ID: tt20261021a
-Revises: tt20261015a
+Revises: d1r3ct0ry03
 Create Date: 2026-10-21
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "tt20261021a"
-down_revision = "tt20261015a"
+down_revision = "d1r3ct0ry03"
 branch_labels = None
 depends_on = None
 

@@ -284,6 +284,20 @@ def get_helpdesk_navigation(user_permissions: set[str], user_roles: set[str]):
                     "fragment": "#notif",
                 },
                 {
+                    "label": "Correo",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-envelope",
+                    "permission": "helpdesk.config.assignment_email.api.read",
+                    "fragment": "#correo",
+                },
+                {
+                    "label": "Asignación automática",
+                    "endpoint": "helpdesk_pages.admin_pages.config",
+                    "icon": "fa-random",
+                    "permission": "helpdesk.config.auto_assign.api.read",
+                    "fragment": "#autoasig",
+                },
+                {
                     "label": "Auditoría",
                     "endpoint": "helpdesk_pages.admin_pages.config",
                     "icon": "fa-history",

@@ -1,17 +1,24 @@
-{# Panel del ajuste global. Lo incluyen index.html y el fragmento OOB del toggle. #}
+{# Panel de visibilidad de los departamentos NO oficiales, uno por uno. Lo incluyen
+   index.html y el fragmento OOB del toggle. `show_unofficial` = ids visibles. #}
 {% if can_settings %}
-<div class="form-check form-switch dir-switch">
-  <input class="form-check-input" type="checkbox" role="switch" id="dir-unofficial-switch"
-         {% if show_unofficial %}checked{% endif %}
-         aria-describedby="dir-unofficial-help"
-         hx-post="/directory/settings/unofficial"
-         hx-target="#dir-list" hx-swap="morph:innerHTML"
-         hx-include="#dir-filters"
-         hx-vals='js:{show_unofficial: event.target.checked}'>
-  <label class="form-check-label" for="dir-unofficial-switch">Mostrar departamentos no oficiales</label>
-  <p id="dir-unofficial-help" class="dir-switch-help mb-0">
-    Lo ven todos los usuarios del directorio.
-    {% if hidden_count %}Hay {{ hidden_count }} extensiones en departamentos no oficiales.{% endif %}
-  </p>
-</div>
+<fieldset class="dir-switch" aria-describedby="dir-unofficial-help">
+  <legend class="fs-6 fw-semibold mb-1">Departamentos no oficiales visibles</legend>
+  {% for d in unofficial_depts %}
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="dir-unofficial-{{ d.id }}"
+           {% if d.id in show_unofficial %}checked{% endif %}
+           hx-post="/directory/settings/unofficial"
+           hx-target="#dir-list" hx-swap="morph:innerHTML"
+           hx-include="#dir-filters"
+           hx-vals='js:{department_id: {{ d.id }}, visible: event.target.checked}'>
+    <label class="form-check-label" for="dir-unofficial-{{ d.id }}">
+      {{ d.name }}{% if d.parent %} <span class="dir-switch-help">· {{ d.parent }}</span>{% endif %}
+      <span class="dir-switch-help">· {{ d.extensions }} ext.</span>
+    </label>
+  </div>
+  {% else %}
+  <p class="dir-switch-help mb-1">No hay departamentos no oficiales.</p>
+  {% endfor %}
+  <p id="dir-unofficial-help" class="dir-switch-help mb-0">Lo ven todos los usuarios del directorio.</p>
+</fieldset>
 {% endif %}

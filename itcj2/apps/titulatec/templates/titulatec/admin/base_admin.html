@@ -42,6 +42,8 @@
    (`admin/revisiones.css`); mismo motivo. #}
 <link rel="stylesheet" href="/static/titulatec/css/review.css?v={{ sv('css/review.css') }}">
 <link rel="stylesheet" href="/static/titulatec/css/admin/revisiones.css?v={{ sv('css/admin/revisiones.css') }}">
+{# Reporte Excel de la encuesta (`admin/survey_report.html`): reglas bajo `.tt-sr`. #}
+<link rel="stylesheet" href="/static/titulatec/css/admin/survey-report.css?v={{ sv('css/admin/survey-report.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -216,6 +218,9 @@
    recarga de `#tt-report-body`. Mismo contrato: una sola carga, delegación en
    `document` y re-init en `htmx:afterSettle`. #}
 <script src="/static/titulatec/js/admin/reports.js?v={{ sv('js/admin/reports.js') }}"></script>
+{# Reporte Excel de la encuesta: columnas ordenables, orden, liga y memoria local.
+   Mismo contrato: una sola carga, delegación en `document`, re-init en afterSettle. #}
+<script src="/static/titulatec/js/admin/survey-report.js?v={{ sv('js/admin/survey-report.js') }}"></script>
 <script>
   // Toast genérico para errores de acciones HTMX (usa X-Tt-Error si viene).
   document.body.addEventListener('htmx:responseError', function (e) {

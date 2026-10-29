@@ -78,12 +78,13 @@ def _view_flags(db: Session, user: dict) -> dict:
             logger.exception("error computing view flags for user %s", user.get("sub"))
 
     can_manage = is_admin or _MANAGE_PERM in perms
-    show = settings_service.show_unofficial(db)
+    # Conjunto de ids de los no oficiales visibles (ajuste por departamento).
+    show = settings_service.visible_unofficial(db)
     return {
         "can_manage": can_manage,
         "can_settings": is_admin or _SETTINGS_PERM in perms,
         "show_unofficial": show,
-        "include_empty_unofficial": show and can_manage,
+        "include_empty_unofficial": bool(show) and can_manage,
     }
 
 
@@ -124,7 +125,7 @@ def _hidden_departments_with_rows(db: Session, *, exclude_ids):
     )
 
 
-def _departments(db: Session, *, include_unofficial: bool, can_manage: bool):
+def _departments(db: Session, *, include_unofficial, can_manage: bool):
     """Opciones de los <select>. `dir_label` lleva la sangría con NBSP real.
 
     A quien gestiona se le añaden, AL FINAL y marcados «(oculto)», los no oficiales
@@ -192,7 +193,8 @@ def _render_list(request: Request, db: Session, user: dict, *, q=None, departmen
         "effective_filter_dept": department_id,
         "source": source,
         "dept_label": _dept_label(db, department_id),
-        "hidden_count": settings_service.hidden_row_count(db) if flags["can_settings"] else 0,
+        "unofficial_depts": (settings_service.unofficial_departments(db)
+                             if flags["can_settings"] else []),
         **flags,
         **(extra or {}),
     }
@@ -361,11 +363,12 @@ async def patch_position_extension(
                         department_id=_int_or_none(filter_dept), source=source)
 
 
-# ── Ajuste global (gate propio: settings, NO entries) ─────────────────────────
+# ── Ajuste por departamento (gate propio: settings, NO entries) ───────────────
 @router.post("/settings/unofficial")
 async def set_unofficial_visibility(
     request: Request,
-    show_unofficial: str = Form(...),
+    department_id: int = Form(...),
+    visible: str = Form(...),
     q: str = Form(""),
     filter_dept: str | None = Form(None),
     source: str = Form("all"),
@@ -377,16 +380,20 @@ async def set_unofficial_visibility(
     Un toggle ciego no es idempotente: dos admins, un doble clic o un reintento de
     htmx dejan el valor equivocado.
     """
-    desired = str(show_unofficial).lower() in ("true", "1", "on", "yes")
-    settings_service.set_show_unofficial(db, desired, by_user_id=int(user["sub"]))
+    desired = str(visible).lower() in ("true", "1", "on", "yes")
+    try:
+        shown = settings_service.set_unofficial_visible(
+            db, department_id, desired, by_user_id=int(user["sub"]))
+    except ValueError as exc:
+        return _fail(request, db, user, exc, q=q, filter_dept=filter_dept, source=source)
 
     dept = _int_or_none(filter_dept)
     warning = None
     if dept is not None:
-        visible = {
-            d["id"] for d in directory_service.department_rows(db, include_unofficial=desired)
+        visible_ids = {
+            d["id"] for d in directory_service.department_rows(db, include_unofficial=shown)
         }
-        if dept not in visible:
+        if dept not in visible_ids:
             # Sin esto el usuario aterriza en «Sin resultados» con un filtro que ya
             # no puede ver ni quitar.
             dept = None

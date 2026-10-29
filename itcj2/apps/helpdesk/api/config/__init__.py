@@ -7,6 +7,8 @@ from .transitions import router as transitions_router
 from .audit import router as audit_router
 from .areas import router as areas_router
 from .notifications import router as notifications_router
+from .auto_assign import router as auto_assign_router
+from .assignment_email import router as assignment_email_router
 
 config_router = APIRouter(prefix="/config", tags=["helpdesk-config"])
 config_router.include_router(priorities_router, prefix="/priorities")
@@ -15,3 +17,5 @@ config_router.include_router(transitions_router, prefix="/transitions")
 config_router.include_router(audit_router, prefix="/audit")
 config_router.include_router(areas_router, prefix="/areas")
 config_router.include_router(notifications_router, prefix="/notifications")
+config_router.include_router(auto_assign_router, prefix="/auto-assign")
+config_router.include_router(assignment_email_router, prefix="/assignment-email")

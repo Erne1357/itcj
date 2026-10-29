@@ -1,0 +1,51 @@
+/* Reporte Excel de la encuesta (admin/survey_report.html). Archivo propio:
+   titulatec.css no se toca. Todo cuelga de `.tt-sr`. */
+
+.tt-sr__grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+@media (min-width: 1200px) {
+  .tt-sr__grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+  .tt-sr__side { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; }
+}
+.tt-sr__main { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+.tt-sr__card { min-width: 0; }
+.tt-sr__h { font-size: var(--tt-fs-400); font-weight: 600; margin: 0 0 .75rem; }
+.tt-sr__hint { color: var(--tt-text-3); font-size: var(--tt-fs-100); }
+
+.tt-sr__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem .75rem; }
+.tt-sr__f { display: flex; flex-direction: column; gap: .15rem; font-size: var(--tt-fs-100); color: var(--tt-text-2); min-width: 0; }
+.tt-sr__f .tt-field { width: 100%; min-width: 0; }
+.tt-sr__chips { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin-top: .6rem; }
+
+.tt-sr__set { border: 1px solid var(--tt-line); border-radius: .5rem; padding: .5rem .75rem; margin: .75rem 0 0; min-width: 0; }
+.tt-sr__set > legend { float: none; width: auto; font-size: var(--tt-fs-100); font-weight: 600;
+  padding: 0 .4rem; margin: 0; display: flex; align-items: center; gap: .4rem; }
+.tt-sr__checks { display: flex; flex-wrap: wrap; gap: .25rem 1rem; }
+.tt-sr__chk { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--tt-fs-200); }
+.tt-sr__set > .tt-sr__chk { display: flex; padding: .1rem 0; }
+
+/* «Más filtros por respuesta»: una línea por pregunta, cada una plegable. */
+.tt-sr__more > summary { cursor: pointer; }
+.tt-sr__q { border-bottom: 1px solid var(--tt-line); }
+.tt-sr__q > summary { cursor: pointer; padding: .4rem 0; font-size: var(--tt-fs-200); }
+.tt-sr__q > .tt-sr__set { border: 0; padding: 0 0 .5rem 1rem; margin: 0; }
+
+.tt-sr__cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
+@media (max-width: 767.98px) {
+  .tt-sr__fields, .tt-sr__cols { grid-template-columns: minmax(0, 1fr); }
+}
+.tt-sr__avail-scroll { max-height: 26rem; overflow: auto; padding-right: .25rem; }
+.tt-sr__list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .25rem; }
+.tt-sr__item { display: flex; align-items: center; gap: .4rem; padding: .2rem .4rem;
+  border: 1px solid var(--tt-line); border-radius: .4rem; background: var(--tt-paper); cursor: grab; }
+.tt-sr__item.is-drag { opacity: .45; }
+.tt-sr__grip { color: var(--tt-mute); }
+.tt-sr__name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--tt-fs-200); }
+.tt-sr__item .btn { padding: .05rem .35rem; }
+
+.tt-sr__ord { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: .5rem; margin-bottom: .4rem; }
+.tt-sr__ord .tt-field { width: 100%; min-width: 0; }
+
+.tt-sr__scroll { overflow: auto; max-width: 100%; }
+.tt-sr__scroll table { white-space: nowrap; font-size: var(--tt-fs-100); }
+.tt-sr__warn { background: var(--tt-amber-soft); color: var(--tt-amber-ink); border-radius: .4rem;
+  padding: .35rem .6rem; margin-bottom: .5rem; font-size: var(--tt-fs-100); }
