@@ -57,8 +57,9 @@ def notify_student(db, req, *, kind: str, link: str) -> None:
     title = _AVISOS[kind]
     body = _CUERPO_ACEPTADA if kind == "aceptada" else (req.decision_comment or "")[:200]
     try:
-        NotificationService.create(db, req.student_id, APP_KEY, f"prorroga_{kind}", title, body,
-                                   data={"url": link, "request_id": req.id})
+        with db.begin_nested():  # un flush fallido revierte solo este savepoint, no la sesión del llamador
+            NotificationService.create(db, req.student_id, APP_KEY, f"prorroga_{kind}", title, body,
+                                       data={"url": link, "request_id": req.id})
     except Exception:
         logger.exception("No se pudo crear el aviso de la solicitud %s", req.id)
     send_email(template=f"decision_{kind}.html",
