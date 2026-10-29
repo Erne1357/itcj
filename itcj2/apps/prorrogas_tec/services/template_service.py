@@ -14,8 +14,6 @@ Reglas (spec §6.3):
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -23,8 +21,7 @@ from sqlalchemy.orm import Session
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES, default_template_path
 from itcj2.apps.prorrogas_tec.models.template import ProrrogaTemplate
 from itcj2.apps.prorrogas_tec.services.docx_fill import InvalidDocx, find_malformed, find_placeholders
-from itcj2.config import get_settings
-from itcj2.core.utils.safe_paths import safe_join
+from itcj2.apps.prorrogas_tec.services import storage
 
 MAX_TEMPLATE_BYTES = 5 * 1024 * 1024
 YEAR_MIN, YEAR_MAX = 2020, 2100
@@ -40,10 +37,6 @@ class TemplateError(ValueError):
         self.detail = detail
 
 
-def _base() -> Path:
-    return Path(get_settings().PRORROGAS_UPLOAD_PATH)
-
-
 def _lista(names) -> str:
     return ", ".join(sorted(names))
 
@@ -52,7 +45,7 @@ class TemplateService:
 
     @staticmethod
     def abs_path(rel: str) -> Path:
-        return safe_join(_base(), rel)
+        return storage.abs_path(rel)
 
     @staticmethod
     def read_bytes(t: ProrrogaTemplate) -> bytes:
@@ -100,7 +93,7 @@ class TemplateService:
 
         sha = hashlib.sha256(data).hexdigest()
         rel = f"templates/{int(year)}/{doc_type}-{sha[:12]}.docx"
-        _write_atomic(TemplateService.abs_path(rel), data)
+        storage.write_atomic(rel, data)
 
         t = ProrrogaTemplate(
             doc_type=doc_type,
@@ -146,15 +139,3 @@ class TemplateService:
         rows = db.query(ProrrogaTemplate.year).distinct().all()
         return sorted({current_year, *(r[0] for r in rows)}, reverse=True)
 
-
-def _write_atomic(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-", suffix=".docx")
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
-    except BaseException:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise

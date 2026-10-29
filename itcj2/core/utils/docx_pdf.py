@@ -70,7 +70,10 @@ def docx_to_pdf(docx: bytes, *, kind: str) -> bytes:
         with measured(kind, "libreoffice"):
             result = subprocess.run(
                 [
-                    lo_cmd, '--headless', '--convert-to', 'pdf',
+                    lo_cmd, '--headless',
+                    # Perfil propio por llamada: dos conversiones a la vez no chocan.
+                    f'-env:UserInstallation=file://{tmpdir}/lo-profile',
+                    '--convert-to', 'pdf',
                     '--outdir', tmpdir, docx_path
                 ],
                 capture_output=True,

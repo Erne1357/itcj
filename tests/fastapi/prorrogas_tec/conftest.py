@@ -159,10 +159,10 @@ def estudiante(make_user, make_role, grant):
 @pytest.fixture(autouse=True)
 def almacen(tmp_path, monkeypatch):
     """Los archivos de plantillas van a `tmp_path`, nunca a `instance/` real."""
-    from itcj2.apps.prorrogas_tec.services import template_service
+    from itcj2.apps.prorrogas_tec.services import storage
 
     base = tmp_path / "prorrogas_tec"
-    monkeypatch.setattr(template_service, "_base", lambda: base)
+    monkeypatch.setattr(storage, "_base", lambda: base)
     return base
 
 
@@ -236,3 +236,39 @@ def make_program(db_session):
         return prog
 
     return _make
+
+
+@pytest.fixture()
+def solicitud(db_session, make_user, periodo):
+    """Solicitud pendiente de un estudiante sintético (con flush + refresh para los defaults del servidor)."""
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+
+    u = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number="99400001")
+    req = ProrrogaRequest(
+        student_id=u.id, period_id=periodo.id, period_label="enero – junio 2091", status="pendiente",
+        requested_terms=2, reason="Motivo de prueba de treinta c.", control_number="99400001",
+        student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
+        email="L99400001@cdjuarez.tecnm.mx",
+    )
+    db_session.add(req)
+    db_session.flush()
+    db_session.refresh(req)
+    return req
+
+
+@pytest.fixture()
+def pdf_falso(monkeypatch):
+    """Parcha la conversión a PDF; `.calls` guarda los marcadores que quedaron y el kind."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services.docx_fill import find_placeholders
+    from itcj2.core.utils import docx_pdf
+
+    calls = []
+
+    def fake(data, *, kind):
+        calls.append({"placeholders": find_placeholders(data), "kind": kind})
+        return b"%PDF-1.4 fake"
+
+    monkeypatch.setattr(docx_pdf, "docx_to_pdf", fake)
+    return SimpleNamespace(calls=calls)

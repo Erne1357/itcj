@@ -26,3 +26,20 @@ def test_convierte_un_docx_real():
     buf = BytesIO()
     d.save(buf)
     assert docx_pdf.docx_to_pdf(buf.getvalue(), kind="prorrogas_documento").startswith(b"%PDF")
+
+
+def test_cada_conversion_usa_su_propio_perfil(monkeypatch):
+    from types import SimpleNamespace
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        outdir = cmd[cmd.index("--outdir") + 1]
+        with open(f"{outdir}/document.pdf", "wb") as f:
+            f.write(b"%PDF-1.4")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+    monkeypatch.setattr(docx_pdf.subprocess, "run", fake_run)
+    docx_pdf.docx_to_pdf(b"x", kind="prorrogas_documento")
+    assert any(a.startswith("-env:UserInstallation=file://") for a in seen["cmd"])
