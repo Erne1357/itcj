@@ -11,6 +11,7 @@ _DML_FILES = [
     "01_insert_permissions.sql",
     "02_insert_role_permission.sql",
     "03_grant_prorrogas_access.sql",
+    "04_insert_secretaria.sql",
 ]
 
 
@@ -23,6 +24,7 @@ def init_prorrogas_command():
       01_insert_permissions.sql     — inserta los 12 permisos del módulo
       02_insert_role_permission.sql — admin: todo; student: solo lo propio
       03_grant_prorrogas_access.sql — espeja admin desde itcj y student desde agendatec
+      04_insert_secretaria.sql      — rol secretaria y permisos de Documentos (secretaria y admin)
 
     Corre SOLO `database/DML/prorrogas_tec/`: no re-ejecuta ningún DML ya
     aplicado de otras apps. Todo el SQL usa ON CONFLICT, así que repetirlo es
