@@ -69,3 +69,17 @@ def test_years_incluye_el_actual_y_ordena_desc(db_session, docx_con):
     _up(db_session, docx_con(*RECHAZO_OK), year=2093)
     ys = TemplateService.years(db_session, current_year=2095)
     assert ys[0] == 2095 and 2093 in ys and ys == sorted(set(ys), reverse=True)
+
+
+# Revisión final del Plan 1 (#3): un marcador casi bien escrito no puede pasar
+# como texto normal, porque terminaría impreso tal cual en una carta firmada.
+@pytest.mark.parametrize("linea, mal", [
+    ("{{Carrera}}", "{{Carrera}}"),
+    ("{{año}}", "{{año}}"),
+    ("{{ no control }}", "{{ no control }}"),
+    ("{{fecha}", "{{fecha"),
+])
+def test_rechaza_marcadores_mal_escritos(db_session, docx_con, linea, mal):
+    with pytest.raises(TemplateError) as e:
+        _up(db_session, docx_con(*RECHAZO_OK, linea))
+    assert e.value.code == "marcadores_mal_escritos" and e.value.detail["mal_escritos"] == [mal]

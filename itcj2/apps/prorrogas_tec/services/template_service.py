@@ -5,6 +5,8 @@ Reglas (spec §6.3):
 - Solo ``.docx`` de hasta 5 MB, año entre 2020 y 2100.
 - Los marcadores deben estar en el catálogo del formato (una errata como
   ``{{nombr}}`` se rechaza nombrándola) y los obligatorios no pueden faltar.
+- Un marcador casi bien escrito (``{{Nombre}}``, ``{{año}}``, ``{{fecha}``) también
+  se rechaza: si no, saldría impreso tal cual en la carta.
 - Ninguna plantilla se edita ni se borra. Para un formato y un año se usa la
   más reciente de ese año; si no hay, la más reciente del año anterior más
   cercano; si no hay, la plantilla del sistema.
@@ -20,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES, default_template_path
 from itcj2.apps.prorrogas_tec.models.template import ProrrogaTemplate
-from itcj2.apps.prorrogas_tec.services.docx_fill import InvalidDocx, find_placeholders
+from itcj2.apps.prorrogas_tec.services.docx_fill import InvalidDocx, find_malformed, find_placeholders
 from itcj2.config import get_settings
 from itcj2.core.utils.safe_paths import safe_join
 
@@ -70,8 +72,17 @@ class TemplateService:
             raise TemplateError("archivo_muy_grande", "El archivo pasa de 5 MB.")
         try:
             found = find_placeholders(data)
+            malformed = find_malformed(data)
         except InvalidDocx:
             raise TemplateError("docx_invalido", "El archivo no es un documento de Word válido.")
+        if malformed:
+            raise TemplateError(
+                "marcadores_mal_escritos",
+                f"La plantilla tiene marcadores mal escritos: {_lista(malformed)}. "
+                "Escríbelos en minúsculas, sin acentos ni espacios y con dos llaves de cada lado, "
+                "como {{nombre}}.",
+                mal_escritos=sorted(malformed),
+            )
         unknown = found - tipo.allowed
         if unknown:
             raise TemplateError(

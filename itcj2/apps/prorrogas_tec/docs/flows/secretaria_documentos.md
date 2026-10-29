@@ -33,6 +33,7 @@ Escritorio → Prórrogas → (aterrizaje por rol) → `/prorrogas/secretaria` �
 | `archivo_muy_grande` | Pasa de 5 MB | 400 |
 | `docx_invalido` | No es un Word válido (p. ej. un PDF renombrado) | 400 |
 | `placeholders_desconocidos` | Trae un marcador que no existe (`{{nombr}}`); lista en `desconocidos` | 400 |
+| `marcadores_mal_escritos` | Trae algo con llaves que no es marcador válido (`{{Nombre}}`, `{{año}}`, `{{fecha}`); lista en `mal_escritos` | 400 |
 | `placeholders_faltantes` | Le falta un marcador obligatorio; lista en `faltantes` | 400 |
 | `tipo_invalido` / `anio_invalido` | Formato inexistente / año fuera de 2020–2100 | 400 (404 en vista previa y descarga) |
 | `pdf_no_disponible` | LibreOffice no está o falló en la vista previa | 503 |

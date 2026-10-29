@@ -132,9 +132,11 @@
       const r = await fetch(API, { method: "POST", body: fd, credentials: "include" });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        const extra = body.desconocidos || body.faltantes;
+        const names = body.desconocidos || body.faltantes;
+        // `mal_escritos` trae el texto tal cual (ya con sus llaves); los otros, solo el nombre.
+        const items = body.mal_escritos || (names || []).map((m) => `{{${m}}}`);
         $error.innerHTML = esc(body.message || `No se pudo subir la plantilla (HTTP ${r.status}).`) +
-          (extra ? `<br>${extra.map((m) => `<code>{{${esc(m)}}}</code>`).join(" ")}` : "");
+          (items.length ? `<br>${items.map((m) => `<code>${esc(m)}</code>`).join(" ")}` : "");
         $error.hidden = false;
         return;
       }

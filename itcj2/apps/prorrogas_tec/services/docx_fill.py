@@ -25,6 +25,10 @@ from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-z0-9_]+)\s*\}\}")
+# Lo que parece marcador pero no lo es: `{{Nombre}}`, `{{año}}`, `{{ no control }}`…
+_LOOSE_RE = re.compile(r"\{\{[^{}]*\}\}")
+# Llaves sueltas que quedaron tras quitar lo anterior: `{{fecha}`, `valor}}`.
+_STRAY_RE = re.compile(r"\{\{[^{}\s]{0,30}|[^{}\s]{0,30}\}\}")
 
 _W_P = qn("w:p")
 _W_T = qn("w:t")
@@ -183,6 +187,22 @@ def find_placeholders(docx_bytes: bytes) -> set[str]:
     for p in iter_paragraphs(doc):
         found.update(m.group(1) for m in PLACEHOLDER_RE.finditer(_paragraph_text(p._p)))
     return found
+
+
+def find_malformed(docx_bytes: bytes) -> set[str]:
+    """Textos con llaves dobles que NO son un marcador válido, tal como aparecen.
+
+    Un marcador casi bien escrito (mayúsculas, acento, espacios, una llave de
+    menos) no lo ve ``find_placeholders`` y se imprimiría tal cual en la carta.
+    """
+    doc = _open(docx_bytes)
+    bad: set[str] = set()
+    for p in iter_paragraphs(doc):
+        rest = PLACEHOLDER_RE.sub(" ", _paragraph_text(p._p))
+        bad.update(m.group(0) for m in _LOOSE_RE.finditer(rest))
+        rest = _LOOSE_RE.sub(" ", rest)
+        bad.update(m.group(0) for m in _STRAY_RE.finditer(rest))
+    return bad
 
 
 def fill_docx(docx_bytes: bytes, values: Mapping[str, str],

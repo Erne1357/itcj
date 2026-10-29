@@ -93,3 +93,9 @@ def test_vista_previa_sin_libreoffice_responde_503(client_as, secretaria, monkey
 def test_vista_previa_tipo_desconocido_404(client_as, secretaria):
     r = client_as(secretaria).get(f"{API}/vista-previa/otro.pdf")
     assert r.status_code == 404 and r.json()["error"] == "tipo_invalido"
+
+
+def test_marcador_mal_escrito_responde_400_con_la_lista(client_as, secretaria, docx_con):
+    r = _post(client_as(secretaria), docx_con(*RECHAZO_OK, "{{Nombre}}"))
+    assert r.status_code == 400 and r.json()["error"] == "marcadores_mal_escritos"
+    assert r.json()["mal_escritos"] == ["{{Nombre}}"]
