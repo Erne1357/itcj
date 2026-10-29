@@ -20,6 +20,12 @@
   <p class="tt-sin-empty-text">Los sinodales los asigna la jefatura o la coordinación de vinculación del departamento de la carrera. Si te corresponde, pide que te asignen el puesto.</p>
 </div>
 {% else %}
+{# Envoltura de la vista (molde de Titulación): con un elegido (`has-selection`),
+   en angosto se ve solo el detalle con «Volver a la lista»; en ancho, la lista
+   queda fija con su propio scroll y el detalle a la vista (sinodales.css). Sin
+   esto, con 50 filas el detalle quedaba 3 000 px arriba (ancho) o debajo de la
+   lista entera (angosto) al elegir una fila de abajo. #}
+<div class="tt-sin-wrap{{ ' has-selection' if detail }}">
 <div id="tt-sin-filters" class="tt-sin-filters" data-tt-q-server="{{ q or '' }}">
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="hidden" name="selected" value="{{ selected_id or '' }}">
@@ -91,7 +97,14 @@
     {% include "titulatec/partials/sinodales/_lista.html" %}
   </section>
   <section class="tt-sin-detail-col" aria-label="Sinodales del egresado">
+    {% if detail %}
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-sin-back" data-tt-sin-back="{{ detail.process_id }}"
+            hx-get="/titulatec/admin/sinodales/body" hx-vals='{"selected": "", "page": {{ page.page }}}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la lista</button>
+    {% endif %}
     {% include "titulatec/partials/sinodales/_detalle.html" %}
   </section>
+</div>
 </div>
 {% endif %}

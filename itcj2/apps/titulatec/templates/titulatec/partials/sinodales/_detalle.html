@@ -32,10 +32,14 @@
       <p class="tt-sin-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
       {% if d.department %}<p class="tt-sin-sub">{{ d.department }}</p>{% endif %}
     </div>
+    {# En «En Anexo III» la etapa del panel es el estado que importa: la píldora de
+       la fase 4 («Sinodales asignados») competía con ella en el encabezado. #}
+    {% if not d.anexo %}
     <div class="tt-sin-head-aside">
       {% if d.synodals %}{{ pill("Sinodales asignados", "success", "check-lg") }}
       {% else %}{{ pill("Por asignar", "amber", "hourglass-split") }}{% endif %}
     </div>
+    {% endif %}
   </header>
 
   {# Fase 6 (spec fase 6 v2 §8.2): etapa y pasos numerados de vinculación. #}
@@ -99,8 +103,10 @@
             <label class="tt-label" for="tt-sin-anexo-note">Lugar y horario para recoger</label>
             <textarea id="tt-sin-anexo-note" name="note" class="tt-field" rows="3"
                       maxlength="{{ a.note_max }}" required
+                      aria-describedby="tt-sin-anexo-hint{{ ' tt-sin-anexo-error' if a.error }}"
+                      {%- if a.error %} aria-invalid="true"{% endif %}
                       placeholder="Por ejemplo: Oficina de Vinculación, lunes a viernes de 9:00 a 14:00">{{ a.note }}</textarea>
-            <p class="tt-sin-help tt-sin-anexo-hint">El egresado la recibe en su aviso (máximo {{ a.note_max }} caracteres).</p>
+            <p id="tt-sin-anexo-hint" class="tt-sin-help tt-sin-anexo-hint">El egresado la recibe en su aviso (máximo {{ a.note_max }} caracteres).</p>
             {% if a.error %}<p id="tt-sin-anexo-error" class="tt-sin-warn" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span class="tt-sin-warn-text">{{ a.error }}</span></p>{% endif %}
             <div class="tt-sin-buttons">
               <button type="submit" id="tt-sin-anexo-ready" class="btn btn-sm tt-btn-ink">

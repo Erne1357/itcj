@@ -37,9 +37,25 @@
 
 /* === 3. Master-detail ===================================================== */
 .tt-sin-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-3); align-items: start; }
+/* Lista larga (86 en «Por preparar»): mismo molde que Titulación. En ancho la
+   lista se queda fija y hace scroll por dentro (el pager al pie), así el
+   detalle de una fila de abajo aparece a la vista; en angosto, lista y detalle
+   son vistas separadas (`.tt-sin-wrap.has-selection` + «Volver a la lista»).
+   El scroll interno lo conserva `js/admin/sinodales.js` entre swaps. */
 @container tt-sin (min-width: 760px) {
   .tt-sin-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+  .tt-sin-master { position: sticky; top: var(--tt-sp-3); }
+  .tt-sin-list-card { display: flex; flex-direction: column; max-height: calc(100dvh - 2 * var(--tt-sp-3)); }
+  .tt-sin-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .tt-sin-list-card .tt-pager, .tt-sin-list-card .tt-pager-range { flex: 0 0 auto; margin-top: var(--tt-sp-2); }
+  .tt-sin-back { display: none; }
 }
+@container tt-sin (max-width: 759.98px) {
+  .tt-sin-wrap.has-selection .tt-sin-filters,
+  .tt-sin-wrap.has-selection .tt-sin-master,
+  .tt-sin-wrap:not(.has-selection) .tt-sin-detail-col { display: none; }
+}
+.tt-sin-back { margin-bottom: var(--tt-sp-2); }
 .tt-sin-master, .tt-sin-detail-col { min-width: 0; }
 
 /* Lista: una fila es un <button> a todo lo ancho. */

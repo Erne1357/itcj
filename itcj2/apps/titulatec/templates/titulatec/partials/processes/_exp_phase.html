@@ -429,26 +429,34 @@
 {% elif f.number == anexo_phase %}
   {% if anexo %}
   <div data-tt-exp-anexo>
+    {# La etapa SIEMPRE (también con la fecha de «listo»: aprobado o en revisión
+       no se leen como «por recoger»). Los textos largos (nota de recogida, motivo
+       de la reimpresión) van en su propia rejilla: en la de datos cortos cada
+       columna mide ~160 px y 300 caracteres se volvían una tira de 13 renglones. #}
     <dl class="tt-exp-datos">
-      {% if anexo.stage_label and not anexo.ready_label %}
+      {% if anexo.stage_label %}
       <div><dt>Etapa</dt><dd data-tt-anexo-stage="{{ anexo.stage }}">{{ anexo.stage_label }}</dd></div>
       {% endif %}
       <div><dt>Folio</dt>
         <dd data-tt-anexo-folio>{{ anexo.folio or 'Aún no se genera' }}</dd></div>
-      {% if anexo.ready_label %}
-      <div><dt>Listo para recoger</dt>
-        <dd data-tt-anexo-ready data-tt-anexo-stage="{{ anexo.stage }}">Listo para recoger desde {{ anexo.ready_label }}{% if anexo.pickup_note %} · {{ anexo.pickup_note }}{% endif %}</dd></div>
-      {% endif %}
-      {% if anexo.reprint_label %}
-      <div><dt>Reimpresión pendiente</dt>
-        <dd data-tt-anexo-reprint>Pedida el {{ anexo.reprint_label }}{% if anexo.reprint_reason %} · {{ anexo.reprint_reason }}{% endif %}</dd></div>
-      {% endif %}
       {% if anexo.released_label %}
       <div><dt>Liberado de la revisión</dt><dd>{{ anexo.released_label }}</dd></div>
       {% endif %}
       <div><dt>Escaneo firmado</dt>
         <dd>{{ 'Ya lo subió el alumno' if anexo.has_scan else 'Sin enviar' }}</dd></div>
     </dl>
+    {% if anexo.ready_label or anexo.reprint_label %}
+    <dl class="tt-exp-datos mt-3">
+      {% if anexo.reprint_label %}
+      <div><dt>Reimpresión pendiente</dt>
+        <dd data-tt-anexo-reprint>Pedida el {{ anexo.reprint_label }}{% if anexo.reprint_reason %} · {{ anexo.reprint_reason }}{% endif %}</dd></div>
+      {% endif %}
+      {% if anexo.ready_label %}
+      <div><dt>Recogida del original</dt>
+        <dd data-tt-anexo-ready>Listo para recoger desde {{ anexo.ready_label }}{% if anexo.pickup_note %} · {{ anexo.pickup_note }}{% endif %}</dd></div>
+      {% endif %}
+    </dl>
+    {% endif %}
     {% if anexo.pdf_url or anexo.scan_url or anexo.open_url %}
     <div class="tt-exp-acciones">
       {% if anexo.pdf_url %}

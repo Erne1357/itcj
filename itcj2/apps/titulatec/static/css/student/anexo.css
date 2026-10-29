@@ -1,10 +1,14 @@
 /* ===========================================================================
    student/anexo.css — Anexo III del alumno (fase 6)
    ---------------------------------------------------------------------------
-   Spec 2026-10-22-titulatec-fase6-anexo-iii §9.1. Mobile-first: una columna de
-   tarjetas; a >= 992px se centra con un ancho máximo legible. Invariante:
+   Spec 2026-10-22-titulatec-fase6-anexo-iii §9.1 y fase 6 v2 §8.1.
+   Mobile-first: una columna de tarjetas (estado, pasos, escaneo, vista
+   previa), en el orden del DOM. Desde 992 px, dos columnas como Formato B (contenido 46rem + lateral
+   15-20rem), alineadas a la izquierda: nunca una columna angosta centrada en
+   un lienzo vacío (contrato responsive, CLAUDE.md §12). Invariante:
    `scrollWidth <= innerWidth` en 360/390/768/1280/1440/1920 (todo hijo de flex
-   lleva `min-width: 0`). Tokens `--tt-*`; sin `style=` en plantillas.
+   o grid lleva `min-width: 0`). Tokens `--tt-*`, escala `--tt-fs-*`; sin
+   `style=` en plantillas.
    =========================================================================== */
 
 /* === 1. Página ============================================================ */
@@ -14,37 +18,59 @@
   display: flex; flex-direction: column; gap: var(--tt-sp-3);
   min-width: 0; max-width: 40rem; margin-inline: auto;
 }
+.tt-anx-main, .tt-anx-side { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+
+@media (min-width: 992px) {
+  .tt-anx-body {
+    display: grid; grid-template-columns: minmax(0, 46rem) minmax(15rem, 20rem);
+    gap: var(--tt-sp-6); align-items: start; max-width: none; margin-inline: 0;
+  }
+}
+
 .tt-anx-card { display: flex; flex-direction: column; gap: var(--tt-sp-3); padding: var(--tt-sp-4); min-width: 0; }
 .tt-anx-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tt-sp-2); flex-wrap: wrap; }
-.tt-anx-title { font-size: 1rem; font-weight: 700; margin: 0; }
-.tt-anx-text { margin: 0; color: var(--tt-text-3); overflow-wrap: anywhere; }
+.tt-anx-title { font-size: var(--tt-fs-300); font-weight: 600; margin: 0; }
+.tt-anx-text { margin: 0; color: var(--tt-text-2); overflow-wrap: anywhere; }
 .tt-anx-folio { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 
-/* === 2. Observación ======================================================= */
-.tt-anx-note { background: var(--tt-danger-soft); border-radius: 8px; padding: var(--tt-sp-2) var(--tt-sp-3); }
-.tt-anx-note .tt-kicker { color: var(--tt-danger); }
-.tt-anx-note-text { font-size: .8125rem; color: var(--tt-danger); margin-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* De quién es el turno: la segunda línea que se lee, no la última. */
+.tt-anx-turn { margin: 0; font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-anx-turn--you { color: var(--tt-accent-ink); }
+
+/* === 2. Notas: motivo de la observación / de la reimpresión =============== */
+.tt-anx-note { border-radius: var(--tt-r-sm); padding: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }
+.tt-anx-note-label { font-size: var(--tt-fs-100); font-weight: 600; }
+.tt-anx-note-text { font-size: var(--tt-fs-200); margin-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* Observación: el alumno corrige. Texto `#991B1B` (literal de `.tt-pill--danger`,
+   6.8:1 sobre `--tt-danger-soft`); `--tt-danger` daba 3.95:1. */
+.tt-anx-note--obs { background: var(--tt-danger-soft); color: #991B1B; }
+/* Reimpresión: no es error del alumno ni le toca; pendiente de vinculación. */
+.tt-anx-note--reprint { background: var(--tt-accent-soft); color: var(--tt-accent-ink); }
 
 /* Nota de recogida (<= 300 car.): ajusta línea y nunca desborda a 360px. */
-.tt-anx-pickup { background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 8px; padding: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }
-.tt-anx-pickup-text { font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
+.tt-anx-pickup { background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm); padding: var(--tt-sp-2) var(--tt-sp-3); min-width: 0; }
+.tt-anx-pickup-text { font-size: var(--tt-fs-300); font-weight: 600; overflow-wrap: anywhere; white-space: pre-wrap; }
 .tt-anx-pickup-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); margin-top: 2px; }
-.tt-anx-turn { margin: 0; font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-3); overflow-wrap: anywhere; }
-.tt-anx-steps { margin: 0; padding-left: 1.25rem; color: var(--tt-text-3); display: flex; flex-direction: column; gap: var(--tt-sp-2); overflow-wrap: anywhere; }
+.tt-anx-steps { margin: 0; padding-left: 1.25rem; color: var(--tt-text-2); display: flex; flex-direction: column; gap: var(--tt-sp-2); overflow-wrap: anywhere; }
 .tt-anx-keep { font-size: var(--tt-fs-100); }
 
-/* === 3. Descarga ========================================================== */
+/* === 3. Vista previa ====================================================== */
 .tt-anx-download { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: var(--tt-sp-2); }
-@media (min-width: 576px) { .tt-anx-download { align-self: flex-start; } }
+@media (min-width: 576px) and (max-width: 991.98px) { .tt-anx-download { align-self: flex-start; } }
 
 /* === 4. Escaneo =========================================================== */
 .tt-anx-doc { min-width: 0; }
 .tt-anx-doc-info { flex: 1 1 auto; min-width: 0; }
-.tt-anx-doc-name { font-size: .8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tt-anx-doc-meta { font-size: .6875rem; color: var(--tt-mute); }
+.tt-anx-doc-name { font-size: var(--tt-fs-200); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* `--tt-mute` (2.45:1) no es para texto: meta y ayudas van en `--tt-text-3`. */
+.tt-anx-doc-meta { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-anx-doc .tt-doc-sent { font-size: var(--tt-fs-100); }
+.tt-anx-doc-void { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2); margin-top: 2px; overflow-wrap: anywhere; }
 .tt-anx-trash { color: var(--tt-danger); }
 /* `.tt-dropzone` ya es `position: relative` (contiene el .stretched-link). */
-.tt-anx-drop-ico { font-size: 1.25rem; color: var(--tt-mute); }
-.tt-anx-drop-title { font-size: .8125rem; margin-top: var(--tt-sp-2); }
+.tt-anx-drop:focus-within { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-anx-drop-ico { font-size: var(--tt-fs-500); color: var(--tt-mute); }
+.tt-anx-drop-title { font-size: var(--tt-fs-200); margin-top: var(--tt-sp-2); }
+.tt-anx-drop .tt-dropzone-hint { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
 .tt-anx-drop-label { cursor: pointer; }
-.tt-anx-error { font-size: .75rem; color: var(--tt-danger); overflow-wrap: anywhere; }
+.tt-anx-error { font-size: var(--tt-fs-100); color: #991B1B; overflow-wrap: anywhere; }

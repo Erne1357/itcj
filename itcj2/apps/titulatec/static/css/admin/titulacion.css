@@ -213,7 +213,6 @@ a.tt-tit-view { text-decoration: none; cursor: pointer; transition: border-color
 a.tt-tit-view:hover { border-color: var(--tt-text-3); color: var(--tt-text-1); }
 .tt-anx-stage { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-1); }
 .tt-anx-stage-since { font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
-.tt-anx-wrap { overflow-wrap: anywhere; }
 .tt-anx-reprint-opt {
   display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--tt-sp-2); align-items: start;
   margin-top: var(--tt-sp-3); padding: var(--tt-sp-2) var(--tt-sp-3);

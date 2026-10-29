@@ -8,7 +8,13 @@
        eligieron en otra posición (los 4 deben ser personas distintas; el
        servidor lo vuelve a exigir con 400 + `X-Tt-Error`);
      - «Sustituir» por fila (`data-tt-sin-toggle`): despliega/pliega el
-       formulario de esa posición y enfoca su primer campo.
+       formulario de esa posición y enfoca su primer campo;
+     - lista + detalle (molde de `titulacion.js`, 2026-10-29): la lista conserva
+       su scroll interno al elegir una fila o actuar en el detalle (el swap de
+       `#tt-sin-body` la reconstruye) y mantiene la fila activa a la vista; si el
+       detalle quedó fuera de la pantalla, la página va hasta él; al «Volver a la
+       lista» (angosto) la página baja hasta la fila que se tenía abierta. Sin
+       scroll suave: lo que no cambia no se mueve.
 
    Las confirmaciones son `hx-confirm` + `data-tt-confirm-ok`: el puente de
    `titulatec-utils.js` las convierte en `confirmDialog` (nunca el diálogo
@@ -69,6 +75,73 @@
     if (!bloque.hidden) {
       var primero = bloque.querySelector('select, textarea, input:not([type="hidden"])');
       if (primero) primero.focus();
+    }
+  });
+
+  // ————————————————————————————————— lista + detalle
+  // Lo que se recuerda del swap en curso de `#tt-sin-body`.
+  var pendiente = null;   // {scroll, keep, back}
+
+  // Lleva la fila activa a la vista DENTRO de la lista (sin mover la página).
+  function filaVisible(lista) {
+    var fila = lista.querySelector('.tt-sin-row.is-active');
+    if (!fila || lista.scrollHeight <= lista.clientHeight) return;
+    var arriba = fila.offsetTop - lista.offsetTop;
+    if (arriba < lista.scrollTop) lista.scrollTop = arriba;
+    else if (arriba + fila.offsetHeight > lista.scrollTop + lista.clientHeight) {
+      lista.scrollTop = arriba + fila.offsetHeight - lista.clientHeight;
+    }
+  }
+
+  // Alto de la barra superior fija del admin (solo existe bajo 992 px).
+  function barra() {
+    var b = document.querySelector('.tt-admin-topbar');
+    if (!b) return 0;
+    var r = b.getBoundingClientRect();
+    return r.height > 0 && r.top <= 0 ? r.bottom : 0;
+  }
+
+  // Mueve la página solo si `el` quedó fuera de la pantalla (o bajo la barra).
+  function aLaVista(el, margen) {
+    if (!el) return;
+    var tope = barra();
+    var r = el.getBoundingClientRect();
+    if (r.top < tope || r.top > window.innerHeight - 48) {
+      // `instant`: Bootstrap pone `scroll-behavior: smooth` en :root.
+      window.scrollTo({ top: Math.max(0, window.pageYOffset + r.top - tope - margen),
+                        behavior: 'instant' });
+    }
+  }
+
+  document.body.addEventListener('htmx:beforeSwap', function (e) {
+    var target = e.detail && e.detail.target;
+    if (!target || target.id !== 'tt-sin-body') return;
+    var elt = e.detail.requestConfig && e.detail.requestConfig.elt;
+    var lista = $('tt-sin-list');
+    var back = elt && elt.closest ? elt.closest('[data-tt-sin-back]') : null;
+    pendiente = {
+      scroll: lista ? lista.scrollTop : 0,
+      // Elegir una fila o actuar en el detalle: misma lista, mismo scroll.
+      // Pestaña, etapa, búsqueda, filtro o página: lista nueva, desde arriba.
+      keep: !!(elt && elt.closest && elt.closest('.tt-sin-row, #tt-sin-detail')),
+      back: back ? back.getAttribute('data-tt-sin-back') : null,
+    };
+  });
+
+  document.body.addEventListener('htmx:afterSettle', function (e) {
+    var target = e.detail && e.detail.target;
+    if (!target || target.id !== 'tt-sin-body' || !pendiente) return;
+    var p = pendiente;
+    pendiente = null;
+    var lista = $('tt-sin-list');
+    if (lista && p.keep) {
+      lista.scrollTop = p.scroll;
+      filaVisible(lista);
+    }
+    if (p.back) {
+      aLaVista($('tt-sin-row-' + p.back), 16);
+    } else if ($('tt-sin-detail')) {
+      aLaVista(target, 16);
     }
   });
 
