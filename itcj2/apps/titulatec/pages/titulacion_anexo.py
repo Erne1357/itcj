@@ -149,7 +149,7 @@ def _detail_ctx(db, *, process_id: int, perms, operable: bool, others,
         .first() or (None, None, None)) if n is not None else (None, None, None)
     doc = (db.query(Document).filter_by(process_id=process_id, type_code=DOC_TYPE).first())
     anexo = AnexoService.get(db, process_id)
-    entrega = AnexoService.ready_info(db, proc)
+    entrega = AnexoService.ready_info(db, proc)  # una fila; la lista usa ready_map
     etapa = AnexoService.stage(db, proc)
 
     # Fechas (revisión final, punto 1): `Document.updated_at` no lo reescribe

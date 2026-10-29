@@ -242,18 +242,30 @@ class AnexoService:
         `db.close()`), o None sin fila o con el Anexo inoperable."""
         from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
 
-        if process is None or not AnexoService.operable(db):
+        if process is None:
             return None
-        a = AnexoService.get(db, process.id)
-        if a is None:
-            return None
+        return AnexoService.ready_map(db, [process.id]).get(process.id)
+
+    @staticmethod
+    def ready_map(db: Session, process_ids) -> dict[int, dict]:
+        """`ready_info` en lote: `{process_id: dict}` en UNA consulta (sin fila
+        del Anexo, o Anexo inoperable, no hay entrada)."""
+        from itcj2.apps.titulatec.models import Anexo
+        from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
+
+        ids = sorted({int(i) for i in (process_ids or ()) if i is not None})
+        if not ids or not AnexoService.operable(db):
+            return {}
         return {
-            "ready_at": a.ready_at,
-            "ready_label": dia_mes_hora(a.ready_at) if a.ready_at else None,
-            "pickup_note": a.pickup_note,
-            "reprint_reason": a.reprint_reason,
-            "reprint_requested_at": a.reprint_requested_at,
-            "folio": a.folio,
+            a.process_id: {
+                "ready_at": a.ready_at,
+                "ready_label": dia_mes_hora(a.ready_at) if a.ready_at else None,
+                "pickup_note": a.pickup_note,
+                "reprint_reason": a.reprint_reason,
+                "reprint_requested_at": a.reprint_requested_at,
+                "folio": a.folio,
+            }
+            for a in db.query(Anexo).filter(Anexo.process_id.in_(ids)).all()
         }
 
     @staticmethod

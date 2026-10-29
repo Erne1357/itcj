@@ -613,7 +613,7 @@ def test_detalle_en_reimpresion_muestra_etapa_y_motivo(esc):
     cli = esc.client_as(esc.revisor(c))
     _post(cli, c, "observar", 1, reason="Datos del alumno mal impresos", reimpresion="1")
     h = _html(cli.get(ANX + "/body", params={"tab": "observed", "selected": c.process.id}))
-    assert h.xpath('//*[@id="tt-anx-stage"]//*[@data-tt-anx-stage="reprint"]')
+    assert h.xpath('//*[@id="tt-anx-stage"][@data-tt-anx-stage="reprint"]')
     assert "Datos del alumno mal impresos" in h.xpath('//*[@id="tt-anx-reprint"]')[0].text_content()
     assert not h.xpath('//*[@id="tt-anx-review"]')   # sin escaneo vigente no se dictamina
 
@@ -626,3 +626,14 @@ def test_corte_3_no_alcanza_la_reimpresion(esc, corte, db_session):
     assert resp.status_code == 400
     db_session.expire_all()
     assert AnexoService.get(db_session, c.process.id).reprint_requested_at is None
+
+
+def test_pildora_de_reimpresion_en_con_observaciones_y_no_en_las_normales(esc):
+    a = esc.caso()
+    b = esc.caso()
+    cli = esc.client_as(esc.revisor(a, b))
+    _post(cli, a, "observar", 1, reason="Sello ilegible", reimpresion="1")
+    _post(cli, b, "observar", 1, reason="No se lee")
+    h = _html(cli.get(ANX + "/body", params={"tab": "observed"}))
+    assert h.xpath(f'//*[@id="tt-anx-row-{a.process.id}"]//*[@data-tt-anx-stage="reprint"]')
+    assert not h.xpath(f'//*[@id="tt-anx-row-{b.process.id}"]//*[@data-tt-anx-stage]')

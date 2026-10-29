@@ -541,7 +541,8 @@ class TestLiberado:
         assert "data-tt-review-poll" not in resp.text
         assert "solo para consulta" in resp.text
         assert "Proyecto liberado" in resp.text
-        assert "Proyecto liberado. Ya puedes pasar por tu Anexo III" in resp.text
+        from itcj2.apps.titulatec.services.review_service import RELEASED_TEXT
+        assert RELEASED_TEXT.split(" {firmas}")[0] in resp.text
 
     def test_los_posts_son_400_y_no_escriben(self, caso, client_as, db_session):
         c = caso()

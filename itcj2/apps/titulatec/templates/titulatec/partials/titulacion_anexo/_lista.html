@@ -26,7 +26,7 @@
       <span class="tt-tit-row-main">
         <span class="tt-tit-row-name">{{ r.student_name }}</span>
         <span class="tt-tit-row-meta"><span class="tt-mono">{{ r.control_number or '—' }}</span> · {{ r.program_name or '—' }}{% if r.anexo_folio %} · <span class="tt-mono">{{ r.anexo_folio }}</span>{% endif %}</span>
-        {% if r.stage %}
+        {% if r.stage and (tab == 'unsent' or r.stage == 'reprint') %}
         {% set sp = STAGE_PILL.get(r.stage, ("neutral", "dash-circle")) %}
         <span class="tt-anx-stage"><span class="tt-pill tt-pill--{{ sp[0] }}" data-tt-anx-stage="{{ r.stage }}"><i class="bi bi-{{ sp[1] }}" aria-hidden="true"></i>{{ r.stage_label }}</span>{% if r.ready_label %}<span class="tt-anx-stage-since">desde {{ r.ready_label }}</span>{% endif %}</span>
         {% endif %}

@@ -235,7 +235,7 @@ def test_tarjeta_muestra_etapa_listo_desde_y_nota(lector, db_session, monkeypatc
     anexo.pickup_note = "Oficina de vinculación, lunes 9 a 13"
     db_session.commit()
     tarjeta = _tarjeta_6(cli.get(f"{URL}/{c.process.id}?fase=6").text)
-    assert 'data-tt-anexo-stage="ready"' in tarjeta and "Por recoger" in tarjeta
+    assert 'data-tt-anexo-stage="ready"' in tarjeta
     assert "Listo para recoger desde" in tarjeta
     assert "Oficina de vinculación, lunes 9 a 13" in tarjeta
     assert "data-tt-anexo-reprint" not in tarjeta

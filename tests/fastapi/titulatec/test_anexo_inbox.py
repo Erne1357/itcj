@@ -155,3 +155,19 @@ def test_sin_enviar_lleva_la_etapa_de_cada_fila(db_session, esc):
     otra = esc.caso("in_review")
     v2 = esc.revisor(otra)
     assert AnexoInboxService.list(db_session, v2.id, tab="pending")["rows"][0]["stage"] is None
+
+
+def test_con_observaciones_solo_marca_la_reimpresion(db_session, esc):
+    from itcj2.apps.titulatec.models import Anexo
+    normal = esc.caso("rejected")
+    rep = esc.caso("rejected")
+    for c, kw in ((normal, {"ready_at": datetime(2026, 3, 1, 9, 0)}),
+                  (rep, {"reprint_requested_at": datetime(2026, 3, 2)})):
+        db_session.add(Anexo(process_id=c.process.id, folio=f"AIII-T-{c.process.id}",
+                             semester="2026A", released_at=datetime(2026, 2, 1), **kw))
+    db_session.flush()
+    v = esc.revisor(normal, rep)
+    filas = {r["process_id"]: r for r in
+             AnexoInboxService.list(db_session, v.id, tab="observed")["rows"]}
+    assert filas[rep.process.id]["stage"] == "reprint"
+    assert filas[normal.process.id]["stage"] == "observed"
