@@ -28,6 +28,10 @@ def clean_text(s: str | None) -> str:
     return " ".join(_XML_ILEGAL.sub("", s or "").split())
 
 
+def leyenda(nombre: str, signed_at: datetime, folio: str) -> str:
+    return f"Firmado electrónicamente por {nombre} el {signed_at:%d/%m/%Y %H:%M} · folio {folio}"
+
+
 def build_values(req, doc_type: str, *, today: date, extra: Mapping[str, str] | None = None,
                  signature: SignatureInfo | None = None) -> tuple[dict[str, str], dict[str, bytes]]:
     extra = extra or {}
@@ -46,8 +50,7 @@ def build_values(req, doc_type: str, *, today: date, extra: Mapping[str, str] | 
         "comentario": clean_text(extra.get("comentario")),
         "motivo_rechazo": clean_text(extra.get("motivo_rechazo")),
         "firma_estudiante_leyenda": (
-            f"Firmado electrónicamente por {clean_text(req.student_name)} el "
-            f"{signature.signed_at:%d/%m/%Y %H:%M} · folio {fol}" if signature else ""),
+            leyenda(clean_text(req.student_name), signature.signed_at, fol) if signature else ""),
     }
     # Cualquier otro marcador permitido (montos, pagos...) llega por `extra` o va vacío.
     values = {k: pool.get(k, clean_text(extra.get(k))) for k in DOC_TYPES[doc_type].allowed}

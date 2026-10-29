@@ -7,7 +7,10 @@ from datetime import date
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from itcj2.apps.prorrogas_tec.documents.values import SignatureInfo, build_values
+from itcj2.apps.prorrogas_tec.documents.values import SignatureInfo, build_values, leyenda
+from itcj2.apps.prorrogas_tec.documents.catalog import default_template_path
+from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+from itcj2.apps.prorrogas_tec.models.template import ProrrogaTemplate
 from itcj2.apps.prorrogas_tec.models.document import ProrrogaDocument
 from itcj2.apps.prorrogas_tec.models.signature import ProrrogaSignature
 from itcj2.apps.prorrogas_tec.services import storage
@@ -32,6 +35,11 @@ class DocumentService:
             raise ServiceError("pdf_no_disponible",
                                "No se pudo generar el PDF. Intenta de nuevo en un momento.", status=503)
 
+        return DocumentService._store(db, req, doc_type, pdf, values, template.id if template else None,
+                                      actor_id, signature, "documento_generado")
+
+    @staticmethod
+    def _store(db, req, doc_type, pdf, values, template_id, actor_id, signature, evento) -> ProrrogaDocument:
         previas = (db.query(ProrrogaDocument)
                    .filter_by(request_id=req.id, doc_type=doc_type).all())
         version = 1 + max((d.version for d in previas), default=0)
@@ -44,7 +52,7 @@ class DocumentService:
         storage.write_atomic(rel, pdf)
         doc = ProrrogaDocument(
             request_id=req.id, doc_type=doc_type, version=version,
-            template_id=template.id if template else None, context=values, file_path=rel,
+            template_id=template_id, context=values, file_path=rel,
             sha256=hashlib.sha256(pdf).hexdigest(), generated_by_id=actor_id,
             signed_at=signature.signed_at if signature else None,
         )
@@ -57,9 +65,30 @@ class DocumentService:
                 document_id=doc.id, signer_id=signature.signer_id, image_path=png_rel,
                 signed_at=signature.signed_at, ip=signature.ip, user_agent=signature.user_agent,
                 pdf_sha256=doc.sha256))
-        log_event(db, event_type="documento_generado", request_id=req.id, actor_id=actor_id,
+        log_event(db, event_type=evento, request_id=req.id, actor_id=actor_id,
                   payload={"doc_type": doc_type, "version": version})
         return doc
+
+    @staticmethod
+    def sign(db: Session, doc: ProrrogaDocument, signature: SignatureInfo, *, actor_id: int) -> ProrrogaDocument:
+        """Firma la carta: la vuelve a llenar con su contexto congelado y su plantilla. No hace commit."""
+        values = dict(doc.context)
+        values["firma_estudiante_leyenda"] = leyenda(doc.context["nombre"], signature.signed_at,
+                                                     doc.context["folio"])
+        values.pop("firma_estudiante", None)
+        if doc.template_id:
+            docx = TemplateService.read_bytes(db.get(ProrrogaTemplate, doc.template_id))
+        else:
+            docx = default_template_path(doc.doc_type).read_bytes()
+        try:
+            pdf = docx_pdf.docx_to_pdf(fill_docx(docx, values, {"firma_estudiante": signature.png}),
+                                       kind="prorrogas_documento")
+        except docx_pdf.CONVERSION_ERRORS:
+            raise ServiceError("pdf_no_disponible",
+                               "No se pudo generar el PDF. Intenta de nuevo en un momento.", status=503)
+        req = db.get(ProrrogaRequest, doc.request_id)
+        return DocumentService._store(db, req, doc.doc_type, pdf, values, doc.template_id, actor_id,
+                                      signature, "documento_firmado")
 
     @staticmethod
     def read_pdf(doc: ProrrogaDocument) -> bytes:
