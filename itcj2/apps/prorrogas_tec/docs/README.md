@@ -31,20 +31,27 @@ cambies uno sin el otro.
 
 ```
 apps/prorrogas_tec/
-├── router.py                 API: /api/prorrogas/v2 (periods, request, request2, programs)
+├── router.py                 API: /api/prorrogas/v2 (periods, request, request2, programs, templates)
 ├── helpers.py                require_admission_open()
-├── models/                   5 tablas prorrogas_*
+├── models/                   tablas prorrogas_* (incl. template.py → prorrogas_templates)
 ├── schemas/                  Pydantic v2 (periods, requests, payments)
 ├── services/
 │   ├── period_service.py     ventana de admisión + config por período
-│   └── request_service.py    lectura de solicitudes
+│   ├── request_service.py    lectura de solicitudes
+│   ├── formatting.py         fechas, montos y nombres como en las cartas reales
+│   ├── docx_fill.py          llena marcadores {{x}} en .docx (aunque Word los parta)
+│   └── template_service.py   plantillas por año: subir, validar, resolver cuál usar
+├── documents/
+│   ├── catalog.py            los 6 formatos y sus marcadores (spec §6.2)
+│   └── defaults/             plantillas del sistema (tools/prorrogas/build_default_templates.py)
 ├── api/
 │   ├── periods.py            admin · CRUD de la ventana de admisión
 │   ├── requests.py           admin · solicitudes y pagos
 │   ├── programs.py           catálogo de carreras
+│   ├── templates.py          secretaría · plantillas (listar, subir, descargar, vista previa)
 │   ├── student/requests.py   alumno · mine / create / cancel
 │   └── admin/request.py      ⚠ NO montado — ver PENDIENTES
-├── pages/                    /prorrogas · landing, student, admin
+├── pages/                    /prorrogas · landing, student, admin, secretaria (4 pestañas)
 ├── static/                   servido por nginx en /static/prorrogas_tec/
 └── templates/prorrogas_tec/
 ```

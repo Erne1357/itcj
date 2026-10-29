@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "Prórrogas · Secretaría" }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='prorrogas_tec/css/secretaria/base.css') }}?v={{ sv('prorrogas_tec', 'css/secretaria/base.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="sec">
+  {# Barra superior: componente TopNav del diseño (docs/design/prorrogas). #}
+  <header class="sec-topnav">
+    <a class="sec-brand" href="/prorrogas/secretaria">
+      <img src="{{ url_for('static', filename='core/images/app-icons/prorrogas_tec.webp') }}" alt="" width="32" height="32">
+      <span>Prórrogas</span>
+    </a>
+    <nav class="sec-tabs" aria-label="Secciones">
+      {% for key, label in tabs %}
+        <a class="sec-tab{% if key == active %} is-active{% endif %}" href="/prorrogas/secretaria/{{ key }}"
+           {% if key == active %}aria-current="page"{% endif %}>
+          {% if key == 'estadisticas' %}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+          {% elif key == 'solicitudes' %}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7M17 21v-1"/></svg>
+          {% elif key == 'estudiantes' %}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7M16 4.1a4 4 0 0 1 0 7.8M22 21c0-3-1.8-5.6-4.5-6.6"/></svg>
+          {% else %}
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>
+          {% endif %}
+          <span>{{ label }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+    <div class="sec-user">
+      <div class="sec-user-name">{{ current_user.name if current_user and current_user.name else "" }}</div>
+      <div class="sec-user-role">Secretaría · Subdirección Académica</div>
+    </div>
+  </header>
+
+  <main class="sec-main">
+    {% block content %}{% endblock %}
+  </main>
+
+  <div class="sec-toast" id="secToast" role="status" aria-live="polite" hidden></div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

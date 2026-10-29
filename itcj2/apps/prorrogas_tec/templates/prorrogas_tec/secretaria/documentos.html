@@ -1,0 +1,49 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="sec-card docs" data-api="/api/prorrogas/v2/templates">
+    <aside class="docs-years">
+      <div class="docs-years-title">Años</div>
+      <div class="docs-years-list" id="docsYears" role="tablist" aria-label="Año"></div>
+    </aside>
+
+    <div class="docs-main">
+      <div class="docs-head">
+        <h1 class="sec-h1">Plantillas <span class="docs-year-label" id="docsYearLabel"></span></h1>
+        <p class="docs-hint">
+          El sistema llena estas plantillas de Word para cada estudiante. Para cambiar un formato, descárgalo,
+          edítalo en Word sin tocar los marcadores <code>{{ '{{' }}así{{ '}}' }}</code> y súbelo para el año.
+        </p>
+      </div>
+      <div class="docs-grid" id="docsGrid" aria-live="polite">
+        <div class="docs-loading">Cargando plantillas…</div>
+      </div>
+    </div>
+  </section>
+
+  <dialog class="sec-dialog" id="uploadDialog" aria-labelledby="uploadTitle">
+    <form method="dialog" class="sec-dialog-form" id="uploadForm">
+      <h2 id="uploadTitle">Subir plantilla para <span id="uploadYear"></span></h2>
+      <label class="sec-field">
+        <span>Formato</span>
+        <select id="uploadType" name="doc_type" required></select>
+      </label>
+      <label class="sec-field">
+        <span>Archivo de Word (.docx)</span>
+        <input type="file" id="uploadFile" name="archivo" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+      </label>
+      <div class="sec-markers">
+        <div class="sec-markers-title">Marcadores de este formato</div>
+        <p class="sec-markers-hint">Los <strong>marcados</strong> son obligatorios. Escríbelos tal cual en Word.</p>
+        <div class="sec-markers-list" id="uploadMarkers"></div>
+      </div>
+      <div class="sec-dialog-error" id="uploadError" role="alert" hidden></div>
+      <div class="sec-dialog-actions">
+        <button type="button" class="sec-btn sec-btn-ghost" id="uploadCancel">Cancelar</button>
+        <button type="submit" class="sec-btn" id="uploadSubmit">Subir</button>
+      </div>
+    </form>
+  </dialog>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/documentos.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/documentos.js') }}"></script>
+{% endblock %}

@@ -16,12 +16,14 @@ logger = logging.getLogger("itcj2.apps.prorrogas_tec.pages.landing")
 
 router = APIRouter(tags=["prorrogas_tec-pages-landing"])
 
-_ROLE_HOME: dict[str, str] = {
-    "student":      "/prorrogas/student/home",
-    # "coordinator":  "/prorrogas_tec/coord/home",
-    # "social_service": "/prorrogas_tec/social/home",
-    "admin":        "/prorrogas/admin/home",
-}
+# En orden de prioridad: el primer rol que tenga el usuario decide su destino.
+# (Antes se tomaba un rol cualquiera del conjunto, así que con secretaria y
+# admin a la vez el destino dependía del orden en que los devolvía la BD.)
+_ROLE_HOME: tuple[tuple[str, str], ...] = (
+    ("secretaria", "/prorrogas/secretaria"),
+    ("admin",      "/prorrogas/admin/home"),
+    ("student",    "/prorrogas/student/home"),
+)
 
 
 @router.get("/", name="prorrogas_tec.pages.landing.home")
@@ -29,11 +31,16 @@ async def home(
     request: Request,
     user: dict = Depends(require_page_login),
 ):
-    """Redirige al dashboard de AgendaTec según el rol del usuario."""
-    from itcj2.apps.prorrogas_tec.utils.utils import get_role_prorroga
+    """Redirige a la vista que le toca al usuario según sus roles en la app."""
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
 
     user_id = int(user["sub"])
-    role = get_role_prorroga(user_id)
-    destination = _ROLE_HOME.get(role or "", "/prorrogas/student/home")
-    logger.debug("Redirigiendo usuario %s (rol=%s) a %s", user_id, role, destination)
+    db = SessionLocal()
+    try:
+        roles = user_roles_in_app(db, user_id, "prorrogas_tec")
+    finally:
+        db.close()
+    destination = next((url for role, url in _ROLE_HOME if role in roles), "/prorrogas/student/home")
+    logger.debug("Redirigiendo usuario %s (roles=%s) a %s", user_id, sorted(roles), destination)
     return RedirectResponse(destination, status_code=302)
