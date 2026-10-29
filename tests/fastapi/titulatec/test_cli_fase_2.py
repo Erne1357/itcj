@@ -541,6 +541,9 @@ def test_el_04_siembra_lo_que_el_verificador_espera():
     for codigo in (P_ANX_GEN, P_ANX_REV):
         assert codigo in cuerpo
     assert "DELETE FROM core_role_permissions" in cuerpo and "DELETE FROM core_permissions" in cuerpo
+    # generate.own solo aparece en la limpieza (DELETE), nunca en un INSERT ni en un grant.
+    assert "generate.own" in cuerpo.split("INSERT INTO core_permissions")[0]
+    assert "generate.own" not in "INSERT INTO core_permissions" + cuerpo.split("INSERT INTO core_permissions", 1)[1]
     for codigo in (P_ANX_OWN, P_ANX_PREP):
         assert codigo in cuerpo
     assert "ON CONFLICT (app_id, code) DO NOTHING" in cuerpo
@@ -552,23 +555,15 @@ def test_el_04_siembra_lo_que_el_verificador_espera():
     assert "'[4, 5, 6]'" in cuerpo
 
 
+@pytest.mark.parametrize("codigo", ["titulatec.anexo_iii.api.generate",
+                                    "titulatec.anexo_iii.api.generate.own"])
 def test_verify_fase_2_graduate_no_conserva_permisos_que_emiten_folio(
-        db_session, patched_session_local):
-    from sqlalchemy import text
-
+        codigo, db_session, make_role, patched_session_local):
     from itcj2.cli.titulatec import fase2 as cli
 
-    app_id = db_session.execute(text("SELECT id FROM core_apps WHERE key='titulatec'")).scalar()
-    rol = db_session.execute(text("SELECT id FROM core_roles WHERE name='graduate'")).scalar()
-    perm = db_session.execute(
-        text("SELECT id FROM core_permissions WHERE app_id=:a AND code=:c"),
-        {"a": app_id, "c": "titulatec.anexo_iii.api.generate"}).scalar()
-    assert app_id and rol and perm
-    db_session.execute(text(
-        "INSERT INTO core_role_permissions (role_id, perm_id) VALUES (:r, :p) "
-        "ON CONFLICT DO NOTHING"), {"r": rol, "p": perm})
+    make_role("graduate", [codigo])   # autosembrado: pasa en una base vacia (CI)
     db_session.flush()
-    assert "el rol graduate conserva titulatec.anexo_iii.api.generate" in cli._verify_fase_2()
+    assert f"el rol graduate conserva {codigo}" in cli._verify_fase_2()
 
 
 def test_verify_fase_2_exige_product_label_y_el_salto_de_egel(
