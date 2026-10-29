@@ -19,3 +19,21 @@ body.est { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .est-card input { height: 48px; padding: 0 12px; font-size: 20px; letter-spacing: .3em; border: 1px solid rgba(26, 19, 14, .25); border-radius: 8px; background: #fff; }
 .est-btn { margin-top: 12px; height: 48px; border: none; border-radius: 8px; background: var(--wine); color: var(--paper); font-size: 16px; font-weight: 600; cursor: pointer; }
 .est-btn:hover { background: #4f2420; }
+
+/* Mi prórroga y Solicitud */
+.est-link { display: inline-block; margin-top: 8px; color: var(--wine); font-weight: 600; }
+a.est-btn { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.est-btn:disabled { opacity: .45; cursor: not-allowed; }
+.est-btn-sec { background: transparent; color: var(--wine); border: 1px solid var(--wine); height: 40px; margin-top: 0; }
+.est-btn-sec:hover { background: rgba(101, 47, 42, .08); }
+.est-card select.est-field, .est-card textarea.est-field { padding: 10px 12px; font: 16px var(--font-body); border: 1px solid rgba(26, 19, 14, .25); border-radius: 8px; background: #fff; }
+.est-count { font: 12px 'IBM Plex Mono', monospace; color: var(--muted); text-align: right; }
+.est-count.bad { color: var(--alert); font-weight: 600; }
+.est-firma { width: 100%; height: 180px; background: #fff; border: 1px dashed rgba(26, 19, 14, .4); border-radius: 8px; touch-action: none; }
+.est-check { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.est-check input { height: 20px; width: 20px; letter-spacing: 0; }
+.est-sol { border-top: 1px solid rgba(0, 0, 0, .1); padding: 12px 0; }
+.est-folio { font: 500 16px 'IBM Plex Mono', monospace; }
+.est-estado { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 12px; text-transform: capitalize; }
+.est-estado.rechazada, .est-estado.cancelada { background: var(--alert); }
+.est-docs { margin: 8px 0; padding-left: 18px; }

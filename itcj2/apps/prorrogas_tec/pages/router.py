@@ -9,9 +9,11 @@ from fastapi import APIRouter
 from .join import router as join_router
 from .landing import router as landing_router
 from .secretaria import router as secretaria_router
+from .student import router as student_router
 
 prorrogas_tec_pages_router = APIRouter(prefix="/prorrogas", tags=["prorrogas_tec-pages"])
 
 prorrogas_tec_pages_router.include_router(landing_router)
 prorrogas_tec_pages_router.include_router(secretaria_router)
 prorrogas_tec_pages_router.include_router(join_router)
+prorrogas_tec_pages_router.include_router(student_router)

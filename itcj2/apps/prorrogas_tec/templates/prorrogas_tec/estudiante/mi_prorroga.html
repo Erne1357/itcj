@@ -1,0 +1,8 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block content %}
+<div class="est-card">
+  <h1 class="est-h1">Mi prórroga</h1>
+  <div id="mp-root"><p class="est-hint">Cargando…</p></div>
+</div>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/mi_prorroga.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/mi_prorroga.js') }}"></script>
+{% endblock %}

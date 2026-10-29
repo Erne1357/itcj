@@ -1,0 +1,26 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block content %}
+<div class="est-card">
+  <h1 class="est-h1">Solicitar prórroga</h1>
+  <div id="sol-bloqueo" hidden>
+    <p class="est-hint" id="sol-bloqueo-msg"></p>
+    <a class="est-link" href="/prorrogas/estudiante">Volver a Mi prórroga</a>
+  </div>
+  <form id="sol-form" hidden novalidate>
+    <label for="sol-carrera">Carrera</label>
+    <select id="sol-carrera" class="est-field" required></select>
+    <label for="sol-plazos">Plazos (1 a 3)</label>
+    <select id="sol-plazos" class="est-field"><option>1</option><option>2</option><option>3</option></select>
+    <label for="sol-motivo">Motivo</label>
+    <textarea id="sol-motivo" class="est-field" rows="5" maxlength="1000"></textarea>
+    <div id="sol-cuenta" class="est-count">0 / 1000</div>
+    <label>Firma</label>
+    <canvas id="sol-firma" class="est-firma"></canvas>
+    <button type="button" id="sol-borrar" class="est-btn est-btn-sec">Borrar</button>
+    <label class="est-check"><input type="checkbox" id="sol-acepto"> Firmo este documento</label>
+    <p class="est-error" id="sol-error" role="alert" hidden></p>
+    <button type="submit" id="sol-enviar" class="est-btn" disabled>Enviar</button>
+  </form>
+</div>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/solicitud.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/solicitud.js') }}"></script>
+{% endblock %}
