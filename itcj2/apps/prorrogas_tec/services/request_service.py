@@ -78,7 +78,11 @@ class RequestService:
             raise ServiceError(code, "No hay un semestre vigente para solicitar.", status=409)
 
         # Spec 5: institucional para licenciatura y maestría; si no hay (D, B...), el que capturó la secretaria.
-        email = institutional_email(student.control_number) or student.email
+        try:
+            email = institutional_email(student.control_number)
+        except ValueError:  # controles importados con formato raro: sin correo institucional
+            email = None
+        email = email or student.email
         req = ProrrogaRequest(
             origin="app", student_id=student.id, period_id=period.id, period_label=period_label(period),
             status="pendiente", requested_terms=plazos, reason=motivo, control_number=student.control_number,

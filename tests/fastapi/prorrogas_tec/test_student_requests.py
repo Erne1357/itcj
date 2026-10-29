@@ -43,6 +43,19 @@ def test_correo_de_la_cuenta_si_no_hay_institucional(db_session, make_user, make
     assert req.email == "doctorado@example.invalid"
 
 
+def test_control_mal_formado_usa_el_correo_de_la_cuenta(db_session, make_user, make_role, grant, periodo_hoy,
+                                                        make_program, firma_png):
+    # La importación de AgendaTec deja controles de longitud rara; no debe dar 500.
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+    u = make_user(control_number="9950011", email="raro@example.invalid")
+    grant(u, make_role("student", STUDENT_PERMS))
+    db_session.add(ProrrogaJoin(user_id=u.id, via="qr", joined_at=db_now() - timedelta(minutes=1)))
+    db_session.flush()
+    req = _crear(db_session, u, make_program("Ingeniería de Prueba", "licenciatura"), firma_png)
+    assert req.email == "raro@example.invalid"
+
+
 def test_doble_envio_solo_crea_una(db_session, alumno_unido, make_program, firma_png):  # Review Focus 1
     prog = make_program("Ingeniería de Prueba", "licenciatura")
     _crear(db_session, alumno_unido, prog, firma_png)
