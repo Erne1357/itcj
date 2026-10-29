@@ -59,20 +59,20 @@ def cuenta(total: Decimal | None, installments: Sequence[tuple[int, Decimal, dat
                   min(vencidas, default=None), sin_cubrir[0] if sin_cubrir else None)
 
 
-def _m(x: Decimal) -> str:
+def money(x: Decimal) -> str:
     return str(x.quantize(Decimal("0.01")))
 
 
 def _parcialidad_json(p: Parcialidad) -> dict:
-    return {"numero": p.number, "monto": _m(p.amount), "fecha": p.due_date.isoformat(),
-            "cubierto": _m(p.cubierto), "estado": p.estado}
+    return {"numero": p.number, "monto": money(p.amount), "fecha": p.due_date.isoformat(),
+            "cubierto": money(p.cubierto), "estado": p.estado}
 
 
 def cuenta_json(c: Cuenta) -> dict:
     return {
-        "total": None if c.total is None else _m(c.total),
-        "pagado": _m(c.pagado),
-        "saldo": None if c.saldo is None else _m(c.saldo),
+        "total": None if c.total is None else money(c.total),
+        "pagado": money(c.pagado),
+        "saldo": None if c.saldo is None else money(c.saldo),
         "situacion": c.situacion,
         "faltantes": c.faltantes,
         "vencida_desde": c.vencida_desde.isoformat() if c.vencida_desde else None,

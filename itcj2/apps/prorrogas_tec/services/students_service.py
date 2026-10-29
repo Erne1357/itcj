@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
 from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
@@ -63,7 +64,7 @@ class StudentsService:
                                           for k, s in _SITUACION.items()}
         if filtro != "todos":
             reqs = [r for r in reqs if cuentas[r.id].situacion == _SITUACION[filtro]]
-        reqs.sort(key=lambda r: (r.student_name or "").lower())
+        reqs.sort(key=lambda r: ((r.student_name or "").lower(), r.id))
         pagina = reqs[(page - 1) * per_page: page * per_page]
         ahora = db_now()
         items = []
@@ -87,7 +88,7 @@ class StudentsService:
         c = account.load(db, req, today)
         period = db.get(AcademicPeriod, req.period_id)
         conservadas = [p for p in c.parcialidades if p.estado == "pagada"]
-        suma = sum((p.amount for p in conservadas), account.CERO)
+        suma = sum((p.amount for p in conservadas), Decimal("0"))
         carta = next((d for d in DocumentService.current(db, req) if d.doc_type.startswith("carta_compromiso")), None)
         recibos = (db.query(ProrrogaPayment).filter(ProrrogaPayment.request_id == req.id)
                    .order_by(ProrrogaPayment.recorded_at.desc(), ProrrogaPayment.id.desc()).all())
@@ -98,7 +99,7 @@ class StudentsService:
             "estudiante": {"nombre": req.student_name, "control": req.control_number, "correo": req.email,
                            "carrera": req.program_name},
             "cuenta": account.cuenta_json(c),
-            "recibos": [{"id": p.id, "folio": p.folio, "fecha": p.paid_on.isoformat(), "monto": account._m(p.amount),
+            "recibos": [{"id": p.id, "folio": p.folio, "fecha": p.paid_on.isoformat(), "monto": account.money(p.amount),
                          "registrado": p.recorded_at.isoformat(),
                          "anulado": p.voided_at.isoformat() if p.voided_at else None,
                          "motivo_anulacion": p.void_reason} for p in recibos],
@@ -108,7 +109,7 @@ class StudentsService:
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
                 "puede_replantear": c.situacion != "liquidada" and today <= period.end_date,
                 "conservadas": [p.number for p in conservadas],
-                "suma_conservadas": account._m(suma),
+                "suma_conservadas": account.money(suma),
                 "max_nuevas": 3 - len(conservadas),
                 "fecha_limite": period.end_date.isoformat()},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
