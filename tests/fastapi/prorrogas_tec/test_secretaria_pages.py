@@ -37,3 +37,14 @@ def test_pestana_desconocida_404(client_as, secretaria):
 def test_aterrizaje_lleva_a_la_secretaria_a_su_vista(client_as, secretaria):
     r = client_as(secretaria).get("/prorrogas/", follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == BASE
+
+
+def test_aterrizaje_lleva_al_admin_a_la_vista_nueva_no_a_la_del_fork(client_as, make_user, make_role, grant):
+    # El admin de la app tiene los mismos permisos que la secretaria (04_insert_secretaria.sql);
+    # /prorrogas/admin/* es la vista vieja del fork que el Plan 2 elimina (spec §12).
+    from tests.fastapi.prorrogas_tec.conftest import SECRETARIA_PERMS
+
+    admin = make_user(first_name="ADMIN", last_name="PRUEBA")
+    grant(admin, make_role("admin", SECRETARIA_PERMS))
+    r = client_as(admin).get("/prorrogas/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == BASE
