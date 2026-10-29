@@ -323,7 +323,7 @@ Los estados son `String` + tupla en Python (convención de TitulaTec), no ENUM d
 - **Avisos:** `NotificationService.create(db, user_id, "prorrogas_tec", type, title, body, data={"url": …})`.
 - **PDF:** LibreOffice (ya en `Dockerfile.fastapi`). La conversión se mueve de helpdesk a
   `itcj2/core/utils/docx_pdf.py` para compartirla.
-- **QR:** dependencia nueva `segno` (Python puro) para dibujar el QR como SVG en el servidor (Plan 2).
+- **QR:** `qrcode-generator@1.4.4` desde jsdelivr, en el navegador (sin dependencia nueva de Python).
 
 ## 11. Importación del Excel histórico (Plan 4)
 

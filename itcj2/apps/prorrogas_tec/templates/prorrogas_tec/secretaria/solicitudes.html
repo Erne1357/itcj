@@ -1,0 +1,94 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="sol" data-api="/api/prorrogas/v2">
+    <aside class="sol-side">
+      <h1 class="sol-side-title">Acceso al módulo</h1>
+      <div class="sol-modes" role="tablist">
+        <button type="button" role="tab" class="is-active" id="modeQr" aria-selected="true">Código QR</button>
+        <button type="button" role="tab" id="modeMan" aria-selected="false">Sin celular</button>
+      </div>
+
+      <div id="paneQr" class="sol-qr">
+        <div class="sol-qr-box" id="qrBox" aria-live="polite"></div>
+        <div class="sol-qr-text">Escanea para unirte<br>al módulo de prórrogas</div>
+        <div class="sol-timer">Expira en <span id="qrTimer">--:--</span></div>
+        <button type="button" class="sol-btn-line" id="qrRegen">Regenerar código</button>
+        <div class="sol-side-error" id="qrError" role="alert" hidden></div>
+      </div>
+
+      <form id="paneMan" class="sol-man" hidden autocomplete="off">
+        <h2 class="sol-man-title">Invitar manualmente</h2>
+        <p class="sol-man-hint">Para estudiantes que no traen celular. Recibirán el enlace en su correo institucional.</p>
+        <input id="invControl" placeholder="No. de control" aria-label="Número de control" maxlength="12">
+        <div id="invExtra" hidden>
+          <input id="invCorreo" type="email" placeholder="Correo institucional" aria-label="Correo">
+          <div id="invDatos" hidden>
+            <input id="invNombres" placeholder="Nombres" aria-label="Nombres">
+            <input id="invPaterno" placeholder="Apellido paterno" aria-label="Apellido paterno">
+            <input id="invMaterno" placeholder="Apellido materno (opcional)" aria-label="Apellido materno">
+            <select id="invCarrera" aria-label="Carrera"><option value="">Carrera…</option></select>
+          </div>
+        </div>
+        <div class="sol-man-found" id="invFound" hidden></div>
+        <div class="sol-side-error" id="invError" role="alert" hidden></div>
+        <button type="submit" class="sol-btn-dark" id="invSend">Enviar invitación</button>
+        <ul class="sol-last" id="invLast"></ul>
+      </form>
+
+      <div class="sol-counters">
+        <div><b id="cntJoin">0</b><span>Se unieron hoy</span></div>
+        <div><b id="cntInv">0</b><span>Invitaciones manuales</span></div>
+      </div>
+    </aside>
+
+    <div class="sol-main">
+      <div class="sol-table">
+        <div class="sol-table-head">
+          <div><h2>Solicitudes</h2><span class="sol-count" id="pendCount">0</span></div>
+          <span class="sol-hint">Haz clic sobre una fila para revisar</span>
+        </div>
+        <div class="sol-row sol-row-head" aria-hidden="true">
+          <span>Nombre</span><span>Correo</span><span>Recibida</span><span>Plazos</span><span></span>
+        </div>
+        <div id="pendRows" aria-live="polite"></div>
+        <div class="sol-empty" id="pendEmpty" hidden>No hay solicitudes pendientes.</div>
+        <div class="sol-empty sol-empty-error" id="pendError" role="alert" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <dialog class="sol-modal" id="revDialog" aria-labelledby="revNombre">
+    <div class="sol-modal-pdf">
+      <div class="sol-modal-bar"><span id="revArchivo"></span></div>
+      <iframe id="revPdf" title="Formato de solicitud"></iframe>
+      <div class="sol-pdf-fallback" id="revPdfMsg" hidden></div>
+    </div>
+    <div class="sol-modal-side">
+      <div class="sol-modal-top">
+        <div class="sol-modal-row"><span class="sol-modal-kind">Solicitud de prórroga</span>
+          <button type="button" class="sol-x" id="revClose" title="Cerrar (Esc)" aria-label="Cerrar">&times;</button></div>
+        <h2 id="revNombre"></h2>
+        <dl class="sol-dl">
+          <dt>Folio</dt><dd id="revFolio" class="mono"></dd>
+          <dt>No. de control</dt><dd id="revControl" class="mono"></dd>
+          <dt>Correo</dt><dd id="revCorreo"></dd>
+          <dt>Recibida</dt><dd id="revFecha"></dd>
+          <dt>Plazos</dt><dd id="revPlazos"></dd>
+        </dl>
+      </div>
+      <div class="sol-modal-mid">
+        <label for="revComentario">Comentario (obligatorio si se rechaza)</label>
+        <textarea id="revComentario" placeholder="Se incluirá en la carta enviada al estudiante"></textarea>
+        <div class="sol-side-error" id="revError" role="alert" hidden></div>
+      </div>
+      <div class="sol-modal-actions">
+        <button type="button" class="sol-btn-reject" id="revReject">Rechazar</button>
+        <button type="button" class="sol-btn-accept" id="revAccept">Aceptar prórroga</button>
+      </div>
+    </div>
+  </dialog>
+{% endblock %}
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/solicitudes.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/solicitudes.js') }}"></script>
+{% endblock %}

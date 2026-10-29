@@ -19,12 +19,18 @@ def test_secretaria_ve_las_cuatro_pestanas_y_documentos(client_as, secretaria):
         assert label in r.text
 
 
-def test_raiz_de_secretaria_lleva_a_documentos(client_as, secretaria):
+def test_raiz_de_secretaria_lleva_a_solicitudes(client_as, secretaria):
     r = client_as(secretaria).get(BASE, follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == f"{BASE}/documentos"
+    assert r.status_code == 302 and r.headers["location"] == f"{BASE}/solicitudes"
 
 
-@pytest.mark.parametrize("tab", ["estadisticas", "solicitudes", "estudiantes"])
+def test_pestana_qr_y_solicitudes(client_as, secretaria):
+    page = client_as(secretaria).get(f"{BASE}/solicitudes").text
+    for texto in ("Código QR", "Invitar manualmente", "Regenerar código", "qrcode-generator@1.4.4", "Aceptar prórroga"):
+        assert texto in page
+
+
+@pytest.mark.parametrize("tab", ["estadisticas", "estudiantes"])
 def test_pestanas_pendientes_muestran_proximamente(client_as, secretaria, tab):
     r = client_as(secretaria).get(f"{BASE}/{tab}")
     assert r.status_code == 200 and "siguiente plan" in r.text

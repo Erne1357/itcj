@@ -1,9 +1,10 @@
 """Vista de secretaría de Prórrogas.
 
 Rutas (todas bajo /prorrogas/secretaria):
-  GET ""              → redirige a la primera pestaña disponible (Documentos)
+  GET ""              → redirige a la primera pestaña con contenido (QR y solicitudes)
+  GET /solicitudes    → QR, invitación manual y revisión de pendientes
   GET /documentos     → plantillas de los formatos
-  GET /{tab}          → estadisticas | solicitudes | estudiantes: llegan en los planes 2–4
+  GET /{tab}          → estadisticas | estudiantes: llegan en los planes 3–4
 
 Diseño: docs/design/prorrogas/secretaria-final.dc.html (barra = componente TopNav).
 """
@@ -23,7 +24,7 @@ TABS = (
     ("estudiantes", "Estudiantes"),
     ("documentos", "Documentos"),
 )
-_PENDIENTES = {"estadisticas", "solicitudes", "estudiantes"}
+_PENDIENTES = {"estadisticas", "estudiantes"}
 
 _VIEW = ["prorrogas_tec.secretaria.page.view"]
 
@@ -36,7 +37,16 @@ router = APIRouter(
 
 @router.get("", name="prorrogas_tec.pages.secretaria.home")
 async def secretaria_home():
-    return RedirectResponse("/prorrogas/secretaria/documentos", status_code=302)
+    return RedirectResponse("/prorrogas/secretaria/solicitudes", status_code=302)
+
+
+@router.get("/solicitudes", name="prorrogas_tec.pages.secretaria.solicitudes")
+async def secretaria_solicitudes(request: Request):
+    return render(request, "prorrogas_tec/secretaria/solicitudes.html", {
+        "title": "Prórrogas · QR y solicitudes",
+        "tabs": TABS,
+        "active": "solicitudes",
+    })
 
 
 @router.get("/documentos", name="prorrogas_tec.pages.secretaria.documentos")

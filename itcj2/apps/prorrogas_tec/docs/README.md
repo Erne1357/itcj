@@ -53,6 +53,8 @@ apps/prorrogas_tec/
 │   └── admin/request.py      ⚠ NO montado — ver PENDIENTES
 ├── pages/                    /prorrogas · landing, student, admin, secretaria (4 pestañas)
 ├── static/                   servido por nginx en /static/prorrogas_tec/
+├── docs/flows/               secretaria_documentos · secretaria_solicitudes · estudiante_solicitud
+│                         (UI → endpoint → service → BD de cada flujo)
 └── templates/prorrogas_tec/
 ```
 

@@ -154,3 +154,95 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .docs-main { padding: 20px 16px 24px; }
   .docs-grid { grid-template-columns: 1fr; }
 }
+
+/* ── QR y solicitudes ────────────────────────────────────────────────── */
+.mono { font-family: var(--font-mono); }
+.sol { display: grid; grid-template-columns: 340px 1fr; background: var(--paper); border-radius: 8px; overflow: hidden; min-height: 640px; border: 1px solid rgba(0, 0, 0, .08); }
+.sol-side { background: var(--blue); padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 20px; }
+.sol-side-title { margin: 0; font: 500 16px var(--font-title); }
+.sol-modes { display: flex; background: rgba(26, 19, 14, .08); padding: 4px; border-radius: 10px; }
+.sol-modes button { flex: 1; height: 36px; border: none; border-radius: 7px; background: transparent; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.sol-modes button.is-active { background: var(--paper); }
+.sol-qr { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+.sol-qr[hidden], .sol-man[hidden] { display: none; }
+.sol-qr-box { padding: 16px; background: var(--paper); border-radius: 14px; width: 252px; min-height: 252px; display: grid; place-items: center; }
+.sol-qr-box svg { width: 100%; height: auto; display: block; }
+.sol-qr-link { font-size: 11px; word-break: break-all; text-align: left; }
+.sol-qr-text { font: 500 19px/1.25 var(--font-title); }
+.sol-timer { font: 500 15px var(--font-mono); }
+.sol-btn-line { height: 40px; padding: 0 18px; border-radius: 8px; border: 1px solid rgba(26, 19, 14, .25); background: transparent; color: var(--ink); font-size: 15px; cursor: pointer; }
+.sol-btn-line:hover { background: rgba(26, 19, 14, .08); }
+.sol-side-error { background: rgba(196, 84, 31, .12); color: var(--alert); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-weight: 600; }
+.sol-side-error[hidden] { display: none; }
+.sol-man { display: flex; flex-direction: column; gap: 12px; }
+.sol-man-title { margin: 0; font: 500 19px var(--font-title); }
+.sol-man-hint { margin: 0; font-size: 14px; line-height: 1.5; color: rgba(26, 19, 14, .7); }
+.sol-man input, .sol-man select { width: 100%; height: 42px; padding: 0 12px; border: 1px solid rgba(26, 19, 14, .2); border-radius: 8px; font-size: 15px; background: var(--paper); color: var(--ink); }
+.sol-man #invExtra, .sol-man #invDatos { display: flex; flex-direction: column; gap: 10px; }
+.sol-man [hidden] { display: none !important; }
+.sol-man-found { font-size: 13px; font-weight: 600; }
+.sol-btn-dark { height: 44px; border-radius: 8px; border: none; background: var(--ink); color: var(--paper); font-size: 15px; font-weight: 700; cursor: pointer; }
+.sol-btn-dark[disabled] { opacity: .6; cursor: progress; }
+.sol-last { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sol-last li { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; color: rgba(26, 19, 14, .75); }
+.sol-last li span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.sol-counters { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; border-top: 1px solid rgba(26, 19, 14, .12); padding-top: 18px; }
+.sol-counters b { display: block; font: 500 26px var(--font-mono); }
+.sol-counters span { font-size: 13px; color: rgba(26, 19, 14, .65); }
+
+.sol-main { padding: 32px 36px; min-width: 0; }
+.sol-table { background: #fff; border-radius: 14px; border: 1px solid rgba(26, 19, 14, .08); overflow: hidden; }
+.sol-table-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 24px; }
+.sol-table-head > div { display: flex; align-items: center; gap: 10px; }
+.sol-table-head h2 { margin: 0; font: 500 17px var(--font-title); }
+.sol-count { font: 500 13px var(--font-mono); background: var(--orange); padding: 2px 8px; border-radius: 10px; }
+.sol-hint { font-size: 13px; color: var(--muted); }
+.sol-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr 70px 80px; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px; }
+.sol-row > * { min-width: 0; }
+.sol-row-head { padding: 10px 24px; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.sol-row-item { border-bottom: 1px solid rgba(26, 19, 14, .06); cursor: pointer; outline: none; }
+.sol-row-item:hover { background: rgba(103, 153, 224, .08); }
+.sol-row-item:focus-visible { background: rgba(103, 153, 224, .16); box-shadow: inset 3px 0 0 var(--blue); }
+.sol-name { font-weight: 600; }
+.sol-ctrl { font: 13px var(--font-mono); color: var(--muted); }
+.sol-mail { color: rgba(26, 19, 14, .75); overflow: hidden; text-overflow: ellipsis; }
+.sol-eye { justify-self: end; font-size: 13px; font-weight: 600; color: var(--wine); }
+.sol-empty { padding: 32px; text-align: center; font-size: 15px; color: var(--muted); }
+.sol-empty-error { color: var(--alert); }
+
+.sol-modal { border: none; border-radius: 16px; padding: 0; width: min(1080px, calc(100vw - 32px)); height: min(660px, calc(100vh - 32px)); background: var(--paper); color: var(--ink); overflow: hidden; }
+.sol-modal[open] { display: grid; grid-template-columns: 1fr 360px; }
+.sol-modal::backdrop { background: rgba(26, 19, 14, .5); }
+.sol-modal-pdf { background: #d9d6cf; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.sol-modal-bar { height: 44px; flex: none; display: flex; align-items: center; padding: 0 16px; background: var(--ink); color: var(--paper); font-size: 14px; }
+.sol-modal-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-modal-pdf iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+.sol-pdf-fallback { flex: 1; display: grid; place-items: center; color: var(--muted); }
+.sol-modal-side { display: flex; flex-direction: column; border-left: 1px solid var(--line); min-height: 0; }
+.sol-modal-top { padding: 20px 24px 16px; border-bottom: 1px solid rgba(26, 19, 14, .08); }
+.sol-modal-top h2 { margin: 6px 0 0; font: 500 22px var(--font-title); overflow-wrap: anywhere; }
+.sol-modal-row { display: flex; justify-content: space-between; align-items: center; }
+.sol-modal-kind { font-size: 13px; color: var(--wine); font-weight: 600; }
+.sol-x { width: 32px; height: 32px; border: none; border-radius: 8px; background: transparent; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
+.sol-x:hover { background: #D9433B; color: #fff; }
+.sol-dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; margin: 14px 0 0; font-size: 14px; }
+.sol-dl dt { color: var(--muted); }
+.sol-dl dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.sol-modal-mid { padding: 16px 24px; flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.sol-modal-mid label { font-size: 13px; font-weight: 600; color: rgba(26, 19, 14, .7); }
+.sol-modal-mid textarea { flex: 1; min-height: 100px; padding: 10px 12px; border: 1px solid rgba(26, 19, 14, .18); border-radius: 8px; font: 15px var(--font-body); resize: none; background: #fff; color: var(--ink); }
+.sol-modal-actions { padding: 16px 24px; display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; background: #fff; border-top: 1px solid rgba(26, 19, 14, .08); }
+.sol-modal-actions button { height: 44px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.sol-modal-actions button[disabled] { opacity: .6; cursor: progress; }
+.sol-btn-reject { border: 1.5px solid var(--orange); background: transparent; color: var(--ink); }
+.sol-btn-reject:hover:not([disabled]) { background: rgba(242, 115, 64, .12); }
+.sol-btn-accept { border: none; background: var(--wine); color: var(--paper); }
+.sol-btn-accept:hover:not([disabled]) { background: var(--ink); }
+
+@media (max-width: 1000px) {
+  .sol { grid-template-columns: 1fr; }
+  .sol-main { padding: 20px 16px; }
+  .sol-row { grid-template-columns: 1.4fr 1fr 60px; }
+  .sol-row > :nth-child(2), .sol-row > :nth-child(3), .sol-row-head > :nth-child(5) { display: none; }
+  .sol-modal[open] { grid-template-columns: 1fr; grid-template-rows: 40% 1fr; overflow: auto; }
+}

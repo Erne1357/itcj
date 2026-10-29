@@ -30,13 +30,13 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | T7 | Vista previa con `anio=0` usa el año actual en vez de rechazarlo | Menor | `if anio is None` en `api/templates.py` |
 | T8 | Detalles: el ejemplo `{{así}}` de la página Documentos no es un marcador válido; el docstring de `fill_docx` sobre la firma vacía es impreciso; la lista de marcadores solo se ve en el diálogo de subida | Cosmético / claridad | Cambiar el ejemplo por `{{nombre}}`, corregir el docstring, mostrar los marcadores también en cada tarjeta |
 
-## Del fork, todavía en el árbol (se van con el Plan 2, Task 1)
+## Del fork, todavía en el árbol (resuelto por el Plan 2, Task 1)
 
 | # | Pendiente | Nota |
 |---|---|---|
-| F1 | La vista de admin vieja (`/prorrogas/admin/*`, copia de AgendaTec) sigue abriéndose si alguien escribe la URL | Desde `f24ba11` nadie aterriza ahí; el Plan 2 la elimina con el resto del código del fork (puntos 1–7 de abajo) |
-| F2 | Prueba roja preexistente `tests/fastapi/observability/test_json_logging.py::test_no_app_log_extra_uses_a_context_id_key` | La causa es `services/request_service.py` del fork (`extra={"request_id": …}`); desaparece al borrarlo |
-| F3 | Los 12 permisos viejos del fork (`01`/`02` del DML) quedan en BD sin uso después del Plan 2 | Decidir si un DML de limpieza los borra o se dejan |
+| F1 | **[hecho 2026-10-29, Plan 2 Task 1]** La vista de admin vieja (`/prorrogas/admin/*`, copia de AgendaTec) sigue abriéndose si alguien escribe la URL | Desde `f24ba11` nadie aterriza ahí; el Plan 2 la elimina con el resto del código del fork (puntos 1–7 de abajo) |
+| F2 | **[hecho 2026-10-29, Plan 2 Task 1]** Prueba roja preexistente `tests/fastapi/observability/test_json_logging.py::test_no_app_log_extra_uses_a_context_id_key` | La causa es `services/request_service.py` del fork (`extra={"request_id": …}`); desaparece al borrarlo |
+| F3 | **[hecho 2026-10-29, Plan 2 Task 1]** Los 12 permisos viejos del fork (`01`/`02` del DML) | Task 1 retiró el código que los pedía; los permisos se quedan en `01`/`02` del DML, sin uso y sin efecto (ningún guard los consulta) |
 
 ## Solo de desarrollo
 
@@ -55,6 +55,8 @@ Ordenado por lo que más duele si se olvida.
 ---
 
 ## 1. Autorización: hay guard, pero es de brocha gorda
+
+> **[obsoleto 2026-10-29]** Los routers y páginas del fork con guard por rol se eliminaron en Plan 2 Task 1. El código nuevo usa `require_perms` / `require_page_app` con permisos granulares (`04`/`05` del DML).
 
 **Estado actual.** La app llegó con los `require_*` **comentados**: los seis
 endpoints de `api/periods.py`, los cuatro de `api/requests.py` y las tres páginas
@@ -93,6 +95,8 @@ comportamiento, no un detalle.
 
 ## 2. `api/admin/request.py` es código muerto con permisos ajenos
 
+> **[obsoleto 2026-10-29]** El archivo se borró con el resto del fork (Plan 2 Task 1); las solicitudes las sirven `api/requests_admin.py` y `api/student.py` con permisos propios.
+
 Cuatro endpoints (`admin_list_requests`, `admin_change_request_status`,
 `admin_get_request_detail`, `admin_create_request`) que **`router.py` no incluye**:
 no están montados, no aparecen en el OpenAPI, no se pueden llamar.
@@ -117,6 +121,8 @@ que hace (parece que sí, al menos para listar y actualizar).
 
 ## 3. Acoplamiento con AgendaTec por copiar-pegar
 
+> **[obsoleto 2026-10-29]** `api/requests.py` se borró con el fork (Plan 2 Task 1); ya no hay imports de AgendaTec.
+
 `api/requests.py` importa nueve símbolos de AgendaTec y **no usa ninguno** — cada
 uno aparece exactamente una vez en el archivo, la del `import`:
 
@@ -135,6 +141,8 @@ desde ningún template de esta app.
 
 ## 4. La nav enseña enlaces que el guard rechaza
 
+> **[obsoleto 2026-10-29]** La nav y las páginas de admin del fork se eliminaron (Plan 2 Task 1); la secretaria y el estudiante tienen sus propias vistas con su guard.
+
 `pages/nav.py::_get_prorrogas_navigation` recibe `user_permissions` y **no lo usa**:
 
 ```python
@@ -148,6 +156,8 @@ hacer clic.
 ---
 
 ## 5. El gate de la ventana de admisión es inconsistente
+
+> **[obsoleto 2026-10-29]** `pages/student.py` y la ventana de admisión del fork ya no existen; el acceso lo decide la unión por QR o invitación (`RequestService.access`).
 
 En `pages/student.py`, `/student/new_request` y `/student/close` consultan
 `_is_window_open()`, pero en `/student/home` la comprobación está **comentada**:
@@ -165,6 +175,8 @@ solo en el punto de creación — pero que sea una decisión, no un comentario o
 
 ## 6. `services/period_service.py`
 
+> **[obsoleto 2026-10-29]** `period_service.py` se borró (Plan 2 Task 1); el semestre sale de `core_academic_periods` y el reloj es `db_now()`.
+
 - **Cinco `print()` de depuración** (`VALOR DE NOW`, `ID:`, `Inicio:`, `Fin:`,
   `No existe un periodo activo`) que escriben a stdout en cada consulta de ventana.
   Cambiar por `logger.debug` o quitar.
@@ -178,6 +190,8 @@ solo en el punto de creación — pero que sea una decisión, no un comentario o
 ---
 
 ## 7. Convenciones de nombre de los modelos
+
+> **[resuelto 2026-10-29]** Los modelos nuevos son `ProrrogaRequest`, `ProrrogaDocument`, `ProrrogaInvitation`, etc.; los del fork se eliminaron.
 
 CLAUDE.md §3.5 pide `CamelCase` singular. Los modelos traen:
 
@@ -199,7 +213,7 @@ mezclado con features.
 
 ## 8. Sin tests
 
-> **[parcial 2026-10-29]** Ya hay pruebas en `tests/fastapi/prorrogas_tec/` para lo nuevo (Plan 1). El código del fork sigue sin pruebas y se elimina en el Plan 2.
+> **[resuelto 2026-10-29]** El código del fork se eliminó (Plan 2 Task 1) y lo nuevo tiene pruebas en `tests/fastapi/prorrogas_tec/`.
 
 Cero. La referencia es `tests/fastapi/titulatec/` y `tests/fastapi/directory/`.
 Lo mínimo, en este orden:
@@ -215,7 +229,7 @@ Lo mínimo, en este orden:
 
 ## 9. Sin `docs/flows/`
 
-> **[parcial 2026-10-29]** Existe `docs/flows/secretaria_documentos.md`; los flujos de solicitud y decisión llegan con el Plan 2.
+> **[resuelto 2026-10-29]** Existen `flows/secretaria_documentos.md`, `flows/secretaria_solicitudes.md` y `flows/estudiante_solicitud.md`. El seguimiento de parcialidades (`admin_track_payments`) llegará con el Plan 3.
 
 La convención del repo (ver `apps/titulatec/docs/flows/README.md`) es documentar
 cada flujo: UI → endpoint → service → BD → eventos. Los tres que valen para esta
