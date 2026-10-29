@@ -36,3 +36,12 @@ def test_folio():
 def test_la_bitacora_rechaza_tipos_desconocidos(db_session):
     with pytest.raises(ValueError):
         log_event(db_session, event_type="inventado")
+
+
+def test_semestre_ignora_los_archivados(db_session, periodo):
+    from itcj2.core.models.academic_period import AcademicPeriod
+
+    db_session.add(AcademicPeriod(code="TARCH1", name="Prórrogas archivado", start_date=date(2091, 1, 20),
+                                  end_date=date(2091, 6, 10), status="ARCHIVED"))
+    db_session.flush()
+    assert period_for(db_session, date(2091, 2, 1)).id == periodo.id

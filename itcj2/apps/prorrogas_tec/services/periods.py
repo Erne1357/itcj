@@ -8,10 +8,11 @@ from itcj2.core.models.academic_period import AcademicPeriod
 
 
 def period_for(db, day: date) -> AcademicPeriod | None:
-    """Semestre cuyo rango contiene ``day`` (el más reciente si hubiera traslape)."""
+    """Semestre no archivado cuyo rango contiene ``day`` (el más reciente si hubiera traslape)."""
     return (
         db.query(AcademicPeriod)
-        .filter(AcademicPeriod.start_date <= day, AcademicPeriod.end_date >= day)
+        .filter(AcademicPeriod.start_date <= day, AcademicPeriod.end_date >= day,
+                AcademicPeriod.status != "ARCHIVED")
         .order_by(AcademicPeriod.start_date.desc())
         .first()
     )
