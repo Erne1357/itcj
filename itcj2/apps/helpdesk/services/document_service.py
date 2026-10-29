@@ -6,9 +6,6 @@ con datos de los tickets, preservando el formato exacto del documento certificad
 Para PDF: convierte el DOCX generado usando LibreOffice CLI.
 """
 import os
-import shutil
-import subprocess
-import tempfile
 import zipfile
 from io import BytesIO
 from typing import List
@@ -21,7 +18,7 @@ from docx.opc.packuri import PackURI
 from PIL import Image, ImageDraw
 
 from itcj2.apps.helpdesk.models.ticket import Ticket
-from itcj2.observability.work import measured
+from itcj2.core.utils.docx_pdf import docx_to_pdf
 import logging
 
 logger = logging.getLogger(__name__)
@@ -341,73 +338,11 @@ def _mark_service_type_overlay(cell, ticket: Ticket):
 
 # ==================== CONVERSIÓN A PDF ====================
 
-def _find_libreoffice_cmd():
-    for cmd in ['libreoffice', 'soffice']:
-        if shutil.which(cmd):
-            return cmd
-
-    win_paths = [
-        r'C:\Program Files\LibreOffice\program\soffice.exe',
-        r'C:\Program Files (x86)\LibreOffice\program\soffice.exe',
-    ]
-    for path in win_paths:
-        if os.path.exists(path):
-            return path
-
-    return None
-
-
 def _convert_docx_to_pdf(docx_buffer: BytesIO, kind: str) -> BytesIO:
-    """`kind` lo decide el llamador (`solicitud` / `orden_trabajo`): la métrica
-    de render vive aquí, en el único lugar que de verdad invoca LibreOffice."""
-    lo_cmd = _find_libreoffice_cmd()
-    if not lo_cmd:
-        raise RuntimeError(
-            'LibreOffice no está instalado. '
-            'Instálalo para la conversión a PDF, o descarga en formato DOCX.'
-        )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        docx_path = os.path.join(tmpdir, 'document.docx')
-        with open(docx_path, 'wb') as f:
-            f.write(docx_buffer.read())
-
-        # Los dos fallos que ya lanzaban (returncode != 0 y "salió con 0 pero
-        # sin PDF") van DENTRO del bloque medido: la misma excepción de
-        # siempre, contada como outcome="error". Fuera, un soffice que le pasa
-        # el trabajo a otra instancia con el mismo perfil y sale con 0 sin
-        # escribir nada contaba como éxito: justo la falla por concurrencia
-        # que este panel existe para ver.
-        with measured(kind, "libreoffice"):
-            result = subprocess.run(
-                [
-                    lo_cmd, '--headless', '--convert-to', 'pdf',
-                    '--outdir', tmpdir, docx_path
-                ],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if result.returncode != 0:
-                # El returncode no es etiqueta de la métrica (contrato): va
-                # aquí. Matado por señal (OOM: -9) el stderr sale vacío y es
-                # lo único que lo distingue de un documento rechazado.
-                logger.error(
-                    'LibreOffice error (kind=%s, returncode=%s): %s',
-                    kind, result.returncode, result.stderr,
-                )
-                raise RuntimeError(f'Error al convertir a PDF: {result.stderr}')
-
-            pdf_path = os.path.join(tmpdir, 'document.pdf')
-            if not os.path.exists(pdf_path):
-                raise RuntimeError('No se generó el archivo PDF')
-
-        pdf_buffer = BytesIO()
-        with open(pdf_path, 'rb') as f:
-            pdf_buffer.write(f.read())
-        pdf_buffer.seek(0)
-        return pdf_buffer
+    """`kind` lo decide el llamador (`solicitud` / `orden_trabajo`). La conversión
+    (y su métrica de render) vive en `itcj2.core.utils.docx_pdf`, compartida con
+    Prórrogas."""
+    return BytesIO(docx_to_pdf(docx_buffer.read(), kind=kind))
 
 
 # ==================== FUNCIONES PÚBLICAS (PDF) ====================
