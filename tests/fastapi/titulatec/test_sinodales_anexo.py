@@ -531,6 +531,19 @@ def test_marcar_listo_feliz(prep, esc, db_session, monkeypatch):
     assert _html(resp).xpath('//*[@id="tt-sin-etapa-recoger"][@aria-pressed="true"]')
 
 
+def test_remarcar_con_la_misma_nota_dice_sin_cambios(prep, esc, db_session, monkeypatch):
+    from urllib.parse import unquote
+    (c,) = prep(1)
+    _listo(db_session, c)
+    monkeypatch.setattr(AnexoService, "notify_ready", staticmethod(lambda pid: None))
+    resp = esc.client_as(c.head).post(
+        f"{URL}/{c.process.id}/anexo/listo",
+        data={"note": NOTA, "tab": "anexo", "etapa": "recoger", "expected_stage": "ready"})
+    assert resp.status_code == 200, resp.text[:300]
+    aviso = unquote(resp.headers.get("X-Tt-Notice", ""))
+    assert aviso.startswith("Sin cambios") and "actualizó" not in aviso
+
+
 def test_marcar_listo_con_la_etapa_cambiada_200_con_aviso(prep, esc, db_session):
     (c,) = prep(1)
     _fase(db_session, c, "in_review")                # Titulacion ya lo tiene

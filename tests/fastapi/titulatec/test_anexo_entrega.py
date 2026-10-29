@@ -57,7 +57,7 @@ def correos(monkeypatch):
     def _espia(db, process, *, folio, note):
         llamadas.append({"process_id": process.id, "folio": folio, "note": note})
         return True
-    monkeypatch.setattr(StudentMail, "anexo_ready", staticmethod(_espia), raising=False)
+    monkeypatch.setattr(StudentMail, "anexo_ready", staticmethod(_espia))
     return llamadas
 
 
@@ -503,10 +503,12 @@ class TestReimpresion:
         c = caso(listo=True)
         folio = _anexo(db_session, c).folio
         _reimpresion(db_session, c)
+        antes = _fase(db_session, c).updated_at
 
         out = AnexoService.mark_ready(db_session, c.process, c.coordinator.id, "Sala 3")
 
         assert out["first"] is True
+        assert _fase(db_session, c).updated_at > antes, "clave FIFO de «Sin enviar»"
         assert AnexoService.stage(db_session, c.process) == "ready"
         a = _anexo(db_session, c)
         assert a.folio == folio and a.ready_at is not None and a.pickup_note == "Sala 3"

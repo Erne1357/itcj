@@ -240,8 +240,6 @@ class AnexoService:
     def ready_info(db: Session, process) -> dict | None:
         """Datos de la entrega en tipos planos (la plantilla se pinta tras el
         `db.close()`), o None sin fila o con el Anexo inoperable."""
-        from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
-
         if process is None:
             return None
         return AnexoService.ready_map(db, [process.id]).get(process.id)
@@ -560,6 +558,7 @@ class AnexoService:
                         .populate_existing().first())
                 if fase is not None and fase.status == "rejected":
                     fase.status = "in_progress"
+                    fase.updated_at = db_now()  # clave FIFO de «Sin enviar»
             datos = {"folio": anexo.folio, "note": nota, "first": first}
             PhaseService._log(db, process.id, actor_id, "anexo_iii_ready", n, dict(datos))
             AuditService.record(

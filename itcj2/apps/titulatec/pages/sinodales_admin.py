@@ -548,8 +548,12 @@ def _cuerpo_anexo_ready(process_id, request, user, form):
         except Exception:
             avisado = False
             logger.warning("notify_ready fallo para el proceso %s", process_id, exc_info=True)
-        aviso = ("Anexo III listo para recoger: se avisó al egresado." if res["first"]
-                 else "Se actualizó el lugar y el horario de recogida.")
+        if res["first"]:
+            aviso = "Anexo III listo para recoger: se avisó al egresado."
+        elif res.get("changed"):
+            aviso = "Se actualizó el lugar y el horario de recogida."
+        else:
+            aviso = "Sin cambios: el lugar y el horario ya estaban así."
         vista = dict(_vista(form), tab="anexo", etapa="recoger", page="")
         resp = _repintar(request, db, uid, vista, process_id, aviso)
         if not avisado:
@@ -569,7 +573,8 @@ def _cuerpo_anexo_ready(process_id, request, user, form):
 def anexo_pdf(process_id: int, request: Request,
               user: dict = Depends(require_page_app("titulatec", perms=[_ANEXO_PERM]))):
     """El Anexo III en PDF, INLINE, desde Sinodales (fase 6, D2). Emite el folio
-    si aún no lo tiene: es el MISMO documento que baja el alumno. Exige
+    si aún no lo tiene: es el documento oficial (el alumno solo recibe la vista
+    previa con marca de agua, sin folio). Exige
     `anexo_iii.api.generate` (la dependencia) y `synodal.api.read`, más la
     guarda de alcance (404 de otro departamento). Con el Anexo sin operar o sin
     alcanzar responde 400 + `X-Tt-Error`."""

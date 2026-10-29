@@ -1,7 +1,6 @@
 """Correo `anexo_ready` (fase 6 v2, spec 2026-10-29 §9): encolado, composición, obsolescencia.
 
-`AnexoService.stage` y `Anexo.pickup_note` son de la Tarea 1: aquí se parchean
-(`raising=False`) para no depender de su calendario.
+Casi todas las pruebas parchean `AnexoService.stage`; la última recorre la etapa REAL.
 """
 from __future__ import annotations
 
@@ -35,7 +34,7 @@ def _encolar(db, process, note="Ventanilla 2, de 9 a 11"):
 
 
 def _vigente(monkeypatch, etapa, nota):
-    monkeypatch.setattr(AnexoService, "stage", staticmethod(lambda db, p: etapa), raising=False)
+    monkeypatch.setattr(AnexoService, "stage", staticmethod(lambda db, p: etapa))
     monkeypatch.setattr(AnexoService, "get",
                         staticmethod(lambda db, pid: SimpleNamespace(pickup_note=nota)))
 
@@ -92,3 +91,29 @@ def test_firmantes_ilegibles_usan_el_texto_de_respaldo(db_session, proceso, monk
     monkeypatch.setattr(AnexoService, "signers_text", staticmethod(_falla))
     c = MailComposer.compose(db_session, [fila], process, student)
     assert c.context["signers_text"] == SIGNERS_FALLBACK_TEXT
+
+
+def test_etapa_real_ready_y_luego_subida_del_escaneo_lo_vuelve_obsoleto(
+        db_session, make_anexo_case, seed_document_types, tmp_path, monkeypatch):
+    """Review Focus 3 sin stub: mark_ready real encola; la subida real pasa la
+    etapa a in_review; el compositor real dice Obsolete."""
+    from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    monkeypatch.setattr("itcj2.apps.titulatec.utils.storage._base", lambda: tmp_path)
+    seed_document_types([("anexo_iii", "Anexo III firmado", 6)])
+    c = make_anexo_case()
+
+    AnexoService.mark_ready(db_session, c.process, c.coordinator.id, "Ventanilla 2")
+    fila = (db_session.query(EmailOutbox)
+            .filter_by(process_id=c.process.id, kind="anexo_ready").one())
+    assert AnexoService.stage(db_session, c.process) == "ready"
+    assert isinstance(MailComposer.compose(db_session, [fila], c.process, c.student), Composed)
+
+    pdf = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+           b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n")
+    DocumentService.save(db_session, c.process, "anexo_iii", raw=pdf, original_name="a.pdf",
+                         content_type="application/pdf", uploaded_by_id=c.student.id)
+    assert AnexoService.stage(db_session, c.process) == "in_review"
+    assert isinstance(MailComposer.compose(db_session, [fila], c.process, c.student), Obsolete)
