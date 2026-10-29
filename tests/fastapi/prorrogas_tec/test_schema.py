@@ -4,7 +4,7 @@ from sqlalchemy.exc import IntegrityError
 import itcj2.models  # noqa: F401
 from itcj2.models.base import Base
 
-NUEVAS = {"prorrogas_templates", "prorrogas_requests", "prorrogas_documents", "prorrogas_signatures",
+NUEVAS = {"prorrogas_installments", "prorrogas_payments", "prorrogas_templates", "prorrogas_requests", "prorrogas_documents", "prorrogas_signatures",
           "prorrogas_invitations", "prorrogas_joins", "prorrogas_events"}
 
 

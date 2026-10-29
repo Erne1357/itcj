@@ -59,5 +59,5 @@ from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noq
 # Registra los modelos de la app para que Base.metadata y los mappers queden completos.
 from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
     ProrrogaDocument, ProrrogaEvent, ProrrogaInvitation, ProrrogaJoin,
-    ProrrogaRequest, ProrrogaSignature, ProrrogaTemplate,
+    ProrrogaRequest, ProrrogaSignature, ProrrogaTemplate, ProrrogaInstallment, ProrrogaPayment,
 )

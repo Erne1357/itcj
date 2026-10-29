@@ -23,6 +23,11 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.invitations.api.create",
     "prorrogas_tec.requests.api.read.all",
     "prorrogas_tec.requests.api.decide",
+    "prorrogas_tec.plans.api.manage",
+    "prorrogas_tec.payments.api.record",
+    "prorrogas_tec.payments.api.void",
+    "prorrogas_tec.students.api.remind",
+    "prorrogas_tec.students.api.export",
 ]
 
 STUDENT_PERMS = [
@@ -30,6 +35,7 @@ STUDENT_PERMS = [
     "prorrogas_tec.requests.api.create.own",
     "prorrogas_tec.requests.api.read.own",
     "prorrogas_tec.requests.api.cancel.own",
+    "prorrogas_tec.documents.api.sign.own",
 ]
 
 _seq = count(1)
@@ -299,6 +305,34 @@ def solicitud(db_session, make_user, periodo):
     db_session.flush()
     db_session.refresh(req)
     return req
+
+
+@pytest.fixture()
+def make_aceptada(db_session, make_user, periodo):
+    """Solicitud `aceptada` de un estudiante sintético (control 99410xxx por secuencia)."""
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.core.utils.timezone import db_now
+
+    def _make(control_number=None):
+        control = control_number or f"99410{next(_seq):03d}"
+        u = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=control)
+        req = ProrrogaRequest(
+            student_id=u.id, period_id=periodo.id, period_label="enero – junio 2091", status="aceptada",
+            requested_terms=2, reason="Motivo de prueba de treinta c.", control_number=control,
+            student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
+            email=f"L{control}@cdjuarez.tecnm.mx", decided_at=db_now(),
+        )
+        db_session.add(req)
+        db_session.flush()
+        db_session.refresh(req)
+        return req
+
+    return _make
+
+
+@pytest.fixture()
+def aceptada(make_aceptada):
+    return make_aceptada()
 
 
 @pytest.fixture()
