@@ -48,13 +48,16 @@ class RequestService:
             ProrrogaJoin.joined_at >= period.start_date,
             ProrrogaJoin.joined_at < period.end_date + timedelta(days=1))
         if ultima is not None:
-            uniones = uniones.filter(ProrrogaJoin.joined_at > ultima.created_at)
+            # Contra updated_at (la mueven cancelar y decidir): unirse con la solicitud aún pendiente no cuenta.
+            uniones = uniones.filter(ProrrogaJoin.joined_at > ultima.updated_at)
         return period, (None if uniones.first() else "sin_acceso")
 
     @staticmethod
     def create(db, student: User, *, plazos: int, motivo: str, program_id: int, firma: bytes,
                ip: str | None, user_agent: str | None, now: datetime | None = None) -> ProrrogaRequest:
         now = now or db_now()
+        if not student.control_number:  # cuenta de personal: no es estudiante
+            raise ServiceError("cuenta_sin_numero_de_control", "Esta cuenta no es de estudiante.", status=403)
         if not isinstance(plazos, int) or isinstance(plazos, bool) or not 1 <= plazos <= 3:
             raise ServiceError("plazos_invalidos", "Elige de 1 a 3 plazos.")
         motivo = (motivo or "").strip()
@@ -74,7 +77,8 @@ class RequestService:
         if code:
             raise ServiceError(code, "No hay un semestre vigente para solicitar.", status=409)
 
-        email = student.email or institutional_email(student.control_number)
+        # Spec 5: institucional para licenciatura y maestría; si no hay (D, B...), el que capturó la secretaria.
+        email = institutional_email(student.control_number) or student.email
         req = ProrrogaRequest(
             origin="app", student_id=student.id, period_id=period.id, period_label=period_label(period),
             status="pendiente", requested_terms=plazos, reason=motivo, control_number=student.control_number,

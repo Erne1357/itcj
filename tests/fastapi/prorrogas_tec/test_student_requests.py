@@ -1,6 +1,7 @@
 import base64
 import struct
 import zlib
+from datetime import timedelta
 from io import BytesIO
 
 import pytest
@@ -26,6 +27,20 @@ def test_crea_solicitud_con_formato_firmado(db_session, alumno_unido, make_progr
     out = RequestService.request_out(db_session, req)
     assert out["estado"] == "pendiente" and out["documentos"][0]["tipo"] == "formato_solicitud"
     assert out["documentos"][0]["firmado"] is True and req.period_label
+    # Correo congelado: el institucional (spec 5) gana sobre el de la cuenta.
+    assert req.email == f"L{alumno_unido.control_number}@cdjuarez.tecnm.mx"
+
+
+def test_correo_de_la_cuenta_si_no_hay_institucional(db_session, make_user, make_role, grant, periodo_hoy,
+                                                     make_program, firma_png):
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+    u = make_user(control_number="D99500010", email="doctorado@example.invalid")
+    grant(u, make_role("student", STUDENT_PERMS))
+    db_session.add(ProrrogaJoin(user_id=u.id, via="invitacion", joined_at=db_now() - timedelta(minutes=1)))
+    db_session.flush()
+    req = _crear(db_session, u, make_program("Doctorado de Prueba", "doctorado"), firma_png)
+    assert req.email == "doctorado@example.invalid"
 
 
 def test_doble_envio_solo_crea_una(db_session, alumno_unido, make_program, firma_png):  # Review Focus 1
@@ -49,6 +64,31 @@ def test_tras_cancelar_hay_que_unirse_otra_vez(db_session, alumno_unido, make_pr
     with pytest.raises(ServiceError) as e:
         _crear(db_session, alumno_unido, prog, firma_png)
     assert e.value.code == "sin_acceso"
+
+
+def test_union_mientras_estaba_pendiente_no_sirve_tras_cancelar(db_session, alumno_unido, make_program, firma_png):
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+    prog = make_program("Ingeniería de Prueba", "licenciatura")
+    t = db_now()
+    req = _crear(db_session, alumno_unido, prog, firma_png, now=t)
+    db_session.add(ProrrogaJoin(user_id=alumno_unido.id, via="qr", joined_at=t + timedelta(seconds=10)))
+    db_session.flush()
+    RequestService.cancel(db_session, req.id, alumno_unido.id, now=t + timedelta(seconds=20))
+    with pytest.raises(ServiceError) as e:  # la unión es anterior a la cancelación: hace falta otra visita
+        _crear(db_session, alumno_unido, prog, firma_png, now=t + timedelta(seconds=30))
+    assert e.value.code == "sin_acceso"
+
+
+def test_cuenta_sin_numero_de_control_no_solicita(db_session, make_user, periodo_hoy, make_program, firma_png):
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+    u = make_user()
+    db_session.add(ProrrogaJoin(user_id=u.id, via="qr", joined_at=db_now() - timedelta(minutes=1)))
+    db_session.flush()
+    with pytest.raises(ServiceError) as e:
+        _crear(db_session, u, make_program("Ingeniería de Prueba", "licenciatura"), firma_png)
+    assert e.value.code == "cuenta_sin_numero_de_control" and e.value.status == 403
 
 
 @pytest.mark.parametrize("kw, code", [({"plazos": 4}, "plazos_invalidos"), ({"motivo": "corto"}, "motivo_invalido")])

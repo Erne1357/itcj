@@ -3,6 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const form = $("sol-form"), canvas = $("sol-firma"), enviar = $("sol-enviar");
   const motivo = $("sol-motivo"), cuenta = $("sol-cuenta"), acepto = $("sol-acepto"), errorEl = $("sol-error");
+  const carrera = $("sol-carrera");
   const ctx = canvas.getContext("2d");
   let trazos = 0, dibujando = false;
 
@@ -20,7 +21,7 @@
     const n = motivo.value.trim().length;
     cuenta.textContent = `${motivo.value.length} / 1000`;
     cuenta.classList.toggle("bad", n < 20);
-    enviar.disabled = !(trazos > 0 && acepto.checked);
+    enviar.disabled = !(trazos > 0 && acepto.checked && carrera.value);
   }
 
   // El fondo queda transparente: el servidor rechaza una firma sin trazos o sin alfa.
@@ -76,6 +77,7 @@
   });
   motivo.addEventListener("input", actualizar);
   acepto.addEventListener("change", actualizar);
+  carrera.addEventListener("change", actualizar);
 
   form.addEventListener("submit", async function (e) {
     e.preventDefault();
@@ -91,7 +93,7 @@
         body: JSON.stringify({
           plazos: parseInt($("sol-plazos").value, 10),
           motivo: motivo.value,
-          program_id: parseInt($("sol-carrera").value, 10),
+          program_id: parseInt(carrera.value, 10),
           firma: canvas.toDataURL("image/png"),
         }),
       });
@@ -123,14 +125,15 @@
         : "Ya tienes una solicitud abierta.");
       return;
     }
-    const sel = $("sol-carrera");
     (progs.items || []).forEach(function (p) {
       const o = document.createElement("option");
       o.value = p.id;
       o.textContent = p.name;
-      sel.append(o);
+      carrera.append(o);
     });
-    if (est.program_id != null) sel.value = String(est.program_id);
+    // Solo se preselecciona la carrera del perfil; si no hay, queda "Elige tu carrera".
+    if (est.program_id != null) carrera.value = String(est.program_id);
+    if (carrera.selectedIndex < 0) carrera.selectedIndex = 0;   // la del perfil no está en la lista
     form.hidden = false;
     ajustarLienzo();
   }
