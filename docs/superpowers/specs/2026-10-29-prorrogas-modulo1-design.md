@@ -394,3 +394,40 @@ Con eso se cierran los puntos 1–9 de `docs/PENDIENTES.md`. Se conserva:
 7. **Estadísticas:** sin marcas fijas en la línea de tiempo; "plazos promedio" en lugar de "días solicitados".
 8. **Esquema del fork:** se reemplaza (no se migran datos; no hay datos en producción).
 9. **Texto de las cartas nuevas:** el de §6.4. La secretaria puede reemplazarlo subiendo sus propias plantillas.
+
+## 16. Plan 3: decisiones (2026-10-29)
+
+Respuestas del usuario y las reglas que se siguen de ellas. Completan §4 pasos 5–9, §5 y §8.
+
+1. **Lista de bloqueo (Exportar adeudos):** solo estudiantes con situación `atrasada` del semestre elegido, al momento
+   de exportar. Formato **.xlsx** (openpyxl, ya está en el repo). El archivo se explica solo:
+   - Encabezado: "Lista de adeudos de prórrogas", semestre, fecha y hora de exportación, el criterio en una línea
+     ("Estudiantes con al menos una parcialidad vencida y no cubierta al {fecha}") y el total de estudiantes.
+   - Columnas: No. de control, Nombre, Carrera, Correo, Folio de la prórroga, Monto total, Pagado, Saldo,
+     Parcialidades vencidas, Vencida desde (la fecha más vieja sin cubrir). Encabezados congelados y con filtro.
+   - Cada exportación pone `block_exported_at` (solo si estaba vacío) a las solicitudes incluidas y registra el evento.
+2. **Avisar desbloqueo:** aparece cuando la solicitud tiene `block_exported_at`, su situación es `liquidada` y
+   `unblock_notified_at` está vacío. Marcarlo solo registra la fecha (la secretaria avisa a Centro de Cómputo como hoy).
+3. **Replantear = solo lo que falta.**
+   - Se conservan las parcialidades **totalmente cubiertas** (aplicación FIFO al momento de replantear), con su
+     número, monto y fecha.
+   - Las demás se marcan `superseded_at` (no se borran: Estadísticas puede ver que hubo atraso).
+   - Las nuevas se numeran después de las conservadas. **Conservadas + nuevas ≤ 3** (solo hay cartas de 1, 2 y 3
+     pagos).
+   - El total se puede cambiar, pero nunca por debajo de lo pagado. Total = suma de conservadas + suma de nuevas.
+   - Fechas nuevas: estrictamente ascendentes, posteriores a la última conservada, desde hoy y **hasta el `end_date`
+     del semestre**. Si ya no cabe ninguna fecha (semestre terminado), no se puede replantear.
+   - No se replantea una solicitud `liquidada`.
+   - La carta compromiso nueva lista **todas** las parcialidades vigentes (conservadas y nuevas).
+4. **Firma de la carta compromiso:** la firma el estudiante en *Mi prórroga* con el mismo lienzo de la solicitud.
+   Firmar vuelve a llenar la plantilla **desde `context` del documento y con la misma plantilla** con la que se
+   generó, agrega la firma y crea la versión siguiente; la versión sin firma queda sustituida. La firma no bloquea
+   nada: se pueden registrar recibos sin ella; el expediente muestra "Firma pendiente".
+5. **Recibos:** requieren un plan (`sin_plan`). Montos en pesos con centavos (`Numeric(10,2)`).
+6. **Recordar:** solo con plan y saldo > 0; correo y aviso con el saldo y la próxima fecha; una vez cada 24 h.
+7. **Avisos nuevos al estudiante:** "Tu carta compromiso está lista para firmar" (al confirmar un plan) y el
+   recordatorio de pago.
+8. **Permisos del Plan 3:** los cinco de §3 más `prorrogas_tec.documents.api.sign.own` (estaba en el Plan 2 pero no se
+   sembró). Leer la lista y el expediente usa `requests.api.read.all`; "Avisar desbloqueo" usa `students.api.export`.
+9. **Modelo:** `prorrogas_installments` gana `superseded_at`; su único `(request_id, number)` es parcial entre las
+   vigentes.
