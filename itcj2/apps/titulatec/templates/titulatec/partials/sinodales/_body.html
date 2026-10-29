@@ -24,6 +24,7 @@
   <input type="hidden" name="tab" value="{{ tab }}">
   <input type="hidden" name="selected" value="{{ selected_id or '' }}">
   <input type="hidden" name="page" value="1">
+  <input type="hidden" name="etapa" value="{{ etapa }}">
   <div class="tt-sin-tabs">
     {% for key, label in tabs %}
     <button type="button" id="tt-sin-tab-{{ key }}"
@@ -34,6 +35,19 @@
             hx-indicator="#tt-sin-skel">{{ label }} <span class="tt-sin-count">({{ counts[key] }})</span></button>
     {% endfor %}
   </div>
+  {# Sub-filtros de «En Anexo III» (spec fase 6 v2 §8.2), con su conteo. #}
+  {% if tab == 'anexo' %}
+  <div id="tt-sin-etapas" class="tt-sin-etapas" role="group" aria-label="Etapa del Anexo III">
+    {% for key, label in etapas %}
+    <button type="button" id="tt-sin-etapa-{{ key }}"
+            class="tt-sin-etapa{% if etapa == key %} is-active{% endif %}"
+            aria-pressed="{{ 'true' if etapa == key else 'false' }}"
+            hx-get="/titulatec/admin/sinodales/body" hx-vals='{"etapa": "{{ key }}", "selected": "", "page": 1}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">{{ label }} <span class="tt-sin-count">({{ etapa_counts[key] }})</span></button>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div class="tt-sin-search-row">
     <div class="tt-search">
       <i class="bi bi-search" aria-hidden="true"></i>

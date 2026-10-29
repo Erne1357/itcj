@@ -47,6 +47,12 @@ class SynodalInboxService:
     """Consultas de la bandeja de sinodales."""
 
     TABS = ("pending", "assigned", "anexo")
+    # Sub-filtros de «En Anexo III» (spec fase 6 v2 §8.2): grupo -> etapas de
+    # `AnexoService.stage`. El primero es el de entrada.
+    ETAPAS = {"preparar": ("preparing", "reprint"), "recoger": ("ready",),
+              "titulacion": ("in_review", "observed")}
+    ETAPA_LABELS = {"preparar": "Por preparar", "recoger": "Por recoger",
+                    "titulacion": "En Titulación"}
     WAIT_WARN_DAYS = 3   # ámbar desde aquí (días hábiles)
     WAIT_LATE_DAYS = 5   # rojo desde aquí
 
@@ -163,7 +169,8 @@ class SynodalInboxService:
     @staticmethod
     def list(db: Session, user_id: int, *, tab: str, q: str = "",
              program_id: int | None = None, department_id: int | None = None,
-             page: str | int = "", per_page: int | None = None) -> dict:
+             page: str | int = "", per_page: int | None = None,
+             etapa: str = "") -> dict:
         """Una página de la bandeja + contadores de las 2 pestañas.
 
         Filas: `process_id, folio, student_name, control_number, program_name,
@@ -202,6 +209,9 @@ class SynodalInboxService:
         agregados = [func.count(TP.id).filter(preds[t]) for t in cls.TABS]
         fila = base.order_by(None).with_entities(*agregados).one()
         counts = {t: int(c or 0) for t, c in zip(cls.TABS, fila)}
+        if tab == "anexo":
+            return cls._list_anexo(db, base, preds[tab], n6, counts, etapa=etapa,
+                                   page_n=page_n, per_page=per_page)
 
         # La fase cuya espera se mide: la 4 en «Por asignar» (y su fin en
         # «Asignados»), la 6 en «En Anexo III».
@@ -260,6 +270,86 @@ class SynodalInboxService:
             })
         return {"rows": rows, "page": dataclasses.replace(pg, items=rows),
                 "counts": counts, "tab": tab}
+
+    @staticmethod
+    def _list_anexo(db: Session, base, pred, n6, counts: dict, *, etapa: str,
+                    page_n: int, per_page: int) -> dict:
+        """«En Anexo III»: la etapa sale de `AnexoService.stage_map` (la UNICA
+        dueña); aqui solo se agrupa en sub-filtros, se cuenta y se ordena FIFO
+        por el inicio de la espera de la etapa. El universo es acotado
+        (procesos en la fase 6 de los departamentos del usuario): una consulta
+        de filas, una de etapas y paginacion en memoria. `etapa_counts`
+        respeta busqueda, carrera y departamento.
+
+        Espera: `preparar` desde la reimpresion pedida o, si no, el inicio de
+        la fase 6; `recoger` desde `ready_at`; `titulacion` no mide (solo lectura).
+        """
+        from itcj2.apps.titulatec.models import Anexo, ProcessPhase, ProgramDepartment
+        from itcj2.apps.titulatec.models import TitulationProcess as TP
+        from itcj2.apps.titulatec.services.anexo_service import STAGE_LABELS, AnexoService
+        from itcj2.apps.titulatec.utils.paging import paginate_list
+        from itcj2.core.models.department import Department
+        from itcj2.core.models.program import Program
+        from itcj2.core.models.user import User
+
+        cls = SynodalInboxService
+        etapa = etapa if etapa in cls.ETAPAS else "preparar"
+        fase6 = aliased(ProcessPhase)
+        filas = (
+            base.with_entities(
+                TP.id.label("process_id"), TP.folio, User.first_name, User.middle_name,
+                User.last_name, User.control_number, Program.name.label("program_name"),
+                Department.name.label("department_name"),
+                fase6.started_at, Anexo.ready_at, Anexo.reprint_requested_at,
+                Anexo.reprint_reason)
+            .outerjoin(Program, Program.id == TP.program_id)
+            .outerjoin(Department, Department.id == ProgramDepartment.department_id)
+            .outerjoin(fase6, and_(fase6.process_id == TP.id, fase6.phase_number == n6))
+            .outerjoin(Anexo, Anexo.process_id == TP.id)
+            .filter(pred).order_by(TP.id.asc()).all())
+        etapas = AnexoService.stage_map(db, [r.process_id for r in filas])
+        grupo = {e: g for g, es in cls.ETAPAS.items() for e in es}
+        etapa_counts = {g: 0 for g in cls.ETAPAS}
+        elegidas = []
+        for r in filas:
+            g = grupo.get(etapas.get(r.process_id))
+            if g is None:
+                continue
+            etapa_counts[g] += 1
+            if g == etapa:
+                elegidas.append(r)
+
+        def _desde(r):
+            if etapas[r.process_id] == "reprint":
+                return r.reprint_requested_at
+            return r.ready_at if etapa == "recoger" else r.started_at
+        elegidas.sort(key=lambda r: (_desde(r) is None, _desde(r) or 0, r.process_id))
+
+        pg = paginate_list(elegidas, page_n, per_page)
+        hoy = db_now().date()
+        feriados = NonWorkingDayService.holidays(db) if etapa != "titulacion" else frozenset()
+        rows = []
+        for r in pg.items:
+            nombre = " ".join(p for p in (r.last_name, r.middle_name) if p)
+            nombre = f"{nombre}, {r.first_name}" if r.first_name else nombre
+            desde = _desde(r)
+            days = level = None
+            if etapa != "titulacion" and desde is not None:
+                days = business_days_between(desde.date(), hoy, holidays=feriados)
+                level = cls._wait_level(days)
+            st = etapas[r.process_id]
+            rows.append({
+                "process_id": r.process_id, "folio": r.folio,
+                "student_name": nombre, "control_number": r.control_number,
+                "program_name": r.program_name, "department_name": r.department_name,
+                "started_at": desde, "assigned_at": None,
+                "waited_days": days, "wait_level": level, "position": None,
+                "stage": st, "stage_label": STAGE_LABELS[st],
+                "reprint_reason": r.reprint_reason if st == "reprint" else None,
+            })
+        return {"rows": rows, "page": dataclasses.replace(pg, items=rows),
+                "counts": counts, "tab": "anexo", "etapa": etapa,
+                "etapa_counts": etapa_counts}
 
     @staticmethod
     def contains(db: Session, user_id: int, process_id: int, *, tab: str, q: str = "",

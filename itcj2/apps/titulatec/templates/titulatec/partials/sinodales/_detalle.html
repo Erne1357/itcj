@@ -38,6 +38,89 @@
     </div>
   </header>
 
+  {# Fase 6 (spec fase 6 v2 §8.2): etapa y pasos numerados de vinculación. #}
+  {% if d.anexo %}
+  {% set a = d.anexo %}
+  {% set STAGE_TONE = {"preparing": "amber", "reprint": "danger", "ready": "neutral",
+                       "in_review": "navy", "observed": "amber", "approved": "success"} %}
+  <section id="tt-sin-anexo-panel" class="tt-card tt-sin-anexo tt-sin-anexo--{{ a.stage }}" aria-labelledby="tt-sin-anexo-title">
+    <div class="tt-sin-section-head">
+      <h3 id="tt-sin-anexo-title" class="tt-kicker tt-sin-section-title">Anexo III</h3>
+      <div class="tt-sin-head-aside">
+        {{ pill(a.stage_label, STAGE_TONE[a.stage]) }}
+        {% if a.folio %}<span id="tt-sin-anexo-folio" class="tt-mono tt-sin-anexo-folio">{{ a.folio }}</span>{% endif %}
+      </div>
+    </div>
+    {% if a.signers %}
+    <p id="tt-sin-anexo-signers" class="tt-sin-help"><strong>Firman:</strong> {{ a.signers | join(', ') }}.</p>
+    {% endif %}
+    {% if a.reprint_reason %}
+    <p id="tt-sin-anexo-reprint" class="tt-sin-warn"><i class="bi bi-printer" aria-hidden="true"></i><span class="tt-sin-warn-text"><strong>Titulación pidió reimprimir:</strong> {{ a.reprint_reason }}</span></p>
+    {% endif %}
+    {% if a.stage == 'ready' %}
+    <p id="tt-sin-anexo-ready-info" class="tt-sin-anexo-ready"><i class="bi bi-bag-check" aria-hidden="true"></i><span>Listo{% if a.ready_label %} desde el {{ a.ready_label }}{% endif %}. <strong>Recoger en:</strong> {{ a.pickup_note or '—' }}</span></p>
+    {% endif %}
+
+    {% if a.stage in ('preparing', 'reprint', 'ready') %}
+    <ol id="tt-sin-anexo-steps" class="tt-sin-steps">
+      <li id="tt-sin-step-1" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">1</span>
+        <div class="tt-sin-step-body">
+          <strong>Imprimir Anexo III</strong>
+          <p class="tt-sin-step-text">El oficial, con folio. {% if a.stage == 'reprint' %}Imprímelo de nuevo corrigiendo lo que observó Titulación.{% endif %}</p>
+          {% if a.can_print %}
+          <a id="tt-sin-anexo-print" class="btn btn-sm tt-btn-ink" href="{{ d.anexo_url }}" target="_blank" rel="noopener">
+            <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Imprimir Anexo III</a>
+          {% endif %}
+        </div>
+      </li>
+      <li id="tt-sin-step-2" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">2</span>
+        <div class="tt-sin-step-body">
+          <strong>Firma y sello del jefe del departamento</strong>
+          <p class="tt-sin-step-text">Recaba la firma y el sello del jefe del departamento académico en la hoja impresa.</p>
+        </div>
+      </li>
+      <li id="tt-sin-step-3" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">3</span>
+        <div class="tt-sin-step-body">
+          <strong>{% if a.stage == 'ready' %}Cambiar lugar u horario{% else %}Marcar listo para recoger{% endif %}</strong>
+          {% if a.can_ready %}
+          <form id="tt-sin-anexo-form" class="tt-sin-anexo-form"
+                hx-post="{{ URL }}/anexo/listo" hx-target="#tt-sin-body" hx-swap="innerHTML"
+                hx-disabled-elt="find button[type='submit']">
+            <input type="hidden" name="tab" value="{{ tab }}">
+            <input type="hidden" name="etapa" value="{{ etapa }}">
+            <input type="hidden" name="expected_stage" value="{{ a.stage }}">
+            <input type="hidden" name="q" value="{{ q }}">
+            <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+            <input type="hidden" name="depto" value="{{ depto or '' }}">
+            <input type="hidden" name="page" value="{{ page.page }}">
+            <label class="tt-label" for="tt-sin-anexo-note">Lugar y horario para recoger</label>
+            <textarea id="tt-sin-anexo-note" name="note" class="tt-field" rows="3"
+                      maxlength="{{ a.note_max }}" required
+                      placeholder="Por ejemplo: Oficina de Vinculación, lunes a viernes de 9:00 a 14:00">{{ a.note }}</textarea>
+            <p class="tt-sin-help tt-sin-anexo-hint">El egresado la recibe en su aviso (máximo {{ a.note_max }} caracteres).</p>
+            {% if a.error %}<p id="tt-sin-anexo-error" class="tt-sin-warn" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span class="tt-sin-warn-text">{{ a.error }}</span></p>{% endif %}
+            <div class="tt-sin-buttons">
+              <button type="submit" id="tt-sin-anexo-ready" class="btn btn-sm tt-btn-ink">
+                <i class="bi bi-bag-check me-1" aria-hidden="true"></i>{% if a.stage == 'ready' %}Guardar y avisar{% else %}Marcar listo y avisar al egresado{% endif %}</button>
+            </div>
+          </form>
+          {% else %}
+          <p class="tt-sin-step-text">Tu rol no puede marcar el Anexo como listo.</p>
+          {% endif %}
+        </div>
+      </li>
+    </ol>
+    {% elif a.stage == 'approved' %}
+    <p class="tt-sin-note">Anexo III aprobado por Titulación.</p>
+    {% else %}
+    <p id="tt-sin-anexo-readonly" class="tt-sin-note">{% if a.stage == 'observed' %}Titulación lo observó: el egresado debe corregir y volver a subir el escaneo.{% else %}El egresado ya subió el escaneo firmado: lo revisa Titulación. Aquí solo es de consulta.{% endif %}</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
   <section class="tt-card tt-sin-work" aria-label="Datos del trabajo">
     <dl class="tt-sin-facts">
       <div class="tt-sin-fact">

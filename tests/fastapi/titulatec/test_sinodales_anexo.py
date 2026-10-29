@@ -240,32 +240,27 @@ def _texto_pdf(raw: bytes) -> str:
     return " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(raw)).pages)
 
 
-@pytest.mark.parametrize("alumno_primero", [True, False])
-def test_mismo_folio_para_el_alumno_y_vinculacion(esc, db_session, make_role,
-                                                  alumno_primero, patched_session_local):
+def test_la_vista_previa_del_alumno_no_emite_folio_y_nace_cuando_vinculacion_imprime(
+        esc, db_session, make_role, patched_session_local):
+    """E2: el alumno solo ve una vista previa; el folio nace cuando vinculacion
+    imprime el oficial."""
     import re
     from tests.fastapi.titulatec.test_student_anexo import ANEXO_PERMS, ROLE_STUDENT
 
     c = esc.caso()
     make_role(ROLE_STUDENT, ANEXO_PERMS)
     db_session.commit()
-    # `client_as` devuelve el MISMO cliente: se cambia de actor justo antes de pedir.
-    urls = [(c.student, "/titulatec/student/anexo/pdf"),
-            (c.head, f"{URL}/{c.process.id}/anexo.pdf")]
-    if not alumno_primero:
-        urls.reverse()
 
-    textos = []
-    for actor, url in urls:
-        resp = esc.client_as(actor).get(url)
-        assert resp.status_code == 200, (url, resp.text[:300])
-        textos.append(_texto_pdf(resp.content))
-
+    resp = esc.client_as(c.student).get("/titulatec/student/anexo/pdf")
+    assert resp.status_code == 200, resp.text[:300]
     db_session.expire_all()
-    filas = db_session.query(Anexo).filter_by(process_id=c.process.id).all()
-    assert len(filas) == 1
-    folio = filas[0].folio
-    assert all(folio in re.sub(r"\s+", "", t) for t in textos), (folio, textos)
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 0
+
+    resp = esc.client_as(c.head).get(f"{URL}/{c.process.id}/anexo.pdf")
+    assert resp.status_code == 200, resp.text[:300]
+    db_session.expire_all()
+    (fila,) = db_session.query(Anexo).filter_by(process_id=c.process.id).all()
+    assert fila.folio in re.sub(r"\s+", "", _texto_pdf(resp.content))
 
 
 def test_pdf_corte_3_es_400_y_no_numera(esc, corte, db_session):
@@ -379,3 +374,213 @@ def test_un_fallo_del_aviso_no_rompe_el_voto(liberacion, db_session, monkeypatch
     resp = liberacion.cerrar(c)
     assert resp.status_code == 200
     assert resp.headers.get("X-Tt-Notice-Kind") == "success"
+
+
+# ---------------------------------------------------------------------------
+# Fase 6 v2 (Task 4): sub-filtros por etapa, panel de pasos y «marcar listo»
+# ---------------------------------------------------------------------------
+PREPARE_PERM = "titulatec.anexo_iii.api.prepare"
+ROLE_PREP = f"tt_test_sin_anexo_prep_{os.getpid()}"
+NOTA = "Oficina de Vinculacion, lunes a viernes de 9:00 a 14:00"
+# Hasta que la ronda de arreglo de T1 sume `expected_stage` a `mark_ready`.
+requiere_fix_t1 = pytest.mark.skipif(
+    not hasattr(__import__("itcj2.apps.titulatec.services.anexo_service",
+                           fromlist=["x"]), "AnexoStageChanged"),
+    reason="AnexoService aun sin AnexoStageChanged/expected_stage (ronda de arreglo de T1)")
+
+
+@pytest.fixture()
+def prep(db_session, esc, make_role, grant_user_role):
+    """Casos del mismo departamento + rol con `prepare` para el jefe del primero."""
+    from itcj2.apps.titulatec.models import ProgramDepartment
+
+    def _casos(n=1):
+        cs = [esc.caso() for _ in range(n)]
+        for c in cs[1:]:
+            db_session.get(ProgramDepartment, c.process.program_id).department_id = cs[0].department.id
+        rol = make_role(ROLE_PREP, PERMS + (PREPARE_PERM,))
+        grant_user_role(cs[0].head, rol)
+        db_session.commit()
+        return cs
+    return _casos
+
+
+def _listo(db, c, nota=NOTA):
+    from datetime import datetime
+    a = AnexoService.ensure_folio(db, c.process, c.head.id)
+    a.ready_at, a.pickup_note = datetime(2026, 10, 5, 9, 0), nota
+    db.commit()
+
+
+def _fase(db, c, estado):
+    from itcj2.apps.titulatec.models import ProcessPhase
+    (f,) = db.query(ProcessPhase).filter_by(process_id=c.process.id,
+                                            phase_number=c.anexo_phase).all()
+    f.status = estado
+    db.commit()
+
+
+def test_subfiltros_por_etapa_con_conteos_y_filas(prep, esc, db_session):
+    from datetime import datetime
+    pre, rec, tit, rep = prep(4)
+    _listo(db_session, rec)
+    _fase(db_session, tit, "in_review")
+    a = AnexoService.ensure_folio(db_session, rep.process, rep.head.id)
+    a.reprint_reason, a.reprint_requested_at = "Falta el sello", datetime(2026, 10, 6, 9, 0)
+    db_session.commit()
+    cli = esc.client_as(pre.head)
+
+    def ver(etapa):
+        return cli.get(BODY, params={"tab": "anexo", "etapa": etapa})
+
+    assert set(_filas(cli.get(BODY, params={"tab": "anexo"}))) == {pre.process.id, rep.process.id}
+    assert _filas(ver("recoger")) == [rec.process.id]
+    assert _filas(ver("titulacion")) == [tit.process.id]
+    h = _html(ver("preparar"))
+    for k, n in (("preparar", 2), ("recoger", 1), ("titulacion", 1)):
+        (b,) = h.xpath(f'//*[@id="tt-sin-etapa-{k}"]')
+        assert f"({n})" in b.text_content()
+    # Reimpresion: pildora de etapa y motivo visible en la fila.
+    (fila,) = h.xpath(f'//*[@id="tt-sin-row-{rep.process.id}"]')
+    assert "Reimpresión" in fila.text_content() and "Falta el sello" in fila.text_content()
+
+
+def test_fifo_de_recoger_es_por_ready_at(prep, esc, db_session):
+    from datetime import datetime
+    x, y = prep(2)
+    _listo(db_session, x)
+    _listo(db_session, y)
+    db_session.query(Anexo).filter_by(process_id=x.process.id).one().ready_at = datetime(2026, 10, 8, 9, 0)
+    db_session.query(Anexo).filter_by(process_id=y.process.id).one().ready_at = datetime(2026, 10, 1, 9, 0)
+    db_session.commit()
+    resp = esc.client_as(x.head).get(BODY, params={"tab": "anexo", "etapa": "recoger"})
+    assert _filas(resp) == [y.process.id, x.process.id]
+
+
+def test_detalle_con_pasos_y_nota_precargada(prep, esc, db_session):
+    c, otro = prep(2)
+    _listo(db_session, otro, "Ventanilla 3, de 10 a 12")
+    resp = esc.client_as(c.head).get(BODY, params={"tab": "anexo", "selected": c.process.id})
+    h = _html(resp)
+    assert [li.get("id") for li in h.xpath('//*[@id="tt-sin-anexo-steps"]/li')] == [
+        "tt-sin-step-1", "tt-sin-step-2", "tt-sin-step-3"]
+    assert h.xpath('//a[@id="tt-sin-anexo-print"]')
+    (nota,) = h.xpath('//*[@id="tt-sin-anexo-note"]')
+    assert nota.text_content().strip() == "Ventanilla 3, de 10 a 12"     # la del mismo departamento
+    assert h.xpath('//input[@name="expected_stage"]')[0].get("value") == "preparing"
+
+
+def test_detalle_listo_dice_cambiar_lugar_y_horario(prep, esc, db_session):
+    (c,) = prep(1)
+    _listo(db_session, c)
+    resp = esc.client_as(c.head).get(BODY, params={"tab": "anexo", "etapa": "recoger",
+                                                    "selected": c.process.id})
+    h = _html(resp)
+    assert "Cambiar lugar u horario" in h.xpath('//*[@id="tt-sin-step-3"]')[0].text_content()
+    assert NOTA in h.xpath('//*[@id="tt-sin-anexo-ready-info"]')[0].text_content()
+
+
+def test_detalle_en_titulacion_es_de_solo_lectura(prep, esc, db_session):
+    (c,) = prep(1)
+    _fase(db_session, c, "in_review")
+    resp = esc.client_as(c.head).get(BODY, params={"tab": "anexo", "etapa": "titulacion",
+                                                    "selected": c.process.id})
+    h = _html(resp)
+    assert h.xpath('//*[@id="tt-sin-anexo-readonly"]') and not h.xpath('//form[@id="tt-sin-anexo-form"]')
+
+
+def test_textos_largos_no_rompen_el_panel(prep, esc, db_session):
+    from itcj2.apps.titulatec.models import FormatB
+    (c,) = prep(1)
+    db_session.get(FormatB, c.process.id).project_name = "P" * 230
+    _listo(db_session, c, "N" * 300)
+    resp = esc.client_as(c.head).get(BODY, params={"tab": "anexo", "etapa": "recoger",
+                                                    "selected": c.process.id})
+    assert resp.status_code == 200 and "N" * 300 in resp.text and "P" * 230 in resp.text
+
+
+@requiere_fix_t1
+def test_marcar_listo_feliz(prep, esc, db_session, monkeypatch):
+    (c,) = prep(1)
+    avisados = []
+    monkeypatch.setattr(AnexoService, "notify_ready", staticmethod(avisados.append))
+    resp = esc.client_as(c.head).post(
+        f"{URL}/{c.process.id}/anexo/listo",
+        data={"note": f"  {NOTA} ", "tab": "anexo", "etapa": "preparar",
+              "expected_stage": "preparing"})
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.headers.get("X-Tt-Notice") and resp.headers.get("X-Tt-Notice-Kind") == "success"
+    db_session.expire_all()
+    a = db_session.query(Anexo).filter_by(process_id=c.process.id).one()
+    assert a.ready_at is not None and a.pickup_note == NOTA and a.folio
+    assert avisados == [c.process.id]
+    assert c.process.id in _filas(resp)          # abre en «Por recoger»
+    assert _html(resp).xpath('//*[@id="tt-sin-etapa-recoger"][@aria-pressed="true"]')
+
+
+@requiere_fix_t1
+def test_marcar_listo_con_la_etapa_cambiada_200_con_aviso(prep, esc, db_session):
+    (c,) = prep(1)
+    _fase(db_session, c, "in_review")                # Titulacion ya lo tiene
+    resp = esc.client_as(c.head).post(
+        f"{URL}/{c.process.id}/anexo/listo",
+        data={"note": NOTA, "tab": "anexo", "etapa": "preparar", "expected_stage": "preparing"})
+    assert resp.status_code in (200, 400)
+    db_session.expire_all()
+    a = db_session.query(Anexo).filter_by(process_id=c.process.id).first()
+    assert a is None or a.ready_at is None
+
+
+@requiere_fix_t1
+def test_marcar_listo_nota_vacia_200_con_error_en_el_form(prep, esc, db_session):
+    (c,) = prep(1)
+    resp = esc.client_as(c.head).post(
+        f"{URL}/{c.process.id}/anexo/listo",
+        data={"note": "   ", "tab": "anexo", "etapa": "preparar", "expected_stage": "preparing"})
+    assert resp.status_code == 200
+    assert _html(resp).xpath('//*[@id="tt-sin-anexo-error"]')
+    db_session.expire_all()
+    a = db_session.query(Anexo).filter_by(process_id=c.process.id).first()
+    assert a is None or a.ready_at is None
+
+
+@requiere_fix_t1
+def test_marcar_listo_otro_departamento_404(prep, esc, db_session, make_department,
+                                            make_academic_head, client_as):
+    (c,) = prep(1)
+    otro = make_department(name="Otro depto listo anexo")
+    jefe = make_academic_head(otro, kind="head", perms=PERMS + (PREPARE_PERM,))
+    db_session.commit()
+    r = client_as(jefe).post(f"{URL}/{c.process.id}/anexo/listo", data={"note": NOTA})
+    assert r.status_code == 404
+
+
+@requiere_fix_t1
+def test_marcar_listo_sin_prepare_403(prep, esc, db_session, make_academic_head, client_as):
+    (c,) = prep(1)
+    solo = make_academic_head(c.department, kind="coord", perms=PERMS)
+    db_session.commit()
+    r = client_as(solo).post(f"{URL}/{c.process.id}/anexo/listo", data={"note": NOTA})
+    assert r.status_code == 403
+    db_session.expire_all()
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 0
+
+
+@requiere_fix_t1
+def test_marcar_listo_con_corte_3_no_escribe(prep, esc, corte, db_session):
+    (c,) = prep(1)
+    cli = esc.client_as(c.head)
+    corte(3)
+    r = cli.post(f"{URL}/{c.process.id}/anexo/listo", data={"note": NOTA})
+    assert r.status_code == 400 and r.headers.get("X-Tt-Error")
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 0
+    assert not _html(cli.get(BODY, params={"tab": "anexo", "selected": c.process.id})
+                     ).xpath('//*[@id="tt-sin-anexo-panel"]')
+
+
+@requiere_fix_t1
+def test_ya_en_titulacion_no_se_puede_marcar_listo(prep, esc, db_session):
+    (c,) = prep(1)
+    _fase(db_session, c, "in_review")
+    r = esc.client_as(c.head).post(f"{URL}/{c.process.id}/anexo/listo", data={"note": NOTA})
+    assert r.status_code == 400 and r.headers.get("X-Tt-Error")

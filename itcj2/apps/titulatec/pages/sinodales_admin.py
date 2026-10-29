@@ -43,6 +43,7 @@ _ASSIGN_PERM = "titulatec.synodal.api.assign"
 _REPLACE_PERM = "titulatec.synodal.api.replace"
 _READ_PERM = "titulatec.synodal.api.read"
 _ANEXO_PERM = "titulatec.anexo_iii.api.generate"
+_PREPARE_PERM = "titulatec.anexo_iii.api.prepare"
 
 _BASE_URL = "/titulatec/admin/sinodales"
 _PAGE_TPL = "titulatec/admin/sinodales.html"
@@ -150,6 +151,37 @@ def _docentes(db, department_id) -> list[dict]:
     return salida
 
 
+def _anexo_ctx(db, proc, perms) -> dict | None:
+    """Panel de la fase 6 del detalle (spec fase 6 v2 §8.2): etapa, folio,
+    firmantes, motivo de reimpresion y el formulario de «listo para recoger»
+    con la nota precargada. None si el Anexo no se opera / no se alcanzo.
+    Tipos planos: la plantilla se pinta tras cerrar la sesion."""
+    from itcj2.apps.titulatec.services.anexo_service import (
+        NOTE_MAX, STAGE_LABELS, AnexoService,
+    )
+
+    etapa = AnexoService.stage(db, proc)
+    if etapa is None:
+        return None
+    info = AnexoService.ready_info(db, proc) or {}
+    try:
+        firmantes = AnexoService.signer_labels(proc)
+    except ValueError:
+        firmantes = []
+    imprimir = _READ_PERM in perms and _ANEXO_PERM in perms
+    puede_listo = (imprimir and _PREPARE_PERM in perms
+                   and etapa in ("preparing", "reprint", "ready"))
+    return {
+        "stage": etapa, "stage_label": STAGE_LABELS[etapa], "folio": info.get("folio"),
+        "signers": firmantes,
+        "reprint_reason": info.get("reprint_reason") if etapa == "reprint" else None,
+        "ready_label": info.get("ready_label"), "pickup_note": info.get("pickup_note"),
+        "can_print": imprimir, "can_ready": puede_listo,
+        "note": (AnexoService.default_pickup_note(db, proc) or "") if puede_listo else "",
+        "note_max": NOTE_MAX, "error": None,
+    }
+
+
 def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> dict:
     """El detalle de UN proceso: datos de pantalla, sinodales, historial y qué
     acciones ofrecer. Todo dict plano (la sesión se cierra antes de pintar)."""
@@ -209,6 +241,7 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
         db, process_id, holidays=NonWorkingDayService.holidays(db)) if review_applies else None)
 
     return {
+        "anexo": _anexo_ctx(db, proc, perms),
         "process_id": process_id, "folio": proc.folio,
         "name": _nombre(alumno) or _VACIO,
         "control": (alumno.control_number if alumno else None) or _VACIO,
@@ -237,7 +270,7 @@ def _detail_ctx(db, *, process_id: int, user_id: int, perms, operable: bool) -> 
 
 
 def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
-              per_page: int | None = None) -> dict:
+              per_page: int | None = None, etapa="") -> dict:
     """Contexto del parcial `_body.html` (y de la página completa).
 
     Sin corte operable: solo el estado vacío (cero consultas de bandeja). Sin
@@ -259,6 +292,9 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
         "page": Page(items=[], total=0, page=1, per_page=per_page or PAGE_SIZE),
         "counts": {t: 0 for t in SynodalInboxService.TABS},
         "departments": [], "programs": [], "detail": None, "selected_id": None,
+        "etapa": "preparar",
+        "etapa_counts": {e: 0 for e in SynodalInboxService.ETAPAS},
+        "etapas": list(SynodalInboxService.ETAPA_LABELS.items()),
     }
     if not operable:
         return ctx
@@ -276,7 +312,8 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
         carrera_id = None
 
     data = SynodalInboxService.list(db, user_id, tab=tab, q=q, program_id=carrera_id,
-                                    department_id=depto_id, page=page, per_page=per_page)
+                                    department_id=depto_id, page=page, per_page=per_page,
+                                    etapa=etapa)
     rows = data["rows"]
     for r in rows:
         r["started_label"] = dia_largo(r["started_at"]) if r["started_at"] else None
@@ -298,6 +335,8 @@ def _body_ctx(db, *, user_id: int, tab, q, carrera, depto, page, selected_id,
     ctx.update({"rows": rows, "page": data["page"], "counts": data["counts"],
                 "carrera": carrera_id, "depto": depto_id, "programs": carreras,
                 "detail": detail, "selected_id": detail_id})
+    if tab == "anexo":
+        ctx.update(etapa=data["etapa"], etapa_counts=data["etapa_counts"])
     return ctx
 
 
@@ -306,7 +345,7 @@ def _vista(form) -> dict:
     actuó: la acción re-pinta la MISMA vista (regla 3 de la paginación)."""
     return {"tab": form.get("tab") or "pending", "q": form.get("q") or "",
             "carrera": form.get("carrera") or "", "depto": form.get("depto") or "",
-            "page": form.get("page") or ""}
+            "page": form.get("page") or "", "etapa": form.get("etapa") or ""}
 
 
 def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str):
@@ -323,7 +362,7 @@ def _repintar(request, db, user_id: int, vista: dict, selected_id, aviso: str):
 # ===========================================================================
 @router.get("", name="titulatec.pages.sinodales.home")
 def home(request: Request, tab: str = "", q: str = "", carrera: str = "", depto: str = "",
-         page: str = "", selected: str = "",
+         page: str = "", selected: str = "", etapa: str = "",
          user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
     """Página completa. Los parámetros llegan como `str` (htmx los manda vacíos)
     y se parsean a mano."""
@@ -331,7 +370,8 @@ def home(request: Request, tab: str = "", q: str = "", carrera: str = "", depto:
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, carrera=carrera,
-                        depto=depto, page=page, selected_id=_to_int(selected))
+                        depto=depto, page=page, selected_id=_to_int(selected),
+                        etapa=etapa)
     finally:
         db.close()
     return render_titulatec(request, _PAGE_TPL, ctx)
@@ -339,14 +379,15 @@ def home(request: Request, tab: str = "", q: str = "", carrera: str = "", depto:
 
 @router.get("/body", name="titulatec.pages.sinodales.body")
 def body(request: Request, tab: str = "", q: str = "", carrera: str = "", depto: str = "",
-         page: str = "", selected: str = "",
+         page: str = "", selected: str = "", etapa: str = "",
          user: dict = Depends(require_page_app("titulatec", perms=_VIEW_PERMS))):
     """Parcial `#tt-sin-body`: pestañas, búsqueda, filtros, página y detalle."""
     from itcj2.database import SessionLocal
     db = SessionLocal()
     try:
         ctx = _body_ctx(db, user_id=int(user["sub"]), tab=tab, q=q, carrera=carrera,
-                        depto=depto, page=page, selected_id=_to_int(selected))
+                        depto=depto, page=page, selected_id=_to_int(selected),
+                        etapa=etapa)
     finally:
         db.close()
     return render_titulatec(request, _BODY_TPL, ctx)
@@ -438,6 +479,77 @@ def _cuerpo_replace(process_id, request, user, form):
             return _error(str(exc))
         return _repintar(request, db, uid, _vista(form), process_id,
                          f"Se sustituyó al {ROLE_LABELS[role]}.")
+    finally:
+        db.close()
+
+
+# ===========================================================================
+# Anexo III: marcar listo para recoger (fase 6 v2, spec §7 y §8.2)
+# ===========================================================================
+@router.post("/{process_id}/anexo/listo", name="titulatec.pages.sinodales.anexo_ready")
+async def anexo_ready(process_id: int, request: Request,
+                      user: dict = Depends(require_page_app("titulatec", perms=[_PREPARE_PERM]))):
+    """Marca el Anexo III listo para recoger con la nota de lugar y horario (o
+    corrige la nota estando ya listo). Exige `prepare` (el gate) y, dentro,
+    `generate` + `synodal.api.read` + alcance."""
+    form = dict(await request.form())
+    return await run_in_threadpool(
+        _cuerpo_anexo_ready, process_id=process_id, request=request, user=user, form=form)
+
+
+def _cuerpo_anexo_ready(process_id, request, user, form):
+    """Cuerpo síncrono de `anexo_ready`: corre en el threadpool, no en el event loop."""
+    from itcj2.apps.titulatec.services.anexo_service import (
+        NOT_OPERABLE_MSG, NOTE_REQUIRED_MSG, NOTE_TOO_LONG_MSG, AnexoService,
+        AnexoStageChanged,
+    )
+    from itcj2.apps.titulatec.services.scope_service import assert_process_in_scope
+    from itcj2.core.services.authz_cache import cached_perms
+    from itcj2.database import SessionLocal
+    from itcj2.exceptions import PageForbidden
+
+    uid = int(user["sub"])
+    nota = form.get("note") or ""
+    db = SessionLocal()
+    try:
+        proc = assert_process_in_scope(db, uid, process_id)
+        _exigir_bandeja(db, uid)
+        if not {_READ_PERM, _ANEXO_PERM, _PREPARE_PERM} <= set(cached_perms(db, uid, "titulatec")):
+            raise PageForbidden(has_app_access=True)
+        if not _anexo_operable(db):
+            return _error(NOT_OPERABLE_MSG)
+        try:
+            res = AnexoService.mark_ready(db, proc, uid, nota,
+                                          expected_stage=form.get("expected_stage") or None)
+            db.commit()
+        except AnexoStageChanged:
+            # Otra persona lo movió mientras tanto (molde R24): 200 + panel vigente + aviso.
+            db.rollback()
+            resp = render_titulatec(request, _BODY_TPL, _body_ctx(
+                db, user_id=uid, selected_id=process_id, **dict(_vista(form), tab="anexo")))
+            resp.headers["X-Tt-Notice"] = _hdr(
+                "El Anexo III cambió mientras lo revisabas: revisa su estado e inténtalo de nuevo.")
+            resp.headers["X-Tt-Notice-Kind"] = "warning"
+            return resp
+        except ValueError as exc:
+            msg = str(exc)
+            if msg not in (NOTE_REQUIRED_MSG, NOTE_TOO_LONG_MSG):
+                return _error(msg)
+            # Validación del formulario: 200 y el mismo panel con el error y lo tecleado.
+            ctx = _body_ctx(db, user_id=uid, selected_id=process_id,
+                            **dict(_vista(form), tab="anexo"))
+            if ctx["detail"] and ctx["detail"].get("anexo"):
+                ctx["detail"]["anexo"].update(error=msg, note=nota)
+            return render_titulatec(request, _BODY_TPL, ctx)
+        try:
+            if res["first"] or res.get("changed"):
+                AnexoService.notify_ready(process_id)
+        except Exception:
+            logger.warning("notify_ready fallo para el proceso %s", process_id, exc_info=True)
+        aviso = ("Anexo III listo para recoger: se avisó al egresado." if res["first"]
+                 else "Se actualizó el lugar y el horario de recogida.")
+        vista = dict(_vista(form), tab="anexo", etapa="recoger", page="")
+        return _repintar(request, db, uid, vista, process_id, aviso)
     finally:
         db.close()
 
