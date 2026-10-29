@@ -205,10 +205,10 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_115_permisos_conocidos():
+def test_el_dml_declara_los_116_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    115 es el numero (2026-10-22: +3 de fase_2/04, Anexo III; 112 antes; 110 hasta fase_2/02, sinodales; 2026-10-22: sube de 110 a 112 por
+    116 es el numero (2026-10-29: -1 +2 de fase_2/04, Anexo III v2: sale generate.own, entran preview.own y prepare; 2026-10-22: +3 de fase_2/04, Anexo III; 112 antes; 110 hasta fase_2/02, sinodales; 2026-10-22: sube de 110 a 112 por
     non_working_day.page.list y .api.manage de fase_2/03, revision de sinodales) verificado en BD tras `titulatec init-titulatec-fase-2`
     (o tras `init-titulatec` + `init-titulatec-fase-2` desde cero).
 
@@ -259,8 +259,8 @@ def test_el_dml_declara_los_115_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 115, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 115 "
+    assert len(declared) == 116, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 116 "
         "(2026-10-21: sube de 103 a 105 por los dos permisos de fase_2/01, "
         "Formato B en Titulacion, y de 105 a 110 por los cinco de fase_2/02: "
         "docentes, sustitucion de sinodales y carreras por departamento). Actualiza este numero "

@@ -44,6 +44,7 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.teacher.api.manage",
         "titulatec.synodal.api.replace",
         "titulatec.anexo_iii.api.generate",
+        "titulatec.anexo_iii.api.prepare",
     },
     "admin": {
         "titulatec.titulacion.page.list",
@@ -57,9 +58,10 @@ _FASE_2_EXPECTED: dict[str, set[str]] = {
         "titulatec.non_working_day.api.manage",
         "titulatec.anexo_iii.api.generate",
         "titulatec.anexo_iii.api.review",
+        "titulatec.anexo_iii.api.prepare",
     },
     "graduate": {
-        "titulatec.anexo_iii.api.generate.own",
+        "titulatec.anexo_iii.api.preview.own",
     },
     "titulatec_sinodal": {
         "titulatec.synodal.page.my_reviews",
@@ -80,10 +82,16 @@ _FASE_2_NEW_PERMISSIONS: set[str] = {
     "titulatec.program_department.api.manage",
     "titulatec.non_working_day.page.list",
     "titulatec.non_working_day.api.manage",
-    "titulatec.anexo_iii.api.generate.own",
+    "titulatec.anexo_iii.api.preview.own",
+    "titulatec.anexo_iii.api.prepare",
     "titulatec.anexo_iii.api.generate",
     "titulatec.anexo_iii.api.review",
 }
+
+# Permisos que emiten folio: el egresado NO puede tenerlos (el oficial lo imprime
+# vinculacion; el alumno solo ve la vista previa).
+_FASE_2_GRADUATE_FORBIDDEN: tuple[str, ...] = (
+    "titulatec.anexo_iii.api.generate", "titulatec.anexo_iii.api.generate.own")
 
 # Tarea periodica sembrada por `03_revision_sinodales.sql` (cron diario 9:15).
 # El verificador exige que EXISTA; inactiva (pausada desde /config/system/tasks)
@@ -355,6 +363,16 @@ def _verify_fase_2() -> list[str]:
                 ).first()
                 if concedido is None:
                     problemas.append(f"el rol {rol} no tiene {codigo}")
+
+        for codigo in _FASE_2_GRADUATE_FORBIDDEN:
+            if db.execute(
+                    text("SELECT 1 FROM core_role_permissions rp "
+                         "JOIN core_roles r ON r.id = rp.role_id "
+                         "JOIN core_permissions p ON p.id = rp.perm_id "
+                         "JOIN core_apps a ON a.id = p.app_id "
+                         "WHERE a.key = 'titulatec' AND r.name = 'graduate' AND p.code = :c"),
+                    {"c": codigo}).first() is not None:
+                problemas.append(f"el rol graduate conserva {codigo}")
 
         # --- 02_sinodales: permisos nuevos ---
         existentes = {r[0] for r in db.execute(

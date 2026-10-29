@@ -27,7 +27,8 @@ P_PD_LIST = "titulatec.program_department.page.list"
 P_PD_MANAGE = "titulatec.program_department.api.manage"
 P_NWD_LIST = "titulatec.non_working_day.page.list"
 P_NWD_MANAGE = "titulatec.non_working_day.api.manage"
-P_ANX_OWN = "titulatec.anexo_iii.api.generate.own"
+P_ANX_OWN = "titulatec.anexo_iii.api.preview.own"
+P_ANX_PREP = "titulatec.anexo_iii.api.prepare"
 P_ANX_GEN = "titulatec.anexo_iii.api.generate"
 P_ANX_REV = "titulatec.anexo_iii.api.review"
 SINODAL_GRANTS = {"titulatec.synodal.page.my_reviews", "titulatec.synodal.api.vote",
@@ -54,9 +55,9 @@ def test_expected_son_exactamente_los_grants_del_spec():
         "titulatec_titulaciones": {P_LIST, P_CORRECT, P_SYN_READ, P_SYN_LIST, P_SYN_ASSIGN,
                                    P_SYN_REPLACE, P_TEACHER_LIST, P_TEACHER_MANAGE,
                                    P_NWD_LIST, P_NWD_MANAGE, P_ANX_GEN, P_ANX_REV},
-        "titulatec_vinculacion": {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE, P_ANX_GEN},
+        "titulatec_vinculacion": {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE, P_ANX_GEN, P_ANX_PREP},
         "admin": {P_LIST, P_CORRECT, P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
-                  P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE, P_ANX_GEN, P_ANX_REV},
+                  P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE, P_ANX_GEN, P_ANX_REV, P_ANX_PREP},
         "graduate": {P_ANX_OWN},
         "titulatec_sinodal": SINODAL_GRANTS,
     }
@@ -65,7 +66,7 @@ def test_expected_son_exactamente_los_grants_del_spec():
                                        "03_revision_sinodales.sql", "04_anexo_iii.sql"]
     assert fase2._FASE_2_NEW_PERMISSIONS == {P_TEACHER_LIST, P_TEACHER_MANAGE, P_SYN_REPLACE,
                                              P_PD_LIST, P_PD_MANAGE, P_NWD_LIST, P_NWD_MANAGE,
-                                             P_ANX_OWN, P_ANX_GEN, P_ANX_REV}
+                                             P_ANX_OWN, P_ANX_PREP, P_ANX_GEN, P_ANX_REV}
     assert len(fase2._FASE_2_PROGRAM_DEPARTMENTS) == 29
     assert set(fase2._FASE_2_PROGRAM_DEPARTMENTS.values()) == set(fase2._FASE_2_DEPARTMENTS)
     assert len(fase2._FASE_2_DEPARTMENTS) == 8
@@ -515,7 +516,7 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
     from itcj2.cli.titulatec import fase2 as cli
 
     for codigo in cli._FASE_2_NEW_PERMISSIONS - {P_NWD_LIST, P_NWD_MANAGE,
-                                                  P_ANX_OWN, P_ANX_GEN, P_ANX_REV}:  # nacen en el 03 / 04
+                                                  P_ANX_OWN, P_ANX_PREP, P_ANX_GEN, P_ANX_REV}:  # nacen en el 03 / 04
         assert f"'{codigo}'" in cuerpo
     for nombre in cli._FASE_2_PROGRAM_DEPARTMENTS:
         assert f"'{nombre}'" in cuerpo, nombre
@@ -537,7 +538,10 @@ def test_el_02_siembra_lo_que_el_verificador_espera():
 def test_el_04_siembra_lo_que_el_verificador_espera():
     sql = (DML / "fase_2/04_anexo_iii.sql").read_text(encoding="utf-8")
     cuerpo = sql.split("DO $$", 1)[1]
-    for codigo in (P_ANX_OWN, P_ANX_GEN, P_ANX_REV):
+    for codigo in (P_ANX_GEN, P_ANX_REV):
+        assert codigo in cuerpo
+    assert "DELETE FROM core_role_permissions" in cuerpo and "DELETE FROM core_permissions" in cuerpo
+    for codigo in (P_ANX_OWN, P_ANX_PREP):
         assert codigo in cuerpo
     assert "ON CONFLICT (app_id, code) DO NOTHING" in cuerpo
     assert "ON CONFLICT DO NOTHING" in cuerpo
@@ -546,6 +550,25 @@ def test_el_04_siembra_lo_que_el_verificador_espera():
     assert "Informe de proyecto de investigación" in cuerpo
     assert "product_label IS NULL" in cuerpo
     assert "'[4, 5, 6]'" in cuerpo
+
+
+def test_verify_fase_2_graduate_no_conserva_permisos_que_emiten_folio(
+        db_session, patched_session_local):
+    from sqlalchemy import text
+
+    from itcj2.cli.titulatec import fase2 as cli
+
+    app_id = db_session.execute(text("SELECT id FROM core_apps WHERE key='titulatec'")).scalar()
+    rol = db_session.execute(text("SELECT id FROM core_roles WHERE name='graduate'")).scalar()
+    perm = db_session.execute(
+        text("SELECT id FROM core_permissions WHERE app_id=:a AND code=:c"),
+        {"a": app_id, "c": "titulatec.anexo_iii.api.generate"}).scalar()
+    assert app_id and rol and perm
+    db_session.execute(text(
+        "INSERT INTO core_role_permissions (role_id, perm_id) VALUES (:r, :p) "
+        "ON CONFLICT DO NOTHING"), {"r": rol, "p": perm})
+    db_session.flush()
+    assert "el rol graduate conserva titulatec.anexo_iii.api.generate" in cli._verify_fase_2()
 
 
 def test_verify_fase_2_exige_product_label_y_el_salto_de_egel(
