@@ -21,6 +21,8 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.templates.api.read",
     "prorrogas_tec.templates.api.upload",
     "prorrogas_tec.invitations.api.create",
+    "prorrogas_tec.requests.api.read.all",
+    "prorrogas_tec.requests.api.decide",
 ]
 
 STUDENT_PERMS = [

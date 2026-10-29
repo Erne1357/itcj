@@ -1,6 +1,7 @@
 """Solicitud de prórroga del estudiante: una abierta por semestre y solo tras unirse (QR o invitación)."""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
@@ -14,11 +15,14 @@ from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.formatting import nombre_oficial
 from itcj2.apps.prorrogas_tec.services.identity import folio, institutional_email
+from itcj2.apps.prorrogas_tec.services import notify
 from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.models.program import Program
 from itcj2.core.models.user import User
 from itcj2.core.utils.timezone import db_now
+
+logger = logging.getLogger(__name__)
 
 _ABIERTA = ("solicitud_abierta", "Ya tienes una solicitud abierta en este semestre.")
 
@@ -26,6 +30,7 @@ _ABIERTA = ("solicitud_abierta", "Ya tienes una solicitud abierta en este semest
 class RequestService:
     MOTIVO_MIN = 20
     MOTIVO_MAX = 1000
+    COMENTARIO_MAX = 1000
 
     @staticmethod
     def access(db, user_id: int, *, now: datetime | None = None) -> tuple[AcademicPeriod | None, str | None]:
@@ -115,6 +120,55 @@ class RequestService:
     def mine(db, student_id: int) -> list[ProrrogaRequest]:
         return (db.query(ProrrogaRequest).filter_by(student_id=student_id)
                 .order_by(ProrrogaRequest.created_at.desc(), ProrrogaRequest.id.desc()).all())
+
+    @staticmethod
+    def pending(db) -> list[ProrrogaRequest]:
+        return (db.query(ProrrogaRequest).filter_by(status="pendiente")
+                .order_by(ProrrogaRequest.created_at.desc(), ProrrogaRequest.id.desc()).all())
+
+    @staticmethod
+    def decide(db, request_id: int, actor_id: int, *, aceptar: bool, comentario: str | None,
+               now: datetime | None = None) -> ProrrogaRequest:
+        """La secretaria acepta o rechaza; genera la carta y avisa al estudiante."""
+        comentario = (comentario or "").strip()
+        if len(comentario) > RequestService.COMENTARIO_MAX:
+            raise ServiceError("comentario_muy_largo",
+                               f"El comentario no puede pasar de {RequestService.COMENTARIO_MAX} caracteres.")
+        if not aceptar and not comentario:
+            raise ServiceError("motivo_requerido", "Escribe el motivo del rechazo.")
+        now = now or db_now()
+        req = (db.query(ProrrogaRequest).filter_by(id=request_id)
+               .populate_existing().with_for_update().first())
+        if req is None:
+            raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
+        if req.status != "pendiente":
+            db.rollback()  # suelta el candado
+            raise ServiceError("ya_resuelta", "Esta solicitud ya fue resuelta.", status=409)
+        try:
+            req.status = "aceptada" if aceptar else "rechazada"
+            req.decided_by_id = actor_id
+            req.decided_at = now
+            req.decision_comment = comentario or None
+            req.updated_at = now
+            DocumentService.generate(
+                db, req, "carta_aceptacion" if aceptar else "carta_rechazo", actor_id=actor_id,
+                today=now.date(),
+                extra={"comentario": comentario} if aceptar else {"motivo_rechazo": comentario})
+            log_event(db, event_type="solicitud_aceptada" if aceptar else "solicitud_rechazada",
+                      request_id=req.id, actor_id=actor_id, payload={"comentario": comentario or None})
+            db.commit()
+        except Exception:  # p. ej. pdf_no_disponible: sigue pendiente y puede reintentar
+            db.rollback()
+            raise
+        db.refresh(req)
+        notify.notify_student(db, req, kind="aceptada" if aceptar else "rechazada",
+                              link="/prorrogas/estudiante")
+        try:  # el aviso en la plataforma sale con este commit; si falla, la decisión ya está firme
+            db.commit()
+        except Exception:
+            logger.exception("No se pudo guardar el aviso de la solicitud %s", req.id)
+            db.rollback()
+        return req
 
     @staticmethod
     def request_out(db, req: ProrrogaRequest) -> dict:
