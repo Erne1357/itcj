@@ -6,6 +6,7 @@ jamás, porque una liga de invitación en el log es una credencial en texto clar
 """
 import logging
 
+from itcj2.config import get_settings
 from itcj2.core.services.notification_service import NotificationService
 from itcj2.core.utils import msgraph_mail
 
@@ -62,6 +63,7 @@ def notify_student(db, req, *, kind: str, link: str) -> None:
                                        data={"url": link, "request_id": req.id})
     except Exception:
         logger.exception("No se pudo crear el aviso de la solicitud %s", req.id)
+    url = f"{get_settings().DOMAIN}{link}"  # en el correo la liga es absoluta; en la plataforma, relativa
     send_email(template=f"decision_{kind}.html",
-               context={"folio": f"PR-{req.id:05d}", "link": link, "comentario": req.decision_comment},
-               subject=title, to=req.email, link=link)
+               context={"folio": f"PR-{req.id:05d}", "link": url, "comentario": req.decision_comment},
+               subject=title, to=req.email, link=url)

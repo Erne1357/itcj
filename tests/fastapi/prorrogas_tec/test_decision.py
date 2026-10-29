@@ -49,7 +49,11 @@ def test_api_el_estudiante_no_decide(client_as, estudiante, solicitud):
 def test_la_notificacion_queda_guardada(db_session, solicitud, secretaria, enviar_correo):
     from itcj2.core.models.notification import Notification
 
+    from itcj2.config import get_settings
+
     RequestService.decide(db_session, solicitud.id, secretaria.id, aceptar=True, comentario="")
+    db_session.rollback()  # descarta lo que la sesión no commiteó: sin el 2.º commit la fila se pierde
+    assert enviar_correo.calls[0]["context"]["link"] == f"{get_settings().DOMAIN}/prorrogas/estudiante"
     notas = db_session.query(Notification).filter_by(
         user_id=solicitud.student_id, app_name="prorrogas_tec", type="prorroga_aceptada").all()
     assert len(notas) == 1 and len(enviar_correo.calls) == 1
@@ -60,3 +64,19 @@ def test_comentario_muy_largo_y_pendientes(db_session, solicitud, secretaria):
         RequestService.decide(db_session, solicitud.id, secretaria.id, aceptar=True, comentario="x" * 1001)
     assert e.value.code == "comentario_muy_largo"
     assert solicitud.id in [r.id for r in RequestService.pending(db_session)]
+
+
+def test_pdf_no_disponible_deja_la_solicitud_pendiente(db_session, solicitud, secretaria, avisos, monkeypatch):
+    from itcj2.core.utils import docx_pdf
+
+    def roto(data, *, kind):
+        raise docx_pdf.PdfConversionError("sin libreoffice")
+
+    monkeypatch.setattr(docx_pdf, "docx_to_pdf", roto)
+    db_session.commit()  # el rollback de decide no debe llevarse la solicitud del fixture
+    with pytest.raises(ServiceError) as e:
+        RequestService.decide(db_session, solicitud.id, secretaria.id, aceptar=True, comentario="")
+    assert e.value.code == "pdf_no_disponible" and e.value.status == 503
+    db_session.refresh(solicitud)
+    assert solicitud.status == "pendiente" and solicitud.decided_by_id is None
+    assert DocumentService.current(db_session, solicitud) == [] and avisos.calls == []

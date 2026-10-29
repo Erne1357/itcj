@@ -105,7 +105,9 @@ class RequestService:
 
     @staticmethod
     def cancel(db, request_id: int, student_id: int, *, now: datetime | None = None) -> ProrrogaRequest:
-        req = db.query(ProrrogaRequest).filter_by(id=request_id, student_id=student_id).first()
+        # Con candado: si decide() corre a la vez, esperamos y releemos el estado (no pisar "aceptada").
+        req = (db.query(ProrrogaRequest).filter_by(id=request_id, student_id=student_id)
+               .populate_existing().with_for_update().first())
         if req is None:
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
         if req.status != "pendiente":
