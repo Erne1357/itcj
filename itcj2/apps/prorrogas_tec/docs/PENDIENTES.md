@@ -16,6 +16,10 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | H1 | Revisar a ojo las 6 cartas generadas (Plan 1, Task 5, Step 6) | No hubo forma de ver los PDF desde la sesión. Lo más delicado: la firma del estudiante sobre su nombre no debe desalinear la columna del Director en las cartas compromiso | Abrir `instance/tmp/preview/ejemplo-*.pdf` (llenas con datos de ejemplo). Si algo se ve mal, corregir el `.docx` en `documents/defaults/` con Word |
 | H2 | Conectar el buzón `agendatec@cdjuarez.tecnm.mx` para la app **Prórrogas** | Sin eso, una invitación manual no le llega a nadie: no tiene aviso en la plataforma (la pantalla avisa que el correo no salió). Solo las decisiones dejan además un aviso en la plataforma | `/itcj/config/email` → app Prórrogas → iniciar sesión con la cuenta (OAuth) |
 | H3 | Confirmar las decisiones del Plan 2 | Cambian cómo entra el estudiante | Ver "Decisiones de este plan" en `docs/superpowers/plans/2026-10-29-prorrogas-plan2-invitacion-solicitud-decision.md` |
+| H4 | Probar en un celular el recorrido completo del Plan 2 | Nadie lo ha corrido en un navegador: QR → iniciar sesión → regresar a unirse; trazar la firma con el dedo (y girar el teléfono); en la secretaría, el modal con el PDF, Aceptar/Rechazar y que la lista se refresque sola | Secretaría: `secretaria.prorrogas`. Estudiante nuevo: en "Sin celular" invitar un número de control ficticio con correo `@example.invalid` y tomar la liga del log del backend (`[PRORROGAS-LINK]`, solo en desarrollo) |
+| H5 | Correr dos consultas en la base | (a) Números de control en minúsculas: una invitación no los encuentra y crearía una segunda cuenta. (b) Cuántas cuentas con número de control no tienen NIP (quedaban expuestas antes del arreglo de "Crea tu NIP") | `SELECT control_number FROM core_users WHERE control_number <> upper(control_number);` · `SELECT count(*) FROM core_users WHERE control_number IS NOT NULL AND password_hash IS NULL;` |
+| H6 | Mover el número de control del estudiante de la prueba de humo | Choca con el fixture `estudiante` (`99000001`) cuando se corre una prueba suelta | `UPDATE core_users SET control_number = '99999901' WHERE id = 13152 AND control_number = '99000001';` |
+| H7 | Decidir qué pasa entre semestres | Sin un semestre que cubra la fecha (p. ej. la semana de reinscripción antes del `start_date`), el estudiante ve "no hay semestre" justo cuando paga la inscripción | Pregunta para la Subdirección: abrir el semestre antes, o aceptar la regla |
 
 ## Técnicos (diferidos de la revisión final del Plan 1, 2026-10-29)
 
@@ -30,7 +34,35 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | T7 | Vista previa con `anio=0` usa el año actual en vez de rechazarlo | Menor | `if anio is None` en `api/templates.py` |
 | T8 | Detalles: el ejemplo `{{así}}` de la página Documentos no es un marcador válido; el docstring de `fill_docx` sobre la firma vacía es impreciso; la lista de marcadores solo se ve en el diálogo de subida | Cosmético / claridad | Cambiar el ejemplo por `{{nombre}}`, corregir el docstring, mostrar los marcadores también en cada tarjeta |
 
-## Del fork, todavía en el árbol (resuelto por el Plan 2, Task 1)
+## Técnicos (diferidos de las revisiones del Plan 2, 2026-10-29)
+
+Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorrogas-plan2-invitacion-solicitud-decision/progress.md`, no versionado).
+
+| # | Pendiente | Efecto | Arreglo propuesto |
+|---|---|---|---|
+| D1 | **Para el Plan 3:** firmar un documento que ya existe (carta compromiso) | Si se firma con valores recalculados, el PDF firmado puede diferir del que el estudiante revisó | `DocumentService.sign` vuelve a llenar desde `doc.context`, nunca desde la solicitud viva |
+| D2 | Si `grant_role` choca por una carrera (IntegrityError), su rollback interno descarta la unión mientras `join()` responde éxito | Raro; el estudiante tendría que escanear otra vez | Atrapar la carrera antes de llamar `grant_role`, o volver a verificar después |
+| D3 | `_usable(lock=True)` sin `populate_existing()`; `consume_invitation` hace `db.rollback()` dentro del servicio | Una invitación ya cargada podría consumirse dos veces en una transacción; el llamador pierde trabajo pendiente | `populate_existing()` y lanzar sin rollback |
+| D4 | Sin candado entre validar la invitación y fijar el NIP; dos invitaciones simultáneas al mismo número nuevo dan 500 | Dos POST a la vez podrían fijar dos NIP (ambos del invitado); la secretaria ve un error genérico | `with_for_update` sobre la invitación; mapear el choque de `control_number` a `ServiceError` |
+| D5 | Los tokens viajan en la URL (logs de acceso) y las páginas de unirse no mandan `Cache-Control: no-store` | Un token puede quedar en un log o en la caché del navegador | Encabezado `no-store` en `/prorrogas/unirse*`; filtrar `t=` del log de acceso |
+| D6 | `_NIP` usa `\d` (acepta dígitos no ASCII); si falta el rol global `student`, la cuenta nueva queda con `role_id` NULL sin aviso | Menor | `[0-9]{4}`; lanzar error si no existe el rol |
+| D7 | Un PDF puede quedar huérfano en disco si falla la imagen de la firma o el flush después de escribirlo | Archivo sin fila; la ruta es determinista y la versión la protege la BD | Escribir el PDF al final, o borrar en el error |
+| D8 | `ProrrogaJoin.user_id` y `via` aceptan NULL | Una fila sin dueño pasaría el CHECK | `nullable=False` en una migración |
+| D9 | `institutional_email` lanza `ValueError` con un control inválido; un `doc_type` desconocido da `KeyError` en `build_values`; `control_number` no pasa por `clean_text` | Errores de programación con 500 en vez de `ServiceError` | Validar y lanzar `ServiceError` |
+| D10 | Bajar la base más allá de `p1r2o3r4g001` falla (`drop_index` de tablas que `pr20261030a` ya borró) | Solo afecta un downgrade completo | `DROP TABLE IF EXISTS … CASCADE` en ese downgrade, o documentarlo |
+| D11 | Las solicitudes pendientes viejas nunca vencen | Una solicitud olvidada bloquea al estudiante todo el semestre | Definir con la Subdirección (Plan 3/4) |
+| D12 | El lienzo de la firma se dimensiona una vez: al girar el teléfono, los trazos nuevos salen estirados | El estudiante tendría que borrar y volver a firmar | Recalcular en `resize` cuando no hay trazos |
+| D13 | "Mi prórroga" dice "Aún no tienes solicitudes" también cuando no puede solicitar por otra razón y no tiene historial | Mensaje confuso | Mostrar el motivo |
+| D14 | La lista de pendientes hace una consulta por fila (`DocumentService.current`) | Bien para decenas; lento con cientos | Una sola consulta de los `formato_solicitud` vigentes |
+| D15 | `lookup` muestra el nombre como nombre-paterno-materno | Solo visual | Orden oficial |
+| D16 | El README de la app todavía describe el modelo de datos y la instalación del fork | Documentación engañosa | Reescribir esas secciones |
+| D17 | Detalles de código: líneas en blanco sueltas en `ENDPOINT_MAP` (`itcj2/templates.py`); `pages/router.py` sin salto final; la rama 400 de unirse decide por `e.status`; `_AVISOS[kind]` fuera del `try` en `notify`; el cliente no normaliza el número de control; un `DOMAIN` con `/` final duplicaría la diagonal | Cosmético / frágil | Uno por uno, cuando se toque el archivo |
+| D18 | No hay pruebas de JavaScript en el repo | QR, firma, modal y refresco solo se revisaron leyendo el código | Ligado a H4; considerar Playwright más adelante |
+| D19 | Huecos de prueba: QR sin sesión con token vencido; consumir con la misma cuenta; NIP con formato inválido; segundo escaneo; caso feliz de `log_event`; 503 sin escrituras; LibreOffice real con imagen de firma; log `[PRORROGAS-LINK]`; escape HTML del correo; error de Graph; PDF de otra solicitud → 404; la lista excluye resueltas; el estudiante recibe 403 en lista/detalle/PDF | Regresiones sin red | Agregarlas al tocar cada módulo |
+| D20 | Dos huecos de tiempo en `solicitudes.js`: si la pestaña se oculta con una regeneración del QR en vuelo, el éxito vuelve a armar el temporizador; una respuesta tardía de la lista puede regresar un momento una fila ya decidida | Se corrigen solos en el siguiente refresco | Revisar `document.hidden` antes de re-armar; descartar respuestas viejas con un contador |
+| D21 | `normalize_control` trata `L12345678` y `12345678` como números distintos | Si la secretaria escribe la L para un alumno guardado sin ella, se crea una segunda cuenta (no toma la existente) | Buscar las dos formas en `lookup`/`invite` |
+
+## Del fork, todavía en el árbol (F1–F2 resueltos por el Plan 2, Task 1; F3 queda para ti)
 
 | # | Pendiente | Nota |
 |---|---|---|
@@ -41,6 +73,7 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 ## Solo de desarrollo
 
 - Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
+- Prueba de humo del Plan 2 (`instance/tmp/smoke_prorrogas_plan2.py`, no versionado) dejó en la base de desarrollo: usuario 13152 (control `99000001`, correo `humo99000001@example.invalid`, NIP en el script), solicitud 271 (PR-00271, aceptada), documentos 138–139, unión 89, eventos 306–309. Ver H6.
 
 ---
 
