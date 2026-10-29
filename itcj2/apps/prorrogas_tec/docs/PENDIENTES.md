@@ -18,7 +18,7 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | H3 | Confirmar las decisiones del Plan 2 | Cambian cómo entra el estudiante | Ver "Decisiones de este plan" en `docs/superpowers/plans/2026-10-29-prorrogas-plan2-invitacion-solicitud-decision.md` |
 | H4 | Probar en un celular el recorrido completo del Plan 2 | Nadie lo ha corrido en un navegador: QR → iniciar sesión → regresar a unirse; trazar la firma con el dedo (y girar el teléfono); en la secretaría, el modal con el PDF, Aceptar/Rechazar y que la lista se refresque sola | Secretaría: `secretaria.prorrogas`. Estudiante nuevo: en "Sin celular" invitar un número de control ficticio con correo `@example.invalid` y tomar la liga del log del backend (`[PRORROGAS-LINK]`, solo en desarrollo) |
 | H5 | Correr dos consultas en la base | (a) Números de control en minúsculas: una invitación no los encuentra y crearía una segunda cuenta. (b) Cuántas cuentas con número de control no tienen NIP (quedaban expuestas antes del arreglo de "Crea tu NIP") | `SELECT control_number FROM core_users WHERE control_number <> upper(control_number);` · `SELECT count(*) FROM core_users WHERE control_number IS NOT NULL AND password_hash IS NULL;` |
-| H6 | Mover el número de control del estudiante de la prueba de humo | Choca con el fixture `estudiante` (`99000001`) en una prueba suelta, y rompe `tests/fastapi/titulatec/test_enrollment_request_service.py::test_create_deja_la_solicitud_en_revision_sin_token_ni_correo[sin-cuenta]`, que da por hecho que `99000001` no tiene cuenta | `UPDATE core_users SET control_number = '99999901' WHERE id = 13152 AND control_number = '99000001';` |
+| H6 | **[hecho 2026-10-29]** Mover el número de control del estudiante de la prueba de humo | Choca con el fixture `estudiante` (`99000001`) en una prueba suelta, y rompe `tests/fastapi/titulatec/test_enrollment_request_service.py::test_create_deja_la_solicitud_en_revision_sin_token_ni_correo[sin-cuenta]`, que da por hecho que `99000001` no tiene cuenta | `UPDATE core_users SET control_number = '99999901' WHERE id = 13152 AND control_number = '99000001';` |
 | H7 | Decidir qué pasa entre semestres | Sin un semestre que cubra la fecha (p. ej. la semana de reinscripción antes del `start_date`), el estudiante ve "no hay semestre" justo cuando paga la inscripción | Pregunta para la Subdirección: abrir el semestre antes, o aceptar la regla |
 
 ## Técnicos (diferidos de la revisión final del Plan 1, 2026-10-29)
@@ -73,7 +73,7 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 ## Solo de desarrollo
 
 - Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
-- Prueba de humo del Plan 2 (`instance/tmp/smoke_prorrogas_plan2.py`, no versionado) dejó en la base de desarrollo: usuario 13152 (control `99000001`, correo `humo99000001@example.invalid`, NIP en el script), solicitud 271 (PR-00271, aceptada), documentos 138–139, unión 89, eventos 306–309. Ver H6.
+- Prueba de humo del Plan 2 (`instance/tmp/smoke_prorrogas_plan2.py`, no versionado) dejó en la base de desarrollo: usuario 13152 (control `99999901` desde H6, correo `humo99000001@example.invalid`, NIP en el script), solicitud 271 (PR-00271, aceptada), documentos 138–139, unión 89, eventos 306–309. Ver H6.
 
 ---
 
