@@ -123,7 +123,7 @@ def preview_template(
     filled = fill_docx(data, *sample_values(doc_type))
     try:
         pdf = docx_pdf.docx_to_pdf(filled, kind=PDF_KIND)
-    except docx_pdf.PdfConversionError:
+    except docx_pdf.CONVERSION_ERRORS:
         logger.exception("Vista previa de plantilla sin PDF", extra={"doc_type": doc_type, "year": anio})
         return _error(503, "pdf_no_disponible",
                       "No se pudo generar el PDF. Intenta de nuevo o descarga la plantilla.")

@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 
 from itcj2.apps.prorrogas_tec.documents.catalog import default_template_path
@@ -99,3 +101,15 @@ def test_marcador_mal_escrito_responde_400_con_la_lista(client_as, secretaria, d
     r = _post(client_as(secretaria), docx_con(*RECHAZO_OK, "{{Nombre}}"))
     assert r.status_code == 400 and r.json()["error"] == "marcadores_mal_escritos"
     assert r.json()["mal_escritos"] == ["{{Nombre}}"]
+
+
+# Revisión final del Plan 1 (#1): LibreOffice colgado (timeout) o que no arranca
+# (OSError) también es "PDF no disponible", no un 500.
+@pytest.mark.parametrize("exc", [subprocess.TimeoutExpired(["soffice"], 60), OSError("soffice no arranca")])
+def test_vista_previa_con_libreoffice_colgado_responde_503(client_as, secretaria, monkeypatch, exc):
+    def boom(data, *, kind):
+        raise exc
+
+    monkeypatch.setattr("itcj2.core.utils.docx_pdf.docx_to_pdf", boom)
+    r = client_as(secretaria).get(f"{API}/vista-previa/carta_rechazo.pdf?anio={ANIO}")
+    assert r.status_code == 503 and r.json()["error"] == "pdf_no_disponible"

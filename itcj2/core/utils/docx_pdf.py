@@ -24,6 +24,13 @@ class PdfConversionError(RuntimeError):
     """LibreOffice no está, falló o no produjo el PDF."""
 
 
+# Todo lo que puede salir de `docx_to_pdf` cuando LibreOffice no da el PDF. La
+# función deja pasar `TimeoutExpired` tal cual (helpdesk lo cuenta como timeout)
+# y `subprocess.run` puede lanzar `OSError`; quien quiera "PDF no disponible" en
+# vez de un 500 atrapa esta tupla.
+CONVERSION_ERRORS = (PdfConversionError, subprocess.TimeoutExpired, OSError)
+
+
 def find_libreoffice() -> str | None:
     for cmd in ['libreoffice', 'soffice']:
         if shutil.which(cmd):
