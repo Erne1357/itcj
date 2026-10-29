@@ -1,0 +1,314 @@
+{# Detalle de la pestaña Sinodales (spec 2026-10-21 fase 4 §9).
+
+   - Encabezado: alumno, control, carrera y departamento; opción
+     (`option_label`), título del trabajo y fecha de aprobación del Formato B.
+   - Sin sinodales y con permiso (`synodal.api.assign` + departamento que el
+     usuario opera): los 4 selects con el catálogo del departamento DE LA
+     CARRERA, solo perfiles completos, y «Registrar sinodales» con
+     confirmación (`hx-confirm` -> `confirmDialog` del puente de
+     `titulatec-utils.js`). `js/admin/sinodales.js` apaga en cada select a
+     quien ya se eligió en otro; el servidor lo vuelve a exigir.
+   - Con sinodales: la tabla de los 4, «Descargar oficio» (`synodal.api.read`)
+     y «Sustituir» por fila (`synodal.api.replace`), que despliega su
+     formulario (`data-tt-sin-toggle`) con motivo obligatorio. Debajo, el
+     historial de sustituciones.
+   Un error del servicio responde 400 + `X-Tt-Error` y el formulario se queda
+   como está (htmx no hace swap en un 4xx). Ids estables en la raíz y en cada
+   fila. #}
+{% from "titulatec/_macros.html" import pill %}
+{% if not detail %}
+<div id="tt-sin-detail-empty" class="tt-card tt-sin-empty">
+  <i class="bi bi-people" aria-hidden="true"></i>
+  <p class="tt-sin-empty-text">{% if rows %}Elige un egresado de la lista para {{ 'asignarle sus sinodales' if tab == 'pending' else 'ver a sus sinodales' }}.{% elif tab == 'pending' %}No queda ningún egresado por asignar.{% else %}Nada que mostrar en esta pestaña.{% endif %}</p>
+</div>
+{% else %}
+{% set d = detail %}
+{% set URL = '/titulatec/admin/sinodales/' ~ d.process_id %}
+<article id="tt-sin-detail" class="tt-sin-detail" data-process="{{ d.process_id }}">
+  <header class="tt-card tt-sin-head">
+    <div class="tt-sin-head-main">
+      <span class="tt-kicker">{{ d.folio }}</span>
+      <h2 class="tt-display tt-sin-name">{{ d.name }}</h2>
+      <p class="tt-sin-sub tt-mono">{{ d.control }} · {{ d.program }}</p>
+      {% if d.department %}<p class="tt-sin-sub">{{ d.department }}</p>{% endif %}
+    </div>
+    {# En «En Anexo III» la etapa del panel es el estado que importa: la píldora de
+       la fase 4 («Sinodales asignados») competía con ella en el encabezado. #}
+    {% if not d.anexo %}
+    <div class="tt-sin-head-aside">
+      {% if d.synodals %}{{ pill("Sinodales asignados", "success", "check-lg") }}
+      {% else %}{{ pill("Por asignar", "amber", "hourglass-split") }}{% endif %}
+    </div>
+    {% endif %}
+  </header>
+
+  {# Fase 6 (spec fase 6 v2 §8.2): etapa y pasos numerados de vinculación. #}
+  {% if d.anexo %}
+  {% set a = d.anexo %}
+  {% set STAGE_TONE = {"preparing": "amber", "reprint": "danger", "ready": "neutral",
+                       "in_review": "navy", "observed": "amber", "approved": "success"} %}
+  <section id="tt-sin-anexo-panel" class="tt-card tt-sin-anexo tt-sin-anexo--{{ a.stage }}" aria-labelledby="tt-sin-anexo-title">
+    <div class="tt-sin-section-head">
+      <h3 id="tt-sin-anexo-title" class="tt-kicker tt-sin-section-title">Anexo III</h3>
+      <div class="tt-sin-head-aside">
+        {{ pill(a.stage_label, STAGE_TONE[a.stage]) }}
+        {% if a.folio %}<span id="tt-sin-anexo-folio" class="tt-mono tt-sin-anexo-folio">{{ a.folio }}</span>{% endif %}
+      </div>
+    </div>
+    {% if a.signers %}
+    <p id="tt-sin-anexo-signers" class="tt-sin-help"><strong>Firman:</strong> {{ a.signers | join(', ') }}.</p>
+    {% endif %}
+    {% if a.reprint_reason %}
+    <p id="tt-sin-anexo-reprint" class="tt-sin-warn"><i class="bi bi-printer" aria-hidden="true"></i><span class="tt-sin-warn-text"><strong>Titulación pidió reimprimir:</strong> {{ a.reprint_reason }}</span></p>
+    {% endif %}
+    {% if a.stage == 'ready' %}
+    <p id="tt-sin-anexo-ready-info" class="tt-sin-anexo-ready"><i class="bi bi-bag-check" aria-hidden="true"></i><span>Listo{% if a.ready_label %} desde el {{ a.ready_label }}{% endif %}. <strong>Recoger en:</strong> {{ a.pickup_note or '—' }}</span></p>
+    {% endif %}
+
+    {% if a.stage in ('preparing', 'reprint', 'ready') %}
+    <ol id="tt-sin-anexo-steps" class="tt-sin-steps">
+      <li id="tt-sin-step-1" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">1</span>
+        <div class="tt-sin-step-body">
+          <strong>Imprimir Anexo III</strong>
+          <p class="tt-sin-step-text">El oficial, con folio. {% if a.stage == 'reprint' %}Imprímelo de nuevo corrigiendo lo que observó Titulación.{% endif %}</p>
+          {% if a.can_print %}
+          <a id="tt-sin-anexo-print" class="btn btn-sm tt-btn-ink" href="{{ d.anexo_url }}" target="_blank" rel="noopener">
+            <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Imprimir Anexo III</a>
+          {% endif %}
+        </div>
+      </li>
+      <li id="tt-sin-step-2" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">2</span>
+        <div class="tt-sin-step-body">
+          <strong>Firma y sello del jefe del departamento</strong>
+          <p class="tt-sin-step-text">Recaba la firma y el sello del jefe del departamento académico en la hoja impresa.</p>
+        </div>
+      </li>
+      <li id="tt-sin-step-3" class="tt-sin-step">
+        <span class="tt-sin-step-n" aria-hidden="true">3</span>
+        <div class="tt-sin-step-body">
+          <strong>{% if a.stage == 'ready' %}Cambiar lugar u horario{% else %}Marcar listo para recoger{% endif %}</strong>
+          {% if a.can_ready %}
+          <form id="tt-sin-anexo-form" class="tt-sin-anexo-form"
+                hx-post="{{ URL }}/anexo/listo" hx-target="#tt-sin-body" hx-swap="innerHTML"
+                hx-disabled-elt="find button[type='submit']">
+            <input type="hidden" name="tab" value="{{ tab }}">
+            <input type="hidden" name="etapa" value="{{ etapa }}">
+            <input type="hidden" name="expected_stage" value="{{ a.stage }}">
+            <input type="hidden" name="q" value="{{ q }}">
+            <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+            <input type="hidden" name="depto" value="{{ depto or '' }}">
+            <input type="hidden" name="page" value="{{ page.page }}">
+            <label class="tt-label" for="tt-sin-anexo-note">Lugar y horario para recoger</label>
+            <textarea id="tt-sin-anexo-note" name="note" class="tt-field" rows="3"
+                      maxlength="{{ a.note_max }}" required
+                      aria-describedby="tt-sin-anexo-hint{{ ' tt-sin-anexo-error' if a.error }}"
+                      {%- if a.error %} aria-invalid="true"{% endif %}
+                      placeholder="Por ejemplo: Oficina de Vinculación, lunes a viernes de 9:00 a 14:00">{{ a.note }}</textarea>
+            <p id="tt-sin-anexo-hint" class="tt-sin-help tt-sin-anexo-hint">El egresado la recibe en su aviso (máximo {{ a.note_max }} caracteres).</p>
+            {% if a.error %}<p id="tt-sin-anexo-error" class="tt-sin-warn" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i><span class="tt-sin-warn-text">{{ a.error }}</span></p>{% endif %}
+            <div class="tt-sin-buttons">
+              <button type="submit" id="tt-sin-anexo-ready" class="btn btn-sm tt-btn-ink">
+                <i class="bi bi-bag-check me-1" aria-hidden="true"></i>{% if a.stage == 'ready' %}Guardar y avisar{% else %}Marcar listo y avisar al egresado{% endif %}</button>
+            </div>
+          </form>
+          {% else %}
+          <p class="tt-sin-step-text">Tu rol no puede marcar el Anexo como listo.</p>
+          {% endif %}
+        </div>
+      </li>
+    </ol>
+    {% elif a.stage == 'approved' %}
+    <p class="tt-sin-note">Anexo III aprobado por Titulación.</p>
+    {% else %}
+    <p id="tt-sin-anexo-readonly" class="tt-sin-note">{% if a.stage == 'observed' %}Titulación lo observó: el egresado debe corregir y volver a subir el escaneo.{% else %}El egresado ya subió el escaneo firmado: lo revisa Titulación. Aquí solo es de consulta.{% endif %}</p>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <section class="tt-card tt-sin-work" aria-label="Datos del trabajo">
+    <dl class="tt-sin-facts">
+      <div class="tt-sin-fact">
+        <dt>Opción</dt>
+        <dd>{{ d.option }}</dd>
+      </div>
+      <div class="tt-sin-fact">
+        <dt>Título del trabajo</dt>
+        <dd class="tt-sin-project">{{ d.project }}</dd>
+      </div>
+      <div class="tt-sin-fact">
+        <dt>Formato B aprobado</dt>
+        <dd>{{ d.fb_approved_label or '—' }}</dd>
+      </div>
+    </dl>
+  </section>
+
+  {% if d.not_mapped_msg %}
+  <p id="tt-sin-not-mapped" class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>{{ d.not_mapped_msg }}</p>
+  {% endif %}
+
+  {# Fase 5: solo el estado de la revisión (D1), para decidir sustituciones. #}
+  {% if d.review_applies %}
+  {% set review_status = d.review_status %}
+  {% include "titulatec/partials/review/_status.html" %}
+  {% endif %}
+
+  {% if d.synodals %}
+  <section class="tt-card tt-sin-synodals-card" aria-labelledby="tt-sin-synodals-title">
+    <div class="tt-sin-section-head">
+      <h3 id="tt-sin-synodals-title" class="tt-kicker tt-sin-section-title">Sinodales vigentes</h3>
+      {% if d.can_oficio %}
+      <a id="tt-sin-oficio" class="btn btn-sm tt-btn-ink" href="{{ d.oficio_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar oficio</a>
+      {% endif %}
+      {# Mientras el panel del Anexo muestra el paso 1 «Imprimir Anexo III» (mismo PDF),
+         aquí no se repite con otra etiqueta. #}
+      {% if d.can_anexo and not (d.anexo and d.anexo.can_print and d.anexo.stage in ('preparing', 'reprint', 'ready')) %}
+      <a id="tt-sin-anexo" class="btn btn-sm tt-btn-ink" href="{{ d.anexo_url }}"
+         target="_blank" rel="noopener">
+        <i class="bi bi-file-earmark-pdf me-1" aria-hidden="true"></i>Descargar Anexo III</a>
+      {% endif %}
+    </div>
+    {# Angosto (detalle < ~560 px, p. ej. un teléfono): cada fila se apila como
+       tarjeta con su etiqueta (`data-label`); ver `.tt-sin-table--stack` en
+       sinodales.css (hallazgo 15). #}
+    <div class="tt-table-wrap">
+      <table id="tt-sin-synodals" class="table table-sm align-middle tt-sin-table tt-sin-table--stack">
+        <thead>
+          <tr>
+            <th scope="col">Posición</th>
+            <th scope="col" class="tt-td-wrap">Nombre</th>
+            <th scope="col" class="tt-td-wrap">Grado académico</th>
+            <th scope="col">Cédula</th>
+            {% if d.can_replace %}<th scope="col"><span class="visually-hidden">Acciones</span></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in d.synodals %}
+          <tr id="tt-sin-syn-{{ s.role }}">
+            <td class="tt-sin-role" data-label="Posición">{{ s.role_label }}</td>
+            <td class="tt-td-wrap" data-label="Nombre">{{ s.name }}</td>
+            <td class="tt-td-wrap" data-label="Grado académico">{{ s.academic_degree or '—' }}</td>
+            <td class="tt-mono" data-label="Cédula">{{ s.professional_license or '—' }}</td>
+            {% if d.can_replace %}
+            <td class="tt-sin-cell-action">
+              <button type="button" class="btn btn-sm tt-btn-ghost"
+                      data-tt-sin-toggle="tt-sin-replace-{{ s.role }}"
+                      aria-controls="tt-sin-replace-{{ s.role }}" aria-expanded="false">
+                <i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Sustituir</button>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if d.can_replace %}
+    {% for s in d.synodals %}
+    <form id="tt-sin-replace-{{ s.role }}" class="tt-sin-replace" hidden
+          hx-post="{{ URL }}/sustituir" hx-target="#tt-sin-body" hx-swap="innerHTML"
+          hx-disabled-elt="find button[type='submit']"
+          hx-confirm="Sustituir al {{ s.role_label }}|{{ s.name }} dejará de ser sinodal de {{ d.name }}. Se avisará a los dos docentes y al alumno."
+          data-tt-confirm-ok="Sustituir">
+      <input type="hidden" name="role" value="{{ s.role }}">
+      <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="etapa" value="{{ etapa }}">
+      <input type="hidden" name="q" value="{{ q }}">
+      <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+      <input type="hidden" name="depto" value="{{ depto or '' }}">
+      <input type="hidden" name="page" value="{{ page.page }}">
+      <div class="tt-sin-replace-head">
+        <span class="tt-kicker">Sustituir · {{ s.role_label }}</span>
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sin-toggle="tt-sin-replace-{{ s.role }}"
+                aria-label="Cerrar la sustitución"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+      </div>
+      {% if d.replacements %}
+      <div class="tt-sin-replace-grid">
+        <div>
+          <label class="tt-label" for="tt-sin-new-{{ s.role }}">Docente que entra</label>
+          <select id="tt-sin-new-{{ s.role }}" name="new_user_id" class="tt-field" required>
+            <option value="">Elige al docente…</option>
+            {% for t in d.replacements %}
+            <option value="{{ t.user_id }}">{{ t.name }} · {{ t.degree }} · {{ t.assignments_label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="tt-label" for="tt-sin-reason-{{ s.role }}">Motivo de la sustitución</label>
+          <textarea id="tt-sin-reason-{{ s.role }}" name="reason" class="tt-field" rows="2"
+                    maxlength="500" required
+                    placeholder="Por ejemplo: licencia, cambio de adscripción…"></textarea>
+        </div>
+      </div>
+      <div class="tt-sin-buttons">
+        <button type="button" class="btn btn-sm tt-btn-ghost" data-tt-sin-toggle="tt-sin-replace-{{ s.role }}">Cancelar</button>
+        <button type="submit" class="btn btn-sm tt-btn-ink"><i class="bi bi-arrow-left-right me-1" aria-hidden="true"></i>Sustituir</button>
+      </div>
+      {% else %}
+      <p class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>No hay otro docente del departamento con grado y cédula registrados: agrégalo en «Docentes».</p>
+      {% endif %}
+    </form>
+    {% endfor %}
+    {% endif %}
+  </section>
+
+  {% if d.history %}
+  <section id="tt-sin-history" class="tt-card tt-sin-history" aria-labelledby="tt-sin-history-title">
+    <h3 id="tt-sin-history-title" class="tt-kicker tt-sin-section-title">Sustituciones</h3>
+    <ol class="tt-sin-history-list">
+      {% for h in d.history %}
+      <li id="tt-sin-hist-{{ loop.index }}" class="tt-sin-history-item">
+        <span class="tt-sin-history-main">{{ h.role_label }}: {{ h.name }} <i class="bi bi-arrow-right" aria-hidden="true"></i> {{ h.replacement_name or '—' }}</span>
+        <span class="tt-sin-history-meta">{{ h.replaced_label or '' }}{% if h.replaced_by_name %} · por {{ h.replaced_by_name }}{% endif %}</span>
+        {% if h.reason %}<span class="tt-sin-history-reason">{{ h.reason }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  {% elif d.can_assign %}
+  {% if d.teachers | length >= 4 %}
+  <form id="tt-sin-assign" class="tt-card tt-sin-assign"
+        hx-post="{{ URL }}/asignar" hx-target="#tt-sin-body" hx-swap="innerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        hx-confirm="Registrar sinodales|{{ d.name }} pasará a la revisión de sinodales y los 4 docentes recibirán el aviso. Después solo se podrá sustituir a uno, con motivo."
+        data-tt-confirm-ok="Registrar">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="etapa" value="{{ etapa }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="carrera" value="{{ carrera or '' }}">
+    <input type="hidden" name="depto" value="{{ depto or '' }}">
+    <input type="hidden" name="page" value="{{ page.page }}">
+    <span class="tt-kicker">Asignar sinodales</span>
+    <p class="tt-sin-help">Solo aparecen los docentes del departamento con grado y cédula registrados. Las asignaciones vigentes de cada uno son informativas.</p>
+    <div class="tt-sin-assign-grid">
+      {% for r in d.roles %}
+      <div>
+        <label class="tt-label" for="tt-sin-sel-{{ r.code }}">{{ r.label }}</label>
+        <select id="tt-sin-sel-{{ r.code }}" name="{{ r.code }}_id" class="tt-field tt-sin-pick" required>
+          <option value="">Elige al docente…</option>
+          {% for t in d.teachers %}
+          <option value="{{ t.user_id }}">{{ t.name }} · {{ t.degree }} · {{ t.assignments_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="tt-sin-buttons">
+      <button type="submit" id="tt-sin-assign-submit" class="btn btn-sm tt-btn-ink">
+        <i class="bi bi-check-lg me-1" aria-hidden="true"></i>Registrar sinodales</button>
+    </div>
+  </form>
+  {% else %}
+  <p id="tt-sin-few-teachers" class="tt-sin-warn"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i>El departamento necesita al menos 4 docentes con grado y cédula registrados para asignar sinodales: agrégalos en «Docentes».</p>
+  {% endif %}
+
+  {% else %}
+  <p id="tt-sin-readonly" class="tt-card tt-sin-note">Este egresado todavía no tiene sinodales asignados.</p>
+  {% endif %}
+</article>
+{% endif %}

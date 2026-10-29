@@ -5,7 +5,8 @@ Solo lectura. `daily_counts` agrupa por dia en SQL (tres consultas) y
 R4c); el resto son funciones puras sobre series de `(fecha, conteo)`
 (`pace`, `clear_days`, `forecast`, `liberated_by_day`,
 `liberated_by_program`). El ritmo se mide en dias habiles (lun-vie, sin
-feriados) con `utils/business_days`.
+feriados, salvo los dias inhabiles registrados en el calendario unico, que
+se pasan como `holidays=`) con `utils/business_days`.
 """
 from __future__ import annotations
 
@@ -107,14 +108,15 @@ def cumulative(series: list[tuple[date, int]], base: int = 0) -> list[tuple[date
     return out
 
 
-def pace(liberated: dict[date, int], today: date, n: int = 10) -> float:
+def pace(liberated: dict[date, int], today: date, n: int = 10, *,
+         holidays: frozenset[date] = frozenset()) -> float:
     """Liberados por dia habil, promedio de los ultimos `n` dias habiles.
 
     Los fines de semana no cuentan ni en el numerador ni en el divisor.
     """
     if n <= 0:
         return 0.0
-    dias = last_business_days(today, n)
+    dias = last_business_days(today, n, holidays=holidays)
     return sum(liberated.get(d, 0) for d in dias) / n
 
 
@@ -132,16 +134,18 @@ def clear_days(queue: int, per_day: float) -> int | None:
     return math.ceil(Fraction(int(queue)) / Fraction(per_day).limit_denominator(10**6))
 
 
-def forecast(pending: int, pace: float, today: date) -> date | None:
-    """Fecha estimada en que se vacian los pendientes, sin contar feriados:
-    `add_business_days(today, clear_days(pending, pace))`.
+def forecast(pending: int, pace: float, today: date, *,
+             holidays: frozenset[date] = frozenset()) -> date | None:
+    """Fecha estimada en que se vacian los pendientes, sin contar feriados
+    salvo los dias inhabiles de `holidays` (calendario vacio = solo fines de
+    semana): `add_business_days(today, clear_days(pending, pace), holidays=)`.
 
     `None` si el ritmo no es positivo; sin pendientes, `today`.
     """
     if pending <= 0:
         return today
     dias = clear_days(pending, pace)
-    return None if dias is None else add_business_days(today, dias)
+    return None if dias is None else add_business_days(today, dias, holidays=holidays)
 
 
 def liberated_by_program(items: list[Item]) -> dict[int | None, dict[date, int]]:

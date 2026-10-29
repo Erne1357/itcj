@@ -64,6 +64,7 @@ from sqlalchemy.orm import Session
 
 from itcj2.apps.titulatec.services import report_flow as flow
 from itcj2.apps.titulatec.services import report_officers as roff
+from itcj2.apps.titulatec.services.non_working_day_service import NonWorkingDayService
 from itcj2.apps.titulatec.services.report_snapshot import (
     ACTORS,
     MOTIVE_ACTOR,
@@ -158,11 +159,16 @@ _MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", 
 _DIAS = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 _ISO_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _FORECAST_NOTE = "a este ritmo, sin contar feriados ni nuevas solicitudes"
+# Con días inhábiles registrados el pronóstico SÍ los descuenta (fase 5).
+_FORECAST_NOTE_HOLIDAYS = ("a este ritmo, descontando los días inhábiles registrados y sin "
+                           "nuevas solicitudes")
 
 # --- Ronda 2 (spec §12) ---------------------------------------------------
 _MOTIVE_SET = frozenset(MOTIVE_CODES)
 # Frase obligatoria de toda proyección de la ronda 2 (R4).
 _PROJECTION_NOTE = "a este ritmo, sin feriados ni nuevas entradas"
+_PROJECTION_NOTE_HOLIDAYS = ("a este ritmo, descontando los días inhábiles registrados y sin "
+                             "nuevas entradas")
 _MOTIVE_NOTE = ("Cada pendiente cuenta una sola vez por área, en su primer motivo según el "
                 "orden del proceso.")
 # Motivo con un ritmo de salida claro (R4c) -> (serie de `report_flow.exit_counts`,
@@ -489,6 +495,15 @@ class _Data:
     snapshot: Snapshot
     program_names: dict[int, str]
     officers_cache: list | None = None   # `report_officers.officers`, una vez por petición
+    holidays: frozenset = frozenset()    # calendario de días inhábiles, UNA lectura por petición
+
+    @property
+    def forecast_note(self) -> str:
+        return _FORECAST_NOTE_HOLIDAYS if self.holidays else _FORECAST_NOTE
+
+    @property
+    def projection_note(self) -> str:
+        return _PROJECTION_NOTE_HOLIDAYS if self.holidays else _PROJECTION_NOTE
 
     def officer_list(self, db: Session) -> list[roff.Officer]:
         """Encargados de Servicios Escolares (4 consultas), cargados a lo más
@@ -581,7 +596,8 @@ def _load(db: Session, user_id: int, filters: ReportFilters, today: date) -> _Da
                  include_unmapped=include_unmapped, programs=programs,
                  hidden_in_scope=hidden_in_scope, snapshot=snapshot,
                  program_names={**names, **snapshot.program_names},
-                 officers_cache=officers_cache)
+                 officers_cache=officers_cache,
+                 holidays=NonWorkingDayService.holidays(db))
 
 
 def _flow_counts(db: Session, d: _Data, start: date) -> dict[str, dict[date, int]]:
@@ -744,8 +760,8 @@ def _common_ctx(d: _Data) -> dict:
 # ---------------------------------------------------------------------------
 def _pace_ctx(d: _Data, liberated: dict[date, int]) -> dict:
     pendientes = len(d.pending)
-    por_dia = flow.pace(liberated, d.today, PACE_WINDOW)
-    cuando = flow.forecast(pendientes, por_dia, d.today)
+    por_dia = flow.pace(liberated, d.today, PACE_WINDOW, holidays=d.holidays)
+    cuando = flow.forecast(pendientes, por_dia, d.today, holidays=d.holidays)
     if cuando is None:
         texto = "sin ritmo medible"
     elif pendientes == 0:
@@ -754,11 +770,12 @@ def _pace_ctx(d: _Data, liberated: dict[date, int]) -> dict:
         texto = _fmt_day_long(cuando, d.today)
     return {"per_day": por_dia, "text": _fmt_dec(por_dia), "window": PACE_WINDOW,
             "pending": pendientes, "forecast": cuando, "forecast_text": texto,
-            "note": _FORECAST_NOTE}
+            "note": d.forecast_note}
 
 
 def _projection(queue: int, per_day: float, today: date, *, unit: str, verb: str,
-                threshold: int | None = None) -> dict:
+                threshold: int | None = None,
+                holidays: frozenset[date] = frozenset()) -> dict:
     """Proyección de una cola a un ritmo (Ronda 2, R4). Pura; nunca divide
     entre cero (`report_flow.clear_days`).
 
@@ -771,8 +788,9 @@ def _projection(queue: int, per_day: float, today: date, *, unit: str, verb: str
     - `ok`: «Se vacía el jue 23 oct (7 días hábiles)»;
     - `over`: como `ok` pero `days` > `threshold` (solo si se pasa umbral).
 
-    La frase «a este ritmo, sin feriados ni nuevas entradas» va aparte
-    (`projection_note` de cada pestaña): es la misma para todas.
+    La frase «a este ritmo, sin feriados ni nuevas entradas» (o, con días
+    inhábiles registrados, «descontando los días inhábiles registrados…») va
+    aparte (`projection_note` de cada pestaña): es la misma para todas.
     """
     dias = flow.clear_days(queue, per_day)
     per_day = float(per_day)
@@ -786,7 +804,7 @@ def _projection(queue: int, per_day: float, today: date, *, unit: str, verb: str
     if dias is None:
         return {**base, "days": None, "date": None, "date_text": None, "status": "no_pace",
                 "over_threshold": False, "text": "Sin ritmo medible"}
-    cuando = add_business_days(today, dias)
+    cuando = add_business_days(today, dias, holidays=holidays)
     sobre = threshold is not None and dias > threshold
     texto_fecha = _fmt_day_long(cuando, today)
     return {**base, "days": dias, "date": cuando, "date_text": texto_fecha,
@@ -796,7 +814,7 @@ def _projection(queue: int, per_day: float, today: date, *, unit: str, verb: str
 
 def _pace_days(d: _Data) -> list[date]:
     """Los 10 días hábiles del ritmo (spec §4.5; independientes del rango)."""
-    return last_business_days(d.today, PACE_WINDOW)
+    return last_business_days(d.today, PACE_WINDOW, holidays=d.holidays)
 
 
 def _exit_counts(db: Session, d: _Data) -> dict[str, dict[date, int]]:
@@ -923,7 +941,8 @@ def _alerts(db: Session, d: _Data, liberated: dict[date, int]) -> list[dict]:
     # 3. Listos para agendar > lugares libres en los próximos días hábiles.
     listos = sum(1 for it in d.pending if it.ready_to_book)
     if listos:
-        ocupados, capacidad = roff.capacity(db, today=d.today, days=CAPACITY_DAYS).get(0, (0, 0))
+        ocupados, capacidad = roff.capacity(db, today=d.today, days=CAPACITY_DAYS,
+                                  holidays=d.holidays).get(0, (0, 0))
         libres = max(0, capacidad - ocupados)
         if listos > libres:
             alerta("capacity", "warn",
@@ -964,7 +983,9 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
         - `pace`: `{per_day (float), text, window (10), pending, forecast (date|
           None), forecast_text ("jue 9 oct" | "sin ritmo medible" | "sin
           pendientes"), note}` — `note` es la frase obligatoria «a este ritmo,
-          sin contar feriados ni nuevas solicitudes».
+          sin contar feriados ni nuevas solicitudes» con el calendario de días
+          inhábiles vacío; con días registrados dice «a este ritmo,
+          descontando los días inhábiles registrados y sin nuevas solicitudes».
         - `requests`: `{pending, oldest_days (int|None), url, body_url}`
           (solicitudes por revisar, la anterior incluida).
         - `stuck`: `{crit, warn, total, url, body_url, crit_url,
@@ -1009,7 +1030,9 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
       hábiles)» | «Sin ritmo medible»)}`. El alumno nunca lleva proyección.
     - `motive_note` («Cada pendiente cuenta una sola vez por área, en su
       primer motivo…»), `projection_note` («a este ritmo, sin feriados ni
-      nuevas entradas», obligatoria junto a cada proyección),
+      nuevas entradas» con el calendario vacío; con días inhábiles
+      registrados, «…descontando los días inhábiles registrados…»;
+      obligatoria junto a cada proyección),
       `projection_window` (10 días hábiles).
     """
     pend = d.pending
@@ -1092,7 +1115,7 @@ def _ctx_panorama(db: Session, d: _Data) -> dict:
         "on_hold": d.snapshot.on_hold,
         "alerts": _alerts(db, d, liberated),
         "motive_note": _MOTIVE_NOTE,
-        "projection_note": _PROJECTION_NOTE,
+        "projection_note": d.projection_note,
         "projection_window": PACE_WINDOW,
     }
 
@@ -1115,8 +1138,9 @@ def _area_motives(d: _Data, actor: str, area_value: int, scale: int,
         if code in _MOTIVE_EXITS:
             serie, unidad, verbo = _MOTIVE_EXITS[code]
             pronostico = _projection(docs if docs is not None else n,
-                                     flow.pace(salidas[serie], d.today, PACE_WINDOW), d.today,
-                                     unit=unidad, verb=verbo)
+                                     flow.pace(salidas[serie], d.today, PACE_WINDOW,
+                                               holidays=d.holidays), d.today,
+                                     unit=unidad, verb=verbo, holidays=d.holidays)
         tip = f"{MOTIVE_LABEL[code]}: {n}"
         if docs is not None:
             tip += f" ({_plural(docs, 'documento', 'documentos')})"
@@ -1341,8 +1365,9 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
     prod = (roff.production(db, start=d.range_start, end=d.today, cohort_ids=d.cohort_ids,
                             by_day_from=_pace_days(d)[0])
             if d.cohort_ids != [] else {})
-    lugares = roff.capacity(db, today=d.today, days=CAPACITY_DAYS)
-    habiles = [dia for dia in _days(d.range_start, d.today) if is_business_day(dia)]
+    lugares = roff.capacity(db, today=d.today, days=CAPACITY_DAYS,
+                                  holidays=d.holidays)
+    habiles = [dia for dia in _days(d.range_start, d.today) if is_business_day(dia, holidays=d.holidays)]
 
     faltan = sorted({pid for o in visibles for pid in o.program_ids
                      if d.in_scope(pid)} - set(d.program_names))
@@ -1429,7 +1454,7 @@ def _ctx_encargados(db: Session, d: _Data) -> dict:
                             ajenos if others is not None else []),
         "projection_threshold": {"days": umbral,
                                  "text": _plural(umbral, "día hábil", "días hábiles")},
-        "projection_note": _PROJECTION_NOTE,
+        "projection_note": d.projection_note,
         "projection_window": PACE_WINDOW,
     }
 
@@ -1439,7 +1464,7 @@ def _officer_pace(d: _Data, p: dict) -> float:
     (`production.by_day` alargada con `by_day_from`): el ÚNICO ritmo de un
     encargado, para «Días para vaciar» de la tabla y para la proyección de su
     tarjeta (decisión del controlador, Ronda 0 de U1; R4)."""
-    return flow.pace(p.get("by_day") or {}, d.today, PACE_WINDOW)
+    return flow.pace(p.get("by_day") or {}, d.today, PACE_WINDOW, holidays=d.holidays)
 
 
 def _produced(p: dict) -> bool:
@@ -1491,7 +1516,7 @@ def _officer_card(d: _Data, o: roff.Officer, color_index: int, cola: dict, p: di
                    "text": f"{ocupados} de {cap}"},
         "projection": _projection(cola["total_escolares"], _officer_pace(d, p), d.today,
                                   unit="pendientes", verb="dictámenes y revisiones",
-                                  threshold=umbral),
+                                  threshold=umbral, holidays=d.holidays),
     }
 
 
@@ -1583,7 +1608,8 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
       ("pendientes"), per_day, per_day_text, verb ("liberados"), rate_text,
       days, date, date_text, status ("clear" | "ok" | "no_pace"),
       over_threshold (False), text}`; independiente del rango.
-    - `projection_note` («a este ritmo, sin feriados ni nuevas entradas»),
+    - `projection_note` («a este ritmo, sin feriados ni nuevas entradas» con el
+      calendario vacío; con días registrados, la variante que los descuenta),
       `projection_window` (10).
     """
     por_carrera = _officer_names_by_program(d, d.officer_list(db))
@@ -1614,8 +1640,9 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
             "officers": list(por_carrera.get(pid, [])) if pid is not None else [],
             "pending": pendientes,
             "forecast": _projection(
-                pendientes, flow.pace(liberados_por_carrera.get(pid, {}), d.today, PACE_WINDOW),
-                d.today, unit="pendientes", verb="liberados"),
+                pendientes, flow.pace(liberados_por_carrera.get(pid, {}), d.today, PACE_WINDOW,
+                                      holidays=d.holidays),
+                d.today, unit="pendientes", verb="liberados", holidays=d.holidays),
         })
     rows.sort(key=lambda r: (-r["stuck"], r["id"] is None, _name_key(r["name"]),
                              r["id"] or 0))
@@ -1623,7 +1650,7 @@ def _ctx_carreras(db: Session, d: _Data) -> dict:
         "rows": rows,
         "stage_legend": [{"code": code, "label": label, "color": color}
                          for code, label, color in STAGE_GROUPS],
-        "projection_note": _PROJECTION_NOTE,
+        "projection_note": d.projection_note,
         "projection_window": PACE_WINDOW,
     }
 

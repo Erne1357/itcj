@@ -1,0 +1,5 @@
+{# Ranura del panel de estado: la página la pinta tal cual y el refresco la
+   reemplaza fuera de banda (`oob`). Necesita `review_status`. #}
+<div id="tt-rv-status-slot"{% if oob %} hx-swap-oob="innerHTML"{% endif %}>
+  {% include "titulatec/partials/review/_status.html" %}
+</div>

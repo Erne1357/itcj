@@ -88,12 +88,26 @@ def test_un_actor_de_escolares_y_de_titulacion_aterriza_por_escolares():
 
 
 def test_el_landing_manda_a_titulacion_a_liberados(
-    client_as, make_user, make_role, grant_user_role,
+    client_as, db_session, make_user, make_role, grant_user_role,
 ):
-    """Con el nombre REAL del rol (el landing resuelve por nombre, no por
-    permisos): sus permisos no importan aquí, solo la asignación."""
+    """Con el nombre REAL del rol (el landing resuelve por nombre). Desde la
+    fase 3 (spec 2026-10-21 §8.1) el rol con `titulatec.titulacion.page.list`
+    aterriza en la pestaña Titulación; SIN él, en Liberados. La base de dev ya
+    puede traer ese permiso (`init-titulatec-fase-2`): se quita dentro del
+    savepoint. El caso con el permiso vive en `test_titulacion_admin.py`."""
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role_permission import RolePermission
+
+    rol = make_role("titulatec_titulacion")
+    ids = [pid for (pid,) in db_session.query(Permission.id)
+           .filter(Permission.code == "titulatec.titulacion.page.list").all()]
+    if ids:
+        db_session.query(RolePermission).filter(
+            RolePermission.role_id == rol.id, RolePermission.perm_id.in_(ids),
+        ).delete(synchronize_session=False)
+        db_session.flush()
     user = make_user(first_name="JEFA", last_name="TITULACION")
-    grant_user_role(user, make_role("titulatec_titulacion"))
+    grant_user_role(user, rol)
 
     resp = client_as(user).get("/titulatec/", follow_redirects=False)
 

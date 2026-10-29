@@ -1,0 +1,372 @@
+/* ===========================================================================
+   review.css — Conversación de la revisión de sinodales (fase 5)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-22-titulatec-fase5-revision-sinodales-
+   design.md §7-§8; rediseño estilo mensajería 2026-10-27. Compartida por las
+   dos audiencias: la cargan `admin/base_admin.html` («Mis revisiones» del
+   docente) y `student/base_student.html` (conversación del alumno), una vez
+   cada una. Piezas:
+
+     .tt-chat                      raíz de la conversación (llena su contenedor)
+       .tt-chat-bar                quién es (solo docente; el alumno usa su appbar)
+       .tt-chat-cols
+         .tt-chat-main             franja + panel + hilo + compositor
+           .tt-chat-pin            franja fijada: versión, plazo, aprobaciones, acción
+           .tt-chat-vote           panel que despliega la franja (voto / subida)
+           .tt-rv-thread > .tt-rv-list > .tt-rv-msg   (partials/review/_messages.html)
+           .tt-chat-foot > .tt-composer                compositor o aviso de consulta
+         .tt-chat-details          detalles: en angosto REEMPLAZA a .tt-chat-main
+                                   (sub-vista con «Volver»); en ancho, columna fija
+                                   (la decide cada página: revisiones.css / revision.css)
+
+   El panel de estado (`partials/review/_status.html`, `.tt-rv-status`) también
+   lo usan el expediente, Sinodales y Titulación: sus reglas no dependen del chat.
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto con --tt-text-1/2/3;
+   escala --tt-fs-*; espaciado --tt-sp-*. Borde O sombra, nunca los dos. Sin
+   `style=` en las plantillas (la altura de la caja de texto la pone el JS).
+   =========================================================================== */
+
+/* === 0. Avatar (iniciales) =============================================== */
+.tt-avatar {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--tt-line); color: var(--tt-ink-soft);
+  font-size: var(--tt-fs-100); font-weight: 700; letter-spacing: .02em;
+  user-select: none;
+}
+.tt-avatar--sm { width: 30px; height: 30px; font-size: var(--tt-fs-100); letter-spacing: 0; }
+.tt-avatar--student { background: var(--tt-ink); color: var(--tt-paper); }
+
+/* === 1. Raíz y columnas ================================================== */
+.tt-chat {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  height: 100%; background: var(--tt-paper);
+}
+.tt-chat-cols { flex: 1 1 auto; display: flex; min-width: 0; min-height: 0; }
+.tt-chat-main {
+  flex: 1 1 auto; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+}
+/* Detalles en angosto: sub-vista que reemplaza a la conversación. */
+.tt-chat-cols:has(> .tt-chat-details:not([hidden])) > .tt-chat-main { display: none; }
+
+/* === 2. Barra del docente =============================================== */
+.tt-chat-bar {
+  display: flex; align-items: center; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+  border-bottom: 1px solid var(--tt-line);
+  min-width: 0;
+}
+.tt-chat-who { flex: 1 1 auto; min-width: 0; }
+.tt-chat-name {
+  margin: 0; font-family: var(--tt-ui); font-size: var(--tt-fs-300); font-weight: 600;
+  color: var(--tt-text-1); line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tt-chat-sub {
+  margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* === 3. Franja fijada ==================================================== */
+.tt-chat-pin {
+  flex: 0 0 auto; display: flex; align-items: center; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-2) var(--tt-sp-4);
+  background: var(--tt-paper); border-bottom: 1px solid var(--tt-line);
+  min-width: 0;
+}
+.tt-chat-pin-ico {
+  flex: 0 0 auto; width: 36px; height: 36px; border-radius: var(--tt-r-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--tt-navy-soft); color: var(--tt-navy); font-size: var(--tt-fs-300);
+}
+.tt-chat-pin-main { flex: 1 1 auto; min-width: 0; }
+.tt-chat-pin-title {
+  margin: 0; font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+  overflow-wrap: anywhere;
+}
+.tt-chat-pin-day { font-weight: 400; color: var(--tt-text-2); }
+.tt-chat-pin-sub { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-chat-pin-side {
+  flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: var(--tt-sp-2); min-width: 0;
+}
+.tt-chat-pin-cta { white-space: nowrap; }
+.tt-chat-info[aria-expanded="true"] { background: var(--tt-ink); color: var(--tt-paper); border-color: var(--tt-ink); }
+.tt-chat-pin-note { font-size: var(--tt-fs-100); color: var(--tt-text-2); white-space: nowrap; }
+
+/* === 4. Panel que despliega la franja (voto del sinodal / subida del alumno) */
+.tt-chat-vote {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding: var(--tt-sp-3) var(--tt-sp-4) var(--tt-sp-4);
+  background: var(--tt-mist); border-bottom: 1px solid var(--tt-line);
+  max-height: 55%; overflow-y: auto;            /* el hilo nunca desaparece */
+  animation: tt-fade-in var(--tt-dur-2) var(--tt-ease-out) both;
+}
+.tt-chat-vote[hidden] { display: none; }
+.tt-chat-vote-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--tt-sp-2); }
+.tt-chat-vote-title { margin: 0; font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+
+/* === 5. Hilo ============================================================== */
+/* `position: relative`: los `.visually-hidden` de las burbujas (absolutos)
+   quedan recortados por el scroll del hilo; sin él, alargaban la PÁGINA al
+   alto del hilo entero (medido: 36 000 px con 330 mensajes). */
+.tt-rv-thread {
+  position: relative;
+  flex: 1 1 auto; min-height: 0; min-width: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: var(--tt-sp-4);
+  background: var(--tt-mist);
+}
+.tt-rv-thread:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+.tt-rv-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: var(--tt-sp-3);
+}
+.tt-rv-msg { display: flex; align-items: flex-end; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rv-msg.is-mine { justify-content: flex-end; }
+
+/* === 6. Burbuja ========================================================== */
+.tt-rv-bubble {
+  max-width: min(38rem, 82%); min-width: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3);
+  background: var(--tt-paper);
+  border: 1px solid var(--tt-line);
+  border-radius: 16px 16px 16px 4px;
+}
+.tt-rv-msg.is-mine .tt-rv-bubble {
+  background: var(--tt-navy-soft);
+  border-color: transparent;
+  border-radius: 16px 16px 4px 16px;
+}
+.tt-rv-author {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 0 var(--tt-sp-2); margin: 0 0 2px;
+}
+.tt-rv-who { font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rv-msg.is-mine .tt-rv-who { color: var(--tt-navy); }
+.tt-rv-body {
+  margin: 0;
+  font-size: var(--tt-fs-200); line-height: 1.5; color: var(--tt-text-1);
+  white-space: pre-line; overflow-wrap: anywhere;
+}
+.tt-rv-meta {
+  display: block; margin-top: 2px; text-align: right;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tt-rv-msg.is-mine .tt-rv-meta { color: #3B4E77; }   /* 5.9:1 sobre navy-soft */
+
+/* Adjunto dentro de un mensaje. */
+.tt-rv-file {
+  display: inline-flex; align-items: center; gap: var(--tt-sp-1);
+  max-width: 100%; margin-top: var(--tt-sp-1);
+  padding: var(--tt-sp-1) var(--tt-sp-2);
+  font-size: var(--tt-fs-200); color: var(--tt-text-1);
+  background: var(--tt-mist);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-sm);
+  text-decoration: none;
+}
+.tt-rv-msg.is-mine .tt-rv-file { background: var(--tt-paper); }
+a.tt-rv-file:hover { border-color: var(--tt-slate); color: var(--tt-text-1); }
+a.tt-rv-file:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-rv-file-name { min-width: 0; overflow-wrap: anywhere; }
+.tt-rv-file-size { flex: 0 0 auto; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* Versión del proyecto: tarjeta del archivo (sin franja lateral de acento). */
+.tt-rv-msg--version .tt-rv-bubble { min-width: min(17rem, 100%); }
+.tt-rv-doc { display: flex; align-items: center; gap: var(--tt-sp-3); margin: var(--tt-sp-1) 0; min-width: 0; }
+.tt-rv-doc-ico {
+  flex: 0 0 auto; width: 40px; height: 44px; border-radius: var(--tt-r-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--tt-danger-soft); color: #B91C1C; font-size: var(--tt-fs-500);
+}
+.tt-rv-doc-ico.is-word { background: var(--tt-navy-soft); color: var(--tt-navy); }
+.tt-rv-msg.is-mine .tt-rv-doc-ico { background: var(--tt-paper); }
+.tt-rv-doc-main { display: flex; flex-direction: column; min-width: 0; }
+.tt-rv-doc-title { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); }
+.tt-rv-doc-file { font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-rv-doc-file .tt-rv-file-size { font-size: var(--tt-fs-100); }
+.tt-rv-doc-actions { display: flex; flex-wrap: wrap; gap: var(--tt-sp-2); margin-top: var(--tt-sp-2); }
+.tt-rv-doc-actions .tt-rv-file {
+  margin: 0; padding: .25rem .65rem; background: var(--tt-paper);
+  font-size: var(--tt-fs-100); font-weight: 600;
+}
+/* «Votar esta versión» solo en la ÚLTIMA versión del hilo: si el refresco trae
+   una nueva, la tarjeta vieja deja de ofrecerlo sin re-pintarse. */
+.tt-rv-msg--version:has(~ .tt-rv-msg--version) .tt-rv-vote-cta { display: none; }
+
+/* Voto: veredicto + observaciones. */
+.tt-rv-verdict {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0 0 2px;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-rv-verdict i { margin-top: 2px; }
+.tt-rv-verdict--ok i { color: var(--tt-success); }
+.tt-rv-verdict--changes i { color: #B45309; }
+
+/* === 7. Mensajes del sistema ============================================= */
+.tt-rv-msg--system { flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+.tt-rv-sys {
+  display: inline-flex; align-items: flex-start; gap: var(--tt-sp-2);
+  max-width: min(36rem, 100%); margin: 0;
+  padding: var(--tt-sp-1) var(--tt-sp-3);
+  text-align: left;
+  background: var(--tt-line-soft); border-radius: var(--tt-r);
+}
+.tt-rv-sys i { flex: 0 0 auto; color: var(--tt-text-3); margin-top: 2px; }
+.tt-rv-sys .tt-rv-body { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+.tt-rv-msg--system .tt-rv-meta { margin: 0; text-align: center; }
+
+/* === 8. Compositor ======================================================= */
+.tt-chat-foot {
+  flex: 0 0 auto; padding: var(--tt-sp-2) var(--tt-sp-3);
+  padding-bottom: calc(var(--tt-sp-2) + env(safe-area-inset-bottom));
+  background: var(--tt-paper); border-top: 1px solid var(--tt-line);
+  min-width: 0;
+}
+.tt-composer { display: flex; flex-direction: column; gap: var(--tt-sp-2); min-width: 0; }
+.tt-composer-row { position: relative; display: flex; align-items: flex-end; gap: var(--tt-sp-2); min-width: 0; }
+.tt-composer-text {
+  flex: 1 1 auto; min-width: 0; min-height: 40px; max-height: 180px;
+  padding: .5rem .875rem; resize: none; overflow-y: hidden;
+  font: inherit; font-size: var(--tt-fs-200); line-height: 1.45; color: var(--tt-text-1);
+  background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 20px;
+}
+.tt-composer-text::placeholder { color: var(--tt-text-3); opacity: 1; }
+.tt-composer-text:focus { outline: none; border-color: var(--tt-slate); background: var(--tt-paper); }
+.tt-composer-text:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-composer-btn, .tt-composer-send {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; font-size: var(--tt-fs-400); cursor: pointer;
+  transition: background-color var(--tt-dur-1) ease, transform var(--tt-dur-1) var(--tt-ease-out);
+}
+.tt-composer-btn { background: transparent; color: var(--tt-text-2); }
+.tt-composer-btn:hover { background: var(--tt-mist); color: var(--tt-text-1); }
+.tt-composer-send { background: var(--tt-ink); color: var(--tt-paper); }
+.tt-composer-send:hover { background: var(--tt-ink-soft); }
+.tt-composer-send:active, .tt-composer-btn:active { transform: scale(.94); }
+.tt-composer-send:disabled { opacity: .55; cursor: progress; }
+.tt-composer-btn:focus-visible, .tt-composer-send:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+/* En vuelo (htmx pone `.htmx-request` al formulario): el ícono cede su lugar a
+   un giro. Una subida de 20 MB tarda; el botón deshabilitado solo no lo dice. */
+.htmx-request .tt-composer-send, .htmx-request .tt-rvs-send { position: relative; }
+.htmx-request .tt-composer-send i, .htmx-request .tt-rvs-send i { visibility: hidden; }
+.htmx-request .tt-composer-send::after, .htmx-request .tt-rvs-send::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 999px;
+  animation: tt-spin .7s linear infinite;
+}
+.htmx-request .tt-rvs-send::after { left: 1.15rem; }
+/* El `<input type="file">` lo representa su botón: fuera de vista y de Tab. */
+.tt-composer-input-file {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; opacity: 0;
+}
+.tt-composer-file {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  padding: 2px 2px 2px var(--tt-sp-3); align-self: flex-start; max-width: 100%;
+  font-size: var(--tt-fs-100); color: var(--tt-text-1);
+  background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 999px;
+}
+.tt-composer-file[hidden] { display: none; }
+.tt-composer-file-name { min-width: 0; overflow-wrap: anywhere; }
+
+.tt-chat-readonly {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  padding: var(--tt-sp-1) var(--tt-sp-1);
+  font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-chat-readonly i { margin-top: 2px; color: var(--tt-text-3); }
+
+/* === 9. Detalles ========================================================= */
+.tt-chat-details {
+  flex: 1 1 auto; min-width: 0; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-3) var(--tt-sp-4) var(--tt-sp-5);
+  background: var(--tt-mist);
+}
+.tt-chat-details[hidden] { display: none; }
+.tt-chat-details-back {
+  align-self: flex-start; display: inline-flex; align-items: center; gap: var(--tt-sp-2);
+  min-height: 40px; padding: 0 var(--tt-sp-3); margin-left: calc(-1 * var(--tt-sp-2));
+  background: transparent; border: 0; border-radius: var(--tt-r-sm);
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+}
+.tt-chat-details-back:hover { background: var(--tt-line-soft); }
+.tt-chat-details-back:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
+.tt-chat-card {
+  padding: var(--tt-sp-4); background: var(--tt-paper);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg);
+}
+.tt-chat-card-kicker { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-chat-card-name { margin: 2px 0 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-chat-card-sub { margin: 0 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); overflow-wrap: anywhere; }
+.tt-chat-facts { display: flex; flex-direction: column; margin: 0; }
+.tt-chat-fact { padding: var(--tt-sp-2) 0; border-top: 1px solid var(--tt-line-soft); }
+.tt-chat-fact dt { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-2); }
+.tt-chat-fact dd { margin: 2px 0 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+
+/* === 10. Panel de estado (también expediente, Sinodales y Titulación) ===== */
+.tt-rv-status { display: flex; flex-direction: column; gap: var(--tt-sp-3); min-width: 0; }
+.tt-rv-status-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-2);
+}
+.tt-rv-status-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rv-status-empty {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-2);
+}
+.tt-rv-facts { display: flex; flex-direction: column; gap: var(--tt-sp-1); margin: 0; }
+.tt-rv-fact {
+  display: grid; grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  gap: var(--tt-sp-1) var(--tt-sp-3);
+}
+.tt-rv-fact dt { font-size: var(--tt-fs-100); font-weight: 500; color: var(--tt-text-3); }
+.tt-rv-fact dd { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-rule {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); color: var(--tt-text-2);
+}
+.tt-rv-rule i { margin-top: 2px; color: var(--tt-text-3); }
+.tt-rv-votes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tt-rv-vote {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--tt-sp-1) var(--tt-sp-3);
+  padding: var(--tt-sp-2) 0;
+  border-top: 1px solid var(--tt-line-soft);
+}
+.tt-rv-vote:first-child { border-top: 0; }
+.tt-rv-vote-who { display: flex; flex-direction: column; min-width: 0; }
+.tt-rv-vote-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rv-vote-name { font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rv-vote--comments .tt-rv-vote-name { font-weight: 500; color: var(--tt-text-2); }
+.tt-rv-vote-state { flex: 0 0 auto; }
+.tt-rv-vote-note { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+/* Dentro de los detalles del chat, el panel de estado es una tarjeta más. */
+.tt-chat-details .tt-rv-status { box-shadow: none; }
+
+/* === 11. Angosto ========================================================= */
+@media (max-width: 575.98px) {
+  .tt-rv-thread { padding: var(--tt-sp-3); }
+  .tt-rv-bubble { max-width: 88%; }
+  .tt-rv-msg .tt-avatar--sm { display: none; }        /* el ancho es para el texto */
+  .tt-chat-pin { padding-inline: var(--tt-sp-3); }
+  .tt-chat-pin-ico, .tt-chat-pin-day { display: none; }
+  .tt-chat-pin-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tt-chat-pin-side { flex-wrap: nowrap; }
+  .tt-chat-vote { padding-inline: var(--tt-sp-3); }
+  .tt-rv-fact { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-chat-vote { animation: tt-fade-in .2s linear both; }
+  .tt-composer-send, .tt-composer-btn { transition: none; }
+  .tt-composer-send:active, .tt-composer-btn:active { transform: none; }
+  .htmx-request .tt-composer-send::after, .htmx-request .tt-rvs-send::after { animation-duration: 2s; }
+}

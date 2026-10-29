@@ -651,13 +651,22 @@ def assign_position(db_session):
     `_active_position_filter()` (`authz_service.py:21-31`) exige `is_active` **y**
     `start_date <= hoy` **y** (`end_date` NULL o >= hoy). Con `start_date` en el
     futuro el usuario no hereda nada y el 403 resultante desconcierta.
+
+    Por omisión, AYER según el reloj de la BD (`CURRENT_DATE - 1`, lo evalúa
+    Postgres en el INSERT): es el MISMO reloj con que el gate y el `default` de la
+    columna juzgan la vigencia. Ni `date.today()` (zona del proceso) ni `db_now()`
+    (APP_TZ) lo son: en CI Postgres corre en UTC y de 18:00 a 24:00 de Juárez su
+    día ya es otro (CI run 39696762339). Además `CURRENT_DATE` no cambia dentro de
+    la transacción de la prueba aunque la medianoche pase a mitad de ella.
     """
+    from sqlalchemy import func
+
     from itcj2.core.models.position import UserPosition
 
     def _make(user, position, start_date=None, end_date=None, is_active=True):
         link = UserPosition(
             user_id=user.id, position_id=position.id,
-            start_date=start_date or (date.today() - timedelta(days=1)),
+            start_date=start_date or (func.current_date() - 1),
             end_date=end_date, is_active=is_active,
         )
         db_session.add(link)
@@ -782,6 +791,98 @@ def make_officer(make_user, make_role, make_position, assign_position,
         link_programs(pos, programs)
         assign_position(user, pos)
         return user, pos
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Fase 4 (sinodales): carrera -> depto, docentes, jefes académicos, sinodales
+# ---------------------------------------------------------------------------
+ROLE_ACADEMIC = f"tt_test_academic_{_RUN}"
+ACADEMIC_PERMS = (
+    "titulatec.process.page.list",
+    "titulatec.process.page.detail",
+)
+
+
+@pytest.fixture()
+def make_program_department(db_session):
+    """`ProgramDepartment`: carrera -> departamento académico (idempotente por carrera)."""
+    from itcj2.apps.titulatec.models import ProgramDepartment
+
+    def _make(program, department, official_name=None):
+        row = db_session.get(ProgramDepartment, program.id)
+        if row is None:
+            row = ProgramDepartment(program_id=program.id, department_id=department.id,
+                                    official_name=official_name)
+            db_session.add(row)
+        else:
+            row.department_id = department.id
+            row.official_name = official_name
+        db_session.flush()
+        return row
+
+    return _make
+
+
+@pytest.fixture()
+def make_teacher(db_session, make_user, make_position, assign_position):
+    """Docente de un departamento: puesto `docente_{code}`, `UserPosition` vigente y perfil."""
+    from itcj2.apps.titulatec.models import TeacherProfile
+
+    def _make(department, *, user=None, academic_degree="Maestra en Software Libre",
+              professional_license="10837613"):
+        user = user or make_user(first_name="DOCENTE", last_name="FICTICIO")
+        pos = make_position(code=f"docente_{department.code}",
+                            title="Docente de prueba", department=department)
+        assign_position(user, pos)
+        if db_session.get(TeacherProfile, user.id) is None:
+            db_session.add(TeacherProfile(user_id=user.id, academic_degree=academic_degree,
+                                          professional_license=professional_license))
+            db_session.flush()
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_academic_head(db_session, make_user, make_role, make_position, assign_position,
+                       bind_position_role):
+    """Jefe de depto (`head_{code}`) o coordinador de vinculación (`coord_vinculacion_{code}`).
+
+    El puesto queda ligado a un rol de prueba con `perms` (patrón de `make_head`).
+    """
+    def _make(department, *, kind="head", perms=ACADEMIC_PERMS):
+        if kind not in ("head", "coord"):
+            raise ValueError("kind debe ser 'head' o 'coord'")
+        code = (f"head_{department.code}" if kind == "head"
+                else f"coord_vinculacion_{department.code}")
+        user = make_user(first_name="JEFE" if kind == "head" else "COORD",
+                         last_name="ACADEMICO")
+        role = make_role(ROLE_ACADEMIC, perms)
+        pos = make_position(code=code, title="Puesto academico de prueba",
+                            department=department)
+        bind_position_role(pos, role)
+        assign_position(user, pos)
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def make_synodals(db_session):
+    """Las asignaciones activas de un proceso: `teachers` = {rol: User} (president|secretary|vocal|alternate)."""
+    from itcj2.apps.titulatec.models import SynodalAssignment
+
+    def _make(process, teachers, assigned_by):
+        rows = []
+        for role, teacher in teachers.items():
+            row = SynodalAssignment(process_id=process.id, user_id=teacher.id, role=role,
+                                    assigned_by_id=assigned_by.id)
+            db_session.add(row)
+            rows.append(row)
+        db_session.flush()
+        return rows
 
     return _make
 
@@ -1112,6 +1213,32 @@ def make_process(db_session, make_cohort, make_library_clearance):
         if library_clearance is not None:
             make_library_clearance(proc, status=library_clearance)
         return proc
+
+    return _make
+
+
+@pytest.fixture()
+def make_format_b(db_session):
+    """Fila de `titulatec_format_b` (1-1 con el proceso). Flush, sin commit.
+
+    `fields` es cualquier columna del modelo (project_name, first_name, ...).
+    `modality` acepta el objeto o su id.
+    """
+    from itcj2.apps.titulatec.models import FormatB
+
+    def _make(process, *, status="draft", submitted_at=None, submission_count=0,
+              modality=None, **fields):
+        fb = FormatB(
+            process_id=process.id,
+            status=status,
+            submitted_at=submitted_at,
+            submission_count=submission_count,
+            modality_id=getattr(modality, "id", modality),
+            **fields,
+        )
+        db_session.add(fb)
+        db_session.flush()
+        return fb
 
     return _make
 
@@ -1562,3 +1689,167 @@ def espia_correo(monkeypatch):
 def listo(seed_phase_defs, titulatec_app):
     """Fases y app sembradas: `_create_account` crea el proceso de verdad."""
     seed_phase_defs()
+
+
+# ---------------------------------------------------------------------------
+# Fase 5: revision de sinodales (spec 2026-10-22-titulatec-fase5-revision-sinodales)
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_non_working_day(db_session):
+    """`NonWorkingDay` (day UNIQUE): idempotente por fecha. Flush, sin commit."""
+    from itcj2.apps.titulatec.models import NonWorkingDay
+
+    def _make(day, description="Inhábil"):
+        row = db_session.query(NonWorkingDay).filter_by(day=day).first()
+        if row is None:
+            row = NonWorkingDay(day=day, description=description)
+            db_session.add(row)
+            db_session.flush()
+        return row
+
+    return _make
+
+
+_PDF_MINIMO = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+               b"2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\n"
+               b"trailer<</Root 1 0 R>>\n%%EOF\n")
+
+
+@pytest.fixture()
+def make_review_case(db_session, tmp_path, seed_phase_defs, make_department, make_program,
+                     make_program_department, make_academic_head, make_teacher, make_user,
+                     make_student, make_process, make_modality, make_format_b,
+                     make_synodals):
+    """Caso completo de la fase 5 (revision de sinodales).
+
+    Proceso `active` en la fase con codigo `synodal_review` (el numero sale del
+    catalogo, nunca un literal), fases anteriores aprobadas, modalidad nueva con
+    la `signature_rule` pedida, 4 sinodales VIGENTES de un mismo departamento,
+    `ProcessChat` abierto y `versions` versiones con un PDF minimo escrito en
+    `tmp_path`. `phase_status` es el estado de la fase de revision.
+
+    Devuelve `SimpleNamespace(process, student, teachers, assignments, chat,
+    versions)`: `teachers` y `assignments` son {rol: ...} con los roles
+    president|secretary|vocal|alternate.
+    """
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.models import ProcessChat, ProcessPhase, ReviewVersion
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    def _make(*, signature_rule="president_only", versions=1, phase_status="in_progress"):
+        seed_phase_defs()
+        n = _n()
+        review_phase = PhaseService.phase_number_for_code(db_session, "synodal_review")
+        assert review_phase is not None, "el catalogo de fases no trae synodal_review"
+
+        depto = make_department(name=f"Depto revision {n}")
+        programa = make_program(f"Ingenieria Ficticia Revision {n}")
+        make_program_department(programa, depto)
+        jefe = make_academic_head(depto, kind="head")
+        modalidad = make_modality(name=f"Modalidad revision {n}", requires_synodals=True,
+                                  signature_rule=signature_rule)
+        alumno = make_student(first_name="ALUMNO", last_name=f"REVISION{n}")
+        proc = make_process(alumno, program=programa, modality=modalidad,
+                            current_phase=review_phase)
+        make_format_b(proc, status="approved", modality=modalidad, submission_count=1,
+                      project_name="Sistema de revision de prueba")
+
+        fase = (db_session.query(ProcessPhase)
+                .filter_by(process_id=proc.id, phase_number=review_phase).one())
+        fase.status = phase_status
+
+        teachers = {
+            rol: make_teacher(depto, user=make_user(first_name=f"SINODAL{i}",
+                                                    last_name=f"REVISION{n}"))
+            for i, rol in enumerate(("president", "secretary", "vocal", "alternate"))
+        }
+        rows = make_synodals(proc, teachers, jefe)
+        assignments = {r.role: r for r in rows}
+
+        chat = ProcessChat(process_id=proc.id)
+        db_session.add(chat)
+        db_session.flush()
+
+        vers = []
+        for i in range(1, versions + 1):
+            archivo = tmp_path / f"proyecto_p{proc.id}_v{i}.pdf"
+            archivo.write_bytes(_PDF_MINIMO)
+            v = ReviewVersion(process_id=proc.id, number=i, file_path=str(archivo),
+                              original_name=f"proyecto_v{i}.pdf",
+                              mime_type="application/pdf", size_bytes=len(_PDF_MINIMO),
+                              uploaded_by_id=alumno.id)
+            db_session.add(v)
+            vers.append(v)
+        db_session.flush()
+
+        return SimpleNamespace(process=proc, student=alumno, teachers=teachers,
+                               assignments=assignments, chat=chat, versions=vers)
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Fase 6: Anexo III (spec 2026-10-22-titulatec-fase6-anexo-iii)
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def make_anexo_case(db_session, make_review_case, make_academic_head):
+    """Proceso en la fase `anexo_iii` listo para generar el Anexo.
+
+    Se apoya en `make_review_case` (4 sinodales vigentes, Formato B con
+    `project_name`, carrera mapeada a un departamento) y agrega: fase 5
+    `approved` con `completed_at`, fase 6 en `phase_status`, `product_label`
+    en la modalidad, `DepartmentSettings` y el ocupante de
+    `coord_vinculacion_{depto}`. La regla de firma sale del codigo de modalidad
+    (`integral_residencias` = president_only; cualquier otra = all_synodals).
+
+    Devuelve `SimpleNamespace(process, student, department, synodals, head,
+    coordinator, modality, review_phase, anexo_phase)`.
+    """
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from itcj2.apps.titulatec.models import (
+        DepartmentSettings, ProcessPhase, ProgramDepartment,
+    )
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+    from itcj2.core.models.department import Department
+
+    def _make(modality_code="integral_residencias", phase_status="in_progress"):
+        regla = "president_only" if modality_code == "integral_residencias" else "all_synodals"
+        caso = make_review_case(signature_rule=regla, versions=0)
+        proc = caso.process
+        n5 = PhaseService.phase_number_for_code(db_session, "synodal_review")
+        n6 = PhaseService.phase_number_for_code(db_session, "anexo_iii")
+        assert n6 is not None, "el catalogo de fases no trae anexo_iii"
+
+        fases = {f.phase_number: f for f in
+                 db_session.query(ProcessPhase).filter_by(process_id=proc.id).all()}
+        fases[n5].status = "approved"
+        fases[n5].completed_at = datetime(2026, 3, 17, 10, 0)
+        fases[n6].status = phase_status
+        proc.current_phase = n6
+
+        modalidad = proc.modality
+        modalidad.product_label = {
+            "integral_residencias": "Informe técnico de residencia profesional",
+            "thesis": "Tesis",
+        }.get(modality_code, "Informe de proyecto de investigación")
+
+        mapeo = db_session.get(ProgramDepartment, proc.program_id)
+        depto = db_session.get(Department, mapeo.department_id)
+        db_session.add(DepartmentSettings(
+            department_id=depto.id, oficio_header=f"Departamento de {depto.name}",
+            addressee_position_code=f"tt_anx_dest_{depto.id}"))
+        from itcj2.core.models.position import Position, UserPosition
+        from itcj2.core.models.user import User
+        head = (db_session.query(User).join(UserPosition, UserPosition.user_id == User.id)
+                .join(Position, Position.id == UserPosition.position_id)
+                .filter(Position.code == f"head_{depto.code}").first())
+        coord = make_academic_head(depto, kind="coord")
+        db_session.flush()
+        return SimpleNamespace(process=proc, student=caso.student, department=depto,
+                               synodals=caso.teachers, head=head, coordinator=coord,
+                               modality=modalidad, review_phase=n5, anexo_phase=n6)
+
+    return _make

@@ -15,6 +15,7 @@ Diseno completo: `docs/superpowers/specs/2026-09-01-titulatec-scope-carrera-desi
 """
 from __future__ import annotations
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 READ_ALL = "titulatec.process.api.read.all"
@@ -122,10 +123,83 @@ def officer_programs(db: Session, user_id: int):
     """Devuelve 'ALL' o un set[int] de program_id que el usuario puede ver.
 
     Set vacio = no ve nada hasta que el jefe le asigne carreras (fail-closed).
+
+    Es la UNION de las carreras por puesto de Servicios Escolares y las de los
+    departamentos academicos que el usuario dirige (`academic_programs`, fase 4).
     """
     if READ_ALL in _user_perms(db, user_id):
         return "ALL"
-    return _program_ids_for_user(db, user_id)
+    return _program_ids_for_user(db, user_id) | academic_programs(db, user_id)
+
+
+def academic_departments(db: Session, user_id: int) -> set[int]:
+    """Departamentos academicos MAPEADOS donde el usuario ocupa un puesto VIGENTE
+    `head_{code}` o `coord_vinculacion_{code}` (`code` = `core_departments.code`).
+
+    Solo cuentan los departamentos que aparecen en `titulatec_program_departments`:
+    un depto sin carreras mapeadas no da alcance a nada.
+    """
+    from itcj2.apps.titulatec.models import ProgramDepartment
+    from itcj2.core.models.department import Department
+    from itcj2.core.models.position import Position, UserPosition
+    from itcj2.core.services.authz_service import _active_position_filter
+
+    mapeados = db.query(ProgramDepartment.department_id).distinct().subquery()
+    filas = (
+        db.query(Department.id)
+        .join(mapeados, mapeados.c.department_id == Department.id)
+        .join(Position, or_(Position.code == func.concat("head_", Department.code),
+                            Position.code == func.concat("coord_vinculacion_", Department.code)))
+        .join(UserPosition, UserPosition.position_id == Position.id)
+        .filter(UserPosition.user_id == user_id,
+                _active_position_filter(),
+                Position.is_active.is_(True))
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in filas}
+
+
+def academic_programs(db: Session, user_id: int) -> set[int]:
+    """Carreras (`program_id`) de los departamentos de `academic_departments`."""
+    from itcj2.apps.titulatec.models import ProgramDepartment
+
+    deptos = academic_departments(db, user_id)
+    if not deptos:
+        return set()
+    filas = (db.query(ProgramDepartment.program_id)
+             .filter(ProgramDepartment.department_id.in_(deptos)).all())
+    return {r[0] for r in filas}
+
+
+def department_of_program(db: Session, program_id: int) -> int | None:
+    """Departamento academico al que esta mapeada una carrera (None si no lo esta)."""
+    from itcj2.apps.titulatec.models import ProgramDepartment
+
+    fila = db.get(ProgramDepartment, program_id)
+    return fila.department_id if fila is not None else None
+
+
+def manageable_departments(db: Session, user_id: int) -> list[dict]:
+    """Departamentos que el usuario puede operar, `[{"id","code","name"}]` por nombre.
+
+    R-D: con `process.api.read.all` (admin, jefa de SE, jefatura de la DEP) son TODOS los
+    departamentos mapeados; si no, solo los de `academic_departments`.
+    """
+    from itcj2.apps.titulatec.models import ProgramDepartment
+    from itcj2.core.models.department import Department
+
+    q = db.query(Department.id, Department.code, Department.name)
+    if READ_ALL in _user_perms(db, user_id):
+        ids = db.query(ProgramDepartment.department_id).distinct()
+        q = q.filter(Department.id.in_(ids))
+    else:
+        deptos = academic_departments(db, user_id)
+        if not deptos:
+            return []
+        q = q.filter(Department.id.in_(deptos))
+    return [{"id": i, "code": c, "name": n}
+            for i, c, n in q.order_by(Department.name, Department.id).all()]
 
 
 def can_see_unmapped(db: Session, user_id: int) -> bool:

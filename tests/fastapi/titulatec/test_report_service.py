@@ -459,7 +459,7 @@ def test_doble_pelota_no_infla_los_procesos_unicos(lleno):
 
 
 def test_panorama_alertas_del_escenario(lleno, monkeypatch):
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 0)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (0, 0)})
     alertas = _build(lleno)["panorama"]["alerts"]
     assert [a["code"] for a in alertas] == ["requests_crit", "docs_warn", "capacity",
                                             "inflow", "appts_unclosed"]
@@ -515,7 +515,7 @@ def test_ocultar_un_encargado_no_cambia_las_pelotas(lleno):
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def capacidad_amplia(monkeypatch):
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 100)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (0, 100)})
 
 
 def _alertas(t, **kw):
@@ -548,9 +548,9 @@ def test_alerta_capacidad(esc, monkeypatch):
     t = esc
     t.proceso("listo", t.pa)
     t.proceso("listo", t.pb)
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (3, 5)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (3, 5)})
     assert _alertas(t) == []                                          # 2 listos, 2 libres
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (4, 5)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (4, 5)})
     assert _alertas(t) == ["capacity"]                                # 2 listos, 1 libre
 
 
@@ -595,7 +595,7 @@ def test_la_regla_de_solicitudes_es_una_sola_alerta_y_caben_las_cinco(lleno, mon
     """Con solicitudes viejas en las dos etapas (legado incluido) la regla 1 sale
     UNA vez con el conteo sumado y la regla 5 no se cae del tope de 5."""
     t = lleno
-    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5: {0: (0, 0)})
+    monkeypatch.setattr(ro, "capacity", lambda db, *, today, days=5, holidays=frozenset(): {0: (0, 0)})
     t.solicitud("unverified", t.pa, creada=t.hace(20))
     alertas = _build(t)["panorama"]["alerts"]
     assert [a["code"] for a in alertas] == ["requests_crit", "docs_warn", "capacity",
@@ -1327,3 +1327,56 @@ def test_atorados_motivo_basura_o_de_otra_area_se_ignora(lleno):
     solo_gtv = _build(t, "atorados", ball="gtv", idle_level="all")["atorados"]
     assert otra["atorados"]["total"] == solo_gtv["total"] == 1
     assert base["active_motive"] is None and base["motive_clear"]["active"] is True
+
+
+# ===========================================================================
+# Calendario de dias inhabiles (fase 5, Task 2)
+# ===========================================================================
+def _sin_notas_de_calendario(x):
+    """Cambia las dos notas «descontando los inhabiles» por las de siempre."""
+    equiv = {rsv._FORECAST_NOTE_HOLIDAYS: rsv._FORECAST_NOTE,
+             rsv._PROJECTION_NOTE_HOLIDAYS: rsv._PROJECTION_NOTE}
+    if isinstance(x, dict):
+        return {k: _sin_notas_de_calendario(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return type(x)(_sin_notas_de_calendario(v) for v in x)
+    return equiv.get(x, x) if isinstance(x, str) else x
+
+
+def test_calendario_vacio_notas_y_pronostico_de_siempre(lleno):
+    t = lleno
+    assert rsv._FORECAST_NOTE_HOLIDAYS == (
+        "a este ritmo, descontando los días inhábiles registrados y sin nuevas solicitudes")
+    assert rsv._PROJECTION_NOTE_HOLIDAYS == (
+        "a este ritmo, descontando los días inhábiles registrados y sin nuevas entradas")
+    pace = _build(t)["panorama"]["kpis"]["pace"]
+    assert pace["note"] == rsv._FORECAST_NOTE and "sin contar feriados" in pace["note"]
+    assert pace["forecast"] == add_business_days(t.hoy, 55)
+    for tab in ("panorama", "ritmo", "encargados", "carreras", "atorados"):
+        ctx = _build(t, tab)[tab]
+        if "projection_note" in ctx:
+            assert ctx["projection_note"] == rsv._PROJECTION_NOTE, tab
+
+
+def test_un_dia_inhabil_futuro_solo_cambia_notas_y_pronostico(lleno, make_non_working_day):
+    """Un festivo lejano (2091) no toca ritmo, series ni capacidad: cada pestaña
+    es igual a la de calendario vacio salvo las dos notas (que se normalizan)."""
+    t = lleno
+    base = {tab: _build(t, tab) for tab in ("panorama", "ritmo", "encargados", "carreras", "atorados")}
+    make_non_working_day(date(2091, 3, 6), "Festivo lejano")
+    for tab, antes in base.items():
+        despues = _build(t, tab)
+        assert _sin_notas_de_calendario(despues) == antes, tab
+    ctx = _build(t, "carreras")["carreras"]
+    assert ctx["projection_note"] == rsv._PROJECTION_NOTE_HOLIDAYS
+    assert _build(t)["panorama"]["kpis"]["pace"]["note"] == rsv._FORECAST_NOTE_HOLIDAYS
+
+
+def test_un_dia_inhabil_proximo_recorre_el_pronostico(lleno, make_non_working_day):
+    t = lleno
+    manana = add_business_days(t.hoy, 1)
+    make_non_working_day(manana, "Festivo de prueba")
+    pace = _build(t)["panorama"]["kpis"]["pace"]
+    # el 55.o habil con el festivo en medio es el 56.o habil normal
+    assert pace["forecast"] == add_business_days(t.hoy, 56)
+    assert pace["note"] == rsv._FORECAST_NOTE_HOLIDAYS

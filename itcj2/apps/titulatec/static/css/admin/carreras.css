@@ -1,0 +1,44 @@
+/* ===========================================================================
+   carreras.css — Pestaña «Carreras por departamento» (fase 4, 2026-10-21)
+   Se carga UNA vez en `admin/base_admin.html`. Todo cuelga de `tt-carr-*`.
+   Tokens --tt-* y escala --tt-fs-* (titulatec.css); sin `style=` en plantillas.
+   =========================================================================== */
+.tt-carr-page { padding: var(--tt-sp-5); }
+.tt-carr-header { margin-bottom: var(--tt-sp-4); }
+.tt-carr-title { font-size: var(--tt-fs-600); font-weight: 600; margin: .15rem 0 0; }
+.tt-carr-lead { margin: var(--tt-sp-1) 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 70ch; }
+
+.tt-carr-block { margin-bottom: var(--tt-sp-6); }
+.tt-carr-h { font-size: var(--tt-fs-400); font-weight: 600; margin: 0; }
+.tt-carr-help { margin: var(--tt-sp-1) 0 var(--tt-sp-3); font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+.tt-carr-list { display: flex; flex-direction: column; gap: var(--tt-sp-2); }
+.tt-carr-row {
+  display: grid; gap: var(--tt-sp-3); align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+}
+@media (min-width: 992px) {
+  .tt-carr-row { grid-template-columns: minmax(12rem, 1.1fr) minmax(0, 1.2fr) minmax(0, 1.2fr) auto; }
+  .tt-carr-row--dept { grid-template-columns: minmax(12rem, 1fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+}
+.tt-carr-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tt-sp-2); font-size: var(--tt-fs-200); min-width: 0; overflow-wrap: anywhere; }
+.tt-carr-level { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-carr-field { display: flex; flex-direction: column; gap: var(--tt-sp-1); min-width: 0; margin: 0; }
+.tt-carr-field .tt-field { width: 100%; min-width: 0; }
+.tt-carr-label { font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+/* Puesto + título del destinatario / del Atn.: apilados en una columna. */
+.tt-carr-pair { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tt-sp-2); min-width: 0; }
+.tt-carr-save { justify-self: start; white-space: nowrap; }
+
+/* Procesos en fase 4/5 de carreras sin departamento operable. */
+.tt-carr-warn {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0 0 var(--tt-sp-3);
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+
+.tt-carr-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: var(--tt-sp-2); padding: var(--tt-sp-6) var(--tt-sp-4); }
+.tt-carr-empty > i { font-size: var(--tt-fs-600); color: var(--tt-text-3); }
+.tt-carr-empty-title { margin: 0; font-size: var(--tt-fs-300); font-weight: 600; }
+.tt-carr-empty-text { margin: 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); max-width: 60ch; }

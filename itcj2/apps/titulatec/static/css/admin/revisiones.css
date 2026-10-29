@@ -1,0 +1,250 @@
+/* ===========================================================================
+   revisiones.css — Pestaña «Mis revisiones» del docente (fase 5)
+   ---------------------------------------------------------------------------
+   Spec docs/superpowers/specs/2026-10-22-titulatec-fase5-revision-sinodales-
+   design.md §8.2; rediseño estilo mensajería 2026-10-27. Se carga UNA vez en
+   `admin/base_admin.html` (la navegación admin solo morphea
+   #tt-admin-content, nunca el <head>). Todo cuelga de las clases `tt-rev-*`
+   de `admin/revisiones.html` y `partials/revisiones/`. La conversación
+   (`tt-chat-*`, burbujas `tt-rv-*`) es de `css/review.css`, compartida con el
+   alumno.
+
+   Lista + conversación a la altura de la ventana, cada una con su scroll. Lado
+   a lado cuando la VISTA mide lo suficiente (consulta de contenedor, no @media:
+   el ancho útil depende del sidebar y del tope de #tt-admin-content); debajo,
+   una sola vista: la lista, o la conversación si hay una abierta (nada se
+   encoge). Con el panel muy ancho, los detalles son una columna fija. El body
+   nunca hace scroll horizontal.
+
+   Reglas de la casa (titulatec.css): tokens --tt-*; texto con
+   --tt-text-1/2/3; escala --tt-fs-*; espaciado --tt-sp-*. Sin `style=` en
+   las plantillas.
+   =========================================================================== */
+
+/* Como Titulación: lista + conversación + detalles aprovechan hasta 1600 px. */
+@media (min-width: 1280px) {
+  .tt-admin .main > #tt-admin-content[data-tt-view="revisiones"] { max-width: 1600px; }
+}
+
+/* === 1. Página y división =============================================== */
+.tt-rev-page { padding: var(--tt-sp-5); min-width: 0; container: tt-rev-page / inline-size; }
+.tt-rev-split {
+  display: flex; min-width: 0;
+  height: calc(100dvh - 2 * var(--tt-sp-5)); min-height: 30rem;
+  background: var(--tt-paper);
+  border: 1px solid var(--tt-line); border-radius: var(--tt-r-lg);
+  overflow: hidden;
+}
+.tt-rev-inbox, .tt-rev-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.tt-rev-inbox { flex: 1 1 auto; }
+.tt-rev-pane { flex: 1 1 auto; container: tt-rev-pane / inline-size; }
+
+/* Una sola vista: la conversación si hay una abierta, si no la lista. */
+.tt-rev-split:has(#tt-rev-conv) .tt-rev-inbox { display: none; }
+.tt-rev-split:not(:has(#tt-rev-conv)) .tt-rev-pane { display: none; }
+
+@container tt-rev-page (min-width: 960px) {
+  .tt-rev-split:has(#tt-rev-conv) .tt-rev-inbox,
+  .tt-rev-split:not(:has(#tt-rev-conv)) .tt-rev-pane { display: flex; }
+  .tt-rev-inbox { flex: 0 0 22rem; border-right: 1px solid var(--tt-line); }
+  .tt-chat-back { display: none; }
+}
+
+/* === 2. Lista: encabezado, búsqueda y pestañas ========================== */
+.tt-rev-inbox-head { padding: var(--tt-sp-4) var(--tt-sp-4) var(--tt-sp-2); }
+.tt-rev-title { margin: 0; font-family: var(--tt-display); font-size: var(--tt-fs-500); font-weight: 600; color: var(--tt-text-1); }
+.tt-rev-lead { margin: 2px 0 0; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+.tt-rev-host { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.tt-rev-body { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.tt-rev-filters {
+  flex: 0 0 auto; display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding: 0 var(--tt-sp-4) var(--tt-sp-3);
+  border-bottom: 1px solid var(--tt-line);
+}
+.tt-rev-search { width: 100%; min-width: 0; }
+.tt-rev-tabs {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--tt-mist); border: 1px solid var(--tt-line); border-radius: 999px;
+}
+.tt-rev-tab {
+  flex: 1 1 0; min-width: 0; min-height: 34px; padding: 0 var(--tt-sp-2);
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: transparent; border: 0; border-radius: 999px;
+  font-size: var(--tt-fs-100); font-weight: 600; color: var(--tt-text-2);
+  white-space: nowrap; cursor: pointer;
+}
+.tt-rev-tab:hover { color: var(--tt-text-1); }
+.tt-rev-tab.is-active { background: var(--tt-paper); color: var(--tt-text-1); box-shadow: var(--tt-shadow-card); }
+.tt-rev-tab:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 1px; }
+.tt-rev-count {
+  min-width: 1.4rem; padding: 0 5px; border-radius: 999px;
+  background: var(--tt-line); color: var(--tt-text-1);
+  font-size: var(--tt-fs-100); font-weight: 700; line-height: 1.4rem; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tt-rev-tab.is-active .tt-rev-count { background: var(--tt-ink); color: var(--tt-paper); }
+
+/* === 3. Lista: filas estilo chat ======================================== */
+.tt-rev-list {
+  position: relative;                 /* recorta sus `.visually-hidden` (ver review.css) */
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column;
+  padding: var(--tt-sp-1) 0 var(--tt-sp-3);
+}
+.tt-rev-row {
+  position: relative; display: flex; align-items: flex-start; gap: var(--tt-sp-3);
+  padding: var(--tt-sp-3) var(--tt-sp-4);
+  color: var(--tt-text-1); text-decoration: none;
+  border-bottom: 1px solid var(--tt-line-soft);
+  transition: background-color var(--tt-dur-1) ease;
+}
+.tt-rev-row:hover { background: var(--tt-mist); color: var(--tt-text-1); }
+.tt-rev-row:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: -2px; }
+/* Fila abierta: fondo + barra de selección (indicador, no decoración). */
+.tt-rev-row.is-active { background: var(--tt-navy-soft); }
+/* Sobre navy-soft el gris más claro (--tt-text-3) queda en 4.47:1: sube un paso. */
+.tt-rev-row.is-active .tt-rev-row-time, .tt-rev-row.is-active .tt-rev-row-meta { color: var(--tt-text-2); }
+.tt-rev-row.is-active::before {
+  content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--tt-navy);
+}
+.tt-rev-row-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tt-rev-row-top, .tt-rev-row-mid { display: flex; align-items: baseline; gap: var(--tt-sp-2); min-width: 0; }
+.tt-rev-row-name {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-text-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tt-rev-row-time { flex: 0 0 auto; font-size: var(--tt-fs-100); color: var(--tt-text-3); font-variant-numeric: tabular-nums; }
+.tt-rev-row.has-unread .tt-rev-row-time { color: var(--tt-navy); font-weight: 600; }
+.tt-rev-row-preview {
+  flex: 1 1 auto; min-width: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tt-rev-row.has-unread .tt-rev-row-preview { color: var(--tt-text-1); }
+.tt-rev-row-who { font-weight: 600; }
+.tt-rev-unread {
+  flex: 0 0 auto; align-self: center; min-width: 1.35rem; height: 1.35rem; padding: 0 6px;
+  border-radius: 999px; background: var(--tt-navy); color: #fff;
+  font-size: var(--tt-fs-100); font-weight: 700; line-height: 1.35rem; text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tt-rev-row-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--tt-sp-2); margin-top: 2px;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-rev-row-meta .tt-mono { font-variant-numeric: tabular-nums; }
+.tt-rev-row-role { font-weight: 600; color: var(--tt-text-2); }
+.tt-rev-state { color: var(--tt-text-2); }
+.tt-rev-list-empty {
+  display: flex; gap: var(--tt-sp-2); align-items: flex-start;
+  margin: var(--tt-sp-4); font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rev-list-empty i { margin-top: 2px; color: var(--tt-text-3); }
+.tt-rev-list .tt-pager, .tt-rev-list > .tt-pager-range { padding: var(--tt-sp-3) var(--tt-sp-4) 0; }
+.tt-rev-list > .tt-pager-range { display: block; font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+
+/* === 4. Panel de la conversación ======================================== */
+.tt-rev-pane-empty {
+  flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--tt-sp-1); padding: var(--tt-sp-6); text-align: center; background: var(--tt-mist);
+}
+.tt-rev-pane-empty i { font-size: var(--tt-fs-600); color: var(--tt-text-3); }
+.tt-rev-pane-empty-title { margin: var(--tt-sp-2) 0 0; font-size: var(--tt-fs-300); font-weight: 600; color: var(--tt-text-1); }
+.tt-rev-pane-empty-text { margin: 0; max-width: 34ch; font-size: var(--tt-fs-100); color: var(--tt-text-2); }
+
+.tt-rev-conv { flex: 1 1 auto; }
+.tt-chat-back { flex: 0 0 auto; }
+
+/* Detalles como columna fija cuando el panel es muy ancho (nada se encoge:
+   depende del ancho, no de un clic). */
+@container tt-rev-pane (min-width: 1000px) {
+  /* `!important`: Bootstrap fija `[hidden] { display: none !important }`. */
+  .tt-rev-conv .tt-chat-details,
+  .tt-rev-conv .tt-chat-details[hidden] {
+    display: flex !important; flex: 0 0 21rem; border-left: 1px solid var(--tt-line);
+  }
+  .tt-rev-conv .tt-chat-cols:has(> .tt-chat-details:not([hidden])) > .tt-chat-main { display: flex; }
+  .tt-rev-conv .tt-chat-info, .tt-rev-conv .tt-chat-details-back { display: none; }
+}
+
+/* Ficha de D13 dentro de los detalles. */
+.tt-rev-project { font-weight: 600; }
+.tt-rev-synodals { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tt-rev-synodal {
+  display: grid; grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+  gap: 0 var(--tt-sp-2); align-items: baseline;
+}
+.tt-rev-synodal-role { font-size: var(--tt-fs-100); color: var(--tt-text-3); }
+.tt-rev-synodal-name { font-size: var(--tt-fs-200); color: var(--tt-text-1); overflow-wrap: anywhere; }
+.tt-rev-synodal.is-me .tt-rev-synodal-name { font-weight: 600; }
+/* En la columna de detalles no caben rol y nombre en una línea: se apilan. */
+.tt-chat-details .tt-rev-synodal { grid-template-columns: minmax(0, 1fr); margin-bottom: var(--tt-sp-1); }
+
+/* Aviso de hilo vacío: se oculta solo en cuanto hay un mensaje (el refresco
+   los agrega con `beforeend`, sin volver a pintar la lista). */
+.tt-rev-thread-empty {
+  align-self: center; margin: var(--tt-sp-3) 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-3);
+}
+.tt-rv-list:has(> .tt-rv-msg) > .tt-rev-thread-empty { display: none; }
+
+/* === 5. Zona viva, voto y avisos ======================================== */
+.tt-rev-poll { display: none; }
+.tt-rev-textarea { width: 100%; min-height: 4.5rem; resize: vertical; }
+.tt-rev-error {
+  margin: 0; padding: var(--tt-sp-1) var(--tt-sp-2); border-radius: var(--tt-r-sm);
+  background: var(--tt-danger-soft); color: #B91C1C; font-size: var(--tt-fs-100);
+}
+.tt-rev-note {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-text-2);
+}
+.tt-rev-note i { margin-top: 2px; color: var(--tt-text-3); }
+.tt-rev-warn {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-2); margin: 0;
+  padding: var(--tt-sp-2) var(--tt-sp-3); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft); color: var(--tt-amber-ink); font-size: var(--tt-fs-100);
+}
+.tt-rev-vote-form { display: flex; flex-direction: column; gap: var(--tt-sp-2); }
+.tt-rev-hint {
+  display: flex; align-items: flex-start; gap: var(--tt-sp-1); margin: 0;
+  font-size: var(--tt-fs-100); color: var(--tt-amber-ink);
+}
+.tt-rev-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tt-sp-2); }
+.tt-rev-buttons .btn:disabled { cursor: not-allowed; }
+
+/* Reconfirmación del voto que cierra (D6). */
+.tt-rev-confirm {
+  display: flex; flex-direction: column; gap: var(--tt-sp-2);
+  padding: var(--tt-sp-3); border: 1px solid var(--tt-amber); border-radius: var(--tt-r-sm);
+  background: var(--tt-amber-soft);
+}
+.tt-rev-confirm-title {
+  display: flex; align-items: center; gap: var(--tt-sp-2); margin: 0;
+  font-size: var(--tt-fs-200); font-weight: 600; color: var(--tt-amber-ink);
+}
+.tt-rev-confirm-text { margin: 0; font-size: var(--tt-fs-200); color: var(--tt-text-1); }
+
+/* === 6. Angosto ========================================================= */
+/* Bajo 992 px hay barra superior (61 px) y el chat va de orilla a orilla. */
+@media (max-width: 991.98px) {
+  .tt-rev-page { padding: var(--tt-sp-3); }
+  .tt-rev-split { height: calc(100dvh - 61px - 2 * var(--tt-sp-3)); }
+}
+@media (max-width: 575.98px) {
+  .tt-rev-page { padding: 0; }
+  .tt-rev-split { height: calc(100dvh - 61px); min-height: 26rem; border: 0; border-radius: 0; }
+  .tt-chat-bar { padding-inline: var(--tt-sp-3); }
+  .tt-rev-buttons .btn { flex: 1 1 auto; }
+}
+/* Pantalla táctil: objetivos de 40 px. */
+@media (max-width: 991.98px) {
+  .tt-rev-tab { min-height: 40px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tt-rev-row { transition: none; }
+}

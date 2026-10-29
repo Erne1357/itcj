@@ -1,0 +1,58 @@
+{% from "titulatec/partials/formato_b/_macros.html" import cls, notes, summary %}
+<form class="tt-fb-form d-grid gap-3" novalidate id="fb-form-2"
+      hx-post="/titulatec/student/formato-b/step/2" hx-target="#formato-b-body"
+      hx-swap="outerHTML show:window:top">
+  {{ summary(errors) }}
+
+  <div class="tt-fb-registry" id="fb-registry-school">
+    <div class="tt-fb-registry-pair">
+      <div>
+        <div class="tt-fb-registry-label">Número de control</div>
+        <div class="tt-fb-registry-value tt-mono">{{ registro.control_number }}</div>
+      </div>
+      <div>
+        <div class="tt-fb-registry-label">Carrera</div>
+        <div class="tt-fb-registry-value">{{ registro.program_id }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div><label class="tt-label" for="fb-study-plan">Plan de estudios</label>
+    <input class="form-control{{ cls(errors, obs, 'study_plan') }}" id="fb-study-plan" name="study_plan"
+           value="{{ datos.study_plan }}" maxlength="40" autocomplete="off" autocapitalize="characters"
+           placeholder="ISIC-2010-224" {{ 'autofocus' if first_error == 'study_plan' }}>
+    <p class="tt-fb-help mb-0">Como aparece en tu kárdex, p. ej. ISIC-2010-224.</p>
+    {{ notes(errors, obs, 'study_plan') }}</div>
+
+  <div><label class="tt-label" for="fb-modality">Tipo de titulación</label>
+    <select class="form-select{{ cls(errors, obs, 'modality_id') }}" id="fb-modality" name="modality_id"
+            {{ 'autofocus' if first_error == 'modality_id' }}>
+      <option value="" {{ 'selected' if not datos.modality_id }}>— Selecciona —</option>
+      {% for m in modalities %}
+      <option value="{{ m.id }}" {{ 'selected' if datos.modality_id|string == m.id|string }}>{{ m.name }}</option>
+      {% endfor %}
+    </select>
+    {{ notes(errors, obs, 'modality_id') }}</div>
+
+  <div class="row g-2">
+    <div class="col-6"><label class="tt-label" for="fb-admission">Mes de ingreso</label>
+      <input class="form-control{{ cls(errors, obs, 'admission_date') }}" id="fb-admission" type="month"
+             name="admission_date" value="{{ datos.admission_date }}" autocomplete="off"
+             {{ 'autofocus' if first_error == 'admission_date' }}>
+      {{ notes(errors, obs, 'admission_date') }}</div>
+    <div class="col-6"><label class="tt-label" for="fb-graduation">Mes de egreso</label>
+      <input class="form-control{{ cls(errors, obs, 'graduation_date') }}" id="fb-graduation" type="month"
+             name="graduation_date" value="{{ datos.graduation_date }}" autocomplete="off"
+             {{ 'autofocus' if first_error == 'graduation_date' }}>
+      {{ notes(errors, obs, 'graduation_date') }}</div>
+  </div>
+  <p class="tt-fb-help mb-0">Sin importar el día. Primer mes del primer semestre inscrito · último mes
+    del último semestre inscrito.</p>
+
+  <div class="d-flex gap-2">
+    <button type="button" class="btn tt-btn-ghost tt-fb-back" aria-label="Volver al paso 1"
+            hx-get="/titulatec/student/formato-b/step/1" hx-target="#formato-b-body"
+            hx-swap="outerHTML show:window:top"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>
+    <button class="btn tt-btn-ink tt-fb-next flex-grow-1">Continuar a proyecto <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i></button>
+  </div>
+</form>

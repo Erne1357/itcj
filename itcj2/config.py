@@ -493,6 +493,10 @@ class Settings(BaseSettings):
     TITULATEC_ALLOWED_DOC_EXTENSIONS: str = "pdf"
     # Impresión de constancias (lotes/PDF) oculta tras este switch: apagado solo se ve el folio (spec folios 2026-10-05 §3.5).
     TITULATEC_CERTIFICATE_PRINTING: bool = False
+    # Fase 5 (revisión de sinodales): tope por archivo de revisión (PDF/Word, MB) y
+    # días hábiles que dura la revisión de los sinodales.
+    TITULATEC_REVIEW_MAX_FILE_MB: int = Field(default=20, ge=1, le=50)
+    TITULATEC_REVIEW_DAYS: int = Field(default=10, ge=1, le=60)
     # Umbrales de "días sin moverse" para señalar procesos atorados en la bandeja admin.
     TITULATEC_IDLE_WARN_DAYS: int = 7    # ámbar a partir de aquí
     TITULATEC_IDLE_CRIT_DAYS: int = 14   # rojo (atorado) a partir de aquí
@@ -601,6 +605,13 @@ class Settings(BaseSettings):
     # Recordatorio de cita de cotejo: dias antes de la fecha (barrido de las
     # 9:00). 0 = sin recordatorio de cita.
     TITULATEC_APPT_REMINDER_DAYS_BEFORE: int = Field(1, ge=0, le=7)
+
+    # Fase 4 (sinodales, spec 2026-10-21 §8): dominios del correo INSTITUCIONAL con
+    # que el departamento da de alta a un docente nuevo. Lista separada por comas
+    # (sin distinguir mayúsculas); el usuario de la cuenta es la parte local del
+    # correo. Vacía = no se puede crear ninguna cuenta (falla cerrado). Se lee
+    # SOLO por `TeacherService.allowed_email_domains()`.
+    TITULATEC_TEACHER_EMAIL_DOMAINS: str = "cdjuarez.tecnm.mx"
 
     # `hide_input_in_errors`: el ValidationError de un validador (p. ej. la llave
     # Fernet mal formada) no debe imprimir el dict de entrada, que lleva secretos.

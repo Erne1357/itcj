@@ -1,0 +1,57 @@
+{# ===========================================================================
+   partials/formato_b/_body.html — cuerpo del Formato B (swap HTMX completo).
+   Raíz #formato-b-body: hx-swap="outerHTML" repinta también los pasos.
+   `view`: step (pasos 1-3) | review («Revisa y envía») | readonly (enviado/aprobado).
+   Contexto: view · step · datos · errors · first_error · registro · modalities ·
+   requires_project · obs · banner · observed · general_note · reviewed_txt ·
+   secciones · no_cambio · fbv · just_submitted.
+
+   Acomodo (2026-10-23, D3): en celular, pasos arriba (en fila) + observaciones +
+   formulario. Desde 992 px de lienzo (`student/formato-b.css`), formulario a
+   ancho de lectura y a un lado los pasos en vertical y las observaciones de
+   Titulación, fijos mientras se corrige. Un paso ya hecho es una liga a ese paso.
+   =========================================================================== #}
+<div id="formato-b-body" class="tt-fb-body" data-fb-view="{{ view }}">
+
+  {% if view == 'step' or view == 'review' %}
+  {% set actual = 4 if view == 'review' else step %}
+  <div class="tt-fb-layout">
+    <aside class="tt-fb-aside">
+      <nav id="fb-stepper" class="tt-fb-steps" aria-label="Pasos del Formato B">
+        <ol>
+          {% for i, rotulo in ((1, 'Personal'), (2, 'Escolar'), (3, 'Proyecto'), (4, 'Revisión')) %}
+          <li id="fb-step-{{ i }}" class="tt-fb-step{{ ' is-done' if actual > i }}{{ ' is-current' if actual == i }}">
+            {% if actual > i and i < 4 %}
+            <a class="tt-fb-step-link" href="/titulatec/student/formato-b"
+               hx-get="/titulatec/student/formato-b/step/{{ i }}" hx-target="#formato-b-body"
+               hx-swap="outerHTML show:window:top">
+              <span class="tt-fb-step-dot"><i class="bi bi-check-lg" aria-hidden="true"></i></span>
+              <span class="tt-fb-step-label">{{ rotulo }}<span class="visually-hidden"> (hecho; volver a este paso)</span></span>
+            </a>
+            {% else %}
+            <span class="tt-fb-step-link"{% if actual == i %} aria-current="step"{% endif %}>
+              <span class="tt-fb-step-dot">{{ i }}</span>
+              <span class="tt-fb-step-label">{{ rotulo }}</span>
+            </span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </nav>
+      {% if banner %}{% include "titulatec/partials/formato_b/_observaciones.html" %}{% endif %}
+    </aside>
+    <div class="tt-fb-main">
+      {% if view == 'review' %}{% include "titulatec/partials/formato_b/_revision.html" %}
+      {% elif step == 1 %}{% include "titulatec/partials/formato_b/_paso_1.html" %}
+      {% elif step == 2 %}{% include "titulatec/partials/formato_b/_paso_2.html" %}
+      {% else %}{% include "titulatec/partials/formato_b/_paso_3.html" %}
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="tt-fb-main">
+    {% include "titulatec/partials/formato_b/_solo_lectura.html" %}
+  </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,110 @@
+{# Cuerpo de la pestaña Sinodales. Re-render en #tt-sin-body (innerHTML) con
+   cada pestaña, búsqueda, departamento, carrera, página, fila o acción
+   (`pages/sinodales_admin.py::_body_ctx`).
+
+   Filtros en `#tt-sin-filters` (un <div>): sus hidden y sus campos los toman
+   las pestañas, las filas, la búsqueda, los selects y el pager con
+   `hx-include`, y `hx-vals` pisa lo que cambia. Cambiar de pestaña, de
+   búsqueda o de filtro vuelve a la página 1 (hidden `page=1`); cambiar de
+   departamento limpia la carrera. Los contadores son del conjunto filtrado. #}
+{% if not operable %}
+<div id="tt-sin-handoff" class="tt-card tt-sin-empty">
+  <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+  <p class="tt-sin-empty-title">La asignación de sinodales todavía no se opera aquí</p>
+  <p class="tt-sin-empty-text">Por ahora los sinodales se asignan fuera de la plataforma. Esta pestaña no tiene acciones mientras tanto.</p>
+</div>
+{% elif not departments %}
+<div id="tt-sin-no-dept" class="tt-card tt-sin-empty">
+  <i class="bi bi-diagram-3" aria-hidden="true"></i>
+  <p class="tt-sin-empty-title">No tienes un departamento académico a cargo</p>
+  <p class="tt-sin-empty-text">Los sinodales los asigna la jefatura o la coordinación de vinculación del departamento de la carrera. Si te corresponde, pide que te asignen el puesto.</p>
+</div>
+{% else %}
+{# Envoltura de la vista (molde de Titulación): con un elegido (`has-selection`),
+   en angosto se ve solo el detalle con «Volver a la lista»; en ancho, la lista
+   queda fija con su propio scroll y el detalle a la vista (sinodales.css). Sin
+   esto, con 50 filas el detalle quedaba 3 000 px arriba (ancho) o debajo de la
+   lista entera (angosto) al elegir una fila de abajo. #}
+<div class="tt-sin-wrap{{ ' has-selection' if detail }}">
+<div id="tt-sin-filters" class="tt-sin-filters" data-tt-q-server="{{ q or '' }}">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="selected" value="{{ selected_id or '' }}">
+  <input type="hidden" name="page" value="1">
+  <input type="hidden" name="etapa" value="{{ etapa }}">
+  <div class="tt-sin-tabs">
+    {% for key, label in tabs %}
+    <button type="button" id="tt-sin-tab-{{ key }}"
+            class="btn btn-sm {{ 'tt-btn-ink' if tab == key else 'tt-btn-ghost' }}"
+            aria-current="{{ 'true' if tab == key else 'false' }}"
+            hx-get="/titulatec/admin/sinodales/body" hx-vals='{"tab": "{{ key }}", "selected": ""}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">{{ label }} <span class="tt-sin-count">({{ counts[key] }})</span></button>
+    {% endfor %}
+  </div>
+  {# Sub-filtros de «En Anexo III» (spec fase 6 v2 §8.2), con su conteo. #}
+  {% if tab == 'anexo' %}
+  <div id="tt-sin-etapas" class="tt-sin-etapas" role="group" aria-label="Etapa del Anexo III">
+    {% for key, label in etapas %}
+    <button type="button" id="tt-sin-etapa-{{ key }}"
+            class="tt-sin-etapa{% if etapa == key %} is-active{% endif %}"
+            aria-pressed="{{ 'true' if etapa == key else 'false' }}"
+            hx-get="/titulatec/admin/sinodales/body" hx-vals='{"etapa": "{{ key }}", "selected": "", "page": 1}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">{{ label }} <span class="tt-sin-count">({{ etapa_counts[key] }})</span></button>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="tt-sin-search-row">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-sin-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+             placeholder="Buscar nombre, control o folio"
+             aria-label="Buscar nombre, control o folio"
+             hx-get="/titulatec/admin/sinodales/body" hx-target="#tt-sin-body"
+             hx-swap="innerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-sin-filters" hx-indicator="#tt-sin-skel">
+    </div>
+    {% if departments | length > 1 %}
+    <select id="tt-sin-depto" name="depto" class="tt-field tt-sin-select"
+            aria-label="Filtrar por departamento"
+            hx-get="/titulatec/admin/sinodales/body" hx-trigger="change"
+            hx-vals='{"carrera": ""}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">
+      <option value="">Todos los departamentos</option>
+      {% for d in departments %}
+      <option value="{{ d.id }}"{% if depto == d.id %} selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    {% if programs | length > 1 %}
+    <select id="tt-sin-carrera" name="carrera" class="tt-field tt-sin-select"
+            aria-label="Filtrar por carrera"
+            hx-get="/titulatec/admin/sinodales/body" hx-trigger="change"
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel">
+      <option value="">Todas las carreras</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}"{% if carrera == p.id %} selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
+</div>
+
+<div class="tt-sin-grid">
+  <section class="tt-sin-master" aria-label="Egresados">
+    {% include "titulatec/partials/sinodales/_lista.html" %}
+  </section>
+  <section class="tt-sin-detail-col" aria-label="Sinodales del egresado">
+    {% if detail %}
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-sin-back" data-tt-sin-back="{{ detail.process_id }}"
+            hx-get="/titulatec/admin/sinodales/body" hx-vals='{"selected": "", "page": {{ page.page }}}'
+            hx-include="#tt-sin-filters" hx-target="#tt-sin-body" hx-swap="innerHTML"
+            hx-indicator="#tt-sin-skel"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la lista</button>
+    {% endif %}
+    {% include "titulatec/partials/sinodales/_detalle.html" %}
+  </section>
+</div>
+</div>
+{% endif %}

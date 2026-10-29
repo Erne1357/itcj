@@ -1,0 +1,34 @@
+{# Vista de solo lectura (spec §5.5): enviado o aprobado. Sin formularios ni
+   acciones. Contexto: fbv · secciones · just_submitted. #}
+<div class="d-grid gap-3" id="fb-readonly">
+  {% if just_submitted %}
+  <div class="tt-card tt-card--success text-center" id="fb-sent">
+    <span class="tt-fb-sent-ico" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
+    <h2 class="tt-display tt-fb-title">Formato B enviado</h2>
+    <p class="tt-fb-sent-text">
+      Formato B enviado. Titulación lo revisa en orden de llegada.</p>
+    <a href="/titulatec/student/dashboard" class="btn tt-btn-ink">Volver al inicio</a>
+  </div>
+  {% elif fbv.status == 'approved' %}
+  <div class="tt-card tt-card--success tt-fb-note" id="fb-approved"><i class="bi bi-patch-check-fill" aria-hidden="true"></i>
+    Aprobado{% if fbv.approved_txt %} el {{ fbv.approved_txt }}{% endif %}.</div>
+  {% else %}
+  <div class="tt-card tt-card--accent tt-fb-note" id="fb-in-review"><i class="bi bi-hourglass-split" aria-hidden="true"></i>
+    Enviado{% if fbv.submitted_txt %} el {{ fbv.submitted_txt }}{% endif %} · Titulación lo revisa en orden de llegada.</div>
+  {% endif %}
+
+  {% for s in secciones %}
+  <section class="tt-card tt-fb-sec" id="fb-sec-{{ s.key }}">
+    <h3 class="tt-fb-sec-title">{{ s.label }}</h3>
+    <dl class="tt-fb-dl mb-0">
+      {% for r in s.rows %}
+      <div class="tt-fb-dl-row"><dt>{{ r.label }}</dt><dd>{{ r.value }}</dd></div>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endfor %}
+
+  {% if not just_submitted %}
+  <a href="/titulatec/student/dashboard" class="btn tt-btn-ghost">Volver al inicio</a>
+  {% endif %}
+</div>

@@ -68,6 +68,44 @@ class ProcessService:
             .first()
         )
 
+    # Primer checkpoint del proceso (D12, spec 2026-10-22 fase 5): el pago en
+    # Caja durante la cita de cotejo = fase `review_appointment` aprobada.
+    FIRST_CHECKPOINT_PHASE_CODE = "review_appointment"
+
+    @staticmethod
+    def first_checkpoint_clause(db: Session):
+        """Predicado SQL: el proceso ya pasó su primer checkpoint.
+
+        Verdadero cuando existe su `ProcessPhase` de la fase `review_appointment`
+        (resuelta por CÓDIGO en el catálogo) en `approved`. Si esa fase no está
+        en el catálogo el predicado es falso: falla cerrado (se pausa como antes).
+        Se usa con `~` para pausar solo a quien aún no lo pasó.
+        """
+        from sqlalchemy import exists, false
+
+        from itcj2.apps.titulatec.models import ProcessPhase, TitulationProcess
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+        number = PhaseService.phase_number_for_code(
+            db, ProcessService.FIRST_CHECKPOINT_PHASE_CODE)
+        if number is None:
+            return false()
+        return exists().where(ProcessPhase.process_id == TitulationProcess.id,
+                              ProcessPhase.phase_number == number,
+                              ProcessPhase.status == "approved")
+
+    @staticmethod
+    def passed_first_checkpoint(db: Session, process) -> bool:
+        """¿Este proceso ya pasó su primer checkpoint? (mismo predicado SQL)."""
+        from sqlalchemy import select
+
+        from itcj2.apps.titulatec.models import TitulationProcess
+
+        return bool(db.scalar(
+            select(TitulationProcess.id).where(
+                TitulationProcess.id == process.id,
+                ProcessService.first_checkpoint_clause(db))))
+
     @staticmethod
     def cancel(db: Session, process_id: int, *, reason: str | None,
                actor_id: int | None) -> tuple[bool, str]:

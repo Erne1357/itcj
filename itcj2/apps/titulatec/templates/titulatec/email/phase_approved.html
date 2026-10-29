@@ -4,10 +4,17 @@
    texto del corte es la misma idea que `_HANDOFF_COPY` de `pages/student.py`,
    escrito aquí a propósito: un service no importa `pages/`. La fase
    `initial_docs` NO usa esta plantilla: su avance sale en `docs_review.html`.
-   Contexto: first_name, link, variant, phase_name, next_name. #}
+   `synodals_next` (solo en advanced): la fase siguiente real es la de
+   asignación de sinodales del catálogo (spec 2026-10-21 fase 3 §10).
+   `review_released` (fase 5, spec 2026-10-22 §10): la fase aprobada es la
+   revisión de sinodales; en advanced agrega la línea del Anexo III con
+   `signature_text` (las firmas); en handoff dice que los sinodales liberaron el
+   proyecto y que sigue Titulación.
+   Contexto: first_name, link, variant, phase_name, next_name, synodals_next,
+   review_released, signature_text. #}
 {% extends "titulatec/email/_base_email.html" %}
 {% import "titulatec/email/_email_macros.html" as m %}
-{% block titulo %}{% if variant == "completed" %}¡Proceso completado!{% elif variant == "handoff" %}Concluiste tu trámite con Servicios Escolares{% else %}Avanzaste de fase{% endif %} — TitulaTec ITCJ{% endblock %}
+{% block titulo %}{% if variant == "completed" %}¡Proceso completado!{% elif variant == "handoff" and review_released %}Tus sinodales liberaron tu proyecto{% elif variant == "handoff" %}Concluiste tu trámite con Servicios Escolares{% else %}Avanzaste de fase{% endif %} — TitulaTec ITCJ{% endblock %}
 {% block cuerpo %}
 <p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
 {% if variant == "completed" %}
@@ -15,6 +22,11 @@
   <strong>¡Proceso completado!</strong> Se aprobó tu {{ phase_name|e }} y con ella
   concluiste todas las fases de tu proceso de titulación. ¡Felicidades!
 </p>
+{% elif variant == "handoff" and review_released %}
+<p style="margin:0 0 20px;">
+  <strong>Tus sinodales liberaron tu proyecto.</strong> Se aprobó tu {{ phase_name|e }}.
+</p>
+{{ m.aviso("Tu proceso continúa en el Departamento de Titulación, en el sistema T-soft. El departamento te contactará por correo para darte tu usuario.") }}
 {% elif variant == "handoff" %}
 <p style="margin:0 0 20px;">
   Se aprobó tu {{ phase_name|e }}: <strong>concluiste tu trámite con Servicios Escolares</strong>.
@@ -25,6 +37,19 @@
   Se aprobó tu {{ phase_name|e }}. <strong>Avanzaste a {{ next_name|e }}</strong>:
   entra a la plataforma para ver qué sigue.
 </p>
+{% if review_released %}
+<p style="margin:0 0 24px;">
+  Tus sinodales liberaron tu proyecto. Tu jefe de proyecto de vinculación preparará tu
+  Anexo III (lo imprime y recaba la firma y el sello del jefe del departamento). Te
+  avisaremos cuando puedas recogerlo para juntar en él las firmas de tus
+  sinodales{% if signature_text %}: {{ signature_text|e }}{% endif %}.
+</p>
+{% endif %}
+{% if synodals_next %}
+<p style="margin:0 0 24px;">
+  Tu Formato B fue aprobado. En máximo 5 días hábiles se asignan tus sinodales.
+</p>
+{% endif %}
 {% endif %}
 {{ m.boton(link, "Ver mi proceso") }}
 {% endblock %}

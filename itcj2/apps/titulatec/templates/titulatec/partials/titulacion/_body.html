@@ -1,0 +1,82 @@
+{# Cuerpo de la pestaña Titulación · Formato B. Re-render en #tt-tit-body
+   (innerHTML) con cada pestaña, búsqueda, carrera, página, fila o acción
+   (`pages/titulacion_admin.py::_body_ctx`).
+
+   Filtros en `#tt-tit-filters` (un <div>, como Documentos): sus hidden los
+   toman las pestañas, las filas, la búsqueda, la carrera y el pager con
+   `hx-include`, y `hx-vals` pisa lo que cambia. Cambiar de pestaña o de
+   búsqueda vuelve a la página 1 (hidden `page=1`); el dictamen re-envía la
+   vista desde el formulario del detalle. Los contadores son del conjunto
+   filtrado, no de la página. #}
+{% if not operable %}
+<div id="tt-tit-handoff" class="tt-card tt-tit-empty">
+  <i class="bi bi-box-arrow-up-right" aria-hidden="true"></i>
+  <p class="tt-tit-empty-title">La fase 3 se opera en T-soft</p>
+  <p class="tt-tit-empty-text">Por ahora el Departamento de Titulación revisa el Formato B en su propio sistema. Esta pestaña no tiene acciones mientras tanto.</p>
+</div>
+{% elif not can_read %}
+<div id="tt-tit-no-read" class="tt-card tt-tit-empty">
+  <i class="bi bi-lock" aria-hidden="true"></i>
+  <p class="tt-tit-empty-title">Sin acceso al Formato B</p>
+  <p class="tt-tit-empty-text">Tu puesto puede abrir esta pestaña, pero no consultar los Formatos B. Pide el acceso a tu jefatura.</p>
+</div>
+{% else %}
+{# Envoltura de la vista: con un elegido (`has-selection`), en angosto se ve
+   solo el detalle con «Volver a la lista» (titulacion.css, consulta de
+   contenedor); en ancho, lista y detalle conviven. #}
+<div class="tt-tit-wrap{{ ' has-selection' if detail }}">
+<div id="tt-tit-filters" class="tt-tit-filters" data-tt-q-server="{{ q or '' }}">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="selected" value="{{ selected_id or '' }}">
+  <input type="hidden" name="page" value="1">
+  <div class="tt-tit-tabs">
+    {% for key, label in tabs %}
+    <button type="button" id="tt-tit-tab-{{ key }}"
+            class="btn btn-sm {{ 'tt-btn-ink' if tab == key else 'tt-btn-ghost' }}"
+            aria-current="{{ 'true' if tab == key else 'false' }}"
+            hx-get="/titulatec/admin/titulacion/body" hx-vals='{"tab": "{{ key }}"}'
+            hx-include="#tt-tit-filters" hx-target="#tt-tit-body" hx-swap="innerHTML"
+            hx-indicator="#tt-tit-skel">{{ label }} <span class="tt-tit-count">({{ counts[key] }})</span></button>
+    {% endfor %}
+  </div>
+  <div class="tt-tit-search-row">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-tit-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+             placeholder="Buscar nombre, control o folio"
+             aria-label="Buscar nombre, control o folio"
+             hx-get="/titulatec/admin/titulacion/body" hx-target="#tt-tit-body"
+             hx-swap="innerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-tit-filters" hx-indicator="#tt-tit-skel">
+    </div>
+    {% if programs %}
+    <select id="tt-tit-carrera" name="carrera" class="tt-field tt-tit-carrera"
+            aria-label="Filtrar por carrera"
+            hx-get="/titulatec/admin/titulacion/body" hx-trigger="change"
+            hx-include="#tt-tit-filters" hx-target="#tt-tit-body" hx-swap="innerHTML"
+            hx-indicator="#tt-tit-skel">
+      <option value="">Todas las carreras</option>
+      {% for p in programs %}
+      <option value="{{ p.id }}"{% if carrera == p.id %} selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+  </div>
+</div>
+
+<div class="tt-tit-grid">
+  <section class="tt-tit-master" aria-label="Formatos B">
+    {% include "titulatec/partials/titulacion/_lista.html" %}
+  </section>
+  <section class="tt-tit-detail-col" aria-label="Detalle del Formato B">
+    {% if detail %}
+    <button type="button" class="btn btn-sm tt-btn-ghost tt-tit-back" data-tt-tit-back="{{ detail.process_id }}"
+            hx-get="/titulatec/admin/titulacion/body" hx-vals='{"selected": "", "page": {{ page.page }}}'
+            hx-include="#tt-tit-filters" hx-target="#tt-tit-body" hx-swap="innerHTML"
+            hx-indicator="#tt-tit-skel"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Volver a la lista</button>
+    {% endif %}
+    {% include "titulatec/partials/titulacion/_detalle.html" %}
+  </section>
+</div>
+</div>
+{% endif %}

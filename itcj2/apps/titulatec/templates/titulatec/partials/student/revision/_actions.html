@@ -1,0 +1,45 @@
+{# Compositor de la conversación (solo con la revisión abierta) o el aviso de
+   «solo consulta» (D7). Raíz `#tt-rv-actions`: el refresco la reemplaza fuera de
+   banda (`oob`) cuando la revisión deja de estar abierta. Variables: is_open,
+   closed, err_msg_id. La versión del proyecto se sube desde la franja fijada
+   (`_pin.html` -> `_upload.html`), no desde aquí.
+
+   Una sola caja que crece con el texto, clip para adjuntar (el archivo elegido
+   sale como ficha encima, con su botón para quitarlo) y enviar; Enter envía en
+   escritorio, Mayús+Enter salta de línea (`js/shared/review-thread.js`). El
+   formulario lleva `data-tt-review-poll`: se le agrega `after` (el último id
+   pintado) y la respuesta del POST trae también lo que otros escribieron entre
+   refrescos, no solo lo propio. #}
+<div id="tt-rv-actions" class="tt-chat-foot"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {%- if is_open %}
+  <form id="tt-rv-form-msg" class="tt-composer" novalidate
+        data-tt-review-form="#tt-rv-list" data-tt-review-poll="#tt-rv-list"
+        hx-post="/titulatec/student/revision/mensaje" hx-encoding="multipart/form-data"
+        hx-target="#tt-rv-list" hx-swap="beforeend"
+        hx-disabled-elt="find button[type=submit]">
+    <div id="{{ err_msg_id }}" class="tt-rvs-err" role="alert"></div>
+    <p class="tt-composer-file" data-tt-composer-file hidden>
+      <i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-composer-file-name" data-tt-composer-file-name></span>
+      <button type="button" class="tt-iconbtn tt-iconbtn-sm" data-tt-composer-clear aria-label="Quitar el archivo"><i class="bi bi-x-lg" aria-hidden="true"></i></button>
+    </p>
+    <div class="tt-composer-row">
+      <input id="tt-rv-file-msg" type="file" name="archivo" accept=".pdf,.doc,.docx"
+             class="tt-composer-input-file" tabindex="-1" aria-label="Adjuntar un archivo PDF o Word">
+      <button type="button" class="tt-composer-btn" data-tt-pick="tt-rv-file-msg"
+              aria-label="Adjuntar un archivo (PDF o Word)" title="Adjuntar PDF o Word">
+        <i class="bi bi-paperclip" aria-hidden="true"></i></button>
+      <label class="visually-hidden" for="tt-rv-body">Mensaje a tus sinodales</label>
+      <textarea id="tt-rv-body" name="body" rows="1" maxlength="4000" class="tt-composer-text"
+                placeholder="Escribe a tus sinodales…" data-tt-composer-text></textarea>
+      <button type="submit" class="tt-composer-send" aria-label="Enviar">
+        <i class="bi bi-send-fill" aria-hidden="true"></i></button>
+    </div>
+  </form>
+  {%- else %}
+  <p class="tt-chat-readonly" role="status">
+    <i class="bi bi-lock" aria-hidden="true"></i>
+    {%- if closed %}Tu proyecto fue liberado. Esta conversación queda solo para consulta: ya no hay más cambios ni versiones.
+    {%- else %}Esta conversación queda solo para consulta mientras tu proceso no esté activo.{% endif -%}
+  </p>
+  {%- endif %}
+</div>

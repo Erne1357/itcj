@@ -51,7 +51,7 @@ Cuatro piezas, cada una responsable de una sola cosa:
 
 ## 1. Catálogo (spec §5 + spec 2026-10-01 §4.11) — 15 `kind`, con los nombres reales
 
-`OUTBOX_KINDS` (`models/email_outbox.py`, 11 → 15 el 2026-10-01). Todos: `_base_email.html`,
+`OUTBOX_KINDS` (`models/email_outbox.py`, 11 → 15 el 2026-10-01; hoy **25**, el último `anexo_ready`; la tabla de abajo enumera los 17 del catálogo original más `anexo_ready` como fila 18; los demás están en §9 y en la fase 5). Todos: `_base_email.html`,
 asunto con prefijo exacto `[TitulaTec ITCJ] ` (`mail_compose.py:60`), saludo con `first_name`, un
 botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec/email/`.
 
@@ -75,6 +75,8 @@ botón con la liga y el texto plano debajo. Plantillas bajo `templates/titulatec
 | 15 | `library_reminder` | `library_reminder:{pid}:{ancla}:{n}` | `MailReminders._pagos` → `_recordar_pago` → `StudentMail.library_reminder` (ancla `ready_at`, D14) | `_compose_library_reminder` (`:945-974`) | `library_reminder.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_REMINDER`) |
 | 16 | `library_observed` (2026-10-05) | individual | `LibraryClearanceService.observe` → `StudentMail.library_observed(reason=)` (`library_clearance_service.py:940`, `student_mail.py:491`) | `_compose_library_observed` (`mail_compose.py:809`) | `library_observed.html` | `/titulatec/student/dashboard?fase=2` | **nuevo** (`LIBRARY_OBSERVED`, con el motivo) |
 | 17 | `library_reenabled` (2026-10-05) | individual | `LibraryClearanceService.reenable` → `StudentMail.library_reenabled` (`library_clearance_service.py:988`, `student_mail.py:500`) | `_compose_library_reenabled` (`mail_compose.py:838`) | `library_reenabled.html` | idem | **nuevo** (`LIBRARY_REENABLED`) |
+
+| 18 | `anexo_ready` (2026-10-29) | individual | `AnexoService.mark_ready` (primera vez y tras una reimpresión; NO al solo corregir la nota) → `StudentMail.anexo_ready(folio=, note=)` (`student_mail.py`), encolado en la transacción de «marcar listo» | `_compose_anexo_ready` (`mail_compose.py`) | `anexo_ready.html` | `/titulatec/student/anexo` | **nuevo**; asunto «Tu Anexo III está listo para recoger»; payload `{folio, note}`; **obsoleto** si `AnexoService.stage(...)` ya no es `ready` (el alumno subió el escaneo o se pidió reimpresión antes de salir); sale la nota VIGENTE de `titulatec_anexos.pickup_note`, no la del payload. Detalle: [fase 6](phase6_anexo_iii.md) |
 
 Los 4 del no adeudo (12-15) cuelgan de la fase 2, como los de GTV; ninguno lleva grupo —cada
 transición de Biblioteca/Caja es un correo propio, no se agrupan entre sí como `docs:`/`cita:`—.

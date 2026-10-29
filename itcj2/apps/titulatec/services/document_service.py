@@ -79,6 +79,14 @@ class DocumentService:
     # del panel muestra su propio texto acentuado; este es el del `ValueError`.
     REPLACEMENT_VERSION_CHANGED_MSG = ("El alumno cambio el archivo: revisalo antes "
                                        "de aprobar.")
+    # `review()` del escaneo del Anexo III (fase 6): solo lo dictamina
+    # `AnexoService` desde la pestaña Titulación. ASCII: la bandeja de
+    # Documentos lo manda por `X-Tt-Error` sin `_hdr()`.
+    ANEXO_REVIEW_MSG = "El Anexo III se dictamina desde la pestana Titulacion."
+    # El escaneo del Anexo III solo se quita mientras espera dictamen
+    # (`pending`); lo verifica `delete` bajo el bloqueo, para las DOS rutas del
+    # alumno (revisión final de la fase 6, punto 7). ASCII: viaja por X-Tt-Error.
+    ANEXO_SCAN_REVIEWED_MSG = "Este escaneo ya fue dictaminado: ya no se puede quitar."
 
     # ------------------------------------------------------------- set por perfil
     @staticmethod
@@ -671,14 +679,38 @@ class DocumentService:
         conexión no quede «idle in transaction» los segundos que tarda comprimir
         un PDF; entonces aquí solo se escribe el archivo y la fila. Sin él, se
         valida y comprime aquí mismo (``storage.save_document``), como siempre.
+
+        **Escaneo del Anexo III (fase 6, spec 2026-10-22 §10).** Si el TIPO es
+        de la fase `anexo_iii`, antes de la fila se bloquea y relee el PROCESO
+        (`PhaseService._lock_process_row`, mismo orden de candados que
+        `AnexoService.approve`: proceso -> documento). Sin esto, una subida en
+        vuelo con el `current_phase` que la ruta leyó antes de comprimir pasaba
+        la guarda R8 aunque Titulación ya hubiera aprobado, y pisaba el escaneo
+        aprobado (fase 6 `approved` con el documento `pending`). Al final,
+        `AnexoService.sync_phase` pone la fase «Por revisar» (C6). Los demás
+        tipos no cambian: ni candado nuevo ni consultas nuevas. Fase 6 v2: bajo
+        ese bloqueo, solo en etapa `ready`/`observed`/`in_review` (esta última =
+        reemplazo sin dictamen, que va al final de la cola FIFO por `sync_phase`;
+        `ANEXO_NOT_READY_MSG` en `preparing`/`reprint`/`approved`).
         """
         from itcj2.apps.titulatec.models import Document, DocumentType
+        from itcj2.apps.titulatec.services import anexo_service
+        from itcj2.apps.titulatec.services.anexo_service import AnexoService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.apps.titulatec.utils import storage
 
         dtype = db.query(DocumentType).filter_by(code=type_code, is_active=True).first()
         if not dtype:
             raise ValueError(f"Tipo de documento desconocido: {type_code}")
+
+        # Fase del tipo: la 1 (`initial_docs`) no consulta nada más; cualquier
+        # otra pregunta por la del Anexo III (una consulta al catálogo).
+        fase_inicial = PhaseService.phase_number_for_code(db, "initial_docs")
+        es_anexo = (dtype.phase_number is not None
+                    and dtype.phase_number != fase_inicial
+                    and dtype.phase_number == AnexoService.phase_number(db))
+        if es_anexo:
+            PhaseService._lock_process_row(db, process)
 
         # R8: bloqueo y re-verificación ANTES del disco (ver docstring).
         doc = DocumentService._locked_document(db, process.id, type_code)
@@ -688,6 +720,12 @@ class DocumentService:
                 and not (doc is not None and DocumentService.replacement_open(
                     doc.review_status, doc.replacement_requested_at))):
             raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
+        # Fase 6 v2 (spec 2026-10-29 §10): el escaneo solo entra con el Anexo
+        # «Por recoger», «Observado» o «En revisión» (reemplazo sin dictamen),
+        # releído bajo el bloqueo del proceso (las dos rutas del alumno pasan
+        # por aquí). Antes del disco.
+        if es_anexo and AnexoService.stage(db, process) not in anexo_service.UPLOAD_STAGES:
+            raise ValueError(anexo_service.ANEXO_NOT_READY_MSG)
 
         period_code, control = DocumentService._storage_keys(db, process)
         if prepared is None:
@@ -750,9 +788,12 @@ class DocumentService:
         )
         # Tarea 1 (2026-09-28): la fase 1 ya no se "envía" a mano -- se
         # sincroniza sola en cuanto el TIPO subido es uno de los iniciales.
-        # Antes de su commit, como el resto de esta transacción.
-        if dtype.phase_number == PhaseService.phase_number_for_code(db, "initial_docs"):
+        # Antes de su commit, como el resto de esta transacción. El escaneo del
+        # Anexo III hace lo mismo con la fase 6 (C6), bajo el bloqueo de arriba.
+        if dtype.phase_number == fase_inicial:
             DocumentService.sync_initial_phase(db, process)
+        elif es_anexo:
+            AnexoService.sync_phase(db, process)
         db.commit()
         db.refresh(doc)
         return doc
@@ -762,8 +803,9 @@ class DocumentService:
                reviewer_id: int, expected_version: int | None = None) -> bool:
         """Aprueba o rechaza un documento (status 'approved'|'rejected').
 
-        **Guarda angosta a propósito -- NO es la gemela de
-        `FormatBService.review`.** Esa usa `PhaseService.assert_can_transition`,
+        **Guarda angosta a propósito -- NO es la gemela del dictamen del
+        Formato B (`FormatBService.approve`/`.reject`).** Ese usa
+        `PhaseService.assert_can_transition`,
         que exige `phase_number == process.current_phase`: aquí eso ROMPERÍA un
         flujo legítimo que hoy funciona y es el uso normal de esta ruta, no una
         excepción -- el dictamen TARDÍO. Revisar hoy un acta de la fase 1 con el
@@ -831,6 +873,13 @@ class DocumentService:
         if (fase_para_el_corte is not None
                 and fase_para_el_corte >= PhaseService._handoff_phase()):
             raise ValueError(PhaseService.HANDOFF_MSG)
+        # El escaneo del Anexo III solo lo dictamina `AnexoService` (puerta
+        # única de la fase 6): aprobarlo o rechazarlo aquí rompería «fase 6
+        # `approved` <=> escaneo `approved`». Después del corte, para que con
+        # la fase 6 en T-soft siga saliendo `HANDOFF_MSG`.
+        from itcj2.apps.titulatec.services import anexo_service
+        if type_code == anexo_service.DOC_TYPE:
+            raise ValueError(DocumentService.ANEXO_REVIEW_MSG)
 
         proc = db.get(TitulationProcess, process_id)
         actual = getattr(proc, "current_phase", None)
@@ -1120,8 +1169,18 @@ class DocumentService:
         Tarea 1 (2026-09-28): si el tipo borrado es de la fase `initial_docs`,
         sincroniza esa fase (`sync_initial_phase`) -- perder uno de los 3 puede
         devolverla de `in_review` a `in_progress`.
+
+        Escaneo del Anexo III (fase 6): mismo candado que `save()` (proceso ->
+        documento, releídos) y la misma guarda R8 con el `current_phase`
+        releído: si Titulación ya aprobó (fase pasada), `REPLACEMENT_CLOSED_MSG`
+        sin tocar fila ni archivo -- un borrado en vuelo no deja la fase 6
+        `approved` sin su escaneo. Y, también releído bajo el bloqueo, solo se
+        borra un escaneo `pending` (`ANEXO_SCAN_REVIEWED_MSG`): uno observado
+        es la evidencia del dictamen, se reemplaza subiendo otro. Luego
+        `AnexoService.sync_phase` (`in_review` -> `in_progress`).
         """
         from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.apps.titulatec.services.anexo_service import AnexoService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.apps.titulatec.utils import storage
 
@@ -1129,11 +1188,28 @@ class DocumentService:
         if not doc:
             return False
         phase_number = doc.phase_number
+        fase_inicial = PhaseService.phase_number_for_code(db, "initial_docs")
+        es_anexo = (phase_number != fase_inicial
+                    and phase_number == AnexoService.phase_number(db))
+        process = None
+        if es_anexo:
+            process = db.get(TitulationProcess, process_id)
+            if process is not None:
+                PhaseService._lock_process_row(db, process)
+                doc = DocumentService._locked_document(db, process_id, type_code)
+                if not doc:
+                    return False
+                if (process.current_phase > phase_number
+                        and not DocumentService.replacement_open(
+                            doc.review_status, doc.replacement_requested_at)):
+                    raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
+                if doc.review_status != "pending":
+                    raise ValueError(DocumentService.ANEXO_SCAN_REVIEWED_MSG)
         storage.delete_document_file(doc.file_path)
         db.delete(doc)
         DocumentService._log(db, process_id, actor_id, "document_deleted",
                              phase_number, {"type_code": type_code})
-        if phase_number == PhaseService.phase_number_for_code(db, "initial_docs"):
+        if phase_number == fase_inicial:
             # `SessionLocal` de producción es autoflush=False
             # (`itcj2/database.py`): sin este flush, el DELETE de `doc` no
             # habría llegado a la BD todavía y `sync_initial_phase` contaría
@@ -1142,5 +1218,8 @@ class DocumentService:
             process = db.get(TitulationProcess, process_id)
             if process:
                 DocumentService.sync_initial_phase(db, process)
+        elif es_anexo and process is not None:
+            db.flush()                      # mismo motivo: que no cuente el borrado
+            AnexoService.sync_phase(db, process)
         db.commit()
         return True

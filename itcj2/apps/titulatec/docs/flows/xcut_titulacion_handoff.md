@@ -56,8 +56,8 @@ sequenceDiagram
     PS-->>FE: ValueError(HANDOFF_MSG)
     FE-->>T: 400 + X-Tt-Error (toast)
 
-    T->>FE: "Aprobar/Rechazar Formato B" (expediente, fase 3)
-    FE->>PS: FormatBService.review → assert_can_transition (n=format_b)
+    T->>FE: "Aprobar" / "Regresar con observaciones" (pestaña Titulación, fase 3)
+    FE->>PS: FormatBService.approve / .reject → assert_can_transition (n=format_b)
     PS-->>FE: ValueError(HANDOFF_MSG)
     FE-->>T: 400 + X-Tt-Error (toast)
 
@@ -97,7 +97,7 @@ sequenceDiagram
 | 1 | 👤 | `/titulatec/student/formato-b`, `/step/{n}` GET/POST y las demás rutas de fase | intenta ejecutar una fase ≥ `_handoff_phase()` | `pages/student.py` (10 rutas guardadas) | `PhaseService.assert_student_can_act` (`services/phase_service.py:214`, vía `_student_action_error`:170-202, chequeo de corte en `:196-198`) | ninguno — corta antes de escribir | ninguno |
 | 2 | 👤 | (mutación de fase, vía `FormatBService.submit`) | reenvío de la guarda en el punto de mutación | — | `FormatBService.submit` (`services/format_b_service.py:92-121`) re-invoca `assert_student_can_act` en `:113` | ninguno si falla | ninguno |
 | 3 | 🎓/Admin | expediente, botón «Mover de fase» (`_exp_shell.html:28-45`, siempre apunta a `current_phase`; desde 2026-09-21 solo se pinta con `can_dictaminar_fase`, arreglo A2 de la revisión final) | intenta aprobar/rechazar la fase actual (≥3) | `POST /admin/processes/{id}/phase/{n}/approve` · `/reject` (`pages/admin.py:1571-1624`) | `PhaseService.approve_phase` / `reject_phase` → `assert_can_transition` (`services/phase_service.py:121-133`, vía `_transition_error`:72-106, chequeo de corte en `:99-102`) | ninguno | ninguno |
-| 4 | 🎓 | expediente, botones «Aprobar/Rechazar Formato B» (`partials/processes/_exp_phase.html:228-244`, solo se pintan con `formato_b.status=='submitted'` **y** `can_dictaminar_fb`, arreglo A2) | intenta dictaminar el Formato B de una fase ≥3 | `POST /admin/processes/{id}/format-b/review` (`pages/admin.py:1540-1568`) | `FormatBService.review` (`services/format_b_service.py:123-157`) reusa la MISMA `assert_can_transition` que la fila 3, con `n = format_b` del catálogo (`:146-147`) — cerrado 2026-09-21, commit `99554755` (Ronda 2 de esta tarea) | ninguno | ninguno |
+| 4 | 🎓 | pestaña **Titulación** (hasta 2026-10-21: botones del expediente con el flag de dictamen de Formato B, ya retirados junto con la ruta vieja de revisión) | intenta dictaminar el Formato B de una fase ≥3 | `POST /admin/titulacion/formato-b/{id}/aprobar` · `/observar` · `/registro` (`pages/titulacion_admin.py`; responden 400 con `HANDOFF_MSG` si `_operable` es falso) | `FormatBService.approve` / `.reject` / `.correct_registry` reusan la MISMA `assert_can_transition` que la fila 3, con `n = format_b` del catálogo, vía `_assert_in_review` (origen: commit `99554755`, 2026-09-21) | ninguno | ninguno |
 | 5 | 🏛️/🎓 | bandeja Documentos, botones aprobar/rechazar (`partials/documents_body.html:120-125`, desde 2026-09-21 solo se pintan con `can_review_docs`, arreglo A2) | intenta dictaminar un documento cuyo TIPO pertenece a una fase ≥3 | `POST /admin/documents/{process_id}/document/review` (`pages/documents.py:166-208`) | `DocumentService.review` (`services/document_service.py:194-263`) — chequeo PROPIO y angosto (`:233-237`): rechaza si `dtype.phase_number >= _handoff_phase()` — o, desde el arreglo A4, si el TIPO ya no existe en el catálogo, el respaldo es `doc.phase_number` (falla CERRADO, no abierto) —, **no** mira `current_phase` — cerrado 2026-09-21, commit `c75b352f` (Ronda 2, ver asimetría abajo) | ninguno | ninguno |
 
 ### Bandeja Liberados
@@ -113,12 +113,14 @@ sequenceDiagram
 
 ## Dictamen de Formato B y de documentos: dos guardas más, con una asimetría a propósito
 
+> **Nota 2026-10-21:** `FormatBService.review` y su ruta se retiraron; en todo este apartado «`FormatBService.review`» se lee hoy como `FormatBService.approve` / `.reject` / `.correct_registry` (pestaña Titulación), que aplican la MISMA guarda y además la puerta única de la fase 3 (`PhaseService.DOOR_KEY`, `open_door`/`_door_guard`). Ver [revisión del Formato B](phase3_titulacion_review_formato_b.md). El texto de abajo se conserva como historia.
+
 Hasta el 2026-09-21 (ronda de fix 2/3 de esta misma tarea), **ninguno de los dos dictámenes
 pasaba por guarda alguna del corte** — dos huecos reales, no hipotéticos, cada uno cerrado en
 su propio commit:
 
-- **`FormatBService.review`** (`services/format_b_service.py:123-157`, vía
-  `pages/admin.py::fb_review`, `:1540-1568`) — commit `99554755`. Ganó `process` como
+- **`FormatBService.review`** (retirado el 2026-10-21; hoy lo cubren `approve`/`reject`/
+  `correct_registry` con la misma guarda, ver [revisión del Formato B](phase3_titulacion_review_formato_b.md)) — commit `99554755`. Ganó `process` como
   parámetro nuevo y ahora exige `PhaseService.assert_can_transition(db, process, n)` con
   `n` = fase `format_b` del catálogo (`:146-147`), la MISMA función que usan
   `approve_phase`/`reject_phase` (fila 3 de la tabla de arriba). El hueco era real por el
@@ -322,7 +324,7 @@ el paso 2 de la sección de reversión: asignar ocupantes a los puestos nuevos.
   falsa, porque esa fase ya no se habilita en esta app.
 - **Rechazo de fase 2** deja `current_phase = 2`: del lado vivo del corte, nada cambia.
 - **El dictamen de Formato B y de documentos también pasa por guarda, desde 2026-09-21** — no
-  fue así en la primera versión de esta feature (Tareas 2/3): `FormatBService.review` y
+  fue así en la primera versión de esta feature (Tareas 2/3): `FormatBService.review` (hoy `approve`/`reject`) y
   `DocumentService.review` no comprobaban nada del corte, cada una un hueco real (no
   hipotético) cerrado en su propio commit. Detalle completo, con la asimetría entre las dos
   guardas y por qué es a propósito: ["Dictamen de Formato B y de documentos"](#dictamen-de-formato-b-y-de-documentos-dos-guardas-más-con-una-asimetría-a-propósito),
@@ -475,4 +477,4 @@ El procedimiento de operación (orden, `--dry-run`) está en
 - ← Precede: [Cita de cotejo (loop completo)](phase2_appointment_loop.md) — aprobar su fase 2 es
   el trigger de este flujo.
 - → Ya no aplica dentro de la app: [el alumno llena el Formato B](phase3_student_formato_b.md)
-  (fase 3, hoy congelada por el corte).
+  (fase 3, hoy congelada por el corte; con el corte ≥ 10, en dev, sí se opera: ver [revisión en Titulación](phase3_titulacion_review_formato_b.md)).

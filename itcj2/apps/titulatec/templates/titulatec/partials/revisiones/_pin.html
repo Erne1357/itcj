@@ -1,0 +1,46 @@
+{# Franja fijada de la conversación del sinodal (rediseño de chat 2026-10-27):
+   versión vigente, plazo, aprobaciones y la entrada al voto. Recibe `conv` y
+   `oob` (el refresco la reemplaza fuera de banda con cada novedad: una
+   versión nueva cambia el número, reinicia las aprobaciones y el plazo).
+
+   «Votar» / «Cambiar voto» despliega `#tt-rev-vote` debajo
+   (`data-tt-chat-toggle`, `js/shared/review-thread.js`); lo mismo hace el
+   botón de la tarjeta de la versión vigente en el hilo. Solo si tu voto
+   cuenta, hay versión, la revisión está abierta y tienes el permiso. #}
+{% from "titulatec/_macros.html" import pill %}
+{% set c = conv %}
+{% set st = c.review_status %}
+{% set votable = c.is_open and c.counts and not c.rule_error and c.version is not none and c.can_vote %}
+<div id="tt-rev-pin" class="tt-chat-pin"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <span class="tt-chat-pin-ico" aria-hidden="true"><i class="bi bi-{{ 'check2-circle' if st and st.closed else 'file-earmark-text' }}"></i></span>
+  <div class="tt-chat-pin-main">
+    {% if st and st.closed %}
+    <p class="tt-chat-pin-title">Proyecto liberado</p>
+    <p class="tt-chat-pin-sub">Versión {{ st.version }} · {{ st.approvals }} de {{ st.required }} {{ "aprobación" if st.required == 1 else "aprobaciones" }}</p>
+    {% elif not st or st.version is none %}
+    <p class="tt-chat-pin-title">Esperando la primera versión</p>
+    <p class="tt-chat-pin-sub">El alumno todavía no sube su proyecto.</p>
+    {% else %}
+    <p class="tt-chat-pin-title">Versión {{ st.version }}<span class="tt-chat-pin-day"> · subida el {{ st.uploaded_day }}</span></p>
+    <p class="tt-chat-pin-sub">
+      {%- if st.required %}{{ st.approvals }} de {{ st.required }} {{ "aprobación" if st.required == 1 else "aprobaciones" }}{% endif %}
+      {%- if st.due_label %} · vence el {{ st.due_label }}{% endif %}</p>
+    {% endif %}
+  </div>
+  <div class="tt-chat-pin-side">
+    {% if st and not st.closed and st.version is not none %}
+      {% if st.semaphore == "late" %}{{ pill("Vencido", "danger", "exclamation-triangle") }}
+      {% elif st.semaphore == "warn" %}{{ pill("Por vencer", "amber", "hourglass-split") }}
+      {% elif st.semaphore == "ok" %}{{ pill("En plazo", "success", "clock") }}{% endif %}
+    {% endif %}
+    {% if votable %}
+      {% if c.my_verdict == "approved" %}{{ pill("Aprobaste", "success", "check-lg") }}
+      {% elif c.my_verdict %}{{ pill("Pediste cambios", "amber", "pencil") }}{% endif %}
+      <button type="button" id="tt-rev-vote-open" class="btn btn-sm {{ 'tt-btn-ghost' if c.my_verdict else 'tt-btn-ink' }} tt-chat-pin-cta"
+              data-tt-chat-toggle="tt-rev-vote" aria-controls="tt-rev-vote" aria-expanded="false">
+        <i class="bi bi-check2-square me-1" aria-hidden="true"></i>{{ "Cambiar voto" if c.my_verdict else "Votar" }}</button>
+    {% elif c.is_open and not c.counts and not c.rule_error %}
+      <span class="tt-chat-pin-note">Solo comentas</span>
+    {% endif %}
+  </div>
+</div>

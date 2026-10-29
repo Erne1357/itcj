@@ -10,7 +10,7 @@ correo sale —asunto, plantilla, contexto y liga— o si ya no aplica
 CONTRATO DE `MailComposer.compose(db, rows, process, user)`:
 
 - Grupo `docs:` → `_compose_docs_group`; grupo `cita:` → `_compose_appt_group`;
-  si no, una fila suelta → `REGISTRY[kind]`. Un `kind` sin composición →
+  grupo `review:` → `_compose_review_changes_requested`; si no, una fila suelta → `REGISTRY[kind]`. Un `kind` sin composición →
   `Obsolete` + error en el log: una fila que se reintentara sin fin atascaría
   el lote del despachador.
 - Solo LECTURA: ni commit, ni flush, ni siembra. Por eso los requisitos de la
@@ -548,31 +548,143 @@ def _compose_phase_approved(db: Session, rows: list, process, user) -> Composed 
     """#2, fase aprobada (cualquiera salvo `initial_docs`, que va en el grupo
     `docs:`): «¡Proceso completado!» si no hay siguiente; «Concluiste tu trámite
     con Servicios Escolares» si la siguiente ya la opera T-soft (`handoff`); si
-    no, «Avanzaste a {siguiente}». Lleva al tablero en la fase que sigue."""
+    no, «Avanzaste a {siguiente}». Lleva al tablero en la fase que sigue.
+
+    En `advanced`, si la fase siguiente REAL es la de código
+    `synodal_assignment` del catálogo, la plantilla promete el plazo de los
+    sinodales (spec 2026-10-21 fase 3 §10); si la modalidad la salta (EGEL →
+    Anexo III), queda el texto genérico de la fase siguiente.
+
+    Fase 5 (spec 2026-10-22 §10): si la fase aprobada es la de código
+    `synodal_review`, `review_released=True`. Con la siguiente operable
+    (`advanced`) la plantilla agrega la línea del Anexo III con las firmas que
+    salen de `ReviewService.signature_text`; con `handoff` el asunto es «Tus
+    sinodales liberaron tu proyecto» y el texto es el traspaso al Departamento
+    de Titulación (no a «Servicios Escolares»). EGEL salta la fase 5: no lo
+    recibe."""
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
     datos = _datos(rows[-1])
     fase = _entero(datos.get("phase_number"))
     siguiente = _entero(datos.get("next_phase"))
     siguiente_nombre = None
+    sinodales = False
+    liberada = fase is not None and fase == PhaseService.phase_number_for_code(
+        db, "synodal_review")
+    firmas = None
     if datos.get("completed") or siguiente is None:
         variante, asunto = "completed", "¡Proceso completado!"
     elif datos.get("handoff"):
         variante, asunto = "handoff", "Concluiste tu trámite con Servicios Escolares"
+        if liberada:
+            asunto = "Tus sinodales liberaron tu proyecto"
     else:
         siguiente_nombre = _nombre_fase(datos.get("next_name"), siguiente)
         variante, asunto = "advanced", f"Avanzaste a {siguiente_nombre}"
+        sinodales = siguiente == PhaseService.phase_number_for_code(db, "synodal_assignment")
+        if liberada:
+            from itcj2.apps.titulatec.services.review_service import ReviewService
+
+            try:
+                firmas = ReviewService.signature_text(ReviewService.rule_for(process))
+            except ValueError:        # regla desconocida: sin la línea de firmas
+                firmas = None
     return _correo(user, asunto, "phase_approved.html",
                    _tablero(siguiente if siguiente is not None else fase),
                    variant=variante, phase_name=_nombre_fase(datos.get("phase_name"), fase),
-                   next_name=siguiente_nombre)
+                   next_name=siguiente_nombre, synodals_next=sinodales,
+                   review_released=liberada, signature_text=firmas)
+
+
+_ASUNTO_CAMBIOS = "Tus sinodales pidieron cambios a tu proyecto"
+_REVISION = "/titulatec/student/revision"
+
+
+def _compose_review_changes_requested(db: Session, rows: list, process,
+                                      user) -> Composed | Obsolete:
+    """Fase 5, «pidieron cambios» (spec 2026-10-22 §10). El grupo
+    `review:{pid}:{version}` junta los votos de una misma ronda: UN correo con
+    todas las observaciones, en orden. Re-validado al enviar (D8): obsoleto si
+    la versión vigente ya no es la del grupo (el alumno subió otra) o la fase 5
+    ya se aprobó. Lleva a la pantalla de la revisión."""
+    from itcj2.apps.titulatec.services.review_service import ReviewService
+
+    version = _entero(_datos(rows[-1]).get("version"))
+    actual = ReviewService.current_version(db, process.id)
+    if actual is None or version is None or actual.number != version:
+        return Obsolete("el alumno ya subió una versión más nueva")
+    if ReviewService._phase_status(db, process.id) == "approved":
+        return Obsolete("la revisión de sinodales ya se aprobó")
+    observaciones = []
+    for fila in rows:
+        d = _datos(fila)
+        texto = _texto(d.get("comment"))
+        if texto:
+            observaciones.append({"role_label": _texto(d.get("role_label")) or "Sinodal",
+                                  "comment": texto})
+    return _correo(user, _ASUNTO_CAMBIOS, "review_changes_requested.html", _REVISION,
+                   version=version, observaciones=observaciones)
+
+
+_ASUNTO_ANEXO_LISTO = "Tu Anexo III está listo para recoger"
+_ANEXO = "/titulatec/student/anexo"
+
+
+def _compose_anexo_ready(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Fase 6 v2 (spec 2026-10-29 §9): el Anexo III está listo para recoger.
+    Re-validado al enviar (D8): obsoleto si la etapa ya no es `ready` (el
+    alumno ya subió, o se pidió reimpresión). La nota es la VIGENTE de la fila
+    del Anexo, no la congelada en el payload."""
+    from itcj2.apps.titulatec.services.anexo_service import SIGNERS_FALLBACK_TEXT, AnexoService
+
+    if AnexoService.stage(db, process) != "ready":
+        return Obsolete("el Anexo III ya no está listo para recoger")
+    anexo = AnexoService.get(db, process.id)
+    try:
+        firmantes = AnexoService.signers_text(process)
+    except ValueError:                 # regla de firma ilegible: texto neutro
+        firmantes = SIGNERS_FALLBACK_TEXT
+    return _correo(user, _ASUNTO_ANEXO_LISTO, "anexo_ready.html", _ANEXO,
+                   folio=_texto(_datos(rows[-1]).get("folio")),
+                   note=_texto(getattr(anexo, "pickup_note", None)),
+                   signers_text=firmantes)
 
 
 def _compose_phase_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:
-    """#3, fase rechazada: el motivo tal como quedó y qué hacer."""
-    datos = _datos(rows[-1])
+    """#3, fase rechazada: el motivo tal como quedó y qué hacer.
+
+    Fase 6 v2 (spec 2026-10-29 E4): si ese dictamen pidió reimprimir el Anexo
+    III (`reprint` en el payload del evento `phase_rejected` que escribió
+    `AnexoService.observe`), el correo dice que vinculación lo reimprime y
+    que se le avisará para recogerlo, no que corrija y vuelva a subir."""
+    fila = rows[-1]
+    datos = _datos(fila)
     fase = _entero(datos.get("phase_number"))
     nombre = _nombre_fase(datos.get("phase_name"), fase)
+    motivo = _texto(datos.get("reason"))
+    if _pidio_reimpresion(db, process.id, fase, getattr(fila, "created_at", None)):
+        return _correo(user, "Titulación pidió reimprimir tu Anexo III", "phase_rejected.html",
+                       _ANEXO, phase_name=nombre, reason=motivo, reprint=True)
     return _correo(user, f"Una fase necesita correcciones: {nombre}", "phase_rejected.html",
-                   _tablero(fase), phase_name=nombre, reason=_texto(datos.get("reason")))
+                   _tablero(fase), phase_name=nombre, reason=motivo, reprint=False)
+
+
+def _pidio_reimpresion(db: Session, process_id: int, fase: int | None, hasta) -> bool:
+    """¿El `phase_rejected` de esa fase que acompaña al correo trae la bandera
+    `anexo_iii.reprint`? Es el más reciente con `created_at <= hasta` (la fila
+    del correo nace en la MISMA transacción que el evento)."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    if fase is None:
+        return False
+    q = db.query(ProcessEvent.payload).filter(ProcessEvent.process_id == process_id,
+                                              ProcessEvent.event_type == "phase_rejected",
+                                              ProcessEvent.phase_number == fase)
+    if hasta is not None:
+        q = q.filter(ProcessEvent.created_at <= hasta)
+    payload = q.order_by(ProcessEvent.id.desc()).limit(1).scalar()
+    anexo = (payload or {}).get("anexo_iii") if isinstance(payload, dict) else None
+    return bool(isinstance(anexo, dict) and anexo.get("reprint"))
 
 
 def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsolete:
@@ -1278,6 +1390,8 @@ class MailComposer:
         "library_observed": _compose_library_observed,
         "library_reenabled": _compose_library_reenabled,
         "library_payment_held": _compose_library_payment_held,
+        "review_changes_requested": _compose_review_changes_requested,
+        "anexo_ready": _compose_anexo_ready,
     }
 
     # Los 4 correos de inscripción sin secreto (spec 2026-10-05 §3.7): con las
@@ -1318,6 +1432,8 @@ class MailComposer:
             return _compose_docs_group(db, filas, process, user)
         if grupo.startswith("cita:"):
             return _compose_appt_group(db, filas, process, user)
+        if grupo.startswith("review:"):
+            return _compose_review_changes_requested(db, filas, process, user)
         if len(filas) > 1:
             raise ValueError(f"MailComposer.compose: {len(filas)} filas sin un grupo "
                              "que las junte")

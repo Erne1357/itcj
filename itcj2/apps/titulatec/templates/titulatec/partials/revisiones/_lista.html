@@ -1,0 +1,66 @@
+{# Lista de conversaciones de «Mis revisiones», estilo mensajería. Una fila por
+   proceso con id estable (`tt-rev-row-{id}`). Cada fila abre su conversación
+   en `#tt-rev-pane` (`hx-select` == `hx-target` -> `outerHTML`,
+   test_admin_nav_swap.py) y trae esta misma lista fuera de banda
+   (`hx-select-oob`, con morph: la lista no pierde su scroll): la fila
+   abierta queda marcada y sin «nuevos». La URL
+   conserva pestaña, búsqueda y página (`list_qs`).
+
+   Fila: avatar, nombre, hora del último mensaje, su vista previa («Tú: …»),
+   no leídos y, abajo, número de control, tu papel y el estado de la pestaña:
+   - Por revisar: semáforo del plazo de 10 días hábiles de la versión vigente
+     (con el calendario de días inhábiles).
+   - En curso: por qué no espera tu voto (esperando versión, ya votaste, solo
+     comentas, en pausa).
+   - Completados: «Liberado» o «Revocada». #}
+{% from "titulatec/_macros.html" import pill, pager %}
+{% set SEMAFORO = {"ok": ("En plazo", "success", "clock"),
+                   "warn": ("Por vencer", "amber", "hourglass-split"),
+                   "late": ("Vencido", "danger", "exclamation-triangle")} %}
+<div id="tt-rev-list" class="tt-rev-list">
+  {% for r in rows %}
+  {% set activa = active_id is defined and active_id == r.process_id %}
+  {% set url = base_url ~ "/" ~ r.process_id ~ list_qs %}
+  <a id="tt-rev-row-{{ r.process_id }}" class="tt-rev-row{% if activa %} is-active{% endif %}{% if r.unread %} has-unread{% endif %}"
+     data-process="{{ r.process_id }}" href="{{ url }}"{% if activa %} aria-current="true"{% endif %}
+     hx-get="{{ url }}" hx-target="#tt-rev-pane" hx-select="#tt-rev-pane" hx-swap="outerHTML"
+     hx-select-oob="#tt-rev-list:morph" hx-push-url="true">
+    <span class="tt-avatar" aria-hidden="true">{{ r.initials }}</span>
+    <span class="tt-rev-row-main">
+      <span class="tt-rev-row-top">
+        <span class="tt-rev-row-name">{{ r.student_name }}</span>
+        {% if r.last_label %}<span class="tt-rev-row-time">{{ r.last_label }}</span>{% endif %}
+      </span>
+      <span class="tt-rev-row-mid">
+        <span class="tt-rev-row-preview">
+          {%- if r.last_who %}<span class="tt-rev-row-who">{{ r.last_who }}:</span> {% endif -%}
+          {%- if r.last_icon %}<i class="bi bi-{{ r.last_icon }}" aria-hidden="true"></i> {% endif -%}
+          {{ r.last_text or "Sin mensajes todavía" }}</span>
+        {% if r.unread %}<span class="tt-rev-unread" aria-label="{{ r.unread }} {{ 'mensaje nuevo' if r.unread == 1 else 'mensajes nuevos' }}">{{ r.unread if r.unread < 100 else '99+' }}</span>{% endif %}
+      </span>
+      <span class="tt-rev-row-meta">
+        <span class="tt-mono">{{ r.control_number or '—' }}</span>
+        <span class="tt-rev-row-role">{{ r.role_label }}</span>
+        {% if tab == 'completados' %}
+          {% if r.revoked %}{{ pill("Revocada", "danger", "x-circle") }}{% else %}{{ pill("Liberado", "success", "check-lg") }}{% endif %}
+        {% elif tab == 'por_revisar' %}
+          {% if r.semaphore %}{% set s = SEMAFORO[r.semaphore] %}<span title="Versión {{ r.version }} · vence el {{ r.due_label }}">{{ pill(s[0], s[1], s[2]) }}</span>{% endif %}
+        {% else %}
+          <span class="tt-rev-state">{{ r.state_label }}</span>
+        {% endif %}
+      </span>
+    </span>
+  </a>
+  {% else %}
+  {% if q %}
+  <p class="tt-rev-list-empty" id="tt-rev-no-results"><i class="bi bi-search" aria-hidden="true"></i>Sin resultados para "{{ q }}". Busca por nombre o número de control.</p>
+  {% elif tab == 'por_revisar' %}
+  <p class="tt-rev-list-empty"><i class="bi bi-check2-circle" aria-hidden="true"></i>No tienes versiones por revisar. Cuando un alumno suba una versión en la que tu voto cuente, aparece aquí.</p>
+  {% elif tab == 'en_curso' %}
+  <p class="tt-rev-list-empty"><i class="bi bi-chat-left-text" aria-hidden="true"></i>No tienes revisiones en curso.</p>
+  {% else %}
+  <p class="tt-rev-list-empty"><i class="bi bi-archive" aria-hidden="true"></i>Todavía no hay revisiones terminadas.</p>
+  {% endif %}
+  {% endfor %}
+  {{ pager(page, base_url ~ '/body', '#tt-rev-body', include='#tt-rev-filters', swap='innerHTML', prefix='tt-rev') }}
+</div>

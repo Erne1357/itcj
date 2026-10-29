@@ -86,6 +86,13 @@ GUARDAS_DE_CONFIGURACION: dict[str, tuple[str, str]] = {
         "services/certificate_service.py",
         "404 con la impresion de constancias apagada (`TITULATEC_CERTIFICATE_PRINTING`)",
     ),
+    "_review_body_block": (
+        "pages/revisiones_admin.py",
+        "411/413 por `Content-Length` contra el tope de las subidas de la revision "
+        "(`TITULATEC_REVIEW_MAX_FILE_MB` + margen multipart), ANTES de leer el cuerpo: "
+        "solo cabeceras y configuracion (fase 5, mensaje del docente y mensaje/version "
+        "del alumno)",
+    ),
 }
 
 

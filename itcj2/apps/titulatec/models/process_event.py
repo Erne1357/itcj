@@ -17,8 +17,8 @@ from itcj2.models.base import Base
 # mapas, o el test falla.** Ese es todo el punto: que el próximo no se entere
 # el usuario por una captura de pantalla.
 #
-# `synodal_voted` NO está: la fase 4 tiene tablas y permisos pero ninguna ruta
-# que escriba el evento (CLAUDE.md de la app, §10). Entra cuando se escriba.
+# `synodal_voted` NO está y no entrará: el voto de la fase 5 se escribe como
+# `review_vote_cast` (uno por voto y versión, `ReviewService.vote`).
 EVENT_TYPES = frozenset({
     # Proceso
     "process_created",
@@ -41,6 +41,33 @@ EVENT_TYPES = frozenset({
     # Fases
     "phase_approved",
     "phase_rejected",
+    # Formato B (spec 2026-10-21 fase 3 §7/§8.5): cada envío (payload: ronda)
+    # y la corrección del registro que hace Titulación (campos + motivo). Su
+    # dictamen NO tiene evento propio: viaja en `phase_approved`/`_rejected`.
+    "format_b_submitted",
+    "format_b_registry_corrected",
+    # Sinodales (spec 2026-10-21 fase 4 §10): el departamento académico registró
+    # a los 4 (payload `{"synodals": [{"role", "user_id"}]}`: la posición va como
+    # valor, porque la bitácora enmascara la llave «secretary»; el avance a la
+    # fase 5 viaja en el `phase_approved` de siempre) o sustituyó a uno
+    # (posición, saliente, entrante y motivo). Los escribe `SynodalService`.
+    "synodals_assigned",
+    "synodal_replaced",
+    # Revisión de sinodales (spec 2026-10-22 fase 5 §11): el alumno subió una
+    # versión del proyecto (payload `{"version"}`) o un sinodal votó la vigente
+    # (`{"version", "role", "verdict"}`, la posición como VALOR). Los escribe
+    # `ReviewService`; los mensajes del chat NO generan evento (viven en su
+    # tabla) y la liberación es el `phase_approved` de siempre con payload.
+    "review_version_uploaded",
+    "review_vote_cast",
+    # Anexo III (spec 2026-10-22 fase 6 §12): primera emision del folio
+    # (`AnexoService.ensure_folio`, payload `{"folio", "semester"}`).
+    "anexo_iii_issued",
+    # Fase 6 v2 (spec 2026-10-29 §9): vinculacion lo marco «Listo para recoger»
+    # (`AnexoService.mark_ready`, payload `{"folio", "note", "first"}`) y
+    # Titulacion pidio reimprimirlo (`observe(reprint=True)`, `{"folio", "reason"}`).
+    "anexo_iii_ready",
+    "anexo_iii_reprint_requested",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",

@@ -1,0 +1,22 @@
+{# «Tus sinodales pidieron cambios» (fase 5, spec 2026-10-22 §10). Lo compone
+   `mail_compose._compose_review_changes_requested` con TODOS los votos de la
+   versión (grupo `review:{pid}:{version}`), cada uno con su observación.
+   Contexto: first_name, link, version, observaciones [{role_label, comment}]. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Tus sinodales pidieron cambios — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Tus sinodales revisaron la <strong>versión {{ version|e }}</strong> de tu proyecto y
+  <strong>pidieron cambios</strong>.
+</p>
+{% for o in observaciones %}
+{{ m.nota(o.comment, "Observaciones de " ~ o.role_label) }}
+{% endfor %}
+<p style="margin:0 0 24px;">
+  <strong>Qué hacer:</strong> atiende las observaciones y sube una versión nueva de tu
+  proyecto en la conversación de la revisión.
+</p>
+{{ m.boton(link, "Ir a la revisión") }}
+{% endblock %}

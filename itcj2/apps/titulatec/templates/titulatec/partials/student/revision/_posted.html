@@ -1,0 +1,12 @@
+{# Respuesta de un envío correcto: las burbujas nuevas (la propia y lo que otros
+   escribieron desde `after`; van al final de la lista) y, fuera de banda, se
+   limpia el error del formulario y se re-pintan la franja fijada, el estado y
+   el encabezado del panel de subida (tras la primera subida ya no pide «la
+   primera» y el número de la siguiente avanza). #}
+{% include "titulatec/partials/review/_messages.html" %}
+<div id="{{ oob_clear }}" class="tt-rvs-err" hx-swap-oob="innerHTML"></div>
+{% if oob %}
+{% include "titulatec/partials/student/revision/_pin.html" %}
+{% include "titulatec/partials/student/revision/_status_slot.html" %}
+{% include "titulatec/partials/student/revision/_ver_head.html" %}
+{% endif %}

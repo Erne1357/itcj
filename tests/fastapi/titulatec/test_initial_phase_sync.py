@@ -24,14 +24,16 @@ STUDENT_PERMS = (
     "titulatec.document.api.delete.own",
 )
 
-# Catálogo con un tipo de OTRA fase (anexo_iii, fase 6), para probar que
-# guardar un documento que no es de `initial_docs` no dispara el sync -- ni
-# siquiera con el proceso parado en la fase 1.
+# Catálogo con un tipo de OTRA fase (la 7: ni la 1 ni la 6, cuyo escaneo del
+# Anexo III tiene su propia guarda de etapa desde la fase 6 v2), para probar
+# que guardar un documento que no es de `initial_docs` no dispara el sync --
+# ni siquiera con el proceso parado en la fase 1.
+TIPO_OTRA_FASE = "tt_test_otra_fase_7"
 DOC_TYPES_OTRA_FASE = (
     ("birth_certificate", "Acta de nacimiento", 1),
     ("high_school_cert", "Certificado de bachillerato", 1),
     ("curp", "CURP certificada", 1),
-    ("anexo_iii", "Anexo III firmado", 6),
+    (TIPO_OTRA_FASE, "Documento de prueba de la fase 7", 7),
 )
 
 PDF = ("documento.pdf", b"%PDF-1.4 documento de prueba", "application/pdf")
@@ -177,14 +179,14 @@ class TestDocumentoDeOtraFase:
                                                        seed_document_types, make_cohort,
                                                        make_student, make_process,
                                                        make_document, tmp_path, monkeypatch):
-        """`anexo_iii` es de la fase 6: la ruta HTTP ya bloquea esta subida con
-        la guarda de fase de `pages/student.py` (`dtype.phase_number=6 !=
+        """`TIPO_OTRA_FASE` es de la fase 7: la ruta HTTP ya bloquea esta subida con
+        la guarda de fase de `pages/student.py` (`dtype.phase_number=7 !=
         current_phase=1`), así que la única forma de probar que `save()` no
         dispara el sync para OTRA fase es llamando al service directo,
         saltándose esa guarda a propósito.
 
         Los 3 documentos iniciales YA están presentes (fase 1 completa,
-        `in_progress`) ANTES de guardar `anexo_iii`: si el gate de `save()`
+        `in_progress`) ANTES de guardar el de la fase 7: si el gate de `save()`
         (`dtype.phase_number == phase_number_for_code(...)`,
         `document_service.py` ~283) no existiera o estuviera roto,
         `sync_initial_phase` SÍ se dispararía y, con los 3 ya completos,
@@ -205,7 +207,7 @@ class TestDocumentoDeOtraFase:
             make_document(proc, type_code=code)
         assert _phase1(db_session, proc.id) == "in_progress"
 
-        DocumentService.save(db_session, proc, "anexo_iii",
+        DocumentService.save(db_session, proc, TIPO_OTRA_FASE,
                              raw=b"%PDF-1.4 anexo", original_name="anexo.pdf",
                              content_type="application/pdf",
                              uploaded_by_id=student.id)

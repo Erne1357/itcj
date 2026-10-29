@@ -33,7 +33,7 @@
           <span class="ico {{ _ico[0] }}"><i class="bi bi-{{ _ico[1] }}"></i></span>
           <span class="txt">
             {{ it.name }}
-            <span style="color:var(--tt-mute)">·
+            <span class="state">·
               {%- if it.status == 'approved' %} aprobado
               {%- elif it.status == 'rejected' %} por corregir
               {%- elif it.status == 'pending' %} en revisión
@@ -73,12 +73,12 @@
         <span class="ico {{ 'is-done' if s.done else '' }}">
           <i class="bi bi-{{ 'check-lg' if s.done else 'dash' }}"></i></span>
         <span class="txt">Paso {{ s.n }} · {{ s.label }}
-          <span style="color:var(--tt-mute)">· {{ 'listo' if s.done else 'pendiente' }}</span></span>
+          <span class="state">· {{ 'listo' if s.done else 'pendiente' }}</span></span>
       </div>
       {% endfor %}
     </div>
     {% if p.rejection_reason %}
-      <p class="tt-prose mt-2 mb-0" style="font-size:.78rem;color:#991B1B">{{ p.rejection_reason }}</p>
+      <p class="tt-prose tt-substep-why mt-2 mb-0">{{ p.rejection_reason }}</p>
     {% endif %}
   {% endif %}
 {% endif %}

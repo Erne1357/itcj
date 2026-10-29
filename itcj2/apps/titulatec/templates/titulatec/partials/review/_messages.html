@@ -1,0 +1,89 @@
+{# Burbujas de la conversación de revisión de sinodales (fase 5, spec 2026-10-22
+   §7.1; rediseño de chat 2026-10-27).
+
+   Recibe SOLO:
+   - `items`: la lista de `ReviewService.messages(db, chat_id, after_id=...)`;
+   - `me_id`: el usuario que mira (sus mensajes salen «Tú», a la derecha);
+   - `file_base` (opcional): prefijo de la ruta CON GUARDA que sirve los archivos,
+     terminado en «/» (el alumno: `/titulatec/student/revision/archivo/`; el
+     sinodal: `/titulatec/admin/revisiones/{process_id}/archivo/`). Sin él no hay
+     ligas: el archivo nunca se sirve por ruta estática.
+   - `vote_ctx` (opcional, solo el sinodal): la conversación (`conv`). Con él, la
+     tarjeta de la versión VIGENTE lleva «Votar esta versión», que despliega el
+     panel de voto (`#tt-rev-vote`) si su voto cuenta y la revisión está abierta.
+     En versiones anteriores el botón no sale (y si llega una nueva por el
+     refresco, el CSS lo oculta en todas menos la última).
+
+   Pinta solo los `li` (sin contenedor): la página los mete en su lista
+   `ol.tt-rv-list[data-tt-review-list]` y el refresco incremental los agrega con
+   `beforeend` (`js/shared/review-thread.js` quita duplicados por
+   `data-tt-msg-id` y baja al final). Lista vacía = nada (el estado vacío es de
+   la página). Cada `kind` se pinta distinto: `message` (burbuja con autor,
+   papel y fecha), `system` (aviso centrado), `version` (tarjeta del archivo con
+   «Abrir») y `vote` (veredicto y observaciones). Todo texto va escapado
+   (autoescape) y respeta los saltos de línea por CSS (`white-space: pre-line`). #}
+{%- set _yo = me_id if me_id is defined else none -%}
+{%- set _base = file_base if file_base is defined and file_base else none -%}
+{%- set _vc = vote_ctx if vote_ctx is defined and vote_ctx else none -%}
+{%- set _votable = _vc and _vc.is_open and _vc.counts and not _vc.rule_error and _vc.version is not none and _vc.can_vote -%}
+{%- for m in items %}
+{%- set _mio = _yo is not none and m.author_id is not none and m.author_id == _yo %}
+<li id="tt-rv-msg-{{ m.id }}" class="tt-rv-msg tt-rv-msg--{{ m.kind }}{% if _mio %} is-mine{% endif %}" data-tt-msg-id="{{ m.id }}">
+  {%- if m.kind == "system" %}
+  <p class="tt-rv-sys"><i class="bi bi-info-circle" aria-hidden="true"></i><span class="tt-rv-body">{{ m.body }}</span></p>
+  <span class="tt-rv-meta">{{ m.created_label }}</span>
+  {%- else %}
+  {%- if not _mio %}
+  <span class="tt-avatar tt-avatar--sm{% if m.is_student %} tt-avatar--student{% endif %}" aria-hidden="true">{{ m.initials or "·" }}</span>
+  {%- endif %}
+  <div class="tt-rv-bubble">
+    <p class="tt-rv-author">
+      <span class="tt-rv-who">{{ "Tú" if _mio else (m.author_name or "—") }}</span>
+      {% if m.author_label and not _mio %}<span class="tt-rv-role">{{ m.author_label }}</span>{% endif %}
+    </p>
+    {%- if m.kind == "version" %}
+    {%- set _ext = (m.attachment.ext if m.attachment else "") %}
+    <div class="tt-rv-doc">
+      <span class="tt-rv-doc-ico{% if _ext in ('doc', 'docx') %} is-word{% endif %}" aria-hidden="true"><i class="bi bi-file-earmark-{{ 'word' if _ext in ('doc', 'docx') else 'pdf' }}"></i></span>
+      <span class="tt-rv-doc-main">
+        <span class="tt-rv-doc-title">Versión {{ m.version_number }} del proyecto</span>
+        {%- if m.attachment %}
+        <span class="tt-rv-doc-file"><span class="tt-rv-file-name">{{ m.attachment.name }}</span>{% if m.attachment.size_label %}<span class="tt-rv-file-size"> · {{ m.attachment.size_label }}</span>{% endif %}</span>
+        {%- endif %}
+      </span>
+    </div>
+    {%- if _base or (_votable and m.version_number == _vc.version) %}
+    <div class="tt-rv-doc-actions">
+      {%- if _base %}
+      <a class="btn btn-sm tt-btn-soft tt-rv-file" href="{{ _base }}{{ m.id }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Abrir<span class="visually-hidden"> la versión {{ m.version_number }}</span></a>
+      {%- endif %}
+      {%- if _votable and m.version_number == _vc.version %}
+      <button type="button" class="btn btn-sm tt-btn-ink tt-rv-vote-cta" data-tt-chat-toggle="tt-rev-vote"
+              data-tt-chat-open aria-controls="tt-rev-vote" aria-expanded="false">
+        <i class="bi bi-check2-square me-1" aria-hidden="true"></i>Votar esta versión</button>
+      {%- endif %}
+    </div>
+    {%- endif %}
+    {%- elif m.kind == "vote" %}
+    <p class="tt-rv-verdict tt-rv-verdict--{{ 'ok' if m.vote_verdict == 'approved' else 'changes' }}">
+      <i class="bi bi-{{ 'check-circle-fill' if m.vote_verdict == 'approved' else 'pencil-square' }}" aria-hidden="true"></i><span>{{ m.vote_head }}</span></p>
+    {%- if m.vote_note %}
+    <p class="tt-rv-body">{{ m.vote_note }}</p>
+    {%- endif %}
+    {%- else %}
+    {%- if m.body %}
+    <p class="tt-rv-body">{{ m.body }}</p>
+    {%- endif %}
+    {%- if m.attachment %}
+    {%- if _base %}
+    <a class="tt-rv-file" href="{{ _base }}{{ m.id }}" target="_blank" rel="noopener"><i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-rv-file-name">{{ m.attachment.name }}</span>{% if m.attachment.size_label %}<span class="tt-rv-file-size">{{ m.attachment.size_label }}</span>{% endif %}</a>
+    {%- else %}
+    <span class="tt-rv-file"><i class="bi bi-paperclip" aria-hidden="true"></i><span class="tt-rv-file-name">{{ m.attachment.name }}</span>{% if m.attachment.size_label %}<span class="tt-rv-file-size">{{ m.attachment.size_label }}</span>{% endif %}</span>
+    {%- endif %}
+    {%- endif %}
+    {%- endif %}
+    <span class="tt-rv-meta">{{ m.created_label }}</span>
+  </div>
+  {%- endif %}
+</li>
+{%- endfor %}

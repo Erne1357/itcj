@@ -368,6 +368,13 @@ def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
     """
     seed_phase_defs()
     seed_document_types()
+    # Fase 4: el DML de la fase 4 pasa su responsable a `academic_department`;
+    # el arnés (base vacía en CI) la siembra con `vinculacion`. Se fija aquí para
+    # que el resultado no dependa de qué base corre la prueba.
+    from itcj2.apps.titulatec.models import PhaseDefinition
+    db_session.query(PhaseDefinition).filter_by(number=4).update(
+        {"responsible": "academic_department"})
+    db_session.flush()
 
     ctx = _phases_ctx(db_session, None)
 
@@ -376,7 +383,7 @@ def test_responsible_label_de_contrae_correctamente_en_las_9_fases(
         1: "de ti",                     # initial_docs -> student
         2: "de Servicios Escolares",    # review_appointment -> school_services
         3: "del Depto. de Titulación",  # format_b -> titulaciones
-        4: "de Vinculación",            # synodal_assignment -> vinculacion
+        4: "de tu departamento académico",  # synodal_assignment -> academic_department
         5: "de tus sinodales",          # synodal_review -> synodals
         6: "del Depto. de Titulación",  # anexo_iii -> titulaciones
         7: "de ti",                     # final_docs -> student
@@ -661,3 +668,104 @@ def test_el_contexto_no_hace_una_consulta_por_fase(
     # Presupuesto: fases + process_phases + events + documents + document_types
     # + cita + formato B = 7. El margen absorbe algun lazy load, no un N+1.
     assert len(selects) <= 10, "\n".join(selects)
+
+
+def test_fase_5_pinta_tus_sinodales_sin_cedula(
+    db_session, seed_phase_defs, seed_document_types, make_student, make_process,
+    make_department, make_teacher, make_synodals, client_as,
+):
+    """Spec fase 4 §14: posición y nombre de los 4, nunca grado ni cédula."""
+    import lxml.html
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    proc = make_process(student, current_phase=5)
+    dept = make_department(name="Depto Alumno T10")
+    docs = {r: make_teacher(dept) for r in ("president", "secretary", "vocal", "alternate")}
+    make_synodals(proc, docs, student)
+
+    html = client_as(student).get("/titulatec/student/dashboard").text
+
+    panel = lxml.html.fromstring(html).xpath('//*[@data-tt-student-sinodales]')
+    assert len(panel) == 1
+    texto = " ".join(panel[0].text_content().split())
+    for rol in ("Presidente", "Secretario", "Vocal", "Vocal Suplente"):
+        assert rol in texto, rol
+    assert texto.count("DOCENTE FICTICIO") == 4
+    assert "10837613" not in html and "Maestra en Software Libre" not in html
+
+
+def test_sin_sinodales_no_hay_panel(
+    db_session, seed_phase_defs, seed_document_types, make_student, make_process, client_as,
+):
+    seed_phase_defs()
+    seed_document_types()
+    student = make_student()
+    make_process(student, current_phase=4)
+    html = client_as(student).get("/titulatec/student/dashboard").text
+    assert "data-tt-student-sinodales" not in html
+
+
+def test_la_fase_4_no_promete_el_chat():
+    """Hallazgo 14: abrir el chat de titulación es de la fase 5 (revisión de
+    sinodales); la fase 4 solo asigna a los 4."""
+    from itcj2.apps.titulatec.pages.student import _PHASE_INFO
+
+    info = _PHASE_INFO["synodal_assignment"]
+    texto = " ".join([info["desc"], info["who"], *info["needs"]]).lower()
+    assert "chat" not in texto
+    assert "4 sinodales" in info["desc"] and "vocal suplente" in info["desc"]
+    assert "chat" in _PHASE_INFO["synodal_review"]["desc"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Fase 6 v2 (UI ronda 2, D1-D3): la card del Anexo III sigue a su etapa
+# ---------------------------------------------------------------------------
+def test_anexo_quien_tiene_la_pelota_sale_de_la_etapa(db_session, make_anexo_case, monkeypatch):
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    c = make_anexo_case()
+
+    def card():
+        return _card(_phases_ctx(db_session, c.process), c.anexo_phase)
+
+    a = card()
+    assert (a["anexo_stage"], a["responsible"], a["responsible_label_de"]) == (
+        "preparing", "vinculacion", "de Vinculación")
+    anexo = AnexoService.ensure_folio(db_session, c.process, None)
+    anexo.ready_at = datetime(2026, 3, 20, 9, 0)
+    db_session.flush()
+    assert (card()["anexo_stage"], card()["responsible"]) == ("ready", "student")
+    anexo.ready_at = None
+    anexo.reprint_requested_at = datetime(2026, 3, 21, 9, 0)
+    anexo.reprint_reason = "Sello ilegible"
+    db_session.flush()
+    a = card()
+    assert (a["anexo_stage"], a["responsible"], a["anexo_reprint_reason"]) == (
+        "reprint", "vinculacion", "Sello ilegible")
+    # Con el corte en 3 la fase 6 no se opera aquí: manda el catálogo, sin etapa.
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 3))
+    a = card()
+    assert a["anexo_stage"] is None and a["responsible_label_de"] == "del Depto. de Titulación"
+
+
+def test_anexo_en_reimpresion_no_pide_corregir_al_alumno(db_session, make_anexo_case,
+                                                         client_as, monkeypatch):
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.apps.titulatec.services.anexo_service import AnexoService
+    monkeypatch.setattr(PhaseService, "_handoff_phase", staticmethod(lambda: 9))
+    c = make_anexo_case(phase_status="rejected")
+    db_session.query(ProcessPhase).filter_by(
+        process_id=c.process.id, phase_number=c.anexo_phase).one().rejection_reason = "Sello ilegible"
+    anexo = AnexoService.ensure_folio(db_session, c.process, None)
+    anexo.reprint_requested_at = datetime(2026, 3, 21, 9, 0)
+    anexo.reprint_reason = "Sello ilegible"
+    db_session.commit()
+
+    html = " ".join(client_as(c.student).get(DASHBOARD).text.split())
+    assert "Reimpresión" in html and "Titulación pidió reimprimir tu Anexo III:" in html
+    assert "Sello ilegible" in html and "Vinculación lo vuelve a preparar; te avisaremos." in html
+    assert "Necesita corrección" not in html and "Lo que te pidieron corregir" not in html
+    assert "A cargo de Vinculación" in html
+    assert "Por ahora no tienes nada que hacer" in html
+    assert "Lo que tienes que hacer está en" not in html

@@ -1,0 +1,60 @@
+{# ===========================================================================
+   revision.html — conversación del alumno con sus sinodales (fase 5).
+   Spec 2026-10-22-titulatec-fase5-revision-sinodales §7-§8.1; rediseño de chat
+   2026-10-27. Contexto: pages/student.py::_review_view. Burbujas y panel de
+   estado son los parciales compartidos `partials/review/*`; el hilo y el
+   compositor los anima `js/shared/review-thread.js` (cargado por la base). Sin
+   scripts propios: todo va por `data-*` y htmx.
+
+   Estilo mensajería, a la altura de la ventana: arriba la franja fijada
+   (`#tt-rv-pin`: versión vigente, aprobaciones y «Subir versión»), debajo el
+   panel de subida que esa franja despliega (`#tt-rv-upload`, abierto mientras
+   no haya ninguna versión), el hilo con su propio scroll y el compositor al
+   pie. Los detalles (sinodales y quién votó qué, `#tt-rv-details`) van tras el
+   botón «Detalles»; desde 1280 px son una columna fija a la derecha.
+   =========================================================================== #}
+{% extends "titulatec/student/base_student.html" %}
+{% block student_title %}Revisión de tu proyecto · TitulaTec{% endblock %}
+{% block student_active %}revision{% endblock %}
+{% block student_page %}student_revision{% endblock %}
+{% block student_appbar_title %}Revisión de tu proyecto{% endblock %}
+{% block student_appbar_sub %}<div class="tt-rvs-appbar-sub">Conversación con tus sinodales</div>{% endblock %}
+{% block student_appbar_left %}
+  <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
+{% endblock %}
+
+{% block head_extra %}
+  {{ super() }}
+  <link rel="stylesheet" href="/static/titulatec/css/student/revision.css?v={{ sv('css/student/revision.css') }}">
+{% endblock %}
+
+{% block student_body %}
+<div class="tt-chat tt-chat--student" id="tt-rv-root">
+ <div class="tt-chat-cols">
+ <div class="tt-chat-main">
+  {% with oob=False %}{% include "titulatec/partials/student/revision/_pin.html" %}{% endwith %}
+  {% with oob=False %}{% include "titulatec/partials/student/revision/_upload.html" %}{% endwith %}
+
+  <div class="tt-rv-thread" data-tt-review-thread tabindex="0" aria-label="Mensajes">
+    <ol id="tt-rv-list" class="tt-rv-list" data-tt-review-list aria-live="polite" aria-relevant="additions">
+      {%- include "titulatec/partials/review/_messages.html" %}
+    </ol>
+  </div>
+  {% if is_open %}
+  <div id="tt-rv-poll" data-tt-review-poll="#tt-rv-list"
+       hx-get="/titulatec/student/revision/mensajes"
+       hx-trigger="every 15s [document.visibilityState=='visible']"
+       hx-target="#tt-rv-list" hx-swap="beforeend"></div>
+  {% endif %}
+
+  {% include "titulatec/partials/student/revision/_actions.html" %}
+ </div>
+
+  <aside id="tt-rv-details" class="tt-chat-details" aria-label="Detalles de la revisión" hidden>
+    <button type="button" class="tt-chat-details-back" data-tt-chat-toggle="tt-rv-details" aria-controls="tt-rv-details" aria-expanded="false">
+      <i class="bi bi-arrow-left" aria-hidden="true"></i>Volver a la conversación</button>
+    {% include "titulatec/partials/student/revision/_status_slot.html" %}
+  </aside>
+ </div>
+</div>
+{% endblock %}

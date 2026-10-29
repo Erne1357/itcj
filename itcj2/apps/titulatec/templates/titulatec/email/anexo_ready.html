@@ -1,0 +1,21 @@
+{# Anexo III listo para recoger (spec 2026-10-29 §9): dónde/cuándo recogerlo (nota
+   vigente), quién firma y los pasos. Contexto: first_name, link, folio, note,
+   signers_text. #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Tu Anexo III está listo para recoger — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Tu <strong>Anexo III</strong>{% if folio %} (folio <strong>{{ folio|e }}</strong>){% endif %}
+  <strong>está listo para recoger</strong>.
+</p>
+{% if note %}{{ m.nota(note, "Dónde y cuándo recogerlo") }}{% endif %}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">Qué sigue</p>
+<ol style="margin:0 0 20px;padding-left:20px;">
+  <li style="margin:0 0 6px;">Recoge el original impreso.</li>
+  <li style="margin:0 0 6px;">Reúne las firmas en esa misma hoja. {{ signers_text|e }}</li>
+  <li style="margin:0 0 6px;">Escanéalo y súbelo a la plataforma.</li>
+</ol>
+{{ m.boton(link, "Ir a mi Anexo III") }}
+{% endblock %}

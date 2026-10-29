@@ -1,0 +1,11 @@
+{# Encabezado del panel de subida: «Sube la primera versión…» o «Subir nueva
+   versión», con el número que tendrá. Raíz con id estable `#tt-rv-ver-head`:
+   la respuesta de un envío lo reemplaza fuera de banda (`oob`, `_posted.html`),
+   así que tras la primera subida ya no pide «la primera». Necesita
+   `has_version`, `review_status` y `review_max_mb`. #}
+{% set _sig = (review_status.version + 1) if review_status and review_status.version is not none else 1 %}
+<div id="tt-rv-ver-head" class="tt-rvs-ver-head"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <h3 id="tt-rv-ver-title" class="tt-rvs-h">{% if has_version %}Subir nueva versión{% else %}Sube la primera versión de tu proyecto{% endif %}</h3>
+  <p class="tt-rvs-hint">Se sube como versión {{ _sig }}. PDF o Word (.docx, .doc) de hasta {{ review_max_mb }} MB.
+    {% if has_version %}Tus sinodales vuelven a votar desde cero.{% endif %}</p>
+</div>
