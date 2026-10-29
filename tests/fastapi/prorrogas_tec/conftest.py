@@ -379,7 +379,7 @@ def avisos(monkeypatch):
 
     calls = []
     monkeypatch.setattr(notify, "notify_student",
-                        lambda db, req, *, kind, link: calls.append((kind, req.id, link)))
+                        lambda db, req, *, kind, link, **kw: calls.append((kind, req.id, link)))
     return SimpleNamespace(calls=calls)
 
 

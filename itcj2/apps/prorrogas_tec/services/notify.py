@@ -14,11 +14,15 @@ logger = logging.getLogger(__name__)
 
 APP_KEY = "prorrogas_tec"
 
-_AVISOS = {
-    "aceptada": "Tu prórroga fue aceptada",
-    "rechazada": "Tu solicitud de prórroga no fue autorizada",
+_AVISOS = {  # kind -> (título, plantilla del correo)
+    "aceptada": ("Tu prórroga fue aceptada", "decision_aceptada.html"),
+    "rechazada": ("Tu solicitud de prórroga no fue autorizada", "decision_rechazada.html"),
+    "carta_lista": ("Tu carta compromiso está lista para firmar", "carta_lista.html"),
 }
-_CUERPO_ACEPTADA = "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos."
+_CUERPOS = {  # cuerpo del aviso si no llega `body`; sin entrada, el comentario de la decisión
+    "aceptada": "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos.",
+    "carta_lista": "Entra a Mi prórroga para firmarla.",
+}
 
 
 def _is_production() -> bool:
@@ -53,10 +57,12 @@ def send_email(*, template: str, context: dict, subject: str, to: str | None,
     return False
 
 
-def notify_student(db, req, *, kind: str, link: str) -> None:
-    """Aviso de decisión: notificación en la plataforma y correo. Nunca lanza."""
-    title = _AVISOS[kind]
-    body = _CUERPO_ACEPTADA if kind == "aceptada" else (req.decision_comment or "")[:200]
+def notify_student(db, req, *, kind: str, link: str, body: str | None = None,
+                   context: dict | None = None) -> None:
+    """Aviso al estudiante: notificación en la plataforma y correo. Nunca lanza."""
+    title, template = _AVISOS[kind]
+    if body is None:
+        body = _CUERPOS.get(kind, (req.decision_comment or "")[:200])
     try:
         with db.begin_nested():  # un flush fallido revierte solo este savepoint, no la sesión del llamador
             NotificationService.create(db, req.student_id, APP_KEY, f"prorroga_{kind}", title, body,
@@ -64,6 +70,7 @@ def notify_student(db, req, *, kind: str, link: str) -> None:
     except Exception:
         logger.exception("No se pudo crear el aviso de la solicitud %s", req.id)
     url = f"{get_settings().DOMAIN}{link}"  # en el correo la liga es absoluta; en la plataforma, relativa
-    send_email(template=f"decision_{kind}.html",
-               context={"folio": f"PR-{req.id:05d}", "link": url, "comentario": req.decision_comment},
+    send_email(template=template,
+               context={"folio": f"PR-{req.id:05d}", "link": url, "comentario": req.decision_comment,
+                        **(context or {})},
                subject=title, to=req.email, link=url)
