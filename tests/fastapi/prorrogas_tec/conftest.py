@@ -381,3 +381,23 @@ def avisos(monkeypatch):
     monkeypatch.setattr(notify, "notify_student",
                         lambda db, req, *, kind, link: calls.append((kind, req.id, link)))
     return SimpleNamespace(calls=calls)
+
+
+@pytest.fixture()
+def con_plan(db_session):
+    """Plan vigente (parcialidades numeradas 1…) y recibos para `req`; total = suma. Devuelve `req`."""
+    from decimal import Decimal
+
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
+
+    def _plan(req, parcialidades, pagos=()):
+        for n, (monto, fecha) in enumerate(parcialidades, start=1):
+            db_session.add(ProrrogaInstallment(request_id=req.id, number=n, amount=Decimal(monto), due_date=fecha))
+        for monto in pagos:
+            db_session.add(ProrrogaPayment(request_id=req.id, origin="app", folio=f"T-{next(_seq)}",
+                                           paid_on=req.created_at.date(), amount=Decimal(monto)))
+        req.total_amount = sum((Decimal(m) for m, _ in parcialidades), Decimal("0"))
+        db_session.flush()
+        return req
+
+    return _plan

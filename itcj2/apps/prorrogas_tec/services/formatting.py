@@ -7,7 +7,9 @@ fecha corta ``13/enero/2026``, fecha larga ``26 de febrero de 2026``, montos
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+
+from .errors import ServiceError
 
 MESES: tuple[str, ...] = (
     "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -30,6 +32,20 @@ def fecha_larga(d: date) -> str:
 def pesos(amount: Decimal) -> str:
     """``$3,150.00``."""
     return f"${Decimal(amount):,.2f}"
+
+
+def parse_monto(raw) -> Decimal:
+    """Monto positivo con a lo más 2 decimales, de número o cadena; si no, ``monto_invalido``."""
+    try:
+        if isinstance(raw, bool) or raw is None:
+            raise InvalidOperation
+        d = Decimal(str(raw))
+        if not d.is_finite() or d <= 0 or d.as_tuple().exponent < -2:
+            raise InvalidOperation
+    except InvalidOperation:
+        raise ServiceError("monto_invalido", "El monto debe ser mayor a cero y tener a lo más 2 decimales.",
+                           status=400) from None
+    return d.quantize(Decimal("0.01"))
 
 
 def nombre_oficial(first_name: str, last_name: str, middle_name: str | None) -> str:
