@@ -1,4 +1,6 @@
 import base64
+import struct
+import zlib
 from io import BytesIO
 
 import pytest
@@ -7,6 +9,7 @@ from PIL import Image
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.apps.prorrogas_tec.services.signature import parse_signature
+from tests.fastapi.prorrogas_tec.conftest import STUDENT_PERMS
 
 pytestmark = pytest.mark.usefixtures("pdf_falso")
 MOTIVO = "El pago de nómina de mis padres se retrasó este mes."
@@ -73,7 +76,8 @@ def test_firma_vacia_o_enorme():  # Review Focus 3
     assert e.value.code == "firma_invalida"
 
 
-def test_api_crear_ver_y_no_ver_lo_ajeno(client_as, alumno_unido, make_user, make_program, firma_png):
+def test_api_crear_ver_y_no_ver_lo_ajeno(client_as, alumno_unido, make_user, make_program, firma_png,
+                                         grant, make_role):
     prog = make_program("Ingeniería de Prueba", "licenciatura")
     c = client_as(alumno_unido)
     firma = "data:image/png;base64," + base64.b64encode(firma_png).decode()
@@ -85,5 +89,51 @@ def test_api_crear_ver_y_no_ver_lo_ajeno(client_as, alumno_unido, make_user, mak
     doc = estado["solicitudes"][0]["documentos"][0]
     assert c.get(f"/api/prorrogas/v2/estudiante/solicitudes/{r.json()['id']}/documentos/{doc['id']}.pdf").status_code == 200
     ajeno = make_user(control_number="99500009")
-    assert client_as(ajeno).get(
-        f"/api/prorrogas/v2/estudiante/solicitudes/{r.json()['id']}/documentos/{doc['id']}.pdf").status_code in (403, 404)
+    grant(ajeno, make_role("student", STUDENT_PERMS))  # con permisos: llega al filtro de dueño
+    ca = client_as(ajeno)
+    assert ca.get(
+        f"/api/prorrogas/v2/estudiante/solicitudes/{r.json()['id']}/documentos/{doc['id']}.pdf").status_code == 404
+    assert ca.post(f"/api/prorrogas/v2/estudiante/solicitudes/{r.json()['id']}/cancelar").status_code == 404
+
+
+def _chunk(tag, body):
+    return struct.pack(">I", len(body)) + tag + body + struct.pack(">I", zlib.crc32(tag + body))
+
+
+def _png_crudo(w, h, idat=b""):
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+
+
+def test_firma_bomba_y_corrupta_no_dan_500():
+    with pytest.raises(ServiceError) as e:
+        parse_signature(base64.b64encode(_png_crudo(20000, 20000)).decode())
+    assert e.value.code == "firma_muy_grande"
+    buf = BytesIO()
+    Image.effect_noise((100, 100), 80).convert("RGBA").save(buf, "PNG")
+    bueno = buf.getvalue()
+    corrupto = bueno[:len(bueno) // 2] + b"basura" + bueno[-12:]
+    with pytest.raises(ServiceError) as e:
+        parse_signature(base64.b64encode(corrupto).decode())
+    assert e.value.code == "firma_invalida"
+
+
+def test_firma_base64_enorme_y_rgb_sin_alfa():
+    with pytest.raises(ServiceError) as e:
+        parse_signature("A" * 300_000)
+    assert e.value.code == "firma_muy_grande"
+    buf = BytesIO()
+    Image.new("RGB", (100, 50), (255, 255, 255)).save(buf, "PNG")
+    with pytest.raises(ServiceError) as e:
+        parse_signature(base64.b64encode(buf.getvalue()).decode())
+    assert e.value.code == "firma_invalida"
+
+
+def test_integrity_error_se_mapea_a_solicitud_abierta(db_session, alumno_unido, periodo_hoy, make_program,
+                                                      firma_png, monkeypatch):
+    prog = make_program("Ingeniería de Prueba", "licenciatura")
+    _crear(db_session, alumno_unido, prog, firma_png)
+    monkeypatch.setattr(RequestService, "access", staticmethod(lambda *a, **k: (periodo_hoy, None)))
+    with pytest.raises(ServiceError) as e:
+        _crear(db_session, alumno_unido, prog, firma_png)  # el índice único dispara en el flush
+    assert e.value.code == "solicitud_abierta" and e.value.status == 409

@@ -87,8 +87,10 @@ class RequestService:
             log_event(db, event_type="solicitud_creada", request_id=req.id, actor_id=student.id,
                       payload={"plazos": plazos, "periodo": req.period_label})
             db.commit()
-        except IntegrityError:  # doble envío: gana el índice único de solicitudes abiertas
+        except IntegrityError as e:  # doble envío: gana el índice único de solicitudes abiertas
             db.rollback()
+            if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "uq_prorrogas_requests_abierta":
+                raise
             raise ServiceError(*_ABIERTA, status=409)
         except ServiceError:  # p. ej. pdf_no_disponible: no queda solicitud y puede reintentar
             db.rollback()
