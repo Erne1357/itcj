@@ -365,27 +365,10 @@ ENDPOINT_MAP: dict[str, str] = {
     # OJO al desfase: la app se llama `prorrogas_tec` (key de core_apps, paquete
     # Python) pero sus URLs son `/prorrogas` y `/api/prorrogas/v2`, igual que
     # helpdesk vs help-desk (gotcha #12 de CLAUDE.md).
-    "prorrogas_tec_pages.admin_pages.admin_home":        "/prorrogas/admin/home",
-    "prorrogas_tec_pages.admin_pages.admin_requests":    "/prorrogas/admin/requests",
-    "prorrogas_tec_pages.admin_pages.admin_periods":     "/prorrogas/admin/periods",
 
-    "prorrogas_tec_pages.student_pages.student_home":        "/prorrogas/student/home",
-    "prorrogas_tec_pages.student_pages.student_requests":    "/prorrogas/student/requests",
-    "prorrogas_tec_pages.student_pages.student_new_request": "/prorrogas/student/request",
-    "prorrogas_tec_pages.student_pages.student_close":       "/prorrogas/student/close",
 
     # ── Prórrogas: API ───────────────────────────────────────────────────────
-    "prorrogas_tec_api.api_periods.list_periods2":         "/api/prorrogas/v2/periods",
-    "prorrogas_tec_api.api_periods.create_period2":        "/api/prorrogas/v2/periods",
-    "prorrogas_tec_api.api_periods.list_academic_periods": "/api/prorrogas/v2/periods/academic-periods",
-    "prorrogas_tec_api.api_periods.get_period":            "/api/prorrogas/v2/periods/{period_id}",
-    "prorrogas_tec_api.api_periods.update_period2":        "/api/prorrogas/v2/periods/{period_id}",
-    "prorrogas_tec_api.api_periods.delete_period2":        "/api/prorrogas/v2/periods/{period_id}",
 
-    "prorrogas_tec_api.api_admin.list_requests_admin":   "/api/prorrogas/v2/request",
-    "prorrogas_tec_api.api_admin.update_request":        "/api/prorrogas/v2/request/{request_id}",
-    "prorrogas_tec_api.api_admin.get_request_payments":  "/api/prorrogas/v2/request/{request_id}/payments",
-    "prorrogas_tec_api.api_admin.update_payment":        "/api/prorrogas/v2/request/payments/{payment_id}",
 
     "prorrogas_tec_api.api_programs.list_programs":      "/api/prorrogas/v2/programs",
 

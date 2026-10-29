@@ -22,9 +22,8 @@ router = APIRouter(tags=["prorrogas_tec-pages-landing"])
 _ROLE_HOME: tuple[tuple[str, str], ...] = (
     ("secretaria", "/prorrogas/secretaria"),
     # El admin de la app tiene los permisos de la secretaria (04_insert_secretaria.sql).
-    # /prorrogas/admin/* es la vista vieja del fork; el Plan 2 la elimina (spec §12).
     ("admin",      "/prorrogas/secretaria"),
-    ("student",    "/prorrogas/student/home"),
+    ("student",    "/prorrogas/estudiante"),
 )
 
 
@@ -43,6 +42,6 @@ async def home(
         roles = user_roles_in_app(db, user_id, "prorrogas_tec")
     finally:
         db.close()
-    destination = next((url for role, url in _ROLE_HOME if role in roles), "/prorrogas/student/home")
+    destination = next((url for role, url in _ROLE_HOME if role in roles), "/prorrogas/estudiante")
     logger.debug("Redirigiendo usuario %s (roles=%s) a %s", user_id, sorted(roles), destination)
     return RedirectResponse(destination, status_code=302)

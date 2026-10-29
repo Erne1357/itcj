@@ -204,3 +204,35 @@ def docx_con():
         return buf.getvalue()
 
     return _make
+
+
+@pytest.fixture()
+def periodo(db_session):
+    """Semestre sintetico en 2091 (sin choque con semestres reales)."""
+    from datetime import date
+    from itcj2.core.models.academic_period import AcademicPeriod
+
+    n = next(_seq)
+    p = AcademicPeriod(code=f"T{n:05d}", name=f"Prórrogas prueba {n}", start_date=date(2091, 1, 10),
+                       end_date=date(2091, 6, 20), status="INACTIVE")
+    db_session.add(p)
+    db_session.flush()
+    return p
+
+
+@pytest.fixture()
+def make_program(db_session):
+    """Carrera (`core_programs`), idempotente por nombre (como en TitulaTec)."""
+    from itcj2.core.models.program import Program
+
+    def _make(name, level="licenciatura"):
+        prog = db_session.query(Program).filter_by(name=name).first()
+        if prog is None:
+            prog = Program(name=name, level=level)
+            db_session.add(prog)
+        elif prog.level != level:
+            prog.level = level
+        db_session.flush()
+        return prog
+
+    return _make

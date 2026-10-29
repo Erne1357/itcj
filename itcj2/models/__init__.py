@@ -56,11 +56,8 @@ from itcj2.apps.maint.models import (  # noqa: F401
 from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noqa: F401
 
 # Prorrogas
-# Hace falta aqui, no es decorativo: AcademicPeriod declara
-# relationship("ProrrogasPeriodConfig"), asi que sin esta importacion el
-# registro queda incompleto y configure_mappers() revienta en cualquier
-# proceso que no pase por los routers de la app (p. ej. las pruebas).
+# Registra los modelos de la app para que Base.metadata y los mappers queden completos.
 from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
-    ProrrogasPeriodConfig, Payments_options, Payments_pro, Request_pro,
-    ProrrogaTemplate,
+    ProrrogaDocument, ProrrogaEvent, ProrrogaInvitation, ProrrogaJoin,
+    ProrrogaRequest, ProrrogaSignature, ProrrogaTemplate,
 )
