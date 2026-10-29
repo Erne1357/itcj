@@ -15,7 +15,7 @@
 | 3 | `format_b` | Formato B | 👤 Alumno → 🎓 Titulaciones |
 | 4 | `synodal_assignment` | Asignación de sinodales | 🔗 Departamento académico de la carrera (jefe o coordinador de vinculación; desde 2026-10-21 el catálogo `responsible` es `academic_department`) |
 | 5 | `synodal_review` | Revisión de sinodales | 🧑‍⚖️ Sinodales (desde 2026-10-22 el catálogo `responsible` es `synodals`; la fase se mueve sola con el voto que cumple la regla de firma, ver «Revisión de sinodales» abajo) |
-| 6 | `anexo_iii` | Anexo III | 🎓 + 👤 |
+| 6 | `anexo_iii` | Anexo III | 🧑‍💼 vinculación prepara → 👤 alumno recoge y sube → 🎓 Titulación dictamina (etapas derivadas, ver «Entrega del Anexo III») |
 | 7 | `final_docs` | Entrega final | 👤 → 🎓 |
 | 8 | `ceremony` | Acto protocolario | 🎓 |
 
@@ -437,6 +437,27 @@ stateDiagram-v2
 > (suplente incluido). Una regla desconocida falla cerrado: la revisión no puede cerrarse. Sustituir a un sinodal
 > (fase 4) durante la revisión no cierra nada: el voto de la asignación desactivada deja de contar. El plazo
 > (10 días hábiles por versión) no es un estado: se calcula con el [calendario de días inhábiles](xcut_non_working_days.md).
+
+## Entrega del Anexo III (etapa de la fase 6) — Fase 6 v2 (2026-10-29)
+
+Detalle: [Anexo III](phase6_anexo_iii.md). `ProcessPhase.status` de la fase 6 conserva el ciclo normal (`in_progress` → `in_review` → `approved`/`rejected`); lo que dice **quién tiene la pelota** es la **etapa**, una lectura derivada con UNA función dueña, `AnexoService.stage`/`stage_map` (nadie más lee `ready_at`/`reprint_*`). Columnas de `titulatec_anexos`: `ready_at`, `ready_by_id`, `pickup_note`, `reprint_reason`, `reprint_requested_at` (migración `tt20261029a`). **Orden de evaluación** (gana la primera): (1) fase `approved` → `approved`; (2) `reprint_requested_at` no NULL → `reprint`; (3) fase `in_review` → `in_review`; (4) fase `rejected` → `observed`; (5) `ready_at` no NULL → `ready`; (6) si no → `preparing`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> preparing: 🤖 cierra la fase 5 (vinculación: «Prepara el Anexo III»)
+    preparing --> ready: 🧑‍💼 mark_ready (nota obligatoria; emite folio si falta; correo anexo_ready)
+    ready --> ready: 🧑‍💼 mark_ready con otra nota (solo nota; sin correo)
+    ready --> in_review: 👤 sube el escaneo (fase 6 in_progress → in_review)
+    in_review --> ready: 👤 borra el escaneo pending
+    in_review --> approved: 🎓 AnexoService.approve (fase 7 in_progress)
+    in_review --> observed: 🎓 AnexoService.observe (fase 6 rejected, vuelve al alumno)
+    in_review --> reprint: 🎓 observe con reimpresión (ready_at NULL, reprint_*; vuelve a vinculación, folio intacto)
+    observed --> in_review: 👤 resube
+    reprint --> ready: 🧑‍💼 mark_ready (limpia reprint_*; fase 6 rejected → in_progress)
+    approved --> [*]
+```
+
+> Subir el escaneo solo se permite en `ready`, `observed` e `in_review` (guarda en `DocumentService.save`, bajo el bloqueo del proceso); en `preparing`, `reprint` y `approved` responde `ANEXO_NOT_READY_MSG`. Titulación solo dictamina en `in_review` (hay un escaneo `pending`). La fase 6 solo se mueve por `AnexoService` (puerta única); `mark_ready` únicamente la regresa de `rejected` a `in_progress` tras una reimpresión. Fase 6 `approved` ⇔ escaneo `approved`.
 
 ## Estado de una solicitud de liberación de GTV para la encuesta de egresados (`SurveyReview.status`) — Fase 2
 
