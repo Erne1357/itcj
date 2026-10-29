@@ -541,15 +541,23 @@ def _cuerpo_anexo_ready(process_id, request, user, form):
             if ctx["detail"] and ctx["detail"].get("anexo"):
                 ctx["detail"]["anexo"].update(error=msg, note=nota)
             return render_titulatec(request, _BODY_TPL, ctx)
+        avisado = True
         try:
             if res["first"] or res.get("changed"):
                 AnexoService.notify_ready(process_id)
         except Exception:
+            avisado = False
             logger.warning("notify_ready fallo para el proceso %s", process_id, exc_info=True)
         aviso = ("Anexo III listo para recoger: se avisó al egresado." if res["first"]
                  else "Se actualizó el lugar y el horario de recogida.")
         vista = dict(_vista(form), tab="anexo", etapa="recoger", page="")
-        return _repintar(request, db, uid, vista, process_id, aviso)
+        resp = _repintar(request, db, uid, vista, process_id, aviso)
+        if not avisado:
+            # El marcado sí se guardó; solo el aviso al egresado falló.
+            resp.headers["X-Tt-Notice"] = _hdr(
+                "Quedó marcado como listo, pero no se pudo avisar al egresado.")
+            resp.headers["X-Tt-Notice-Kind"] = "warning"
+        return resp
     finally:
         db.close()
 

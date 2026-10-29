@@ -335,7 +335,7 @@ def test_liberar_avisa_una_vez_al_coordinador(liberacion, db_session):
     avisos = _avisos(db_session, c.coord)
     assert len(avisos) == 1
     a = avisos[0]
-    assert a.title == "Proyecto liberado: Anexo III"
+    assert a.title == AnexoService.RELEASE_TITLE
     assert a.data["process_id"] == c.process.id
     assert a.data["url"] == f"/titulatec/admin/sinodales?tab=anexo&selected={c.process.id}"
     assert c.student.control_number in (a.body or "")
@@ -382,12 +382,6 @@ def test_un_fallo_del_aviso_no_rompe_el_voto(liberacion, db_session, monkeypatch
 PREPARE_PERM = "titulatec.anexo_iii.api.prepare"
 ROLE_PREP = f"tt_test_sin_anexo_prep_{os.getpid()}"
 NOTA = "Oficina de Vinculacion, lunes a viernes de 9:00 a 14:00"
-# Hasta que la ronda de arreglo de T1 sume `expected_stage` a `mark_ready`.
-requiere_fix_t1 = pytest.mark.skipif(
-    not hasattr(__import__("itcj2.apps.titulatec.services.anexo_service",
-                           fromlist=["x"]), "AnexoStageChanged"),
-    reason="AnexoService aun sin AnexoStageChanged/expected_stage (ronda de arreglo de T1)")
-
 
 @pytest.fixture()
 def prep(db_session, esc, make_role, grant_user_role):
@@ -445,6 +439,15 @@ def test_subfiltros_por_etapa_con_conteos_y_filas(prep, esc, db_session):
     assert "Reimpresión" in fila.text_content() and "Falta el sello" in fila.text_content()
 
 
+def test_los_conteos_de_etapa_suman_el_de_la_pestana(prep, esc, db_session):
+    from itcj2.apps.titulatec.services.synodal_inbox_service import SynodalInboxService
+    a, b, c = prep(3)
+    _listo(db_session, b)
+    _fase(db_session, c, "in_review")
+    datos = SynodalInboxService.list(db_session, a.head.id, tab="anexo")
+    assert sum(datos["etapa_counts"].values()) == datos["counts"]["anexo"]
+
+
 def test_fifo_de_recoger_es_por_ready_at(prep, esc, db_session):
     from datetime import datetime
     x, y = prep(2)
@@ -499,7 +502,6 @@ def test_textos_largos_no_rompen_el_panel(prep, esc, db_session):
     assert resp.status_code == 200 and "N" * 300 in resp.text and "P" * 230 in resp.text
 
 
-@requiere_fix_t1
 def test_marcar_listo_feliz(prep, esc, db_session, monkeypatch):
     (c,) = prep(1)
     avisados = []
@@ -518,20 +520,22 @@ def test_marcar_listo_feliz(prep, esc, db_session, monkeypatch):
     assert _html(resp).xpath('//*[@id="tt-sin-etapa-recoger"][@aria-pressed="true"]')
 
 
-@requiere_fix_t1
 def test_marcar_listo_con_la_etapa_cambiada_200_con_aviso(prep, esc, db_session):
     (c,) = prep(1)
     _fase(db_session, c, "in_review")                # Titulacion ya lo tiene
     resp = esc.client_as(c.head).post(
         f"{URL}/{c.process.id}/anexo/listo",
         data={"note": NOTA, "tab": "anexo", "etapa": "preparar", "expected_stage": "preparing"})
-    assert resp.status_code in (200, 400)
+    assert resp.status_code == 200, resp.text[:300]
+    assert resp.headers.get("X-Tt-Notice") and resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    h = _html(resp)
+    assert h.xpath('//*[@id="tt-sin-anexo-panel"]')          # panel re-pintado, ya en Titulacion
+    assert h.xpath('//*[@id="tt-sin-anexo-readonly"]') and not h.xpath('//form[@id="tt-sin-anexo-form"]')
     db_session.expire_all()
     a = db_session.query(Anexo).filter_by(process_id=c.process.id).first()
-    assert a is None or a.ready_at is None
+    assert a is None or (a.ready_at is None and a.pickup_note is None)
 
 
-@requiere_fix_t1
 def test_marcar_listo_nota_vacia_200_con_error_en_el_form(prep, esc, db_session):
     (c,) = prep(1)
     resp = esc.client_as(c.head).post(
@@ -544,7 +548,6 @@ def test_marcar_listo_nota_vacia_200_con_error_en_el_form(prep, esc, db_session)
     assert a is None or a.ready_at is None
 
 
-@requiere_fix_t1
 def test_marcar_listo_otro_departamento_404(prep, esc, db_session, make_department,
                                             make_academic_head, client_as):
     (c,) = prep(1)
@@ -555,7 +558,6 @@ def test_marcar_listo_otro_departamento_404(prep, esc, db_session, make_departme
     assert r.status_code == 404
 
 
-@requiere_fix_t1
 def test_marcar_listo_sin_prepare_403(prep, esc, db_session, make_academic_head, client_as):
     (c,) = prep(1)
     solo = make_academic_head(c.department, kind="coord", perms=PERMS)
@@ -566,7 +568,6 @@ def test_marcar_listo_sin_prepare_403(prep, esc, db_session, make_academic_head,
     assert db_session.query(Anexo).filter_by(process_id=c.process.id).count() == 0
 
 
-@requiere_fix_t1
 def test_marcar_listo_con_corte_3_no_escribe(prep, esc, corte, db_session):
     (c,) = prep(1)
     cli = esc.client_as(c.head)
@@ -578,9 +579,24 @@ def test_marcar_listo_con_corte_3_no_escribe(prep, esc, corte, db_session):
                      ).xpath('//*[@id="tt-sin-anexo-panel"]')
 
 
-@requiere_fix_t1
 def test_ya_en_titulacion_no_se_puede_marcar_listo(prep, esc, db_session):
     (c,) = prep(1)
     _fase(db_session, c, "in_review")
     r = esc.client_as(c.head).post(f"{URL}/{c.process.id}/anexo/listo", data={"note": NOTA})
     assert r.status_code == 400 and r.headers.get("X-Tt-Error")
+
+
+def test_marcar_listo_con_aviso_fallido_dice_la_verdad(prep, esc, db_session, monkeypatch):
+    (c,) = prep(1)
+
+    def _boom(process_id):
+        raise RuntimeError("sin redis")
+    monkeypatch.setattr(AnexoService, "notify_ready", staticmethod(_boom))
+    resp = esc.client_as(c.head).post(
+        f"{URL}/{c.process.id}/anexo/listo",
+        data={"note": NOTA, "tab": "anexo", "etapa": "preparar", "expected_stage": "preparing"})
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Tt-Notice-Kind") == "warning"
+    assert "no%20se%20pudo%20avisar" in resp.headers["X-Tt-Notice"]
+    db_session.expire_all()
+    assert db_session.query(Anexo).filter_by(process_id=c.process.id).one().ready_at is not None

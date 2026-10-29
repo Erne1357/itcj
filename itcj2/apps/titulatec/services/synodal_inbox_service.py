@@ -325,6 +325,8 @@ class SynodalInboxService:
             return r.ready_at if etapa == "recoger" else r.started_at
         elegidas.sort(key=lambda r: (_desde(r) is None, _desde(r) or 0, r.process_id))
 
+        # shortcut: paginacion en memoria; el universo son las filas de la fase 6 de
+        # los departamentos del usuario, subir a SQL si llegan a miles.
         pg = paginate_list(elegidas, page_n, per_page)
         hoy = db_now().date()
         feriados = NonWorkingDayService.holidays(db) if etapa != "titulacion" else frozenset()

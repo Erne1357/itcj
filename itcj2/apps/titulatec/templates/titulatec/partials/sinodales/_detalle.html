@@ -207,6 +207,7 @@
           data-tt-confirm-ok="Sustituir">
       <input type="hidden" name="role" value="{{ s.role }}">
       <input type="hidden" name="tab" value="{{ tab }}">
+      <input type="hidden" name="etapa" value="{{ etapa }}">
       <input type="hidden" name="q" value="{{ q }}">
       <input type="hidden" name="carrera" value="{{ carrera or '' }}">
       <input type="hidden" name="depto" value="{{ depto or '' }}">
@@ -269,6 +270,7 @@
         hx-confirm="Registrar sinodales|{{ d.name }} pasará a la revisión de sinodales y los 4 docentes recibirán el aviso. Después solo se podrá sustituir a uno, con motivo."
         data-tt-confirm-ok="Registrar">
     <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="etapa" value="{{ etapa }}">
     <input type="hidden" name="q" value="{{ q }}">
     <input type="hidden" name="carrera" value="{{ carrera or '' }}">
     <input type="hidden" name="depto" value="{{ depto or '' }}">
