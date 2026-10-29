@@ -1,14 +1,16 @@
 """Fase 6, tarea 4: pantalla del alumno `/titulatec/student/anexo` (spec §9.1).
 
 Traduccion HTTP del motor (`test_anexo_door.py`, `test_anexo_service.py`): la
-pagina, la descarga del PDF (que emite el folio), la subida del escaneo en dos
-saltos, el borrado y las guardas (corte en 3 = inerte; fase 5 = redirect).
-Ruling R4: borrar el escaneo ya aprobado es 400, no 500, por las dos rutas.
+pagina, la vista previa del PDF (fase 6 v2: con marca de agua, nunca emite
+folio), la subida del escaneo en dos saltos (solo con el Anexo «Listo para
+recoger», `_listo`), el borrado y las guardas (corte en 3 = inerte; fase 5 =
+redirect). Ruling R4: borrar el escaneo ya aprobado es 400, no 500, por las dos rutas.
 
 Corte en 9 (la fase 6 operable) salvo las pruebas de inercia, que lo bajan a 3.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import unquote
@@ -29,7 +31,7 @@ PDF = (b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
        b"trailer<</Root 1 0 R>>\n%%EOF\n")
 ANEXO_PERMS = STUDENT_PERMS + (
     "titulatec.document.api.delete.own",
-    "titulatec.anexo_iii.api.generate.own",
+    "titulatec.anexo_iii.api.preview.own",
 )
 
 
@@ -59,6 +61,15 @@ def caso(db_session, make_anexo_case, seed_document_types, make_role, make_user)
     return _build
 
 
+def _listo(db, c):
+    """Fase 6 v2: vinculacion lo marca «Listo para recoger» (sin eso el alumno
+    no sube el escaneo; `mark_ready` se prueba en `test_anexo_entrega.py`)."""
+    anexo = AnexoService.ensure_folio(db, c.process, c.coordinator.id)
+    anexo.ready_at = datetime(2026, 3, 20, 9, 0)
+    anexo.pickup_note = "Oficina de vinculacion"
+    db.commit()
+
+
 def _archivos(base: Path) -> set:
     return {p for p in base.rglob("*") if p.is_file()}
 
@@ -79,8 +90,8 @@ def _folios(db, c):
 
 
 def _espiar_commit_y_render(monkeypatch, db_session):
-    """Revision final, punto 9: la ruta hace `commit` (suelta el bloqueo del
-    proceso) ANTES de pintar con WeasyPrint. Registra el orden y sustituye el
+    """Fase 6 v2: la vista previa no escribe (sin `commit`) y pinta con
+    WeasyPrint despues de cerrar la sesion. Registra el orden y sustituye el
     render por uno que no toca nada."""
     eventos = []
     real_commit = db_session.commit
@@ -91,19 +102,12 @@ def _espiar_commit_y_render(monkeypatch, db_session):
 
     def render(ctx):
         eventos.append("render")
-        assert ctx["folio"].startswith("AIII-")
+        assert ctx["preview"] is True and ctx["folio"] is None
         return b"%PDF-espia"
 
     monkeypatch.setattr(db_session, "commit", commit)
     monkeypatch.setattr(AnexoService, "render", staticmethod(render))
     return eventos
-
-
-def _pinto_despues_del_commit(eventos, resp):
-    assert resp.status_code == 200, resp.text[:300]
-    assert resp.content == b"%PDF-espia"
-    assert eventos[-1] == "render" and eventos.count("render") == 1
-    assert "commit" in eventos[:-1], eventos
 
 
 class TestPagina:
@@ -191,7 +195,7 @@ class TestPagina:
 
 
 class TestPdf:
-    def test_descarga_y_deja_un_folio(self, caso, client_as, db_session):
+    def test_vista_previa_sin_folio(self, caso, client_as, db_session):
         c = caso()
         cli = client_as(c.student)
         r1 = cli.get(BASE + "/pdf")
@@ -199,8 +203,9 @@ class TestPdf:
         assert r1.status_code == 200 and r1.headers["content-type"] == "application/pdf"
         assert r1.content.startswith(b"%PDF")
         assert "inline" in r1.headers["content-disposition"]
+        assert "_ANEXO_III_VISTA_PREVIA.pdf" in r1.headers["content-disposition"]
         assert r2.status_code == 200
-        assert _folios(db_session, c) == 1
+        assert _folios(db_session, c) == 0, "el alumno nunca emite folio"
 
     def test_sin_proceso_el_mensaje_es_el_de_la_causa(self, make_student, make_role,
                                                       client_as, seed_phase_defs):
@@ -219,16 +224,20 @@ class TestPdf:
         assert resp.status_code == 400 and resp.headers.get("X-Tt-Error")
         assert _folios(db_session, c) == 0
 
-    def test_pinta_despues_del_commit(self, caso, client_as, db_session, monkeypatch):
+    def test_pinta_sin_escribir(self, caso, client_as, db_session, monkeypatch):
         c = caso()
         eventos = _espiar_commit_y_render(monkeypatch, db_session)
-        _pinto_despues_del_commit(eventos, client_as(c.student).get(BASE + "/pdf"))
-        assert _folios(db_session, c) == 1
+        resp = client_as(c.student).get(BASE + "/pdf")
+        assert resp.status_code == 200, resp.text[:300]
+        assert resp.content == b"%PDF-espia"
+        assert eventos == ["render"], eventos
+        assert _folios(db_session, c) == 0
 
 
 class TestSubida:
     def test_subir_pone_la_fase_en_revision(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         resp = _subir(client_as(c.student))
         assert resp.status_code == 200, resp.text[:300]
         assert "En revisión" in resp.text
@@ -240,6 +249,7 @@ class TestSubida:
 
     def test_observado_muestra_motivo_y_permite_resubir(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         _subir(client_as(c.student))
         AnexoService.observe(db_session, c.process, c.revisor.id, reason="Falta la firma del vocal")
         db_session.commit()
@@ -250,6 +260,7 @@ class TestSubida:
 
     def test_aprobado_ya_no_ofrece_subir(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         _subir(client_as(c.student))
         AnexoService.approve(db_session, c.process, c.revisor.id)
         db_session.commit()
@@ -290,6 +301,7 @@ class TestSubida:
 class TestBorrado:
     def test_borra_el_pendiente_y_regresa_la_fase(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         _subir(client_as(c.student))
         resp = client_as(c.student).delete(BASE + "/escaneo")
         assert resp.status_code == 200, resp.text[:300]
@@ -298,6 +310,7 @@ class TestBorrado:
 
     def test_borrar_el_aprobado_es_400_por_las_dos_rutas(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         _subir(client_as(c.student))
         AnexoService.approve(db_session, c.process, c.revisor.id)
         db_session.commit()
@@ -313,6 +326,7 @@ class TestBorrado:
         # Revision final, punto 7: la ruta generica no miraba el dictamen.
         from itcj2.apps.titulatec.services.document_service import DocumentService
         c = caso()
+        _listo(db_session, c)
         _subir(client_as(c.student))
         AnexoService.observe(db_session, c.process, c.revisor.id, reason="Ilegible")
         db_session.commit()

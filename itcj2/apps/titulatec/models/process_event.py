@@ -63,6 +63,11 @@ EVENT_TYPES = frozenset({
     # Anexo III (spec 2026-10-22 fase 6 §12): primera emision del folio
     # (`AnexoService.ensure_folio`, payload `{"folio", "semester"}`).
     "anexo_iii_issued",
+    # Fase 6 v2 (spec 2026-10-29 §9): vinculacion lo marco «Listo para recoger»
+    # (`AnexoService.mark_ready`, payload `{"folio", "note", "first"}`) y
+    # Titulacion pidio reimprimirlo (`observe(reprint=True)`, `{"folio", "reason"}`).
+    "anexo_iii_ready",
+    "anexo_iii_reprint_requested",
     # Requisitos de cotejo
     "requirement_fulfilled",
     "requirement_unfulfilled",

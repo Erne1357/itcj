@@ -23,6 +23,13 @@ class Anexo(Base):
     released_at = Column(DateTime, nullable=False)
     issued_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     issued_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    # Entrega (spec 2026-10-29 fase 6 v2 §5): vinculacion lo marca «Listo para
+    # recoger». La etapa la lee SOLO `AnexoService.stage`/`stage_map`.
+    ready_at = Column(DateTime, nullable=True)
+    ready_by_id = Column(BigInteger, ForeignKey("core_users.id"), nullable=True)
+    pickup_note = Column(String(300), nullable=True)       # se conserva al pedir reimpresion
+    reprint_reason = Column(String(500), nullable=True)
+    reprint_requested_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("process_id", name="uq_titulatec_anexos_process"),

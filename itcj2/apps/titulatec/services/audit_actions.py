@@ -154,6 +154,10 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
     # Dictamen de Titulación sobre el escaneo firmado (`approve`/`observe`):
     # veredicto y ronda (= versión del documento); el motivo va en `reason`.
     "anexo_iii.reviewed": ("anexo", "Dictaminó el Anexo III"),
+    # Fase 6 v2 (spec 2026-10-29): vinculación lo marcó listo para recoger (o
+    # corrigió la nota) y Titulación pidió reimprimirlo (motivo en `reason`).
+    "anexo_iii.ready": ("anexo", "Marcó el Anexo III listo para recoger"),
+    "anexo_iii.reprint_requested": ("anexo", "Pidió reimprimir el Anexo III"),
 
     # --- processes: carreras por departamento (fase 4, D10 y R-F) ---------------
     # Mismo módulo que `titulatec_program_departments` y

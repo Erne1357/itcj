@@ -1343,6 +1343,10 @@ _EVENT_UI = {
     "review_vote_cast":             ("Un sinodal votó el proyecto", "check2-square",        "neutral"),
     # Anexo III (fase 6): primera emision del folio (`AnexoService`).
     "anexo_iii_issued":             ("Se emitió el folio del Anexo III", "file-earmark-text", "neutral"),
+    # Fase 6 v2: vinculación lo marcó listo (la nota y si fue re-marcado van en
+    # el payload) y Titulación pidió reimprimirlo (motivo en `reason`).
+    "anexo_iii_ready":              ("Anexo III listo para recoger", "box-seam", "success"),
+    "anexo_iii_reprint_requested":  ("Titulación pidió reimprimir el Anexo III", "printer", "amber"),
     "requirement_fulfilled":        ("Requisito acreditado",      "check2-square",          "success"),
     "requirement_unfulfilled":      ("Requisito desmarcado",      "square",                 "amber"),
     "process_completed":            ("Proceso completado",        "trophy",                 "success"),

@@ -322,6 +322,9 @@ _EVENT_LABELS = {
     "review_vote_cast":            "Un sinodal votó una versión de tu proyecto",
     # Anexo III (fase 6): `AnexoService.ensure_folio`.
     "anexo_iii_issued":            "Se generó tu Anexo III",
+    # Fase 6 v2: `AnexoService.mark_ready` / `.observe(reprint=True)`.
+    "anexo_iii_ready":             "Tu Anexo III está listo para recoger",
+    "anexo_iii_reprint_requested": "Titulación pidió reimprimir tu Anexo III",
     # ---- Cita de cotejo --------------------------------------------------
     "appointment_scheduled":       "Cita agendada",
     "appointment_confirmed":       "Confirmaste tu asistencia",
@@ -3126,29 +3129,26 @@ def anexo(
 def anexo_pdf(
     request: Request,
     user: dict = Depends(require_page_app(
-        "titulatec", perms=["titulatec.anexo_iii.api.generate.own"])),
+        "titulatec", perms=["titulatec.anexo_iii.api.preview.own"])),
 ):
-    """Descarga (inline) el Anexo III del propio proceso. La primera vez emite el folio."""
+    """Vista previa (inline) del Anexo III del propio proceso, con marca de agua
+    (fase 6 v2, E2). Nunca emite folio ni escribe: el oficial lo imprime
+    vinculación."""
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.services.anexo_service import AnexoService
     from itcj2.apps.titulatec.services.document_service import DocumentService
 
     db = SessionLocal()
     try:
-        uid = int(user["sub"])
-        process = DocumentService.get_active_process(db, uid)
+        process = DocumentService.get_active_process(db, int(user["sub"]))
         bloqueo = _anexo_read_guard(db, process)
         if bloqueo:
             return bloqueo
         try:
-            ctx = AnexoService.prepare_pdf(db, process, uid)
+            ctx = AnexoService.preview_pdf(db, process)
         except ValueError as exc:
-            db.rollback()
             return Response(status_code=400, headers={"X-Tt-Error": _hdr(exc)})
-        nombre = AnexoService.filename(db, process)
-        # Commit ANTES de pintar: suelta el bloqueo del proceso (y el del
-        # contador en la primera emisión) mientras WeasyPrint trabaja.
-        db.commit()
+        nombre = AnexoService.preview_filename(db, process)
     finally:
         db.close()
     pdf = AnexoService.render(ctx)

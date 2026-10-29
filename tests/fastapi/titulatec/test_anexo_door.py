@@ -55,7 +55,9 @@ def corte(monkeypatch):
 def caso(db_session, corte, make_anexo_case, seed_document_types, make_user, tmp_path,
          monkeypatch):
     """Proceso en la fase 6 (`in_progress`) con el tipo `anexo_iii` sembrado,
-    los archivos en `tmp_path` y un revisor de Titulación."""
+    los archivos en `tmp_path` y un revisor de Titulación. Con `folio`, el
+    Anexo además queda «Listo para recoger» (fase 6 v2: sin eso el alumno no
+    sube el escaneo; `mark_ready` se prueba en `test_anexo_entrega.py`)."""
     def _build(*, modality_code="integral_residencias", phase_status="in_progress",
                cut=9, folio=True):
         corte(9)
@@ -63,7 +65,10 @@ def caso(db_session, corte, make_anexo_case, seed_document_types, make_user, tmp
         seed_document_types([(TIPO, "Anexo III firmado", 6)])
         c = make_anexo_case(modality_code=modality_code, phase_status=phase_status)
         if folio:
-            AnexoService.ensure_folio(db_session, c.process, c.coordinator.id)
+            anexo = AnexoService.ensure_folio(db_session, c.process, c.coordinator.id)
+            anexo.ready_at = datetime(2026, 3, 20, 9, 0)
+            anexo.pickup_note = "Oficina de vinculación"
+            db_session.flush()
         revisor = make_user(first_name="TERE", last_name="TITULACION")
         corte(cut)
         return SimpleNamespace(**vars(c), revisor=revisor)
@@ -158,13 +163,22 @@ class TestSincronia:
         doc = _doc(db_session, c)
         assert doc.review_status == "pending" and doc.version == 1
 
-    def test_resubir_sin_dictamen_sigue_en_revision_y_va_al_final(self, db_session, caso):
+    def test_resubir_sin_dictamen_se_niega_y_quitar_y_subir_va_al_final(self, db_session,
+                                                                        caso):
+        """Fase 6 v2 (spec 2026-10-29 §4): con el escaneo por revisar no se sube
+        encima (etapa `in_review`); se quita (vuelve a `ready`) y se sube otro,
+        que va al final de la cola."""
         c = caso()
         _en_revision(db_session, c)
+        with pytest.raises(ValueError) as exc:
+            _subir(db_session, c)
+        assert str(exc.value) == anexo_service.ANEXO_NOT_READY_MSG
+        assert _doc(db_session, c).version == 1
         viejo = datetime(2026, 1, 1, 8, 0)
         _fase(db_session, c).updated_at = viejo
         db_session.flush()
 
+        DocumentService.delete(db_session, c.process.id, TIPO, actor_id=c.student.id)
         _subir(db_session, c)
 
         fase = _fase(db_session, c)
@@ -322,9 +336,11 @@ class TestAprobar:
         (ev,) = _eventos(db_session, c, "phase_approved")
         assert ev.payload["anexo_iii"]["round"] == 2
 
-    def test_sin_folio_el_payload_lo_dice(self, db_session, caso):
-        c = caso(folio=False)
-        _en_revision(db_session, c)
+    def test_sin_folio_el_payload_lo_dice(self, db_session, caso, make_document):
+        # Dato heredado de la v1 (escaneo sin «listo» ni folio): la v2 ya no
+        # deja subir así, pero el dictamen no truena.
+        c = caso(folio=False, phase_status="in_review")
+        make_document(c.process, type_code=TIPO, phase_number=c.anexo_phase)
 
         AnexoService.approve(db_session, c.process, c.revisor.id)
 

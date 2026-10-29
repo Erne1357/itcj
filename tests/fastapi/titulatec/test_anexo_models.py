@@ -21,11 +21,18 @@ def test_columnas_y_nombres_de_tabla():
     assert AnexoCounter.__tablename__ == "titulatec_anexo_counters"
     cols = Anexo.__table__.c
     assert set(cols.keys()) == {"id", "process_id", "folio", "semester", "released_at",
-                                "issued_at", "issued_by_id"}
+                                "issued_at", "issued_by_id",
+                                # fase 6 v2 (tt20261029a): entrega y reimpresion
+                                "ready_at", "ready_by_id", "pickup_note",
+                                "reprint_reason", "reprint_requested_at"}
     assert cols.folio.type.length == 20 and cols.semester.type.length == 5
     assert not cols.released_at.nullable and not cols.issued_at.nullable
     assert cols.issued_by_id.nullable
     assert cols.issued_by_id.type.__class__.__name__ == "BigInteger"
+    assert cols.ready_by_id.type.__class__.__name__ == "BigInteger"
+    assert cols.pickup_note.type.length == 300 and cols.reprint_reason.type.length == 500
+    assert all(getattr(cols, c).nullable for c in ("ready_at", "ready_by_id", "pickup_note",
+                                                   "reprint_reason", "reprint_requested_at"))
     cc = AnexoCounter.__table__.c
     assert cc.semester.primary_key and not cc.last_value.nullable
     assert cc.last_value.server_default is not None

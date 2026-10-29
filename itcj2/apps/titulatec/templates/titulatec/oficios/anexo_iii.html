@@ -43,9 +43,13 @@
   table.syn .pos { font-weight: bold; margin-top: 2pt; }
   table.syn .nm { margin-top: 1pt; }
   .small { font-size: 8.5pt; margin-top: 8pt; }
+  /* Vista previa del alumno (fase 6 v2, E2): `position: fixed` se repite en cada pagina. */
+  .wm { position: fixed; top: 40%; left: -0.4in; right: -0.4in; text-align: center; font-size: 34pt;
+        font-weight: bold; color: rgba(180, 0, 0, 0.18); transform: rotate(-35deg); }
 </style>
 </head>
 <body>
+  {% if preview %}<div class="wm">VISTA PREVIA — SIN VALIDEZ</div>{% endif %}
   <div class="top">
     <div class="logos">
       <img src="images/logo_sep.png" alt="Educación">
@@ -63,7 +67,7 @@
   </div>
 
   <div class="meta">
-    {% if folio %}<p><strong>Folio</strong>: {{ folio }}</p>{% endif %}
+    {% if folio %}<p><strong>Folio</strong>: {{ folio }}</p>{% elif preview %}<p><strong>Folio</strong>: Se asigna al imprimirse</p>{% endif %}
     <p>Ciudad Juárez, Chih., {{ date_label }}</p>
     <p><strong>Asunto</strong>: Liberación de proyecto para la titulación integral</p>
   </div>

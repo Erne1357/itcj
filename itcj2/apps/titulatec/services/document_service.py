@@ -688,9 +688,11 @@ class DocumentService:
         la guarda R8 aunque Titulación ya hubiera aprobado, y pisaba el escaneo
         aprobado (fase 6 `approved` con el documento `pending`). Al final,
         `AnexoService.sync_phase` pone la fase «Por revisar» (C6). Los demás
-        tipos no cambian: ni candado nuevo ni consultas nuevas.
+        tipos no cambian: ni candado nuevo ni consultas nuevas. Fase 6 v2: bajo
+        ese bloqueo, solo en etapa `ready`/`observed` (`ANEXO_NOT_READY_MSG`).
         """
         from itcj2.apps.titulatec.models import Document, DocumentType
+        from itcj2.apps.titulatec.services import anexo_service
         from itcj2.apps.titulatec.services.anexo_service import AnexoService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.apps.titulatec.utils import storage
@@ -716,6 +718,11 @@ class DocumentService:
                 and not (doc is not None and DocumentService.replacement_open(
                     doc.review_status, doc.replacement_requested_at))):
             raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
+        # Fase 6 v2 (spec 2026-10-29 §10): el escaneo solo entra con el Anexo
+        # «Por recoger» u «Observado», releído bajo el bloqueo del proceso (las
+        # dos rutas del alumno pasan por aquí). Antes del disco.
+        if es_anexo and AnexoService.stage(db, process) not in anexo_service.UPLOAD_STAGES:
+            raise ValueError(anexo_service.ANEXO_NOT_READY_MSG)
 
         period_code, control = DocumentService._storage_keys(db, process)
         if prepared is None:

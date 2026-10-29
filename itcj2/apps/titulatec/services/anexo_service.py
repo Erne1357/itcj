@@ -18,6 +18,12 @@ el escaneo firmado es un `Document` de tipo `DOC_TYPE`; subirlo o borrarlo
 sincroniza la fase (`sync_phase`, desde `DocumentService.save`/`delete`) y
 solo `approve`/`observe` lo dictaminan, junto con la fase, en UNA transaccion.
 Invariante: fase 6 `approved` <=> escaneo `approved`.
+
+Entrega (fase 6 v2, spec 2026-10-29): el oficial lo imprime vinculacion y lo
+marca «Listo para recoger» (`mark_ready`); el alumno solo ve la vista previa
+con marca de agua (`preview_pdf`, nunca escribe) y sube el escaneo en `ready`
+u `observed`; Titulacion puede pedir reimpresion (`observe(reprint=True)`). La
+etapa (`STAGES`) es una lectura derivada con UNA duena: `stage`/`stage_map`.
 """
 from __future__ import annotations
 
@@ -57,6 +63,45 @@ SIGNERS_FALLBACK_TEXT = ("Firman el jefe del departamento académico y los sinod
                          "indique tu modalidad. La firma del jefe del departamento la "
                          "gestiona tu jefe de proyecto de vinculación.")
 VERSION_CHANGED_MSG = "El alumno subio otro escaneo; revisalo de nuevo."
+
+# Entrega (spec 2026-10-29 §4). Nadie fuera de `stage`/`stage_map` compara
+# `ready_at`/`reprint_*` para decidir en que va el Anexo.
+STAGES = ("preparing", "reprint", "ready", "in_review", "observed", "approved")
+STAGE_LABELS = {
+    "preparing": "En preparación",
+    "reprint": "Reimpresión",
+    "ready": "Por recoger",
+    "in_review": "En revisión",
+    "observed": "Con observaciones",
+    "approved": "Aprobado",
+}
+# Desde donde vinculacion marca listo (§10) y desde donde el alumno sube (§4).
+_PREPARABLE_STAGES = ("preparing", "reprint", "ready")
+UPLOAD_STAGES = ("ready", "observed")
+NOTE_MAX = 300
+NOTE_REQUIRED_MSG = "Escribe el lugar y el horario para recoger el Anexo III."
+NOTE_TOO_LONG_MSG = "La nota de recogida admite hasta 300 caracteres."
+NOT_PREPARABLE_MSG = ("Este Anexo III ya no se puede marcar listo: el alumno ya subio "
+                      "el escaneo o ya fue aprobado.")
+NO_FOLIO_REPRINT_MSG = "Este Anexo III no tiene folio: no hay nada que reimprimir."
+# Guarda de subida del escaneo (`DocumentService.save`, las dos rutas del alumno).
+ANEXO_NOT_READY_MSG = ("Tu Anexo III todavia no esta listo para recoger: aun no puedes "
+                       "subir el escaneo.")
+
+
+def _stage_of(phase_status, reprint_requested_at, ready_at) -> str:
+    """Orden EXACTO de spec §4: gana la primera regla que aplica."""
+    if phase_status == "approved":
+        return "approved"
+    if reprint_requested_at is not None:
+        return "reprint"
+    if phase_status == "in_review":
+        return "in_review"
+    if phase_status == "rejected":
+        return "observed"
+    if ready_at is not None:
+        return "ready"
+    return "preparing"
 
 
 class AnexoVersionChanged(ValueError):
@@ -142,6 +187,90 @@ class AnexoService:
         if process is None or (process.current_phase or 0) < n:
             return PENDING_LABEL
         return None
+
+    # ------------------------------------------------------------------
+    # Etapa de la entrega (spec 2026-10-29 §4): UNA lectura, sin N+1
+    # ------------------------------------------------------------------
+    @staticmethod
+    def stage(db: Session, process) -> str | None:
+        """Etapa de la fase 6 (`STAGES`), o None si el Anexo no se opera o el
+        proceso no la alcanzo (`reached`). Es `stage_map` de un proceso: lee
+        la BD (bajo el bloqueo del proceso, lo que dejo quien llego antes)."""
+        if process is None:
+            return None
+        return AnexoService.stage_map(db, [process.id]).get(process.id)
+
+    @staticmethod
+    def stage_map(db: Session, process_ids) -> dict[int, str]:
+        """`{process_id: etapa}` en 3 consultas fijas (operable, numero de la
+        fase y una con la fase 6 y el Anexo unidos). Los procesos que no
+        alcanzaron la fase 6 (mismo criterio que `reached`) no salen."""
+        from sqlalchemy import and_, func
+
+        from itcj2.apps.titulatec.models import Anexo, ProcessPhase, TitulationProcess
+
+        ids = sorted({int(i) for i in (process_ids or ()) if i is not None})
+        if not ids or not AnexoService.operable(db):
+            return {}
+        n = AnexoService.phase_number(db)
+        filas = (db.query(TitulationProcess.id, ProcessPhase.status,
+                          Anexo.reprint_requested_at, Anexo.ready_at)
+                 .outerjoin(ProcessPhase, and_(ProcessPhase.process_id == TitulationProcess.id,
+                                               ProcessPhase.phase_number == n))
+                 .outerjoin(Anexo, Anexo.process_id == TitulationProcess.id)
+                 .filter(TitulationProcess.id.in_(ids),
+                         TitulationProcess.status != "cancelled",
+                         func.coalesce(TitulationProcess.current_phase, 0) >= n)
+                 .order_by(TitulationProcess.id).all())
+        return {pid: _stage_of(estado, reimpresion, listo)
+                for pid, estado, reimpresion, listo in filas if estado != "skipped"}
+
+    @staticmethod
+    def ready_info(db: Session, process) -> dict | None:
+        """Datos de la entrega en tipos planos (la plantilla se pinta tras el
+        `db.close()`), o None sin fila o con el Anexo inoperable."""
+        from itcj2.apps.titulatec.utils.dates_es import dia_mes_hora
+
+        if process is None or not AnexoService.operable(db):
+            return None
+        a = AnexoService.get(db, process.id)
+        if a is None:
+            return None
+        return {
+            "ready_at": a.ready_at,
+            "ready_label": dia_mes_hora(a.ready_at) if a.ready_at else None,
+            "pickup_note": a.pickup_note,
+            "reprint_reason": a.reprint_reason,
+            "reprint_requested_at": a.reprint_requested_at,
+            "folio": a.folio,
+        }
+
+    @staticmethod
+    def default_pickup_note(db: Session, process) -> str | None:
+        """Precarga de la nota de recogida (E3, spec §5): la propia del Anexo
+        si ya tiene (se conserva al pedir reimpresion); si no, la del Anexo
+        listo mas reciente (`ready_at`) de una carrera del MISMO departamento
+        academico (`department_of_program`, el mapeo del oficio). None sin
+        antecedente o sin departamento."""
+        from itcj2.apps.titulatec.models import Anexo, ProgramDepartment, TitulationProcess
+        from itcj2.apps.titulatec.services.scope_service import department_of_program
+
+        propia = (db.query(Anexo.pickup_note)
+                  .filter(Anexo.process_id == process.id).scalar())
+        if propia:
+            return propia
+        depto = (department_of_program(db, process.program_id)
+                 if process.program_id else None)
+        if depto is None:
+            return None
+        return (db.query(Anexo.pickup_note)
+                .join(TitulationProcess, TitulationProcess.id == Anexo.process_id)
+                .join(ProgramDepartment,
+                      ProgramDepartment.program_id == TitulationProcess.program_id)
+                .filter(ProgramDepartment.department_id == depto,
+                        Anexo.ready_at.isnot(None), Anexo.pickup_note.isnot(None))
+                .order_by(Anexo.ready_at.desc(), Anexo.id.desc())
+                .limit(1).scalar())
 
     # ------------------------------------------------------------------
     # Firmas
@@ -342,6 +471,79 @@ class AnexoService:
         return nuevo
 
     # ------------------------------------------------------------------
+    # Entrega: vinculacion lo marca «Listo para recoger» (spec 2026-10-29 §10)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def mark_ready(db: Session, process, actor_id: int, note: str) -> dict:
+        """Marca el Anexo listo para recoger con la nota de lugar y horario.
+
+        Nota `strip()`, 1..`NOTE_MAX`, validada antes del bloqueo (invalida no
+        escribe nada). Bajo el bloqueo del proceso: alcanzado, etapa
+        `preparing`/`reprint`/`ready` (`NOT_PREPARABLE_MSG`) y la guarda del
+        motor (`assert_can_transition`: activo, fase en curso, corte); emite el
+        folio si falta (`ensure_folio` valida antes con `context`).
+
+        - Desde `preparing`/`reprint` (`first=True`): `ready_at`/`ready_by_id`,
+          limpia la reimpresion y encola el correo `anexo_ready`. Tras una
+          reimpresion la fase 6 vuelve de `rejected` a `in_progress`: sin eso
+          la etapa seria `observed` (regla 4 antes que la 5) y no `ready`.
+        - En `ready` (`first=False`): solo cambia la nota (sin correo).
+
+        Evento `anexo_iii_ready` y bitacora `anexo_iii.ready` en cada llamada.
+        Sin commit (lo hace la ruta); error bajo el bloqueo: rollback y se
+        re-lanza. Devuelve `{"anexo", "first"}`.
+        """
+        from itcj2.apps.titulatec.models import ProcessPhase
+        from itcj2.apps.titulatec.services.audit_service import AuditService
+        from itcj2.apps.titulatec.services.phase_service import PhaseService
+        from itcj2.apps.titulatec.services.student_mail import StudentMail
+
+        if not AnexoService.operable(db):
+            raise ValueError(NOT_OPERABLE_MSG)
+        nota = (note or "").strip()
+        if not nota:
+            raise ValueError(NOTE_REQUIRED_MSG)
+        if len(nota) > NOTE_MAX:
+            raise ValueError(NOTE_TOO_LONG_MSG)
+        try:
+            PhaseService._lock_process_row(db, process)
+            if not AnexoService.reached(db, process):
+                raise ValueError(NOT_REACHED_MSG)
+            etapa = AnexoService.stage(db, process)
+            if etapa not in _PREPARABLE_STAGES:
+                raise ValueError(NOT_PREPARABLE_MSG)
+            n = AnexoService.phase_number(db)
+            PhaseService.assert_can_transition(db, process, n)
+            anexo = AnexoService.ensure_folio(db, process, actor_id)
+
+            first = etapa != "ready"
+            anexo.pickup_note = nota
+            if first:
+                anexo.ready_at = db_now()
+                anexo.ready_by_id = actor_id
+                anexo.reprint_reason = None
+                anexo.reprint_requested_at = None
+                fase = (db.query(ProcessPhase)
+                        .filter_by(process_id=process.id, phase_number=n)
+                        .populate_existing().first())
+                if fase is not None and fase.status == "rejected":
+                    fase.status = "in_progress"
+            datos = {"folio": anexo.folio, "note": nota, "first": first}
+            PhaseService._log(db, process.id, actor_id, "anexo_iii_ready", n, dict(datos))
+            AuditService.record(
+                db, "anexo_iii.ready",
+                entity_type="anexo", entity_id=anexo.id,
+                process_id=process.id, subject=process.folio,
+                payload=dict(datos), actor_id=actor_id)
+            if first:
+                StudentMail.anexo_ready(db, process, folio=anexo.folio, note=nota)
+            db.flush()
+            return {"anexo": anexo, "first": first}
+        except Exception:
+            db.rollback()
+            raise
+
+    # ------------------------------------------------------------------
     # Dictamen de Titulacion (puerta unica, spec §10)
     # ------------------------------------------------------------------
     @staticmethod
@@ -404,13 +606,19 @@ class AnexoService:
 
     @staticmethod
     def observe(db: Session, process, reviewer_id: int, *, reason: str,
-                expected_version: int | None = None) -> None:
+                expected_version: int | None = None, reprint: bool = False) -> None:
         """Titulacion observa el escaneo: escaneo `rejected` con el motivo y
         `reject_phase` (el alumno lo ve y vuelve a subir, C6). Motivo
         obligatorio (`REASON_REQUIRED_MSG`) y de a lo mas `REASON_MAX`
         caracteres tras `strip()` (`REASON_TOO_LONG_MSG`); se valida antes de
         tomar el bloqueo, asi que un motivo invalido no escribe nada.
-        `expected_version`: igual que en `approve`."""
+        `expected_version`: igual que en `approve`.
+
+        `reprint=True` (E4, «Requiere reimpresion»): en la MISMA transaccion
+        el Anexo regresa a vinculacion -- `ready_at`/`ready_by_id` a NULL,
+        `reprint_reason` = motivo, `reprint_requested_at` -- con folio,
+        semestre y fecha congelada intactos; evento
+        `anexo_iii_reprint_requested` y bitacora `anexo_iii.reprint_requested`."""
         n = AnexoService.phase_number(db)
         AnexoService._assert_in_review(db, process, n, locked=False)
         motivo = (reason or "").strip()
@@ -419,11 +627,12 @@ class AnexoService:
         if len(motivo) > REASON_MAX:
             raise ValueError(REASON_TOO_LONG_MSG)
         AnexoService._dictaminar(db, process, n, reviewer_id, "rejected", motivo,
-                                 expected_version=expected_version)
+                                 expected_version=expected_version, reprint=reprint)
 
     @staticmethod
     def _dictaminar(db: Session, process, n: int, reviewer_id: int, veredicto: str,
-                    motivo: str | None, *, expected_version: int | None = None):
+                    motivo: str | None, *, expected_version: int | None = None,
+                    reprint: bool = False):
         """Bloqueo -> re-chequeo -> escaneo + bitacora -> puerta -> motor.
 
         El escaneo se escribe y se hace `flush` ANTES del motor: `_door_guard`
@@ -431,7 +640,8 @@ class AnexoService:
         releen el proceso con `populate_existing`. La ronda es la `version` del
         documento; el evento del motor lleva `{"anexo_iii": {folio, round}}`
         (un evento por dictamen, sin duplicar). La puerta se cierra pase lo que
-        pase; cualquier error bajo el bloqueo hace `rollback`.
+        pase; cualquier error bajo el bloqueo hace `rollback`. `reprint`: ver
+        `observe` (se escribe antes del motor, que hace el commit).
         """
         from itcj2.apps.titulatec.services.audit_service import AuditService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -441,17 +651,32 @@ class AnexoService:
             doc = AnexoService._assert_in_review(db, process, n, locked=True)
             if expected_version is not None and doc.version != expected_version:
                 raise AnexoVersionChanged(VERSION_CHANGED_MSG)
+            anexo = AnexoService.get(db, process.id)
+            if reprint and anexo is None:
+                raise ValueError(NO_FOLIO_REPRINT_MSG)
             doc.review_status = veredicto
             doc.review_note = motivo
             doc.reviewed_by_id = reviewer_id
             ronda = doc.version
-            anexo = AnexoService.get(db, process.id)
             AuditService.record(
                 db, "anexo_iii.reviewed",
                 entity_type="anexo", entity_id=anexo.id if anexo else None,
                 process_id=process.id, subject=process.folio, reason=motivo,
                 payload={"status": veredicto, "round": ronda},
                 actor_id=reviewer_id)
+            if reprint:
+                anexo.ready_at = None
+                anexo.ready_by_id = None
+                anexo.reprint_reason = motivo
+                anexo.reprint_requested_at = db_now()
+                PhaseService._log(db, process.id, reviewer_id, "anexo_iii_reprint_requested",
+                                  n, {"folio": anexo.folio, "reason": motivo})
+                AuditService.record(
+                    db, "anexo_iii.reprint_requested",
+                    entity_type="anexo", entity_id=anexo.id,
+                    process_id=process.id, subject=process.folio, reason=motivo,
+                    payload={"folio": anexo.folio, "round": ronda},
+                    actor_id=reviewer_id)
             db.flush()
             evento = {"anexo_iii": {"folio": anexo.folio if anexo else None, "round": ronda}}
             PhaseService.open_door(db, PHASE_CODE, process.id, veredicto)
@@ -497,6 +722,7 @@ class AnexoService:
         control = base["control"] or ""
         proyecto = (base["titulo"] or "").upper()
         return {
+            "preview": False,           # `preview_pdf` lo prende (marca de agua)
             "header": marco["header"],
             "folio": anexo.folio if anexo else None,
             "date_label": _date_label(liberado),
@@ -559,28 +785,92 @@ class AnexoService:
         return f"{control}_ANEXO_III.pdf"
 
     # ------------------------------------------------------------------
-    # Aviso de liberacion (spec §10): al cerrarse la fase 5
+    # Vista previa del alumno (E2, spec 2026-10-29 §6)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def preview_pdf(db: Session, process) -> dict:
+        """Contexto de la vista previa: `context` con `preview=True` (marca de
+        agua) y el folio solo si ya existe. NUNCA escribe ni toma bloqueo (sin
+        `_ensure`): la fecha es la congelada o la de liberacion calculada al
+        vuelo. Falla cerrado como el oficial (`ValueError`)."""
+        if not AnexoService.operable(db):
+            raise ValueError(NOT_OPERABLE_MSG)
+        if not AnexoService.reached(db, process):
+            raise ValueError(NOT_REACHED_MSG)
+        ctx = AnexoService.context(db, process)
+        ctx["preview"] = True
+        return ctx
+
+    @staticmethod
+    def preview_filename(db: Session, process) -> str:
+        return AnexoService.filename(db, process).removesuffix(".pdf") + "_VISTA_PREVIA.pdf"
+
+    # ------------------------------------------------------------------
+    # Avisos en la campana (best-effort, sesion propia, tras el commit)
     # ------------------------------------------------------------------
     RELEASE_TYPE = "ANEXO_READY"
     RELEASE_TITLE = "Proyecto liberado: Anexo III"
     RELEASE_URL = "/titulatec/admin/sinodales?tab=anexo&selected={process_id}"
+    REPRINT_TYPE = "ANEXO_REPRINT"
+    REPRINT_TITLE = "Reimprimir Anexo III"
+    REPRINT_URL = "/titulatec/admin/sinodales?tab=anexo&etapa=preparar&selected={process_id}"
+    PICKUP_TYPE = "ANEXO_PICKUP"
+    PICKUP_TITLE = "Tu Anexo III está listo para recoger"
+    PICKUP_URL = "/titulatec/student/anexo"
 
     @staticmethod
-    def notify_release(process_id: int) -> None:
-        """Avisa en la campana a quien gestiona el Anexo en el departamento: los
-        ocupantes vigentes de `coord_vinculacion_{depto}` y, si el puesto esta
-        vacante, de `head_{depto}`. Abre su PROPIA sesion y commitea (se llama
-        DESPUES del commit del voto); sin correo. Inerte si el Anexo no se opera
-        o la carrera no tiene departamento. Los errores los maneja el llamador
-        (best-effort)."""
-        from itcj2.apps.titulatec.models import TitulationProcess
-        # El mismo nombre que pintan las vistas de Titulación (una sola función).
-        from itcj2.apps.titulatec.pages._titulacion_shared import nombre as _nombre
+    def _vinculacion_recipients(db: Session, process) -> list[int]:
+        """Quien gestiona el Anexo en el departamento de la carrera: ocupantes
+        vigentes de `coord_vinculacion_{depto}` y, si el puesto esta vacante,
+        de `head_{depto}`. [] sin carrera o sin departamento."""
         from itcj2.apps.titulatec.services.scope_service import department_of_program
         from itcj2.core.models.department import Department
         from itcj2.core.models.position import Position, UserPosition
-        from itcj2.core.models.user import User
         from itcj2.core.services.authz_service import _active_position_filter
+
+        if process is None or process.program_id is None:
+            return []
+        depto_id = department_of_program(db, process.program_id)
+        depto = db.get(Department, depto_id) if depto_id is not None else None
+        if depto is None:
+            return []
+
+        def _ocupantes(codigo: str) -> list[int]:
+            filas = (db.query(UserPosition.user_id)
+                     .join(Position, Position.id == UserPosition.position_id)
+                     .filter(Position.code == codigo, _active_position_filter())
+                     .distinct().all())
+            return sorted(int(f[0]) for f in filas)
+
+        return (_ocupantes(f"coord_vinculacion_{depto.code}")
+                or _ocupantes(f"head_{depto.code}"))
+
+    @staticmethod
+    def notify_release(process_id: int) -> None:
+        """Avisa en la campana a quien gestiona el Anexo en el departamento
+        (`_vinculacion_recipients`). Abre su PROPIA sesion y commitea (se llama
+        DESPUES del commit del voto); sin correo. Inerte si el Anexo no se opera
+        o la carrera no tiene departamento. Los errores los maneja el llamador
+        (best-effort)."""
+        AnexoService._notify_vinculacion(process_id, AnexoService.RELEASE_TYPE,
+                                         AnexoService.RELEASE_TITLE, AnexoService.RELEASE_URL)
+
+    @staticmethod
+    def notify_reprint(process_id: int) -> None:
+        """Como `notify_release`, tras pedirse la reimpresion (E4): «Reimprimir
+        Anexo III», a «Por preparar» de Sinodales. Solo si la etapa sigue en
+        `reprint` (llegar tarde no avisa de algo ya resuelto)."""
+        AnexoService._notify_vinculacion(process_id, AnexoService.REPRINT_TYPE,
+                                         AnexoService.REPRINT_TITLE, AnexoService.REPRINT_URL,
+                                         stage="reprint")
+
+    @staticmethod
+    def _notify_vinculacion(process_id: int, type_: str, title: str, url: str, *,
+                            stage: str | None = None) -> None:
+        from itcj2.apps.titulatec.models import TitulationProcess
+        # El mismo nombre que pintan las vistas de Titulación (una sola función).
+        from itcj2.apps.titulatec.pages._titulacion_shared import nombre as _nombre
+        from itcj2.core.models.user import User
         from itcj2.core.services.notification_service import NotificationService
         from itcj2.database import SessionLocal
 
@@ -589,34 +879,48 @@ class AnexoService:
             if not AnexoService.operable(db):
                 return
             proceso = db.get(TitulationProcess, process_id)
-            if proceso is None or proceso.program_id is None:
+            if stage is not None and AnexoService.stage(db, proceso) != stage:
                 return
-            depto_id = department_of_program(db, proceso.program_id)
-            depto = db.get(Department, depto_id) if depto_id is not None else None
-            if depto is None:
-                return
-
-            def _ocupantes(codigo: str) -> list[int]:
-                filas = (db.query(UserPosition.user_id)
-                         .join(Position, Position.id == UserPosition.position_id)
-                         .filter(Position.code == codigo, _active_position_filter())
-                         .distinct().all())
-                return sorted(int(f[0]) for f in filas)
-
-            destinatarios = (_ocupantes(f"coord_vinculacion_{depto.code}")
-                             or _ocupantes(f"head_{depto.code}"))
+            destinatarios = AnexoService._vinculacion_recipients(db, proceso)
             if not destinatarios:
                 return
             alumno = db.get(User, proceso.student_id)
             nombre = _nombre(alumno)
             control = (alumno.control_number if alumno else None) or ""
             cuerpo = " · ".join(p for p in (nombre, control) if p) or proceso.folio
-            url = AnexoService.RELEASE_URL.format(process_id=process_id)
+            destino = url.format(process_id=process_id)
             for uid in destinatarios:
                 NotificationService.create(
-                    db, user_id=uid, app_name="titulatec", type=AnexoService.RELEASE_TYPE,
-                    title=AnexoService.RELEASE_TITLE, body=cuerpo,
-                    data={"url": url, "process_id": process_id})
+                    db, user_id=uid, app_name="titulatec", type=type_,
+                    title=title, body=cuerpo,
+                    data={"url": destino, "process_id": process_id})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    @staticmethod
+    def notify_ready(process_id: int) -> None:
+        """Campana al alumno: su Anexo esta listo para recoger (y al corregir
+        la nota), con la nota vigente. Sesion propia tras el commit de
+        `mark_ready`; inerte si la etapa ya no es `ready`. Best-effort: los
+        errores los maneja el llamador."""
+        from itcj2.apps.titulatec.models import TitulationProcess
+        from itcj2.core.services.notification_service import NotificationService
+        from itcj2.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            proceso = db.get(TitulationProcess, process_id)
+            if AnexoService.stage(db, proceso) != "ready":
+                return
+            NotificationService.create(
+                db, user_id=proceso.student_id, app_name="titulatec",
+                type=AnexoService.PICKUP_TYPE, title=AnexoService.PICKUP_TITLE,
+                body=AnexoService.get(db, process_id).pickup_note,
+                data={"url": AnexoService.PICKUP_URL, "process_id": process_id})
             db.commit()
         except Exception:
             db.rollback()
