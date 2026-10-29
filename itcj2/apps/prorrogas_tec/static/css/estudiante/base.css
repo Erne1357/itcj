@@ -1,0 +1,21 @@
+/* Prórrogas · vista del estudiante (celular primero). Misma paleta que secretaria/base.css. */
+:root {
+  --ink: #1A130E; --paper: #F7F7F2; --wine: #652F2A; --orange: #F27340; --alert: #c4541f;
+  --bg: #e9e6e0; --muted: rgba(26, 19, 14, .55);
+  --font-title: Roboto, system-ui, sans-serif; --font-body: 'Open Sans', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body.est { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); }
+.est-bar { height: 56px; padding: 0 16px; background: var(--ink); color: var(--paper); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.est-brand { display: flex; align-items: center; gap: 10px; font: 500 17px/1 var(--font-title); }
+.est-user { font-size: 13px; font-weight: 600; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.est-main { max-width: 480px; margin: 16px auto; padding: 0 16px; }
+.est-card { background: var(--paper); border: 1px solid rgba(0, 0, 0, .08); border-radius: 8px; box-shadow: 0 1px 3px rgba(0, 0, 0, .06); padding: 24px 20px; }
+.est-h1 { font: 600 24px/1.2 var(--font-title); letter-spacing: -.02em; margin: 0 0 12px; }
+.est-hint { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 16px; }
+.est-error { color: var(--alert); font-weight: 600; margin: 0 0 12px; }
+.est-card form { display: flex; flex-direction: column; gap: 8px; }
+.est-card label { font-size: 14px; font-weight: 600; }
+.est-card input { height: 48px; padding: 0 12px; font-size: 20px; letter-spacing: .3em; border: 1px solid rgba(26, 19, 14, .25); border-radius: 8px; background: #fff; }
+.est-btn { margin-top: 12px; height: 48px; border: none; border-radius: 8px; background: var(--wine); color: var(--paper); font-size: 16px; font-weight: 600; cursor: pointer; }
+.est-btn:hover { background: #4f2420; }

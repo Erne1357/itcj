@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>{{ title or "Prórrogas" }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Open+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='prorrogas_tec/css/estudiante/base.css') }}?v={{ sv('prorrogas_tec', 'css/estudiante/base.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="est">
+  <header class="est-bar">
+    <span class="est-brand">
+      <img src="{{ url_for('static', filename='core/images/app-icons/prorrogas_tec.webp') }}" alt="" width="28" height="28">
+      <span>Prórrogas</span>
+    </span>
+    <span class="est-user">{{ current_user.name if current_user and current_user.name else "" }}</span>
+  </header>
+  <main class="est-main">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

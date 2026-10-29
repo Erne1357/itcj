@@ -1,0 +1,15 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block content %}
+<section class="est-card">
+  <h1 class="est-h1">Crea tu NIP</h1>
+  <p class="est-hint">Es de 4 dígitos. Lo usarás junto con tu número de control para iniciar sesión.</p>
+  {% if error %}<p class="est-error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" autocomplete="off">
+    <label for="nip">NIP (4 dígitos)</label>
+    <input id="nip" name="nip" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" required autofocus>
+    <label for="nip2">Repite tu NIP</label>
+    <input id="nip2" name="nip2" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" required>
+    <button class="est-btn" type="submit">Guardar NIP</button>
+  </form>
+</section>
+{% endblock %}
