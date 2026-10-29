@@ -163,22 +163,15 @@ class TestSincronia:
         doc = _doc(db_session, c)
         assert doc.review_status == "pending" and doc.version == 1
 
-    def test_resubir_sin_dictamen_se_niega_y_quitar_y_subir_va_al_final(self, db_session,
-                                                                        caso):
-        """Fase 6 v2 (spec 2026-10-29 §4): con el escaneo por revisar no se sube
-        encima (etapa `in_review`); se quita (vuelve a `ready`) y se sube otro,
-        que va al final de la cola."""
+    def test_resubir_sin_dictamen_sigue_en_revision_y_va_al_final(self, db_session, caso):
+        # Fase 6 v2: el reemplazo sin dictamen (etapa `in_review`) sigue
+        # permitido (C6 del v1, Ruling del controlador 2026-10-29).
         c = caso()
         _en_revision(db_session, c)
-        with pytest.raises(ValueError) as exc:
-            _subir(db_session, c)
-        assert str(exc.value) == anexo_service.ANEXO_NOT_READY_MSG
-        assert _doc(db_session, c).version == 1
         viejo = datetime(2026, 1, 1, 8, 0)
         _fase(db_session, c).updated_at = viejo
         db_session.flush()
 
-        DocumentService.delete(db_session, c.process.id, TIPO, actor_id=c.student.id)
         _subir(db_session, c)
 
         fase = _fase(db_session, c)

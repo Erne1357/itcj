@@ -651,12 +651,40 @@ def _compose_anexo_ready(db: Session, rows: list, process, user) -> Composed | O
 
 
 def _compose_phase_rejected(db: Session, rows: list, process, user) -> Composed | Obsolete:
-    """#3, fase rechazada: el motivo tal como quedó y qué hacer."""
-    datos = _datos(rows[-1])
+    """#3, fase rechazada: el motivo tal como quedó y qué hacer.
+
+    Fase 6 v2 (spec 2026-10-29 E4): si ese dictamen pidió reimprimir el Anexo
+    III (`reprint` en el payload del evento `phase_rejected` que escribió
+    `AnexoService.observe`), el correo dice que vinculación lo reimprime y
+    que se le avisará para recogerlo, no que corrija y vuelva a subir."""
+    fila = rows[-1]
+    datos = _datos(fila)
     fase = _entero(datos.get("phase_number"))
     nombre = _nombre_fase(datos.get("phase_name"), fase)
+    motivo = _texto(datos.get("reason"))
+    if _pidio_reimpresion(db, process.id, fase, getattr(fila, "created_at", None)):
+        return _correo(user, "Titulación pidió reimprimir tu Anexo III", "phase_rejected.html",
+                       _ANEXO, phase_name=nombre, reason=motivo, reprint=True)
     return _correo(user, f"Una fase necesita correcciones: {nombre}", "phase_rejected.html",
-                   _tablero(fase), phase_name=nombre, reason=_texto(datos.get("reason")))
+                   _tablero(fase), phase_name=nombre, reason=motivo, reprint=False)
+
+
+def _pidio_reimpresion(db: Session, process_id: int, fase: int | None, hasta) -> bool:
+    """¿El `phase_rejected` de esa fase que acompaña al correo trae la bandera
+    `anexo_iii.reprint`? Es el más reciente con `created_at <= hasta` (la fila
+    del correo nace en la MISMA transacción que el evento)."""
+    from itcj2.apps.titulatec.models import ProcessEvent
+
+    if fase is None:
+        return False
+    q = db.query(ProcessEvent.payload).filter(ProcessEvent.process_id == process_id,
+                                              ProcessEvent.event_type == "phase_rejected",
+                                              ProcessEvent.phase_number == fase)
+    if hasta is not None:
+        q = q.filter(ProcessEvent.created_at <= hasta)
+    payload = q.order_by(ProcessEvent.id.desc()).limit(1).scalar()
+    anexo = (payload or {}).get("anexo_iii") if isinstance(payload, dict) else None
+    return bool(isinstance(anexo, dict) and anexo.get("reprint"))
 
 
 def _compose_survey(db: Session, rows: list, process, user) -> Composed | Obsolete:

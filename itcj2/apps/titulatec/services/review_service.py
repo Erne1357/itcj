@@ -95,7 +95,11 @@ OPEN_CHAT_MSG = ("Tus sinodales quedaron asignados. Sube la primera versión de 
 VERSION_TEXT = "Versión {numero} del proyecto."
 VOTE_APPROVED_TEXT = "El {posicion} aprobó la versión {numero}."
 VOTE_CHANGES_TEXT = "El {posicion} pidió cambios en la versión {numero}:"
-RELEASED_TEXT = ("Proyecto liberado. Ya puedes pasar por tu Anexo III para que lo firmen tus "
+# Fase 6 v2 (spec 2026-10-29): el Anexo III lo prepara vinculación; el alumno lo
+# recoge y junta ahí las firmas de sus sinodales (quién firma: `signature_text`).
+RELEASED_TEXT = ("Proyecto liberado. Tu jefe de proyecto de vinculación preparará tu Anexo III "
+                 "(lo imprime y recaba la firma y el sello del jefe del departamento). Te "
+                 "avisaremos cuando puedas recogerlo para juntar en él las firmas de tus "
                  "sinodales: {firmas}.")
 # Mismo texto de traspaso que el correo `phase_approved` (variante `handoff`).
 RELEASED_HANDOFF_TEXT = ("Proyecto liberado. Tu proceso continúa en el Departamento de "

@@ -689,7 +689,9 @@ class DocumentService:
         aprobado (fase 6 `approved` con el documento `pending`). Al final,
         `AnexoService.sync_phase` pone la fase «Por revisar» (C6). Los demás
         tipos no cambian: ni candado nuevo ni consultas nuevas. Fase 6 v2: bajo
-        ese bloqueo, solo en etapa `ready`/`observed` (`ANEXO_NOT_READY_MSG`).
+        ese bloqueo, solo en etapa `ready`/`observed`/`in_review` (esta última =
+        reemplazo sin dictamen, que va al final de la cola FIFO por `sync_phase`;
+        `ANEXO_NOT_READY_MSG` en `preparing`/`reprint`/`approved`).
         """
         from itcj2.apps.titulatec.models import Document, DocumentType
         from itcj2.apps.titulatec.services import anexo_service
@@ -719,8 +721,9 @@ class DocumentService:
                     doc.review_status, doc.replacement_requested_at))):
             raise ValueError(DocumentService.REPLACEMENT_CLOSED_MSG)
         # Fase 6 v2 (spec 2026-10-29 §10): el escaneo solo entra con el Anexo
-        # «Por recoger» u «Observado», releído bajo el bloqueo del proceso (las
-        # dos rutas del alumno pasan por aquí). Antes del disco.
+        # «Por recoger», «Observado» o «En revisión» (reemplazo sin dictamen),
+        # releído bajo el bloqueo del proceso (las dos rutas del alumno pasan
+        # por aquí). Antes del disco.
         if es_anexo and AnexoService.stage(db, process) not in anexo_service.UPLOAD_STAGES:
             raise ValueError(anexo_service.ANEXO_NOT_READY_MSG)
 

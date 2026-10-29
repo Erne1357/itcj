@@ -508,8 +508,11 @@ class TestCierre:
         assert chat.closed_at is not None
         ultimo = _mensajes(db_session, c.chat.id)[-1]
         assert ultimo.kind == "system" and ultimo.author_id is None
-        assert ultimo.body == ("Proyecto liberado. Ya puedes pasar por tu Anexo III para que "
-                               "lo firmen tus sinodales: basta la firma del Presidente.")
+        assert ultimo.body == (
+            "Proyecto liberado. Tu jefe de proyecto de vinculación preparará tu Anexo III "
+            "(lo imprime y recaba la firma y el sello del jefe del departamento). Te "
+            "avisaremos cuando puedas recogerlo para juntar en él las firmas de tus "
+            "sinodales: basta la firma del Presidente.")
         (aprobada,) = [e for e in _eventos(db_session, c.process.id, "phase_approved")
                        if e.phase_number == n5]
         assert aprobada.payload == {

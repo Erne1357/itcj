@@ -272,7 +272,7 @@ class TestMarcarListo:
         out = AnexoService.mark_ready(db_session, c.process, c.coordinator.id,
                                       f"  {NOTA}  ")
 
-        assert out["first"] is True
+        assert out["first"] is True and out["changed"] is True
         a = _anexo(db_session, c)
         assert out["anexo"].id == a.id and a.folio.startswith("AIII-")
         assert a.ready_at is not None and a.ready_by_id == c.coordinator.id
@@ -313,7 +313,7 @@ class TestMarcarListo:
 
         out = AnexoService.mark_ready(db_session, c.process, c.coordinator.id, "Sala 2")
 
-        assert out["first"] is False
+        assert out["first"] is False and out["changed"] is True
         a = _anexo(db_session, c)
         assert a.pickup_note == "Sala 2" and a.ready_at == listo_desde
         assert len(correos) == 1
@@ -321,6 +321,53 @@ class TestMarcarListo:
         assert [e.payload["first"] for e in eventos] == [True, False]
         assert eventos[1].payload["note"] == "Sala 2"
         assert len(_eventos(db_session, c, "anexo_iii_issued")) == 1
+
+    def test_remarcar_con_la_misma_nota_no_escribe(self, db_session, caso, correos):
+        c = caso()
+        AnexoService.mark_ready(db_session, c.process, c.coordinator.id, NOTA)
+        db_session.commit()
+
+        out, sql = _contar(db_session, lambda: AnexoService.mark_ready(
+            db_session, c.process, c.coordinator.id, f"  {NOTA} "))
+
+        assert out == {"anexo": out["anexo"], "first": False, "changed": False}
+        assert not [s for s in sql if s.lstrip().upper().startswith(("INSERT", "UPDATE"))]
+        assert len(_eventos(db_session, c, "anexo_iii_ready")) == 1
+        assert len(_acciones(db_session, "anexo_iii.ready", c)) == 1
+        assert len(correos) == 1
+
+    @pytest.mark.parametrize("vista,real", [("preparing", "ready"), ("ready", "in_review"),
+                                            ("reprint", "preparing")])
+    def test_formulario_viejo_no_escribe(self, db_session, caso, correos, rollbacks,
+                                         vista, real):
+        c = caso(listo=real != "preparing")
+        if real == "in_review":
+            _subir(db_session, c)
+        db_session.commit()
+        assert AnexoService.stage(db_session, c.process) == real
+        antes = _anexo(db_session, c)
+        nota_antes = antes.pickup_note if antes else None
+
+        with pytest.raises(anexo_service.AnexoStageChanged) as exc:
+            AnexoService.mark_ready(db_session, c.process, c.coordinator.id, "Otra sala",
+                                    expected_stage=vista)
+
+        assert isinstance(exc.value, ValueError)
+        assert str(exc.value) == anexo_service.STAGE_CHANGED_MSG
+        str(exc.value).encode("ascii")
+        assert rollbacks == [1]
+        despues = _anexo(db_session, c)
+        assert (despues.pickup_note if despues else None) == nota_antes
+        assert len(correos) == (0 if real == "preparing" else 1)
+
+    def test_formulario_al_dia_si_marca(self, db_session, caso):
+        c = caso()
+        out = AnexoService.mark_ready(db_session, c.process, c.coordinator.id, NOTA,
+                                      expected_stage="preparing")
+        assert out["first"] is True
+        out = AnexoService.mark_ready(db_session, c.process, c.coordinator.id, "Sala 9",
+                                      expected_stage="ready")
+        assert out["changed"] is True and _anexo(db_session, c).pickup_note == "Sala 9"
 
     @pytest.mark.parametrize("etapa", ["in_review", "observed", "approved"])
     def test_rechaza_otras_etapas(self, db_session, caso, correos, etapa):
@@ -388,7 +435,8 @@ class TestMarcarListo:
 
     def test_mensajes_ascii(self):
         for msg in (anexo_service.NOTE_REQUIRED_MSG, anexo_service.NOTE_TOO_LONG_MSG,
-                    anexo_service.NOT_PREPARABLE_MSG, anexo_service.ANEXO_NOT_READY_MSG):
+                    anexo_service.NOT_PREPARABLE_MSG, anexo_service.ANEXO_NOT_READY_MSG,
+                    anexo_service.STAGE_CHANGED_MSG):
             msg.encode("ascii")
         assert anexo_service.ANEXO_NOT_READY_MSG == (
             "Tu Anexo III todavia no esta listo para recoger: aun no puedes subir el escaneo.")
@@ -421,6 +469,35 @@ class TestReimpresion:
         assert acc.reason == "Sello ilegible" and acc.payload["folio"] == folio
         (rev,) = _acciones(db_session, "anexo_iii.reviewed", c)
         assert rev.payload["status"] == "rejected"
+
+    def test_el_correo_de_la_observacion_dice_que_se_reimprime(self, db_session, caso):
+        """Revisor: con reimpresion el alumno no corrige ni sube; el correo de
+        fase observada lo dice (bandera `reprint` del evento `phase_rejected`)."""
+        c = caso(listo=True)
+        _reimpresion(db_session, c)
+        (ev,) = _eventos(db_session, c, "phase_rejected")
+        assert ev.payload["anexo_iii"]["reprint"] is True
+
+        correo = _correo_fase_observada(db_session, c)
+
+        assert correo.subject.endswith("Titulación pidió reimprimir tu Anexo III")
+        assert correo.context["reprint"] is True and correo.context["reason"] == "Sello ilegible"
+        html = _html_correo(correo)
+        assert "no tienes que subir nada" in html and "Sello ilegible" in html
+        assert "necesita correcciones" not in html
+
+    def test_la_observacion_normal_conserva_su_correo(self, db_session, caso):
+        c = caso(listo=True)
+        _subir(db_session, c)
+        AnexoService.observe(db_session, c.process, c.revisor.id, reason="Falta firma")
+        (ev,) = _eventos(db_session, c, "phase_rejected")
+        assert "reprint" not in ev.payload["anexo_iii"]
+
+        correo = _correo_fase_observada(db_session, c)
+
+        assert "Una fase necesita correcciones" in correo.subject
+        assert correo.context["reprint"] is False
+        assert "Qué hacer" in _html_correo(correo)
 
     def test_luego_marcar_listo_vuelve_a_por_recoger(self, db_session, caso, correos):
         c = caso(listo=True)
@@ -495,17 +572,35 @@ class TestReimpresion:
         assert _fase(db_session, c).status == "in_review"
 
 
+def _correo_fase_observada(db, c):
+    from itcj2.apps.titulatec.models.email_outbox import EmailOutbox
+    from itcj2.apps.titulatec.services.mail_compose import MailComposer
+    from itcj2.core.models.user import User
+
+    filas = (db.query(EmailOutbox)
+             .filter_by(process_id=c.process.id, kind="phase_rejected")
+             .order_by(EmailOutbox.id).all())
+    assert filas, "reject_phase no encolo el correo"
+    return MailComposer.compose(db, filas[-1:], c.process, db.get(User, c.student.id))
+
+
+def _html_correo(correo):
+    from jinja2 import StrictUndefined
+
+    from itcj2.apps.titulatec.pages.nav import titulatec_templates
+    env = titulatec_templates.env.overlay(undefined=StrictUndefined)
+    return env.get_template(f"titulatec/email/{correo.template}").render(**correo.context)
+
+
 # ---------------------------------------------------------------------------
 # 4. Guarda de subida (anti-objetivo 2): servicio y las dos rutas del alumno
 # ---------------------------------------------------------------------------
 class TestGuardaDeSubida:
-    @pytest.mark.parametrize("etapa", ["preparing", "reprint", "in_review"])
+    @pytest.mark.parametrize("etapa", ["preparing", "reprint"])
     def test_el_servicio_rechaza_bajo_el_bloqueo(self, db_session, caso, etapa):
         c = caso(listo=etapa != "preparing")
         if etapa == "reprint":
             _reimpresion(db_session, c)
-        elif etapa == "in_review":
-            _subir(db_session, c)
         assert AnexoService.stage(db_session, c.process) == etapa
         antes_doc = _doc(db_session, c)
         antes = ((antes_doc.version, antes_doc.review_status) if antes_doc else None)
@@ -518,6 +613,23 @@ class TestGuardaDeSubida:
         despues = _doc(db_session, c)
         assert ((despues.version, despues.review_status) if despues else None) == antes
         assert _archivos(c.base) == archivos
+
+    def test_en_revision_si_se_reemplaza_y_va_al_final(self, db_session, caso):
+        """Ruling 2026-10-29: reemplazar el escaneo sin dictamen sigue
+        permitido (C6 del v1); `sync_phase` lo manda al final de la cola."""
+        c = caso(listo=True)
+        _subir(db_session, c)
+        assert AnexoService.stage(db_session, c.process) == "in_review"
+        viejo = datetime(2026, 1, 1, 8, 0)
+        _fase(db_session, c).updated_at = viejo
+        db_session.flush()
+
+        _subir(db_session, c)
+
+        assert _doc(db_session, c).version == 2
+        fase = _fase(db_session, c)
+        assert fase.status == "in_review" and fase.updated_at > viejo
+        assert anexo_service.UPLOAD_STAGES == ("ready", "observed", "in_review")
 
     def test_review_focus_1_reimpresion_por_las_dos_rutas(self, db_session, caso, client_as,
                                                           make_role, patched_session_local):
@@ -729,10 +841,20 @@ class TestAvisos:
         AnexoService.notify_reprint(c.process.id)
         (aviso,) = _avisos(db_session, c.coordinator)
         assert aviso.title == "Reimprimir Anexo III"
+        assert aviso.body.startswith("Reimprime el Anexo III de ")
         assert aviso.data["url"] == (
             f"/titulatec/admin/sinodales?tab=anexo&etapa=preparar&selected={c.process.id}")
         assert c.student.control_number in aviso.body
         assert _avisos(db_session, c.head) == []
+
+    def test_liberacion_dice_prepara_el_anexo(self, db_session, caso, patched_session_local):
+        c = caso()
+        AnexoService.notify_release(c.process.id)
+        (aviso,) = _avisos(db_session, c.coordinator)
+        assert aviso.title == "Prepara el Anexo III"
+        assert aviso.body.startswith("Prepara el Anexo III de ")
+        assert c.student.control_number in aviso.body
+        assert aviso.data["url"] == f"/titulatec/admin/sinodales?tab=anexo&selected={c.process.id}"
 
     def test_corte_3_no_avisa(self, db_session, caso, corte, patched_session_local):
         c = caso(listo=True)
@@ -741,3 +863,111 @@ class TestAvisos:
         AnexoService.notify_reprint(c.process.id)
         assert [n for n in _avisos(db_session, c.student) if n.type == "ANEXO_PICKUP"] == []
         assert _avisos(db_session, c.coordinator) == []
+
+
+# ---------------------------------------------------------------------------
+# 8. Textos v2 y una sola duena de la etapa
+# ---------------------------------------------------------------------------
+def test_quien_firma_ya_no_dice_que_el_alumno_gestiona_al_jefe(caso):
+    from itcj2.apps.titulatec.services.review_service import RELEASED_TEXT
+
+    c = caso()
+    tesis = caso(modality_code="thesis")
+    textos = [AnexoService.signers_text(c.process), AnexoService.signers_text(tesis.process),
+              anexo_service.SIGNERS_FALLBACK_TEXT]
+    assert "Presidente" in textos[0] and "4 sinodales" in textos[1]
+    for t in textos:
+        assert "gestiona" not in t and "ya vienen en el original" in t
+    assert "Ya puedes pasar" not in RELEASED_TEXT and "vinculación preparará" in RELEASED_TEXT
+
+
+_COLUMNAS_ENTREGA = {"ready_at", "ready_by_id", "reprint_reason", "reprint_requested_at"}
+
+
+def _decisiones_con_columnas_de_entrega(arbol) -> list[int]:
+    """Lineas donde una columna de entrega se usa para DECIDIR: en la prueba
+    de un if/ternario/while/assert/comprension, como operando de una
+    comparacion o un and/or, dentro de un filter/where/having, o con
+    `.is_()`/`.isnot()` encima. Leerla para pintar u ordenar no cuenta."""
+    import ast
+
+    def _toca(nodo):
+        return any(isinstance(n, ast.Attribute) and n.attr in _COLUMNAS_ENTREGA
+                   for n in ast.walk(nodo))
+
+    lineas = set()
+    for nodo in ast.walk(arbol):
+        pruebas = []
+        if isinstance(nodo, (ast.If, ast.IfExp, ast.While, ast.Assert)):
+            pruebas.append(nodo.test)
+        elif isinstance(nodo, ast.comprehension):
+            pruebas.extend(nodo.ifs)
+        elif isinstance(nodo, (ast.Compare, ast.BoolOp)):
+            pruebas.append(nodo)
+        elif isinstance(nodo, ast.Call) and isinstance(nodo.func, ast.Attribute):
+            if nodo.func.attr in ("filter", "where", "having", "filter_by"):
+                pruebas.extend(nodo.args)
+                pruebas.extend(k.value for k in nodo.keywords)
+            elif (nodo.func.attr in ("is_", "isnot", "is_not", "in_", "between")
+                  and isinstance(nodo.func.value, ast.Attribute)
+                  and nodo.func.value.attr in _COLUMNAS_ENTREGA):
+                pruebas.append(nodo.func.value)
+        for p in pruebas:
+            if _toca(p):
+                lineas.add(p.lineno)
+    return sorted(lineas)
+
+
+def test_nadie_fuera_de_anexo_service_decide_con_las_columnas_de_entrega():
+    """Una sola duena de la etapa (spec §10, globals): fuera de
+    `services/anexo_service.py` (y del modelo/migracion) ningun archivo que
+    trate con el Anexo usa `ready_at`/`ready_by_id`/`reprint_*` para decidir;
+    pide `AnexoService.stage`/`stage_map`/`ready_info`. Molde: el detector de
+    `test_clearance_gate.py`. Solo se revisan los archivos que nombran
+    `Anexo`/`AnexoService` (la biblioteca tiene su propio `ready_at`)."""
+    import ast
+    from pathlib import Path
+
+    import itcj2
+
+    raiz = Path(itcj2.__file__).resolve().parent
+    permitidos = {raiz / "apps/titulatec/services/anexo_service.py",
+                  raiz / "apps/titulatec/models/anexo.py"}
+    archivos = [*(raiz / "apps/titulatec").rglob("*.py"), *(raiz / "cli/titulatec").rglob("*.py")]
+    hallazgos = []
+    for ruta in archivos:
+        if ruta in permitidos:
+            continue
+        texto = ruta.read_text(encoding="utf-8")
+        arbol = ast.parse(texto)
+        nombres = {n.id for n in ast.walk(arbol) if isinstance(n, ast.Name)}
+        nombres |= {a.asname or a.name for n in ast.walk(arbol)
+                    if isinstance(n, ast.ImportFrom) for a in n.names}
+        if not nombres & {"Anexo", "AnexoService"}:
+            continue
+        for linea in _decisiones_con_columnas_de_entrega(arbol):
+            hallazgos.append(f"{ruta.relative_to(raiz.parent).as_posix()}:{linea}")
+    assert not hallazgos, (
+        "deciden con las columnas de entrega fuera de AnexoService "
+        "(usa stage/stage_map/ready_info):\n  " + "\n  ".join(hallazgos))
+
+
+def test_el_detector_de_columnas_de_entrega_si_detecta():
+    import ast
+
+    malos = [
+        "x = 1 if a.ready_at else 2",
+        "if r.reprint_requested_at is not None: pass",
+        "q.filter(Anexo.ready_at.isnot(None))",
+        "ok = r.ready_by_id == 3",
+        "y = [r for r in filas if r.reprint_reason]",
+    ]
+    buenos = [
+        "q.order_by(Anexo.ready_at.asc())",
+        "x = dia(r.ready_at) if etapa == 'ready' else None",
+        "cols = (Anexo.ready_at.label('ready_at'),)",
+    ]
+    for src in malos:
+        assert _decisiones_con_columnas_de_entrega(ast.parse(src)), src
+    for src in buenos:
+        assert not _decisiones_con_columnas_de_entrega(ast.parse(src)), src
