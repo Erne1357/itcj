@@ -130,8 +130,9 @@ class TestPagina:
         db_session.commit()
         assert "AIII-" in client_as(c.student).get(BASE).text
 
-    def test_ayuda_de_formato_sale_de_la_config(self, caso, client_as):
+    def test_ayuda_de_formato_sale_de_la_config(self, caso, client_as, db_session):
         c = caso()
+        _listo(db_session, c)
         max_mb, upload_mb = storage.pdf_limits_mb()
         html = client_as(c.student).get(BASE).text
         assert f"{max_mb} MB" in html and f"{upload_mb} MB" in html
@@ -172,12 +173,6 @@ class TestPagina:
         assert resp.status_code == 302 and resp.headers["location"].startswith(DASH)
         assert _folios(db_session, c) == 0
 
-    def test_la_instruccion_dice_junta_las_firmas(self, caso, client_as):
-        # Revision final, punto 5.
-        html = client_as(caso().student).get(BASE).text
-        assert "Descarga el Anexo III, junta las firmas y súbelo escaneado." in html
-        assert "júntale" not in html
-
     @pytest.mark.parametrize("dano", ["regla_desconocida", "sin_modalidad"])
     def test_sin_regla_de_firma_pinta_texto_neutro(self, caso, client_as, db_session, dano):
         # Revision final, punto 12: `signers_text` sin regla daba 500.
@@ -192,6 +187,62 @@ class TestPagina:
         assert resp.status_code == 200, resp.text[:300]
         assert SIGNERS_FALLBACK_TEXT in resp.text
         assert "Presidente" not in resp.text
+
+
+class TestEtapas:
+    """Fase 6 v2 (spec 2026-10-29 §8.1): un bloque de estado por etapa."""
+
+    def test_preparando_espera_a_vinculacion_sin_subida(self, caso, client_as):
+        html = client_as(caso().student).get(BASE).text
+        assert "Tu jefe de proyecto de vinculación está preparando tu Anexo III" in html
+        assert "Revisa tu nombre, número de control, carrera" in html
+        assert "Ver vista previa" in html and BASE + "/pdf" in html
+        assert 'type="file"' not in html and "Descargar" not in html
+
+    def test_reimpresion_muestra_el_motivo_escapado_y_no_sube(self, caso, client_as, db_session):
+        c = caso()
+        a = AnexoService.ensure_folio(db_session, c.process, c.coordinator.id)
+        a.reprint_requested_at = datetime(2026, 3, 21, 9, 0)
+        a.reprint_reason = "Sello borroso <b>x</b>"
+        db_session.commit()
+        html = client_as(c.student).get(BASE).text
+        assert "Titulación pidió reimprimir tu Anexo III" in html
+        assert "Sello borroso &lt;b&gt;x&lt;/b&gt;" in html and "<b>x</b>" not in html
+        assert "Vinculación lo vuelve a preparar; te avisaremos." in html
+        assert 'type="file"' not in html and "Ver vista previa" in html
+
+    def test_listo_muestra_nota_escapada_pasos_y_subida(self, caso, client_as, db_session):
+        c = caso()
+        _listo(db_session, c)
+        AnexoService.get(db_session, c.process.id).pickup_note = "Edificio K <script>1</script> " + "larga " * 40
+        db_session.commit()
+        html = client_as(c.student).get(BASE).text
+        assert "Tu Anexo III está listo." in html and "Recógelo en:" in html
+        assert "&lt;script&gt;1&lt;/script&gt;" in html and "<script>1</script>" not in html
+        assert "Recoge el Anexo III original" in html and "Escanéalo y súbelo" in html
+        assert 'type="file"' in html and "Ver vista previa" in html
+        assert "Conserva el original" in html
+
+    def test_can_upload_sale_de_upload_stages(self, caso, client_as, db_session, monkeypatch):
+        c = caso()
+        _listo(db_session, c)
+        assert 'type="file"' in client_as(c.student).get(BASE).text
+        monkeypatch.setattr("itcj2.apps.titulatec.services.anexo_service.UPLOAD_STAGES",
+                            ("observed",))
+        assert 'type="file"' not in client_as(c.student).get(BASE).text
+
+    def test_en_revision_y_aprobado_conservan_vista_previa_y_original(self, caso, client_as,
+                                                                     db_session):
+        c = caso()
+        _listo(db_session, c)
+        _subir(client_as(c.student))
+        html = client_as(c.student).get(BASE).text
+        assert "Tu escaneo está en revisión" in html and "Ver vista previa" in html
+        assert "Conserva el original" in html
+        AnexoService.approve(db_session, c.process, c.revisor.id)
+        db_session.commit()
+        html = client_as(c.student).get(BASE).text
+        assert "aprobó tu Anexo III" in html and "Ver vista previa" in html
 
 
 class TestPdf:

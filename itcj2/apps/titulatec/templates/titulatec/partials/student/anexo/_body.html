@@ -1,50 +1,90 @@
 {# ===========================================================================
    _body.html — cuerpo del Anexo III del alumno (`#tt-anexo-body`).
    Se intercambia completo (outerHTML) al subir o quitar el escaneo. Contexto:
-   `anexo` = {state, folio, signers_text, doc, note, can_upload, can_delete,
+   `anexo` = {stage, stage_label, folio, pickup_note, ready_label,
+   reprint_reason, signers_text, doc, note, can_upload, can_delete,
    file_kind_pdf, pdf_max_mb, pdf_upload_mb, pdf_url, upload_url, delete_url,
-   error}. `state`: todo | in_review | observed | approved.
+   error}. `stage` (AnexoService.STAGES): preparing | reprint | ready |
+   in_review | observed | approved. La vista previa (`pdf_url`) va en todas.
    =========================================================================== #}
 {% from "titulatec/_macros.html" import pill %}
+{% set st = anexo.stage %}
 <div id="tt-anexo-body" class="tt-anx-body">
 
-  {# — Estado — #}
+  {# — Estado: quién tiene la pelota y qué sigue — #}
   <section class="tt-card tt-anx-card" aria-label="Estado del Anexo III">
     <div class="tt-anx-head">
       <h2 class="tt-anx-title">Estado</h2>
-      {% if anexo.state == "approved" %}{{ pill("Aprobado", "success", "check-lg") }}
-      {% elif anexo.state == "observed" %}{{ pill("Necesita corrección", "danger", "exclamation-triangle") }}
-      {% elif anexo.state == "in_review" %}{{ pill("En revisión", "amber", "clock") }}
-      {% else %}{{ pill("Por entregar", "neutral", "hourglass-split") }}{% endif %}
+      {% if st == "approved" %}{{ pill(anexo.stage_label, "success", "check-lg") }}
+      {% elif st == "observed" %}{{ pill(anexo.stage_label, "danger", "exclamation-triangle") }}
+      {% elif st == "in_review" %}{{ pill(anexo.stage_label, "amber", "clock") }}
+      {% elif st == "ready" %}{{ pill(anexo.stage_label, "success", "box-seam") }}
+      {% elif st == "reprint" %}{{ pill(anexo.stage_label, "amber", "printer") }}
+      {% else %}{{ pill(anexo.stage_label, "neutral", "hourglass-split") }}{% endif %}
     </div>
-    <p class="tt-anx-text">
-      {% if anexo.state == "approved" %}El Depto. de Titulación aprobó tu Anexo III. Ya puedes seguir con la siguiente fase.
-      {% elif anexo.state == "observed" %}El Depto. de Titulación te pidió una corrección. Revisa el motivo y vuelve a subir el escaneo.
-      {% elif anexo.state == "in_review" %}Tu escaneo está en revisión en el Depto. de Titulación. Mientras no lo dictaminen puedes cambiarlo.
-      {% else %}Descarga el Anexo III, junta las firmas y súbelo escaneado.{% endif %}
-    </p>
-    {% if anexo.state == "observed" and anexo.note %}
+
+    {% if st == "preparing" %}
+      <p class="tt-anx-text">Tu jefe de proyecto de vinculación está preparando tu Anexo III: lo imprime y recaba la firma y el sello del jefe del departamento. Te avisaremos cuando puedas recogerlo.</p>
+    {% elif st == "reprint" %}
+      <p class="tt-anx-text">Titulación pidió reimprimir tu Anexo III:</p>
+      {% if anexo.reprint_reason %}
+      <div class="tt-anx-note" role="note">
+        <div class="tt-kicker"><i class="bi bi-printer"></i> Motivo de la reimpresión</div>
+        <div class="tt-anx-note-text" data-tt-anexo-reprint>{{ anexo.reprint_reason }}</div>
+      </div>
+      {% endif %}
+      <p class="tt-anx-text">Vinculación lo vuelve a preparar; te avisaremos.</p>
+    {% elif st == "ready" %}
+      <p class="tt-anx-text"><strong>Tu Anexo III está listo.</strong> Recógelo en:</p>
+      <div class="tt-anx-pickup" role="note">
+        <div class="tt-anx-pickup-text" data-tt-anexo-pickup>{{ anexo.pickup_note or "Pregunta en vinculación." }}</div>
+        {% if anexo.ready_label %}<div class="tt-anx-pickup-meta">Aviso del {{ anexo.ready_label }}</div>{% endif %}
+      </div>
+    {% elif st == "in_review" %}
+      <p class="tt-anx-text">Tu escaneo está en revisión en el Depto. de Titulación. Mientras no lo dictaminen puedes cambiarlo.</p>
+    {% elif st == "observed" %}
+      <p class="tt-anx-text">El Depto. de Titulación te pidió una corrección. Revisa el motivo y vuelve a subir el escaneo.</p>
+      {% if anexo.note %}
       <div class="tt-anx-note" role="note">
         <div class="tt-kicker"><i class="bi bi-exclamation-triangle"></i> Motivo de la observación</div>
         <div class="tt-anx-note-text">{{ anexo.note }}</div>
       </div>
+      {% endif %}
+    {% elif st == "approved" %}
+      <p class="tt-anx-text">El Depto. de Titulación aprobó tu Anexo III. Ya puedes seguir con la siguiente fase.</p>
+    {% endif %}
+
+    {% if st in ("ready", "observed") %}
+      <p class="tt-anx-turn"><i class="bi bi-person-fill"></i> Te toca a ti</p>
+    {% elif st in ("preparing", "reprint") %}
+      <p class="tt-anx-turn"><i class="bi bi-hourglass-split"></i> Le toca a vinculación; no tienes que hacer nada por ahora.</p>
+    {% elif st == "in_review" %}
+      <p class="tt-anx-turn"><i class="bi bi-hourglass-split"></i> Le toca al Depto. de Titulación.</p>
     {% endif %}
     {% if anexo.folio %}<div class="tt-anx-folio">Folio <span class="tt-mono">{{ anexo.folio }}</span></div>{% endif %}
   </section>
 
-  {# — Descarga y firmas — #}
-  <section class="tt-card tt-anx-card" aria-label="Descarga y firmas">
-    <h2 class="tt-anx-title">1. Descarga y firmas</h2>
-    <p class="tt-anx-text">{{ anexo.signers_text }}</p>
-    <a class="btn tt-btn-ink tt-anx-download" href="{{ anexo.pdf_url }}" target="_blank" rel="noopener"
-       data-tt-anexo-download>
-      <i class="bi bi-download"></i> Descargar Anexo III
-    </a>
+  {# — Pasos y quién firma — #}
+  {% if st == "ready" %}
+  <section class="tt-card tt-anx-card" aria-label="Pasos">
+    <h2 class="tt-anx-title">Qué sigue</h2>
+    <ol class="tt-anx-steps">
+      <li>Recoge el Anexo III original en el lugar indicado.</li>
+      <li>Reúne las firmas en esa misma hoja. {{ anexo.signers_text }}</li>
+      <li>Escanéalo y súbelo aquí abajo.</li>
+    </ol>
   </section>
+  {% elif st in ("preparing", "reprint") %}
+  <section class="tt-card tt-anx-card" aria-label="Quién firma">
+    <h2 class="tt-anx-title">Quién firma</h2>
+    <p class="tt-anx-text">{{ anexo.signers_text }}</p>
+  </section>
+  {% endif %}
 
   {# — Escaneo — #}
+  {% if st in ("ready", "in_review", "observed", "approved") or anexo.doc %}
   <section class="tt-card tt-anx-card" aria-label="Escaneo firmado">
-    <h2 class="tt-anx-title">2. Escaneo firmado</h2>
+    <h2 class="tt-anx-title">Escaneo firmado</h2>
 
     {% if anexo.doc %}
       <div class="tt-doc tt-anx-doc">
@@ -69,7 +109,7 @@
             hx-disabled-elt="find input">
         <i class="bi {{ 'bi-arrow-repeat' if anexo.doc else 'bi-upload' }} tt-anx-drop-ico"></i>
         <div class="fw-semibold tt-anx-drop-title">
-          {% if anexo.state == "observed" %}Subir escaneo corregido
+          {% if st == "observed" %}Subir escaneo corregido
           {% elif anexo.doc %}Cambiar escaneo
           {% else %}Tocar para subir{% endif %}
         </div>
@@ -80,7 +120,7 @@
                accept="{{ '.pdf' if anexo.file_kind_pdf else 'image/*' }}">
         <label for="file-anexo_iii" class="stretched-link tt-anx-drop-label"><span class="visually-hidden">Elegir archivo</span></label>
       </form>
-    {% elif anexo.state == "approved" %}
+    {% elif st == "approved" %}
       <p class="tt-anx-text">El escaneo ya fue aprobado; no se puede cambiar.</p>
     {% elif not anexo.doc %}
       <p class="tt-anx-text">Por ahora no puedes subir el escaneo.</p>
@@ -88,6 +128,23 @@
 
     {% if anexo.error %}
       <div class="tt-anx-error" role="alert"><i class="bi bi-exclamation-triangle"></i> {{ anexo.error }}</div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {# — Vista previa: siempre a mano, secundaria — #}
+  <section class="tt-card tt-anx-card" aria-label="Vista previa">
+    <h2 class="tt-anx-title">Vista previa</h2>
+    <p class="tt-anx-text">
+      {% if st == "preparing" %}Revisa tu nombre, número de control, carrera, título del proyecto y sinodales; si algo está mal, avísale a vinculación antes de que lo firmen.
+      {% else %}Una copia con marca de agua, solo para consultar tus datos. No tiene validez ni se firma.{% endif %}
+    </p>
+    <a class="btn tt-btn-ghost tt-anx-download" href="{{ anexo.pdf_url }}" target="_blank" rel="noopener"
+       data-tt-anexo-preview>
+      <i class="bi bi-eye"></i> Ver vista previa
+    </a>
+    {% if st in ("ready", "in_review", "observed", "approved") %}
+    <p class="tt-anx-text tt-anx-keep"><i class="bi bi-info-circle"></i> Conserva el original: lo entregarás en el cotejo de tu expediente.</p>
     {% endif %}
   </section>
 </div>

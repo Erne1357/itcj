@@ -109,19 +109,24 @@ _PHASE_INFO = {
         "who": "Tus sinodales revisan y votan; tú corriges hasta que liberen tu trabajo.",
     },
     "anexo_iii": {
-        "desc": "Ya que liberan tu trabajo, descargas e imprimes el Anexo III (el departamento "
-                "académico también puede imprimirlo), juntas las firmas y lo subes "
-                "escaneado. El Depto. de Titulación lo revisa.",
+        "desc": "Tu jefe de proyecto de vinculación prepara e imprime tu Anexo III y recaba la "
+                "firma y el sello del jefe del departamento. Cuando esté listo te avisamos: lo "
+                "recoges, juntas las firmas de tus sinodales y lo subes escaneado. El Depto. "
+                "de Titulación lo revisa.",
         "needs": [
-            "Descargar el Anexo III desde la app.",
-            "Las firmas: la del jefe del departamento académico (la gestiona tu jefe de "
-            "proyecto de vinculación) y, por residencias, solo la del presidente; en tesis "
-            "y proyecto de investigación, la de todos los sinodales.",
+            "Revisar la vista previa del Anexo III (nombre, número de control, carrera, título "
+            "del proyecto y sinodales) y avisar a vinculación si algo está mal.",
+            "Recoger el original cuando te avisemos, en el lugar y horario que indique "
+            "vinculación.",
+            "Las firmas de tus sinodales en esa misma hoja: por residencias, solo la del "
+            "presidente; en tesis y proyecto de investigación, la de todos los sinodales.",
             "Escanearlo y subirlo en PDF de hasta {pdf_max_mb} MB (si pesa más, hasta "
-            "{pdf_upload_mb} MB, lo comprimimos automáticamente).",
+            "{pdf_upload_mb} MB, lo comprimimos automáticamente). Conserva el original: lo "
+            "entregarás en el cotejo de tu expediente.",
         ],
-        "who": "Tú descargas el documento y consigues las firmas; el Depto. de Titulación "
-               "revisa el escaneo y aprueba la fase.",
+        "who": "Vinculación prepara y firma el documento con el jefe del departamento; tú lo "
+               "recoges y juntas las firmas; el Depto. de Titulación revisa el escaneo y "
+               "aprueba la fase.",
     },
     "final_docs": {
         "desc": "Entregas los documentos que cierran tu expediente y pasas a la primera "
@@ -231,7 +236,7 @@ _PHASE_CTA = {
     "synodal_review":     ("/titulatec/student/revision", "Abrir la conversación", "chat-square-text"),
     # Fase 6 (2026-10-22): Anexo III. Inerte con el corte en 3 (`_cta_for` apaga todo
     # lo que cae en `handoff`).
-    "anexo_iii":          ("/titulatec/student/anexo", "Abrir mi Anexo III", "file-earmark-check"),
+    "anexo_iii":          ("/titulatec/student/anexo", "Ver mi Anexo III", "file-earmark-check"),
 }
 
 # Quién es responsable de la fase (para fases que el alumno no acciona).
@@ -3033,7 +3038,7 @@ def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
     """Contexto (tipos planos: la plantilla se pinta después del `db.close()`)."""
     from itcj2.apps.titulatec.models import Document, DocumentType, ProcessPhase
     from itcj2.apps.titulatec.services.anexo_service import (
-        SIGNERS_FALLBACK_TEXT, AnexoService,
+        SIGNERS_FALLBACK_TEXT, STAGE_LABELS, UPLOAD_STAGES, AnexoService,
     )
     from itcj2.apps.titulatec.services.document_service import DocumentService
     from itcj2.apps.titulatec.services.phase_service import PhaseService
@@ -3051,19 +3056,10 @@ def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
             if n6 is not None else None)
     doc = db.query(Document).filter_by(process_id=process.id, type_code=_ANEXO_DOC).first()
     dtype = db.query(DocumentType).filter_by(code=_ANEXO_DOC, is_active=True).first()
-    anexo = AnexoService.get(db, process.id)
+    entrega = AnexoService.ready_info(db, process) or {}
     can_act = bool(PhaseService.can_student_act(db, process, n6)) if n6 is not None else False
-
-    aprobado = (doc is not None and doc.review_status == "approved") or (
-        fase is not None and fase.status == "approved")
-    if aprobado:
-        state = "approved"
-    elif doc is not None and doc.review_status == "rejected":
-        state = "observed"
-    elif doc is not None:
-        state = "in_review"
-    else:
-        state = "todo"
+    # La etapa la decide solo `AnexoService.stage`; aquí no se re-deriva.
+    stage = AnexoService.stage(db, process)
 
     sent_at = None
     if doc is not None:
@@ -3071,8 +3067,12 @@ def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
                    .get((process.id, _ANEXO_DOC)) or doc.created_at)
     max_mb, upload_mb = pdf_limits_mb()
     return {
-        "state": state,
-        "folio": anexo.folio if anexo else None,
+        "stage": stage,
+        "stage_label": STAGE_LABELS.get(stage, ""),
+        "folio": entrega.get("folio"),
+        "pickup_note": entrega.get("pickup_note"),
+        "ready_label": entrega.get("ready_label"),
+        "reprint_reason": entrega.get("reprint_reason"),
         "signers_text": firmas,
         "doc": ({
             "original_name": doc.original_name,
@@ -3083,8 +3083,8 @@ def _anexo_ctx(db, process, *, error: str | None = None) -> dict:
         } if doc is not None else None),
         "note": ((doc.review_note if doc is not None else None)
                  or (fase.rejection_reason if fase is not None else None)),
-        "can_upload": can_act and state in ("todo", "in_review", "observed"),
-        "can_delete": bool(can_act and state == "in_review"
+        "can_upload": bool(can_act and stage in UPLOAD_STAGES),
+        "can_delete": bool(can_act and stage == "in_review"
                            and doc is not None and doc.review_status == "pending"),
         "file_kind_pdf": dtype is None or dtype.file_kind == "pdf",
         "pdf_max_mb": max_mb,
