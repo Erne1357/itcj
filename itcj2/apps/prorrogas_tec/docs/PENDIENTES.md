@@ -14,7 +14,7 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | # | Pendiente | Por qué importa | Qué hacer |
 |---|---|---|---|
 | H1 | Revisar a ojo las 6 cartas generadas (Plan 1, Task 5, Step 6) | No hubo forma de ver los PDF desde la sesión. Lo más delicado: la firma del estudiante sobre su nombre no debe desalinear la columna del Director en las cartas compromiso | Abrir `instance/tmp/preview/ejemplo-*.pdf` (llenas con datos de ejemplo). Si algo se ve mal, corregir el `.docx` en `documents/defaults/` con Word |
-| H2 | Conectar el buzón `agendatec@cdjuarez.tecnm.mx` para la app **Prórrogas** | Sin eso, las invitaciones y decisiones del Plan 2 solo avisan dentro de la plataforma | `/itcj/config/email` → app Prórrogas → iniciar sesión con la cuenta (OAuth) |
+| H2 | Conectar el buzón `agendatec@cdjuarez.tecnm.mx` para la app **Prórrogas** | Sin eso, una invitación manual no le llega a nadie: no tiene aviso en la plataforma (la pantalla avisa que el correo no salió). Solo las decisiones dejan además un aviso en la plataforma | `/itcj/config/email` → app Prórrogas → iniciar sesión con la cuenta (OAuth) |
 | H3 | Confirmar las decisiones del Plan 2 | Cambian cómo entra el estudiante | Ver "Decisiones de este plan" en `docs/superpowers/plans/2026-10-29-prorrogas-plan2-invitacion-solicitud-decision.md` |
 
 ## Técnicos (diferidos de la revisión final del Plan 1, 2026-10-29)
@@ -36,7 +36,7 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 |---|---|---|
 | F1 | **[hecho 2026-10-29, Plan 2 Task 1]** La vista de admin vieja (`/prorrogas/admin/*`, copia de AgendaTec) sigue abriéndose si alguien escribe la URL | Desde `f24ba11` nadie aterriza ahí; el Plan 2 la elimina con el resto del código del fork (puntos 1–7 de abajo) |
 | F2 | **[hecho 2026-10-29, Plan 2 Task 1]** Prueba roja preexistente `tests/fastapi/observability/test_json_logging.py::test_no_app_log_extra_uses_a_context_id_key` | La causa es `services/request_service.py` del fork (`extra={"request_id": …}`); desaparece al borrarlo |
-| F3 | **[hecho 2026-10-29, Plan 2 Task 1]** Los 12 permisos viejos del fork (`01`/`02` del DML) | Task 1 retiró el código que los pedía; los permisos se quedan en `01`/`02` del DML, sin uso y sin efecto (ningún guard los consulta) |
+| F3 | Los 12 permisos viejos del fork (`01`/`02` del DML) | Decidido: se dejan los códigos viejos (Task 1 retiró el código que los pedía). Pero `02` sí tiene efecto: en cada `init-prorrogas` da al rol `admin` todos los permisos de la app, así que con `05` el admin de la app también recibe `student.page.view` y `requests.api.create.own`. Pendiente para ti: limitar `02` a sus códigos o retirarlo (DML no versionado) |
 
 ## Solo de desarrollo
 

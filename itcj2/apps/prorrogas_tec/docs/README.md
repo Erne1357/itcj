@@ -30,32 +30,41 @@ cambies uno sin el otro.
 ## Mapa de piezas
 
 ```
-apps/prorrogas_tec/
-├── router.py                 API: /api/prorrogas/v2 (periods, request, request2, programs, templates)
-├── helpers.py                require_admission_open()
-├── models/                   tablas prorrogas_* (incl. template.py → prorrogas_templates)
-├── schemas/                  Pydantic v2 (periods, requests, payments)
-├── services/
-│   ├── period_service.py     ventana de admisión + config por período
-│   ├── request_service.py    lectura de solicitudes
-│   ├── formatting.py         fechas, montos y nombres como en las cartas reales
-│   ├── docx_fill.py          llena marcadores {{x}} en .docx (aunque Word los parta)
-│   └── template_service.py   plantillas por año: subir, validar, resolver cuál usar
-├── documents/
-│   ├── catalog.py            los 6 formatos y sus marcadores (spec §6.2)
-│   └── defaults/             plantillas del sistema (tools/prorrogas/build_default_templates.py)
+itcj2/apps/prorrogas_tec/
+├── router.py                   API: /api/prorrogas/v2 (programs, templates, invitaciones, estudiante, solicitudes)
 ├── api/
-│   ├── periods.py            admin · CRUD de la ventana de admisión
-│   ├── requests.py           admin · solicitudes y pagos
-│   ├── programs.py           catálogo de carreras
-│   ├── templates.py          secretaría · plantillas (listar, subir, descargar, vista previa)
-│   ├── student/requests.py   alumno · mine / create / cancel
-│   └── admin/request.py      ⚠ NO montado — ver PENDIENTES
-├── pages/                    /prorrogas · landing, student, admin, secretaria (4 pestañas)
-├── static/                   servido por nginx en /static/prorrogas_tec/
-├── docs/flows/               secretaria_documentos · secretaria_solicitudes · estudiante_solicitud
-│                         (UI → endpoint → service → BD de cada flujo)
-└── templates/prorrogas_tec/
+│   ├── _common.py              ServiceError → {"error", "message", …} en la raíz del JSON
+│   ├── invitations.py          secretaría · QR, búsqueda por número de control, invitación manual, resumen del día
+│   ├── programs.py             catálogo de carreras
+│   ├── requests_admin.py       secretaría · pendientes, sus PDF y la decisión
+│   ├── student.py              estudiante · estado, solicitar, cancelar, bajar sus PDF
+│   └── templates.py            secretaría · plantillas (listar, subir, descargar, vista previa)
+├── models/                     prorrogas_requests · _documents · _signatures · _templates · _events · _invitations · _joins
+├── services/
+│   ├── invitation_service.py   QR, invitación manual, unión y NIP inicial
+│   ├── request_service.py      puerta de acceso, crear, cancelar y decidir solicitudes
+│   ├── document_service.py     genera, versiona y guarda los PDF de una solicitud
+│   ├── template_service.py     plantillas por año: subir, validar, resolver cuál usar
+│   ├── docx_fill.py            llena marcadores {{x}} en .docx (aunque Word los parta)
+│   ├── signature.py            firma PNG del estudiante, validada antes de estamparla
+│   ├── notify.py               correo por Graph y aviso en la plataforma (nunca lanza)
+│   ├── identity.py             número de control, correo institucional y folio
+│   ├── periods.py              semestre (core_academic_periods) de un día
+│   ├── formatting.py           fechas, montos y nombres como en las cartas reales
+│   ├── storage.py              archivos (plantillas, PDF, firmas) bajo PRORROGAS_UPLOAD_PATH
+│   ├── events.py               bitácora (prorrogas_events)
+│   └── errors.py               ServiceError
+├── documents/
+│   ├── catalog.py              los 6 formatos y sus marcadores (spec §6.2)
+│   ├── values.py               valores con que se llena cada formato
+│   └── defaults/               plantillas del sistema (tools/prorrogas/build_default_templates.py)
+├── pages/                      /prorrogas · router, landing, join (unirse y Crea tu NIP), secretaria, student
+├── templates/prorrogas_tec/    email/ · estudiante/ · secretaria/
+├── static/                     servido por nginx en /static/prorrogas_tec/ (css/, js/, images/)
+└── docs/
+    ├── README.md · PENDIENTES.md
+    └── flows/                  secretaria_documentos · secretaria_solicitudes · estudiante_solicitud
+                                (UI → endpoint → service → BD de cada flujo)
 ```
 
 ### Modelo de datos
