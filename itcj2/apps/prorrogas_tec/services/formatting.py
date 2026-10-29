@@ -6,8 +6,9 @@ fecha corta ``13/enero/2026``, fecha larga ``26 de febrero de 2026``, montos
 """
 from __future__ import annotations
 
+import re
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from .errors import ServiceError
 
@@ -17,6 +18,7 @@ MESES: tuple[str, ...] = (
 )
 
 MAX_PAGOS = 3
+MONTO_MAX = Decimal("99999999.99")  # tope de Numeric(10,2)
 
 
 def fecha_corta(d: date) -> str:
@@ -35,16 +37,13 @@ def pesos(amount: Decimal) -> str:
 
 
 def parse_monto(raw) -> Decimal:
-    """Monto positivo con a lo más 2 decimales, de número o cadena; si no, ``monto_invalido``."""
-    try:
-        if isinstance(raw, bool) or raw is None:
-            raise InvalidOperation
-        d = Decimal(str(raw))
-        if not d.is_finite() or d <= 0 or d.as_tuple().exponent < -2:
-            raise InvalidOperation
-    except InvalidOperation:
+    """Monto positivo de a lo más 99,999,999.99 con 1 o 2 decimales como máximo; si no, ``monto_invalido``."""
+    s = None if isinstance(raw, bool) or raw is None else str(raw).strip()
+    # solo dígitos ASCII: sin exponente, signo, comas ni infinitos
+    d = Decimal(s) if s and re.fullmatch(r"[0-9]+(\.[0-9]{1,2})?", s) else None
+    if d is None or d <= 0 or d > MONTO_MAX:
         raise ServiceError("monto_invalido", "El monto debe ser mayor a cero y tener a lo más 2 decimales.",
-                           status=400) from None
+                           status=400)
     return d.quantize(Decimal("0.01"))
 
 
