@@ -405,7 +405,9 @@ Respuestas del usuario y las reglas que se siguen de ellas. Completan §4 pasos 
      ("Estudiantes con al menos una parcialidad vencida y no cubierta al {fecha}") y el total de estudiantes.
    - Columnas: No. de control, Nombre, Carrera, Correo, Folio de la prórroga, Monto total, Pagado, Saldo,
      Parcialidades vencidas, Vencida desde (la fecha más vieja sin cubrir). Encabezados congelados y con filtro.
-   - Cada exportación pone `block_exported_at` (solo si estaba vacío) a las solicitudes incluidas y registra el evento.
+   - Cada exportación pone `block_exported_at` a las solicitudes incluidas y registra el evento. Se pone solo si estaba
+     vacío, **o se reinicia (y se limpia `unblock_notified_at`) si la solicitud ya tenía avisado su desbloqueo**: así,
+     un estudiante bloqueado de nuevo recibe otro aviso de desbloqueo.
 2. **Avisar desbloqueo:** aparece cuando la solicitud tiene `block_exported_at`, su situación es `liquidada` y
    `unblock_notified_at` está vacío. Marcarlo solo registra la fecha (la secretaria avisa a Centro de Cómputo como hoy).
 3. **Replantear = solo lo que falta.**

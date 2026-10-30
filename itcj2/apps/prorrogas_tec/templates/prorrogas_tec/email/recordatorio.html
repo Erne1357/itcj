@@ -1,6 +1,10 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
 {% block cuerpo %}
 <p>Te recordamos que tu prórroga <strong>{{ folio }}</strong> tiene un saldo pendiente de <strong>{{ saldo }}</strong>.</p>
+{% if vencido %}
+<p>Tienes un pago vencido desde el {{ proxima_fecha }} por {{ proxima_monto }}.</p>
+{% else %}
 <p>Tu próximo pago es el {{ proxima_fecha }} por {{ proxima_monto }}.</p>
+{% endif %}
 {% endblock %}
 {% block boton %}Ir a Mi prórroga{% endblock %}

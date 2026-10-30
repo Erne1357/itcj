@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from io import BytesIO
 
 import pytest
@@ -67,3 +68,56 @@ def test_api_exportar(client_as, secretaria, estudiante, periodo):
     assert r.status_code == 200 and r.content[:2] == b"PK" and "attachment" in r.headers["content-disposition"]
     assert client_as(estudiante).post("/api/prorrogas/v2/estudiantes/adeudos.xlsx",
                                       json={"period_id": periodo.id}).status_code == 403
+
+
+def test_reexportar_tras_avisar_desbloqueo_reinicia_el_ciclo(db_session, aceptada, secretaria, con_plan, periodo):  # I1
+    from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
+    from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
+
+    def pagar(folio):
+        return PaymentService.record(db_session, aceptada.id, secretaria.id, folio=folio,
+                                     paid_on=aceptada.created_at.date(), amount=Decimal("1000"),
+                                     now=aceptada.created_at)
+
+    con_plan(aceptada, [("1000.00", date(2020, 1, 1))])
+    StudentsService.export_adeudos(db_session, periodo.id, secretaria.id, now=AHORA)
+    pago = pagar(f"I1-{aceptada.id}-a")
+    StudentsService.mark_unblock(db_session, aceptada.id, secretaria.id, now=AHORA)
+    PaymentService.void(db_session, pago.id, secretaria.id, motivo="Recibo de otro alumno", now=AHORA)
+    segunda = AHORA + timedelta(days=3)
+    StudentsService.export_adeudos(db_session, periodo.id, secretaria.id, now=segunda)
+    db_session.refresh(aceptada)
+    assert aceptada.unblock_notified_at is None and aceptada.block_exported_at == segunda
+    ev = (db_session.query(ProrrogaEvent).filter_by(event_type="lista_bloqueo_exportada")
+          .order_by(ProrrogaEvent.id.desc()).first())
+    assert ev.payload["solicitudes"] == [aceptada.id] and ev.payload["estudiantes"] == 1
+    pagar(f"I1-{aceptada.id}-b")
+    assert StudentsService.expediente(db_session, aceptada.id, segunda.date())["bloqueo"]["avisar_desbloqueo"] is True
+
+
+def test_excel_no_convierte_texto_en_formula(db_session, aceptada, secretaria, con_plan, periodo):  # T7
+    aceptada.student_name = "=1+1"
+    con_plan(aceptada, [("1000.00", date(2020, 1, 1))])
+    data, _ = StudentsService.export_adeudos(db_session, periodo.id, secretaria.id, now=AHORA)
+    ws = load_workbook(BytesIO(data)).active
+    fila = next(r for r in ws.iter_rows(min_row=8) if r[0].value == aceptada.control_number)
+    assert fila[1].value == "=1+1" and fila[1].data_type == "s"
+
+
+def test_recordatorio_dice_si_el_pago_ya_vencio(db_session, aceptada, make_aceptada, secretaria, con_plan,
+                                                enviar_correo):  # M9
+    from itcj2.core.models.notification import Notification
+    from itcj2.templates import templates
+
+    con_plan(aceptada, [("1000.00", date(2020, 1, 1))])
+    al_dia = con_plan(make_aceptada(), [("500.00", date(2091, 5, 1))])
+    for req in (aceptada, al_dia):
+        StudentsService.remind(db_session, req.id, secretaria.id, now=AHORA)
+    cuerpos = [db_session.query(Notification).filter_by(user_id=r.student_id, type="prorroga_recordatorio").one().body
+               for r in (aceptada, al_dia)]
+    assert cuerpos == ["Saldo $1,000.00. Tienes un pago vencido desde el 01 de enero de 2020 por $1,000.00.",
+                       "Saldo $500.00. Próximo pago: 01 de mayo de 2091 por $500.00."]
+    plantilla = templates.env.get_template("prorrogas_tec/email/recordatorio.html")
+    vencido, proximo = (plantilla.render(**c["context"]) for c in enviar_correo.calls)
+    assert "pago vencido desde el 01 de enero de 2020 por $1,000.00" in vencido and "próximo pago" not in vencido
+    assert "Tu próximo pago es el 01 de mayo de 2091 por $500.00" in proximo and "vencido" not in proximo

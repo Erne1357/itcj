@@ -164,7 +164,7 @@ class StudentsService:
                 raise ServiceError("ya_recordado", "Ya se le recordó en las últimas 24 horas.", status=409,
                                    siguiente=(req.last_reminded_at + _ENTRE_RECORDATORIOS).isoformat())
             p = c.proxima
-            fecha, monto = fecha_larga(p.due_date), pesos(p.amount - p.cubierto)
+            fecha, monto, vencido = fecha_larga(p.due_date), pesos(p.amount - p.cubierto), p.due_date < today
             req.last_reminded_at = ts
             log_event(db, event_type="recordatorio_enviado", request_id=req.id, actor_id=actor_id,
                       payload={"saldo": account.money(c.saldo)})
@@ -173,9 +173,11 @@ class StudentsService:
             db.rollback()
             raise
         db.refresh(req)
-        notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante",
-                              body=f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.",
-                              context={"saldo": pesos(c.saldo), "proxima_fecha": fecha, "proxima_monto": monto})
+        body = (f"Saldo {pesos(c.saldo)}. Tienes un pago vencido desde el {fecha} por {monto}." if vencido
+                else f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.")
+        notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante", body=body,
+                              context={"saldo": pesos(c.saldo), "proxima_fecha": fecha, "proxima_monto": monto,
+                                       "vencido": vencido})
         try:
             db.commit()
         except Exception:
@@ -211,17 +213,22 @@ class StudentsService:
             ws.append([r.control_number, r.student_name, r.program_name, r.email, folio(r.id), c.total, c.pagado,
                        c.saldo, sum(1 for p in c.parcialidades if p.estado == "vencida"), c.vencida_desde])
             fila = ws.max_row
+            for col in range(1, 6):  # texto: openpyxl haría fórmula de un nombre que empiece con "="
+                celda = ws.cell(row=fila, column=col)
+                if isinstance(celda.value, str):
+                    celda.data_type = "s"
             for col in (6, 7, 8):
                 ws.cell(row=fila, column=col).number_format = _DINERO
             ws.cell(row=fila, column=10).number_format = "DD/MM/YYYY"
-            if r.block_exported_at is None:
-                r.block_exported_at = ts
+            # Se conserva la primera exportación; si ya se avisó su desbloqueo, empieza un ciclo nuevo.
+            if r.block_exported_at is None or r.unblock_notified_at is not None:
+                r.block_exported_at, r.unblock_notified_at = ts, None
         if not filas:
             ws.append(["Sin estudiantes con adeudo"])
         ws.freeze_panes = "A8"
         ws.auto_filter.ref = f"A7:J{max(ws.max_row, 8)}"
         log_event(db, event_type="lista_bloqueo_exportada", request_id=None, actor_id=actor_id,
-                  payload={"period_id": period_id, "estudiantes": len(filas)})
+                  payload={"period_id": period_id, "estudiantes": len(filas), "solicitudes": [r.id for r, _ in filas]})
         try:
             db.commit()
         except Exception:
