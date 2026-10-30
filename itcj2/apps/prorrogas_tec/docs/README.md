@@ -31,13 +31,14 @@ cambies uno sin el otro.
 
 ```
 itcj2/apps/prorrogas_tec/
-├── router.py                   API: /api/prorrogas/v2 (programs, templates, invitaciones, estudiante, solicitudes)
+├── router.py                   API: /api/prorrogas/v2 (programs, templates, invitaciones, estudiante, solicitudes, estadísticas)
 ├── api/
 │   ├── _common.py              ServiceError → {"error", "message", …} en la raíz del JSON
 │   ├── invitations.py          secretaría · QR, búsqueda por número de control, invitación manual, resumen del día
 │   ├── programs.py             catálogo de carreras
 │   ├── requests_admin.py       secretaría · pendientes, sus PDF y la decisión
 │   ├── student.py              estudiante · estado (plan y recibos), solicitar, cancelar, bajar sus PDF, firmar la carta
+│   ├── stats.py                secretaría · Estadísticas: semestres, resumen y detalle.csv
 │   ├── students_admin.py       secretaría · Estudiantes: lista, expediente, plan, recibos, recordar, adeudos.xlsx, desbloqueo
 │   └── templates.py            secretaría · plantillas (listar, subir, descargar, vista previa)
 ├── models/                     prorrogas_requests · _documents · _signatures · _templates · _events · _invitations · _joins
@@ -46,6 +47,7 @@ itcj2/apps/prorrogas_tec/
 │   ├── invitation_service.py   QR, invitación manual, unión y NIP inicial
 │   ├── request_service.py      puerta de acceso, crear, cancelar y decidir solicitudes
 │   ├── account.py              cuenta de una solicitud: pagado, saldo, estado de parcialidades y situación
+│   ├── stats_service.py        estadísticas por semestre: aceptación, línea de tiempo y cumplimiento (cobertura FIFO)
 │   ├── students_service.py     lista, expediente, recordar, adeudos.xlsx y aviso de desbloqueo
 │   ├── plan_service.py         confirmar y replantear el plan de pagos (genera la carta compromiso)
 │   ├── payment_service.py      registrar y anular recibos de Caja
@@ -60,6 +62,12 @@ itcj2/apps/prorrogas_tec/
 │   ├── storage.py              archivos (plantillas, PDF, firmas) bajo PRORROGAS_UPLOAD_PATH
 │   ├── events.py               bitácora (prorrogas_events)
 │   └── errors.py               ServiceError
+├── importacion/                histórico del Excel en dos pasos (§17): limpiar y luego importar
+│   ├── normaliza.py            fechas, importes, banderas y números de control del Excel
+│   ├── carreras.py             equivalencias de carrera → nombre oficial de core_programs
+│   ├── hojas.py                lectores de las 6 hojas conocidas (mensual, celda, importe único)
+│   ├── limpio.py               escribe y lee el archivo limpio (Parcialidades y Revisar)
+│   └── importador.py           crea las solicitudes origin='excel' (idempotente por ref, --dry-run)
 ├── documents/
 │   ├── catalog.py              los 6 formatos y sus marcadores (spec §6.2)
 │   ├── values.py               valores con que se llena cada formato
@@ -67,10 +75,10 @@ itcj2/apps/prorrogas_tec/
 ├── pages/                      /prorrogas · router, landing, join (unirse y Crea tu NIP), secretaria, student
 ├── templates/prorrogas_tec/    email/ (invitacion, decision_*, carta_lista, recordatorio) · estudiante/ · secretaria/
 ├── static/                     servido por nginx en /static/prorrogas_tec/ (css/, js/, images/)
-│                               js/secretaria/estudiantes.js · js/estudiante/firma.js (lienzo compartido)
+│                               js/secretaria/estudiantes.js · js/secretaria/estadisticas.js · js/estudiante/firma.js (lienzo compartido)
 └── docs/
     ├── README.md · PENDIENTES.md
-    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · estudiante_solicitud
+    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · secretaria_estadisticas · historico_excel · estudiante_solicitud
                                 (UI → endpoint → service → BD de cada flujo)
 ```
 
