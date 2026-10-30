@@ -4,7 +4,7 @@ from decimal import Decimal as D
 import pytest
 
 from itcj2.apps.prorrogas_tec.importacion.normaliza import (
-    NoInterpretable, mapear_carrera, parse_bandera, parse_control, parse_fechas, parse_importes,
+    NoInterpretable, mapear_carrera, normalizar, parse_bandera, parse_control, parse_fechas, parse_importes,
 )
 
 
@@ -59,3 +59,75 @@ def test_carrera_sin_equivalencia_es_problema():  # Review Focus 3
     with pytest.raises(NoInterpretable) as e:
         mapear_carrera("Ingeniería Espacial")
     assert e.value.motivo == "carrera sin equivalencia"
+
+
+@pytest.mark.parametrize("raw", ["1.5", "1,5", "12.5", "1,", "1,55,000", "$", "0", "12345678901"])
+def test_importes_ilegibles(raw):
+    with pytest.raises(NoInterpretable) as e:
+        parse_importes(raw)
+    assert e.value.motivo == "importe ilegible"
+
+
+@pytest.mark.parametrize("raw, esperado", [
+    ("1,500", [D("1500.00")]), ("1.550,00", [D("1550.00")]), ("$3,.000.00", [D("3000.00")]),
+    ("$999.99             $9,999.99", [D("999.99"), D("9999.99")]),
+])
+def test_importes_validos(raw, esperado):
+    assert parse_importes(raw) == esperado
+
+
+@pytest.mark.parametrize("raw, anio", [("29 de febrero", 2025), ("32/01/2025", 2025), ("1/1/202", 2025),
+                                       ("1/1/1999", 2025)])
+def test_fechas_ilegibles(raw, anio):
+    with pytest.raises(NoInterpretable) as e:
+        parse_fechas(raw, anio=anio)
+    assert e.value.motivo == "fecha ilegible"
+
+
+def test_banderas_con_espacios():
+    assert parse_bandera("1 ") is True and parse_bandera(" ") is True
+
+
+@pytest.mark.parametrize("raw", [float("nan"), float("inf"), 22111234.5])
+def test_control_float_invalido(raw):
+    with pytest.raises(NoInterpretable) as e:
+        parse_control(raw)
+    assert e.value.motivo == "número de control inválido"
+
+
+def test_apostrofos():
+    assert normalizar("TIC´S") == normalizar("TIC'S") == normalizar("TIC’S")
+    assert mapear_carrera("Ingeniería en TIC'S") == "Ing. Tics"
+
+
+TABLA = [
+    (["Contador Público"], "Contador publico"),
+    (["Doctorado en Ciencias de la Ingeniería"], "Doctorado en Ciencias de la Ingeniería"),
+    (["Ingeniería Electromecánica"], "Electromecánica"),
+    (["Ingeniería Electrónica", "Ingeniería en Electrónica"], "Electrónica"),
+    (["Ingeniería Eléctrica"], "Eléctrica"),
+    (["Ingeniería Industrial", "Ingeniería Industrial (Curso de verano)"], "Ing. Industrial"),
+    (["Ingeniería Industrial EAD"], "Ing. Industrial EAD"),
+    (["Ingeniería Mecánica"], "Mecánica"),
+    (["Ingeniería en Ciberseguridad"], "Ciberseguridad"),
+    (["Ingeniería en Gestión Empresarial"], "Ing. Gestión Empresarial"),
+    (["Ingeniería en Gestión Empresarial EAD", "Ingeniería en Gestión Empresaria EAD",
+      "Ingeniería en Gestíon Empresarial EAD"], "Ing. Gestión Empresarial EAD"),
+    (["Ingeniería en Logística"], "Ing. Logistica"),
+    (["Ingeniería en Mecatrónica"], "Mecatrónica"),
+    (["Ingeniería en Semiconductores"], "Semiconductores"),
+    (["Ingeniería en Sistemas Computacionales", "Ingenierpia en Sistemas Computacionales"],
+     "Ing. Sistemas computacionales"),
+    (["Ingeniería en Sistemas Computacionales EAD"], "Ing. Sistemas computacionales EAD"),
+    (["TIC'S", "TIC´S", "Ingeniería en TIC´S"], "Ing. Tics"),
+    (["Licenciatura en Administración", "Licenciatura en Administración de Empresas"], "Lic. Administracion"),
+    (["Maestría en Ingeniería Administrativa"], "Maestría en Ingeniería Administrativa"),
+    (["Maestría en Ingeniería Industrial"], "Maestría en Ingeniería Industrial"),
+    (["Maestría en Negocios Internacionales"], "Maestría en Administración de Negocios Internacionales"),
+]
+
+
+def test_toda_la_tabla_de_carreras():
+    for variantes, oficial in TABLA:
+        for v in variantes:
+            assert mapear_carrera(v) == oficial

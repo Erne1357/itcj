@@ -1,4 +1,5 @@
 """Normalizadores puros del Excel histórico: fechas, importes, banderas, controles y carreras."""
+import math
 import re
 import unicodedata
 from datetime import date, datetime, timedelta
@@ -11,7 +12,7 @@ MESES: dict[str, int] = {m: i for i, m in enumerate(_MESES, 1)} | {"setiembre": 
 
 _EXCEL_BASE = date(1899, 12, 30)
 _RE_LARGA = re.compile(r"(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+(?:de\s+)?(\d{4}))?", re.IGNORECASE)
-_RE_CORTA = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4})")
+_RE_CORTA = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})")
 _RE_TOKEN = re.compile(r"\$?\s*[0-9][0-9.,]*")
 
 
@@ -25,9 +26,10 @@ class NoInterpretable(ValueError):
 
 def normalizar(texto) -> str:
     """Minúsculas, sin acentos, ``´`` y ``’`` iguales a ``'``, espacios colapsados."""
-    t = unicodedata.normalize("NFKD", str(texto).lower())
+    # los apóstrofos se unifican ANTES de NFKD, que descompone ´ en espacio + acento
+    t = str(texto).lower().replace("´", "'").replace("’", "'")
+    t = unicodedata.normalize("NFKD", t)
     t = "".join(c for c in t if not unicodedata.combining(c))
-    t = t.replace("´", "'").replace("’", "'")
     return " ".join(t.split())
 
 
@@ -57,7 +59,10 @@ def parse_fechas(raw, *, anio: int) -> list[date]:
         hallazgos.append((m.start(), int(m.group(3) or anio), mes, int(m.group(1))))
     for m in _RE_CORTA.finditer(raw):
         y = int(m.group(3))
-        hallazgos.append((m.start(), y + 2000 if y < 100 else y, int(m.group(2)), int(m.group(1))))
+        y = y + 2000 if y < 100 else y
+        if y < 2000:
+            raise NoInterpretable("fecha ilegible")
+        hallazgos.append((m.start(), y, int(m.group(2)), int(m.group(1))))
     resto = _RE_CORTA.sub(" ", _RE_LARGA.sub(" ", raw))
     if not hallazgos or re.search(r"\d", resto):
         raise NoInterpretable("fecha ilegible")
@@ -68,13 +73,18 @@ def parse_fechas(raw, *, anio: int) -> list[date]:
 
 
 def _token_a_monto(token: str) -> Decimal:
-    s = token.replace("$", "").replace(" ", "")
-    i = max(s.rfind("."), s.rfind(","))
-    if i >= 0 and len(s) - i - 1 == 2:
-        s = re.sub(r"[.,]", "", s[:i]) + "." + s[i + 1:]
-    else:
-        s = re.sub(r"[.,]", "", s)
-    return parse_monto(s)
+    """Último separador + 2 dígitos = decimal; + 3 dígitos = miles; otra cosa es ilegible.
+
+    Los grupos intermedios deben ser de 3 dígitos (o vacíos: ``$3,.000.00`` es un dedazo conocido).
+    """
+    grupos = re.split(r"[.,]", token.replace("$", "").replace(" ", ""))
+    if len(grupos) > 1 and (len(grupos[-1]) not in (2, 3) or any(len(g) not in (0, 3) for g in grupos[1:-1])):
+        raise NoInterpretable("importe ilegible")
+    if len(grupos) == 1:
+        return parse_monto(grupos[0])
+    if len(grupos[-1]) == 2:
+        return parse_monto("".join(grupos[:-1]) + "." + grupos[-1])
+    return parse_monto("".join(grupos))
 
 
 def parse_importes(raw) -> list[Decimal]:
@@ -108,6 +118,8 @@ def parse_bandera(raw) -> bool:
 
 def parse_control(raw) -> str:
     """Número de control: ``^[A-Z]?\\d{8}$`` tras ``strip().upper()``."""
+    if isinstance(raw, float) and not (math.isfinite(raw) and raw == int(raw)):
+        raise NoInterpretable("número de control inválido")
     s = str(int(raw)) if isinstance(raw, (int, float)) and not isinstance(raw, bool) else str(raw or "").strip().upper()
     if not re.fullmatch(r"[A-Z]?\d{8}", s):
         raise NoInterpretable("número de control inválido")
