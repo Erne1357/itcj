@@ -14,7 +14,8 @@ from itcj2.core.models.user import User
 
 def importar(db, solicitudes, *, dry_run: bool) -> dict:
     """Crea las solicitudes nuevas; con `dry_run` hace todo y deshace. Un error de una solicitud no frena el resto."""
-    res = {"creadas": 0, "ya_existian": 0, "con_error": [], "sin_semestre_core": 0, "sin_cuenta": 0}
+    res = {"creadas": 0, "ya_existian": 0, "con_error": [], "sin_semestre_core": 0, "sin_cuenta": 0,
+           "por_semestre": {}}
     try:
         existentes = set(db.scalars(select(ProrrogaRequest.import_ref).where(
             ProrrogaRequest.import_ref.in_([s.ref for s in solicitudes]))))
@@ -58,6 +59,8 @@ def importar(db, solicitudes, *, dry_run: bool) -> dict:
                     db.add(ProrrogaPayment(request_id=req.id, origin="excel", folio=None, paid_on=venc,
                                            amount=monto, recorded_by_id=None))
             res["creadas"] += 1
+            sem = res["por_semestre"].setdefault(s.semestre, {"creadas": 0, "ligado": req.period_id is not None})
+            sem["creadas"] += 1
             res["sin_semestre_core"] += req.period_id is None
             res["sin_cuenta"] += req.student_id is None
         db.flush()

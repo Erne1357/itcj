@@ -61,7 +61,8 @@ def test_carrera_sin_equivalencia_es_problema():  # Review Focus 3
     assert e.value.motivo == "carrera sin equivalencia"
 
 
-@pytest.mark.parametrize("raw", ["1.5", "1,5", "12.5", "1,", "1,55,000", "$", "0", "12345678901"])
+@pytest.mark.parametrize("raw", ["1.5", "1,5", "12.5", "1,", "1,55,000", "$", "0", "12345678901",
+                                 "1234,567", "1234,567.00"])
 def test_importes_ilegibles(raw):
     with pytest.raises(NoInterpretable) as e:
         parse_importes(raw)
@@ -71,6 +72,7 @@ def test_importes_ilegibles(raw):
 @pytest.mark.parametrize("raw, esperado", [
     ("1,500", [D("1500.00")]), ("1.550,00", [D("1550.00")]), ("$3,.000.00", [D("3000.00")]),
     ("$999.99             $9,999.99", [D("999.99"), D("9999.99")]),
+    ("1,234,567.00", [D("1234567.00")]), ("1234.50", [D("1234.50")]), ("1550", [D("1550.00")]),
 ])
 def test_importes_validos(raw, esperado):
     assert parse_importes(raw) == esperado
@@ -106,7 +108,8 @@ TABLA = [
     (["Ingeniería Electromecánica"], "Electromecánica"),
     (["Ingeniería Electrónica", "Ingeniería en Electrónica"], "Electrónica"),
     (["Ingeniería Eléctrica"], "Eléctrica"),
-    (["Ingeniería Industrial", "Ingeniería Industrial (Curso de verano)"], "Ing. Industrial"),
+    (["Ingeniería Industrial", "Ingeniería Industrial (Curso de verano)", "Ingniería Industrial "],
+     "Ing. Industrial"),
     (["Ingeniería Industrial EAD"], "Ing. Industrial EAD"),
     (["Ingeniería Mecánica"], "Mecánica"),
     (["Ingeniería en Ciberseguridad"], "Ciberseguridad"),
@@ -114,12 +117,13 @@ TABLA = [
     (["Ingeniería en Gestión Empresarial EAD", "Ingeniería en Gestión Empresaria EAD",
       "Ingeniería en Gestíon Empresarial EAD"], "Ing. Gestión Empresarial EAD"),
     (["Ingeniería en Logística"], "Ing. Logistica"),
-    (["Ingeniería en Mecatrónica"], "Mecatrónica"),
+    (["Ingeniería en Mecatrónica", "Ingniería en Mecatrónica "], "Mecatrónica"),
     (["Ingeniería en Semiconductores"], "Semiconductores"),
     (["Ingeniería en Sistemas Computacionales", "Ingenierpia en Sistemas Computacionales"],
      "Ing. Sistemas computacionales"),
     (["Ingeniería en Sistemas Computacionales EAD"], "Ing. Sistemas computacionales EAD"),
-    (["TIC'S", "TIC´S", "Ingeniería en TIC´S"], "Ing. Tics"),
+    (["TIC'S", "TIC´S", "Ingeniería en TIC´S", "Ingeniería en Tecnologías de la Información y Comunicaciones "],
+     "Ing. Tics"),
     (["Licenciatura en Administración", "Licenciatura en Administración de Empresas"], "Lic. Administracion"),
     (["Maestría en Ingeniería Administrativa"], "Maestría en Ingeniería Administrativa"),
     (["Maestría en Ingeniería Industrial"], "Maestría en Ingeniería Industrial"),

@@ -79,6 +79,13 @@ def test_numeracion_por_vencimiento(tmp_path):
         (1, 5, D("1.00")), (2, 5, D("2.00")), (3, 20, D("3.00"))]
 
 
+def test_numeracion_debe_seguir_los_vencimientos(tmp_path):  # I2
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5), _p(6)])], salida)
+    _editar(salida, vencimiento="20/02/2026")  # la 1 queda después de la 2
+    assert leer_limpio(salida) == ([], [("H#2", "la numeración debe seguir el orden de los vencimientos")])
+
+
 def test_alumno_distinto_entre_renglones(tmp_path):
     salida = tmp_path / "l.xlsx"
     escribir_limpio([_sol([_p(5), _p(6)])], salida)
@@ -110,6 +117,33 @@ def test_cli_excel_limpiar_no_imprime_datos(libro, tmp_path):
     assert r.exit_code == 0, r.output
     assert "Solicitudes: 2 · Parcialidades: 5 · Con problema: 1" in r.output and str(salida) in r.output
     assert "Mala" not in r.output and "99120002" not in r.output
+
+
+def test_cli_excel_limpiar_no_sobrescribe(libro, tmp_path):  # I3
+    from click.testing import CliRunner
+    from itcj2.cli.prorrogas import prorrogas_cli
+    origen = _origen(libro)
+    original = origen.read_bytes()
+    salida = tmp_path / "corregido.xlsx"
+    salida.write_bytes(b"correcciones")
+    for destino in (salida, origen):
+        r = CliRunner().invoke(prorrogas_cli, ["excel-limpiar", str(origen), "--salida", str(destino)])
+        assert r.exit_code != 0 and "El archivo de salida ya existe" in r.output, r.output
+    assert salida.read_bytes() == b"correcciones" and origen.read_bytes() == original
+
+
+def test_cli_cuenta_pagadas_despues_de_no_pagadas(libro, tmp_path):  # I7
+    from click.testing import CliRunner
+    from itcj2.cli.prorrogas import prorrogas_cli
+    fila = lambda c, f1, b1, f2, b2: [None, "12 de enero de 2026", c, "X", "Contador Público",  # noqa: E731
+                                      f"{f1} de 2026", 1000, b1, f"{f2} de 2026", 1000, b2]
+    ruta = libro({"Inscripción Enero - Junio 2026": [ENC,
+        fila(99120011, "16 de enero", 0, "06 de febrero", 1),    # 0 y luego 1: cuenta
+        fila(99120012, "16 de enero", 1, "06 de febrero", 0),    # 1 y luego 0: no
+        fila(99120013, "06 de febrero", 0, "16 de enero", 1)]})  # por columna 0,1 pero por fecha 1,0: no
+    r = CliRunner().invoke(prorrogas_cli, ["excel-limpiar", str(ruta), "--salida", str(tmp_path / "o.xlsx")])
+    assert r.exit_code == 0, r.output
+    assert "Solicitudes con una parcialidad pagada después de una no pagada: 1" in r.output
 
 
 def _editar(salida, **cambios):
@@ -179,7 +213,8 @@ def test_siete_parcialidades(tmp_path):
 
 @pytest.mark.parametrize("col,valor,motivo", [
     ("pagado", 2, "pagado inválido"), ("monto", "abc", "monto inválido"),
-    ("no_control", "123", "número de control inválido")])
+    ("no_control", "123", "número de control inválido"),
+    ("semestre", "enero – junio 2030", "semestre inválido"), ("nombre", None, "sin nombre")])  # M3
 def test_valores_invalidos(tmp_path, col, valor, motivo):
     salida = tmp_path / "l.xlsx"
     escribir_limpio([_sol([_p(5)])], salida)

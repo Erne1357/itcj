@@ -77,9 +77,13 @@ def init_prorrogas_command():
 def excel_limpiar_command(origen, salida):
     """Lee el Excel histórico y escribe el archivo limpio para revisar (no toca la base).
 
-    Imprime solo conteos: nunca nombres ni números de control.
+    Imprime solo conteos: nunca nombres ni números de control. No sobrescribe un archivo existente.
     """
     from collections import Counter
+
+    if Path(salida).exists():  # también cubre --salida igual al origen
+        click.secho("El archivo de salida ya existe; usa otro nombre para no perder correcciones.", fg="red")
+        raise click.Abort()
 
     from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
     from itcj2.apps.prorrogas_tec.importacion.limpio import escribir_limpio
@@ -97,6 +101,13 @@ def excel_limpiar_command(origen, salida):
     motivos.update("sin parcialidades" for s in solicitudes if not s.parcialidades and not s.problema)
     for motivo, n in motivos.most_common():
         click.echo(f"  {motivo}: {n}")
+    # Con un 0 antes de un 1, el FIFO pone el recibo en la anterior y la que sale sin pagar es la posterior.
+    desorden = 0
+    for s in solicitudes:
+        b = [p.pagado for p in sorted((p for p in s.parcialidades if p.pagado is not None),
+                                      key=lambda p: p.vencimiento)]
+        desorden += any(not x and y for x, y in zip(b, b[1:]))
+    click.echo(f"Solicitudes con una parcialidad pagada después de una no pagada: {desorden}")
     click.echo(f"Archivo: {salida}")
 
 
@@ -131,6 +142,9 @@ def import_excel_command(limpio, dry_run):
     click.echo(f"{prefijo}Creadas: {res['creadas']} · Ya existían: {res['ya_existian']} "
                f"· Con error: {len(errores) + len(res['con_error'])} "
                f"· Sin semestre en core: {res['sin_semestre_core']} · Sin cuenta: {res['sin_cuenta']}")
+    for semestre, v in res["por_semestre"].items():  # las etiquetas de semestre no son datos personales
+        liga = "ligado a core" if v["ligado"] else "sin semestre en core"
+        click.echo(f"  {semestre}: {v['creadas']} creadas, {liga}")
 
 
 @click.group("prorrogas")

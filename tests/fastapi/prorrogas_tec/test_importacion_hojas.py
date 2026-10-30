@@ -164,3 +164,25 @@ def test_repetido_conserva_el_problema_que_ya_tenia(libro):
     ]})
     assert [s.problema for s in leer_libro(ruta)] == ["carrera sin equivalencia",
                                                       "número de control repetido en la hoja"]
+
+
+def test_fecha_fuera_del_semestre(libro):  # M2
+    ruta = libro({"Inscripción Agosto-Diciembre 25": [
+        ["No.", "FECHA", "No. De Control", "NOMBRE", "CARRERA", "AGOSTO", "IMPORTE", ""],
+        [1, "12 de agosto de 2025", 99110015, "N", "Contador Público", "15 de enero", 1000, 1],  # enero de 2025
+        [2, "12 de agosto de 2027", 99110016, "O", "Contador Público", "15 de agosto de 2025", 1000, 1],
+    ]})
+    a, b = leer_libro(ruta)
+    assert [(p.problema, p.valor_original) for p in a.parcialidades] == [
+        ("fecha fuera del semestre", "15 de enero | 1000 | 1")]
+    assert b.problema == "fecha fuera del semestre" and not b.parcialidades[0].problema
+
+
+def test_importe_sospechoso(libro):  # M2
+    ruta = libro({"Inscripción Enero - Junio 2026": [
+        ENC_2026,
+        [None, "12 de enero de 2026", 99110017, "P", "Contador Público", "16 de enero de 2026", "$1,55", 1,
+         "06 de febrero de 2026", 1000, 1],
+    ]})
+    s, = leer_libro(ruta)
+    assert [p.problema for p in s.parcialidades] == ["importe sospechoso", ""]

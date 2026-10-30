@@ -20,6 +20,7 @@ def test_importa_con_recibos_solo_de_lo_pagado(db_session, make_program):
     make_program("Contador publico", "licenciatura")
     res = importar(db_session, [_sol()], dry_run=False)
     assert res["creadas"] == 1 and res["sin_semestre_core"] == 1 and res["sin_cuenta"] == 1
+    assert res["por_semestre"] == {"enero – junio 2088": {"creadas": 1, "ligado": False}}  # M1
     req = db_session.query(ProrrogaRequest).filter_by(import_ref="H#2").one()
     assert (req.origin, req.status, req.total_amount, req.period_id, req.requested_terms) == \
         ("excel", "aceptada", D("1550.00"), None, None)
@@ -44,9 +45,10 @@ def test_liga_semestre_y_cuenta(db_session, make_program, make_user, periodo):
     from itcj2.apps.prorrogas_tec.services.periods import period_label
     make_program("Contador publico", "licenciatura")
     u = make_user(control_number="99130002")
-    importar(db_session, [_sol(ref="H#3", control="99130002", semestre=period_label(periodo))], dry_run=False)
+    res = importar(db_session, [_sol(ref="H#3", control="99130002", semestre=period_label(periodo))], dry_run=False)
     req = db_session.query(ProrrogaRequest).filter_by(import_ref="H#3").one()
     assert req.period_id == periodo.id and req.student_id == u.id
+    assert res["por_semestre"] == {period_label(periodo): {"creadas": 1, "ligado": True}}  # M1
 
 
 def test_ref_con_problema_no_se_importa_y_dry_run_no_escribe(db_session, make_program):  # Review Focus 2
@@ -99,6 +101,7 @@ def test_cli_dry_run_no_escribe(libro, tmp_path, patched_session_local, make_pro
     res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path, monkeypatch)), "--dry-run"])
     assert res.exit_code == 0 and "SIMULACRO" in res.output and "Creadas: 1" in res.output, res.output
     assert "Sintetica" not in res.output and "99120001" not in res.output
+    assert "  enero – junio 2088: 1 creadas, sin semestre en core" in res.output  # M1
     assert patched_session_local.query(ProrrogaRequest).filter(
         ProrrogaRequest.import_ref == "Prueba 2088#2").count() == 0
 

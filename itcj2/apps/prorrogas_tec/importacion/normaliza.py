@@ -76,9 +76,12 @@ def _token_a_monto(token: str) -> Decimal:
     """Último separador + 2 dígitos = decimal; + 3 dígitos = miles; otra cosa es ilegible.
 
     Los grupos intermedios deben ser de 3 dígitos (o vacíos: ``$3,.000.00`` es un dedazo conocido).
+    Con separador de miles, el primer grupo es de 1 a 3 dígitos: ``1234,567`` no es 1,234,567.
     """
     grupos = re.split(r"[.,]", token.replace("$", "").replace(" ", ""))
-    if len(grupos) > 1 and (len(grupos[-1]) not in (2, 3) or any(len(g) not in (0, 3) for g in grupos[1:-1])):
+    miles = len(grupos) > (2 if len(grupos[-1]) == 2 else 1)
+    if len(grupos) > 1 and (len(grupos[-1]) not in (2, 3) or any(len(g) not in (0, 3) for g in grupos[1:-1])
+                            or (miles and len(grupos[0]) > 3)):
         raise NoInterpretable("importe ilegible")
     if len(grupos) == 1:
         return parse_monto(grupos[0])

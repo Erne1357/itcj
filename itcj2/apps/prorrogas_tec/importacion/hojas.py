@@ -6,7 +6,7 @@ en la solicitud o en la parcialidad, con el valor original y la celda de origen.
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from openpyxl import load_workbook
@@ -26,6 +26,7 @@ HOJAS: dict[str, tuple[str, str]] = {
     "Enero Junio 2024": ("enero – junio 2024", "celda"),
 }
 
+_MINIMO = Decimal("100.00")  # menos es casi seguro un dedazo ("$1,55" leído como 1.55)
 _RE_ITEM = re.compile(r"(\d{1,2}\s+de\s+[a-záéíóú]+(?:\s+(?:de\s+)?\d{4})?)\s*(\$\s?[\d.,]+)", re.IGNORECASE)
 
 
@@ -65,7 +66,25 @@ def _problema(motivo: str, valor: str, origen: str) -> Parcialidad:
     return Parcialidad(None, None, None, motivo, valor, origen=origen)
 
 
-def _celda(valor, origen: str, anio: int) -> list[Parcialidad]:
+def _ventana(semestre: str) -> tuple[date, date]:
+    """Fechas creíbles para ``enero – junio 2026``: de 3 meses antes del primer mes a 3 después del último."""
+    p = semestre.split()
+    anio, m1, m2 = int(p[-1]), MESES[p[0]], MESES[p[2]]
+    return (date(anio + (m1 - 4) // 12, (m1 - 4) % 12 + 1, 1),
+            date(anio + (m2 + 3) // 12, (m2 + 3) % 12 + 1, 1) - timedelta(days=1))
+
+
+def _verosimil(ps: list[Parcialidad], ventana: tuple[date, date]) -> list[Parcialidad]:
+    """Ya leídas: una fecha lejos del semestre o un importe de centavos va a revisión."""
+    for p in ps:
+        if not ventana[0] <= p.vencimiento <= ventana[1]:
+            raise NoInterpretable("fecha fuera del semestre")
+        if p.monto < _MINIMO:
+            raise NoInterpretable("importe sospechoso")
+    return ps
+
+
+def _celda(valor, origen: str, anio: int, ventana) -> list[Parcialidad]:
     """Formato ``celda``: ``30 de enero $2,900.00`` (uno o varios); cualquier falla marca la celda entera."""
     texto = str(valor)
     items = _RE_ITEM.findall(texto)
@@ -76,19 +95,19 @@ def _celda(valor, origen: str, anio: int) -> list[Parcialidad]:
         for f, i in items:
             (fecha,), (monto,) = parse_fechas(f, anio=anio), parse_importes(i)  # el regex garantiza uno y uno
             res.append(Parcialidad(fecha, monto, True, origen=origen))
-        return res
+        return _verosimil(res, ventana)
     except NoInterpretable as e:
         return [_problema(e.motivo, texto, origen)]
 
 
-def _grupo(vf, vi, vb, origen: str, anio: int) -> list[Parcialidad]:
+def _grupo(vf, vi, vb, origen: str, anio: int, ventana) -> list[Parcialidad]:
     """Terna fecha · importe · bandera; fechas e importes de la misma celda se emparejan en orden."""
     try:
         fechas, montos, pagado = parse_fechas(vf, anio=anio), parse_importes(vi), parse_bandera(vb)
         if not fechas and not montos:
             return []  # una bandera 0/1 sola no dice nada; una ilegible sí cae en el except
         if fechas and len(fechas) == len(montos):
-            return [Parcialidad(f, m, pagado, origen=origen) for f, m in zip(fechas, montos)]
+            return _verosimil([Parcialidad(f, m, pagado, origen=origen) for f, m in zip(fechas, montos)], ventana)
         motivo = ("parcialidad sin importe" if not montos else "parcialidad sin fecha" if not fechas
                   else "fechas e importes no cuadran")
     except NoInterpretable as e:
@@ -101,7 +120,7 @@ def _leer_hoja(ws) -> list[Solicitud]:
     if hoja not in HOJAS:
         return [Solicitud(f"{hoja}#0", hoja, "", None, "", "", "", "", [], "hoja desconocida")]
     semestre, formato = HOJAS[hoja]
-    anio = int(semestre.split()[-1])
+    anio, ventana = int(semestre.split()[-1]), _ventana(semestre)
     filas = ws.iter_rows(values_only=True)
     enc = ["" if h is None else str(h).strip() for h in next(filas, ())]
     col = {h: i for i, h in enumerate(enc) if h}
@@ -146,13 +165,13 @@ def _leer_hoja(ws) -> list[Solicitud]:
             origen = f"{hoja}!{get_column_letter(cf + 1)}{r}"
             vf, vi, vb = (None if c is None else fila[c] for c in (cf, ci, cb))
             if formato == "celda":
-                pagos += [] if _vacio(vf) else _celda(vf, origen, anio)
+                pagos += [] if _vacio(vf) else _celda(vf, origen, anio, ventana)
             else:
-                pagos += _grupo(vf, vi, vb, origen, anio)
+                pagos += _grupo(vf, vi, vb, origen, anio, ventana)
         pagos += [_problema("dato sin interpretar", str(v), f"{hoja}!{get_column_letter(i + 1)}{r}")
                   for i, v in enumerate(fila) if i not in leidas and i != c_no and not _vacio(v)]
         if nueva:
-            actual = _nueva(hoja, semestre, formato, anio, r, celda, validas)
+            actual = _nueva(hoja, semestre, formato, anio, ventana, r, celda, validas)
             sols.append(actual)
         elif actual is None and pagos:  # un renglón con solo banderas 0/1 no abre nada
             actual = Solicitud(f"{hoja}#{r}", hoja, semestre, None, "", "", "", "", [], "renglón sin estudiante")
@@ -170,7 +189,7 @@ def _leer_hoja(ws) -> list[Solicitud]:
     return sols
 
 
-def _nueva(hoja, semestre, formato, anio, r, celda: dict, validas: list) -> Solicitud:
+def _nueva(hoja, semestre, formato, anio, ventana, r, celda: dict, validas: list) -> Solicitud:
     """Renglón con número de control: valida control, carrera y fecha de solicitud (gana el primer problema)."""
     problemas = []
     try:
@@ -192,6 +211,8 @@ def _nueva(hoja, semestre, formato, anio, r, celda: dict, validas: list) -> Soli
             fechas = []
         if len(fechas) == 1:
             fecha = fechas[0]
+            if not ventana[0] <= fecha <= ventana[1]:
+                problemas.append("fecha fuera del semestre")
         else:
             problemas.append("fecha de solicitud ilegible")
     s = Solicitud(f"{hoja}#{r}", hoja, semestre, fecha, no_control, " ".join(_texto(celda.get("NOMBRE")).split()),

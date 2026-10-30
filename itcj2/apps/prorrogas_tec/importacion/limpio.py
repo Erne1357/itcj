@@ -12,7 +12,7 @@ from openpyxl import Workbook, load_workbook
 
 from ..services.errors import ServiceError
 from ..services.formatting import parse_monto
-from .hojas import Solicitud
+from .hojas import HOJAS, Solicitud
 
 ENCABEZADOS = ("ref", "semestre", "fecha_solicitud", "no_control", "nombre", "carrera", "carrera_original",
                "numero", "vencimiento", "monto", "pagado", "problema", "valor_original", "origen")
@@ -115,6 +115,10 @@ def _validar(ref: str, filas: list[tuple]) -> tuple[SolicitudLimpia | None, str]
     if len(est) > 1:
         return None, "datos del estudiante distintos entre renglones"
     semestre, fecha, control, nombre, carrera = est.pop()
+    if semestre not in {sem for sem, _ in HOJAS.values()}:
+        return None, "semestre inválido"
+    if not nombre:
+        return None, "sin nombre"
     if not isinstance(fecha, date):
         return None, "sin fecha de solicitud"
     numeros = [col(r, "numero") for r in filas]
@@ -129,6 +133,8 @@ def _validar(ref: str, filas: list[tuple]) -> tuple[SolicitudLimpia | None, str]
     venc = [_fecha(col(r, "vencimiento")) for r in filas]
     if None in venc:
         return None, "vencimiento inválido"
+    if any(a > b for a, b in zip(venc, venc[1:])):  # el FIFO cubre por número: debe ser el orden de las fechas
+        return None, "la numeración debe seguir el orden de los vencimientos"
     try:
         montos = [parse_monto(_texto(col(r, "monto")) if not isinstance(col(r, "monto"), float)
                               else str(col(r, "monto"))) for r in filas]
