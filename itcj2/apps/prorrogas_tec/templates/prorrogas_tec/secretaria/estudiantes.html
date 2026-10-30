@@ -1,0 +1,49 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="est" data-api="/api/prorrogas/v2">
+    <h1 class="sec-h1">Estudiantes</h1>
+    <div class="est-empty" id="estSinPeriodos" hidden>Aún no hay prórrogas aceptadas.</div>
+    <div id="estMain">
+      <div class="est-bar">
+        <select id="estPeriodo" aria-label="Semestre"></select>
+        <div class="est-search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="estQ" type="search" placeholder="Buscar por nombre o No. de control" aria-label="Buscar por nombre o No. de control" maxlength="80">
+        </div>
+        <button type="button" class="sec-btn sec-btn-ghost" id="estExport">Exportar adeudos</button>
+      </div>
+      <div class="est-filters" id="estFiltros" role="group" aria-label="Filtro">
+        <button type="button" data-f="todos" class="is-active">Todos <b></b></button>
+        <button type="button" data-f="con_adeudo">Con adeudo <b></b></button>
+        <button type="button" data-f="al_corriente">Al corriente <b></b></button>
+        <button type="button" data-f="sin_plan">Sin plan <b></b></button>
+        <button type="button" data-f="liquidada">Liquidada <b></b></button>
+      </div>
+      <div class="est-error" id="estError" role="alert" hidden></div>
+      <div class="est-row est-row-head" aria-hidden="true">
+        <span>No. de control</span><span>Nombre</span><span>Pagos</span><span>Faltantes</span><span>Contactar</span>
+      </div>
+      <div id="estRows" aria-live="polite"></div>
+      <div class="est-empty" id="estVacio" hidden>No hay estudiantes en este filtro.</div>
+      <div class="est-foot">
+        <span id="estMostrando"></span>
+        <span class="est-pager">
+          <button type="button" class="sec-btn sec-btn-ghost" id="estPrev">Anterior</button>
+          <span id="estPagina"></span>
+          <button type="button" class="sec-btn sec-btn-ghost" id="estNext">Siguiente</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <aside class="est-panel" id="estPanel" aria-label="Expediente" hidden>
+    <div class="est-panel-bar">
+      <strong id="estPanelTitulo">Expediente</strong>
+      <button type="button" class="sol-x" id="estPanelClose" title="Cerrar (Esc)" aria-label="Cerrar">&times;</button>
+    </div>
+    <div class="est-panel-body" id="estPanelBody"></div>
+  </aside>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/estudiantes.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/estudiantes.js') }}"></script>
+{% endblock %}
