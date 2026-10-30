@@ -436,3 +436,26 @@ def make_historica(db_session):
         return req
 
     return _make
+
+
+# ---------------------------------------------------------------------------
+# Excel histórico sintético (nunca el real)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def libro(tmp_path):
+    """`libro({hoja: [encabezado, renglón, ...]})` → ruta de un `.xlsx` sintético en `tmp_path`."""
+    from openpyxl import Workbook
+
+    def _make(hojas: dict[str, list[list]]):
+        wb = Workbook()
+        wb.remove(wb.active)
+        for nombre, filas in hojas.items():
+            ws = wb.create_sheet(nombre)
+            for fila in filas:
+                ws.append(fila)
+        ruta = tmp_path / "libro.xlsx"
+        wb.save(ruta)
+        return ruta
+
+    return _make
