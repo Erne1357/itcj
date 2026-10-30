@@ -91,10 +91,17 @@
     const my = ++seq;
     const r = await api("?" + new URLSearchParams({ semestre: st.sem }));
     if (my !== seq) return;
+    stale(!r.ok);
     if (!r.ok) { show($("sttError"), r.data.message || "No se pudieron cargar las estadísticas."); return; }
     show($("sttError"), "");
     st.data = r.data;
     render(r.data);
+  }
+
+  // Si la carga falla, los números del semestre anterior no se quedan bajo el selector nuevo.
+  function stale(on) {
+    root.querySelectorAll(":scope > :not(.stt-head):not(.est-error)").forEach((n) => { n.style.display = on ? "none" : ""; });
+    if (on) $("sttTotal").textContent = "—";
   }
 
   function render(d) {
@@ -104,6 +111,7 @@
     renderLinea();
     renderKpis(d.kpis || {});
     renderCumplimiento(d.cumplimiento || {});
+    $("sttHistorico").hidden = !d.incluye_historico;
     renderTabla(d.por_carrera || []);
   }
 
@@ -211,7 +219,9 @@
       cumps.append(b);
     });
     $("sttSinPago").textContent = `${num(c.estudiantes_sin_pago)} estudiantes con prórroga vencida sin pago`;
-    $("sttVer").hidden = c.period_id == null;
+    const ver = $("sttVer");
+    ver.hidden = c.period_id == null;
+    if (!ver.hidden) ver.href = `/prorrogas/secretaria/estudiantes?period_id=${c.period_id}&filtro=con_adeudo`;
   }
 
   function renderTabla(rows) {
@@ -226,8 +236,7 @@
       name.append(sw, el("span", null, c.carrera));
       const decididas = (c.aceptadas || 0) + (c.rechazadas || 0);
       const pctAc = decididas ? Math.round((c.aceptadas * 100) / decididas) : null;
-      const pagadas = (c.a_tiempo || 0) + (c.tarde || 0);
-      const pctPago = c.vencidas ? Math.round((pagadas * 100) / c.vencidas) : null;
+      const pctPago = c.vencidas ? Math.round(((c.a_tiempo || 0) * 100) / c.vencidas) : null;  // % pagado a tiempo
       row.append(name, el("span", "stt-mono", num(c.solicitudes)), meter(pctAc, BLUE), el("span", "stt-mono", money(c.monto)), meter(pctPago, WINE));
       box.append(row);
     });

@@ -56,7 +56,7 @@
     sec.append(el("h2", "Recibos registrados", "est-h2"));
     if (recibos && recibos.length) {
       const rl = el("ul", null, "mp-recibos");
-      recibos.forEach(function (r) { rl.append(el("li", `${r.folio} · ${fecha(r.fecha)} · ${dinero(r.monto)}`)); });
+      recibos.forEach(function (r) { rl.append(el("li", `${r.folio || "Registro histórico"} · ${fecha(r.fecha)} · ${dinero(r.monto)}`)); });
       sec.append(rl);
     } else {
       sec.append(el("p", "Aún no hay recibos registrados.", "est-hint"));
@@ -111,7 +111,7 @@
     const h = el("div");
     h.append(el("span", s.folio, "est-folio"), el("span", s.estado, "est-estado " + s.estado));
     box.append(h);
-    box.append(el("p", `${s.semestre || ""} · ${s.plazos} plazo(s)`, "est-hint"));
+    box.append(el("p", [s.semestre, s.plazos != null ? `${s.plazos} plazo(s)` : ""].filter(Boolean).join(" · "), "est-hint"));
     if (s.comentario) box.append(el("p", "Comentario de la secretaria: " + s.comentario, "est-hint"));
     if (s.documentos && s.documentos.length) {
       const ul = el("ul", null, "est-docs");

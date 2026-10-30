@@ -47,6 +47,7 @@
       <div class="stt-sub" id="sttCumpSub"></div>
       <div class="stt-stack" id="sttStack"></div>
       <div class="stt-cumps" id="sttCumps"></div>
+      <div class="stt-note" id="sttHistorico" hidden>Los pagos del histórico se registraron en su fecha de vencimiento.</div>
       <div class="stt-alertbar">
         <span id="sttSinPago"></span>
         <a class="sec-btn" id="sttVer" href="/prorrogas/secretaria/estudiantes" hidden>Ver en Estudiantes</a>
@@ -64,7 +65,7 @@
   </section>
 {% endblock %}
 {% block scripts %}
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
-          integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"
+          integrity="sha384-FcQlsUOd0TJjROrBxhJdUhXTUgNJQxTMcxZe6nHbaEfFL1zjQ+bq/uRoBQxb0KMo" crossorigin="anonymous"></script>
   <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/estadisticas.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/estadisticas.js') }}"></script>
 {% endblock %}

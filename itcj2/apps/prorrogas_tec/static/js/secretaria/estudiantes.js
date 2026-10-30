@@ -11,6 +11,7 @@
   const $ = (id) => document.getElementById(id);
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const PER_PAGE = 25;
+  const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada"];
   const HIST = {
     solicitud_creada: "Solicitud creada", solicitud_aceptada: "Prórroga aceptada",
     plan_confirmado: "Plan de pagos confirmado", documento_generado: "Documento generado",
@@ -88,7 +89,11 @@
     if (!items.length) { $("estMain").hidden = true; $("estSinPeriodos").hidden = false; return; }
     const sel = $("estPeriodo");
     items.forEach((p) => { const o = el("option", null, p.label); o.value = p.id; sel.append(o); });
-    st.period = r.data.actual != null ? r.data.actual : items[0].id;
+    // Estadísticas enlaza con ?period_id=&filtro=; solo se aceptan valores conocidos.
+    const qs = new URLSearchParams(location.search);
+    const pedido = items.find((p) => String(p.id) === qs.get("period_id"));
+    st.period = pedido ? pedido.id : r.data.actual != null ? r.data.actual : items[0].id;
+    if (FILTROS.includes(qs.get("filtro"))) st.filtro = qs.get("filtro");
     sel.value = st.period;
     loadList();
   }
@@ -280,7 +285,7 @@
     const a = section("Cuenta");
     a.append(kv([
       ["Folio", s.folio], ["No. de control", e.control], ["Correo", e.correo], ["Carrera", e.carrera],
-      ["Semestre", s.semestre], ["Plazos solicitados", String(s.plazos)], ["Motivo", s.motivo || "—"],
+      ["Semestre", s.semestre], ["Plazos solicitados", s.plazos ?? "—"], ["Motivo", s.motivo || "—"],
       ["Total", c.total != null ? pesos(c.total) : "—"], ["Pagado", pesos(c.pagado)],
       ["Saldo", c.saldo != null ? pesos(c.saldo) : "—"], ["Situación", SITUACION[c.situacion] || c.situacion],
     ]));
@@ -432,7 +437,7 @@
     });
     if (!ul.children.length) sec.append(el("p", "est-note", "Sin recibos."));
     sec.append(ul);
-    if (!x.plan.confirmado) return sec;
+    if (x.cuenta.total == null) return sec;  // como el sin_plan del servicio: las del Excel tienen plan sin confirmar
 
     const folio = input("text", { maxlength: "40" });
     const fecha = input("date", { max: todayIso() });

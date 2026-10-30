@@ -55,6 +55,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 }
 .sec-btn:hover { background: #4f2420; }
 .sec-btn[disabled] { opacity: .6; cursor: progress; }
+.sec-btn[hidden] { display: none; }
 .sec-btn-ghost { background: transparent; color: var(--ink) !important; border: 1px solid rgba(26, 19, 14, .2); }
 .sec-btn-ghost:hover { background: rgba(26, 19, 14, .05); }
 
