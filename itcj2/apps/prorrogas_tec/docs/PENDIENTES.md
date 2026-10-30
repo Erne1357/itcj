@@ -20,6 +20,10 @@ Cuando un punto se resuelve, se marca **[hecho]** con la fecha y el commit.
 | H5 | Correr dos consultas en la base | (a) Números de control en minúsculas: una invitación no los encuentra y crearía una segunda cuenta. (b) Cuántas cuentas con número de control no tienen NIP (quedaban expuestas antes del arreglo de "Crea tu NIP") | `SELECT control_number FROM core_users WHERE control_number <> upper(control_number);` · `SELECT count(*) FROM core_users WHERE control_number IS NOT NULL AND password_hash IS NULL;` |
 | H6 | **[hecho 2026-10-29]** Mover el número de control del estudiante de la prueba de humo | Choca con el fixture `estudiante` (`99000001`) en una prueba suelta, y rompe `tests/fastapi/titulatec/test_enrollment_request_service.py::test_create_deja_la_solicitud_en_revision_sin_token_ni_correo[sin-cuenta]`, que da por hecho que `99000001` no tiene cuenta | `UPDATE core_users SET control_number = '99999901' WHERE id = 13152 AND control_number = '99000001';` |
 | H7 | Decidir qué pasa entre semestres | Sin un semestre que cubra la fecha (p. ej. la semana de reinscripción antes del `start_date`), el estudiante ve "no hay semestre" justo cuando paga la inscripción | Pregunta para la Subdirección: abrir el semestre antes, o aceptar la regla |
+| H8 | Probar en el navegador lo del Plan 3 | La pestaña Estudiantes, el expediente (plan, replanteo, recibos, exportar), la firma de la carta en *Mi prórroga* y el ancho completo de las vistas nunca se han visto en un navegador | Con `secretaria.prorrogas` y un estudiante de prueba nuevo (ver H4); recargar con Ctrl+F5 si la página se ve con el ancho viejo |
+| H9 | Decidir el caso de beca o condonación | Hoy no se puede bajar el total a exactamente lo pagado sin agregar una parcialidad nueva: lo que cubre la beca se queda como saldo, el estudiante sale "atrasado" y entra a la lista de bloqueo | Decidir si la secretaria puede cerrar la cuenta así (permitir cero parcialidades nuevas cuando total = pagado) |
+| H10 | Antes de llevar el Plan 3 a producción | Sin el DML 06 los estudiantes reciben 403 al firmar la carta; el `downgrade` de la migración `pr20261031a` nunca se ha corrido | En el servidor: copiar `database/DML/prorrogas_tec/06_insert_plan3.sql` y correr `init-prorrogas`. En desarrollo, una vez: `alembic -c migrations/alembic.ini downgrade -1` y `upgrade head` |
+| H11 | Decidir qué pasa con una aceptada que llega al fin del semestre sin plan | Después del `end_date` ya no se puede armar el plan y, sin plan, tampoco registrar recibos | Pregunta para la Subdirección, ligada a H7 |
 
 ## Técnicos (diferidos de la revisión final del Plan 1, 2026-10-29)
 
@@ -62,6 +66,26 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 | D20 | Dos huecos de tiempo en `solicitudes.js`: si la pestaña se oculta con una regeneración del QR en vuelo, el éxito vuelve a armar el temporizador; una respuesta tardía de la lista puede regresar un momento una fila ya decidida | Se corrigen solos en el siguiente refresco | Revisar `document.hidden` antes de re-armar; descartar respuestas viejas con un contador |
 | D21 | `normalize_control` trata `L12345678` y `12345678` como números distintos | Si la secretaria escribe la L para un alumno guardado sin ella, se crea una segunda cuenta (no toma la existente) | Buscar las dos formas en `lookup`/`invite` |
 
+## Técnicos (diferidos de las revisiones del Plan 3, 2026-10-29)
+
+Detalle en el ledger del Plan 3 (`.superpowers/sdd/2026-10-29-prorrogas-plan3-estudiantes-pagos/progress.md`, no versionado).
+
+| # | Pendiente | Efecto | Arreglo propuesto |
+|---|---|---|---|
+| P1 | `POST /estudiantes/{id}/plan` valida los montos antes de buscar la solicitud | Un monto malo para una solicitud que no existe da 400 en vez de 404/409 | Pasar los montos crudos al servicio, que ya valida en orden |
+| P2 | `/estudiantes/reparto` puede sugerir una parcialidad de $0 si el total tiene menos pesos que parcialidades | Solo la sugerencia; confirmar la rechaza | `plazos_invalidos` cuando total < n |
+| P3 | Huecos de prueba del plan: contenido de la carta replanteada (pago1/pago2), el 503 con el mismo total, `fechas_invalidas` no ascendentes o antes de hoy, `monto_invalido` en el servicio, 403 de `/reparto` | Regresiones sin red | Agregarlas en `test_plan.py` |
+| P4 | Huecos de prueba de recibos: `no_aceptada`, `motivo_requerido`, anular un recibo de otra solicitud, 403, recibo igual al saldo, fecha anterior a la solicitud, el respaldo por `IntegrityError` | Regresiones sin red | Agregarlas en `test_payments.py` |
+| P5 | Firma: las pruebas no revisan `template_id`, el evento `documento_firmado` ni la fila de firma; faltan `no_firmable`, documento de otra solicitud y recibos anulados en `/estado`; `sign()` depende del candado de quien la llama (falta decirlo en el docstring); `/estado` repite consultas | Regresiones sin red; poca carga | Pruebas y una línea de docstring |
+| P6 | La exportación de adeudos no toma candado; faltan pruebas de 24 h exactas, 403 de recordar/desbloqueo y del Excel (formato de dinero, fecha, fila vacía, A2/A5) | Dos exportaciones a la vez: gana la última marca | Candado por fila o aceptar; agregar pruebas |
+| P7 | Búsqueda de estudiantes: `%` y `_` funcionan como comodines y no ignora acentos (PEÑA ≠ pena) | Solo búsquedas raras de la secretaria | `ilike(..., escape="\\")` y `unaccent` si hace falta |
+| P8 | Pestaña Estudiantes: la fila es un `div role=button` con un botón adentro; el foco no entra al panel al abrirlo; `filename*=` no se lee; lo tecleado durante el reparto se sobrescribe; con base ≤ 0 Confirmar queda activo; `cents()` y `pesos()` usan `parseFloat`; el selector queda en blanco si `actual` no está en la lista | Accesibilidad y detalles visuales | Uno por uno al tocar `estudiantes.js` |
+| P9 | *Mi prórroga*: el listener de `resize` de la firma nunca se quita; Firmar se reactiva un instante tras firmar; sin guarda si falta `cuenta`; el 409 al firmar solo usa `alert` | Fuga pequeña y detalles | `canvas.isConnected` → quitar el listener; no reactivar tras éxito |
+| P10 | Detalles: línea larga en `test_schema.py`; docstring del CLI dice "12 permisos"; sin pruebas de los CHECK (número, monto, total); imports a media del archivo en pruebas; `test_periodos` débil; el aside "`# shortcut`" en `flows/secretaria_estudiantes.md` | Cosmético | Al tocar cada archivo |
+| P11 | Las solicitudes del Excel (Plan 4) tendrán `period_id` nulo: el plan, el expediente y los recibos asumen semestre | Romperá al importar | Resolver en el Plan 4 |
+| P12 | La decisión de la secretaria (Plan 2) no muestra adeudos de semestres anteriores | Puede aceptar a alguien que debe otra prórroga | Mostrar el saldo pendiente en el modal de revisión |
+| P13 | El candado de la solicitud se mantiene mientras LibreOffice genera la carta (plan y firma), igual que en `decide` | A esta escala no importa | Generar fuera del candado si un día hay carga |
+
 ## Del fork, todavía en el árbol (F1–F2 resueltos por el Plan 2, Task 1; F3 queda para ti)
 
 | # | Pendiente | Nota |
@@ -74,6 +98,7 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 
 - Cuenta de prueba `secretaria.prorrogas` / `Prorrogas#2026` (rol `secretaria`, más el mismo acceso que el usuario 7636 en las otras apps: `instance/tmp/mirror_access.py --apply`). Se recrea con `docker compose -f docker/compose/docker-compose.dev.yml exec backend python instance/tmp/create_test_secretary.py`. No va a producción.
 - Prueba de humo del Plan 2 (`instance/tmp/smoke_prorrogas_plan2.py`, no versionado) dejó en la base de desarrollo: usuario 13152 (control `99999901` desde H6, correo `humo99000001@example.invalid`, NIP en el script), solicitud 271 (PR-00271, aceptada), documentos 138–139, unión 89, eventos 306–309. Ver H6.
+- Prueba de humo del Plan 3 (`instance/tmp/smoke_prorrogas_plan3.py`, no versionado) dejó en desarrollo: usuario 31569 (control `B99189658`, correo `@example.invalid`), solicitud 1675 (liquidada), documentos 715–718, parcialidades 1006–1007, recibos 391–392, unión 529, eventos 1859–1867 y un `lista_bloqueo_exportada` global.
 
 ---
 
@@ -262,7 +287,7 @@ Lo mínimo, en este orden:
 
 ## 9. Sin `docs/flows/`
 
-> **[resuelto 2026-10-29]** Existen `flows/secretaria_documentos.md`, `flows/secretaria_solicitudes.md` y `flows/estudiante_solicitud.md`. El seguimiento de parcialidades (`admin_track_payments`) llegará con el Plan 3.
+> **[resuelto 2026-10-29]** Existen `flows/secretaria_documentos.md`, `flows/secretaria_solicitudes.md` y `flows/estudiante_solicitud.md`. El seguimiento de parcialidades (`admin_track_payments`) quedó en `flows/secretaria_estudiantes.md` (Plan 3).
 
 La convención del repo (ver `apps/titulatec/docs/flows/README.md`) es documentar
 cada flujo: UI → endpoint → service → BD → eventos. Los tres que valen para esta
