@@ -327,6 +327,8 @@ Los estados son `String` + tupla en Python (convención de TitulaTec), no ENUM d
 
 ## 11. Importación del Excel histórico (Plan 4)
 
+> **Actualizado por §17 (Plan 4, 2026-10-29):** la importación pasa a dos pasos (limpiar → revisar → importar), una bandera vacía cuenta como **pagado**, las celdas con varios pagos se separan cuando cuadran, y los semestres que no existen en core solo cuentan para Estadísticas. Donde §11 y §17 difieran, manda §17.
+
 `python -m itcj2.cli.main prorrogas import-excel RUTA.xlsx [--dry-run] [--report RUTA.csv]`
 
 - **Hojas:** una por semestre (`Inscripción Enero - Junio 2026`, … `Enero Junio 2024`). Se importan **todas como
@@ -433,3 +435,74 @@ Respuestas del usuario y las reglas que se siguen de ellas. Completan §4 pasos 
    sembró). Leer la lista y el expediente usa `requests.api.read.all`; "Avisar desbloqueo" usa `students.api.export`.
 9. **Modelo:** `prorrogas_installments` gana `superseded_at`; su único `(request_id, number)` es parcial entre las
    vigentes.
+
+## 17. Plan 4: decisiones (2026-10-29)
+
+Respuestas del usuario al revisar el Excel real (`Prórrogas.xlsx`, 6 hojas, ~430 solicitudes de 2024 a Ene–Jun 2026) y las
+reglas que se siguen de ellas. Mandan sobre §11.
+
+### 17.1 Importación en dos pasos
+
+1. **Limpiar:** `python -m itcj2.cli.main prorrogas excel-limpiar ORIGEN.xlsx --salida LIMPIO.xlsx`. Lee el Excel original
+   (no lo modifica) y escribe un `.xlsx` nuevo con dos hojas:
+   - **Parcialidades:** una fila por parcialidad, ya normalizada. Columnas: `ref` (`{hoja}#{renglón}` de la primera fila
+     del estudiante; agrupa las parcialidades de una solicitud), `semestre` (etiqueta con el formato de
+     `semestre_label`, p. ej. `enero – junio 2025`), `fecha_solicitud`, `no_control`, `nombre`, `carrera` (nombre oficial
+     de `core_programs`), `carrera_original`, `numero` (1…), `vencimiento`, `monto`, `pagado` (1/0), `origen` (hoja, renglón
+     y columna de donde salió).
+   - **Revisar:** todo lo que no se pudo interpretar sin adivinar, con hoja, renglón, columna, valor original y motivo.
+     Una persona corrige el caso y pasa la fila corregida a *Parcialidades*.
+2. **Importar:** `python -m itcj2.cli.main prorrogas import-excel LIMPIO.xlsx [--dry-run]`. Solo acepta el formato limpio:
+   si una fila no valida, no importa nada de esa solicitud y lo dice. Idempotente por `import_ref = ref`.
+
+### 17.2 Reglas de limpieza
+
+- **Bandera de pagado:** `1` o **vacía** → pagado; `0` → no pagado. Cualquier otro valor (`-1`, `.`, texto) → Revisar.
+  Las hojas sin columna de bandera (las de 2024) cuentan todo como pagado.
+- **Celdas con varios pagos** (`14/01/2025, 20/01/25, 27/01/25` con `$1,100 $1,000 $1,000`): se separan en parcialidades
+  cuando el número de fechas y de importes coincide; si no coincide (dos fechas y un importe) → Revisar.
+- **Renglones de continuación** (sin número de control): sus pagos se suman a la solicitud del estudiante anterior.
+- **Fechas:** seriales de Excel, `datetime`, `12 de enero de 2026`, `14/01/25`, y `29 de febrero` sin año (el año sale
+  del semestre de la hoja). Una fecha que no se entiende → Revisar.
+- **Importes:** número, `$1,550,00` (coma decimal), `$3,.000.00`, `$1,550.00`. Lo que no se entiende (`Prórroga
+  cancelada`) → Revisar.
+- **Número de control:** número → texto; acepta prefijo `D`, `M`, `B`. Uno que no cumple `^[A-Za-z]?\d{8}$` (hay de 5
+  dígitos) → Revisar. Un número de control repetido en la misma hoja → Revisar.
+- **Carrera:** se mapea al nombre oficial de `core_programs` con una tabla de equivalencias (sin acentos ni mayúsculas;
+  `EAD` y `CAMPUS II` se respetan). Lo que no tenga equivalencia → Revisar.
+- **Hoja `Inscripción Agosto-Dic 2024`** (5 renglones, un solo `IMPORTE`): cada renglón es una prórroga de **1 pago**,
+  vencimiento = `FECHA`, pagado.
+- **Hoja `Enero Junio 2024`** (fecha e importe en una celda, sin año): se lee con su propia regla.
+
+### 17.3 Reglas de importación
+
+- `origin='excel'`, `status='aceptada'`, `requested_terms` vacío (no se pidió en la app), `total_amount` = suma de las
+  parcialidades, `created_at` = `fecha_solicitud`.
+- **Semestre:** si la etiqueta coincide con un semestre de core (`period_label(p)`), se liga `period_id`; si no
+  (Ene–Jun 2024, Ago–Dic 2024, Ene–Jun 2025), queda solo `period_label` y la solicitud **solo cuenta para Estadísticas**
+  (no aparece en la pestaña Estudiantes ni en la lista de adeudos). No se crean semestres en core.
+- `student_id` se liga por número de control cuando la cuenta existe; si no, queda vacío. La copia congelada (`nombre`,
+  `carrera`, `control_number`, `email` vacío) sale del archivo limpio.
+- **Parcialidades:** se permiten hasta **6** para `origin='excel'` (hay estudiantes con 4); los planes de la app siguen
+  con máximo 3.
+- **Pagado** → un recibo `origin='excel'`, sin folio, `paid_on` = vencimiento, por el monto de la parcialidad.
+- Las solicitudes de Excel con semestre de core sí aparecen en Estudiantes: se pueden registrar recibos (pagos tardíos)
+  y entran a la lista de adeudos y a "Avisar desbloqueo"; no se replantean (su semestre ya terminó).
+- Una solicitud sin `period_id` nunca rompe el expediente ni la lista (se tratan como de solo lectura).
+
+### 17.4 Estadísticas
+
+- **Selector por semestre** (más "Todos"): los semestres de core con solicitudes y las etiquetas de los semestres que
+  solo vienen del Excel, del más nuevo al más viejo.
+- **Solicitudes por carrera** (dona): todas las solicitudes del semestre, agrupadas por `program_name`.
+- **Aceptadas / rechazadas:** porcentaje sobre las decididas (las de Excel cuentan como aceptadas).
+- **Línea de tiempo:** solicitudes recibidas por semana o por mes (aceptadas y rechazadas), sin marcas fijas (§15.7).
+- **KPIs:** pendientes y la antigüedad de la más vieja; tiempo promedio de respuesta (solo app: `decided_at −
+  created_at`, en días); monto total prorrogado (suma de `total_amount`); plazos promedio (app: `requested_terms`;
+  Excel: número de parcialidades); solicitudes replanteadas.
+- **Cumplimiento** (§5), sobre las parcialidades **vigentes** ya vencidas: a tiempo, tarde, sin pago. Con la liga
+  "Ver en Estudiantes" (filtro Con adeudo) cuando el semestre existe en core.
+- **Detalle por carrera:** solicitudes, % de aceptación, monto prorrogado, % pagado a tiempo.
+- **Exportar:** CSV (UTF-8 con BOM para Excel) con el detalle por carrera del semestre elegido.
+- **Gráficas:** Chart.js 4.4.0 desde jsdelivr (ya lo usan Mantenimiento y HelpDesk), con `integrity`.
+- **Permiso:** `prorrogas_tec.stats.api.read` (secretaria, admin), sembrado en `07_insert_plan4.sql`.
