@@ -41,8 +41,9 @@ Escritorio → Prórrogas → pestaña **Estadísticas** (`static/js/secretaria/
   - `tarde`: se cubrieron después;
   - `sin_pago`: aún no se cubren;
   - `estudiantes_sin_pago`: solicitudes con al menos una `sin_pago`;
-  - `period_id`: el del semestre cuando existe en core (la UI lo usa para "Ver en Estudiantes" con filtro Con adeudo); nulo para "Todos" o semestres solo de Excel.
-- **Detalle por carrera** (`por_carrera` y CSV): solicitudes, % de aceptación (vacío si no hay decididas), monto prorrogado, vencidas, pagó a tiempo, pagó tarde, sin pago.
+  - `period_id`: el del semestre cuando existe en core; nulo para "Todos" o semestres solo de Excel. Con él, "Ver en Estudiantes" abre `/prorrogas/secretaria/estudiantes?period_id={period_id}&filtro=con_adeudo`; Estudiantes solo acepta un `period_id` de su lista y un filtro conocido (si no, usa los de siempre). Sin él, el botón no aparece.
+- **Histórico** (`incluye_historico`): verdadero si alguna solicitud del alcance viene del Excel. La UI agrega en Cumplimiento: "Los pagos del histórico se registraron en su fecha de vencimiento."
+- **Detalle por carrera** (`por_carrera` y CSV): solicitudes, % de aceptación (vacío si no hay decididas), monto prorrogado, vencidas, pagó a tiempo, pagó tarde, sin pago. En la UI, "Pagó en la nueva fecha" es `a_tiempo / vencidas` (— si no hay vencidas).
 
 ## Regla de cobertura FIFO (`account.cobertura`)
 
@@ -50,7 +51,7 @@ Los recibos vigentes (no anulados) se ordenan por fecha de pago y se **acumulan*
 
 Después `a_tiempo` es `cubierta <= vencimiento`, `tarde` es `cubierta > vencimiento` y `sin_pago` es `None`. Así un pago adelantado cubre las parcialidades siguientes y un pago de menos no cubre nada de la parcialidad hasta completarla. Es la misma regla que usa Estudiantes para el estado de cada parcialidad ([secretaria_estudiantes.md](secretaria_estudiantes.md)).
 
-Para el histórico, cada parcialidad pagada trae un recibo fechado en su vencimiento: sale `a_tiempo`; las no pagadas y vencidas salen `sin_pago`.
+Para el histórico, cada parcialidad pagada trae un recibo fechado en su vencimiento, y esos recibos se aplican por FIFO como cualquier otro. Si una parcialidad no pagada (bandera 0) va antes de una pagada (1), el recibo cubre la anterior (que sale `tarde`) y la que sale `sin_pago` es la posterior; el saldo es el mismo. `excel-limpiar` cuenta cuántas solicitudes están así.
 
 ## Límite conocido
 
