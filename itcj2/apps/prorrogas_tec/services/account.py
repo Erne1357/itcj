@@ -100,3 +100,20 @@ def load_many(db, reqs, today: date) -> dict[int, Cuenta]:
 
 def load(db, req, today: date) -> Cuenta:
     return load_many(db, [req], today)[req.id]
+
+
+def cobertura(installments: Sequence[tuple[int, Decimal, date]],
+              recibos: Sequence[tuple[date, Decimal]]) -> list[date | None]:
+    """Por parcialidad (en orden de número), el día en que la suma de recibos alcanzó su monto acumulado."""
+    pagos = sorted(recibos, key=lambda r: r[0])  # estable: a igual fecha respeta el orden recibido (id)
+    acumulados = []
+    suma = CERO
+    for paid_on, amount in pagos:
+        suma += amount
+        acumulados.append((suma, paid_on))
+    salida: list[date | None] = []
+    meta = CERO
+    for _, amount, _due in sorted(installments, key=lambda i: i[0]):
+        meta += amount
+        salida.append(next((d for s, d in acumulados if s >= meta), None))
+    return salida
