@@ -305,3 +305,15 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .est-row { grid-template-columns: 1fr 1fr; }
   .est-row-head { display: none; }
 }
+
+/* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
+   Va al final y con body.sec para ganar a .sec-main y a las tarjetas de cada pestaña;
+   body.sec solo existe en secretaria/_base.html, así que no toca nada fuera de esta vista. */
+body.sec .sec-main { max-width: none; margin: 0; padding: 0; min-height: calc(100vh - 60px); display: flex; flex-direction: column; }
+body.sec .sec-main > .sec-card,
+body.sec .sec-main > .sol { flex: 1; border: 0; border-radius: 0; box-shadow: none; }
+body.sec .sec-main > .est { flex: 1; padding: 24px 32px; background: var(--paper); }
+@media (max-width: 760px) {
+  body.sec .sec-main { min-height: 0; }
+  body.sec .sec-main > .est { padding: 16px; }
+}
