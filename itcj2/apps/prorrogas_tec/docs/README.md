@@ -37,12 +37,18 @@ itcj2/apps/prorrogas_tec/
 │   ├── invitations.py          secretaría · QR, búsqueda por número de control, invitación manual, resumen del día
 │   ├── programs.py             catálogo de carreras
 │   ├── requests_admin.py       secretaría · pendientes, sus PDF y la decisión
-│   ├── student.py              estudiante · estado, solicitar, cancelar, bajar sus PDF
+│   ├── student.py              estudiante · estado (plan y recibos), solicitar, cancelar, bajar sus PDF, firmar la carta
+│   ├── students_admin.py       secretaría · Estudiantes: lista, expediente, plan, recibos, recordar, adeudos.xlsx, desbloqueo
 │   └── templates.py            secretaría · plantillas (listar, subir, descargar, vista previa)
 ├── models/                     prorrogas_requests · _documents · _signatures · _templates · _events · _invitations · _joins
+│   ├── plan.py                 prorrogas_installments · prorrogas_payments (plan y recibos de Caja)
 ├── services/
 │   ├── invitation_service.py   QR, invitación manual, unión y NIP inicial
 │   ├── request_service.py      puerta de acceso, crear, cancelar y decidir solicitudes
+│   ├── account.py              cuenta de una solicitud: pagado, saldo, estado de parcialidades y situación
+│   ├── students_service.py     lista, expediente, recordar, adeudos.xlsx y aviso de desbloqueo
+│   ├── plan_service.py         confirmar y replantear el plan de pagos (genera la carta compromiso)
+│   ├── payment_service.py      registrar y anular recibos de Caja
 │   ├── document_service.py     genera, versiona y guarda los PDF de una solicitud
 │   ├── template_service.py     plantillas por año: subir, validar, resolver cuál usar
 │   ├── docx_fill.py            llena marcadores {{x}} en .docx (aunque Word los parta)
@@ -59,11 +65,12 @@ itcj2/apps/prorrogas_tec/
 │   ├── values.py               valores con que se llena cada formato
 │   └── defaults/               plantillas del sistema (tools/prorrogas/build_default_templates.py)
 ├── pages/                      /prorrogas · router, landing, join (unirse y Crea tu NIP), secretaria, student
-├── templates/prorrogas_tec/    email/ · estudiante/ · secretaria/
+├── templates/prorrogas_tec/    email/ (invitacion, decision_*, carta_lista, recordatorio) · estudiante/ · secretaria/
 ├── static/                     servido por nginx en /static/prorrogas_tec/ (css/, js/, images/)
+│                               js/secretaria/estudiantes.js · js/estudiante/firma.js (lienzo compartido)
 └── docs/
     ├── README.md · PENDIENTES.md
-    └── flows/                  secretaria_documentos · secretaria_solicitudes · estudiante_solicitud
+    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · estudiante_solicitud
                                 (UI → endpoint → service → BD de cada flujo)
 ```
 

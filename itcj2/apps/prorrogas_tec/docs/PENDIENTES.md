@@ -40,7 +40,7 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 
 | # | Pendiente | Efecto | Arreglo propuesto |
 |---|---|---|---|
-| D1 | **Para el Plan 3:** firmar un documento que ya existe (carta compromiso) | Si se firma con valores recalculados, el PDF firmado puede diferir del que el estudiante revisó | `DocumentService.sign` vuelve a llenar desde `doc.context`, nunca desde la solicitud viva |
+| D1 | **[hecho 2026-10-29, Task 6, c0b67388]** **Para el Plan 3:** firmar un documento que ya existe (carta compromiso) | Si se firma con valores recalculados, el PDF firmado puede diferir del que el estudiante revisó | `DocumentService.sign` vuelve a llenar desde `doc.context`, nunca desde la solicitud viva |
 | D2 | Si `grant_role` choca por una carrera (IntegrityError), su rollback interno descarta la unión mientras `join()` responde éxito | Raro; el estudiante tendría que escanear otra vez | Atrapar la carrera antes de llamar `grant_role`, o volver a verificar después |
 | D3 | `_usable(lock=True)` sin `populate_existing()`; `consume_invitation` hace `db.rollback()` dentro del servicio | Una invitación ya cargada podría consumirse dos veces en una transacción; el llamador pierde trabajo pendiente | `populate_existing()` y lanzar sin rollback |
 | D4 | Sin candado entre validar la invitación y fijar el NIP; dos invitaciones simultáneas al mismo número nuevo dan 500 | Dos POST a la vez podrían fijar dos NIP (ambos del invitado); la secretaria ve un error genérico | `with_for_update` sobre la invitación; mapear el choque de `control_number` a `ServiceError` |
@@ -51,7 +51,7 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 | D9 | `institutional_email` lanza `ValueError` con un control inválido; un `doc_type` desconocido da `KeyError` en `build_values`; `control_number` no pasa por `clean_text` | Errores de programación con 500 en vez de `ServiceError` | Validar y lanzar `ServiceError` |
 | D10 | Bajar la base más allá de `p1r2o3r4g001` falla (`drop_index` de tablas que `pr20261030a` ya borró) | Solo afecta un downgrade completo | `DROP TABLE IF EXISTS … CASCADE` en ese downgrade, o documentarlo |
 | D11 | Las solicitudes pendientes viejas nunca vencen | Una solicitud olvidada bloquea al estudiante todo el semestre | Definir con la Subdirección (Plan 3/4) |
-| D12 | El lienzo de la firma se dimensiona una vez: al girar el teléfono, los trazos nuevos salen estirados | El estudiante tendría que borrar y volver a firmar | Recalcular en `resize` cuando no hay trazos |
+| D12 | **[hecho 2026-10-29, Task 9, 6c2171eb]** El lienzo de la firma se dimensiona una vez: al girar el teléfono, los trazos nuevos salen estirados | El estudiante tendría que borrar y volver a firmar | Recalcular en `resize` cuando no hay trazos |
 | D13 | "Mi prórroga" dice "Aún no tienes solicitudes" también cuando no puede solicitar por otra razón y no tiene historial | Mensaje confuso | Mostrar el motivo |
 | D14 | La lista de pendientes hace una consulta por fila (`DocumentService.current`) | Bien para decenas; lento con cientos | Una sola consulta de los `formato_solicitud` vigentes |
 | D15 | `lookup` muestra el nombre como nombre-paterno-materno | Solo visual | Orden oficial |
