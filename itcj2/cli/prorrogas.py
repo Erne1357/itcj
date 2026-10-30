@@ -71,9 +71,35 @@ def init_prorrogas_command():
     ))
 
 
+@click.command("excel-limpiar")
+@click.argument("origen", type=click.Path(exists=True, dir_okay=False))
+@click.option("--salida", required=True, type=click.Path(dir_okay=False))
+def excel_limpiar_command(origen, salida):
+    """Lee el Excel histórico y escribe el archivo limpio para revisar (no toca la base).
+
+    Imprime solo conteos: nunca nombres ni números de control.
+    """
+    from collections import Counter
+
+    from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
+    from itcj2.apps.prorrogas_tec.importacion.limpio import escribir_limpio
+
+    solicitudes = leer_libro(origen)
+    res = escribir_limpio(solicitudes, salida)
+    click.echo(f"Solicitudes: {res['solicitudes']} · Parcialidades: {res['parcialidades']} "
+               f"· Con problema: {res['con_problema']}")
+    motivos = Counter(p.problema for s in solicitudes for p in s.parcialidades if p.problema)
+    motivos.update(s.problema for s in solicitudes if s.problema)
+    motivos.update("sin parcialidades" for s in solicitudes if not s.parcialidades and not s.problema)
+    for motivo, n in motivos.most_common():
+        click.echo(f"  {motivo}: {n}")
+    click.echo(f"Archivo: {salida}")
+
+
 @click.group("prorrogas")
 def prorrogas_cli():
     """Comandos administrativos de la app Prórrogas."""
 
 
 prorrogas_cli.add_command(init_prorrogas_command)
+prorrogas_cli.add_command(excel_limpiar_command)
