@@ -80,24 +80,27 @@ def test_excepcion_inesperada_no_deja_nada(db_session, make_program, monkeypatch
     assert db_session.query(ProrrogaRequest).filter(ProrrogaRequest.import_ref.in_(["H#6", "H#7"])).count() == 0
 
 
-def _limpio(libro, tmp_path):
+def _limpio(libro, tmp_path, monkeypatch):
+    from itcj2.apps.prorrogas_tec.importacion import hojas
     from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
+    # hoja sintética: su ref (Prueba 2088#2) no puede coincidir con ningún renglón del archivo real
+    monkeypatch.setitem(hojas.HOJAS, "Prueba 2088", ("enero – junio 2088", "mensual"))
     enc = ["No.", "FECHA", "No. De Control", "NOMBRE", "CARRERA", "ENERO", "IMPORTE", ""]
-    ruta = libro({"Inscripción Enero - Junio 2026": [enc,
-        [None, "12 de enero de 2026", 99120001, "Sintetica", "Contador publico", "16 de enero de 2026", 1000, 1]]})
+    ruta = libro({"Prueba 2088": [enc,
+        [None, "12 de enero de 2088", 99120001, "Sintetica", "Contador publico", "16 de enero de 2088", 1000, 1]]})
     limpio = tmp_path / "limpio.xlsx"
     escribir_limpio(leer_libro(ruta), limpio)
     return limpio
 
 
-def test_cli_dry_run_no_escribe(libro, tmp_path, patched_session_local, make_program):
+def test_cli_dry_run_no_escribe(libro, tmp_path, patched_session_local, make_program, monkeypatch):
     from itcj2.cli.prorrogas import prorrogas_cli
     make_program("Contador publico", "licenciatura")
-    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path)), "--dry-run"])
+    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path, monkeypatch)), "--dry-run"])
     assert res.exit_code == 0 and "SIMULACRO" in res.output and "Creadas: 1" in res.output, res.output
     assert "Sintetica" not in res.output and "99120001" not in res.output
     assert patched_session_local.query(ProrrogaRequest).filter(
-        ProrrogaRequest.import_ref.like("%Junio 2026#%")).count() == 0
+        ProrrogaRequest.import_ref == "Prueba 2088#2").count() == 0
 
 
 def test_cli_error_de_base_no_filtra_datos(libro, tmp_path, patched_session_local, make_program, monkeypatch):
@@ -108,7 +111,7 @@ def test_cli_error_de_base_no_filtra_datos(libro, tmp_path, patched_session_loca
         raise IntegrityError("x", {"student_name": "SECRETO"}, None)
 
     monkeypatch.setattr("itcj2.apps.prorrogas_tec.importacion.importador.importar", _revienta)
-    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path))])
+    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path, monkeypatch))])
     assert res.exit_code != 0 and "SECRETO" not in res.output and "IntegrityError" in res.output
 
 
