@@ -85,6 +85,8 @@ def _grupo(vf, vi, vb, origen: str, anio: int) -> list[Parcialidad]:
     """Terna fecha · importe · bandera; fechas e importes de la misma celda se emparejan en orden."""
     try:
         fechas, montos, pagado = parse_fechas(vf, anio=anio), parse_importes(vi), parse_bandera(vb)
+        if not fechas and not montos:
+            return []  # una bandera 0/1 sola no dice nada; una ilegible sí cae en el except
         if fechas and len(fechas) == len(montos):
             return [Parcialidad(f, m, pagado, origen=origen) for f, m in zip(fechas, montos)]
         motivo = ("parcialidad sin importe" if not montos else "parcialidad sin fecha" if not fechas
@@ -133,27 +135,30 @@ def _leer_hoja(ws) -> list[Solicitud]:
     actual = None
     for r, fila in enumerate(filas, start=2):
         if all(_vacio(v) for i, v in enumerate(fila) if i != c_no):
+            actual = None  # un hueco corta la continuación: lo de abajo no se pega al alumno de arriba
             continue
         celda = {k: fila[i] for k, i in col.items()}
-        if not _vacio(celda.get("No. De Control")):
-            actual = _nueva(hoja, semestre, formato, anio, r, celda, validas)
-            sols.append(actual)
-            leidas = de_grupo | de_alumno
-        else:
-            leidas = de_grupo  # continuación: lo que traiga en las columnas del alumno va a revisión
-            if actual is None:
-                actual = Solicitud(f"{hoja}#{r}", hoja, semestre, None, "", "", "", "", [], "renglón sin estudiante")
-                sols.append(actual)
+        nueva = not _vacio(celda.get("No. De Control"))
+        # en una continuación, lo que traiga en las columnas del alumno va a revisión
+        leidas = de_grupo | de_alumno if nueva else de_grupo
+        pagos = []
         for cf, ci, cb in grupos:
             origen = f"{hoja}!{get_column_letter(cf + 1)}{r}"
             vf, vi, vb = (None if c is None else fila[c] for c in (cf, ci, cb))
             if formato == "celda":
-                actual.parcialidades += [] if _vacio(vf) else _celda(vf, origen, anio)
-            elif not (_vacio(vf) and _vacio(vi)):  # sin fecha ni importe, la bandera sola no dice nada
-                actual.parcialidades += _grupo(vf, vi, vb, origen, anio)
-        actual.parcialidades += [
-            _problema("dato sin interpretar", str(v), f"{hoja}!{get_column_letter(i + 1)}{r}")
-            for i, v in enumerate(fila) if i not in leidas and i != c_no and not _vacio(v)]
+                pagos += [] if _vacio(vf) else _celda(vf, origen, anio)
+            else:
+                pagos += _grupo(vf, vi, vb, origen, anio)
+        pagos += [_problema("dato sin interpretar", str(v), f"{hoja}!{get_column_letter(i + 1)}{r}")
+                  for i, v in enumerate(fila) if i not in leidas and i != c_no and not _vacio(v)]
+        if nueva:
+            actual = _nueva(hoja, semestre, formato, anio, r, celda, validas)
+            sols.append(actual)
+        elif actual is None and pagos:  # un renglón con solo banderas 0/1 no abre nada
+            actual = Solicitud(f"{hoja}#{r}", hoja, semestre, None, "", "", "", "", [], "renglón sin estudiante")
+            sols.append(actual)
+        if actual is not None:
+            actual.parcialidades += pagos
 
     repetidos = Counter(s.no_control for s in validas)
     for s in validas:

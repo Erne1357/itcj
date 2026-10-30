@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal as D
 
+import pytest
+
 from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
 
 ENC_2026 = ["No.", "FECHA", "No. De Control", "NOMBRE", "CARRERA", "ENERO", "IMPORTE", "", "FEBRERO", "IMPORTE", ""]
@@ -101,3 +103,64 @@ def test_dato_que_no_se_lee_no_se_pierde(libro):
     assert [(p.problema, p.valor_original, p.origen) for p in s.parcialidades if p.problema] == [
         ("dato sin interpretar", "pagó en caja", "Inscripción Enero - Junio 2026!L2"),
         ("dato sin interpretar", "F", "Inscripción Enero - Junio 2026!D3")]
+
+
+H_2025 = "Inscripción Enero-Junio 2025"
+ENC_2025 = (["No.", "FECHA", "No. De Control", "NOMBRE", "CARRERA"]
+            + [c for m in ("ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO") for c in (m, "IMPORTE", "")]
+            + ["", "", ""])
+
+
+def test_bandera_sola_con_texto_es_problema_y_con_0_o_1_no(libro):
+    ruta = libro({H_2025: [
+        ENC_2025,
+        [1, "14 de enero de 2025", 99110009, "G", "Contador Público", None, None, "cancelada", None, None, 1],
+        [2, "14 de enero de 2025", 99110010, "H", "Contador Público", None, None, 0, None, None, 1],
+    ]})
+    g, h = leer_libro(ruta)
+    assert [(p.problema, p.valor_original, p.origen) for p in g.parcialidades] == [
+        ("bandera ilegible", " |  | cancelada", f"{H_2025}!F2")]
+    assert h.parcialidades == [] and not h.tiene_problema
+
+
+@pytest.mark.parametrize("hueco", [[None], [2]])  # renglón en blanco, o solo con No.
+def test_pago_despues_de_un_hueco_no_se_pega_al_alumno_de_arriba(libro, hueco):
+    ruta = libro({H_2025: [
+        ENC_2025,
+        [1, "14 de enero de 2025", 99110011, "I", "Contador Público", "16 de enero de 2025", 1000, 1],
+        hueco,
+        [3, None, None, None, None, "30 de enero de 2025", 500, 1],
+    ]})
+    a, b = leer_libro(ruta)
+    assert [p.vencimiento for p in a.parcialidades] == [date(2025, 1, 16)] and not a.tiene_problema
+    assert b.problema == "renglón sin estudiante" and b.ref == f"{H_2025}#4"
+    assert [p.vencimiento for p in b.parcialidades] == [date(2025, 1, 30)]
+
+
+def test_columnas_finales_sin_encabezado_y_vacias_no_marcan_nada(libro):
+    fila = [1, "14 de enero de 2025", 99110012, "J", "Contador Público"] + [None] * 15 + [
+        "16 de junio de 2025", 1000, 1, "", "", ""]
+    s, = leer_libro(libro({H_2025: [ENC_2025, fila]}))
+    assert [(p.vencimiento, p.monto) for p in s.parcialidades] == [(date(2025, 6, 16), D("1000.00"))]
+    assert not s.tiene_problema
+
+
+def test_celda_con_dos_pagos_separados_por_espacio(libro):
+    ruta = libro({"Enero Junio 2024": [
+        ["No. De Control", "NOMBRE", "CARRERA", "ENERO"],
+        [99110013, "K", "Ingeniería Industrial", "3 de enero $1,000.00   20 de enero $500.00"],
+    ]})
+    s, = leer_libro(ruta)
+    assert [(p.vencimiento, p.monto) for p in s.parcialidades] == [
+        (date(2024, 1, 3), D("1000.00")), (date(2024, 1, 20), D("500.00"))]
+    assert s.fecha_solicitud == date(2024, 1, 3) and not s.tiene_problema
+
+
+def test_repetido_conserva_el_problema_que_ya_tenia(libro):
+    ruta = libro({H_2025: [
+        ENC_2025,
+        [1, "14 de enero de 2025", 99110014, "L", "Carrera Rara", "16 de enero de 2025", 1000, 1],
+        [2, "14 de enero de 2025", 99110014, "M", "Contador Público", "16 de enero de 2025", 1000, 1],
+    ]})
+    assert [s.problema for s in leer_libro(ruta)] == ["carrera sin equivalencia",
+                                                      "número de control repetido en la hoja"]
