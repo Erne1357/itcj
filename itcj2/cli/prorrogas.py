@@ -96,6 +96,33 @@ def excel_limpiar_command(origen, salida):
     click.echo(f"Archivo: {salida}")
 
 
+@click.command("import-excel")
+@click.argument("limpio", type=click.Path(exists=True, dir_okay=False))
+@click.option("--dry-run", is_flag=True, help="Valida y cuenta sin escribir en la base.")
+def import_excel_command(limpio, dry_run):
+    """Importa a la base el archivo limpio (idempotente por referencia).
+
+    Imprime solo referencias (hoja#renglón) y conteos: nunca nombres ni números de control.
+    """
+    from itcj2.apps.prorrogas_tec.importacion.importador import importar
+    from itcj2.apps.prorrogas_tec.importacion.limpio import leer_limpio
+    from itcj2.database import SessionLocal
+
+    try:
+        solicitudes, errores = leer_limpio(limpio)
+    except ValueError as e:
+        click.secho(str(e), fg="red")
+        raise click.Abort()
+    with SessionLocal() as db:
+        res = importar(db, solicitudes, dry_run=dry_run)
+    for ref, motivo in [*errores, *res["con_error"]]:
+        click.echo(f"{ref}: {motivo}")
+    prefijo = "SIMULACRO — " if dry_run else ""
+    click.echo(f"{prefijo}Creadas: {res['creadas']} · Ya existían: {res['ya_existian']} "
+               f"· Con error: {len(errores) + len(res['con_error'])} "
+               f"· Sin semestre en core: {res['sin_semestre_core']} · Sin cuenta: {res['sin_cuenta']}")
+
+
 @click.group("prorrogas")
 def prorrogas_cli():
     """Comandos administrativos de la app Prórrogas."""
@@ -103,3 +130,4 @@ def prorrogas_cli():
 
 prorrogas_cli.add_command(init_prorrogas_command)
 prorrogas_cli.add_command(excel_limpiar_command)
+prorrogas_cli.add_command(import_excel_command)
