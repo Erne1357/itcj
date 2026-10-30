@@ -128,3 +128,42 @@ def test_api_reparto(client_as, secretaria):
     assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=3").json() == {
         "montos": ["1217.00", "1217.00", "1216.00"]}
     assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=4").json()["error"] == "plazos_invalidos"
+
+
+def test_replantear_anular_y_replantear_otra_vez(db_session, aceptada, secretaria, avisos):  # Review Focus 2, M8
+    from itcj2.apps.prorrogas_tec.services.account import load
+    from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
+
+    def estado(hoy):
+        c = load(db_session, aceptada, hoy)
+        cartas = [d.doc_type for d in _cartas(db_session, aceptada)]
+        return [(p.number, p.amount, p.due_date, p.estado) for p in c.parcialidades], c.situacion, cartas
+
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 15),
+                        parcialidades=[(D("1000"), date(2091, 2, 1)), (D("1000"), date(2091, 3, 1))])
+    assert estado(date(2091, 1, 15)) == ([(1, D("1000.00"), date(2091, 2, 1), "pendiente"),
+                                          (2, D("1000.00"), date(2091, 3, 1), "pendiente")],
+                                         "al_corriente", ["carta_compromiso_2"])
+    pago = PaymentService.record(db_session, aceptada.id, secretaria.id, folio=f"M8-{aceptada.id}",
+                                 paid_on=date(2091, 1, 20), amount=D("1000"), now=date(2091, 1, 20))
+    assert estado(date(2091, 1, 20))[0][0][3] == "pagada"
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 25),
+                        parcialidades=[(D("1000"), date(2091, 4, 1))])           # conserva la 1
+    assert estado(date(2091, 1, 25)) == ([(1, D("1000.00"), date(2091, 2, 1), "pagada"),
+                                          (2, D("1000.00"), date(2091, 4, 1), "pendiente")],
+                                         "al_corriente", ["carta_compromiso_2"])
+    PaymentService.void(db_session, pago.id, secretaria.id, motivo="Recibo equivocado", now=date(2091, 2, 10))
+    assert estado(date(2091, 2, 10)) == ([(1, D("1000.00"), date(2091, 2, 1), "vencida"),
+                                          (2, D("1000.00"), date(2091, 4, 1), "pendiente")],
+                                         "atrasada", ["carta_compromiso_2"])
+    # Ya no hay pagadas: no conserva nada, así que caben 3 nuevas (con la 1 conservada serían 4).
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 2, 10),
+                        parcialidades=[(D("700"), date(2091, 3, 1)), (D("700"), date(2091, 4, 1)),
+                                       (D("600"), date(2091, 5, 1))])
+    assert estado(date(2091, 2, 10)) == ([(1, D("700.00"), date(2091, 3, 1), "pendiente"),
+                                          (2, D("700.00"), date(2091, 4, 1), "pendiente"),
+                                          (3, D("600.00"), date(2091, 5, 1), "pendiente")],
+                                         "al_corriente", ["carta_compromiso_3"])
+    assert aceptada.total_amount == D("2000.00")
+    assert db_session.query(ProrrogaInstallment).filter(ProrrogaInstallment.request_id == aceptada.id,
+                                                        ProrrogaInstallment.superseded_at.isnot(None)).count() == 3
