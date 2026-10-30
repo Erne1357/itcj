@@ -51,7 +51,9 @@ def estado(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
         "puede_solicitar": code is None, "motivo": code,
         "semestre": period_label(period) if period else None,
         "program_id": perfil.program_id if perfil else None,
-        "solicitudes": [_con_cuenta(db, r) for r in RequestService.mine(db, uid)],
+        # las del Excel sin semestre de core solo cuentan para estadísticas (§17.3)
+        "solicitudes": [_con_cuenta(db, r) for r in RequestService.mine(db, uid)
+                        if not (r.origin == "excel" and r.period_id is None)],
     }
 
 

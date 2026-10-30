@@ -121,3 +121,12 @@ def test_recordatorio_dice_si_el_pago_ya_vencio(db_session, aceptada, make_acept
     vencido, proximo = (plantilla.render(**c["context"]) for c in enviar_correo.calls)
     assert "pago vencido desde el 01 de enero de 2020 por $1,000.00" in vencido and "próximo pago" not in vencido
     assert "Tu próximo pago es el 01 de mayo de 2091 por $500.00" in proximo and "vencido" not in proximo
+
+
+def test_no_se_recuerda_sin_cuenta_ni_correo(db_session, make_historica, secretaria, avisos):  # M4
+    req = make_historica()  # importada: sin cuenta, sin correo y con saldo vencido
+    db_session.commit()  # el rollback del servicio al fallar descartaría lo que solo está en flush
+    assert StudentsService.expediente(db_session, req.id, AHORA.date())["recordatorio"]["puede"] is False
+    with pytest.raises(ServiceError) as e:
+        StudentsService.remind(db_session, req.id, secretaria.id, now=AHORA)
+    assert (e.value.code, e.value.status) == ("sin_destinatario", 409) and avisos.calls == []

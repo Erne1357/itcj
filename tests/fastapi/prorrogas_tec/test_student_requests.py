@@ -190,3 +190,12 @@ def test_integrity_error_se_mapea_a_solicitud_abierta(db_session, alumno_unido, 
     with pytest.raises(ServiceError) as e:
         _crear(db_session, alumno_unido, prog, firma_png)  # el índice único dispara en el flush
     assert e.value.code == "solicitud_abierta" and e.value.status == 409
+
+
+def test_estado_no_muestra_historicas_sin_semestre(client_as, estudiante, make_historica, periodo):  # I4
+    sin = make_historica(control_number=estudiante.control_number)
+    con = make_historica(periodo=periodo, control_number=estudiante.control_number)
+    for r in (sin, con):
+        r.student_id = estudiante.id
+    ids = [s["id"] for s in client_as(estudiante).get("/api/prorrogas/v2/estudiante/estado").json()["solicitudes"]]
+    assert con.id in ids and sin.id not in ids

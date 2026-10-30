@@ -43,7 +43,7 @@ def _tiempos(now):
 
 
 def _puede_recordar(req, c, ahora: datetime) -> bool:
-    return (c.total is not None and c.saldo > 0
+    return (bool(req.student_id or req.email) and c.total is not None and c.saldo > 0
             and (req.last_reminded_at is None or ahora - req.last_reminded_at >= _ENTRE_RECORDATORIOS))
 
 
@@ -160,6 +160,9 @@ class StudentsService:
                 raise ServiceError("sin_plan", "La solicitud aún no tiene plan de pagos.", status=409)
             if c.saldo <= 0:
                 raise ServiceError("sin_saldo", "La solicitud no tiene saldo pendiente.", status=409)
+            if not (req.student_id or req.email):  # importada del Excel sin cuenta: no llegaría a nadie
+                raise ServiceError("sin_destinatario", "Esta prórroga no tiene cuenta ni correo para avisar.",
+                                   status=409)
             if req.last_reminded_at and ts - req.last_reminded_at < _ENTRE_RECORDATORIOS:
                 raise ServiceError("ya_recordado", "Ya se le recordó en las últimas 24 horas.", status=409,
                                    siguiente=(req.last_reminded_at + _ENTRE_RECORDATORIOS).isoformat())
