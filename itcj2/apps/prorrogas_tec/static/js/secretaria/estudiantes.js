@@ -288,6 +288,7 @@
       const b = section("Desbloqueo");
       b.append(el("p", null, "La cuenta quedó liquidada y estaba en la lista de bloqueo."));
       b.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
+        show(msg, "");
         apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");
       }));
       body.append(b);
@@ -337,37 +338,41 @@
     const rowsBox = el("div", "est-plan-rows");
     const restante = el("p", "est-note");
     const minD = todayIso();
-    let montos = [], fechas = [];
+    let planSeq = 0;
+    let confirmBtn = null;
 
     const paintRest = () => {
+      const ms = [...rowsBox.querySelectorAll("input[data-m]")];
       const base = cents(total.value) - (replan ? cents(p.suma_conservadas) : 0);
-      const sum = montos.reduce((t, i) => t + cents(i.value), 0);
+      const sum = ms.reduce((t, i) => t + cents(i.value), 0);
       restante.textContent = replan
         ? `Falta por repartir: ${money(base)}. Suma de las nuevas: ${money(sum)}.`
         : `Suma de las parcialidades: ${money(sum)}.`;
     };
 
+    // Las filas se arman al instante desde n; el reparto sugerido solo rellena montos si sigue siendo la reconstrucción vigente.
     const rebuild = async () => {
+      const my = ++planSeq;
       rowsBox.textContent = "";
-      montos = []; fechas = [];
       const count = Number(n.value);
       const base = cents(total.value) - (replan ? cents(p.suma_conservadas) : 0);
-      let sug = [];
-      if (base > 0) {
-        const r = await api(`${EST}/reparto?total=${(base / 100).toFixed(2)}&n=${count}`);
-        if (r.ok) sug = r.data.montos || [];
-      }
       for (let i = 0; i < count; i++) {
-        const m = input("text", { inputmode: "decimal", "aria-label": `Monto de la parcialidad ${i + 1}` });
-        m.value = sug[i] || "";
+        const m = input("text", { inputmode: "decimal", "data-m": "1", "aria-label": `Monto de la parcialidad ${i + 1}` });
         m.addEventListener("input", paintRest);
-        const f = input("date", { min: minD, "aria-label": `Fecha de la parcialidad ${i + 1}` });
+        const f = input("date", { min: minD, "data-f": "1", "aria-label": `Fecha de la parcialidad ${i + 1}` });
         if (p.fecha_limite) f.max = p.fecha_limite;
-        montos.push(m); fechas.push(f);
         const r = el("div", "est-plan-row");
         r.append(el("span", null, `${(replan ? keptNums.size : 0) + i + 1}.`), m, f);
         rowsBox.append(r);
       }
+      paintRest();
+      if (confirmBtn) confirmBtn.disabled = base > 0;   // sin reparto en vuelo, el botón queda libre
+      if (!(base > 0)) return;
+      const r = await api(`${EST}/reparto?total=${(base / 100).toFixed(2)}&n=${count}`);
+      if (my !== planSeq) return;   // una reconstrucción más nueva ya decide el estado del botón
+      if (confirmBtn) confirmBtn.disabled = false;
+      if (!r.ok) return;
+      [...rowsBox.querySelectorAll("input[data-m]")].forEach((m, i) => { m.value = (r.data.montos || [])[i] || ""; });
       paintRest();
     };
     total.addEventListener("change", rebuild);
@@ -376,10 +381,13 @@
     sec.append(field("Total del adeudo", total), field(replan ? "Parcialidades nuevas" : "Parcialidades", n));
     if (replan) sec.append(el("p", "est-note", `Conservadas (solo lectura): ${[...keptNums].join(", ")} · ${pesos(p.suma_conservadas)}`));
     sec.append(rowsBox, restante);
-    sec.append(button(replan ? "Confirmar nuevo plan" : "Confirmar plan", "sec-btn est-sm", async () => {
-      const parc = montos.map((m, i) => ({ monto: m.value.trim(), fecha: fechas[i].value }));
+    confirmBtn = button(replan ? "Confirmar nuevo plan" : "Confirmar plan", "sec-btn est-sm", async () => {
+      show(msg, "");
+      const parc = [...rowsBox.querySelectorAll(".est-plan-row")].map((row) => ({
+        monto: row.querySelector("input[data-m]").value.trim(), fecha: row.querySelector("input[data-f]").value }));
       apply(await api(`${EST}/${s.id}/plan`, { body: { total: total.value.trim(), parcialidades: parc } }), "Plan confirmado.");
-    }));
+    });
+    sec.append(confirmBtn);
     if (total.value) rebuild();
     return sec;
   }
@@ -396,6 +404,7 @@
       else li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
         const motivo = prompt("Motivo de la anulación (mínimo 5 caracteres):");
         if (motivo == null) return;
+        show(msg, "");
         apply(await api(`${EST}/${s.id}/recibos/${r.id}/anular`, { body: { motivo: motivo.trim() } }), "Recibo anulado.");
       }));
       ul.append(li);
@@ -411,6 +420,7 @@
     const form = el("div", "est-recibo-form");
     form.append(field("Folio de Caja", folio), field("Fecha de pago", fecha), field("Monto", monto));
     form.append(button("Registrar recibo", "sec-btn est-sm", async () => {
+      show(msg, "");
       apply(await api(`${EST}/${s.id}/recibos`, { body: { folio: folio.value.trim(), fecha: fecha.value, monto: monto.value.trim() } }), "Recibo registrado.");
     }));
     sec.append(form);
