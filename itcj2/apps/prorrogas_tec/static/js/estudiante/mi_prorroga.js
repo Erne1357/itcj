@@ -34,7 +34,8 @@
     const [y, m, d] = String(iso).split("-");
     return d && m && y ? `${d}/${m}/${y}` : String(iso);
   }
-  const dinero = (v) => "$" + v;
+  // "3650.00" -> "$3,650.00" sobre la cadena (sin float); con 2 decimales la regla no toca la parte decimal.
+  const dinero = (v) => "$" + String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
   function seccionCuenta(c, recibos) {
     const sec = el("div", null, "mp-cuenta");
@@ -86,6 +87,11 @@
         });
         if (r.ok) { cargar(); return; }
         const d = await r.json().catch(() => ({}));
+        if (r.status === 409) {   // documento_no_vigente / ya_firmado: avisar y mostrar el estado actual
+          alert(d.message || "Este documento ya no se puede firmar.");
+          cargar();
+          return;
+        }
         err.textContent = d.message || "No se pudo firmar el documento.";
       } catch (e) {
         err.textContent = "No se pudo firmar el documento.";

@@ -253,6 +253,20 @@
 
   const SITUACION = { sin_plan: "Sin plan", liquidada: "Liquidada", atrasada: "Con adeudo", al_corriente: "Al corriente" };
 
+  // Datos de un evento en líneas legibles: escalares juntos; cada objeto de una lista en su propia línea
+  // (parcialidades: "#1 $1,000.00 · 1 feb 2091"); cualquier otro objeto, en JSON.
+  function histLineas(datos) {
+    const esObj = (v) => v != null && typeof v === "object";
+    const item = (i) => (esObj(i) && "numero" in i ? `#${i.numero} ${pesos(i.monto)} · ${fmtDate(i.fecha)}`
+      : esObj(i) ? JSON.stringify(i) : String(i));
+    const cortos = [], lineas = [];
+    Object.entries(datos || {}).forEach(([k, v]) => {
+      if (Array.isArray(v) && v.some(esObj)) lineas.push(`${k}:`, ...v.map(item));
+      else cortos.push(`${k}: ${Array.isArray(v) ? v.join(", ") || "—" : esObj(v) ? JSON.stringify(v) : v}`);
+    });
+    return (cortos.length ? [cortos.join(" · ")] : []).concat(lineas);
+  }
+
   function renderPanel(x) {
     const body = $("estPanelBody");
     body.textContent = "";
@@ -284,23 +298,28 @@
 
     body.append(planSection(x, msg, apply), recibosSection(x, msg, apply), docsSection(x));
 
-    if (x.bloqueo && x.bloqueo.avisar_desbloqueo) {
-      const b = section("Desbloqueo");
+    const bl = x.bloqueo || {}, rec = x.recordatorio || {};
+    const b = section("Bloqueo y recordatorios");
+    b.append(kv([
+      ["Lista de adeudos", bl.exportada ? "Exportado el " + fmtDate(bl.exportada) : "No"],
+      ["Desbloqueo avisado", bl.avisado ? fmtDate(bl.avisado) : "No"],
+      ["Último recordatorio", rec.ultimo ? fmtDate(rec.ultimo) : "Nunca"],
+    ]));
+    if (bl.avisar_desbloqueo) {
       b.append(el("p", null, "La cuenta quedó liquidada y estaba en la lista de bloqueo."));
       b.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
         show(msg, "");
         apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");
       }));
-      body.append(b);
     }
+    body.append(b);
 
     const h = section("Historial");
     const ul = el("ul", "est-hist");
     (x.historial || []).forEach((ev) => {
       const li = el("li");
       li.append(el("b", null, HIST[ev.tipo] || ev.tipo), el("span", null, fmtDate(ev.fecha)));
-      const extra = Object.entries(ev.datos || {}).map(([k, v]) => `${k}: ${v}`).join(" · ");
-      if (extra) li.append(el("small", null, extra));
+      histLineas(ev.datos).forEach((t) => li.append(el("small", null, t)));
       ul.append(li);
     });
     h.append(ul);
@@ -323,8 +342,9 @@
       });
       sec.append(ul);
     }
-    if (p.confirmado && !p.puede_replantear) {
-      sec.append(el("p", "est-note", c.situacion === "liquidada" ? "Cuenta liquidada." : "El plan no se puede replantear."));
+    if (!p.puede_replantear) {   // liquidada o fuera del semestre, haya plan o no
+      sec.append(el("p", "est-note", c.situacion === "liquidada"
+        ? "Cuenta liquidada." : "El semestre terminó: ya no se puede armar ni replantear el plan."));
       return sec;
     }
 
@@ -385,6 +405,7 @@
       show(msg, "");
       const parc = [...rowsBox.querySelectorAll(".est-plan-row")].map((row) => ({
         monto: row.querySelector("input[data-m]").value.trim(), fecha: row.querySelector("input[data-f]").value }));
+      if (parc.some((q) => !q.fecha)) { show(msg, "Falta la fecha de una parcialidad."); return; }
       apply(await api(`${EST}/${s.id}/plan`, { body: { total: total.value.trim(), parcialidades: parc } }), "Plan confirmado.");
     });
     sec.append(confirmBtn);
@@ -421,6 +442,7 @@
     form.append(field("Folio de Caja", folio), field("Fecha de pago", fecha), field("Monto", monto));
     form.append(button("Registrar recibo", "sec-btn est-sm", async () => {
       show(msg, "");
+      if (!fecha.value) { show(msg, "Falta la fecha de pago."); return; }
       apply(await api(`${EST}/${s.id}/recibos`, { body: { folio: folio.value.trim(), fecha: fecha.value, monto: monto.value.trim() } }), "Recibo registrado.");
     }));
     sec.append(form);
