@@ -81,7 +81,7 @@ La tabla está en `importacion/carreras.py` (`_TABLA`). Cada renglón es `(varia
 - **Parcialidades:** hasta 6 para `origin='excel'` (los planes de la app siguen con máximo 3).
 - **Recibos:** solo para las parcialidades pagadas; uno por parcialidad, `origin='excel'`, sin folio, con `paid_on` = vencimiento y el monto de la parcialidad. Lo no pagado no genera recibo.
 - **Idempotente por `ref`:** una solicitud cuyo `ref` ya existe no se vuelve a crear (cuenta como "ya existía"); se puede correr de nuevo sin duplicar.
-- Una solicitud de Excel sin `period_id` nunca rompe el expediente ni la lista (se trata como de solo lectura). Las que sí tienen semestre en core aceptan recibos tardíos y entran a la lista de adeudos; no se replantean.
+- Una solicitud de Excel sin `period_id` nunca rompe el expediente ni la lista y es de solo lectura: el expediente trae `solo_lectura: true`, la vista no ofrece registrar ni anular recibos y el servicio responde 409 `sin_semestre` al plan, al recibo y a la anulación. Las que sí tienen semestre en core aceptan recibos tardíos y entran a la lista de adeudos; no se replantean.
 
 ## Ejemplo (datos ficticios)
 

@@ -26,6 +26,13 @@ def _tiempos(now):
     return (now.date(), now) if isinstance(now, datetime) else (now, datetime.combine(now, time()))
 
 
+def _exigir_semestre(req) -> None:
+    """Las del Excel sin semestre de core son de solo lectura (§17.3)."""
+    if req.period_id is None:
+        raise ServiceError("sin_semestre", "Esta prórroga es del histórico sin semestre: solo cuenta para Estadísticas.",
+                           status=409)
+
+
 class PaymentService:
 
     @staticmethod
@@ -40,6 +47,7 @@ class PaymentService:
         try:
             if req.status != "aceptada":
                 raise ServiceError("no_aceptada", "Solo una solicitud aceptada lleva recibos.", status=409)
+            _exigir_semestre(req)
             if req.total_amount is None:
                 raise ServiceError("sin_plan", "Primero hay que confirmar el plan de pagos.", status=409)
             folio = (folio or "").strip()
@@ -87,6 +95,7 @@ class PaymentService:
             req = (db.query(ProrrogaRequest).filter_by(id=pago.request_id)
                    .populate_existing().with_for_update().first())
             db.refresh(pago)  # releer tras el candado de la solicitud
+            _exigir_semestre(req)
             if pago.voided_at is not None:
                 raise ServiceError("ya_anulado", "El recibo ya estaba anulado.", status=409)
             motivo = (motivo or "").strip()

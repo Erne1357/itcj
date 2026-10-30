@@ -95,6 +95,8 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `ya_anulado` | El recibo ya estaba anulado | 409 |
 | `sin_saldo` | Recordar sin saldo pendiente | 409 |
 | `ya_recordado` | Se recordó hace menos de 24 h | 409 |
+| `sin_destinatario` | Recordar una prórroga sin cuenta ni correo (importada del Excel) | 409 |
+| `sin_semestre` | Plan, recibo o anulación en una prórroga del Excel sin semestre de core (solo lectura) | 409 |
 | `no_aplica` | Avisar desbloqueo sin lista exportada, sin liquidar o ya avisado | 409 |
 | `pdf_no_disponible` | LibreOffice falló al generar la carta; el plan no se guarda y se puede reintentar | 503 |
 

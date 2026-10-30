@@ -114,6 +114,7 @@ class StudentsService:
         eventos = (db.query(ProrrogaEvent).filter(ProrrogaEvent.request_id == req.id)
                    .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).all())
         return {
+            "solo_lectura": req.period_id is None,  # del Excel sin semestre de core: solo cuenta para Estadísticas
             "solicitud": RequestService.request_out(db, req),
             "estudiante": {"nombre": req.student_name, "control": req.control_number, "correo": req.email,
                            "carrera": req.program_name},

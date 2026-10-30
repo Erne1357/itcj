@@ -425,9 +425,9 @@
     const ul = el("ul", "est-recibos");
     (x.recibos || []).forEach((r) => {
       const li = el("li", r.anulado ? "is-void" : "");
-      li.append(el("b", "mono", r.folio), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
+      li.append(el("b", "mono", r.folio || "Histórico"), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
       if (r.anulado) li.append(el("small", null, "Anulado: " + (r.motivo_anulacion || "")));
-      else li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
+      else if (!x.solo_lectura) li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
         const motivo = prompt("Motivo de la anulación (mínimo 5 caracteres):");
         if (motivo == null) return;
         show(msg, "");
@@ -437,7 +437,8 @@
     });
     if (!ul.children.length) sec.append(el("p", "est-note", "Sin recibos."));
     sec.append(ul);
-    if (x.cuenta.total == null) return sec;  // como el sin_plan del servicio: las del Excel tienen plan sin confirmar
+    // Como los guards del servicio: sin_plan (las del Excel tienen total sin plan confirmado) y sin_semestre.
+    if (x.cuenta.total == null || x.solo_lectura) return sec;
 
     const folio = input("text", { maxlength: "40" });
     const fecha = input("date", { max: todayIso() });
