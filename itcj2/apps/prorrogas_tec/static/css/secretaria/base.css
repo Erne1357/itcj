@@ -306,6 +306,62 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .est-row-head { display: none; }
 }
 
+/* ── Estadísticas ── */
+.stt h2 { margin: 0; font: 500 17px var(--font-title); }
+.stt-head { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 12px; }
+.stt-actions { display: flex; gap: 10px; align-items: center; }
+.stt-actions select { height: 38px; padding: 0 14px; border: 1px solid rgba(26, 19, 14, .18); border-radius: 8px; background: #fff; font-size: 15px; }
+.stt-sub { font-size: 14px; color: var(--muted); }
+.stt-head .stt-sub { color: var(--wine); font-weight: 600; }
+.stt-note { font-size: 13px; color: var(--muted); min-height: 1em; }
+.stt-card { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.stt-grid3 { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 20px; }
+.stt-big { justify-content: space-between; }
+.stt-big h2 { font-size: 15px; font-weight: 600; }
+.stt-num { font: 500 56px/1 var(--font-mono); letter-spacing: -.03em; }
+.stt-bar { height: 6px; border-radius: 3px; }
+.stt-bar i { display: block; height: 6px; border-radius: 3px; }
+.stt-bar-blue { background: rgba(103, 153, 224, .2); } .stt-bar-blue i { background: var(--blue); }
+.stt-bar-red { background: rgba(196, 84, 31, .2); } .stt-bar-red i { background: var(--alert); }
+.stt-donut { display: flex; align-items: center; gap: 28px; }
+.stt-canvas { position: relative; width: 170px; height: 170px; flex: none; }
+.stt-canvas-tl { width: 100%; height: 280px; }
+.stt-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 0; }
+.stt-legend li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.stt-lbl { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stt-legend b { font: 500 14px var(--font-mono); color: rgba(26, 19, 14, .65); }
+.stt-sw { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+.stt-tl-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.stt-toggle { display: flex; gap: 4px; background: rgba(26, 19, 14, .06); padding: 3px; border-radius: 8px; }
+.stt-toggle button { border: 0; background: transparent; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; color: var(--ink); }
+.stt-toggle button.is-active { background: #fff; font-weight: 600; }
+.stt-fallback { font: 13px var(--font-mono); color: var(--muted); }
+.stt-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 20px; }
+.stt-kpi { padding: 20px; gap: 8px; }
+.stt-kpi-v { font: 500 30px/1 var(--font-mono); letter-spacing: -.02em; }
+.stt-stack { display: flex; height: 18px; border-radius: 9px; overflow: hidden; gap: 3px; }
+.stt-cumps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.stt-cump-l { display: flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(26, 19, 14, .7); }
+.stt-cump-v { font: 500 24px var(--font-mono); margin-top: 4px; }
+.stt-alertbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; background: var(--paper); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+.stt-alertbar .sec-btn { height: 32px; padding: 0 14px; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; }
+.stt-table-card { padding: 0; overflow: hidden; gap: 0; }
+.stt-table-card h2 { padding: 20px 24px 14px; }
+.stt-row { display: grid; grid-template-columns: 1.6fr 110px 1fr 140px 1fr; gap: 16px; align-items: center; padding: 12px 24px; border-bottom: 1px solid rgba(26, 19, 14, .06); font-size: 15px; }
+.stt-row-head { padding: 10px 24px; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.stt-name { display: flex; align-items: center; gap: 10px; font-weight: 600; min-width: 0; }
+.stt-mono { font-family: var(--font-mono); }
+.stt-meter { display: flex; align-items: center; gap: 10px; }
+.stt-meter .stt-mono { width: 44px; font-size: 14px; }
+.stt-track { flex: 1; height: 6px; border-radius: 3px; background: rgba(26, 19, 14, .08); }
+.stt-track i { display: block; height: 6px; border-radius: 3px; }
+@media (max-width: 900px) {
+  .stt-grid3, .stt-cumps { grid-template-columns: 1fr; }
+  .stt-donut { flex-direction: column; align-items: stretch; }
+  .stt-row { grid-template-columns: 1fr 1fr; }
+  .stt-row-head { display: none; }
+}
+
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
    Va al final y con body.sec para ganar a .sec-main y a las tarjetas de cada pestaña;
    body.sec solo existe en secretaria/_base.html, así que no toca nada fuera de esta vista. */

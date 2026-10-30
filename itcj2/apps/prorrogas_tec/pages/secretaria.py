@@ -5,13 +5,13 @@ Rutas (todas bajo /prorrogas/secretaria):
   GET /solicitudes    → QR, invitación manual y revisión de pendientes
   GET /documentos     → plantillas de los formatos
   GET /estudiantes    → lista de aceptadas por semestre y expediente (plan, recibos, documentos)
-  GET /{tab}          → estadisticas: llega en el plan 4
+  GET /estadisticas   → gráficas, cumplimiento de pago y detalle por carrera
 
 Diseño: docs/design/prorrogas/secretaria-final.dc.html (barra = componente TopNav).
 """
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
 from itcj2.dependencies import require_page_app
@@ -25,7 +25,6 @@ TABS = (
     ("estudiantes", "Estudiantes"),
     ("documentos", "Documentos"),
 )
-_PENDIENTES = {"estadisticas"}
 
 _VIEW = ["prorrogas_tec.secretaria.page.view"]
 
@@ -68,14 +67,10 @@ async def secretaria_estudiantes(request: Request):
     })
 
 
-@router.get("/{tab}", name="prorrogas_tec.pages.secretaria.proximamente")
-async def secretaria_proximamente(request: Request, tab: str):
-    if tab not in _PENDIENTES:
-        raise HTTPException(status_code=404)
-    heading = dict(TABS)[tab]
-    return render(request, "prorrogas_tec/secretaria/proximamente.html", {
-        "title": f"Prórrogas · {heading}",
-        "heading": heading,
+@router.get("/estadisticas", name="prorrogas_tec.pages.secretaria.estadisticas")
+async def secretaria_estadisticas(request: Request):
+    return render(request, "prorrogas_tec/secretaria/estadisticas.html", {
+        "title": "Prórrogas · Estadísticas",
         "tabs": TABS,
-        "active": tab,
+        "active": "estadisticas",
     })

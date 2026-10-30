@@ -1,0 +1,70 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="est stt" data-api="/api/prorrogas/v2/estadisticas">
+    <div class="stt-head">
+      <div>
+        <div class="stt-sub" id="sttTotal"></div>
+        <h1 class="sec-h1">Estadísticas de prórrogas</h1>
+      </div>
+      <div class="stt-actions">
+        <select id="sttSem" aria-label="Semestre"></select>
+        <button type="button" class="sec-btn sec-btn-ghost" id="sttExport">Exportar</button>
+      </div>
+    </div>
+    <div class="est-error" id="sttError" role="alert" hidden></div>
+
+    <div class="stt-grid3">
+      <div class="stt-card">
+        <h2>Solicitudes por carrera</h2>
+        <div class="stt-donut"><div class="stt-canvas"><canvas id="sttDonut"></canvas></div><ul class="stt-legend" id="sttLeyenda"></ul></div>
+      </div>
+      <div class="stt-card stt-big">
+        <h2>Aceptadas</h2><div class="stt-num" id="sttAcPct">—</div><div class="stt-sub" id="sttAcN"></div>
+        <div class="stt-bar stt-bar-blue"><i id="sttAcBar"></i></div>
+      </div>
+      <div class="stt-card stt-big">
+        <h2>Rechazadas</h2><div class="stt-num" id="sttRePct">—</div><div class="stt-sub" id="sttReN"></div>
+        <div class="stt-bar stt-bar-red"><i id="sttReBar"></i></div>
+      </div>
+    </div>
+
+    <div class="stt-card">
+      <div class="stt-tl-head">
+        <div><h2>Línea de tiempo</h2><div class="stt-sub">Solicitudes recibidas por <span id="sttGranLabel">semana</span></div></div>
+        <div class="stt-toggle" id="sttGran" role="group" aria-label="Agrupar">
+          <button type="button" data-g="semanal" class="is-active">Semanal</button>
+          <button type="button" data-g="mensual">Mensual</button>
+        </div>
+      </div>
+      <div class="stt-canvas stt-canvas-tl"><canvas id="sttLinea"></canvas></div>
+      <div class="stt-fallback" id="sttLineaTxt" hidden></div>
+    </div>
+
+    <div class="stt-kpis" id="sttKpis"></div>
+
+    <div class="stt-card">
+      <h2>Cumplimiento de pago</h2>
+      <div class="stt-sub" id="sttCumpSub"></div>
+      <div class="stt-stack" id="sttStack"></div>
+      <div class="stt-cumps" id="sttCumps"></div>
+      <div class="stt-alertbar">
+        <span id="sttSinPago"></span>
+        <a class="sec-btn" id="sttVer" href="/prorrogas/secretaria/estudiantes" hidden>Ver en Estudiantes</a>
+      </div>
+    </div>
+
+    <div class="stt-card stt-table-card">
+      <h2>Detalle por carrera</h2>
+      <div class="stt-row stt-row-head" aria-hidden="true">
+        <span>Carrera</span><span>Solicitudes</span><span>Aceptación</span><span>Monto prorrogado</span><span>Pagó en la nueva fecha</span>
+      </div>
+      <div id="sttRows"></div>
+      <div class="est-empty" id="sttVacio" hidden>Sin solicitudes en este semestre.</div>
+    </div>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+          integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g" crossorigin="anonymous"></script>
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/estadisticas.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/estadisticas.js') }}"></script>
+{% endblock %}

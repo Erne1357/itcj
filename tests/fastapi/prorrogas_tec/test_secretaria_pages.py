@@ -31,10 +31,15 @@ def test_pestana_qr_y_solicitudes(client_as, secretaria):
         assert texto in page
 
 
-@pytest.mark.parametrize("tab", ["estadisticas"])
-def test_pestanas_pendientes_muestran_proximamente(client_as, secretaria, tab):
-    r = client_as(secretaria).get(f"{BASE}/{tab}")
-    assert r.status_code == 200 and "siguiente plan" in r.text
+def test_pestana_estadisticas(client_as, secretaria):
+    page = client_as(secretaria).get(f"{BASE}/estadisticas").text
+    for texto in ("Estadísticas de prórrogas", "Solicitudes por carrera", "Cumplimiento de pago",
+                  "Detalle por carrera", "chart.js@4.4.0", "estadisticas.js"):
+        assert texto in page
+
+
+def test_ruta_desconocida_da_404(client_as, secretaria):
+    assert client_as(secretaria).get(f"{BASE}/nada").status_code == 404
 
 
 def test_pestana_estudiantes(client_as, secretaria):
