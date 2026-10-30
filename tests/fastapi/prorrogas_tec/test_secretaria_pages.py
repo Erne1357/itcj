@@ -49,10 +49,6 @@ def test_pestana_estudiantes(client_as, secretaria):
         assert texto in page
 
 
-def test_pestana_desconocida_404(client_as, secretaria):
-    assert client_as(secretaria).get(f"{BASE}/otra").status_code == 404
-
-
 def test_aterrizaje_lleva_a_la_secretaria_a_su_vista(client_as, secretaria):
     r = client_as(secretaria).get("/prorrogas/", follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == BASE

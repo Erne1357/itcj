@@ -25,6 +25,7 @@ def test_resumen_del_semestre(db_session, make_historica):
     assert (c["vencidas"], c["a_tiempo"], c["tarde"], c["sin_pago"], c["estudiantes_sin_pago"]) == (3, 2, 0, 1, 1)
     assert r["kpis"]["monto_total"] == "2500.00" and r["aceptacion"]["pct_aceptadas"] == 100
     assert r["total"] == 2 and a.period_label == "enero – junio 2089"
+    assert r["incluye_historico"] is True  # M6
 
 
 def test_resumen_hace_tres_consultas(db_session, make_historica):
@@ -60,6 +61,7 @@ def test_app_respuesta_rechazo_replan_y_cancelada(db_session, make_aceptada, con
     assert res["total"] == base + 2
     assert res["kpis"]["respuesta_promedio_dias"] == 2.0
     assert res["kpis"]["replanteadas"] == 1
+    assert res["incluye_historico"] is False  # M6: solo de la app
     assert res["aceptacion"] == {"aceptadas": 1, "rechazadas": 1, "pct_aceptadas": 50}
     assert res["linea"]["semanal"][0] == {"inicio": "2091-02-26", "aceptadas": 1, "rechazadas": 1}
     assert res["linea"]["mensual"][0]["mes"] == "2091-03"

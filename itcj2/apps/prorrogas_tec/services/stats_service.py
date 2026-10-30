@@ -132,6 +132,7 @@ class StatsService:
         return {
             "semestre": semestre or None,
             "total": len(reqs),
+            "incluye_historico": any(r.origin == "excel" for r in reqs),  # sus pagos van fechados al vencimiento
             "por_carrera": filas,
             "aceptacion": {"aceptadas": acept, "rechazadas": rech, "pct_aceptadas": _pct(acept, rech)},
             "linea": {
