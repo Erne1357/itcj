@@ -13,3 +13,11 @@ def test_estudiante_ve_mi_prorroga_y_la_solicitud(client_as, estudiante):
 
 def test_la_secretaria_no_entra_a_la_vista_del_estudiante(client_as, secretaria):
     assert client_as(secretaria).get("/prorrogas/estudiante", follow_redirects=False).status_code == 403
+
+
+def test_mi_prorroga_carga_el_lienzo_compartido(client_as, estudiante):
+    c = client_as(estudiante)
+    for url in ("/prorrogas/estudiante", "/prorrogas/estudiante/solicitud"):
+        page = c.get(url).text
+        assert "js/estudiante/firma.js" in page
+    assert "Firma tu carta compromiso" in c.get("/prorrogas/estudiante").text

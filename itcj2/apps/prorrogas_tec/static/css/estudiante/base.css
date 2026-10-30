@@ -37,3 +37,13 @@ a.est-btn { display: flex; align-items: center; justify-content: center; text-de
 .est-estado { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px; background: var(--ink); color: var(--paper); font-size: 12px; text-transform: capitalize; }
 .est-estado.rechazada, .est-estado.cancelada { background: var(--alert); }
 .est-docs { margin: 8px 0; padding-left: 18px; }
+
+/* Plan de pagos, recibos y firma de la carta */
+.est-h2 { font: 600 17px/1.3 var(--font-title); margin: 16px 0 8px; }
+.est-ok { color: #1f6b3a; font-weight: 600; margin: 0 0 8px; }
+.mp-plan, .mp-recibos { margin: 0 0 8px; padding: 0; list-style: none; font-size: 14px; }
+.mp-plan li, .mp-recibos li { padding: 6px 0; border-bottom: 1px solid rgba(0, 0, 0, .08); }
+.mp-parc.vencida { color: var(--alert); font-weight: 600; }
+.mp-parc.pagada { color: #1f6b3a; }
+.mp-saldo { font-weight: 600; margin: 0 0 8px; }
+.mp-firma { display: flex; flex-direction: column; gap: 8px; }

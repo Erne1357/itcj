@@ -4,5 +4,17 @@
   <h1 class="est-h1">Mi prórroga</h1>
   <div id="mp-root"><p class="est-hint">Cargando…</p></div>
 </div>
+<template id="mp-firma-tpl">
+  <section class="mp-firma">
+    <h2 class="est-h2">Firma tu carta compromiso</h2>
+    <a class="est-link mp-pdf" target="_blank" rel="noopener">Ver la carta (PDF)</a>
+    <canvas class="est-firma"></canvas>
+    <button type="button" class="est-btn est-btn-sec mp-borrar">Borrar</button>
+    <label class="est-check"><input type="checkbox" class="mp-acepto"> Firmo este documento</label>
+    <p class="est-error mp-error" role="alert" hidden></p>
+    <button type="button" class="est-btn mp-firmar" disabled>Firmar</button>
+  </section>
+</template>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/firma.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/firma.js') }}"></script>
 <script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/mi_prorroga.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/mi_prorroga.js') }}"></script>
 {% endblock %}
