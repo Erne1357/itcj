@@ -84,8 +84,12 @@ def excel_limpiar_command(origen, salida):
     from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
     from itcj2.apps.prorrogas_tec.importacion.limpio import escribir_limpio
 
-    solicitudes = leer_libro(origen)
-    res = escribir_limpio(solicitudes, salida)
+    try:
+        solicitudes = leer_libro(origen)
+        res = escribir_limpio(solicitudes, salida)
+    except Exception as e:  # el mensaje podría citar una celda: solo el tipo
+        click.secho(f"Error al leer el libro: {type(e).__name__}", fg="red")
+        raise click.Abort()
     click.echo(f"Solicitudes: {res['solicitudes']} · Parcialidades: {res['parcialidades']} "
                f"· Con problema: {res['con_problema']}")
     motivos = Counter(p.problema for s in solicitudes for p in s.parcialidades if p.problema)
@@ -113,8 +117,14 @@ def import_excel_command(limpio, dry_run):
     except ValueError as e:
         click.secho(str(e), fg="red")
         raise click.Abort()
-    with SessionLocal() as db:
-        res = importar(db, solicitudes, dry_run=dry_run)
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        with SessionLocal() as db:
+            res = importar(db, solicitudes, dry_run=dry_run)
+    except SQLAlchemyError as e:  # su mensaje trae los parámetros (nombres, controles)
+        click.secho(f"Error de base de datos: {type(e).__name__}", fg="red")
+        raise click.Abort()
     for ref, motivo in [*errores, *res["con_error"]]:
         click.echo(f"{ref}: {motivo}")
     prefijo = "SIMULACRO — " if dry_run else ""

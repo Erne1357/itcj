@@ -18,7 +18,8 @@ def importar(db, solicitudes, *, dry_run: bool) -> dict:
     try:
         existentes = set(db.scalars(select(ProrrogaRequest.import_ref).where(
             ProrrogaRequest.import_ref.in_([s.ref for s in solicitudes]))))
-        periodos = {period_label(p): p.id for p in db.scalars(select(AcademicPeriod))}
+        # Con etiqueta repetida gana el id menor (el dict se sobrescribe, así que va en orden inverso).
+        periodos = {period_label(p): p.id for p in db.scalars(select(AcademicPeriod).order_by(AcademicPeriod.id.desc()))}
         programas = {p.name: p for p in db.scalars(select(Program))}
         cuentas = {u.control_number: u.id for u in db.scalars(
             select(User).where(User.control_number.in_([s.no_control for s in solicitudes])))}

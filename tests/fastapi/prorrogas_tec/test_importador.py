@@ -1,17 +1,16 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal as D
 
 import pytest
 from click.testing import CliRunner
 
-from itcj2.database import SessionLocal
 from itcj2.apps.prorrogas_tec.importacion.importador import importar
 from itcj2.apps.prorrogas_tec.importacion.limpio import SolicitudLimpia, escribir_limpio
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 
 
-def _sol(ref="H#2", control="99130001", carrera="Contador publico", semestre="enero – junio 2025"):
+def _sol(ref="H#2", control="99130001", carrera="Contador publico", semestre="enero – junio 2088"):
     return SolicitudLimpia(ref=ref, semestre=semestre, fecha_solicitud=date(2025, 1, 13), no_control=control,
                            nombre="Alumna Histórica", carrera=carrera,
                            parcialidades=[(1, date(2025, 2, 1), D("1000.00"), True), (2, date(2025, 3, 1), D("550.00"), False)])
@@ -24,8 +23,11 @@ def test_importa_con_recibos_solo_de_lo_pagado(db_session, make_program):
     req = db_session.query(ProrrogaRequest).filter_by(import_ref="H#2").one()
     assert (req.origin, req.status, req.total_amount, req.period_id, req.requested_terms) == \
         ("excel", "aceptada", D("1550.00"), None, None)
-    assert req.created_at.date() == date(2025, 1, 13) and req.program_level == "licenciatura"
-    assert db_session.query(ProrrogaInstallment).filter_by(request_id=req.id).count() == 2
+    assert req.created_at == req.updated_at == datetime(2025, 1, 13, 0, 0) and req.program_level == "licenciatura"
+    assert req.reason is None and req.email is None
+    inst = db_session.query(ProrrogaInstallment).filter_by(request_id=req.id).order_by(ProrrogaInstallment.number).all()
+    assert [(i.number, i.amount, i.due_date) for i in inst] == [
+        (1, D("1000.00"), date(2025, 2, 1)), (2, D("550.00"), date(2025, 3, 1))]
     pagos = db_session.query(ProrrogaPayment).filter_by(request_id=req.id).all()
     assert [(p.origin, p.folio, p.paid_on, p.amount) for p in pagos] == [("excel", None, date(2025, 2, 1), D("1000.00"))]
 
@@ -78,15 +80,44 @@ def test_excepcion_inesperada_no_deja_nada(db_session, make_program, monkeypatch
     assert db_session.query(ProrrogaRequest).filter(ProrrogaRequest.import_ref.in_(["H#6", "H#7"])).count() == 0
 
 
-def test_cli_dry_run_no_escribe(libro, tmp_path):
+def _limpio(libro, tmp_path):
     from itcj2.apps.prorrogas_tec.importacion.hojas import leer_libro
-    from itcj2.cli.prorrogas import prorrogas_cli
     enc = ["No.", "FECHA", "No. De Control", "NOMBRE", "CARRERA", "ENERO", "IMPORTE", ""]
     ruta = libro({"Inscripción Enero - Junio 2026": [enc,
-        [None, "12 de enero de 2026", 99120001, "Sintetica", "Contador Público", "16 de enero de 2026", 1000, 1]]})
+        [None, "12 de enero de 2026", 99120001, "Sintetica", "Contador publico", "16 de enero de 2026", 1000, 1]]})
     limpio = tmp_path / "limpio.xlsx"
     escribir_limpio(leer_libro(ruta), limpio)
-    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(limpio), "--dry-run"])
-    assert "SIMULACRO" in res.output and "Sintetica" not in res.output and "99120001" not in res.output, res.output
-    with SessionLocal() as db:
-        assert db.query(ProrrogaRequest).filter_by(import_ref="Inscripción Enero - Junio 2026#2").count() == 0
+    return limpio
+
+
+def test_cli_dry_run_no_escribe(libro, tmp_path, patched_session_local, make_program):
+    from itcj2.cli.prorrogas import prorrogas_cli
+    make_program("Contador publico", "licenciatura")
+    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path)), "--dry-run"])
+    assert res.exit_code == 0 and "SIMULACRO" in res.output and "Creadas: 1" in res.output, res.output
+    assert "Sintetica" not in res.output and "99120001" not in res.output
+    assert patched_session_local.query(ProrrogaRequest).filter(
+        ProrrogaRequest.import_ref.like("%Junio 2026#%")).count() == 0
+
+
+def test_cli_error_de_base_no_filtra_datos(libro, tmp_path, patched_session_local, make_program, monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+    from itcj2.cli.prorrogas import prorrogas_cli
+
+    def _revienta(*a, **k):
+        raise IntegrityError("x", {"student_name": "SECRETO"}, None)
+
+    monkeypatch.setattr("itcj2.apps.prorrogas_tec.importacion.importador.importar", _revienta)
+    res = CliRunner().invoke(prorrogas_cli, ["import-excel", str(_limpio(libro, tmp_path))])
+    assert res.exit_code != 0 and "SECRETO" not in res.output and "IntegrityError" in res.output
+
+
+def test_mas_de_6_y_vacias_se_saltan(db_session, make_program):
+    make_program("Contador publico", "licenciatura")
+    siete = _sol(ref="H#8")
+    siete.parcialidades = [(i, date(2088, 2, i), D("10.00"), False) for i in range(1, 8)]
+    vacia = _sol(ref="H#9")
+    vacia.parcialidades = []
+    res = importar(db_session, [siete, vacia, _sol(ref="H#10")], dry_run=False)
+    assert res["creadas"] == 1
+    assert res["con_error"] == [("H#8", "más de 6 parcialidades"), ("H#9", "parcialidades vacías")]
