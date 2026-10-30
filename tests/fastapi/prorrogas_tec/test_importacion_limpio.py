@@ -98,7 +98,7 @@ def test_problema_de_solicitud_en_todas_las_filas_y_revisar(tmp_path):
     assert [r[pr] for r in filas] == ["carrera sin equivalencia", "carrera sin equivalencia; fecha ilegible"]
     assert [r[ENCABEZADOS.index("numero")] for r in filas] == [1, 2]
     rev = list(wb["Revisar"].iter_rows(min_row=2, values_only=True))
-    assert rev[0][:2] == ("H", 2) or rev[0][:2] == ("H", "2")
+    assert rev[0][:2] == ("H", 2)
     assert len(rev) == 2
 
 
@@ -110,3 +110,87 @@ def test_cli_excel_limpiar_no_imprime_datos(libro, tmp_path):
     assert r.exit_code == 0, r.output
     assert "Solicitudes: 2 · Parcialidades: 5 · Con problema: 1" in r.output and str(salida) in r.output
     assert "Mala" not in r.output and "99120002" not in r.output
+
+
+def _editar(salida, **cambios):
+    """Cambia celdas de la fila 2 (primer renglón de datos) del archivo limpio."""
+    wb = load_workbook(salida)
+    ws = wb["Parcialidades"]
+    for col, v in cambios.items():
+        ws.cell(2, ENCABEZADOS.index(col) + 1).value = v
+    wb.save(salida)
+
+
+def test_renglon_sin_ref_rechaza_todo_el_archivo(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5), _p(6)])], salida)
+    _editar(salida)
+    wb = load_workbook(salida)
+    wb["Parcialidades"].cell(3, 1).value = None
+    wb.save(salida)
+    with pytest.raises(ValueError, match="El renglón 3 de Parcialidades tiene datos pero no tiene ref"):
+        leer_limpio(salida)
+
+
+def test_renglon_totalmente_vacio_se_ignora(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5)])], salida)
+    wb = load_workbook(salida)
+    wb["Parcialidades"].cell(5, 3).value = "  "  # celda con solo espacios
+    wb.save(salida)
+    validas, errores = leer_limpio(salida)
+    assert len(validas) == 1 and not errores
+
+
+def test_montos_extremos_sobreviven(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5, D("1216.50")), _p(6, D("99999999.99"))])], salida)
+    validas, _ = leer_limpio(salida)
+    assert [m for _, _, m, _ in validas[0].parcialidades] == [D("1216.50"), D("99999999.99")]
+
+
+def test_ediciones_humanas_validas(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5)])], salida)
+    _editar(salida, vencimiento="05/03/2025", monto=1550, pagado=1, problema="   ")
+    validas, errores = leer_limpio(salida)
+    assert not errores and validas[0].parcialidades == [(1, date(2025, 3, 5), D("1550.00"), True)]
+
+
+def test_refs_intercaladas_se_agrupan(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5), _p(6)], ref="H#2"), _sol([_p(7)], ref="H#3", control="99120002")], salida)
+    wb = load_workbook(salida)
+    ws = wb["Parcialidades"]
+    a, b, c = ([x.value for x in ws[i]] for i in (2, 3, 4))
+    for i, fila in zip((2, 3, 4), (a, c, b)):
+        for j, v in enumerate(fila, 1):
+            ws.cell(i, j).value = v
+    wb.save(salida)
+    validas, errores = leer_limpio(salida)
+    assert not errores and [(v.ref, len(v.parcialidades)) for v in validas] == [("H#2", 2), ("H#3", 1)]
+
+
+def test_siete_parcialidades(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(d) for d in range(1, 8)])], salida)
+    assert leer_limpio(salida) == ([], [("H#2", "numeración de parcialidades inválida")])
+
+
+@pytest.mark.parametrize("col,valor,motivo", [
+    ("pagado", 2, "pagado inválido"), ("monto", "abc", "monto inválido"),
+    ("no_control", "123", "número de control inválido")])
+def test_valores_invalidos(tmp_path, col, valor, motivo):
+    salida = tmp_path / "l.xlsx"
+    escribir_limpio([_sol([_p(5)])], salida)
+    _editar(salida, **{col: valor})
+    assert leer_limpio(salida) == ([], [("H#2", motivo)])
+
+
+def test_hoja_con_signos_en_el_nombre(tmp_path):
+    salida = tmp_path / "l.xlsx"
+    s = _sol([Parcialidad(None, None, None, "fecha ilegible", "xx", origen="A!B#C!F12")], ref="A!B#C#7")
+    s.hoja = "A!B#C"
+    escribir_limpio([s], salida)
+    rev = list(load_workbook(salida)["Revisar"].iter_rows(min_row=2, values_only=True))
+    assert rev == [("A!B#C", 12, "F", "xx", "fecha ilegible")]

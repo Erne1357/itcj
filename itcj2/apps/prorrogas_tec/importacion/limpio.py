@@ -152,9 +152,13 @@ def leer_limpio(path) -> tuple[list[SolicitudLimpia], list[tuple[str, str]]]:
     if tuple(filas[0] if filas else ()) != ENCABEZADOS:
         raise ValueError(f"Encabezados esperados: {', '.join(ENCABEZADOS)}")
     grupos: dict[str, list[tuple]] = {}
-    for r in filas[1:]:
-        if r[0] not in (None, ""):
-            grupos.setdefault(str(r[0]), []).append(r)
+    for n, r in enumerate(filas[1:], 2):
+        if _texto(r[0]):
+            grupos.setdefault(str(r[0]).strip(), []).append(r)
+        elif any(_texto(c) for c in r):
+            # no sabemos de qué solicitud era: seguir dejaría una solicitud con parcialidades de menos
+            raise ValueError(f"El renglón {n} de Parcialidades tiene datos pero no tiene ref; "
+                             "corrígelo antes de importar.")
     validas, errores = [], []
     for ref, rs in grupos.items():
         ok, motivo = _validar(ref, rs)
