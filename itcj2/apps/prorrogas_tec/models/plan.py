@@ -19,7 +19,7 @@ class ProrrogaInstallment(Base):
     superseded_at = Column(DateTime)
 
     __table_args__ = (
-        CheckConstraint("number BETWEEN 1 AND 3", name="ck_prorrogas_installments_number"),
+        CheckConstraint("number BETWEEN 1 AND 6", name="ck_prorrogas_installments_number"),
         CheckConstraint("amount > 0", name="ck_prorrogas_installments_amount"),
         Index("uq_prorrogas_installments_vigente", "request_id", "number", unique=True,
               postgresql_where=text("superseded_at IS NULL")),

@@ -14,6 +14,7 @@ _DML_FILES = [
     "04_insert_secretaria.sql",
     "05_insert_plan2.sql",
     "06_insert_plan3.sql",
+    "07_insert_plan4.sql",
 ]
 
 
@@ -29,6 +30,7 @@ def init_prorrogas_command():
       04_insert_secretaria.sql      — rol secretaria y permisos de Documentos (secretaria y admin)
       05_insert_plan2.sql           — permisos de invitaciones, solicitudes y decisión (secretaria, admin, student)
       06_insert_plan3.sql           — permisos de plan de pago, recibos, recordatorios y exportación (secretaria, admin) y firma propia (student)
+      07_insert_plan4.sql           — permiso de estadísticas (secretaria, admin)
 
     Corre SOLO `database/DML/prorrogas_tec/`: no re-ejecuta ningún DML ya
     aplicado de otras apps. Todo el SQL usa ON CONFLICT, así que repetirlo es

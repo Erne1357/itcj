@@ -28,6 +28,7 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.payments.api.void",
     "prorrogas_tec.students.api.remind",
     "prorrogas_tec.students.api.export",
+    "prorrogas_tec.stats.api.read",
 ]
 
 STUDENT_PERMS = [
@@ -401,3 +402,37 @@ def con_plan(db_session):
         return req
 
     return _plan
+
+
+@pytest.fixture()
+def make_historica(db_session):
+    """Solicitud histórica de Excel (`origin='excel'`, aceptada, sin alumno). Sin `periodo` queda sin semestre de core."""
+    from datetime import date
+    from decimal import Decimal
+
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.apps.prorrogas_tec.services.periods import period_label
+
+    def _make(periodo=None, control_number=None, parcialidades=(("1000.00", date(2025, 2, 1)),), pagadas=()):
+        req = ProrrogaRequest(
+            origin="excel", status="aceptada", import_ref=f"T#{next(_seq)}", requested_terms=None, reason=None,
+            student_id=None, email=None, control_number=control_number or f"99420{next(_seq):03d}",
+            student_name="ESTUDIANTE HISTORICO", program_name="Contador publico", program_level="licenciatura",
+            period_id=periodo.id if periodo else None,
+            period_label=period_label(periodo) if periodo else "enero – junio 2089",
+        )
+        db_session.add(req)
+        db_session.flush()
+        for n, (monto, fecha) in enumerate(parcialidades, start=1):
+            db_session.add(ProrrogaInstallment(request_id=req.id, number=n, amount=Decimal(monto), due_date=fecha))
+        for i in pagadas:
+            monto, fecha = parcialidades[i]
+            db_session.add(ProrrogaPayment(request_id=req.id, origin="excel", folio=None, paid_on=fecha,
+                                           amount=Decimal(monto)))
+        req.total_amount = sum((Decimal(m) for m, _ in parcialidades), Decimal("0"))
+        db_session.flush()
+        db_session.refresh(req)
+        return req
+
+    return _make

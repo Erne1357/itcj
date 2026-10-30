@@ -48,6 +48,8 @@ class PlanService:
         try:  # cualquier error (validación o pdf_no_disponible) suelta el candado y no deja nada a medias
             if req.status != "aceptada":
                 raise ServiceError("no_aceptada", "Solo una solicitud aceptada lleva plan de pagos.", status=409)
+            if req.period_id is None:
+                raise ServiceError("sin_semestre", "Esta prórroga histórica no tiene semestre en el sistema.", status=409)
             cuenta = account.load(db, req, today)
             if cuenta.situacion == "liquidada":
                 raise ServiceError("ya_liquidada", "La prórroga ya está liquidada.", status=409)

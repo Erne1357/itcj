@@ -105,7 +105,7 @@ class StudentsService:
         if req is None or req.status != "aceptada":
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", 404)
         c = account.load(db, req, today)
-        period = db.get(AcademicPeriod, req.period_id)
+        period = db.get(AcademicPeriod, req.period_id) if req.period_id else None  # histórica sin semestre: solo lectura
         conservadas = [p for p in c.parcialidades if p.estado == "pagada"]
         suma = sum((p.amount for p in conservadas), Decimal("0"))
         carta = next((d for d in DocumentService.current(db, req) if d.doc_type.startswith("carta_compromiso")), None)
@@ -126,11 +126,11 @@ class StudentsService:
                        "firmada": carta.signed_at is not None} if carta else None),
             "plan": {
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
-                "puede_replantear": c.situacion != "liquidada" and today <= period.end_date,
+                "puede_replantear": period is not None and c.situacion != "liquidada" and today <= period.end_date,
                 "conservadas": [p.number for p in conservadas],
                 "suma_conservadas": account.money(suma),
                 "max_nuevas": 3 - len(conservadas),
-                "fecha_limite": period.end_date.isoformat()},
+                "fecha_limite": period.end_date.isoformat() if period else None},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
                         "avisar_desbloqueo": _avisar_desbloqueo(req, c),
                         "avisado": req.unblock_notified_at.isoformat() if req.unblock_notified_at else None},
