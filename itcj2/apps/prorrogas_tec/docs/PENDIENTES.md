@@ -96,10 +96,11 @@ Detalle en el ledger del Plan 4 (`.superpowers/sdd/2026-10-29-prorrogas-plan4-hi
 | # | Pendiente | Efecto | Arreglo propuesto |
 |---|---|---|---|
 | E1 | La `ref` depende del renglón del original, y no se rechazan dos solicitudes del mismo número de control en el mismo semestre | Si alguien inserta o borra renglones del original después de importar y vuelve a limpiar, reimportar duplica solicitudes (la guía lo advierte) | Rechazar en `import-excel` una solicitud `excel` cuyo (control, semestre) ya existe con otra `ref` |
-| E2 | Normalizadores: `"1..500"` da 1,500.00 porque se tolera el grupo vacío; las fechas largas no exigen año ≥ 2000; las comas entre partes de una celda dan `importe ilegible`; `origen` apunta a la columna de fecha también en problemas de importe o bandera | Casos raros (ninguno salió en el archivo real) | Uno por uno al tocar `normaliza.py` / `hojas.py` |
+| E2 | Normalizadores: `"1..500"` da 1,500.00 porque se tolera el grupo vacío; las fechas largas no exigen año ≥ 2000; las comas entre partes de una celda dan `importe ilegible`; un primer grupo con cero a la izquierda (`"0,500"`) se lee como 500; `origen` apunta a la columna de fecha también en problemas de importe o bandera | Casos raros (ninguno salió en el archivo real) | Uno por uno al tocar `normaliza.py` / `hojas.py` |
 | E3 | Archivo limpio: `"1,550.00"` como texto en `monto` se rechaza sin decir que van solo dígitos; ordenar a mano por monto o nombre rechaza la `ref` sin explicar por qué | Mensaje confuso al revisar | Mensajes más claros en `_validar` |
 | E4 | Estadísticas: una etiqueta como "Verano 2024" se ordena como segundo semestre; `pct` redondea al par; la carrera del CSV no se neutraliza contra `=` (los nombres solo los captura un admin). Huecos de prueba: vence hoy, mezcla de semestres, cuerpo del CSV, alcance vacío, cobertura en cero o desordenada | Menor | Al tocar `stats_service.py` |
 | E5 | La prueba de `sin_semestre` del plan no revisa que no cambie nada; el docstring del `downgrade` de `pr20261101a` no dice que antes hay que borrar las solicitudes de 4 a 6 parcialidades | Menor | Una aserción y una línea |
+| E6 | `remind` no revisa `solo_lectura`: una histórica sin semestre con cuenta ligada y saldo puede recibir un recordatorio por una llamada directa a la API | La pantalla no lo ofrece (esas no salen en la lista) | Lanzar `sin_semestre` en `remind` como en recibos |
 
 ## Del fork, todavía en el árbol (F1–F2 resueltos por el Plan 2, Task 1; F3 queda para ti)
 
