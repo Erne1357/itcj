@@ -1,4 +1,7 @@
-"""Router principal de paginas HTML de Credencial (prefijo /credencial). Las rutas llegan despues."""
+"""Router principal de paginas HTML de Credencial (prefijo /credencial)."""
 from fastapi import APIRouter
 
+from itcj2.apps.credencial.pages.public import router as public_router
+
 credencial_pages_router = APIRouter(prefix="/credencial", tags=["credencial-pages"])
+credencial_pages_router.include_router(public_router)

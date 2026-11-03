@@ -32,6 +32,8 @@ python-socketio[asyncio]>=5.17,<5.18
 
 # File handling
 Pillow>=10.0.0
+# QR de la credencial digital (puro Python, sin dependencias transitivas)
+segno==1.6.6
 # Compresión de PDFs de TitulaTec (BSD; se evitó PyMuPDF/Ghostscript por la AGPL)
 pypdf>=6.19,<7
 openpyxl>=3.1.0

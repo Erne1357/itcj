@@ -1,0 +1,65 @@
+{% extends "credencial/base_credencial.html" %}
+{#- Página pública: en vencido/no válido/limitado el contexto no trae datos personales. -#}
+{% set STATES = {
+  "valid":    {"icon": "bi-patch-check-fill",  "word": "VÁLIDA",
+               "hint": "Credencial vigente del Instituto Tecnológico de Ciudad Juárez."},
+  "inactive": {"icon": "bi-x-octagon-fill",    "word": "NO VIGENTE",
+               "hint": "La cuenta de esta persona no está activa en el ITCJ. No aceptes esta credencial."},
+  "expired":  {"icon": "bi-clock-history",     "word": "Código vencido",
+               "hint": "Pide que actualice el código en su credencial y vuelve a escanearlo."},
+  "invalid":  {"icon": "bi-shield-exclamation", "word": "Código no válido",
+               "hint": "No se pudo comprobar este código. Pide que muestre su credencial de nuevo."},
+  "limited":  {"icon": "bi-hourglass-split",   "word": "Espera un momento",
+               "hint": "Se hicieron demasiadas verificaciones seguidas. Vuelve a escanear en un minuto."},
+} %}
+{% set S = STATES[state] %}
+{% block title %}Verificación de credencial · ITCJ{% endblock %}
+{% block extra_css %}
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<link rel="stylesheet" href="/static/credencial/css/verify.css?v={{ sv('css/verify.css') }}">
+{% endblock %}
+{% block body %}
+<main class="cv-page">
+  <header class="cv-brand">
+    <img class="cv-brand__logo" src="/static/core/images/escudo_itcj_negro.png?v={{ sv_core('images/escudo_itcj_negro.png') }}" alt="" width="85" height="44">
+    <div>
+      <p class="cv-brand__name">Instituto Tecnológico de Ciudad Juárez</p>
+      <p class="cv-brand__sub">Verificación de credencial digital</p>
+    </div>
+  </header>
+
+  <section class="cv-status cv-status--{{ state }}" role="status">
+    <i class="bi {{ S.icon }} cv-status__icon" aria-hidden="true"></i>
+    <h1 class="cv-status__word">{{ S.word }}</h1>
+    <p class="cv-status__hint">{{ S.hint }}</p>
+  </section>
+
+  {% if name %}
+  <section class="cv-person" aria-label="Datos de la credencial">
+    {% if photo_uri %}
+    <img class="cv-photo" src="{{ photo_uri }}" alt="Foto oficial de {{ name }}">
+    {% else %}
+    <div class="cv-photo cv-photo--missing"><i class="bi bi-person-bounding-box" aria-hidden="true"></i><span>Foto no disponible</span></div>
+    {% endif %}
+    <p class="cv-name">{{ name }}</p>
+    {% if program %}<p class="cv-program">{{ program }}</p>{% endif %}
+    {% if control_number %}<p class="cv-control">Nº de control <strong>{{ control_number }}</strong></p>{% endif %}
+  </section>
+
+  <dl class="cv-times">
+    <div><dt>Verificado a las</dt><dd>{{ verified_at }}</dd></div>
+    <div><dt>Código emitido a las</dt><dd>{{ issued_at }}</dd></div>
+  </dl>
+
+  {% if logged %}
+  <p class="cv-logged"><i class="bi bi-journal-check" aria-hidden="true"></i> Verificación registrada</p>
+  {% endif %}
+  {% endif %}
+
+  <footer class="cv-footer">
+    <i class="bi bi-lock-fill" aria-hidden="true"></i>
+    Dirección oficial: <strong>{{ domain }}</strong>. Si la barra del navegador muestra otra, esta página no es del ITCJ.
+  </footer>
+</main>
+{% endblock %}
