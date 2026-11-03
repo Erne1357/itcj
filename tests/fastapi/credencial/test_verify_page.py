@@ -1,8 +1,7 @@
 """Página pública /credencial/v/{token}: estados, cero fugas, cabeceras y bitácora.
 
-CI corre contra una base vacía (create_all, sin DML): cada fila que la página
-necesita (alumno, carrera, foto, app y permiso de credencial) se crea aquí dentro
-del savepoint de `db_session`. Nada asume ids.
+Las filas (alumno, carrera, foto, app y permiso) las crean las fixtures de
+`conftest.py` dentro del savepoint de `db_session` (CI = base vacía).
 """
 import secrets
 import uuid
@@ -11,86 +10,17 @@ from unittest.mock import patch
 
 import pytest
 
-from itcj2.apps.credencial.models import CredentialPhoto, CredentialVerification
+from itcj2.apps.credencial.models import CredentialVerification
 from itcj2.apps.credencial.services.token_service import CredentialTokenService
-from itcj2.config import get_settings
-from itcj2.core.models.app import App
-from itcj2.core.models.permission import Permission
-from itcj2.core.models.program import Program
-from itcj2.core.models.student_profile import StudentProfile
 from itcj2.core.models.user import User
-from itcj2.core.models.user_app_perm import UserAppPerm
-from itcj2.database import get_db
 from tests.conftest import make_jwt
+from tests.fastapi.credencial.conftest import FIRST, LAST, MIDDLE
 
-FIRST, LAST, MIDDLE = "Xochiquetzal", "Zubizarreta", "Quirarte"
-PHOTO_BYTES = b"\xff\xd8\xff\xe0fake-jpeg-bytes"
 PUBLIC_HEADERS = {
     "cache-control": "no-store",
     "x-robots-tag": "noindex, nofollow",
     "referrer-policy": "no-referrer",
 }
-
-
-@pytest.fixture
-def client(app_client, db_session):
-    def _override():
-        yield db_session
-
-    app_client.app.dependency_overrides[get_db] = _override
-    yield app_client
-    app_client.app.dependency_overrides.pop(get_db, None)
-
-
-@pytest.fixture
-def photo_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(get_settings(), "CREDENCIAL_PHOTO_PATH", str(tmp_path))
-    return tmp_path
-
-
-@pytest.fixture
-def student(db_session, photo_dir):
-    """Alumno activo con carrera y foto en disco. Devuelve (user, photo, program_name)."""
-    program_name = f"Ing. Prueba Credencial {uuid.uuid4().hex[:8]}"
-    program = Program(name=program_name)
-    user = User(first_name=FIRST, last_name=LAST, middle_name=MIDDLE,
-                control_number=f"Z{uuid.uuid4().hex[:9]}", is_active=True)
-    db_session.add_all([program, user])
-    db_session.flush()
-    photo = CredentialPhoto(user_id=user.id, ref=secrets.token_urlsafe(12),
-                            file_name=f"{uuid.uuid4().hex}.jpg",
-                            width=600, height=789, size_bytes=len(PHOTO_BYTES))
-    db_session.add_all([StudentProfile(user_id=user.id, program_id=program.id), photo])
-    db_session.flush()
-    (photo_dir / photo.file_name).write_bytes(PHOTO_BYTES)
-    return user, photo, program_name
-
-
-@pytest.fixture
-def credencial_app(db_session):
-    app = db_session.query(App).filter_by(key="credencial").first()
-    if app is None:
-        app = App(key="credencial", name="Credencial Digital", is_active=True)
-        db_session.add(app)
-    app.is_active = True
-    db_session.flush()
-    return app
-
-
-@pytest.fixture
-def staff(db_session, credencial_app):
-    """Personal con el permiso de verificación completa asignado directo."""
-    code = "credencial.verify.page.full"
-    perm = db_session.query(Permission).filter_by(app_id=credencial_app.id, code=code).first()
-    if perm is None:
-        perm = Permission(app_id=credencial_app.id, code=code, name="Verificación completa")
-        db_session.add(perm)
-    user = User(first_name="Vigilante", last_name="Prueba", username=f"vig_{uuid.uuid4().hex[:8]}")
-    db_session.add(user)
-    db_session.flush()
-    db_session.add(UserAppPerm(user_id=user.id, app_id=credencial_app.id, perm_id=perm.id, allow=True))
-    db_session.flush()
-    return user
 
 
 def _token(photo, **delta):
@@ -119,7 +49,7 @@ def test_valid_shows_name_program_photo(client, student):
     html = resp.text
     assert "VÁLIDA" in html
     assert f"{FIRST} {LAST} {MIDDLE}" in html          # orden Nombre Apellidos
-    assert program_name in html
+    assert f"{program_name} / Estudiante" in html       # misma línea 2 que la tarjeta
     assert "data:image/jpeg;base64," in html
     assert user.control_number not in html              # vista anónima: sin nº de control
     assert "Verificado a las" in html and "Código emitido a las" in html
@@ -143,6 +73,7 @@ def test_inactive_shows_no_vigente(client, db_session, student):
     assert "VÁLIDA" not in html
     assert f"{FIRST} {LAST} {MIDDLE}" in html and "data:image/jpeg" in html
     assert program_name not in html                     # «sin más datos»
+    assert "Estudiante" not in html
 
 
 def test_expired_leaks_nothing(client, student):
@@ -296,3 +227,21 @@ def test_referrer_meta_precedes_every_link(client, student):
     _, photo, _ = student
     html = _get(client, _token(photo)).text
     assert html.index('<meta name="referrer" content="no-referrer">') < html.index("<link")
+
+
+def test_valid_uses_card_labels(client, db_session, student):
+    """Carrera con la etiqueta de la tarjeta (sin sufijo EAD) y «Egresado» para graduate."""
+    from itcj2.core.models.program import Program
+    from itcj2.core.models.student_profile import StudentProfile
+
+    user, photo, _ = student
+    program = Program(name=f"Ing. Sistemas computacionales {uuid.uuid4().hex[:6]} EAD")
+    db_session.add(program)
+    db_session.flush()
+    db_session.get(StudentProfile, user.id).program_id = program.id
+    db_session.flush()
+    with patch("itcj2.core.services.authz_cache.cached_roles", return_value={"graduate"}):
+        html = _get(client, _token(photo)).text
+    assert "VÁLIDA" in html
+    assert f"{program.name.removesuffix(' EAD')} / Egresado" in html
+    assert " EAD" not in html

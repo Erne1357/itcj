@@ -45,7 +45,7 @@
     <div class="cv-photo cv-photo--missing"><i class="bi bi-person-bounding-box" aria-hidden="true"></i><span>Foto no disponible</span></div>
     {% endif %}
     <p class="cv-name">{{ name }}</p>
-    {% if program %}<p class="cv-program">{{ program }}</p>{% endif %}
+    {% if role %}<p class="cv-program">{% if program %}{{ program }} / {% endif %}{{ role }}</p>{% endif %}
     {% if control_number %}<p class="cv-control">Nº de control <strong>{{ control_number }}</strong></p>{% endif %}
   </section>
 

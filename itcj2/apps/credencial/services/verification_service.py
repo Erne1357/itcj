@@ -30,24 +30,6 @@ class VerificationResult:
     issued_at: datetime | None = None   # aware UTC
 
 
-def display_name(user) -> str:
-    """Orden de la credencial: Nombre Apellido paterno Apellido materno."""
-    return " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p)
-
-
-def program_label(db: Session, user_id: int) -> str | None:
-    """Carrera del alumno. shortcut: core_programs.name crudo; la Tarea 4 lo cambia por program_display_name."""
-    from itcj2.core.models.program import Program
-    from itcj2.core.models.student_profile import StudentProfile
-
-    return (
-        db.query(Program.name)
-        .join(StudentProfile, StudentProfile.program_id == Program.id)
-        .filter(StudentProfile.user_id == user_id)
-        .scalar()
-    )
-
-
 def _photo_data_uri(photo) -> str | None:
     """Foto incrustada; no existe endpoint público de foto. Sin archivo = sin foto, nunca 500."""
     from itcj2.apps.credencial.services.photo_service import PHOTO_MIME, PhotoService
@@ -87,14 +69,17 @@ class VerificationService:
     @staticmethod
     def public_view(db: Session, result: VerificationResult) -> dict:
         """Datos personales que la página puede mostrar. Inactiva: nombre y foto, nada más."""
+        from itcj2.apps.credencial.services.card_service import CardService, display_name, program_label
+
         if result.status not in ("valid", "inactive"):
             return {}
         view = {
             "name": display_name(result.student),
             "photo_uri": _photo_data_uri(result.photo),
         }
-        if result.status == "valid":
+        if result.status == "valid":  # mismas etiquetas que la línea 2 de la tarjeta
             view["program"] = program_label(db, result.student.id)
+            view["role"] = CardService.role_label(db, result.student.id)
         return view
 
     @staticmethod

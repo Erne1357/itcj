@@ -123,10 +123,14 @@ class PhotoService:
         return True
 
     @staticmethod
+    def path(photo: "CredentialPhoto") -> Path:
+        from itcj2.core.utils.safe_paths import safe_join
+        return safe_join(_root(), photo.file_name)
+
+    @staticmethod
     def read_bytes(photo: "CredentialPhoto") -> bytes:
         """Lanza OSError si el archivo no existe; quien muestre la foto lo maneja."""
-        from itcj2.core.utils.safe_paths import safe_join
-        return safe_join(_root(), photo.file_name).read_bytes()
+        return PhotoService.path(photo).read_bytes()
 
     @staticmethod
     def match_filename(db: Session, filename: str) -> "User | None":

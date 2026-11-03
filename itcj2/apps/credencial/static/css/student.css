@@ -1,0 +1,329 @@
+/* /credencial/ del alumno: escenario oscuro (la tarjeta es el objeto iluminado),
+   reverso con el QR rotatorio y la línea de estado viva. Mobile-first. */
+:root {
+  --cs-bg: oklch(0.15 0.03 268);          /* casi negro teñido al azul #274392 */
+  --cs-bg-lift: oklch(0.27 0.07 268);     /* luz detrás de la tarjeta */
+  --cs-ink: oklch(0.97 0.006 268);
+  --cs-muted: oklch(0.80 0.02 268);
+  --cs-line: oklch(0.34 0.03 268);
+  --cs-live: oklch(0.82 0.16 152);
+  --cs-accent: #941921;                   /* guinda institucional: solo lo activo */
+  --cs-accent-hover: #7e141b;
+  --cs-ease: cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.cs-body {
+  min-height: 100dvh;
+  margin: 0;
+  background: var(--cs-bg);
+  color: var(--cs-ink);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cs-page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: radial-gradient(110% 55% at 50% 38%, var(--cs-bg-lift) 0%, transparent 72%);
+  overflow-x: clip; /* el volteo 3D no debe abrir scroll horizontal */
+}
+
+/* ── Barra ──────────────────────────────────────────────────────────────── */
+.cs-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 8px 16px 0;
+}
+
+.cs-bar .cs-back { display: flex; margin-right: 0; } /* también fuera del iframe: va a /itcj/m/ */
+
+.cs-back:focus-visible,
+.cs-action:focus-visible {
+  outline: 2px solid var(--cs-ink);
+  outline-offset: 3px;
+}
+
+.cs-title {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+/* ── Escenario ──────────────────────────────────────────────────────────── */
+.cs-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  width: 100%;
+  max-width: 592px;
+  margin: 0 auto;
+  padding: 12px 16px 40px;
+}
+
+.cs-card-slot .cc-card { cursor: pointer; }
+.cs-card-slot .cc-card.is-photo-missing { cursor: default; }
+
+.cs-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cs-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.cs-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.cs-live__dot {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cs-live);
+}
+
+.cs-live__dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--cs-live);
+  animation: cs-pulse 2s var(--cs-ease) infinite;
+}
+
+@keyframes cs-pulse {
+  from { transform: scale(1); opacity: 0.55; }
+  to   { transform: scale(2.8); opacity: 0; }
+}
+
+.cs-clock {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.cs-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--cs-accent);
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: background-color 150ms var(--cs-ease), transform 120ms var(--cs-ease);
+}
+
+.cs-action .bi { font-size: 1.25rem; line-height: 1; }
+
+@media (hover: hover) {
+  .cs-action:hover { background: var(--cs-accent-hover); }
+}
+
+.cs-action:active { transform: scale(0.98); }
+
+.cs-notice {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--cs-line);
+  border-radius: 12px;
+  color: var(--cs-muted);
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.cs-notice .bi { flex: none; font-size: 1.25rem; line-height: 1.2; color: var(--cs-ink); }
+
+/* ── Reverso: QR + cuenta regresiva ─────────────────────────────────────── */
+.cc-back {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  background: linear-gradient(160deg, #22397f 0%, #35306e 55%, #5a2140 100%);
+  color: #fff;
+}
+
+.cc-back__qr {
+  position: relative;
+  flex: none;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  background: #fff; /* el blanco es la zona silenciosa: nada encima del código */
+}
+
+.cc-qr__code,
+.cc-qr__svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cc-qr__svg { shape-rendering: crispEdges; }
+
+.cc-qr__code { transition: opacity 160ms var(--cs-ease); }
+.cc-back__qr.htmx-swapping .cc-qr__code,
+.cc-qr__code.htmx-added { opacity: 0; }
+
+.cc-qr__msg,
+.cc-back__qr[data-msg]::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 6cqi;
+  color: #2b3240;
+  font-size: 3.4cqi;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.cc-back__qr[data-msg]::after { content: attr(data-msg); }
+.cc-back__qr.is-stale .cc-qr__code { opacity: 0.12; }
+.cc-back__qr.is-expired .cc-qr__code { visibility: hidden; } /* nunca un QR vencido a la vista */
+
+.cc-back__side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.8cqi;
+  padding: 3cqi 2.5cqi;
+  text-align: center;
+}
+
+.cc-back__side p { margin: 0; }
+
+.cc-ring {
+  position: relative;
+  width: 14cqi;
+  height: 14cqi;
+}
+
+.cc-ring__svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.cc-ring__track,
+.cc-ring__bar {
+  fill: none;
+  stroke-width: 3.5;
+}
+
+.cc-ring__track { stroke: rgb(255 255 255 / 0.22); }
+
+.cc-ring__bar {
+  stroke: #fff;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 1s linear;
+}
+
+.cc-ring__bar.is-reset { transition: none; }
+.cc-back__qr.is-stale ~ .cc-back__side .cc-ring__bar,
+.cc-back__qr.is-expired ~ .cc-back__side .cc-ring__bar { stroke-dashoffset: 100; }
+
+.cc-ring__sec {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 4.4cqi;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-back__name {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 4cqi;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.cc-back__time {
+  font-size: 5cqi;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.cc-back__hint {
+  color: rgb(255 255 255 / 0.86);
+  font-size: 3.2cqi;
+  line-height: 1.3;
+}
+
+/* ── Horizontal: la tarjeta llena la pantalla ───────────────────────────── */
+@media (orientation: landscape) and (max-height: 560px) {
+  .cs-bar {
+    position: absolute;
+    top: max(8px, env(safe-area-inset-top));
+    right: max(16px, env(safe-area-inset-right));
+    padding: 0;
+  }
+
+  .cs-stage {
+    flex-direction: row;
+    align-items: center;
+    gap: 24px;
+    max-width: none;
+    padding: 16px;
+  }
+
+  .cs-card-slot {
+    flex: none;
+    width: min(calc((100dvh - 32px) * 1016 / 638), calc(100vw - 32px - 24px - 220px));
+  }
+
+  .cs-controls {
+    flex: 1;
+    min-width: 0;
+    padding-top: 56px;
+  }
+
+  .cs-status { flex-wrap: wrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-live__dot::after { animation: none; opacity: 0; }
+  .cs-action,
+  .cc-qr__code,
+  .cc-ring__bar { transition: none; }
+}
