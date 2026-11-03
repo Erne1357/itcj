@@ -14,9 +14,11 @@
 } %}
 {% set S = STATES[state] %}
 {% block title %}Verificación de credencial · ITCJ{% endblock %}
-{% block extra_css %}
+{% block head_meta %}
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
+{% endblock %}
+{% block extra_css %}
 <link rel="stylesheet" href="/static/credencial/css/verify.css?v={{ sv('css/verify.css') }}">
 {% endblock %}
 {% block body %}

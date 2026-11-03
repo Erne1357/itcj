@@ -1,4 +1,7 @@
 """Token del QR de la credencial: firma HMAC, vida de 60 s, sin estado en BD."""
+import base64
+import hashlib
+import hmac
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -69,10 +72,18 @@ def test_future_iat_invalid():
 
 
 def test_overlong_token_invalid(monkeypatch):
-    """Más de 80 caracteres: rechazo antes de calcular ningún MAC."""
+    """Más de 80 caracteres: el tope decide solo, antes de la regex y del MAC.
+
+    La regex también acotaría la longitud; por eso se sustituyen las dos por algo
+    que revienta: si el tope desaparece, este test falla."""
+    class _BoomRe:
+        def fullmatch(self, *a, **k):
+            raise AssertionError("no debió evaluar la regex")
+
     def _boom(*a, **k):
         raise AssertionError("no debió calcular el MAC")
 
+    monkeypatch.setattr(token_service, "_TOKEN_RE", _BoomRe())
     monkeypatch.setattr(token_service, "_mac", _boom)
     with pytest.raises(TokenInvalid):
         T.parse("A" * 81, now=T0)
@@ -100,6 +111,9 @@ def test_key_differs_from_jwt_secret(monkeypatch):
     # La llave del QR se deriva con etiqueta propia: nunca es el SECRET_KEY crudo
     # (con el que la cookie de sesión firma sus JWT).
     assert token_service._key() != settings.SECRET_KEY.encode()
+    ref, iat, mac = tok.rsplit(".", 2)
+    raw = hmac.new(settings.SECRET_KEY.encode(), f"{ref}.{iat}".encode(), hashlib.sha256).digest()[:16]
+    assert mac != base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
     monkeypatch.setattr(settings, "SECRET_KEY", "otro-secret-key")
     with pytest.raises(TokenInvalid):

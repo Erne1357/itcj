@@ -262,3 +262,37 @@ def test_anonymous_no_log(client, db_session, student):
     resp = _get(client, _token(photo))
     assert "VÁLIDA" in resp.text and "Verificación registrada" not in resp.text
     assert _log_count(db_session, user) == 0
+
+
+def test_global_admin_sees_full_view_and_logs_row(client, db_session, student):
+    """Admin global del JWT: vista completa sin asignación en la app (public.py, is_global_admin)."""
+    user, photo, _ = student
+    admin = User(first_name="Admin", last_name="Global", username=f"adm_{uuid.uuid4().hex[:8]}")
+    db_session.add(admin)
+    db_session.flush()
+    resp = _get(client, _token(photo), cookie=make_jwt(user_id=admin.id, role="admin"))
+    assert resp.status_code == 200
+    assert user.control_number in resp.text and "Verificación registrada" in resp.text
+    row = db_session.query(CredentialVerification).filter_by(student_id=user.id).one()
+    assert row.verifier_id == admin.id
+
+
+def test_session_with_credencial_app_inactive_gets_public_view(client, db_session, student, staff, credencial_app):
+    """App credencial inactiva/ausente: cached_perms lanza 404 y la página sigue en vista pública."""
+    user, photo, _ = student
+    credencial_app.is_active = False
+    db_session.flush()
+    resp = _get(client, _token(photo), cookie=make_jwt(user_id=staff.id, role="staff"))
+    assert resp.status_code == 200
+    assert "VÁLIDA" in resp.text
+    assert user.control_number not in resp.text and "Verificación registrada" not in resp.text
+    for name, value in PUBLIC_HEADERS.items():
+        assert resp.headers.get(name) == value, name
+    assert _log_count(db_session, user) == 0
+
+
+def test_referrer_meta_precedes_every_link(client, student):
+    """La política de la página debe regir antes de pedir el primer recurso externo."""
+    _, photo, _ = student
+    html = _get(client, _token(photo)).text
+    assert html.index('<meta name="referrer" content="no-referrer">') < html.index("<link")
