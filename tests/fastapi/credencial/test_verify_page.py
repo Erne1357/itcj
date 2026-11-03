@@ -119,30 +119,66 @@ def test_headers_on_every_status(client, db_session, student):
     db_session.flush()
     responses.append(_get(client, _token(photo)))     # inactive
     with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(False, 42)):
-        responses.append(_get(client, _token(photo)))  # 429
+        responses.append(_get(client, "no-es-un-token"))  # 429
 
-    assert len({r.status_code for r in responses}) >= 3
+    assert {r.status_code for r in responses} == {200, 404, 429}
     for resp in responses:
         for name, value in PUBLIC_HEADERS.items():
             assert resp.headers.get(name) == value, (resp.status_code, name)
 
 
-def test_rate_limited_429(client, student):
+@pytest.mark.parametrize("kind", ["invalid", "expired"])
+def test_rate_limited_429(client, student, kind):
+    from itcj2.config import get_settings
+
     user, photo, _ = student
+    token = "no-es-un-token" if kind == "invalid" else _token(photo, seconds=61)
     with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(False, 42)) as rl:
-        resp = _get(client, _token(photo))
+        resp = _get(client, token)
     assert resp.status_code == 429
     assert resp.headers["retry-after"] == "42"
+    assert "Espera un momento" in resp.text
     _assert_no_personal_data(resp.text, user)
     scope, key = rl.call_args.args[:2]
     assert scope == "credencial-verify" and key
-    assert rl.call_args.kwargs["limit"] == 30 and rl.call_args.kwargs["window"] == 60
+    assert rl.call_args.kwargs["limit"] == get_settings().CREDENCIAL_VERIFY_RL_LIMIT
+    assert rl.call_args.kwargs["window"] == 60
+
+
+def test_valid_token_never_rate_limited(client, db_session, student):
+    """En prod el cubo es global (IP de Docker): un token bien firmado pasa aunque el cubo esté lleno."""
+    user, photo, _ = student
+    with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(False, 42)) as rl:
+        valid = _get(client, _token(photo))
+        user.is_active = False
+        db_session.flush()
+        inactive = _get(client, _token(photo))
+    assert valid.status_code == 200 and "VÁLIDA" in valid.text
+    assert inactive.status_code == 200 and "NO VIGENTE" in inactive.text
+    rl.assert_not_called()
+
+
+def test_rate_limit_counts_only_rejections(client, student):
+    _, photo, _ = student
+    with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(True, 0)) as rl:
+        assert _get(client, "no-es-un-token").status_code == 404
+        assert _get(client, _token(photo, seconds=61)).status_code == 404
+        assert _get(client, _token(photo)).status_code == 200
+    assert rl.call_count == 2
+
+
+def test_verify_rate_limit_setting_is_bounded():
+    from pydantic import ValidationError
+
+    from itcj2.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(CREDENCIAL_VERIFY_RL_LIMIT=0)
 
 
 def test_rate_limit_keys_on_real_client_ip(client, student):
-    _, photo, _ = student
     with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(True, 0)) as rl:
-        client.get(f"/credencial/v/{_token(photo)}", headers={"X-Real-IP": "203.0.113.7"})
+        client.get("/credencial/v/no-es-un-token", headers={"X-Real-IP": "203.0.113.7"})
     assert rl.call_args.args[1] == "203.0.113.7"
 
 

@@ -477,6 +477,12 @@ class Settings(BaseSettings):
 
     # Fotos de credencial: fuera de static/, se sirven solo con sesion.
     CREDENCIAL_PHOTO_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "credencial", "photos")
+    # Verificaciones RECHAZADAS (token no válido o vencido) por minuto y por IP en
+    # /credencial/v/{token}. Igual que TITULATEC_ENROLL_RL_LIMIT_IP: en producción todo
+    # llega con la IP de la puerta de enlace de Docker, así que es un cubo global. Un token
+    # bien firmado nunca cuenta (pages/public.py), así que la basura no frena los escaneos
+    # reales; el tope solo acota la enumeración. Se lee en cada petición.
+    CREDENCIAL_VERIFY_RL_LIMIT: int = Field(default=300, ge=1, le=100000)
     # PDFs (2026-09-28): dos topes distintos a propósito.
     # - MAX_PDF_SIZE es lo que pesa el archivo GUARDADO. 2 MB alcanza de sobra
     #   para un acta o una CURP escaneadas a 150 dpi (medido: una página A4

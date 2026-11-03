@@ -1,6 +1,6 @@
 """Página PÚBLICA de verificación del QR: /credencial/v/{token} (sin login).
 
-Requisitos duros (spec §6): cero datos en vencido/no válido, rate limit por IP,
+Requisitos duros (spec §6): cero datos en vencido/no válido, rate limit por IP de los rechazos,
 cabeceras anti-caché/anti-indexado en TODA respuesta, foto incrustada (no hay ruta
 de foto pública). La vista completa (nº de control + bitácora) es solo para quien
 trae sesión y el permiso; un alumno con sesión ve la vista pública.
@@ -47,23 +47,29 @@ def verify(token: str, request: Request, user: OptionalUser, db: DbSession):
     from itcj2.core.utils.rate_limit import check_and_count
     from itcj2.core.utils.timezone import APP_TIMEZONE
 
+    settings = get_settings()
     tz = ZoneInfo(APP_TIMEZONE)
-    ctx = {"domain": urlparse(get_settings().DOMAIN).hostname or get_settings().DOMAIN}
+    ctx = {"domain": urlparse(settings.DOMAIN).hostname or settings.DOMAIN}
 
-    allowed, retry_after = check_and_count("credencial-verify", client_ip(request), limit=30, window=60)
-    if not allowed:
-        resp = render_credencial(request, "credencial/verify.html", {**ctx, "state": "limited"}, status_code=429)
-        resp.headers["Retry-After"] = str(retry_after)
-    else:
-        result = VerificationService.resolve(db, token)
-        ctx.update(state=result.status, **VerificationService.public_view(db, result))
-        if result.student is not None:
-            ctx["verified_at"] = datetime.now(tz).strftime("%H:%M:%S")
-            ctx["issued_at"] = result.issued_at.astimezone(tz).strftime("%H:%M:%S")
-            if _can_see_full(db, user):
-                VerificationService.record(db, result, int(user["sub"]))
-                ctx.update(control_number=result.student.control_number, logged=True)
-        resp = render_credencial(request, "credencial/verify.html", ctx, status_code=_STATUS_CODE[result.status])
+    # El token se comprueba primero (vencido/no válido = solo CPU, sin BD). Solo los rechazos
+    # cuentan: en prod la IP es la de la puerta de enlace de Docker (cubo global), y así la
+    # basura de un tercero no frena los escaneos reales en la entrada.
+    result = VerificationService.resolve(db, token)
+    if result.student is None:
+        allowed, retry_after = check_and_count("credencial-verify", client_ip(request),
+                                               limit=settings.CREDENCIAL_VERIFY_RL_LIMIT, window=60)
+        if not allowed:
+            resp = render_credencial(request, "credencial/verify.html", {**ctx, "state": "limited"}, status_code=429)
+            resp.headers.update({**_PUBLIC_HEADERS, "Retry-After": str(retry_after)})
+            return resp
 
+    ctx.update(state=result.status, **VerificationService.public_view(db, result))
+    if result.student is not None:
+        ctx["verified_at"] = datetime.now(tz).strftime("%H:%M:%S")
+        ctx["issued_at"] = result.issued_at.astimezone(tz).strftime("%H:%M:%S")
+        if _can_see_full(db, user):
+            VerificationService.record(db, result, int(user["sub"]))
+            ctx.update(control_number=result.student.control_number, logged=True)
+    resp = render_credencial(request, "credencial/verify.html", ctx, status_code=_STATUS_CODE[result.status])
     resp.headers.update(_PUBLIC_HEADERS)
     return resp
