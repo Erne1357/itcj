@@ -50,16 +50,14 @@ def program_label(db: Session, user_id: int) -> str | None:
 
 def _photo_data_uri(photo) -> str | None:
     """Foto incrustada; no existe endpoint público de foto. Sin archivo = sin foto, nunca 500."""
-    from itcj2.config import get_settings
-    from itcj2.core.utils.safe_paths import safe_join
+    from itcj2.apps.credencial.services.photo_service import PHOTO_MIME, PhotoService
 
     try:
-        # shortcut: lee el archivo aqui; la Tarea 3 lo cambia por PhotoService.read_bytes.
-        data = safe_join(get_settings().CREDENCIAL_PHOTO_PATH, photo.file_name).read_bytes()
+        data = PhotoService.read_bytes(photo)
     except Exception as e:
         logger.warning("credencial: foto ilegible user_id=%s (%s)", photo.user_id, type(e).__name__)
         return None
-    return "data:image/jpeg;base64," + base64.b64encode(data).decode()
+    return f"data:{PHOTO_MIME};base64," + base64.b64encode(data).decode()
 
 
 class VerificationService:

@@ -45,3 +45,33 @@ def init_credencial_command():
             raise click.Abort()
 
     click.echo(click.style(f"\nOK: {ok}/{len(_DML_BASE_FILES)} archivos ejecutados. App credencial lista.", fg="green"))
+
+
+@credencial_cli.command("import-photos")
+@click.argument("directory", type=click.Path(exists=True, file_okay=False, path_type=str))
+@click.option("--dry-run", is_flag=True, help="Solo muestra qué pasaría; no escribe nada.")
+def import_photos_command(directory, dry_run):
+    """Carga masiva de fotos oficiales; el nombre del archivo es el número de control."""
+    from collections import Counter
+    from pathlib import Path
+
+    from itcj2.apps.credencial.services.photo_service import PhotoService
+    from itcj2.database import SessionLocal
+
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+    paths = sorted(p for p in Path(directory).iterdir() if p.is_file() and p.suffix.lower() in exts)
+    totals = Counter()
+    with SessionLocal() as db:
+        for i in range(0, len(paths), 50):
+            chunk = paths[i:i + 50]
+            if dry_run:
+                rows = [(p.name, "no_student" if PhotoService.match_filename(db, p.name) is None else "match", "")
+                        for p in chunk]
+            else:
+                res = PhotoService.import_batch(db, [(p.name, p.read_bytes()) for p in chunk], None)
+                rows = [(r.filename, r.status, r.detail) for r in res]
+            for name, status, detail in rows:
+                totals[status] += 1
+                click.echo(f"{status:11} {name} {detail}".rstrip())
+    click.echo(("\n[dry-run] " if dry_run else "\n") + ", ".join(f"{k}: {v}" for k, v in totals.items())
+               + f" (total {len(paths)})")
