@@ -50,15 +50,13 @@ def mobile_dashboard(
     apps = get_mobile_apps_for_user(db, user_id)
 
     if user_type == "student":
-        from itcj2.apps.credencial.services.card_service import CardService
-
         return render(request, "core/mobile/student_dashboard.html", {
             "user": mobile_user,
             "user_type": user_type,
             "apps": apps,
             # Hero: la credencial en lugar de la tarjeta de iniciales. Inactiva = sin hero
             # (/credencial/ cierra esa sesión).
-            "card": CardService.build(db, user_id) if mobile_user.is_active else None,
+            "card": _credential_hero(db, user_id) if mobile_user.is_active else None,
             "active_tab": "home",
         })
 
@@ -70,6 +68,18 @@ def mobile_dashboard(
         "quick_actions": quick_actions,
         "active_tab": "home",
     })
+
+
+def _credential_hero(db, user_id: int):
+    """El hero es decoración: si la credencial falla, el inicio sale con la tarjeta de iniciales."""
+    from itcj2.apps.credencial.services.card_service import CardService
+
+    try:
+        return CardService.build(db, user_id)
+    except Exception:
+        logger.exception("credencial: hero no disponible user_id=%s", user_id)
+        db.rollback()
+        return None
 
 
 @router.get("/notifications", name="core.pages.mobile.notifications")

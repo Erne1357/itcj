@@ -8,10 +8,11 @@
      'directory': 'core/images/app-icons/directory.webp',
      'maint':     'core/images/app-icons/maint.webp',
      'titulatec': 'core/images/app-icons/titulatec.webp',
+     'credencial': 'core/images/app-icons/credencial.webp',
    }.get(app.key) %}
 {# Imágenes que YA traen su propio tile (fondo + borde redondeado): van a sangre,
    sin el tile blanco de .has-img, o se vería un marco dentro de otro. #}
-{% set own_tile = icon_img and app.key in ('titulatec',) %}
+{% set own_tile = icon_img and app.key in ('titulatec', 'credencial') %}
 <a href="{{ app.mobile_url or '#' }}"
     class="mobile-app-card"
     data-app-key="{{ app.key }}">

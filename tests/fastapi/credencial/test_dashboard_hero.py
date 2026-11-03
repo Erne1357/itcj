@@ -46,3 +46,16 @@ def test_dashboard_hero_hidden_for_inactive_account(client, db_session, student)
          patch("itcj2.core.services.mobile_service.get_mobile_apps_for_user", return_value=[]):
         html = client.get("/itcj/m/", headers=_cookie(user)).text
     assert "cc-card--hero" not in html and "data-open-in-app" not in html
+
+
+def test_dashboard_survives_hero_failure(client, db_session, student):
+    """El hero es decoración: si CardService.build truena, el inicio sale (sin hero), no un 500."""
+    user, _, _ = student
+    db_session.commit()  # el rollback del guard vuelve al último savepoint: los datos deben sobrevivir
+    with patch("itcj2.templates._get_active_theme", return_value=None), \
+         patch("itcj2.core.services.mobile_service.get_mobile_apps_for_user", return_value=[]), \
+         patch("itcj2.apps.credencial.services.card_service.CardService.build",
+               side_effect=RuntimeError("BD caída")):
+        resp = client.get("/itcj/m/", headers=_cookie(user))
+    assert resp.status_code == 200
+    assert "cc-card--hero" not in resp.text and "Mis Aplicaciones" in resp.text
