@@ -13,7 +13,7 @@ STATIC = Path(__file__).resolve().parents[3] / "itcj2/core/static"
 def test_keys_unicas_y_set_exacto():
     keys = [a["key"] for a in ds.DESKTOP_APPS]
     assert len(keys) == len(set(keys))
-    assert set(keys) == {"agendatec", "helpdesk", "maint", "directory", "titulatec", "profile", "settings"}
+    assert set(keys) == {"agendatec", "helpdesk", "maint", "directory", "titulatec", "credencial", "profile", "settings"}
 
 
 def test_banderas_de_apps_y_sistema():
@@ -22,6 +22,10 @@ def test_banderas_de_apps_y_sistema():
         a = por[k]
         assert a["pinned"] and a["on_desktop"] and not a["system"] and a["badge_key"] == k
         assert a["image"] == f"core/images/app-icons/{k}.webp"
+    # Credencial: tile en el escritorio (spec §5.3, panel de SE) sin anclar ni badge.
+    c = por["credencial"]
+    assert c["on_desktop"] and not c["pinned"] and not c["system"] and c["badge_key"] is None
+    assert c["image"] == "core/images/app-icons/credencial.webp" and c["url"] == "/credencial/admin/"
     for k in ("profile", "settings"):
         a = por[k]
         assert a["system"] and not a["pinned"] and not a["on_desktop"] and a["image"] is None

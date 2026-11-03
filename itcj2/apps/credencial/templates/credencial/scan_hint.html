@@ -1,0 +1,27 @@
+{% extends "credencial/base_credencial.html" %}
+{#- Personal sin el panel de fotos (p. ej. vigilancia con solo la vista completa): en vez
+    del 403 del core, cómo se verifica una credencial. Lo pintan /credencial/ y /credencial/admin/. -#}
+{% block title %}Verificar credencial · ITCJ{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/credencial/css/verify.css?v={{ sv('css/verify.css') }}">
+{% endblock %}
+{% block body %}
+<main class="cv-page">
+  <header class="cv-brand">
+    <img class="cv-brand__logo" src="/static/core/images/escudo_itcj_negro.png?v={{ sv_core('images/escudo_itcj_negro.png') }}" alt="" width="85" height="44">
+    <div>
+      <p class="cv-brand__name">Instituto Tecnológico de Ciudad Juárez</p>
+      <p class="cv-brand__sub">Credencial digital</p>
+    </div>
+  </header>
+
+  <section class="cv-status cv-status--scan">
+    <i class="bi bi-qr-code-scan cv-status__icon" aria-hidden="true"></i>
+    <h1 class="cv-status__word">Escanea el QR</h1>
+    <p class="cv-status__hint">Para verificar una credencial, abre la cámara del teléfono y apunta al código QR del reverso. La página que se abre dice si es válida.</p>
+  </section>
+
+  <p class="cv-footer">El panel de fotos es solo para Servicios Escolares.</p>
+  <a class="btn btn-outline-secondary" href="/itcj/m/" id="mobileBackToDashboard">Volver al inicio</a>
+</main>
+{% endblock %}

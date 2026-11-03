@@ -67,6 +67,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.directory.pages.router import directory_pages_router
     app.include_router(directory_pages_router)
 
+    # Credencial pages (prefix /credencial): credencial digital con QR
+    from itcj2.apps.credencial.pages.router import credencial_pages_router
+    app.include_router(credencial_pages_router)
+
     # Redirect raíz: autenticado → dashboard o móvil, no autenticado → login
     @app.get("/", include_in_schema=False)
     async def root_redirect(request: Request):

@@ -1,0 +1,45 @@
+{#- Tabla de resultados (parcial HTMX). Cada fila es un botón que carga la ficha del alumno. -#}
+<span hidden data-ca-page="{{ page.page }}"></span>
+{% if page.items %}
+<table class="table ca-table">
+  <caption class="ca-count">{{ page.start }}-{{ page.end }} de {{ page.total }} alumnos{% if q %} para «{{ q }}»{% endif %}</caption>
+  <thead>
+    <tr><th scope="col">Control</th><th scope="col">Alumno</th><th scope="col" class="d-none d-xl-table-cell">Carrera</th><th scope="col">Foto</th></tr>
+  </thead>
+  <tbody>
+    {% for s in page.items %}
+    <tr>
+      <td class="ca-mono">{{ s.control_number }}</td>
+      <td>
+        <button type="button" class="ca-pick" data-ca-pick hx-get="/credencial/admin/alumnos/{{ s.user_id }}"
+                hx-target="#ca-detail" hx-swap="innerHTML">{{ s.full_name }}</button>
+        {% if not s.is_active %}<span class="ca-flag">cuenta inactiva</span>{% endif %}
+      </td>
+      <td class="d-none d-xl-table-cell ca-program">{% if s.program %}{{ s.program }}{% else %}<span class="text-body-secondary">s/d</span>{% endif %}</td>
+      <td>{% if s.has_photo %}<span class="ca-state ca-state--ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Con foto</span>
+          {% else %}<span class="ca-state ca-state--missing"><i class="bi bi-dash-circle" aria-hidden="true"></i> Falta</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if page.pages > 1 %}
+<nav class="ca-pager" aria-label="Páginas de resultados">
+  <button type="button" class="btn btn-outline-secondary btn-sm" {% if not page.has_prev %}disabled{% endif %}
+          hx-get="/credencial/admin/buscar?page={{ page.page - 1 }}" hx-include="#ca-search" hx-target="#ca-results">Anterior</button>
+  <span>Página {{ page.page }} de {{ page.pages }}</span>
+  <button type="button" class="btn btn-outline-secondary btn-sm" {% if not page.has_next %}disabled{% endif %}
+          hx-get="/credencial/admin/buscar?page={{ page.page + 1 }}" hx-include="#ca-search" hx-target="#ca-results">Siguiente</button>
+</nav>
+{% endif %}
+{% else %}
+<div class="ca-empty">
+  <i class="bi bi-search" aria-hidden="true"></i>
+  {% if q or missing %}
+  <p class="ca-empty__title">Ningún alumno coincide</p>
+  <p>Prueba con el número de control completo o con un solo apellido.{% if missing %} Quita «Solo sin foto» para ver también a quienes ya tienen.{% endif %}</p>
+  {% else %}
+  <p class="ca-empty__title">Aún no hay alumnos con número de control</p>
+  <p>Aparecerán aquí cuando se importen desde el SII.</p>
+  {% endif %}
+</div>
+{% endif %}

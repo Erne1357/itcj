@@ -1,11 +1,16 @@
 {% extends "core/mobile/base_mobile.html" %}
 {% from "core/mobile/components/app_card.html" import render_app_card with context %}
+{% from "credencial/_card.html" import render_card %}
 
 {% block title %}ITCJ - Mi Dashboard{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet"
     href="{{ url_for('static', filename='core/css/mobile/dashboard.css') }}?v={{ sv('core', 'css/mobile/dashboard.css') }}">
+{% if card %}
+<link rel="stylesheet"
+    href="{{ url_for('static', filename='credencial/css/card.css') }}?v={{ sv('credencial', 'css/card.css') }}">
+{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -15,23 +20,25 @@
     <p class="mobile-greeting-sub">Bienvenido al portal ITCJ</p>
 </div>
 
-<!-- Tarjeta de info del estudiante -->
-<div class="mobile-user-card">
-    <div class="mobile-user-avatar">
-        {{ user.first_name[:1]|upper }}{{ user.last_name[:1]|upper }}
-    </div>
-    <div class="mobile-user-info">
-        <div class="mobile-user-name">{{ user.full_name }}</div>
-        <div class="mobile-user-detail">
-            <i class="bi bi-hash"></i> {{ user.control_number }}
-        </div>
-        {% if user.email %}
-        <div class="mobile-user-detail">
-            <i class="bi bi-envelope"></i> {{ user.email }}
-        </div>
-        {% endif %}
-    </div>
-</div>
+<!-- Hero: la credencial digital (abre /credencial/ en el iframe, como una tarjeta de app) -->
+{% if card %}
+{% set hero_cta = 'Mostrar mi credencial' if card.has_photo else 'Ver mi credencial' %}
+<a href="/credencial/" class="mobile-card-hero" data-open-in-app data-app-name="Credencial"
+    aria-label="{{ hero_cta }} digital">
+    {{ render_card(card, size="hero") }}
+    <span class="mobile-card-hero-cta">
+        <i class="bi {{ 'bi-qr-code' if card.has_photo else 'bi-person-vcard' }}" aria-hidden="true"></i>
+        <span>{{ hero_cta }}</span>
+        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+    </span>
+</a>
+{% if not card.has_photo %}
+<p class="mobile-card-hero-note">
+    <i class="bi bi-camera" aria-hidden="true"></i>
+    Aún no tienes foto oficial: acude a Servicios Escolares para registrarla.
+</p>
+{% endif %}
+{% endif %}
 
 <!-- Grid de aplicaciones -->
 <div class="mobile-section-title">

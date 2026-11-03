@@ -13,6 +13,7 @@ import os
 import itcj2.models  # noqa: F401  core + apps
 import itcj2.apps.titulatec.models  # noqa: F401
 import itcj2.apps.directory.models  # noqa: F401
+import itcj2.apps.credencial.models  # noqa: F401
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 

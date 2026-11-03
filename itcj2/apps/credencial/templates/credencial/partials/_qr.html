@@ -1,0 +1,6 @@
+{#- Contenido de #cc-qr (swap innerHTML cada TOKEN_REFRESH_SECONDS). Sin foto no hay token. -#}
+{%- if pending -%}
+<p class="cc-qr__msg">Foto pendiente: acude a Servicios Escolares.</p>
+{%- else -%}
+<div class="cc-qr__code" data-expires-at="{{ expires_at }}">{{ svg|safe }}</div>
+{%- endif -%}

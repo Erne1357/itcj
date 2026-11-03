@@ -380,6 +380,7 @@ class MobileApp {
         if (url.includes('/help-desk') || url.includes('/helpdesk')) return { name: 'Help-Desk', path: '/help-desk' };
         if (url.includes('/vistetec')) return { name: 'VisteTec', path: '/vistetec' };
         if (url.includes('/titulatec')) return { name: 'TitulaTec', path: '/titulatec' };
+        if (url.includes('/credencial')) return { name: 'Credencial', path: '/credencial' };
         return null;
     }
 
@@ -395,12 +396,14 @@ class MobileApp {
      * Bind app cards para abrir en iframe
      */
     bindAppCards() {
-        const appCards = document.querySelectorAll('.mobile-app-card');
+        // [data-open-in-app]: otras entradas a una app (p. ej. el hero de la credencial).
+        const appCards = document.querySelectorAll('.mobile-app-card, [data-open-in-app]');
         appCards.forEach(card => {
             card.addEventListener('click', (e) => {
                 e.preventDefault();
                 const url = card.getAttribute('href');
-                const appName = card.querySelector('.mobile-app-card-name')?.textContent || 'Aplicación';
+                const appName = card.dataset.appName
+                    || card.querySelector('.mobile-app-card-name')?.textContent || 'Aplicación';
 
                 if (url && url !== '#') {
                     this.openAppInIframe(url, appName);

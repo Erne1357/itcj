@@ -16,7 +16,8 @@ from itcj2.core.services import desktop_service as ds
 from itcj2.database import get_db
 from tests.conftest import make_jwt
 
-APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "titulatec"]
+APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "titulatec"]  # anclados, con badge
+DESKTOP_KEYS = APP_KEYS + ["credencial"]  # credencial: en el escritorio, sin anclar ni badge
 
 # Sprite del contrato compartido (plan, "Contratos compartidos").
 SPRITE = ("menu search bell wifi wifi-off minus square restore x refresh external trash user "
@@ -59,22 +60,24 @@ def _one(doc, xpath):
 # ---------------------------------------------------------------------------
 # Tiles del escritorio
 # ---------------------------------------------------------------------------
-def test_cinco_tiles_de_apps_mas_la_papelera_en_el_grid(doc):
+def test_tiles_de_apps_mas_la_papelera_en_el_grid(doc):
     tiles = doc.xpath('//*[@id="desktop-grid"]/*[contains(concat(" ", @class, " "), " desktop-icon ")]')
     keys = [t.get("data-app") for t in tiles]
     assert keys[0] == "papelera", "la Papelera decorativa va primero"
-    assert keys[1:] == APP_KEYS
+    assert keys[1:] == DESKTOP_KEYS
     assert "vistetec" not in keys and "app_prueba" not in keys
 
 
 def test_tile_con_imagen_optimizada_y_badge_por_app(doc):
     por = {a["key"]: a for a in ds.build_apps_payload()}
-    for key in APP_KEYS:
+    for key in DESKTOP_KEYS:
         tile = _one(doc, f'//*[@id="desktop-grid"]/*[@data-app="{key}"]')
         (img,) = tile.xpath(".//img")
         assert img.get("src") == por[key]["image"]
         assert img.get("width") == "48" and img.get("height") == "48"
         assert img.get("alt") == por[key]["name"]
+    assert "data-badge-for" not in _one(doc, '//*[@id="badge-credencial"]').attrib
+    for key in APP_KEYS:
         badge = _one(doc, f'//*[@id="badge-{key}"]')
         assert badge.get("data-badge-for") == key
         assert "hidden" in badge.attrib

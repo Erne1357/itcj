@@ -1,0 +1,83 @@
+{% extends "credencial/base_credencial.html" %}
+{% from "credencial/_card.html" import render_card %}
+{#- Escenario oscuro: la tarjeta es el objeto iluminado. Frente fiel; reverso con el QR
+    rotatorio (solo si hay foto). El JS solo lee data-* de #cs-page. -#}
+{% block title %}Mi credencial · ITCJ{% endblock %}
+{% block head_meta %}
+<meta name="theme-color" content="#0b1020">
+{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/credencial/css/card.css?v={{ sv('css/card.css') }}">
+<link rel="stylesheet" href="/static/credencial/css/student.css?v={{ sv('css/student.css') }}">
+{% endblock %}
+{% block body_attrs %} class="cs-body"{% endblock %}
+{% block body %}
+<div class="cs-page" id="cs-page" data-tz="{{ tz }}" data-ttl="{{ ttl_s }}" data-refresh="{{ refresh_s }}">
+  <header class="cs-bar">
+    {#- Sin la clase .mobile-back-to-dashboard: el shell la oculta en >= 992 px. El id
+        hace que mobile-app-shell.js la enlace (en el iframe manda CLOSE_APP); sola, es
+        un enlace normal al inicio móvil. -#}
+    <a href="/itcj/m/" class="cs-back" id="mobileBackToDashboard" aria-label="Volver al inicio">
+      <i class="bi bi-arrow-left" aria-hidden="true"></i>
+    </a>
+    <h1 class="cs-title">Credencial digital</h1>
+  </header>
+
+  <main class="cs-stage">
+    <div class="cs-card-slot">
+      {%- if card.has_photo %}
+      {% call render_card(card) %}
+      <div class="cc-back">
+        <div class="cc-back__qr" id="cc-qr" role="img"
+             aria-label="Código QR de verificación, se renueva cada {{ refresh_s }} segundos"
+             hx-get="/credencial/qr"
+             hx-trigger="load, every {{ refresh_s }}s [document.visibilityState === 'visible'], cc:refresh"
+             hx-swap="innerHTML swap:120ms settle:120ms">
+          <p class="cc-qr__msg">Generando código…</p>
+        </div>
+        <div class="cc-back__side">
+          <div class="cc-ring" aria-hidden="true">
+            <svg class="cc-ring__svg" viewBox="0 0 44 44">
+              <circle class="cc-ring__track" cx="22" cy="22" r="19"></circle>
+              <circle class="cc-ring__bar" id="cc-ring-bar" cx="22" cy="22" r="19" pathLength="100"></circle>
+            </svg>
+            <span class="cc-ring__sec" id="cc-ring-sec">{{ refresh_s }}</span>
+          </div>
+          <p class="cc-back__name">{{ short_name }}</p>
+          <p class="cc-back__time" data-cc-clock>--:--:--</p>
+          <p class="cc-back__hint" id="cc-qr-status" aria-live="polite">Escanea para verificar</p>
+        </div>
+      </div>
+      {% endcall %}
+      {%- else %}
+      {{ render_card(card) }}
+      {%- endif %}
+    </div>
+
+    <div class="cs-controls">
+      <div class="cs-status">
+        {%- if card.has_photo %}
+        <span class="cs-live"><span class="cs-live__dot" aria-hidden="true"></span>Vigente</span>
+        {%- else %}
+        <span class="cs-live cs-live--pending"><i class="bi bi-camera" aria-hidden="true"></i>Foto pendiente</span>
+        {%- endif %}
+        <time class="cs-clock" data-cc-clock>--:--:--</time>
+      </div>
+      {%- if card.has_photo %}
+      <button type="button" class="cs-action" id="cc-flip" aria-controls="cc-card-full">
+        <i class="bi bi-qr-code" aria-hidden="true"></i><span id="cc-flip-label">Mostrar QR</span>
+      </button>
+      {%- else %}
+      <p class="cs-notice">
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
+        <span>Tu credencial aún no tiene foto oficial. Acude a Servicios Escolares para que la registren; después podrás mostrar tu código QR.</span>
+      </p>
+      {%- endif %}
+    </div>
+  </main>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+<script src="/static/credencial/js/credencial.js?v={{ sv('js/credencial.js') }}"></script>
+{% endblock %}

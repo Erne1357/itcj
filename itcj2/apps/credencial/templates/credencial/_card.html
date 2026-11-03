@@ -1,0 +1,32 @@
+{#- Credencial fiel a la física (plantilla 1016x638). La importan la vista del alumno
+    (size="full", con reverso vía {% call %}) y el inicio móvil del core (size="hero").
+    No usa sv(): en el core y en la app tiene firmas distintas; las imágenes van por card.css.
+    card.fit1/fit2 dan el paso de letra que hace caber cada línea (display.fit_class).
+    photo_url / id_suffix: para vistas previas de OTRO alumno (panel) sin chocar ids. -#}
+{% macro render_card(card, size="full", photo_url="/credencial/foto", id_suffix="") -%}
+<div class="cc-card cc-card--{{ size }}{{ '' if card.has_photo else ' is-photo-missing' }}" id="cc-card-{{ size }}{{ id_suffix }}">
+  <div class="cc-card__inner">
+    <div class="cc-face cc-face--front" id="cc-front{{ id_suffix }}">
+      <span class="cc-chip" aria-hidden="true"></span>
+      <div class="cc-photo">
+        {%- if card.has_photo %}
+        <img src="{{ photo_url }}" alt="Foto oficial de {{ card.display_name }}" width="456" height="600" decoding="async">
+        {%- else %}
+        <span class="cc-photo__pending"><i class="bi bi-person-bounding-box" aria-hidden="true"></i>Foto pendiente</span>
+        {%- endif %}
+      </div>
+      <p class="cc-lines">
+        <span class="cc-line{{ card.fit1 }}">{{ card.display_name }} / <span class="cc-num">{{ card.control_number }}</span></span>
+        <span class="cc-line{{ card.fit2 }}">{{ card.line2 }}</span>
+        <span class="cc-line">Instituto Tecnológico de Ciudad Juárez</span>
+      </p>
+      {%- if size == "full" %}
+      <span class="cc-sheen" aria-hidden="true"></span>
+      {%- endif %}
+    </div>
+    {%- if caller is defined %}
+    <div class="cc-face cc-face--back" id="cc-back{{ id_suffix }}" inert>{{ caller() }}</div>
+    {%- endif %}
+  </div>
+</div>
+{%- endmacro %}

@@ -1,0 +1,191 @@
+/* Credencial digital: la tarjeta fiel a la física (plantilla 1016x638). La comparten
+   /credencial/ (frente + reverso con QR) y el hero del inicio móvil (solo frente).
+   Todas las medidas de la tarjeta van en % o cqi (ancho de la tarjeta) para que el
+   texto escale con ella. Las imágenes llevan ?v= a mano: prod las cachea 1 año
+   (immutable); si cambia un .webp, sube su ?v= aquí. */
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600&display=swap");
+
+.cc-card {
+  --cc-ease: cubic-bezier(0.25, 1, 0.5, 1); /* ease-out-quart */
+  --cc-radius: 3.7cqi;                       /* 3.18 mm / 85.6 mm de una ID-1 */
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1016 / 638;
+  container-type: inline-size;
+  perspective: 1600px;
+}
+
+.cc-card__inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 450ms var(--cc-ease);
+}
+
+.cc-face {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--cc-radius);
+  overflow: hidden;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  /* sombra del objeto: una sola capa definida, sin borde */
+  box-shadow: 0 0.4cqi 1.2cqi rgb(0 0 0 / 0.28);
+}
+
+/* ── Frente ─────────────────────────────────────────────────────────────── */
+.cc-face--front {
+  background: #274392 url("../images/card-front.webp?v=1") center / 100% 100% no-repeat;
+  color: #fff;
+}
+
+.cc-chip {
+  position: absolute;
+  left: 7.087%;   /* recorte 72,277 124x84 del ejemplo lleno */
+  top: 43.417%;
+  width: 12.205%;
+  height: 13.166%;
+  background: url("../images/chip.webp?v=1") center / 100% 100% no-repeat;
+}
+
+.cc-photo {
+  position: absolute;
+  left: 76.87%;   /* hueco blanco x 781-1016, y 0-309 */
+  top: 0;
+  width: 23.13%;
+  height: 48.43%;
+  border-radius: 0.65cqi;
+  overflow: hidden;
+  background: #fff;
+}
+
+.cc-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cc-photo__pending {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2cqi;
+  height: 100%;
+  padding: 0 1.5cqi;
+  color: #4a5363;
+  font: 600 2.1cqi/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  text-align: center;
+}
+
+.cc-photo__pending .bi {
+  font-size: 7cqi;
+  line-height: 1;
+  color: #8a93a3;
+}
+
+.cc-lines {
+  position: absolute;
+  left: 7.38%;
+  right: 3%;
+  top: 71.1%;    /* centros de línea en y 470 / 507 / 543 */
+  margin: 0;
+  font-family: "Montserrat", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 2.8cqi;       /* calibrado contra el ejemplo lleno a 1016 px */
+  line-height: 3.52cqi;
+  letter-spacing: 0.035em; /* la física va con tracking abierto */
+  color: #fff;
+  /* halo apenas visible: el blanco sobre el rojo de la plantilla queda en ~4:1 */
+  text-shadow: 0 0.08cqi 0.4cqi rgb(70 0 20 / 0.45);
+}
+
+.cc-line {
+  display: block;
+  white-space: nowrap;
+}
+
+.cc-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap; /* el nº de control nunca se parte ni se recorta */
+}
+
+/* Paso de letra por línea: lo elige el servidor midiendo el texto con los avances
+   de Montserrat (display.fit_class), así cabe también en el hero, que no lleva JS.
+   El interlineado sigue en cqi: encoger no mueve las otras líneas. */
+.cc-fit-96 { font-size: 0.96em; }
+.cc-fit-92 { font-size: 0.92em; }
+.cc-fit-88 { font-size: 0.88em; }
+.cc-fit-84 { font-size: 0.84em; }
+.cc-fit-80 { font-size: 0.80em; }
+.cc-fit-76 { font-size: 0.76em; }
+.cc-fit-72 { font-size: 0.72em; }
+.cc-fit-68 { font-size: 0.68em; }
+.cc-fit-64 { font-size: 0.64em; }
+.cc-fit-60 { font-size: 0.60em; }
+
+/* No cabe a 80 %: se parte en dos renglones dentro del área de texto (display.fit_class). */
+.cc-wrap {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+
+/* ── Brillo holográfico (solo size="full") ──────────────────────────────── */
+/* Una capa 3x más ancha que se desplaza con transform (compuesta, sin repintar):
+   deriva lenta por omisión; con inclinación del teléfono la mueve el JS. */
+.cc-sheen {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: soft-light;
+}
+
+.cc-sheen::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: -100%;
+  width: 300%;
+  background: linear-gradient(
+    108deg,
+    transparent 34%,
+    rgb(120 220 255 / 0.5) 42%,
+    rgb(255 255 255 / 0.7) 46%,
+    rgb(255 160 235 / 0.5) 51%,
+    rgb(255 236 150 / 0.45) 56%,
+    transparent 63%
+  );
+  transform: translate3d(calc(var(--cc-tx, 0) * 22%), calc(var(--cc-ty, 0) * 8%), 0);
+  animation: cc-drift 9s var(--cc-ease) infinite alternate;
+}
+
+.cc-card.has-tilt .cc-sheen::before {
+  animation: none;
+  transition: transform 120ms linear;
+}
+
+@keyframes cc-drift {
+  from { transform: translate3d(-22%, -4%, 0); }
+  to   { transform: translate3d(22%, 4%, 0); }
+}
+
+/* ── Volteo ─────────────────────────────────────────────────────────────── */
+.cc-face--back { transform: rotateY(180deg); }
+.cc-card.is-flipped .cc-card__inner { transform: rotateY(180deg); }
+
+/* ── Hero (inicio móvil): objeto estático ───────────────────────────────── */
+.cc-card--hero .cc-face { box-shadow: 0 0.3cqi 0.8cqi rgb(10 14 40 / 0.22), 0 3cqi 6cqi -3cqi rgb(10 14 40 / 0.45); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cc-card__inner { transition: none; }
+  .cc-sheen::before { animation: none; transform: none; }
+  .cc-face { transition: opacity 200ms linear; }
+  .cc-face--back { transform: none; opacity: 0; }
+  .cc-card.is-flipped .cc-card__inner { transform: none; }
+  .cc-card.is-flipped .cc-face--front { opacity: 0; }
+  .cc-card.is-flipped .cc-face--back { opacity: 1; }
+}
