@@ -78,3 +78,29 @@ def import_photos_command(directory, dry_run):
                 click.echo(f"{status:11} {name} {detail}".rstrip())
     click.echo(("\n[dry-run] " if dry_run else "\n") + ", ".join(f"{k}: {v}" for k, v in totals.items())
                + f" (total {len(paths)})")
+
+
+@credencial_cli.command("assign-programs")
+@click.option("--csv-path", "csv_paths", multiple=True, type=click.Path(exists=True, dir_okay=False, path_type=str),
+              help="CSV de alumnos (repetible). Por defecto, los cinco de database/CSV/ que existan.")
+@click.option("--overwrite", is_flag=True, help="Pisa carrera y datos que el perfil ya tiene.")
+@click.option("--dry-run", is_flag=True, help="Calcula el reporte sin escribir nada.")
+def assign_programs_command(csv_paths, overwrite, dry_run):
+    """Asigna la carrera de cada alumno desde los CSV del padrón (gana el archivo más reciente)."""
+    from pathlib import Path
+
+    from itcj2.apps.credencial.services.program_import_service import (
+        DEFAULT_CSVS, ProgramImportService, read_student_rows,
+    )
+    from itcj2.database import SessionLocal
+
+    paths = [Path(p) for p in csv_paths] or [PROJECT_ROOT / p for p in DEFAULT_CSVS if (PROJECT_ROOT / p).exists()]
+    if not paths:
+        raise click.ClickException("No hay CSV de alumnos que leer.")
+    rows = read_student_rows(paths)
+    click.echo(f"{len(rows)} alumnos distintos en {len(paths)} archivo(s)")
+    with SessionLocal() as db:
+        rep = ProgramImportService.apply(db, rows, overwrite=overwrite, dry_run=dry_run)
+    click.echo(("[dry-run] " if dry_run else "")
+               + f"actualizados: {rep.updated}, creados: {rep.created}, sin alumno en BD: {rep.no_user}")
+    click.echo(f"carreras sin mapear: {dict(rep.unmapped) or 'ninguna'}")
