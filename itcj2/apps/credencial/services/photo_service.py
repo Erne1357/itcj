@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageOps
 from sqlalchemy.orm import Session
 
 if TYPE_CHECKING:
@@ -23,7 +23,9 @@ PHOTO_SIZE = (456, 600)  # ancho x alto; aspecto del hueco 235:309
 PHOTO_MIME = "image/jpeg"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 25_000_000  # un PNG liso de 100 MP pesa KB pero ocupa GB al decodificar
-ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
+# MPO = JPEG con varias imágenes (Ultra HDR de Android, Samsung, Fujifilm): open() da la
+# principal y el re-encode tira las demás y sus metadatos.
+ALLOWED_FORMATS = {"JPEG", "MPO", "PNG", "WEBP"}
 
 
 class PhotoError(ValueError):
@@ -68,7 +70,8 @@ class PhotoService:
             raise
         except Image.DecompressionBombError:
             raise PhotoError("La imagen tiene demasiados píxeles")
-        except (UnidentifiedImageError, OSError, SyntaxError, ValueError):
+        except Exception as e:  # los plugins de Pillow también lanzan struct.error, IndexError, KeyError...
+            logger.info("credencial: imagen rechazada (%s)", type(e).__name__)
             raise PhotoError("El archivo no es una imagen válida")
 
     @staticmethod

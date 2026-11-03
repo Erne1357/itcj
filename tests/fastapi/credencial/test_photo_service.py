@@ -79,6 +79,32 @@ def test_not_an_image_rejected():
         PhotoService.normalize(b"%PDF-1.4 no soy imagen")
 
 
+def test_mpo_multi_picture_jpeg_accepted_as_plain_jpeg():
+    """Ultra HDR / Samsung: JPEG con varias imágenes que Pillow reporta como MPO."""
+    buf = io.BytesIO()
+    Image.new("RGB", (200, 300), (200, 30, 30)).save(
+        buf, "MPO", save_all=True, append_images=[Image.new("RGB", (200, 300), (0, 0, 255))])
+    assert Image.open(io.BytesIO(buf.getvalue())).format == "MPO"
+    raw = PhotoService.normalize(buf.getvalue())
+    out = Image.open(io.BytesIO(raw))
+    assert out.format == "JPEG" and out.size == PHOTO_SIZE
+    assert getattr(out, "n_frames", 1) == 1
+    r, g, b = out.getpixel((10, 10))
+    assert r > 150 and b < 100  # la imagen principal, no la secundaria
+
+
+def test_any_decoder_exception_is_photo_error(monkeypatch):
+    """Un archivo armado a mano puede tronar un plugin con struct.error/IndexError: 400, no 500."""
+    import struct
+
+    def boom(img):
+        raise struct.error("crafted")
+
+    monkeypatch.setattr(photo_service.ImageOps, "exif_transpose", boom)
+    with pytest.raises(PhotoError, match="no es una imagen válida"):
+        PhotoService.normalize(_img())
+
+
 def test_oversize_rejected(monkeypatch):
     monkeypatch.setattr(photo_service, "MAX_UPLOAD_BYTES", 100)
     with pytest.raises(PhotoError, match="10 MB"):

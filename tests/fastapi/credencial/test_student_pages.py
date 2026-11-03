@@ -125,6 +125,13 @@ def test_qr_partial_svg_and_no_store(client, student, monkeypatch, env, prefix):
     assert TOKEN_TTL_SECONDS - 5 < delta <= TOKEN_TTL_SECONDS
 
 
+def test_domain_default_is_official_origin():
+    """El QR de prod y el pie «Dirección oficial» salen de DOMAIN: un .env sin él no puede dar localhost."""
+    from itcj2.config import Settings
+
+    assert Settings.model_fields["DOMAIN"].default == "https://enlinea.cdjuarez.tecnm.mx"
+
+
 def test_qr_without_photo_409_no_token(client, bare_student):
     resp = client.get("/credencial/qr", headers=_cookie(bare_student))
     assert resp.status_code == 409

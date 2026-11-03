@@ -436,8 +436,10 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: str = ""
 
-    # Domain
-    DOMAIN: str = "http://localhost:8080"
+    # Domain: origen público oficial. Lo usan el enlace del QR de la credencial y el
+    # pie «Dirección oficial» de su página de verificación; con localhost por omisión
+    # un .env sin DOMAIN dejaría todos los QR de producción apuntando a localhost.
+    DOMAIN: str = "https://enlinea.cdjuarez.tecnm.mx"
 
     # Uploads
     INSTANCE_PATH: str = os.path.abspath("instance")
