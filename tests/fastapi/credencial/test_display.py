@@ -16,7 +16,9 @@ def test_display_name_unknown_returns_name_without_suffix():
 
 
 # ── fit_class: las líneas caben en la tarjeta sin JS ──────────────────────────
-from itcj2.apps.credencial.services.display import FIT_FLOOR, _LINE_EM, _line_em, fit_class  # noqa: E402
+from itcj2.apps.credencial.services.display import (  # noqa: E402
+    _HEADROOM, _LINE_EM, FIT_FLOOR, FIT_MIN, _line_em, fit_class,
+)
 
 WORST_NAME = "Daniel Arturo Amador Gordillo Amador Gordillo / 21111182"           # máximo real en dev
 WORST_PROGRAM = "Maestría en Administración de Negocios Internacionales / Egresado"  # 65 caracteres
@@ -32,17 +34,28 @@ def test_fit_class_short_lines_keep_base_size():
     assert fit_class("Instituto Tecnológico de Ciudad Juárez") == ""
 
 
-def test_fit_class_worst_real_cases_shrink_and_fit():
-    for line in (WORST_NAME, WORST_PROGRAM):
+def test_fit_class_worst_real_name_shrinks_with_headroom():
+    cls = fit_class(WORST_NAME)
+    assert cls and "cc-wrap" not in cls and _scale(cls) >= FIT_MIN
+    assert _line_em(WORST_NAME) * _HEADROOM * _scale(cls) / 100 <= _LINE_EM
+
+
+def test_fit_class_never_single_line_below_80():
+    """Matriz T7: a 360 px una línea de 71 caracteres quedaba en ~6 px; ahora se parte antes."""
+    for line in (WORST_PROGRAM, "María Guadalupe Alejandra Hernández Villaseñor de la Garza / 99000002"):
         cls = fit_class(line)
-        assert cls and "cc-wrap" not in cls, line
-        assert _line_em(line) * _scale(cls) / 100 <= _LINE_EM, line
+        assert cls == f" cc-fit-{FIT_MIN} cc-wrap", line
+        # dos renglones a 80% alcanzan
+        assert _line_em(line) * _HEADROOM * FIT_MIN / 100 <= 2 * _LINE_EM * 0.85, line
 
 
-def test_fit_class_synthetic_60_char_name_fits_without_wrap():
-    line = "María Guadalupe Alejandra Hernández Villaseñor de la Garza / 99000002"
-    cls = fit_class(line)
-    assert FIT_FLOOR <= _scale(cls) < 100 and "cc-wrap" not in cls
+def test_fit_class_every_single_line_fits_with_headroom():
+    for n in range(10, 120):
+        line = ("Nombre Apellido " * 10)[:n] + " / 21111182"
+        cls = fit_class(line)
+        if "cc-wrap" not in cls:
+            assert _scale(cls) >= FIT_MIN, line
+            assert _line_em(line) * _HEADROOM * _scale(cls) / 100 <= _LINE_EM, line
 
 
 def test_fit_class_absurd_length_wraps_at_floor():

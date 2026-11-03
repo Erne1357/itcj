@@ -125,7 +125,7 @@
 .cc-fit-64 { font-size: 0.64em; }
 .cc-fit-60 { font-size: 0.60em; }
 
-/* Más largo que el piso de 60 %: se parte en dos renglones dentro del área de texto. */
+/* No cabe a 80 %: se parte en dos renglones dentro del área de texto (display.fit_class). */
 .cc-wrap {
   white-space: normal;
   overflow-wrap: anywhere;
