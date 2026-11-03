@@ -70,10 +70,26 @@ def test_cp1252_file(tmp_path):
     assert read_student_rows([p])["91000007"].nombre_carrera == "MAESTRÍA EN ALGO"
 
 
-def test_newest_file_wins(tmp_path):
-    new = _w(tmp_path, "a_new.csv", "91000008,5,2,CONTADOR PUBLICO,ACT,A,B,C,X,1,,1\n", mtime=2_000_000_000)
-    old = _w(tmp_path, "z_old.csv", "91000008,11,2,INGENIERIA INDUSTRIAL,ACT,A,B,C,X,1,,1\n", mtime=1_000_000_000)
-    assert read_student_rows([new, old])["91000008"].nombre_carrera == "CONTADOR PUBLICO"
+def test_later_path_wins_regardless_of_mtime(tmp_path):
+    # mtime invertido a propósito: el orden de la lista manda, no el mtime
+    first = _w(tmp_path, "a.csv", "91000008,11,2,INGENIERIA INDUSTRIAL,ACT,A,B,C,X,1,,1\n", mtime=2_000_000_000)
+    last = _w(tmp_path, "b.csv", "91000008,5,2,CONTADOR PUBLICO,ACT,A,B,C,X,1,,1\n", mtime=1_000_000_000)
+    assert read_student_rows([first, last])["91000008"].nombre_carrera == "CONTADOR PUBLICO"
+    assert read_student_rows([last, first])["91000008"].nombre_carrera == "INGENIERIA INDUSTRIAL"
+
+
+def test_old_format_after_2026_keeps_tipo_and_campus(tmp_path):
+    new = _w(tmp_path, "n.csv", COMMA_HEAD + "\n91000009,19,2,INGENIERIA EN SISTEMAS COMPUTACIONALES,ACT,A,B,C,X,1,EAD,1\n",
+             mtime=1_500_000_000)
+    old = _w(tmp_path, "o.csv", SEMI_HEAD + "\n91000009;INGENIERIA EN SISTEMAS COMPUTACIONALES;19;2010;VIG;A;B;C;1\n",
+             mtime=1_500_000_000)
+    r = read_student_rows([new, old])["91000009"]  # el viejo gana, pero no borra EAD ni campus
+    assert (r.tipo, r.campus, r.estatus) == ("EAD", "1", "VIG")
+
+
+def test_quoted_field_with_newline(tmp_path):
+    p = _w(tmp_path, "q.csv", COMMA_HEAD + '\n91000010,5,2,CONTADOR PUBLICO,ACT,"A\nB",C,D,X,1,,1\n')
+    assert read_student_rows([p])["91000010"].campus == "1"
 
 
 def _row(nombre="INGENIERIA EN SISTEMAS COMPUTACIONALES", tipo="", campus="1"):
@@ -91,6 +107,13 @@ PROGS = {
 def test_ead_variant():
     assert resolve_program_id(PROGS, _row(tipo="EAD")) == 2
     assert resolve_program_id(PROGS, _row()) == 1
+
+
+def test_variant_names_with_different_accents_and_case():
+    progs = {"Contador publico": 1, "Contador Público CAMPUS II": 2,
+             "Lic. Administracion": 3, "Lic. Administración EAD": 4}
+    assert resolve_program_id(progs, _row("CONTADOR PUBLICO", campus="2")) == 2
+    assert resolve_program_id(progs, _row("LICENCIATURA EN ADMINISTRACION", tipo="EAD")) == 4
 
 
 def test_campus_ii_variant():

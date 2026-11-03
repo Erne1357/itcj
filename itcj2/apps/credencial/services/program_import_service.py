@@ -3,6 +3,7 @@
 Los CSV traen NIP y CURP: `StudentRow` no los tiene, se descartan al leer.
 """
 import csv
+import io
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
@@ -87,14 +88,18 @@ def _read_text(path: Path) -> str:
 
 
 def read_student_rows(paths: list[Path]) -> dict[str, StudentRow]:
-    """Une los CSV por nº de control; el archivo más reciente (mtime) pisa a los viejos."""
+    """Une los CSV por nº de control. El ORDEN de `paths` es la prioridad (el último gana):
+    la generación del archivo manda, no su mtime (los exportes viejos se copiaron después).
+    Por campo: un valor vacío de un archivo posterior no borra uno ya conocido (el formato
+    viejo no trae tipo ni campus)."""
     out: dict[str, StudentRow] = {}
-    for path in sorted((Path(p) for p in paths), key=lambda p: p.stat().st_mtime):
-        lines = [ln for ln in _read_text(path).splitlines() if ln.strip()]
-        if not lines:
+    for path in (Path(p) for p in paths):
+        text = _read_text(path)
+        first = text.lstrip().split("\n", 1)[0]
+        if not first:
             continue
-        delim = ";" if lines[0].count(";") > lines[0].count(",") else ","
-        rows = list(csv.reader(lines, delimiter=delim))
+        delim = ";" if first.count(";") > first.count(",") else ","
+        rows = [r for r in csv.reader(io.StringIO(text), delimiter=delim) if r]
         if _clean(rows[0][0]).lower() == "no_de_control":
             cols = [_clean(c).lower() for c in rows[0]]
             rows = rows[1:]
@@ -105,7 +110,7 @@ def read_student_rows(paths: list[Path]) -> dict[str, StudentRow]:
             control = d.get("no_de_control", "")
             if not control:
                 continue
-            out[control] = StudentRow(
+            new = StudentRow(
                 control=control,
                 nombre_carrera=d.get("nombre_carrera", ""),
                 reticula=d.get("reticula", ""),
@@ -113,6 +118,12 @@ def read_student_rows(paths: list[Path]) -> dict[str, StudentRow]:
                 tipo=d.get("tipo alumno", ""),
                 campus=d.get("campus", ""),
             )
+            old = out.get(control)
+            if old:
+                for f in ("nombre_carrera", "reticula", "estatus", "tipo", "campus"):
+                    if not getattr(new, f):
+                        setattr(new, f, getattr(old, f))
+            out[control] = new
     return out
 
 
@@ -121,7 +132,8 @@ def resolve_program_id(programs_by_name: dict[str, int], row: StudentRow) -> int
     if base is None:
         return None
     suffix = " EAD" if row.tipo.upper() == "EAD" else " CAMPUS II" if row.campus == "2" else ""
-    return programs_by_name.get(base + suffix, programs_by_name.get(base))
+    by_key = {norm_key(n): i for n, i in programs_by_name.items()}
+    return by_key.get(norm_key(base + suffix), by_key.get(norm_key(base)))
 
 
 class ProgramImportService:
