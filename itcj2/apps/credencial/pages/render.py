@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 _HERE = Path(__file__).parent
 _TEMPLATES_DIR = _HERE.parent / "templates"
 
-credencial_templates = Jinja2Templates(credencial=str(_TEMPLATES_DIR))
+credencial_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 
 def _sv_for(app_name: str, path: str) -> str:

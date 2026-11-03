@@ -36,3 +36,16 @@ def test_static_registered():
         "docker/compose/docker-compose.dev.yml", "docker/compose/docker-compose.prod.yml",
     ):
         assert "credencial" in (ROOT / rel).read_text(encoding="utf-8"), rel
+
+
+def test_render_credencial_renders_base_template():
+    from starlette.requests import Request
+
+    from itcj2.apps.credencial.pages.render import render_credencial
+
+    request = Request({"type": "http", "method": "GET", "path": "/credencial/", "headers": [],
+                       "query_string": b"", "scheme": "http", "server": ("t", 80),
+                       "client": ("t", 1), "root_path": ""})
+    resp = render_credencial(request, "credencial/base_credencial.html")
+    assert resp.status_code == 200
+    assert b"Credencial Digital" in resp.body
