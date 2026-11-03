@@ -56,7 +56,9 @@ def mobile_dashboard(
             "user": mobile_user,
             "user_type": user_type,
             "apps": apps,
-            "card": CardService.build(db, user_id),  # hero: la credencial en lugar de la tarjeta de iniciales
+            # Hero: la credencial en lugar de la tarjeta de iniciales. Inactiva = sin hero
+            # (/credencial/ cierra esa sesión).
+            "card": CardService.build(db, user_id) if mobile_user.is_active else None,
             "active_tab": "home",
         })
 

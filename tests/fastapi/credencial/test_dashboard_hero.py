@@ -34,3 +34,15 @@ def test_dashboard_hero_without_photo_stays_tappable(client, student, photo_dir)
         html = client.get("/itcj/m/", headers=_cookie(user)).text
     assert "Foto pendiente" in html and "Servicios Escolares" in html
     assert 'href="/credencial/"' in html and "/credencial/foto" not in html
+    assert 'aria-label="Ver mi credencial digital"' in html and ">Ver mi credencial<" in html
+
+
+def test_dashboard_hero_hidden_for_inactive_account(client, db_session, student):
+    """Igual que /credencial/ (que cierra esa sesión): cuenta inactiva = sin hero."""
+    user, _, _ = student
+    user.is_active = False
+    db_session.flush()
+    with patch("itcj2.templates._get_active_theme", return_value=None), \
+         patch("itcj2.core.services.mobile_service.get_mobile_apps_for_user", return_value=[]):
+        html = client.get("/itcj/m/", headers=_cookie(user)).text
+    assert "cc-card--hero" not in html and "data-open-in-app" not in html

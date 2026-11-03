@@ -22,12 +22,13 @@
 
 <!-- Hero: la credencial digital (abre /credencial/ en el iframe, como una tarjeta de app) -->
 {% if card %}
+{% set hero_cta = 'Mostrar mi credencial' if card.has_photo else 'Ver mi credencial' %}
 <a href="/credencial/" class="mobile-card-hero" data-open-in-app data-app-name="Credencial"
-    aria-label="Mostrar mi credencial digital">
+    aria-label="{{ hero_cta }} digital">
     {{ render_card(card, size="hero") }}
     <span class="mobile-card-hero-cta">
         <i class="bi {{ 'bi-qr-code' if card.has_photo else 'bi-person-vcard' }}" aria-hidden="true"></i>
-        <span>{{ 'Mostrar mi credencial' if card.has_photo else 'Ver mi credencial' }}</span>
+        <span>{{ hero_cta }}</span>
         <i class="bi bi-chevron-right" aria-hidden="true"></i>
     </span>
 </a>
