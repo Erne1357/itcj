@@ -1,0 +1,91 @@
+{% extends "credencial/base_credencial.html" %}
+{#- Panel de Servicios Escolares. Claro y denso: se usa sentado, con la fila esperando.
+    El JS lee solo data-* de #ca-root; el CSS no toca la tarjeta (card.css). -#}
+{% block title %}Fotos de credencial · ITCJ{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/credencial/css/card.css?v={{ sv('css/card.css') }}">
+<link rel="stylesheet" href="/static/credencial/css/admin.css?v={{ sv('css/admin.css') }}">
+{% endblock %}
+{% block body_attrs %} class="ca-body"{% endblock %}
+{% block body %}
+<div class="ca-wrap container-fluid" id="ca-root" data-can-upload="{{ 1 if can_upload else 0 }}"
+     data-batch-max="{{ batch_max }}" data-max-mb="{{ max_mb }}">
+  <header class="ca-head">
+    <h1 class="ca-title"><i class="bi bi-person-vcard" aria-hidden="true"></i> Fotos de credencial</h1>
+    <nav class="ca-links" aria-label="Secciones del panel">
+      {% if can_log %}<a class="btn btn-outline-secondary btn-sm" href="/credencial/admin/verificaciones"><i class="bi bi-clock-history" aria-hidden="true"></i> Ver verificaciones</a>{% endif %}
+    </nav>
+  </header>
+
+  <ul class="nav nav-tabs ca-tabs" id="ca-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="ca-tab-students" data-bs-toggle="tab" data-bs-target="#ca-pane-students"
+              type="button" role="tab" aria-controls="ca-pane-students" aria-selected="true">Alumnos</button>
+    </li>
+    {% if can_upload %}
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="ca-tab-batch" data-bs-toggle="tab" data-bs-target="#ca-pane-batch"
+              type="button" role="tab" aria-controls="ca-pane-batch" aria-selected="false">Cargar varias fotos</button>
+    </li>
+    {% endif %}
+  </ul>
+
+  <div class="tab-content">
+    <section class="tab-pane fade show active" id="ca-pane-students" role="tabpanel" aria-labelledby="ca-tab-students">
+      <div class="ca-split">
+        <div class="ca-list">
+          <form id="ca-search" class="ca-search" role="search" onsubmit="return false;"
+                hx-get="/credencial/admin/buscar" hx-target="#ca-results" hx-swap="innerHTML"
+                hx-trigger="input changed delay:300ms from:#ca-q, change from:#ca-missing, ca:refresh">
+            <label for="ca-q" class="visually-hidden">Buscar alumno por número de control o nombre</label>
+            <input type="search" class="form-control" id="ca-q" name="q" value="{{ q }}" autocomplete="off"
+                   placeholder="Número de control, nombre o apellido">
+            <div class="form-check ca-missing">
+              <input class="form-check-input" type="checkbox" id="ca-missing" name="missing" value="1">
+              <label class="form-check-label" for="ca-missing">Solo sin foto</label>
+            </div>
+          </form>
+          <div id="ca-results" aria-live="polite">{% include "credencial/admin/_results.html" %}</div>
+        </div>
+
+        <aside class="ca-detail" id="ca-detail" aria-live="polite">
+          <div class="ca-empty">
+            <i class="bi bi-person-bounding-box" aria-hidden="true"></i>
+            <p class="ca-empty__title">Elige un alumno</p>
+            <p>Verás su credencial como la ve él y podrás subir, reemplazar o quitar su foto.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    {% if can_upload %}
+    <section class="tab-pane fade" id="ca-pane-batch" role="tabpanel" aria-labelledby="ca-tab-batch">
+      <div class="ca-batch">
+        <label class="ca-drop" id="ca-drop" for="ca-batch-input">
+          <i class="bi bi-images" aria-hidden="true"></i>
+          <span class="ca-drop__title">Suelta las fotos aquí o elige archivos</span>
+          <span class="ca-drop__hint">El nombre de cada archivo es el número de control: <code>21111182.jpg</code>.
+            JPG, PNG o WEBP, hasta {{ max_mb }} MB cada una. Si el alumno ya tenía foto, se reemplaza.</span>
+        </label>
+        <input class="visually-hidden" type="file" id="ca-batch-input" accept="image/jpeg,image/png,image/webp" multiple>
+
+        <div class="ca-batch__bar" id="ca-batch-bar" hidden>
+          <div class="progress flex-grow-1" role="progressbar" aria-label="Avance de la carga" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="progress-bar" id="ca-batch-progress"></div>
+          </div>
+          <span class="ca-batch__count" id="ca-batch-count"></span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="ca-batch-clear">Vaciar lista</button>
+          <button type="button" class="btn btn-primary btn-sm" id="ca-batch-start">Subir fotos</button>
+        </div>
+        <ul class="ca-queue" id="ca-queue"></ul>
+      </div>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
+<script src="/static/core/js/shared/app-modal.js?v={{ sv_core('js/shared/app-modal.js') }}"></script>
+<script src="/static/credencial/js/admin.js?v={{ sv('js/admin.js') }}"></script>
+{% endblock %}

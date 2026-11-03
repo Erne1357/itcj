@@ -1,0 +1,34 @@
+{% from "credencial/_card.html" import render_card %}
+{#- Ficha del alumno (parcial HTMX): vista previa fiel de la credencial + acciones de foto. -#}
+<div class="ca-student" data-ca-student data-user-id="{{ card.user_id }}" data-name="{{ card.display_name }}">
+  <div class="ca-student__id">
+    <h2 class="ca-student__name">{{ card.display_name }}</h2>
+    <p class="ca-student__meta"><span class="ca-mono">{{ card.control_number }}</span>{% if card.program_label %} · {{ card.program_label }}{% endif %}</p>
+    {% if not student.is_active %}<p class="ca-flag">Cuenta inactiva: el QR de este alumno saldrá como no vigente.</p>{% endif %}
+  </div>
+
+  <div class="ca-preview">
+    {{ render_card(card, photo_url="/credencial/admin/alumnos/" ~ card.user_id ~ "/foto", id_suffix="-admin") }}
+  </div>
+
+  {% if photo %}
+  <p class="ca-photo-meta">Foto cargada el {{ photo.uploaded_at.strftime('%d/%m/%Y') }}{% if photo.updated_at %}, cambiada el {{ photo.updated_at.strftime('%d/%m/%Y') }}{% endif %}.</p>
+  {% endif %}
+  {% if not card.has_photo %}
+  <p class="ca-photo-meta">{% if photo %}El archivo de la foto no está en el servidor: sube una nueva.{% else %}Sin foto, el alumno no ve su QR.{% endif %}</p>
+  {% endif %}
+
+  <div class="ca-actions">
+    {% if can_upload %}
+    <input class="visually-hidden" type="file" id="ca-photo-input" accept="image/jpeg,image/png,image/webp" tabindex="-1">
+    <button type="button" class="btn btn-primary" data-ca-upload>
+      <i class="bi bi-upload" aria-hidden="true"></i> {{ 'Reemplazar foto' if photo else 'Subir foto' }}
+    </button>
+    {% endif %}
+    {% if can_delete and photo %}
+    <button type="button" class="btn btn-outline-danger" data-ca-delete>
+      <i class="bi bi-trash" aria-hidden="true"></i> Eliminar foto
+    </button>
+    {% endif %}
+  </div>
+</div>

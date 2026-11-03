@@ -1,0 +1,49 @@
+{% extends "credencial/base_credencial.html" %}
+{% block title %}Verificaciones de credencial · ITCJ{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/credencial/css/admin.css?v={{ sv('css/admin.css') }}">
+{% endblock %}
+{% block body_attrs %} class="ca-body"{% endblock %}
+{% block body %}
+<div class="ca-wrap container-fluid">
+  <header class="ca-head">
+    <h1 class="ca-title"><i class="bi bi-clock-history" aria-hidden="true"></i> Verificaciones de credencial</h1>
+    <nav class="ca-links" aria-label="Secciones del panel">
+      <a class="btn btn-outline-secondary btn-sm" href="/credencial/admin/"><i class="bi bi-arrow-left" aria-hidden="true"></i> Volver a fotos</a>
+    </nav>
+  </header>
+
+  {% if page.items %}
+  <table class="table ca-table">
+    <caption class="ca-count">{{ page.start }}-{{ page.end }} de {{ page.total }} verificaciones, la más reciente primero</caption>
+    <thead>
+      <tr><th scope="col">Fecha y hora</th><th scope="col">Alumno</th><th scope="col">Control</th><th scope="col">Verificó</th><th scope="col">Resultado</th></tr>
+    </thead>
+    <tbody>
+      {% for v in page.items %}
+      <tr data-v-row>
+        <td class="ca-mono">{{ v.when.strftime('%d/%m/%Y %H:%M:%S') }}</td>
+        <td>{{ v.student_name }}</td>
+        <td class="ca-mono">{{ v.control_number or '—' }}</td>
+        <td>{{ v.verifier_name or 'Sin sesión' }}</td>
+        <td>{% if v.result == 'valid' %}<span class="ca-state ca-state--ok">Válida</span>{% else %}<span class="ca-state ca-state--bad">No vigente</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if page.pages > 1 %}
+  <nav class="ca-pager" aria-label="Páginas de la bitácora">
+    {% if page.has_prev %}<a class="btn btn-outline-secondary btn-sm" href="?page={{ page.page - 1 }}">Anterior</a>{% else %}<span></span>{% endif %}
+    <span>Página {{ page.page }} de {{ page.pages }}</span>
+    {% if page.has_next %}<a class="btn btn-outline-secondary btn-sm" href="?page={{ page.page + 1 }}">Siguiente</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="ca-empty">
+    <i class="bi bi-qr-code-scan" aria-hidden="true"></i>
+    <p class="ca-empty__title">Todavía no hay verificaciones</p>
+    <p>Cada vez que personal con permiso escanee un QR y abra la verificación completa, quedará aquí.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
