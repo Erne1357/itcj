@@ -114,6 +114,7 @@
             if (path.includes('/vistetec'))    return 'vistetec';
             if (path.includes('/maint')) return 'maint';
             if (path.includes('/directory'))   return 'directory';
+            if (path.includes('/credencial'))  return 'credencial';
             return 'app';
         }
 

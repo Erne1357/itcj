@@ -39,6 +39,7 @@ templates = Jinja2Templates(
         os.path.join(_BASE, "itcj2", "apps", "agendatec", "templates"),
         os.path.join(_BASE, "itcj2", "apps", "helpdesk", "templates"),
         os.path.join(_BASE, "itcj2", "apps", "vistetec", "templates"),
+        os.path.join(_BASE, "itcj2", "apps", "credencial", "templates"),
     ]
 )
 

@@ -380,6 +380,7 @@ class MobileApp {
         if (url.includes('/help-desk') || url.includes('/helpdesk')) return { name: 'Help-Desk', path: '/help-desk' };
         if (url.includes('/vistetec')) return { name: 'VisteTec', path: '/vistetec' };
         if (url.includes('/titulatec')) return { name: 'TitulaTec', path: '/titulatec' };
+        if (url.includes('/credencial')) return { name: 'Credencial', path: '/credencial' };
         return null;
     }
 

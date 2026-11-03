@@ -25,6 +25,9 @@ DESKTOP_APPS: list[dict] = [
     {"key": "titulatec", "name": "TitulaTec", "url": "/titulatec/", "prefixes": ["/titulatec"],
      "icon": "graduation", "image": "core/images/app-icons/titulatec.webp",
      "pinned": True, "on_desktop": True, "badge_key": "titulatec", "system": False},
+    {"key": "credencial", "name": "Credencial", "url": "/credencial/admin/", "prefixes": ["/credencial"],
+     "icon": "id-card", "image": None,
+     "pinned": False, "on_desktop": False, "badge_key": None, "system": False},
     # Apps del sistema: sin imagen, ni en el escritorio ni ancladas.
     {"key": "profile", "name": "Perfil", "url": "/itcj/profile", "prefixes": ["/itcj/profile"],
      "icon": "user", "image": None,

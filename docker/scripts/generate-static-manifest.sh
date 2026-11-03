@@ -26,6 +26,7 @@ apps = {
     'vistetec':  'itcj2/apps/vistetec/static',
     'maint':     'itcj2/apps/maint/static',
     'directory': 'itcj2/apps/directory/static',
+    'credencial': 'itcj2/apps/credencial/static',
     'titulatec': 'itcj2/apps/titulatec/static',
 }
 

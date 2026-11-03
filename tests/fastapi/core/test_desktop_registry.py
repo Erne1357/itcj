@@ -13,7 +13,7 @@ STATIC = Path(__file__).resolve().parents[3] / "itcj2/core/static"
 def test_keys_unicas_y_set_exacto():
     keys = [a["key"] for a in ds.DESKTOP_APPS]
     assert len(keys) == len(set(keys))
-    assert set(keys) == {"agendatec", "helpdesk", "maint", "directory", "titulatec", "profile", "settings"}
+    assert set(keys) == {"agendatec", "helpdesk", "maint", "directory", "titulatec", "credencial", "profile", "settings"}
 
 
 def test_banderas_de_apps_y_sistema():
