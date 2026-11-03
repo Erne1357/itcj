@@ -50,10 +50,13 @@ def mobile_dashboard(
     apps = get_mobile_apps_for_user(db, user_id)
 
     if user_type == "student":
+        from itcj2.apps.credencial.services.card_service import CardService
+
         return render(request, "core/mobile/student_dashboard.html", {
             "user": mobile_user,
             "user_type": user_type,
             "apps": apps,
+            "card": CardService.build(db, user_id),  # hero: la credencial en lugar de la tarjeta de iniciales
             "active_tab": "home",
         })
 

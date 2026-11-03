@@ -115,6 +115,85 @@
 }
 
 /* ==============================================
+   HERO: CREDENCIAL DIGITAL (alumno)
+   La tarjeta la pinta credencial/css/card.css; aquí solo su lugar en el inicio.
+   ============================================== */
+
+.mobile-card-hero {
+    display: block;
+    position: relative;
+    margin: 14px 16px 8px; /* apoyada en el borde de la banda del saludo (margin -28px) */
+    color: inherit;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-card-hero .cc-card {
+    transition: transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.mobile-card-hero:active .cc-card {
+    transform: scale(0.985);
+}
+
+.mobile-card-hero:focus-visible {
+    outline: none;
+}
+
+.mobile-card-hero:focus-visible .cc-card {
+    outline: 3px solid var(--mobile-primary);
+    outline-offset: 4px;
+    border-radius: 3.7% / 5.89%; /* radio de la tarjeta, en % de ancho y de alto */
+}
+
+.mobile-card-hero-cta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 4px 2px 0;
+    color: var(--mobile-primary-dark);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.mobile-card-hero-cta .bi-chevron-right {
+    margin-left: auto;
+    color: var(--mobile-text-muted);
+}
+
+.mobile-card-hero-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0 16px 12px;
+    color: var(--mobile-text);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.mobile-card-hero-note .bi {
+    flex-shrink: 0;
+    margin-top: 1px;
+    color: var(--mobile-primary);
+}
+
+@media (min-width: 768px) {
+    .mobile-card-hero,
+    .mobile-card-hero-note {
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mobile-card-hero .cc-card {
+        transition: none;
+    }
+}
+
+/* ==============================================
    QUICK ACTIONS (Staff)
    ============================================== */
 
