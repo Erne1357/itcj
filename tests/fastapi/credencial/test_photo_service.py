@@ -27,7 +27,12 @@ def _img(fmt="JPEG", size=(200, 300), mode="RGB", color=(10, 20, 30), exif=None)
 
 
 def _ctl():
-    return "9" + "".join(secrets.choice("0123456789") for _ in range(7))  # 9xxxxxxx: no choca con reales
+    from itcj2.database import SessionLocal
+    while True:
+        c = "9" + "".join(secrets.choice("0123456789") for _ in range(7))
+        with SessionLocal() as s:
+            if s.query(User.id).filter_by(control_number=c).first() is None:
+                return c
 
 
 def _user(db, control=None):
@@ -45,9 +50,10 @@ def _files(d):
 def test_normalize_size_and_no_exif():
     exif = Image.Exif()
     exif[0x010F] = "CamaraSecreta"
-    out = Image.open(io.BytesIO(PhotoService.normalize(_img(exif=exif.tobytes()))))
+    raw = PhotoService.normalize(_img(exif=exif.tobytes()))
+    out = Image.open(io.BytesIO(raw))
     assert out.format == "JPEG" and out.size == PHOTO_SIZE
-    assert len(out.getexif()) == 0 and b"CamaraSecreta" not in PhotoService.normalize(_img(exif=exif.tobytes()))
+    assert len(out.getexif()) == 0 and b"CamaraSecreta" not in raw
 
 
 def test_exif_rotation_applied():
@@ -77,6 +83,12 @@ def test_oversize_rejected(monkeypatch):
     monkeypatch.setattr(photo_service, "MAX_UPLOAD_BYTES", 100)
     with pytest.raises(PhotoError, match="10 MB"):
         PhotoService.normalize(_img(size=(400, 400)))
+
+
+def test_too_many_pixels_rejected(monkeypatch):
+    monkeypatch.setattr(photo_service, "MAX_PIXELS", 1000)
+    with pytest.raises(PhotoError, match="píxeles"):
+        PhotoService.normalize(_img("PNG", size=(100, 100)))
 
 
 def test_decompression_bomb_rejected(monkeypatch):
@@ -118,7 +130,7 @@ def test_match_filename_by_control(db_session):
     c = u.control_number
     assert PhotoService.match_filename(db_session, f"{c}.jpg").id == u.id
     assert PhotoService.match_filename(db_session, f"L{c}.PNG").id == u.id
-    assert PhotoService.match_filename(db_session, "99999999.jpg") is None
+    assert PhotoService.match_filename(db_session, f"{c}X.jpg") is None  # sufijo no numérico: no existe
 
 
 def test_import_batch_statuses(db_session, photo_dir):
@@ -127,7 +139,7 @@ def test_import_batch_statuses(db_session, photo_dir):
     rows = PhotoService.import_batch(db_session, [
         (f"{a}.jpg", _img()),
         (f"{b}.jpg", _img()),
-        ("11111111.jpg", _img()),
+        (f"{a}X.jpg", _img()),
         (f"{a}.png", b"basura"),
     ], None)
     assert [r.status for r in rows] == ["created", "replaced", "no_student", "invalid"]

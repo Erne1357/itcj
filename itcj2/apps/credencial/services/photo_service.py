@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 PHOTO_SIZE = (456, 600)  # ancho x alto; aspecto del hueco 235:309
 PHOTO_MIME = "image/jpeg"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_PIXELS = 25_000_000  # un PNG liso de 100 MP pesa KB pero ocupa GB al decodificar
 ALLOWED_FORMATS = {"JPEG", "PNG", "WEBP"}
 
 
@@ -49,6 +50,8 @@ class PhotoService:
         try:
             probe = Image.open(io.BytesIO(data))
             fmt = probe.format
+            if probe.width * probe.height > MAX_PIXELS:
+                raise PhotoError("La imagen tiene demasiados píxeles")
             probe.verify()
             if fmt not in ALLOWED_FORMATS:
                 raise PhotoError("Formato no permitido; usa JPG, PNG o WEBP")
@@ -76,12 +79,11 @@ class PhotoService:
         jpeg = PhotoService.normalize(data)
         root = Path(_root())
         root.mkdir(parents=True, exist_ok=True)
+        photo = db.get(CredentialPhoto, user_id)
+        old_name = photo.file_name if photo else None
         new_name = f"{uuid.uuid4().hex}.jpg"
         new_path = safe_join(root, new_name)
         new_path.write_bytes(jpeg)
-
-        photo = db.get(CredentialPhoto, user_id)
-        old_name = photo.file_name if photo else None
         try:
             if photo is None:
                 photo = CredentialPhoto(user_id=user_id, ref=secrets.token_urlsafe(12))
@@ -114,7 +116,10 @@ class PhotoService:
         name = photo.file_name
         db.delete(photo)
         db.commit()
-        safe_join(_root(), name).unlink(missing_ok=True)
+        try:
+            safe_join(_root(), name).unlink(missing_ok=True)
+        except OSError:
+            logger.warning("credencial: no se pudo borrar foto user_id=%s", user_id)
         return True
 
     @staticmethod

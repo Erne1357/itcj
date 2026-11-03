@@ -35,8 +35,9 @@ def cli_env(db_session, tmp_path, monkeypatch):
     buf = io.BytesIO()
     Image.new("RGB", (100, 150), (9, 9, 9)).save(buf, "JPEG")
     (src / "97654321.jpg").write_bytes(buf.getvalue())
-    (src / "00000000.jpg").write_bytes(buf.getvalue())
+    (src / "97654321X.jpg").write_bytes(buf.getvalue())
     (src / "notas.txt").write_text("ignorar")
+    db_session.query(User).filter(User.control_number.in_(["97654321", "97654321X"])).delete()
     db_session.add(User(first_name="Luis", last_name="Test", control_number="97654321"))
     db_session.flush()
     return src, photos

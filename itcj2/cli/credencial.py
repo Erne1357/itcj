@@ -55,7 +55,7 @@ def import_photos_command(directory, dry_run):
     from collections import Counter
     from pathlib import Path
 
-    from itcj2.apps.credencial.services.photo_service import PhotoService
+    from itcj2.apps.credencial.services.photo_service import MAX_UPLOAD_BYTES, PhotoService
     from itcj2.database import SessionLocal
 
     exts = {".jpg", ".jpeg", ".png", ".webp"}
@@ -68,8 +68,11 @@ def import_photos_command(directory, dry_run):
                 rows = [(p.name, "no_student" if PhotoService.match_filename(db, p.name) is None else "match", "")
                         for p in chunk]
             else:
-                res = PhotoService.import_batch(db, [(p.name, p.read_bytes()) for p in chunk], None)
-                rows = [(r.filename, r.status, r.detail) for r in res]
+                big = [p for p in chunk if p.stat().st_size > MAX_UPLOAD_BYTES]
+                res = PhotoService.import_batch(
+                    db, [(p.name, p.read_bytes()) for p in chunk if p not in big], None)
+                rows = [(p.name, "invalid", "La imagen pesa más de 10 MB") for p in big]
+                rows += [(r.filename, r.status, r.detail) for r in res]
             for name, status, detail in rows:
                 totals[status] += 1
                 click.echo(f"{status:11} {name} {detail}".rstrip())
