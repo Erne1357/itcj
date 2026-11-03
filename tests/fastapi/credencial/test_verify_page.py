@@ -61,6 +61,28 @@ def test_valid_without_photo_file_still_renders(client, student, photo_dir):
     resp = _get(client, _token(photo))
     assert resp.status_code == 200
     assert "VÁLIDA" in resp.text and "data:image" not in resp.text
+    # sin cara que comparar, el guardia no debe quedarse solo con «VÁLIDA»
+    assert "No se pudo mostrar la foto: pide otra identificación" in resp.text
+
+
+def test_valid_with_photo_has_no_missing_photo_hint(client, student):
+    _, photo, _ = student
+    assert "pide otra identificación" not in _get(client, _token(photo)).text
+
+
+@pytest.mark.parametrize("kind", ["valid", "invalid", "limited"])
+def test_public_page_loads_no_script(client, student, kind):
+    """La página pública no usa JS: ni Bootstrap de un CDN sin SRI ni el shell móvil (asume sesión).
+
+    Primero se exige la página real (marcador), o los `not in` pasarían en vacío.
+    """
+    _, photo, _ = student
+    token = _token(photo) if kind == "valid" else "no-es-un-token"
+    with patch("itcj2.core.utils.rate_limit.check_and_count", return_value=(kind != "limited", 42)):
+        resp = _get(client, token)
+    assert 'class="cv-page"' in resp.text, resp.status_code
+    assert "<script" not in resp.text
+    assert "bootstrap.bundle" not in resp.text and "mobile-app-shell.js" not in resp.text
 
 
 def test_inactive_shows_no_vigente(client, db_session, student):

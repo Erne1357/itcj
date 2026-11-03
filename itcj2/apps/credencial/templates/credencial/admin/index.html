@@ -8,8 +8,7 @@
 {% endblock %}
 {% block body_attrs %} class="ca-body"{% endblock %}
 {% block body %}
-<div class="ca-wrap container-fluid" id="ca-root" data-can-upload="{{ 1 if can_upload else 0 }}"
-     data-batch-max="{{ batch_max }}" data-max-mb="{{ max_mb }}">
+<div class="ca-wrap container-fluid" id="ca-root" data-max-mb="{{ max_mb }}">
   <header class="ca-head">
     <h1 class="ca-title"><i class="bi bi-person-vcard" aria-hidden="true"></i> Fotos de credencial</h1>
     <nav class="ca-links" aria-label="Secciones del panel">
@@ -34,7 +33,7 @@
     <section class="tab-pane fade show active" id="ca-pane-students" role="tabpanel" aria-labelledby="ca-tab-students">
       <div class="ca-split">
         <div class="ca-list">
-          <form id="ca-search" class="ca-search" role="search" onsubmit="return false;"
+          <form id="ca-search" class="ca-search" role="search"
                 hx-get="/credencial/admin/buscar" hx-target="#ca-results" hx-swap="innerHTML"
                 hx-trigger="input changed delay:300ms from:#ca-q, change from:#ca-missing, ca:refresh">
             <label for="ca-q" class="visually-hidden">Buscar alumno por número de control o nombre</label>

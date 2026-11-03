@@ -5,6 +5,8 @@
   const BASE = '/credencial/admin';
   const CHUNK = 10;                       // archivos por peticion
   const CHUNK_BYTES = 24 * 1024 * 1024;   // nginx corta en 30 MB: margen para el multipart
+  // El servidor rechaza escrituras sin esta cabecera (CSRF); HTMX ya manda HX-Request.
+  const SCRIPT_HEADERS = { 'X-Requested-With': 'fetch' };
   const STATUS = {
     created: ['Nueva', 'ca-state--ok'],
     replaced: ['Reemplazada', 'ca-state--ok'],
@@ -59,7 +61,7 @@
   }
 
   async function postFile(url, formData) {
-    const res = await fetch(url, { method: 'POST', body: formData, credentials: 'same-origin' });
+    const res = await fetch(url, { method: 'POST', body: formData, credentials: 'same-origin', headers: SCRIPT_HEADERS });
     if (!res.ok) {
       const err = new Error(await fetchApiError(res, 'No se pudo subir la foto'));
       err.status = res.status;
@@ -149,7 +151,7 @@
     if (!ok) return;
     box.querySelectorAll('.ca-actions button').forEach((b) => { b.disabled = true; });
     try {
-      const res = await fetch(`${BASE}/alumnos/${box.dataset.userId}/foto`, { method: 'DELETE', credentials: 'same-origin' });
+      const res = await fetch(`${BASE}/alumnos/${box.dataset.userId}/foto`, { method: 'DELETE', credentials: 'same-origin', headers: SCRIPT_HEADERS });
       if (!res.ok) throw new Error(await fetchApiError(res, 'No se pudo eliminar la foto'));
       showToast('Foto eliminada', 'success');
       await openStudent(box.dataset.userId);
@@ -277,6 +279,9 @@
     if (!root) return;
     initStudentPanel(root);
     initBatch(root);
+    // La búsqueda va por HTMX al teclear; Enter no debe recargar la página.
+    const search = document.getElementById('ca-search');
+    if (search) search.addEventListener('submit', (ev) => ev.preventDefault());
     document.body.addEventListener('htmx:afterSwap', markSelected);
     document.body.addEventListener('htmx:responseError', (ev) => {
       let msg = 'No se pudo completar la consulta';

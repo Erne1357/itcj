@@ -48,3 +48,8 @@ def render_credencial(request: Request, template: str, context: dict | None = No
         **(context or {}),
     }
     return credencial_templates.TemplateResponse(request, template, ctx, status_code=status_code)
+
+
+def render_scan_hint(request: Request) -> HTMLResponse:
+    """Personal sin el panel (p. ej. vigilancia): en vez del 403 del core, cómo se verifica."""
+    return render_credencial(request, "credencial/scan_hint.html", status_code=403)

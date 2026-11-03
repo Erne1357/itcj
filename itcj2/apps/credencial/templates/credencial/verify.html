@@ -21,6 +21,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="/static/credencial/css/verify.css?v={{ sv('css/verify.css') }}">
 {% endblock %}
+{% block base_js %}{% endblock %}
 {% block body %}
 <main class="cv-page">
   <header class="cv-brand">
@@ -35,6 +36,9 @@
     <i class="bi {{ S.icon }} cv-status__icon" aria-hidden="true"></i>
     <h1 class="cv-status__word">{{ S.word }}</h1>
     <p class="cv-status__hint">{{ S.hint }}</p>
+    {% if state == "valid" and not photo_uri %}
+    <p class="cv-status__hint cv-status__warn">No se pudo mostrar la foto: pide otra identificación.</p>
+    {% endif %}
   </section>
 
   {% if name %}

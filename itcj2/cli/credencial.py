@@ -82,11 +82,16 @@ def import_photos_command(directory, dry_run):
 
 @credencial_cli.command("assign-programs")
 @click.option("--csv-path", "csv_paths", multiple=True, type=click.Path(exists=True, dir_okay=False, path_type=str),
-              help="CSV de alumnos (repetible). Por defecto, los cinco de database/CSV/ que existan.")
+              help="CSV de alumnos (repetible). Si un alumno sale en varios, gana el ÚLTIMO --csv-path: "
+                   "pásalos del más viejo al más reciente. Por defecto, los cinco de database/CSV/ que existan.")
 @click.option("--overwrite", is_flag=True, help="Pisa carrera y datos que el perfil ya tiene.")
 @click.option("--dry-run", is_flag=True, help="Calcula el reporte sin escribir nada.")
 def assign_programs_command(csv_paths, overwrite, dry_run):
-    """Asigna la carrera de cada alumno desde los CSV del padrón (gana el archivo más reciente)."""
+    """Asigna la carrera de cada alumno desde los CSV del padrón.
+
+    Si un alumno aparece en varios archivos gana el último de la lista (el orden de los
+    --csv-path, no la fecha del archivo): pásalos del más viejo al más reciente.
+    """
     from pathlib import Path
 
     from itcj2.apps.credencial.services.program_import_service import (

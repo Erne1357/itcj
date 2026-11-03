@@ -56,6 +56,7 @@ def test_staff_redirected_or_forbidden(client, db_session, plain_staff, credenci
         assert resp.headers["location"] == "/credencial/admin/"
     else:
         assert resp.status_code == 403
+        assert "Escanea el QR" in resp.text  # cómo verificar, no el 403 del core
 
 
 def test_global_admin_without_card_goes_to_panel(client, plain_staff):

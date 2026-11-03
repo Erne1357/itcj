@@ -41,9 +41,13 @@ def _as_printed(name: str) -> str:
     return name.title() if name.isupper() else name
 
 
+def display_name_parts(first: str | None, last: str | None, middle: str | None) -> str:
+    """Orden de la credencial: Nombre Apellido paterno Apellido materno (también lo usa el panel)."""
+    return _as_printed(" ".join(p for p in (first, last, middle) if p))
+
+
 def display_name(user) -> str:
-    """Orden de la credencial: Nombre Apellido paterno Apellido materno."""
-    return _as_printed(" ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p))
+    return display_name_parts(user.first_name, user.last_name, user.middle_name)
 
 
 def short_name(user) -> str:

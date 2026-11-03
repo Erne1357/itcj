@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from itcj2.dependencies import DbSession, OptionalUser, is_global_admin, require_page_login
-from itcj2.exceptions import PageForbidden, PageLoginRequired
+from itcj2.exceptions import PageLoginRequired
 
 router = APIRouter(tags=["credencial-student"])
 logger = logging.getLogger(__name__)
@@ -53,7 +53,8 @@ def student_card(request: Request, user: dict = Depends(require_page_login), db:
     if card is None:
         if _can_open_panel(db, user):
             return RedirectResponse("/credencial/admin/", status_code=302)
-        raise PageForbidden(has_app_access=False)
+        from itcj2.apps.credencial.pages.render import render_scan_hint
+        return render_scan_hint(request)
     student = db.get(User, uid)
     if not student.is_active:  # cookie viva de una cuenta desactivada: la sesión ya no vale
         raise PageLoginRequired()

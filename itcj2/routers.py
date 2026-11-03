@@ -37,10 +37,6 @@ def register_routers(app: FastAPI):
     from itcj2.apps.directory.router import directory_router
     app.include_router(directory_router)
 
-    # Credencial API v2 (rutas en tareas posteriores)
-    from itcj2.apps.credencial.router import credencial_router
-    app.include_router(credencial_router)
-
     # ── Fase 4: Page routers ─────────────────────────────────────────────────
     # Core pages (prefix /itcj): login, dashboard, perfil, config, móvil
     from itcj2.core.pages.router import core_pages_router

@@ -1,8 +1,9 @@
 """Panel de Servicios Escolares (/credencial/admin/): buscar alumnos, fotos oficiales y bitacora.
 
-Todas las rutas pasan por `_page_gate` (paginas completas, redirigen) o `_api_gate` (parciales HTMX,
-bytes y JSON: 401/403 con HTTPException). Ambas dejan pasar al admin global, que `require_page_app`
-no contempla.
+Dos routers con el mismo prefijo: `page_router` (paginas completas; sus errores los pinta en HTML el
+handler global) y `router` (parciales HTMX, bytes y JSON: 401/403 con HTTPException respondidos en
+JSON). `_page_gate`/`_api_gate` dejan pasar al admin global, que `require_page_app` no contempla.
+Quien abre el panel sin permiso ve como se verifica una credencial (`render_scan_hint`).
 """
 import logging
 
@@ -10,9 +11,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.routing import APIRoute
 
-from itcj2.dependencies import DbSession, is_global_admin, require_page_app
+from itcj2.dependencies import DbSession, is_global_admin, require_page_app, require_page_login
 from itcj2.exceptions import PageLoginRequired
-
 
 
 class _JsonErrorRoute(APIRoute):
@@ -32,6 +32,7 @@ class _JsonErrorRoute(APIRoute):
         return handler
 
 
+page_router = APIRouter(prefix="/admin", tags=["credencial-admin"])
 router = APIRouter(prefix="/admin", tags=["credencial-admin"], route_class=_JsonErrorRoute)
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ BATCH_MAX = 20
 SEARCH_PER_PAGE = 25
 LOG_PER_PAGE = 50
 _NO_STORE = {"Cache-Control": "private, no-store"}
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 
 def _page_gate(perm: str):
@@ -69,6 +71,12 @@ def _user_perms(db, user: dict) -> set[str]:
         return set()
 
 
+def _from_page_script(request: Request) -> bool:
+    """CSRF: un <form> o un fetch no-cors de otro sitio (todo *.tecnm.mx es same-site para la
+    cookie Lax) no puede poner estas cabeceras; HTMX manda HX-Request y admin.js X-Requested-With."""
+    return request.headers.get("HX-Request") == "true" or "X-Requested-With" in request.headers
+
+
 def _api_gate(perm: str):
     def dependency(request: Request, db: DbSession) -> dict:
         user = getattr(request.state, "current_user", None)
@@ -76,6 +84,8 @@ def _api_gate(perm: str):
             raise HTTPException(status_code=401, detail="Inicia sesión para continuar")
         if perm not in _user_perms(db, user):
             raise HTTPException(status_code=403, detail="No tienes permiso para esta acción")
+        if request.method not in _SAFE_METHODS and not _from_page_script(request):
+            raise HTTPException(status_code=403, detail="Solicitud rechazada: recarga la página e intenta de nuevo")
         return user
 
     return dependency
@@ -95,17 +105,20 @@ def _render(request, template, ctx):
     return render_credencial(request, template, ctx)
 
 
-@router.get("/", response_class=HTMLResponse)
-def admin_index(request: Request, user: dict = Depends(_page_gate(PERM_VIEW)), db: DbSession = None):
+@page_router.get("/", response_class=HTMLResponse)
+def admin_index(request: Request, user: dict = Depends(require_page_login), db: DbSession = None):
+    from itcj2.apps.credencial.pages.render import render_scan_hint
     from itcj2.apps.credencial.services.admin_service import AdminService
     from itcj2.apps.credencial.services.photo_service import MAX_UPLOAD_BYTES
 
     perms = _user_perms(db, user)
+    if PERM_VIEW not in perms:  # p. ej. vigilancia: su tile del movil abre aqui
+        return render_scan_hint(request)
     page = AdminService.search(db, "", 1, SEARCH_PER_PAGE)
     return _render(request, "credencial/admin/index.html", {
         "page": page, "q": "", "missing": False,
         "can_upload": PERM_UPLOAD in perms, "can_log": PERM_LOG in perms,
-        "batch_max": BATCH_MAX, "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
+        "max_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
     })
 
 
@@ -124,7 +137,6 @@ def admin_search(request: Request, q: str = "", page: int = 1, missing: str = ""
 def admin_student(request: Request, user_id: int, user: dict = Depends(_api_gate(PERM_VIEW)), db: DbSession = None):
     from itcj2.apps.credencial.models import CredentialPhoto
     from itcj2.apps.credencial.services.card_service import CardService
-    from itcj2.core.models.user import User
 
     student = _student_or_404(db, user_id)
     card = CardService.build(db, user_id)
@@ -132,7 +144,7 @@ def admin_student(request: Request, user_id: int, user: dict = Depends(_api_gate
         raise HTTPException(status_code=404, detail="Alumno no encontrado")
     perms = _user_perms(db, user)
     return _render(request, "credencial/admin/_student.html", {
-        "card": card, "student": db.get(User, student.id), "photo": db.get(CredentialPhoto, user_id),
+        "card": card, "student": student, "photo": db.get(CredentialPhoto, user_id),
         "can_upload": PERM_UPLOAD in perms, "can_delete": PERM_DELETE in perms,
     })
 
@@ -189,7 +201,7 @@ def admin_batch_upload(files: list[UploadFile] = File(...),
     return {"success": True, "data": [asdict(r) for r in rows]}
 
 
-@router.get("/verificaciones", response_class=HTMLResponse)
+@page_router.get("/verificaciones", response_class=HTMLResponse)
 def admin_verifications(request: Request, page: int = 1, user: dict = Depends(_page_gate(PERM_LOG)),
                         db: DbSession = None):
     from itcj2.apps.credencial.services.admin_service import AdminService

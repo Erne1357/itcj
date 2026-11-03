@@ -13,8 +13,12 @@ from tests.conftest import make_jwt
 from tests.fastapi.credencial.conftest import FIRST, LAST, grant
 
 
-def _cookie(user, role="staff"):
-    return {"Cookie": f"itcj_token={make_jwt(user_id=user.id, role=role, cn=user.control_number)}"}
+def _cookie(user, role="staff", script=True):
+    """Cabeceras como las manda el panel; script=False = un <form>/fetch no-cors de otro sitio."""
+    headers = {"Cookie": f"itcj_token={make_jwt(user_id=user.id, role=role, cn=user.control_number)}"}
+    if script:
+        headers["X-Requested-With"] = "fetch"
+    return headers
 
 
 def _control() -> str:
@@ -60,6 +64,9 @@ def bare(db_session, photo_dir):
 def test_admin_requires_perm(client, outsider):
     r = client.get("/credencial/admin/", headers=_cookie(outsider), follow_redirects=False)
     assert r.status_code == 403
+    # Vigilancia (solo vista completa): su tile del móvil abre aquí; ve cómo verificar, no el 403 del core.
+    assert "Escanea el QR" in r.text and "Fotos de credencial" not in r.text
+    assert 'id="mobileBackToDashboard"' in r.text
     r = client.get("/credencial/admin/", follow_redirects=False)
     assert r.status_code in (302, 303, 307) and "/login" in r.headers["location"]
 
@@ -226,3 +233,90 @@ def test_search_missing_filter(client, clerk, student, bare):
     r = client.get("/credencial/admin/buscar", params={"q": with_photo.control_number, "missing": "1"},
                    headers=_cookie(clerk))
     assert with_photo.control_number not in r.text
+
+
+# ── CSRF: las escrituras exigen la cabecera que solo pone un script de la página ──
+def test_writes_without_script_header_rejected(client, clerk, bare, student, db_session):
+    user, _, _ = student
+    forged = _cookie(clerk, script=False)
+    r = client.post(f"/credencial/admin/alumnos/{bare.id}/foto", headers=forged,
+                    files={"file": ("x.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 403 and "detail" in r.json()
+    r = client.post("/credencial/admin/fotos/lote", headers=forged,
+                    files=[("files", (f"{bare.control_number}.jpg", _jpeg(), "image/jpeg"))])
+    assert r.status_code == 403
+    assert client.delete(f"/credencial/admin/alumnos/{user.id}/foto", headers=forged).status_code == 403
+    db_session.expire_all()
+    assert db_session.get(CredentialPhoto, bare.id) is None
+    assert db_session.get(CredentialPhoto, user.id) is not None
+    # las lecturas no la piden
+    assert client.get("/credencial/admin/buscar", headers=forged).status_code == 200
+
+
+def test_htmx_header_accepted_for_writes(client, clerk, bare):
+    headers = {**_cookie(clerk, script=False), "HX-Request": "true"}
+    r = client.post(f"/credencial/admin/alumnos/{bare.id}/foto", headers=headers,
+                    files={"file": ("x.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 200 and r.json()["data"]["status"] == "created"
+
+
+def test_single_upload_crafted_file_is_400_not_500(client, clerk, bare, monkeypatch):
+    import struct
+
+    from itcj2.apps.credencial.services import photo_service
+
+    def boom(img):
+        raise struct.error("crafted")
+
+    monkeypatch.setattr(photo_service.ImageOps, "exif_transpose", boom)
+    r = client.post(f"/credencial/admin/alumnos/{bare.id}/foto", headers=_cookie(clerk),
+                    files={"file": ("x.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 400 and "no es una imagen" in r.json()["detail"]
+
+
+# ── páginas completas: nunca JSON crudo ──────────────────────────────────────
+def test_admin_pages_render_html_when_app_inactive(client, clerk, credencial_app, db_session):
+    """Antes de init-credencial (o con la app apagada) las páginas no deben pintar JSON."""
+    credencial_app.is_active = False
+    db_session.flush()
+    r = client.get("/credencial/admin/", headers=_cookie(clerk))
+    assert r.status_code == 403 and r.headers["content-type"].startswith("text/html")
+    assert "Escanea el QR" in r.text
+    r = client.get("/credencial/admin/verificaciones", headers=_cookie(clerk))
+    assert r.headers["content-type"].startswith("text/html") and not r.text.lstrip().startswith("{")
+    # los parciales y el JSON siguen respondiendo JSON
+    r = client.get("/credencial/admin/buscar", headers=_cookie(clerk))
+    assert r.status_code == 403 and r.json()["success"] is False
+
+
+# ── mismo nombre en lista, bitácora y vista previa ───────────────────────────
+def test_all_caps_name_title_cased_everywhere(client, clerk, db_session, photo_dir):
+    caps = User(first_name="JUAN CARLOS", last_name="PÉREZ", middle_name="LÓPEZ",
+                control_number=_control(), is_active=True)
+    db_session.add(caps)
+    db_session.flush()
+    db_session.add(CredentialVerification(student_id=caps.id, verifier_id=clerk.id, result="valid",
+                                          token_issued_at=datetime(2026, 11, 3, 10, 0)))
+    db_session.flush()
+    printed = "Juan Carlos Pérez López"
+    r = client.get("/credencial/admin/buscar", params={"q": caps.control_number}, headers=_cookie(clerk))
+    assert printed in r.text and "JUAN CARLOS" not in r.text
+    r = client.get("/credencial/admin/verificaciones", headers=_cookie(clerk))
+    assert printed in r.text
+    r = client.get(f"/credencial/admin/alumnos/{caps.id}", headers=_cookie(clerk))
+    assert printed in r.text
+
+
+def test_deleted_verifier_labelled(client, clerk, student, db_session):
+    user, _, _ = student
+    db_session.add(CredentialVerification(student_id=user.id, verifier_id=None, result="valid",
+                                          token_issued_at=datetime(2026, 11, 3, 10, 0)))
+    db_session.flush()
+    r = client.get("/credencial/admin/verificaciones", headers=_cookie(clerk))
+    assert "Usuario eliminado" in r.text and "Sin sesión" not in r.text
+
+
+def test_search_form_has_no_inline_handler(client, clerk):
+    html = client.get("/credencial/admin/", headers=_cookie(clerk)).text
+    assert "onsubmit=" not in html and "data-batch-max" not in html and "data-can-upload" not in html
+    assert "bootstrap.bundle.min.js" in html and "mobile-app-shell.js" in html  # el panel sí los usa

@@ -46,7 +46,9 @@ body {
 .cv-status--inactive { background: var(--cv-inactive); }
 .cv-status--expired { background: var(--cv-expired-bg); color: var(--cv-expired-ink); }
 .cv-status--invalid { background: var(--cv-invalid); }
-.cv-status--limited { background: var(--cv-limited); }
+.cv-status--limited,
+.cv-status--scan { background: var(--cv-limited); }
+.cv-status--scan .cv-status__word { font-size: 1.75rem; }
 
 .cv-status__icon { font-size: 2.75rem; line-height: 1; display: block; margin-bottom: 6px; }
 .cv-status__word {
@@ -57,6 +59,7 @@ body {
   line-height: 1.1;
 }
 .cv-status__hint { margin: 8px 0 0; font-size: 1rem; line-height: 1.4; }
+.cv-status__warn { font-weight: 700; }
 
 .cv-person {
   background: var(--cv-surface);
