@@ -39,7 +39,27 @@
   padding: 8px 16px 0;
 }
 
-.cs-bar .cs-back { display: flex; margin-right: 0; } /* también fuera del iframe: va a /itcj/m/ */
+/* Volver al inicio, a cualquier ancho (en el iframe y sola). */
+.cs-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.12);
+  color: var(--cs-ink);
+  font-size: 20px;
+  text-decoration: none;
+  transition: background-color 150ms var(--cs-ease), transform 120ms var(--cs-ease);
+}
+
+@media (hover: hover) {
+  .cs-back:hover { background: rgb(255 255 255 / 0.2); color: var(--cs-ink); }
+}
+
+.cs-back:active { transform: scale(0.92); }
 
 .cs-back:focus-visible,
 .cs-action:focus-visible {
@@ -91,6 +111,8 @@
   font-size: 0.9375rem;
   font-weight: 600;
 }
+
+.cs-live--pending .bi { font-size: 1.05rem; line-height: 1; color: var(--cs-muted); }
 
 .cs-live__dot {
   position: relative;
@@ -207,6 +229,7 @@
 }
 
 .cc-back__qr[data-msg]::after { content: attr(data-msg); }
+.cc-back__qr[data-msg] .cc-qr__msg { visibility: hidden; } /* 1.ª carga fallida: un solo aviso */
 .cc-back__qr.is-stale .cc-qr__code { opacity: 0.12; }
 .cc-back__qr.is-expired .cc-qr__code { visibility: hidden; } /* nunca un QR vencido a la vista */
 
@@ -324,6 +347,7 @@
 @media (prefers-reduced-motion: reduce) {
   .cs-live__dot::after { animation: none; opacity: 0; }
   .cs-action,
+  .cs-back,
   .cc-qr__code,
   .cc-ring__bar { transition: none; }
 }

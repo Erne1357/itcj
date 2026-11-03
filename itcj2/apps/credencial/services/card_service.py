@@ -20,14 +20,36 @@ class CardData:
     has_photo: bool
     photo_ref: str | None
 
+    # Texto y paso de letra de las líneas impresas (los usa _card.html).
+    @property
+    def line2(self) -> str:
+        return f"{self.program_label} / {self.role_label}" if self.program_label else self.role_label
+
+    @property
+    def fit1(self) -> str:
+        from itcj2.apps.credencial.services.display import fit_class
+        return fit_class(f"{self.display_name} / {self.control_number}")
+
+    @property
+    def fit2(self) -> str:
+        from itcj2.apps.credencial.services.display import fit_class
+        return fit_class(self.line2)
+
+
+def _as_printed(name: str) -> str:
+    """Un nombre capturado TODO EN MAYÚSCULAS se imprime en tipo título, como la física."""
+    return name.title() if name.isupper() else name
+
 
 def display_name(user) -> str:
-    """Orden de la credencial: Nombre Apellido paterno Apellido materno.
+    """Orden de la credencial: Nombre Apellido paterno Apellido materno."""
+    return _as_printed(" ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p))
 
-    Un nombre capturado TODO EN MAYÚSCULAS se imprime en tipo título, como la física.
-    """
-    name = " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p)
-    return name.title() if name.isupper() else name
+
+def short_name(user) -> str:
+    """Primer nombre y apellido paterno (reverso de la tarjeta)."""
+    first = (user.first_name or "").split()[:1]
+    return _as_printed(" ".join(first + ([user.last_name] if user.last_name else [])))
 
 
 def program_label(db: Session, user_id: int) -> str | None:
@@ -68,12 +90,7 @@ class CardService:
         if user is None or user.control_number is None:
             return None
         photo = db.get(CredentialPhoto, user_id)
-        try:
-            # Fila sin archivo = sin foto: ni hueco roto ni QR que verifique sin cara.
-            has_photo = photo is not None and PhotoService.path(photo).is_file()
-        except Exception as e:  # ruta insegura o volumen caído: se trata como sin foto
-            logger.warning("credencial: foto inaccesible user_id=%s (%s)", user_id, type(e).__name__)
-            has_photo = False
+        has_photo = PhotoService.has_file(photo)  # sin archivo: ni hueco roto ni QR sin cara
         return CardData(
             user_id=user.id,
             display_name=display_name(user),

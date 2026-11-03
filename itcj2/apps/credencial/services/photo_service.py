@@ -128,6 +128,17 @@ class PhotoService:
         return safe_join(_root(), photo.file_name)
 
     @staticmethod
+    def has_file(photo: "CredentialPhoto | None") -> bool:
+        """Fila con archivo en disco. Una fila sin archivo cuenta como sin foto."""
+        if photo is None:
+            return False
+        try:
+            return PhotoService.path(photo).is_file()
+        except Exception as e:  # ruta insegura o volumen caído: se trata como sin foto
+            logger.warning("credencial: foto inaccesible user_id=%s (%s)", photo.user_id, type(e).__name__)
+            return False
+
+    @staticmethod
     def read_bytes(photo: "CredentialPhoto") -> bytes:
         """Lanza OSError si el archivo no existe; quien muestre la foto lo maneja."""
         return PhotoService.path(photo).read_bytes()

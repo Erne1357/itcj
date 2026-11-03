@@ -41,3 +41,44 @@ def program_display_name(program_name: str | None) -> str | None:
         return None
     base = _SUFFIX.sub("", program_name.strip())
     return _DISPLAY_BY_KEY.get(norm_key(base), base)
+
+
+# ── Ajuste de las líneas impresas al ancho de la tarjeta (sin JS: sirve al hero) ──
+# Avance de Montserrat SemiBold en milésimas de em, medido con canvas en el navegador;
+# una letra acentuada mide lo mismo que su base. Lo desconocido cuenta como ancho.
+_ADV = dict(zip(
+    " !\"'(),-./0123456789:;?&"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+    (276, 278, 413, 220, 347, 348, 244, 385, 244, 371,
+     673, 381, 582, 582, 679, 584, 627, 608, 652, 627, 244, 244, 581, 706,
+     749, 761, 718, 826, 670, 637, 772, 810, 319, 527, 729, 599, 955, 810, 842, 726,
+     842, 731, 629, 602, 789, 729, 1144, 693, 661, 663,
+     607, 686, 581, 687, 622, 369, 694, 685, 289, 295, 635, 289, 1053, 685, 645, 686,
+     686, 420, 515, 424, 681, 578, 919, 573, 578, 532),
+    strict=True,
+))
+_UNKNOWN_ADV = 760
+_TRACKING_EM = 0.035   # letter-spacing de .cc-lines (card.css)
+_LINE_EM = 31.0        # ancho útil (100% - 7.38% - 3%) / 2.8cqi, con ~3% de holgura
+FIT_FLOOR = 60         # por debajo de 60% la línea se parte en dos en vez de encogerse
+
+
+def _line_em(text: str) -> float:
+    total = 0
+    for ch in text:
+        base = unicodedata.normalize("NFKD", ch)[:1] or ch
+        total += _ADV.get(base, _UNKNOWN_ADV)
+    return total / 1000 + len(text) * _TRACKING_EM
+
+
+def fit_class(text: str) -> str:
+    """Clases de card.css para que la línea quepa: '' | ' cc-fit-NN' | ' cc-fit-60 cc-wrap'.
+
+    NN es el % del tamaño base en pasos de 4; las medidas son proporcionales a la
+    tarjeta, así que la misma clase vale para el hero y la tarjeta completa.
+    """
+    em = _line_em(text)
+    if em <= _LINE_EM:
+        return ""
+    pct = max(FIT_FLOOR, int(100 * _LINE_EM / em) // 4 * 4)
+    return f" cc-fit-{pct}" + (" cc-wrap" if em * pct / 100 > _LINE_EM else "")

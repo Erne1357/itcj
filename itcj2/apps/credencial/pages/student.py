@@ -19,6 +19,17 @@ logger = logging.getLogger(__name__)
 _NO_STORE = {"Cache-Control": "no-store"}
 
 
+def _verify_base(request: Request) -> str:
+    """Origen del enlace del QR. En prod nginx escucha :80 tras TLS externo, así que
+    request.base_url diría http://: se usa el dominio oficial (el que muestra la página)."""
+    from itcj2.config import get_settings
+
+    settings = get_settings()
+    if settings.FLASK_ENV == "production":
+        return settings.DOMAIN.rstrip("/")
+    return str(request.base_url).rstrip("/")
+
+
 def _can_open_panel(db, user: dict) -> bool:
     if is_global_admin(user):
         return True
@@ -32,7 +43,7 @@ def _can_open_panel(db, user: dict) -> bool:
 @router.get("/", response_class=HTMLResponse)
 def student_card(request: Request, user: dict = Depends(require_page_login), db: DbSession = None):
     from itcj2.apps.credencial.pages.render import render_credencial
-    from itcj2.apps.credencial.services.card_service import CardService
+    from itcj2.apps.credencial.services.card_service import CardService, short_name
     from itcj2.apps.credencial.services.token_service import TOKEN_REFRESH_SECONDS, TOKEN_TTL_SECONDS
     from itcj2.core.models.user import User
     from itcj2.core.utils.timezone import APP_TIMEZONE
@@ -48,7 +59,7 @@ def student_card(request: Request, user: dict = Depends(require_page_login), db:
         raise PageLoginRequired()
     return render_credencial(request, "credencial/student.html", {
         "card": card,
-        "short_name": f"{student.first_name.split()[0]} {student.last_name}",
+        "short_name": short_name(student),
         "tz": APP_TIMEZONE,
         "ttl_s": TOKEN_TTL_SECONDS,
         "refresh_s": TOKEN_REFRESH_SECONDS,
@@ -57,24 +68,29 @@ def student_card(request: Request, user: dict = Depends(require_page_login), db:
 
 @router.get("/qr", response_class=HTMLResponse)
 def student_qr(request: Request, user: OptionalUser, db: DbSession):
-    """Parcial HTMX con el QR vigente. 409 sin foto (sin token), 403 inactiva o sin tarjeta."""
+    """Parcial HTMX con el QR vigente. 409 sin foto (sin token), 403 inactiva o sin tarjeta.
+
+    Se sondea cada 30 s: solo mira usuario, foto y archivo (no arma la tarjeta completa).
+    """
+    from itcj2.apps.credencial.models import CredentialPhoto
     from itcj2.apps.credencial.pages.render import render_credencial
-    from itcj2.apps.credencial.services.card_service import CardService
+    from itcj2.apps.credencial.services.photo_service import PhotoService
     from itcj2.apps.credencial.services.token_service import TOKEN_TTL_SECONDS, CredentialTokenService
     from itcj2.core.models.user import User
 
     if not user:  # HTMX seguiría un 302 y metería el login dentro del recuadro del QR
         return Response(status_code=401, headers={**_NO_STORE, "HX-Redirect": "/itcj/login"})
     uid = int(user["sub"])
-    card = CardService.build(db, uid)
-    if card is None or not db.get(User, uid).is_active:
+    student = db.get(User, uid)
+    if student is None or student.control_number is None or not student.is_active:
         return Response(status_code=403, headers=_NO_STORE)
-    if not card.has_photo:
+    photo = db.get(CredentialPhoto, uid)
+    if not PhotoService.has_file(photo):
         resp = render_credencial(request, "credencial/partials/_qr.html", {"pending": True}, status_code=409)
     else:
         now = datetime.now(timezone.utc)
-        token = CredentialTokenService.issue(card.photo_ref, now=now)
-        svg = segno.make(f"{request.base_url}credencial/v/{token}", error="m", micro=False).svg_inline(
+        token = CredentialTokenService.issue(photo.ref, now=now)
+        svg = segno.make(f"{_verify_base(request)}/credencial/v/{token}", error="m", micro=False).svg_inline(
             dark="#000", light="#fff", border=4, omitsize=True,
             svgclass="cc-qr__svg", lineclass=None, title="Código QR de verificación",
         )

@@ -101,6 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (status === 403) { setQrState('expired', 'Credencial no vigente.'); return; }
             const msg = navigator.onLine === false ? 'Sin conexión. Reintentando…' : 'Reintentando…';
             setQrState(codeAge() < TTL ? 'stale' : 'expired', msg);
+            if (codeAge() >= TTL) paintRing(0);  // también en la 1.ª carga: el anillo no promete tiempo
             scheduleRetry();
         };
         qr.addEventListener('htmx:responseError', onError);
@@ -142,10 +143,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startTilt() {
-        if (!reduceMotion.matches) window.addEventListener('deviceorientation', onOrient);
+        window.addEventListener('deviceorientation', onOrient);
     }
 
-    if (card && Orientation) {
+    // Con movimiento reducido el brillo es estático: ni se escucha ni se pide permiso.
+    if (card && Orientation && !reduceMotion.matches) {
         if (needsPermission) {
             document.addEventListener('click', () => {
                 Orientation.requestPermission()

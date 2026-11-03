@@ -81,3 +81,17 @@ def test_card_uppercase_name_title_cased(db_session):
     db_session.flush()
     assert CardService.build(db_session, user.id).display_name == "José Ángel Núñez O'Neil"
     assert CardService.build(db_session, mixed.id).display_name == "Ana de la Rosa"   # mixto: tal cual
+
+
+def test_short_name_helper():
+    from itcj2.apps.credencial.services.card_service import short_name
+    assert short_name(User(first_name="JOSÉ ÁNGEL", last_name="NÚÑEZ")) == "José Núñez"
+    assert short_name(User(first_name="Ana María", last_name="de la Rosa")) == "Ana de la Rosa"
+    assert short_name(User(first_name=" ", last_name="Solo")) == "Solo"
+
+
+def test_card_lines_and_fit(db_session, student):
+    user, _, program_name = student
+    card = CardService.build(db_session, user.id)
+    assert card.line2 == f"{program_name} / Estudiante"
+    assert card.fit1 == "" and card.fit2 == ""

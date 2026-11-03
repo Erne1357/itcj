@@ -43,20 +43,25 @@ def cli_env(db_session, tmp_path, monkeypatch):
     return src, photos
 
 
-def test_cli_dry_run_writes_nothing(cli_env, db_session):
+def _own_photos(db_session) -> int:
+    """Solo las filas de este test: la base de dev ya trae fotos reales."""
     from itcj2.apps.credencial.models import CredentialPhoto
+    return (db_session.query(CredentialPhoto).join(User, User.id == CredentialPhoto.user_id)
+            .filter(User.control_number.in_(["97654321", "97654321X"])).count())
+
+
+def test_cli_dry_run_writes_nothing(cli_env, db_session):
     src, photos = cli_env
     res = CliRunner().invoke(credencial_cli, ["import-photos", str(src), "--dry-run"])
     assert res.exit_code == 0, res.output
     assert "match" in res.output and "no_student" in res.output and "notas.txt" not in res.output
     assert not photos.exists() or list(photos.iterdir()) == []
-    assert db_session.query(CredentialPhoto).count() == 0
+    assert _own_photos(db_session) == 0
 
 
 def test_cli_real_run_imports(cli_env, db_session):
-    from itcj2.apps.credencial.models import CredentialPhoto
     src, photos = cli_env
     res = CliRunner().invoke(credencial_cli, ["import-photos", str(src)])
     assert res.exit_code == 0, res.output
     assert "created: 1" in res.output and "no_student: 1" in res.output
-    assert db_session.query(CredentialPhoto).count() == 1 and len(list(photos.iterdir())) == 1
+    assert _own_photos(db_session) == 1 and len(list(photos.iterdir())) == 1

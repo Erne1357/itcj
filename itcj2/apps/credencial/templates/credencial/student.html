@@ -14,9 +14,12 @@
 {% block body %}
 <div class="cs-page" id="cs-page" data-tz="{{ tz }}" data-ttl="{{ ttl_s }}" data-refresh="{{ refresh_s }}">
   <header class="cs-bar">
-    <button type="button" class="mobile-back-to-dashboard cs-back" id="mobileBackToDashboard" aria-label="Volver al inicio">
+    {#- Sin la clase .mobile-back-to-dashboard: el shell la oculta en >= 992 px. El id
+        hace que mobile-app-shell.js la enlace (en el iframe manda CLOSE_APP); sola, es
+        un enlace normal al inicio móvil. -#}
+    <a href="/itcj/m/" class="cs-back" id="mobileBackToDashboard" aria-label="Volver al inicio">
       <i class="bi bi-arrow-left" aria-hidden="true"></i>
-    </button>
+    </a>
     <h1 class="cs-title">Credencial digital</h1>
   </header>
 
@@ -53,7 +56,11 @@
 
     <div class="cs-controls">
       <div class="cs-status">
+        {%- if card.has_photo %}
         <span class="cs-live"><span class="cs-live__dot" aria-hidden="true"></span>Vigente</span>
+        {%- else %}
+        <span class="cs-live cs-live--pending"><i class="bi bi-camera" aria-hidden="true"></i>Foto pendiente</span>
+        {%- endif %}
         <time class="cs-clock" data-cc-clock>--:--:--</time>
       </div>
       {%- if card.has_photo %}
@@ -62,7 +69,7 @@
       </button>
       {%- else %}
       <p class="cs-notice">
-        <i class="bi bi-camera" aria-hidden="true"></i>
+        <i class="bi bi-info-circle" aria-hidden="true"></i>
         <span>Tu credencial aún no tiene foto oficial. Acude a Servicios Escolares para que la registren; después podrás mostrar tu código QR.</span>
       </p>
       {%- endif %}
@@ -71,6 +78,6 @@
 </div>
 {% endblock %}
 {% block extra_js %}
-<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+<script src="https://unpkg.com/htmx.org@2.0.3" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous"></script>
 <script src="/static/credencial/js/credencial.js?v={{ sv('js/credencial.js') }}"></script>
 {% endblock %}
