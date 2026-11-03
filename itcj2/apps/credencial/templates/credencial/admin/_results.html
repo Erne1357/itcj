@@ -1,4 +1,5 @@
 {#- Tabla de resultados (parcial HTMX). Cada fila es un botón que carga la ficha del alumno. -#}
+<span hidden data-ca-page="{{ page.page }}"></span>
 {% if page.items %}
 <table class="table ca-table">
   <caption class="ca-count">{{ page.start }}-{{ page.end }} de {{ page.total }} alumnos{% if q %} para «{{ q }}»{% endif %}</caption>
@@ -14,7 +15,7 @@
                 hx-target="#ca-detail" hx-swap="innerHTML">{{ s.full_name }}</button>
         {% if not s.is_active %}<span class="ca-flag">cuenta inactiva</span>{% endif %}
       </td>
-      <td class="d-none d-xl-table-cell ca-program">{{ s.program or '—' }}</td>
+      <td class="d-none d-xl-table-cell ca-program">{% if s.program %}{{ s.program }}{% else %}<span class="text-body-secondary">s/d</span>{% endif %}</td>
       <td>{% if s.has_photo %}<span class="ca-state ca-state--ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Con foto</span>
           {% else %}<span class="ca-state ca-state--missing"><i class="bi bi-dash-circle" aria-hidden="true"></i> Falta</span>{% endif %}</td>
     </tr>

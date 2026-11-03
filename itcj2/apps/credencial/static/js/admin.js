@@ -3,7 +3,8 @@
   'use strict';
 
   const BASE = '/credencial/admin';
-  const CHUNK = 10;
+  const CHUNK = 10;                       // archivos por peticion
+  const CHUNK_BYTES = 24 * 1024 * 1024;   // nginx corta en 30 MB: margen para el multipart
   const STATUS = {
     created: ['Nueva', 'ca-state--ok'],
     replaced: ['Reemplazada', 'ca-state--ok'],
@@ -28,6 +29,7 @@
   }
 
   async function fetchApiError(response, fallback) {
+    if (response.status === 413) return 'El envío pesa demasiado para el servidor. Sube menos fotos a la vez.';
     if (response.status === 401) return 'Tu sesión venció. Recarga la página e inicia sesión.';
     try {
       return extractErrorMessage(await response.json(), fallback);
@@ -58,13 +60,30 @@
 
   async function postFile(url, formData) {
     const res = await fetch(url, { method: 'POST', body: formData, credentials: 'same-origin' });
-    if (!res.ok) throw new Error(await fetchApiError(res, 'No se pudo subir la foto'));
+    if (!res.ok) {
+      const err = new Error(await fetchApiError(res, 'No se pudo subir la foto'));
+      err.status = res.status;
+      throw err;
+    }
     return res.json();
   }
 
+  // Recarga la lista en la misma pagina y con los mismos filtros; la seleccion se repone en afterSwap.
   function refreshList() {
     const form = document.getElementById('ca-search');
-    if (form) htmx.trigger(form, 'ca:refresh');
+    const marker = document.querySelector('#ca-results [data-ca-page]');
+    if (!form) return;
+    const params = new URLSearchParams(new FormData(form));
+    params.set('page', marker ? marker.dataset.caPage : '1');
+    htmx.ajax('GET', `${BASE}/buscar?${params}`, { target: '#ca-results', swap: 'innerHTML' });
+  }
+
+  function markSelected() {
+    const box = document.querySelector('[data-ca-student]');
+    document.querySelectorAll('#ca-results tr.is-selected').forEach((tr) => tr.classList.remove('is-selected'));
+    if (!box) return;
+    const pick = document.querySelector(`#ca-results [data-ca-pick][hx-get$="/alumnos/${box.dataset.userId}"]`);
+    if (pick) pick.closest('tr').classList.add('is-selected');
   }
 
   function openStudent(userId) {
@@ -145,6 +164,7 @@
   function initBatch(root) {
     const input = document.getElementById('ca-batch-input');
     if (!input) return;
+    const maxBytes = (Number(root.dataset.maxMb) || 10) * 1024 * 1024;
     const drop = document.getElementById('ca-drop');
     const queueEl = document.getElementById('ca-queue');
     const bar = document.getElementById('ca-batch-bar');
@@ -186,10 +206,30 @@
     async function run() {
       running = true;
       [startBtn, clearBtn, input].forEach((el) => { el.disabled = true; });
-      const todo = queue.filter((q) => !q.done);
       let failed = 0;
-      for (let i = 0; i < todo.length; i += CHUNK) {
-        const chunk = todo.slice(i, i + CHUNK);
+      for (const it of queue) {  // lo que el servidor rechazaria por tamano ni se envia
+        if (!it.done && it.file.size > maxBytes) {
+          paint(it, 'invalid', `Pesa más de ${root.dataset.maxMb} MB`);
+          it.done = true;
+          failed += 1;
+        }
+      }
+      setProgress();
+      const todo = queue.filter((q) => !q.done);
+      const chunks = [];
+      let cur = [];
+      let curBytes = 0;
+      for (const it of todo) {
+        if (cur.length && (cur.length >= CHUNK || curBytes + it.file.size > CHUNK_BYTES)) {
+          chunks.push(cur);
+          cur = [];
+          curBytes = 0;
+        }
+        cur.push(it);
+        curBytes += it.file.size;
+      }
+      if (cur.length) chunks.push(cur);
+      for (const chunk of chunks) {
         chunk.forEach((it) => paint(it, 'sending'));
         try {
           const fd = new FormData();
@@ -205,7 +245,7 @@
           chunk.forEach((it) => paint(it, 'invalid', err.message));
           failed += chunk.length;
           showToast(err.message, 'danger');
-          break; // un 401/403/red caída se repetiría en cada tanda
+          if (err.status !== 413) break; // un 401/403/red caída se repetiría en cada tanda
         }
         setProgress();
       }
@@ -237,6 +277,7 @@
     if (!root) return;
     initStudentPanel(root);
     initBatch(root);
+    document.body.addEventListener('htmx:afterSwap', markSelected);
     document.body.addEventListener('htmx:responseError', (ev) => {
       let msg = 'No se pudo completar la consulta';
       if (ev.detail.xhr.status === 401) msg = 'Tu sesión venció. Recarga la página e inicia sesión.';

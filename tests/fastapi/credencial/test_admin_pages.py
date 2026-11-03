@@ -87,6 +87,9 @@ def test_search_excludes_staff(client, clerk):
     assert "Ventanilla" not in r.text
 
 
+BOUND = 9  # medido
+
+
 def test_search_has_no_per_row_queries(client, clerk, student, bare, db_session):
     n = []
     engine = db_session.get_bind()
@@ -99,7 +102,7 @@ def test_search_has_no_per_row_queries(client, clerk, student, bare, db_session)
         client.get("/credencial/admin/buscar", params={"q": ""}, headers=_cookie(clerk))
     finally:
         event.remove(engine, "before_cursor_execute", count)
-    assert len(n) <= 14  # autorizacion + conteo + una consulta de filas; no crece con las filas
+    assert len(n) <= BOUND  # autorizacion + conteo + una consulta de filas; no crece con las filas
 
 
 def test_upload_single_creates_photo(client, clerk, bare, db_session):
@@ -118,14 +121,17 @@ def test_upload_rejects_non_image(client, clerk, bare):
     assert r.status_code == 400 and "detail" in r.json()
 
 
-def test_batch_reports_statuses(client, clerk, bare, student):
+def test_batch_reports_statuses(client, clerk, bare, student, db_session):
     existing, _, _ = student
     existing.control_number = _control()
+    broken = User(first_name="Foto", last_name="Rota", control_number=_control(), is_active=True)
+    db_session.add(broken)
+    db_session.flush()
     files = [
         ("files", (f"{bare.control_number}.jpg", _jpeg(), "image/jpeg")),
         ("files", (f"{existing.control_number}.jpg", _jpeg((0, 90, 0)), "image/jpeg")),
         ("files", ("00000000.jpg", _jpeg(), "image/jpeg")),
-        ("files", ("roto.png", b"basura", "image/png")),
+        ("files", (f"{broken.control_number}.png", b"basura", "image/png")),
     ]
     r = client.post("/credencial/admin/fotos/lote", headers=_cookie(clerk), files=files)
     assert r.status_code == 200 and r.json()["success"] is True
@@ -133,7 +139,7 @@ def test_batch_reports_statuses(client, clerk, bare, student):
     assert by_name[f"{bare.control_number}.jpg"] == "created"
     assert by_name[f"{existing.control_number}.jpg"] == "replaced"
     assert by_name["00000000.jpg"] == "no_student"
-    assert by_name["roto.png"] in ("invalid", "no_student")
+    assert by_name[f"{broken.control_number}.png"] == "invalid"
 
 
 def test_batch_over_20_rejected_400(client, clerk):
@@ -189,3 +195,34 @@ def test_verifications_list_paginated(client, clerk, student, outsider, db_sessi
     r2 = client.get("/credencial/admin/verificaciones", params={"page": 2}, headers=_cookie(clerk))
     assert r2.text.count("data-v-row") >= 1
     assert client.get("/credencial/admin/verificaciones", headers=_cookie(outsider)).status_code == 403
+
+
+def test_global_admin_reaches_photo_upload_and_batch(client, student, bare, db_session):
+    root = User(first_name="Root", last_name="Admin", username=f"r_{uuid.uuid4().hex[:8]}")
+    db_session.add(root)
+    db_session.flush()
+    h = _cookie(root, "admin")
+    user, _, _ = student
+    assert client.get(f"/credencial/admin/alumnos/{user.id}/foto", headers=h).status_code == 200
+    r = client.post(f"/credencial/admin/alumnos/{bare.id}/foto", headers=h,
+                    files={"file": ("x.jpg", _jpeg(), "image/jpeg")})
+    assert r.status_code == 200
+    r = client.post("/credencial/admin/fotos/lote", headers=h,
+                    files=[("files", ("00000000.jpg", _jpeg(), "image/jpeg"))])
+    assert r.status_code == 200 and r.json()["data"][0]["status"] == "no_student"
+
+
+def test_search_escapes_like_wildcards(client, clerk, student):
+    user, _, _ = student
+    for q in ("%", "_", "Z%", "Xochi_uetzal"):
+        r = client.get("/credencial/admin/buscar", params={"q": q}, headers=_cookie(clerk))
+        assert r.status_code == 200 and user.control_number not in r.text
+
+
+def test_search_missing_filter(client, clerk, student, bare):
+    with_photo, _, _ = student
+    r = client.get("/credencial/admin/buscar", params={"q": bare.control_number, "missing": "1"}, headers=_cookie(clerk))
+    assert bare.control_number in r.text
+    r = client.get("/credencial/admin/buscar", params={"q": with_photo.control_number, "missing": "1"},
+                   headers=_cookie(clerk))
+    assert with_photo.control_number not in r.text

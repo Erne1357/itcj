@@ -24,7 +24,7 @@
       <tr data-v-row>
         <td class="ca-mono">{{ v.when.strftime('%d/%m/%Y %H:%M:%S') }}</td>
         <td>{{ v.student_name }}</td>
-        <td class="ca-mono">{{ v.control_number or '—' }}</td>
+        <td class="ca-mono">{{ v.control_number or 's/d' }}</td>
         <td>{{ v.verifier_name or 'Sin sesión' }}</td>
         <td>{% if v.result == 'valid' %}<span class="ca-state ca-state--ok">Válida</span>{% else %}<span class="ca-state ca-state--bad">No vigente</span>{% endif %}</td>
       </tr>
