@@ -7,7 +7,8 @@ def test_estudiante_ve_mi_prorroga_y_la_solicitud(client_as, estudiante):
     c = client_as(estudiante)
     assert "Mi prórroga" in c.get("/prorrogas/estudiante").text
     page = c.get("/prorrogas/estudiante/solicitud").text
-    assert "Firmo este documento" in page and "<canvas" in page
+    assert "firmo este documento" in page and "<canvas" in page
+    assert 'name="plazos" value="2"' in page and 'value="3"' not in page  # solo 1 o 2 pagos
     assert '<option value="">Elige tu carrera</option>' in page  # nada preseleccionado a ciegas
 
 

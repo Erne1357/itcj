@@ -5,17 +5,25 @@ from itcj2.apps.prorrogas_tec.services import invitation_service as inv
 from itcj2.core.utils.timezone import db_now
 
 
-def test_sin_sesion_va_al_login_con_next(client):  # spec 5 y 8.2: le dice qué hacer, no solo lo manda al login
-    r = client.get("/prorrogas/unirse?t=abc", follow_redirects=False)
-    assert r.status_code == 200 and r.headers["referrer-policy"] == "no-referrer"
-    assert "Inicia sesión con tu número de control y tu NIP" in r.text and "pide a la secretaria la invitación" in r.text
-    assert 'href="/itcj/login?next=%2Fprorrogas%2Funirse%3Ft%3Dabc"' in r.text
+LOGIN_ABC = "/itcj/login?next=%2Fprorrogas%2Funirse%3Ft%3Dabc"
 
 
-def test_qr_valido_une_y_lleva_a_la_solicitud(client_as, secretaria, make_user, db_session):
+def test_sin_sesion_va_directo_al_login_con_next(client):
+    for r in (client.get("/prorrogas/unirse?t=abc", follow_redirects=False),
+              client.post("/prorrogas/unirse", data={"t": "abc"}, follow_redirects=False)):
+        assert r.status_code == 302 and r.headers["location"] == LOGIN_ABC
+        assert r.headers["referrer-policy"] == "no-referrer"
+
+
+def test_qr_valido_pregunta_y_al_aceptar_une(client_as, secretaria, make_user, db_session):
     u = make_user(control_number="99300001")
     token = inv.issue_qr(secretaria.id)["token"]
-    r = client_as(u).get(f"/prorrogas/unirse?t={token}", follow_redirects=False)
+    c = client_as(u)
+    r = c.get(f"/prorrogas/unirse?t={token}", follow_redirects=False)
+    assert r.status_code == 200 and "Aceptar y continuar" in r.text and "99300001" in r.text
+    assert r.headers["referrer-policy"] == "no-referrer"
+    assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0  # ver la pregunta no une
+    r = c.post("/prorrogas/unirse", data={"t": token}, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/prorrogas/estudiante/solicitud"
     assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id, via="qr").count() == 1
 
@@ -23,9 +31,11 @@ def test_qr_valido_une_y_lleva_a_la_solicitud(client_as, secretaria, make_user, 
 def test_qr_vencido_muestra_mensaje_y_no_une(client_as, secretaria, make_user, db_session):  # Review Focus 2
     u = make_user(control_number="99300002")
     token = inv.issue_qr(secretaria.id, now=db_now() - timedelta(minutes=10))["token"]
-    r = client_as(u).get(f"/prorrogas/unirse?t={token}", follow_redirects=False)
-    assert r.status_code == 410 and "Pide un código nuevo" in r.text
-    assert r.headers["referrer-policy"] == "no-referrer"
+    c = client_as(u)
+    for r in (c.get(f"/prorrogas/unirse?t={token}", follow_redirects=False),
+              c.post("/prorrogas/unirse", data={"t": token}, follow_redirects=False)):
+        assert r.status_code == 410 and "Pide un código QR nuevo" in r.text
+        assert r.headers["referrer-policy"] == "no-referrer"
     assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0
 
 
@@ -83,8 +93,10 @@ def test_invitacion_desconocida_da_404(client):
 def test_cuenta_sin_numero_de_control_no_se_une_por_qr(client_as, secretaria, make_user, db_session):
     u = make_user()  # cuenta de personal: sin número de control
     token = inv.issue_qr(secretaria.id)["token"]
-    r = client_as(u).get(f"/prorrogas/unirse?t={token}", follow_redirects=False)
-    assert r.status_code == 403 and "Esta cuenta no es de estudiante." in r.text
+    c = client_as(u)
+    for r in (c.get(f"/prorrogas/unirse?t={token}", follow_redirects=False),
+              c.post("/prorrogas/unirse", data={"t": token}, follow_redirects=False)):
+        assert r.status_code == 403 and "Esta cuenta no es de estudiante." in r.text
     assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0
 
 

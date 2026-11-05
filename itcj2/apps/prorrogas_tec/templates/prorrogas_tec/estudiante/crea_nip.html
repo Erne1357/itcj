@@ -1,15 +1,24 @@
 {% extends "prorrogas_tec/estudiante/_base.html" %}
 {% block content %}
-<section class="est-card">
-  <h1 class="est-h1">Crea tu NIP</h1>
-  <p class="est-hint">Es de 4 dígitos. Lo usarás junto con tu número de control para iniciar sesión.</p>
-  {% if error %}<p class="est-error" role="alert">{{ error }}</p>{% endif %}
-  <form method="post" autocomplete="off">
-    <label for="nip">NIP (4 dígitos)</label>
-    <input id="nip" name="nip" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" required autofocus>
-    <label for="nip2">Repite tu NIP</label>
-    <input id="nip2" name="nip2" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" required>
-    <button class="est-btn" type="submit">Guardar NIP</button>
-  </form>
-</section>
+<div style="display: flex; gap: 14px; align-items: center;">
+  <span class="ico-circle t-wine"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+  <div style="display: flex; flex-direction: column; gap: 2px;">
+    <h1 class="h1">Crea tu NIP</h1>
+    <p class="hint">4 números · lo usarás para entrar</p>
+  </div>
+</div>
+<p class="lead">Para iniciar sesión vas a escribir tu <strong>número de control</strong> y este <strong>NIP</strong>.</p>
+<form method="post" autocomplete="off" class="card">
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <div class="field">
+    <label for="nip">Escribe tu NIP</label>
+    <input id="nip" name="nip" class="input nip" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" required autofocus>
+  </div>
+  <div class="field">
+    <label for="nip2">Escríbelo otra vez</label>
+    <input id="nip2" name="nip2" class="input nip" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" required>
+  </div>
+  <p class="tip"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Elige uno fácil de recordar para ti, pero no obvio (evita 1234 o 0000). No lo compartas.</span></p>
+  <button class="btn" type="submit">Guardar NIP</button>
+</form>
 {% endblock %}

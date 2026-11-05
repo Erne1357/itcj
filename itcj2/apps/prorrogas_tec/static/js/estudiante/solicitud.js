@@ -9,6 +9,7 @@
   function bloquear(texto) {
     $("sol-bloqueo-msg").textContent = texto;
     $("sol-bloqueo").hidden = false;
+    $("sol-lead").hidden = true;
   }
 
   function mostrarError(texto) {
@@ -40,7 +41,7 @@
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          plazos: parseInt($("sol-plazos").value, 10),
+          plazos: parseInt(form.querySelector('input[name="plazos"]:checked').value, 10),
           motivo: motivo.value,
           program_id: parseInt(carrera.value, 10),
           firma: firma.dataURL(),

@@ -8,9 +8,17 @@
     if (cls) e.className = cls;
     return e;
   }
+  const plantilla = (id) => document.getElementById(id).content.firstElementChild.cloneNode(true);
+  const icono = (n) => document.getElementById("mp-iconos").content.querySelector(`[data-i="${n}"]`).cloneNode(true);
+
+  function tarjeta(...hijos) {
+    const s = el("section", null, "card");
+    s.append(...hijos);
+    return s;
+  }
 
   function mensaje(texto, cls) {
-    root.replaceChildren(el("p", texto, cls || "est-hint"));
+    root.replaceChildren(tarjeta(el("p", texto, cls || "lead")));
   }
 
   async function cancelar(id, btn) {
@@ -28,7 +36,14 @@
     cargar();
   }
 
-  const ESTADO_PARCIALIDAD = { pagada: "Pagada", parcial: "Parcial", pendiente: "Pendiente", vencida: "Vencida" };
+  // [insignia, clase de la insignia, título]
+  const ESTADO = {
+    pendiente: ["Pendiente", "t-warn", "Tu solicitud está en revisión"],
+    aceptada: ["Aceptada", "t-ok", "¡Tu prórroga fue aceptada!"],
+    rechazada: ["Rechazada", "t-bad", "Tu solicitud no fue aceptada"],
+    cancelada: ["Cancelada", "t-neutral", "Cancelaste esta solicitud"],
+  };
+  const PARCIALIDAD = { pagada: ["Pagada", "t-ok"], parcial: ["Parcial", "t-warn"], pendiente: ["Pendiente", "t-neutral"], vencida: ["Vencida", "t-bad"] };
 
   function fecha(iso) {
     const [y, m, d] = String(iso).split("-");
@@ -37,35 +52,100 @@
   // "3650.00" -> "$3,650.00" sobre la cadena (sin float); con 2 decimales la regla no toca la parte decimal.
   const dinero = (v) => "$" + String(v).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-  function seccionCuenta(c, recibos) {
-    const sec = el("div", null, "mp-cuenta");
-    if (c.total === null) {
-      sec.append(el("p", "La secretaria todavía no arma tu plan de pagos.", "est-hint"));
+  function encabezado(etiqueta, insignia, cls) {
+    const row = el("div", null, "row");
+    row.append(el("p", etiqueta, "label"), el("span", insignia, "badge " + cls));
+    return row;
+  }
+
+  function datos(s) {
+    const dl = el("dl", null, "kv");
+    [["Folio", s.folio, "mono"], ["Periodo", s.semestre || "—"], ["Pagos", s.plazos != null ? String(s.plazos) : "—"]]
+      .forEach(function ([k, v, cls]) {
+        const d = el("div");
+        d.append(el("dt", k), el("dd", v, cls));
+        dl.append(d);
+      });
+    return dl;
+  }
+
+  function resumenAceptada(s) {
+    const c = s.cuenta, p = el("p", null, "lead");
+    if (s.por_firmar) p.append("Te falta ", el("strong", "un paso"), ": firmar tu carta compromiso.");
+    else if (c.total === null) p.textContent = "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos.";
+    else if (c.situacion === "liquidada") p.textContent = "Ya liquidaste tu prórroga.";
+    else p.textContent = "Paga en las fechas de tu plan.";
+    return p;
+  }
+
+  function planDePagos(c) {
+    const izq = el("div"), der = el("p", null, "hint"), saldo = el("div", null, "saldo");
+    izq.append(el("p", "Te falta pagar", "label"), el("p", dinero(c.saldo), "big"));
+    der.append("Pagado " + dinero(c.pagado), el("br"), "de " + dinero(c.total));
+    saldo.append(izq, der);
+
+    const parcs = c.parcialidades || [];
+    const prog = el("div", null, "prog"), barra = el("span");
+    prog.setAttribute("role", "img");
+    prog.setAttribute("aria-label", `Pagado ${parcs.filter((p) => p.estado === "pagada").length} de ${parcs.length} pagos`);
+    const total = parseFloat(c.total);   // solo para el ancho de la barra
+    barra.style.width = total > 0 ? Math.min(100, parseFloat(c.pagado) / total * 100) + "%" : "0%";
+    prog.append(barra);
+
+    const ol = el("ol", null, "pays"), sigue = c.proxima ? c.proxima.numero : null;
+    parcs.forEach(function (p) {
+      const pagada = p.estado === "pagada", esSigue = !pagada && p.numero === sigue;
+      const li = el("li", null, "pay" + (pagada ? " done" : esSigue ? " next" : ""));
+      const n = el("span", pagada ? null : String(p.numero), "pay-n");
+      if (pagada) n.append(icono("check"));
+      let detalle = `Pago ${p.numero} · ${pagada ? "" : "antes del "}${fecha(p.fecha)}`;
+      if (p.estado === "parcial") detalle += ` · ${dinero(p.cubierto)} cubierto`;
+      const main = el("div", null, "pay-main");
+      main.append(el("strong", dinero(p.monto)), el("span", detalle, "hint"));
+      const [txt, cls] = esSigue && p.estado === "pendiente" ? ["Sigue", "t-warn"] : PARCIALIDAD[p.estado] || [p.estado, "t-neutral"];
+      li.append(n, main, el("span", txt, "badge " + cls));
+      ol.append(li);
+    });
+    return tarjeta(el("h2", "Tu plan de pagos", "h2"), saldo, prog, ol);
+  }
+
+  function recibos(lista) {
+    const sec = tarjeta(el("h2", "Recibos registrados", "h2"));
+    if (!lista.length) {
+      sec.append(el("p", "Aún no hay recibos registrados.", "hint"));
       return sec;
     }
-    sec.append(el("h2", "Tu plan de pagos", "est-h2"));
-    if (c.situacion === "liquidada") sec.append(el("p", "Prórroga liquidada", "est-ok"));
-    const ul = el("ul", null, "mp-plan");
-    (c.parcialidades || []).forEach(function (p) {
-      let t = `${p.numero}. ${dinero(p.monto)} · ${fecha(p.fecha)} · ${ESTADO_PARCIALIDAD[p.estado] || p.estado}`;
-      if (p.estado === "parcial") t += ` (${dinero(p.cubierto)} cubierto de ${dinero(p.monto)})`;
-      ul.append(el("li", t, "mp-parc " + p.estado));
+    const ul = el("ul", null, "recs");
+    lista.forEach(function (r) {
+      const ico = el("span", null, "ico-circle t-ok"), det = el("span", null, "hint"), main = el("div", null, "rec-main");
+      ico.append(icono("recibo"));
+      det.append(el("span", r.folio || "Registro histórico", "mono"), " · " + fecha(r.fecha));
+      main.append(el("strong", dinero(r.monto)), det);
+      const li = el("li", null, "rec");
+      li.append(ico, main);
+      ul.append(li);
     });
     sec.append(ul);
-    sec.append(el("p", `Total ${dinero(c.total)} · Pagado ${dinero(c.pagado)} · Saldo ${dinero(c.saldo)}`, "mp-saldo"));
-    sec.append(el("h2", "Recibos registrados", "est-h2"));
-    if (recibos && recibos.length) {
-      const rl = el("ul", null, "mp-recibos");
-      recibos.forEach(function (r) { rl.append(el("li", `${r.folio || "Registro histórico"} · ${fecha(r.fecha)} · ${dinero(r.monto)}`)); });
-      sec.append(rl);
-    } else {
-      sec.append(el("p", "Aún no hay recibos registrados.", "est-hint"));
-    }
     return sec;
   }
 
+  function documentos(s) {
+    const ul = el("ul", null, "docs");
+    s.documentos.forEach(function (d) {
+      const a = el("a");
+      a.href = `${API}/solicitudes/${s.id}/documentos/${d.id}.pdf`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.append(icono("doc"), el("span", d.label + (d.firmado ? " (firmado)" : "")), icono("chev"));
+      const li = el("li");
+      li.append(a);
+      ul.append(li);
+    });
+    return tarjeta(el("h2", "Tus documentos", "h2"), ul);
+  }
+
   function seccionFirma(s) {
-    const sec = document.getElementById("mp-firma-tpl").content.firstElementChild.cloneNode(true);
+    const sec = plantilla("mp-firma-tpl");
     const q = (c) => sec.querySelector(c);
     const canvas = q("canvas"), btn = q(".mp-firmar"), acepto = q(".mp-acepto"), err = q(".mp-error");
     q(".mp-pdf").href = `${API}/solicitudes/${s.id}/documentos/${s.por_firmar}.pdf`;
@@ -106,39 +186,39 @@
     return sec;
   }
 
-  function tarjeta(s) {
-    const box = el("div", null, "est-sol");
-    const h = el("div");
-    h.append(el("span", s.folio, "est-folio"), el("span", s.estado, "est-estado " + s.estado));
-    box.append(h);
-    box.append(el("p", [s.semestre, s.plazos != null ? `${s.plazos} plazo(s)` : ""].filter(Boolean).join(" · "), "est-hint"));
-    if (s.comentario) box.append(el("p", "Comentario de la secretaria: " + s.comentario, "est-hint"));
-    if (s.documentos && s.documentos.length) {
-      const ul = el("ul", null, "est-docs");
-      s.documentos.forEach(function (d) {
-        const li = el("li");
-        const a = el("a", d.label + (d.firmado ? " (firmado)" : ""));
-        a.href = `${API}/solicitudes/${s.id}/documentos/${d.id}.pdf`;
-        a.target = "_blank";
-        a.rel = "noopener";
-        li.append(a);
-        ul.append(li);
-      });
-      box.append(ul);
-    }
+  function seccionCancelar(s) {
+    const sec = el("section", null, "cancelar");
+    const b = el("button", "Cancelar solicitud", "btn btn-ghost");
+    b.type = "button";
+    b.addEventListener("click", function () { cancelar(s.id, b); });
+    sec.append(el("p", "¿Ya no la necesitas? Puedes cancelarla mientras esté pendiente.", "hint"), b);
+    return sec;
+  }
+
+  // Tarjetas de una solicitud; `ultima` = la más reciente, `d` = la respuesta de /estado.
+  function solicitud(s, ultima, d, titulo) {
+    const [insignia, cls, texto] = ESTADO[s.estado] || [s.estado, "t-neutral", "Mi prórroga"];
+    const estado = tarjeta(encabezado("Mi prórroga", insignia, cls), titulo(texto));
+    const nodos = [estado];
     let firmaSec = null;
-    if (s.estado === "aceptada") {
-      box.append(seccionCuenta(s.cuenta, s.recibos));
-      if (s.por_firmar) box.append(firmaSec = seccionFirma(s));
-    }
-    box.crearLienzo = function () { if (firmaSec) firmaSec.crear(); };
     if (s.estado === "pendiente") {
-      const b = el("button", "Cancelar", "est-btn est-btn-sec");
-      b.type = "button";
-      b.addEventListener("click", function () { cancelar(s.id, b); });
-      box.append(b);
+      estado.append(el("p", "No tienes que hacer nada por ahora. Vuelve a esta página para ver la respuesta.", "lead"), datos(s));
+      nodos.push(plantilla("mp-revision"));
+    } else if (s.estado === "aceptada") {
+      estado.append(resumenAceptada(s), datos(s));
+      if (s.comentario) estado.append(el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote ok"));
+      if (s.por_firmar) nodos.push(firmaSec = seccionFirma(s));
+      if (s.cuenta.total !== null) nodos.push(planDePagos(s.cuenta), recibos(s.recibos || []));
+    } else {
+      estado.append(datos(s));
+      if (s.estado === "rechazada" && s.comentario) {
+        nodos.push(tarjeta(el("h2", "¿Por qué?", "h2"), el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote")));
+      }
+      if (s.estado === "rechazada" && ultima && d.motivo === "sin_acceso") nodos.push(plantilla("mp-ahora"));
     }
-    return box;
+    if (s.documentos && s.documentos.length) nodos.push(documentos(s));
+    if (s.estado === "pendiente") nodos.push(seccionCancelar(s));
+    return { nodos, crearLienzo: function () { if (firmaSec) firmaSec.crear(); } };
   }
 
   async function cargar() {
@@ -146,26 +226,31 @@
     try {
       const r = await fetch(`${API}/estado`, { credentials: "include" });
       d = await r.json();
-      if (!r.ok) { mensaje(d.message || "No se pudo cargar tu información.", "est-error"); return; }
+      if (!r.ok) { mensaje(d.message || "No se pudo cargar tu información.", "error"); return; }
     } catch (e) {
-      mensaje("No se pudo cargar tu información.", "est-error");
+      mensaje("No se pudo cargar tu información.", "error");
       return;
     }
-    const nodos = [];
+    let conH1 = false;   // un solo h1 por página; los demás títulos de estado son h2 con el mismo estilo
+    const titulo = (t) => { const e = el(conH1 ? "h2" : "h1", t, "h1"); conH1 = true; return e; };
+    const sols = d.solicitudes || [], nodos = [];
     if (d.puede_solicitar) {
-      const a = el("a", "Solicitar prórroga", "est-btn");
+      const a = el("a", "Solicitar prórroga", "btn");
       a.href = "/prorrogas/estudiante/solicitud";
-      nodos.push(a);
-    } else if (d.motivo === "sin_acceso") {
-      nodos.push(el("p", "Pide tu acceso en la Subdirección Académica", "est-hint"));
+      a.append(icono("arrow"));
+      nodos.push(tarjeta(encabezado("Estado", sols.length ? "Puedes solicitar" : "Sin solicitud", "t-neutral"), titulo("Mi prórroga"),
+        el("p", sols.length ? "Puedes pedir una nueva prórroga aquí mismo." : "Todavía no has pedido una prórroga. Puedes hacerlo aquí mismo.", "lead"), a));
+      if (!sols.length) nodos.push(plantilla("mp-como"));
     } else if (d.motivo === "no_hay_semestre") {
-      nodos.push(el("p", "Por ahora no hay un semestre abierto para prórrogas.", "est-hint"));
+      nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Por ahora no hay un semestre abierto para prórrogas.", "lead")));
+    } else if (d.motivo === "sin_acceso" && !(sols[0] && sols[0].estado === "rechazada")) {   // a la rechazada la acompaña "¿Y ahora qué?"
+      nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Pide tu acceso en la Subdirección Académica", "lead")));
     }
-    const tarjetas = (d.solicitudes || []).map(tarjeta);
-    nodos.push.apply(nodos, tarjetas);
-    if (!nodos.length) nodos.push(el("p", "Aún no tienes solicitudes.", "est-hint"));
-    root.replaceChildren.apply(root, nodos);
-    tarjetas.forEach(function (t) { t.crearLienzo(); });
+    const partes = sols.map((s, i) => solicitud(s, i === 0, d, titulo));
+    partes.forEach(function (p) { nodos.push(...p.nodos); });
+    if (!nodos.length) nodos.push(tarjeta(el("p", "Aún no tienes solicitudes.", "lead")));
+    root.replaceChildren(...nodos);
+    partes.forEach(function (p) { p.crearLienzo(); });
   }
 
   cargar();

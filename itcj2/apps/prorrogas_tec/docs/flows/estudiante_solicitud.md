@@ -12,17 +12,18 @@
 
 ## Ruta en la app (UI)
 
-QR: `/prorrogas/unirse?t=…` → `/prorrogas/estudiante/solicitud` (formulario) → `/prorrogas/estudiante` (**Mi prórroga**).
+QR: `/prorrogas/unirse?t=…` (sin sesión, primero `/itcj/login?next=`) → pantalla **Unirse a Prórrogas** (Aceptar) → `/prorrogas/estudiante/solicitud` (formulario) → `/prorrogas/estudiante` (**Mi prórroga**).
 Invitación: `/prorrogas/unirse/invitacion/{token}` (solo una cuenta que nació de una invitación crea aquí su NIP de 4 dígitos) → mismo formulario.
 
 ## Pasos
 
 | # | Actor | UI | Acción | Endpoint | Service · método | Efecto en BD |
 |---|---|---|---|---|---|---|
-| 1 | Estudiante | Escanea el QR | Se une al módulo (sin sesión ve cómo entrar y un botón a `/itcj/login?next=`; una cuenta sin número de control no se une) | `GET /prorrogas/unirse?t=` | `invitation_service.read_qr`, `.join` | Fila en `prorrogas_joins` (`via=qr`) |
+| 1 | Estudiante | Escanea el QR | Sin sesión va directo a `/itcj/login?next=` y regresa; con sesión ve su nombre y número de control y le pregunta si acepta entrar (un QR vencido o una cuenta sin número de control ven el error sin el botón) | `GET /prorrogas/unirse?t=` | `invitation_service.read_qr`, `.joinable_student` | — |
+| 1a | Estudiante | Unirse a Prórrogas | **Aceptar y continuar**: se une y pasa a la solicitud (el QR se vuelve a validar) | `POST /prorrogas/unirse` (`t` en el formulario) | `read_qr`, `join` | Fila en `prorrogas_joins` (`via=qr`) |
 | 1b | Estudiante | Enlace del correo | Alternativa: invitación manual; solo la cuenta invitada puede usarla | `GET/POST /prorrogas/unirse/invitacion/{token}` | `validate_invitation`, `set_initial_nip`, `consume_invitation` | NIP inicial si la cuenta es nueva; invitación marcada usada; unión (`via=invitacion`) |
 | 2 | Estudiante | Solicitud | Ve si puede solicitar, su semestre y su carrera | `GET /api/prorrogas/v2/estudiante/estado` | `RequestService.access`, `.mine` | — |
-| 3 | Estudiante | **Enviar** | Plazos (1–3), motivo (20–1000), carrera y firma | `POST …/estudiante/solicitudes` | `parse_signature`, `RequestService.create`, `DocumentService.generate` | `prorrogas_requests` (`pendiente`), `formato_solicitud` firmado con IP y agente, evento `solicitud_creada` |
+| 3 | Estudiante | **Enviar solicitud** | Pagos (1 o 2; antes 1–3), motivo (20–1000), carrera y firma | `POST …/estudiante/solicitudes` | `parse_signature`, `RequestService.create`, `DocumentService.generate` | `prorrogas_requests` (`pendiente`), `formato_solicitud` firmado con IP y agente, evento `solicitud_creada` |
 | 4 | Estudiante | Mi prórroga | Ve estado, comentario y documentos; descarga los PDF | `GET …/estudiante/solicitudes/{id}/documentos/{doc}.pdf` | — | — |
 | 5 | Estudiante | **Cancelar** | Solo mientras está `pendiente` | `POST …/estudiante/solicitudes/{id}/cancelar` | `RequestService.cancel` | `status=cancelada`, evento `solicitud_cancelada` |
 | 6 | Estudiante | Mi prórroga | Una vez aceptada, ve su **plan** (total, pagado, saldo, situación, próxima parcialidad y cada parcialidad con su estado) y sus **recibos** vigentes (folio, fecha, monto) | `GET …/estudiante/estado` | `account.cuenta_json` | — |

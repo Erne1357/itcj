@@ -170,11 +170,16 @@ def validate_invitation(db, raw_token: str, *, now: datetime | None = None) -> P
     return _usable(db, raw_token, now or db_now())
 
 
-def join(db, user_id: int, *, via: str, issued_by_id: int | None, invitation_id: int | None = None,
-         now: datetime | None = None) -> ProrrogaJoin:
+def joinable_student(db, user_id: int) -> User:
     user = db.get(User, user_id)
     if user is None or not user.control_number:  # p. ej. una cuenta de personal que escanea el QR
         raise ServiceError("cuenta_sin_numero_de_control", "Esta cuenta no es de estudiante.", status=403)
+    return user
+
+
+def join(db, user_id: int, *, via: str, issued_by_id: int | None, invitation_id: int | None = None,
+         now: datetime | None = None) -> ProrrogaJoin:
+    joinable_student(db, user_id)
     row = ProrrogaJoin(user_id=user_id, via=via, invitation_id=invitation_id,
                        issued_by_id=issued_by_id, joined_at=now or db_now())
     db.add(row)

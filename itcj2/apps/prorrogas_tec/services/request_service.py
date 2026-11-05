@@ -58,8 +58,8 @@ class RequestService:
         now = now or db_now()
         if not student.control_number:  # cuenta de personal: no es estudiante
             raise ServiceError("cuenta_sin_numero_de_control", "Esta cuenta no es de estudiante.", status=403)
-        if not isinstance(plazos, int) or isinstance(plazos, bool) or not 1 <= plazos <= 3:
-            raise ServiceError("plazos_invalidos", "Elige de 1 a 3 plazos.")
+        if not isinstance(plazos, int) or isinstance(plazos, bool) or not 1 <= plazos <= 2:
+            raise ServiceError("plazos_invalidos", "Elige 1 o 2 pagos.")
         motivo = (motivo or "").strip()
         if not RequestService.MOTIVO_MIN <= len(motivo) <= RequestService.MOTIVO_MAX:
             raise ServiceError(

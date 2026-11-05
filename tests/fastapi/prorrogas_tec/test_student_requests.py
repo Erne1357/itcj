@@ -104,7 +104,7 @@ def test_cuenta_sin_numero_de_control_no_solicita(db_session, make_user, periodo
     assert e.value.code == "cuenta_sin_numero_de_control" and e.value.status == 403
 
 
-@pytest.mark.parametrize("kw, code", [({"plazos": 4}, "plazos_invalidos"), ({"motivo": "corto"}, "motivo_invalido")])
+@pytest.mark.parametrize("kw, code", [({"plazos": 3}, "plazos_invalidos"), ({"motivo": "corto"}, "motivo_invalido")])
 def test_datos_invalidos(db_session, alumno_unido, make_program, firma_png, kw, code):
     with pytest.raises(ServiceError) as e:
         _crear(db_session, alumno_unido, make_program("Ingeniería de Prueba", "licenciatura"), firma_png, **kw)

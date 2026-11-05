@@ -15,7 +15,6 @@ from itcj2.dependencies import DbSession
 from itcj2.templates import render
 
 SOLICITUD = "/prorrogas/estudiante/solicitud"
-_QR_MENSAJE = "Este código ya no es válido. Pide un código nuevo en la Subdirección Académica."
 _HEADERS = {"Referrer-Policy": "no-referrer"}
 
 router = APIRouter(prefix="/unirse", tags=["prorrogas_tec-pages-unirse"])
@@ -39,8 +38,8 @@ def _page(request, template, context, status=200):
     return resp
 
 
-def _error(request, message, status):
-    return _page(request, "unirse_error.html", {"title": "Prórrogas · Unirse", "message": message}, status)
+def _error(request, message, status, qr=False):
+    return _page(request, "unirse_error.html", {"title": "Prórrogas · Unirse", "message": message, "qr": qr}, status)
 
 
 def _user_id(request) -> int | None:
@@ -48,17 +47,35 @@ def _user_id(request) -> int | None:
     return int(payload["sub"]) if payload else None
 
 
+def _qr_error(request, e: ServiceError):
+    if e.code == "cuenta_sin_numero_de_control":
+        return _error(request, e.message, e.status)
+    return _error(request, e.message, e.status, qr=True)  # vencido o alterado: los mismos pasos para pedir otro
+
+
 @router.get("", name="prorrogas_tec.pages.unirse.qr")
 def unirse_qr(request: Request, db: DbSession, t: str = ""):
     uid = _user_id(request)
-    if uid is None:  # spec 5 y 8.2: decirle cómo entrar, y que sin cuenta pida la invitación
-        return _page(request, "unirse_login.html",
-                     {"title": "Prórrogas · Unirse", "login_url": _login_url(f"/prorrogas/unirse?t={t}")})
-    try:
-        by = inv.read_qr(t)
-        inv.join(db, uid, via="qr", issued_by_id=by)
+    if uid is None:  # el login regresa aquí con el mismo token
+        return _login(f"/prorrogas/unirse?t={t}")
+    try:  # se valida antes de preguntar: un QR vencido o una cuenta de personal no ven el botón
+        inv.read_qr(t)
+        user = inv.joinable_student(db, uid)
     except ServiceError as e:
-        return _error(request, e.message if e.code == "cuenta_sin_numero_de_control" else _QR_MENSAJE, e.status)
+        return _qr_error(request, e)
+    return _page(request, "unirse_aceptar.html", {"title": "Prórrogas · Unirse", "token": t,
+                                                   "nombre": user.full_name, "control": user.control_number})
+
+
+@router.post("", name="prorrogas_tec.pages.unirse.aceptar")
+def unirse_aceptar(request: Request, db: DbSession, t: str = Form("")):
+    uid = _user_id(request)
+    if uid is None:  # la sesión venció entre ver la pregunta y aceptar
+        return _login(f"/prorrogas/unirse?t={t}")
+    try:
+        inv.join(db, uid, via="qr", issued_by_id=inv.read_qr(t))
+    except ServiceError as e:
+        return _qr_error(request, e)
     return _redirect(SOLICITUD)
 
 
