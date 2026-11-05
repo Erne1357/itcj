@@ -55,6 +55,9 @@ LITERALS = {
         "M23111966": "{{no_control}}",
         "de la maestría de Ingeniería Administrativa": "de la carrera de {{carrera}}",
         "03 de febrero de 2026": "{{pago1_fecha}}",
+        "MARIO MACARIO RUIZ GRIJALVA": "{{director_nombre}}",
+        "EDUARDO RAFAEL POBLANO OJINAGA": "{{subdirector_admin_nombre}}",
+        "Jeovanny Rafael Rodríguez Mejía": "{{subdirector_nombre}}",
     },
     "carta_compromiso_2": {
         "13/enero/2026": "{{fecha}}",
@@ -66,6 +69,9 @@ LITERALS = {
         "Licenciatura en Administración": "{{carrera}}",
         "$1,575.00 a efectuarse el día 26 de febrero de 2026": "{{pago1_monto}} a efectuarse el día {{pago1_fecha}}",
         "$1,575.00 a efectuarse el día 23 de abril de 2026": "{{pago2_monto}} a efectuarse el día {{pago2_fecha}}",
+        "MARIO MACARIO RUIZ GRIJALVA": "{{director_nombre}}",
+        "EDUARDO RAFAEL POBLANO OJINAGA": "{{subdirector_admin_nombre}}",
+        "Jeovanny Rafael Rodríguez Mejía": "{{subdirector_nombre}}",
     },
     "carta_compromiso_3": {
         "03/febrero/2026": "{{fecha}}",
@@ -77,6 +83,9 @@ LITERALS = {
         "$1,217.00 a efectuarse el día 13 de febrero de 2026": "{{pago1_monto}} a efectuarse el día {{pago1_fecha}}",
         "$1,217.00 a efectuarse el día 27 de febrero de 2026": "{{pago2_monto}} a efectuarse el día {{pago2_fecha}}",
         "$1,216.00 a efectuarse el día 27 de marzo de 2026": "{{pago3_monto}} a efectuarse el día {{pago3_fecha}}",
+        "MARIO MACARIO RUIZ GRIJALVA": "{{director_nombre}}",
+        "EDUARDO RAFAEL POBLANO OJINAGA": "{{subdirector_admin_nombre}}",
+        "Jeovanny Rafael Rodríguez Mejía": "{{subdirector_nombre}}",
     },
 }
 
@@ -109,7 +118,7 @@ NEW_LETTERS = {
     ],
     "formato_solicitud": [
         "Ciudad Juárez, Chihuahua, {{fecha_solicitud}}",
-        "JEOVANNY RAFAEL RODRÍGUEZ MEJÍA",
+        "{{subdirector_nombre}}",
         "SUBDIRECTOR ACADÉMICO",
         "PRESENTE",
         "Quien suscribe, {{nombre}}, con número de control {{no_control}}, estudiante de {{carrera}}, "

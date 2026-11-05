@@ -18,6 +18,7 @@ from itcj2.apps.prorrogas_tec.services.docx_fill import fill_docx
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.template_service import TemplateService
+from itcj2.apps.prorrogas_tec.services.titulares import titulares
 from itcj2.core.utils import docx_pdf
 from itcj2.core.utils.timezone import db_now
 
@@ -27,7 +28,8 @@ class DocumentService:
     @staticmethod
     def generate(db: Session, req, doc_type: str, *, actor_id: int | None, today: date,
                  extra=None, signature: SignatureInfo | None = None) -> ProrrogaDocument:
-        values, images = build_values(req, doc_type, today=today, extra=extra, signature=signature)
+        values, images = build_values(req, doc_type, today=today, extra={**titulares(db), **(extra or {})},
+                                      signature=signature)
         docx, template = TemplateService.resolve(db, doc_type, today.year)
         try:
             pdf = docx_pdf.docx_to_pdf(fill_docx(docx, values, images), kind="prorrogas_documento")

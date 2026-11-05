@@ -18,7 +18,9 @@ from itcj2.apps.prorrogas_tec.services.formatting import fecha_corta, fecha_larg
 
 DEFAULTS_DIR = Path(__file__).resolve().parent / "defaults"
 
-COMMON_FIELDS: frozenset[str] = frozenset({"fecha", "folio", "nombre", "no_control", "carrera", "semestre"})
+# *_nombre de director y subdirectores: titular activo del puesto en core (services/titulares.py).
+COMMON_FIELDS: frozenset[str] = frozenset({"fecha", "folio", "nombre", "no_control", "carrera", "semestre",
+                                           "director_nombre", "subdirector_nombre", "subdirector_admin_nombre"})
 
 _FIRMA = frozenset({"firma_estudiante", "firma_estudiante_leyenda"})
 
@@ -123,6 +125,9 @@ def sample_values(code: str, *, today: date | None = None) -> tuple[dict[str, st
         "comentario": "Comentario de ejemplo.",
         "motivo_rechazo": "Motivo de ejemplo del rechazo.",
         "monto_total": pesos(_SAMPLE_TOTAL),
+        "director_nombre": "NOMBRE DEL DIRECTOR",
+        "subdirector_nombre": "NOMBRE DEL SUBDIRECTOR",
+        "subdirector_admin_nombre": "NOMBRE DEL SUBDIRECTOR ADMINISTRATIVO",
         "firma_estudiante_leyenda": (
             f"Firmado electrónicamente por ESTUDIANTE DE EJEMPLO el {today:%d/%m/%Y} 10:42 · folio PR-00000"
         ),
