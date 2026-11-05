@@ -83,6 +83,22 @@ def test_vista_previa_devuelve_pdf_sin_marcadores(client_as, secretaria, monkeyp
     assert seen == {"placeholders": set(), "kind": "prorrogas_documento"}
 
 
+def test_vista_previa_se_guarda_y_cambia_con_la_plantilla(client_as, secretaria, docx_con, monkeypatch):
+    llamadas = []
+
+    def fake(data, *, kind):
+        llamadas.append(kind)
+        return b"%PDF-1.4 fake"
+
+    monkeypatch.setattr("itcj2.core.utils.docx_pdf.docx_to_pdf", fake)
+    c = client_as(secretaria)
+    url = f"{API}/vista-previa/carta_rechazo.pdf?anio={ANIO}"
+    assert c.get(url).content == c.get(url).content == b"%PDF-1.4 fake"
+    assert len(llamadas) == 1  # la segunda sale del PDF guardado
+    _post(c, docx_con(*RECHAZO_OK))
+    assert c.get(url).status_code == 200 and len(llamadas) == 2  # plantilla nueva → PDF nuevo
+
+
 def test_vista_previa_sin_libreoffice_responde_503(client_as, secretaria, monkeypatch):  # Review Focus 5
     def boom(data, *, kind):
         raise PdfConversionError("LibreOffice no está instalado.")

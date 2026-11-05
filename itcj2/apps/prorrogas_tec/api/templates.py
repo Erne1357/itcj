@@ -5,6 +5,8 @@ LibreOffice y la lectura del ``.docx`` bloquean, y FastAPI las corre en el
 threadpool. Los errores responden ``{"error", "message", ...detalle}`` en la
 raíz del JSON (no dentro de ``detail``), con los códigos de ``TemplateError``.
 """
+import hashlib
+import json
 import logging
 from typing import Optional
 
@@ -13,7 +15,9 @@ from fastapi.responses import FileResponse, Response
 
 from itcj2.apps.prorrogas_tec.api._common import error_response
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES, default_template_path, sample_values
+from itcj2.apps.prorrogas_tec.services import storage
 from itcj2.apps.prorrogas_tec.services.docx_fill import fill_docx
+from itcj2.apps.prorrogas_tec.services.titulares import titulares, vacantes
 from itcj2.apps.prorrogas_tec.services.template_service import (
     MAX_TEMPLATE_BYTES, YEAR_MAX, YEAR_MIN, TemplateError, TemplateService,
 )
@@ -65,6 +69,7 @@ def list_templates(db: DbSession, user: dict = require_perms("prorrogas_tec", _R
             for t in DOC_TYPES.values()
         ],
         "anios": anios,
+        "vacantes": vacantes(titulares(db)),
     }
 
 
@@ -103,6 +108,25 @@ def system_template_file(doc_type: str, user: dict = require_perms("prorrogas_te
     )
 
 
+def _preview_pdf(doc_type: str, anio: int, data: bytes, values: dict, images: dict) -> bytes:
+    """El PDF de ejemplo se guarda por contenido (plantilla + datos): LibreOffice tarda ~1.5 s en cada uno."""
+    h = hashlib.sha256(data)
+    h.update(json.dumps(values, sort_keys=True).encode())
+    for k in sorted(images):
+        h.update(k.encode() + images[k])
+    rel = f"previews/{doc_type}-{anio}-{h.hexdigest()[:16]}.pdf"
+    try:
+        return storage.abs_path(rel).read_bytes()
+    except FileNotFoundError:
+        pass
+    pdf = docx_pdf.docx_to_pdf(fill_docx(data, values, images), kind=PDF_KIND)
+    # Una por formato y año: la fecha de ejemplo cambia cada día y la vieja ya no sirve.
+    for old in storage.abs_path("previews").glob(f"{doc_type}-{anio}-*.pdf"):
+        old.unlink(missing_ok=True)
+    storage.write_atomic(rel, pdf)
+    return pdf
+
+
 @router.get("/vista-previa/{doc_type}.pdf", name="prorrogas_tec.api.templates.preview")
 def preview_template(
     doc_type: str,
@@ -117,9 +141,10 @@ def preview_template(
     if not YEAR_MIN <= anio <= YEAR_MAX:
         return error_response(400, "anio_invalido", f"El año debe estar entre {YEAR_MIN} y {YEAR_MAX}.")
     data, _ = TemplateService.resolve(db, doc_type, anio)
-    filled = fill_docx(data, *sample_values(doc_type))
+    values, images = sample_values(doc_type)
+    values.update((k, v) for k, v in titulares(db).items() if k in values)  # el nombre real que saldría impreso
     try:
-        pdf = docx_pdf.docx_to_pdf(filled, kind=PDF_KIND)
+        pdf = _preview_pdf(doc_type, anio, data, values, images)
     except docx_pdf.CONVERSION_ERRORS:
         logger.exception("Vista previa de plantilla sin PDF", extra={"doc_type": doc_type, "year": anio})
         return error_response(503, "pdf_no_disponible",

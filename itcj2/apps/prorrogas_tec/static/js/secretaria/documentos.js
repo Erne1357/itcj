@@ -1,6 +1,7 @@
 // Prórrogas · Documentos (vista de secretaría).
-// Lista por año las plantillas de los 6 formatos, permite verlas en PDF con datos
-// de ejemplo, descargarlas y subir una nueva .docx. API: /api/prorrogas/v2/templates
+// Lista por año las plantillas de los 6 formatos. Clic en una tarjeta abre el modal con
+// el PDF de ejemplo, Reemplazar y Descargar; la tarjeta solo trae Descargar.
+// API: /api/prorrogas/v2/templates
 (function () {
   "use strict";
 
@@ -19,13 +20,23 @@
   const $error = document.getElementById("uploadError");
   const $submit = document.getElementById("uploadSubmit");
   const $toast = document.getElementById("secToast");
+  const $doc = document.getElementById("docDialog");
+  const $pdf = document.getElementById("docPdf");
+  const $pdfMsg = document.getElementById("docPdfMsg");
+  const $skel = document.getElementById("docSkel");
 
   const TINTS = ["rgba(103,153,224,.22)", "rgba(242,115,64,.22)", "rgba(101,47,42,.16)", "rgba(26,19,14,.08)"];
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const DL_ICON = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>';
+  const PLUS_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
   let data = null;
   let year = null;
   let toastTimer = null;
+  let abierto = null;  // formato abierto en el modal
+  let pdfUrl = null;   // blob de la vista previa; se libera al cerrar
+  let pdfSeq = 0;      // descarta la respuesta de una vista previa anterior
+  const pdfs = new Map();  // "año:formato" → promesa del PDF; se calienta al abrir la página
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -49,6 +60,27 @@
     data = await r.json();
     if (year === null || !data.anios.some((a) => a.anio === year)) year = data.anios[0].anio;
     render();
+    warm();
+  }
+
+  function getPdf(tipo, y) {
+    const k = `${y}:${tipo}`;
+    if (!pdfs.has(k)) {
+      const p = fetch(`${API}/vista-previa/${tipo}.pdf?anio=${y}`, { credentials: "include" })
+        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); });
+      p.catch(() => pdfs.delete(k));  // un error no se queda guardado
+      pdfs.set(k, p);
+    }
+    return pdfs.get(k);
+  }
+
+  // Pide los PDF del año uno a uno (cada uno puede ser un LibreOffice) para que el clic los encuentre listos.
+  async function warm() {
+    const y = year;
+    for (const p of plantillas()) {
+      if (y !== year) return;
+      await getPdf(p.doc_type, y).catch(() => {});
+    }
   }
 
   function render() {
@@ -59,46 +91,87 @@
                 data-year="${a.anio}">${a.anio}<small>${subidas}</small></button>`;
     }).join("");
     $yearLabel.textContent = year;
+    const $vac = document.getElementById("docsVacantes");
+    $vac.textContent = data.vacantes.length
+      ? `Core no tiene titular activo de: ${data.vacantes.join(", ")}. Asígnalo en Puestos; mientras, las cartas salen sin ese nombre.`
+      : "";
+    $vac.hidden = !data.vacantes.length;
 
-    const anio = data.anios.find((a) => a.anio === year);
-    const cards = anio.plantillas.map((p, i) => {
-      const t = p.plantilla;
-      let badge;
-      let meta;
-      if (p.origen === "subida") {
-        badge = `<span class="doc-badge doc-badge-subida">Subida · ${esc(fmtDate(t.uploaded_at))}</span>`;
-        meta = esc(t.original_name);
-      } else if (p.origen === "heredada") {
-        badge = `<span class="doc-badge doc-badge-heredada">Heredada de ${t.anio}</span>`;
-        meta = esc(t.original_name);
-      } else {
-        badge = `<span class="doc-badge doc-badge-sistema">Plantilla del sistema</span>`;
-        meta = "DOCX";
-      }
-      const download = t ? `${API}/${t.id}/archivo` : `${API}/sistema/${p.doc_type}/archivo`;
-      const preview = `${API}/vista-previa/${p.doc_type}.pdf?anio=${year}`;
-      return `
+    const cards = plantillas().map((p, i) => `
         <article class="doc-card">
           <div class="doc-thumb" style="background:${TINTS[i % TINTS.length]}">
             <div class="doc-thumb-page"><i></i><i style="width:90%"></i><i style="width:80%"></i><i style="width:85%"></i></div>
           </div>
           <div class="doc-body">
-            <div><div class="doc-name">${esc(p.label)}</div><div class="doc-meta">${meta}</div></div>
-            <div>${badge}</div>
-            <div class="doc-actions">
-              <a class="doc-action" href="${preview}" target="_blank" rel="noopener">Vista previa</a>
-              <a class="doc-action" href="${download}">Descargar</a>
-              <button type="button" class="doc-action" data-upload="${p.doc_type}">Subir nueva</button>
+            <div class="doc-text">
+              <button type="button" class="doc-open" data-open="${p.doc_type}" title="Ver documento">${esc(p.label)}</button>
+              <div class="doc-meta">DOCX · ${esc(enUso(p).origen)}</div>
             </div>
+            <a class="doc-dl" href="${descarga(p)}">${DL_ICON}Descargar</a>
           </div>
-        </article>`;
-    }).join("");
+        </article>`).join("");
     $grid.innerHTML = cards + `
       <button type="button" class="doc-add" data-upload="">
-        <span class="doc-add-icon" aria-hidden="true">+</span>
+        <span class="doc-add-icon">${PLUS_ICON}</span>
         Subir plantilla para ${year}
         <small>Solo Word (.docx)</small>
       </button>`;
+  }
+
+  const plantillas = () => data.anios.find((a) => a.anio === year).plantillas;
+  const descarga = (p) => (p.plantilla ? `${API}/${p.plantilla.id}/archivo` : `${API}/sistema/${p.doc_type}/archivo`);
+
+  // De dónde sale el archivo que se usa este año (tarjeta y modal).
+  function enUso(p) {
+    const t = p.plantilla;
+    if (p.origen === "subida") return { origen: fmtDate(t.uploaded_at), detalle: `Subida el ${fmtDate(t.uploaded_at)}`, archivo: t.original_name };
+    if (p.origen === "heredada") return { origen: `Heredada de ${t.anio}`, detalle: `Heredada de ${t.anio}`, archivo: t.original_name };
+    return { origen: "Del sistema", detalle: "Plantilla del sistema", archivo: `${p.doc_type}.docx` };
+  }
+
+  // ── Modal de un documento ─────────────────────────────────────────────
+  function openDoc(tipo) {
+    const p = plantillas().find((x) => x.doc_type === tipo);
+    if (!p) return;
+    abierto = tipo;
+    const u = enUso(p);
+    document.getElementById("docAnio").textContent = year;
+    document.getElementById("docNombre").textContent = p.label;
+    document.getElementById("docArchivo").textContent = u.archivo;
+    document.getElementById("docOrigen").textContent = u.detalle;
+    document.getElementById("docDescargar").href = descarga(p);
+    if (!$doc.open) $doc.showModal();
+    loadPreview(tipo);
+  }
+
+  function clearPreview() {
+    $pdf.hidden = true;
+    $skel.hidden = true;
+    $pdf.removeAttribute("src");
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    pdfUrl = null;
+  }
+
+  // Blob (no src directo) para mostrar el esqueleto y el 503 de LibreOffice en vez de un JSON en el iframe.
+  async function loadPreview(tipo) {
+    const seq = ++pdfSeq;
+    clearPreview();
+    $pdfMsg.hidden = true;
+    const espera = setTimeout(() => { if (seq === pdfSeq) $skel.hidden = false; }, 300);  // solo si tarda
+    try {
+      const blob = await getPdf(tipo, year);
+      if (seq !== pdfSeq) return;
+      pdfUrl = URL.createObjectURL(blob);
+      $pdf.src = `${pdfUrl}#navpanes=0&view=Fit`;  // sin miniaturas, la hoja completa
+      $pdf.hidden = false;
+    } catch (e) {
+      if (seq !== pdfSeq) return;
+      $pdfMsg.textContent = "No se pudo generar la vista previa. Descarga el archivo para revisarlo.";
+      $pdfMsg.hidden = false;
+    } finally {
+      clearTimeout(espera);
+      if (seq === pdfSeq) $skel.hidden = true;
+    }
   }
 
   function renderMarkers() {
@@ -112,6 +185,7 @@
   function openUpload(docType) {
     $type.innerHTML = data.tipos.map((t) => `<option value="${t.code}">${esc(t.label)}</option>`).join("");
     if (docType) $type.value = docType;
+    $type.disabled = Boolean(docType);  // al reemplazar desde el modal, el formato ya está decidido
     document.getElementById("uploadYear").textContent = year;
     $file.value = "";
     $error.hidden = true;
@@ -141,8 +215,10 @@
         return;
       }
       $dialog.close();
+      pdfs.clear();  // la plantilla nueva cambia su PDF (y el de los años que la heredan)
       toast("Plantilla subida. Ya es la que se usa para este año.");
       await load();
+      if ($doc.open) openDoc(abierto);  // reemplazo desde el modal: mostrar ya el archivo nuevo
     } catch (e) {
       $error.textContent = "No se pudo subir la plantilla. Revisa tu conexión e inténtalo de nuevo.";
       $error.hidden = false;
@@ -156,11 +232,18 @@
     if (!b) return;
     year = Number(b.dataset.year);
     render();
+    warm();
   });
   $grid.addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-upload]");
     if (b) openUpload(b.dataset.upload);
+    const o = ev.target.closest("[data-open]");
+    if (o) openDoc(o.dataset.open);
   });
+  $doc.addEventListener("close", () => { pdfSeq++; clearPreview(); abierto = null; });
+  $doc.addEventListener("click", (ev) => { if (ev.target === $doc) $doc.close(); });  // clic en el fondo
+  document.getElementById("docClose").addEventListener("click", () => $doc.close());
+  document.getElementById("docReemplazar").addEventListener("click", () => openUpload(abierto));
   $type.addEventListener("change", renderMarkers);
   $markers.addEventListener("click", (ev) => {
     const c = ev.target.closest("code");

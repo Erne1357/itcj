@@ -19,9 +19,13 @@ Escritorio → Prórrogas → (aterrizaje por rol) → `/prorrogas/secretaria` �
 | # | Actor | UI | Acción | Endpoint | Service · método | Efecto en BD / disco |
 |---|---|---|---|---|---|---|
 | 1 | Secretaria | Documentos | Ver plantillas del año | `GET /api/prorrogas/v2/templates` | `TemplateService.years`, `.active` | — |
-| 2 | Secretaria | Tarjeta → **Descargar** | Bajar la plantilla en uso para editarla en Word | `GET …/templates/{id}/archivo` o `…/templates/sistema/{tipo}/archivo` | `TemplateService.abs_path` | — |
+| 2 | Secretaria | Tarjeta (o modal) → **Descargar** | Bajar la plantilla en uso para editarla en Word | `GET …/templates/{id}/archivo` o `…/templates/sistema/{tipo}/archivo` | `TemplateService.abs_path` | — |
 | 3 | Secretaria | **Subir plantilla para {año}** | Subir el `.docx` editado | `POST /api/prorrogas/v2/templates` (`doc_type`, `anio`, `archivo`) | `TemplateService.upload` | Fila en `prorrogas_templates`; archivo en `instance/apps/prorrogas_tec/templates/{año}/{tipo}-{sha12}.docx` |
-| 4 | Secretaria | Tarjeta → **Vista previa** | Ver el formato lleno con datos de ejemplo | `GET …/templates/vista-previa/{tipo}.pdf?anio=` | `TemplateService.resolve` → `fill_docx` → `docx_to_pdf` | — |
+| 4 | Secretaria | Clic en la tarjeta → modal | Ver el formato lleno con datos de ejemplo; desde ahí, **Reemplazar archivo** abre la subida con el formato ya fijo (paso 3) | `GET …/templates/vista-previa/{tipo}.pdf?anio=` | `TemplateService.resolve` → `fill_docx` → `docx_to_pdf` | — |
+
+**Nombres de quien firma o recibe:** `{{director_nombre}}`, `{{subdirector_admin_nombre}}` (a quien va dirigida la carta compromiso) y `{{subdirector_nombre}}` (la atención de la carta compromiso y el formato de solicitud) salen del titular activo de los puestos `director`, `subdirector_admin_services` y `head_sub_academic` en core, al generar cada documento; el cargo va escrito en la plantilla. Cuando cambia el director, basta con reasignar el puesto en core. Cada documento guarda sus valores, así que una carta ya generada conserva el nombre con el que se hizo. Si un puesto está vacante, la carta sale sin ese nombre y Documentos lo avisa.
+
+**Vista previa:** el PDF de ejemplo se guarda en `previews/` del almacén (uno por formato y año) y se regenera solo cuando cambia la plantilla, la fecha de ejemplo o un nombre de core; la página los pide todos al abrir para que el modal abra sin espera.
 
 **Cuál plantilla se usa** para un formato y un año: la más reciente de ese año; si no hay, la más reciente del año anterior más cercano; si no hay, la plantilla del sistema (`documents/defaults/`).
 
