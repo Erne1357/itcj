@@ -114,7 +114,7 @@ def sample_values(code: str, *, today: date | None = None) -> tuple[dict[str, st
     pool = {
         "fecha": hoy,
         "fecha_solicitud": hoy,
-        "folio": "PR-00000",
+        "folio": "PR-20263-00000",
         "nombre": "ESTUDIANTE DE EJEMPLO",
         "no_control": "99000000",
         "carrera": "Ingeniería en Sistemas Computacionales",
@@ -129,7 +129,7 @@ def sample_values(code: str, *, today: date | None = None) -> tuple[dict[str, st
         "subdirector_nombre": "NOMBRE DEL SUBDIRECTOR",
         "subdirector_admin_nombre": "NOMBRE DEL SUBDIRECTOR ADMINISTRATIVO",
         "firma_estudiante_leyenda": (
-            f"Firmado electrónicamente por ESTUDIANTE DE EJEMPLO el {today:%d/%m/%Y} 10:42 · folio PR-00000"
+            f"Firmado electrónicamente por ESTUDIANTE DE EJEMPLO el {today:%d/%m/%Y} 10:42 · folio PR-20263-00000"
         ),
     }
     if code.startswith("carta_compromiso_"):

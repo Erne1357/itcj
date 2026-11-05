@@ -1,4 +1,5 @@
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -29,8 +30,17 @@ def test_normaliza_y_valida_el_numero_de_control():
             normalize_control(malo)
 
 
-def test_folio():
-    assert folio(12) == "PR-00012"
+@pytest.mark.parametrize("codigo, etiqueta, esperado", [
+    ("20263", "agosto – diciembre 2026", "PR-20263-00012"),  # el código de core manda
+    (None, "enero – junio 2025", "PR-20251-00012"),  # históricas sin semestre de core: de la etiqueta
+    (None, "agosto – diciembre 2024", "PR-20243-00012"),
+    (None, "junio – agosto 2027", "PR-20272-00012"),
+    (None, "agosto 2026 – enero 2027", "PR-20263-00012"),
+])
+def test_folio_lleva_el_codigo_del_semestre(codigo, etiqueta, esperado):
+    req = SimpleNamespace(id=12, period_id=1 if codigo else None,
+                          period=SimpleNamespace(code=codigo) if codigo else None, period_label=etiqueta)
+    assert folio(req) == esperado
 
 
 def test_la_bitacora_rechaza_tipos_desconocidos(db_session):

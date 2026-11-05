@@ -90,7 +90,7 @@ class StudentsService:
         for r in pagina:
             c = cuentas[r.id]
             items.append({
-                "id": r.id, "folio": folio(r.id), "control": r.control_number, "nombre": r.student_name,
+                "id": r.id, "folio": folio(r), "control": r.control_number, "nombre": r.student_name,
                 "situacion": c.situacion, "faltantes": c.faltantes,
                 "vencida_desde": c.vencida_desde.isoformat() if c.vencida_desde else None,
                 "pagos": [p.estado for p in c.parcialidades],
@@ -214,7 +214,7 @@ class StudentsService:
             celda.font = Font(bold=True)
             ws.column_dimensions[celda.column_letter].width = ancho
         for r, c in filas:
-            ws.append([r.control_number, r.student_name, r.program_name, r.email, folio(r.id), c.total, c.pagado,
+            ws.append([r.control_number, r.student_name, r.program_name, r.email, folio(r), c.total, c.pagado,
                        c.saldo, sum(1 for p in c.parcialidades if p.estado == "vencida"), c.vencida_desde])
             fila = ws.max_row
             for col in range(1, 6):  # texto: openpyxl haría fórmula de un nombre que empiece con "="

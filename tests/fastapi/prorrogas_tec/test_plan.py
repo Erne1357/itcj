@@ -6,6 +6,7 @@ import pytest
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
+from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.plan_service import PlanService
 
 pytestmark = pytest.mark.usefixtures("pdf_falso")
@@ -120,7 +121,7 @@ def test_aviso_carta_lista_con_su_plantilla(db_session, aceptada, monkeypatch):
     notify.notify_student(db_session, aceptada, kind="carta_lista", link="/prorrogas/estudiante")
     n = db_session.query(Notification).filter_by(user_id=aceptada.student_id, type="prorroga_carta_lista").one()
     assert n.title == sent["subject"] == "Tu carta compromiso está lista para firmar"
-    assert n.body == "Entra a Mi prórroga para firmarla." and f"PR-{aceptada.id:05d}" in sent["html"]
+    assert n.body == "Entra a Mi prórroga para firmarla." and folio(aceptada) in sent["html"]
 
 
 def test_api_reparto(client_as, secretaria):

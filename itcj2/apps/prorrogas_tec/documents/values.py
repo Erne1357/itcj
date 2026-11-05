@@ -35,7 +35,7 @@ def leyenda(nombre: str, signed_at: datetime, folio: str) -> str:
 def build_values(req, doc_type: str, *, today: date, extra: Mapping[str, str] | None = None,
                  signature: SignatureInfo | None = None) -> tuple[dict[str, str], dict[str, bytes]]:
     extra = extra or {}
-    fol = make_folio(req.id)
+    fol = make_folio(req)
     pool = {
         "fecha": fecha_corta(today),
         "folio": fol,

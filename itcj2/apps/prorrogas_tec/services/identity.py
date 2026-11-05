@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from itcj2.apps.prorrogas_tec.services.formatting import MESES
 from itcj2.core.utils.email_tools import MAIL_STUDENT_DOMAIN
 
 _CONTROL = re.compile(r"[A-Z]?\d{8}")
@@ -24,5 +25,15 @@ def institutional_email(control: str) -> str | None:
     return f"{c}@{MAIL_STUDENT_DOMAIN}" if c[0] in _CON_CORREO else None
 
 
-def folio(request_id: int) -> str:
-    return f"PR-{request_id:05d}"
+def folio(req) -> str:
+    """``PR-20263-05133``: código del semestre en el SII (año + 1 Ene-Jun, 2 verano, 3 Ago-Dic) y el id."""
+    codigo = req.period.code if req.period_id else _codigo_de_etiqueta(req.period_label)
+    return f"PR-{codigo}-{req.id:05d}"
+
+
+def _codigo_de_etiqueta(etiqueta: str) -> str:
+    """Históricas sin semestre de core: ``agosto – diciembre 2024`` → ``20243``."""
+    p = etiqueta.split()
+    mes = MESES.index(p[0]) + 1
+    anio = p[1] if p[1].isdigit() else p[-1]  # ``agosto 2026 – enero 2027`` lleva el año junto al mes
+    return f"{anio}{1 if mes < 6 else 2 if mes < 8 else 3}"

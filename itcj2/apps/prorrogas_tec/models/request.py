@@ -1,6 +1,7 @@
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Index, Integer, Numeric, SmallInteger, String, Text,
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import text
 
 from itcj2.models.base import Base
@@ -38,6 +39,8 @@ class ProrrogaRequest(Base):
     last_reminded_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
+
+    period = relationship("AcademicPeriod")
 
     __table_args__ = (
         CheckConstraint("origin IN ('app','excel')", name="ck_prorrogas_requests_origin"),

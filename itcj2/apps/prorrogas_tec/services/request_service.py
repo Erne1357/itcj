@@ -183,7 +183,7 @@ class RequestService:
     @staticmethod
     def request_out(db, req: ProrrogaRequest) -> dict:
         return {
-            "id": req.id, "folio": folio(req.id), "estado": req.status, "plazos": req.requested_terms,
+            "id": req.id, "folio": folio(req), "estado": req.status, "plazos": req.requested_terms,
             "motivo": req.reason, "semestre": req.period_label, "creada": req.created_at.isoformat(),
             "decidida": req.decided_at.isoformat() if req.decided_at else None,
             "comentario": req.decision_comment,

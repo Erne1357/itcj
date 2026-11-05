@@ -83,7 +83,7 @@ def crear(body: SolicitudIn, request: Request, db: DbSession,
     except ServiceError as e:
         db.rollback()
         return _err(e)
-    return {"id": req.id, "folio": folio(req.id)}
+    return {"id": req.id, "folio": folio(req)}
 
 
 @router.post("/solicitudes/{request_id}/cancelar", name="prorrogas_tec.api.estudiante.cancelar")
@@ -105,7 +105,7 @@ def pdf(request_id: int, doc_id: int, db: DbSession, user: dict = require_perms(
     if doc is None:
         return error_response(404, "no_encontrada", "No se encontró el documento.")
     return Response(DocumentService.read_pdf(doc), media_type="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{folio(request_id)}-{doc.doc_type}.pdf"'})
+                    headers={"Content-Disposition": f'inline; filename="{doc.context["folio"]}-{doc.doc_type}.pdf"'})
 
 
 class FirmaIn(BaseModel):

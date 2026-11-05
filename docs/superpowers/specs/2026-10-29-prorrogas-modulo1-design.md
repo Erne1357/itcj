@@ -147,7 +147,7 @@ Se escriben en Word como `{{nombre}}`: minúsculas, dígitos y `_`, con espacios
 | Marcador | Ejemplo |
 |---|---|
 | `fecha` | `13/enero/2026` (fecha de generación) |
-| `folio` | `PR-00012` |
+| `folio` | `PR-20263-00012` (código del semestre en el SII + id) |
 | `nombre` | `PAYAN FLORES ITZEL GUADALUPE` (apellidos y nombre(s), en mayúsculas) |
 | `no_control` | `22111670` |
 | `carrera` | `Licenciatura en Administración` |
@@ -174,7 +174,7 @@ Formatos de los valores: `monto_total` y `pagoI_monto` → `$3,150.00`; `pagoI_f
 | `carta_compromiso_N` | `nombre`, `no_control`, `monto_total`, `firma_estudiante`, `pagoI_fecha` para I = 1…N y, si N ≥ 2, `pagoI_monto` |
 
 - `firma_estudiante` es una **imagen**: se sustituye por el trazo de la firma (1.6 cm de alto). Sin firma queda vacío.
-- `firma_estudiante_leyenda` → `Firmado electrónicamente por {nombre} el 13/01/2026 10:42 · folio PR-00012`
+- `firma_estudiante_leyenda` → `Firmado electrónicamente por {nombre} el 13/01/2026 10:42 · folio PR-20263-00012`
   (vacío si no hay firma).
 
 ### 6.3 Plantillas

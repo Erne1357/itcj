@@ -32,7 +32,7 @@ def pendientes(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)
     for r in RequestService.pending(db):
         formato = next((d for d in DocumentService.current(db, r) if d.doc_type == "formato_solicitud"), None)
         items.append({
-            "id": r.id, "folio": folio(r.id), "nombre": r.student_name, "control": r.control_number,
+            "id": r.id, "folio": folio(r), "nombre": r.student_name, "control": r.control_number,
             "correo": r.email, "recibida": r.created_at.isoformat(), "plazos": r.requested_terms,
             "documento_id": formato.id if formato else None})
     return {"items": items}
@@ -52,7 +52,7 @@ def pdf(request_id: int, doc_id: int, db: DbSession, user: dict = require_perms(
     if doc is None:
         return error_response(404, "no_encontrada", "No se encontró el documento.")
     return Response(DocumentService.read_pdf(doc), media_type="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{folio(request_id)}-{doc.doc_type}.pdf"'})
+                    headers={"Content-Disposition": f'inline; filename="{doc.context["folio"]}-{doc.doc_type}.pdf"'})
 
 
 @router.post("/{request_id}/decision", name="prorrogas_tec.api.solicitudes.decidir")
