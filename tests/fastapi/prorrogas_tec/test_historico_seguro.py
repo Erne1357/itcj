@@ -23,7 +23,7 @@ def test_excel_permite_hasta_seis_parcialidades(db_session, make_historica):
 def test_historica_sin_semestre_es_de_solo_lectura(db_session, make_historica, secretaria):  # Review Focus 4
     req = make_historica(pagadas=(0,))
     e = StudentsService.expediente(db_session, req.id, date(2026, 11, 1))
-    assert e["plan"]["puede_replantear"] is False and e["plan"]["fecha_limite"] is None
+    assert e["plan"]["editable"] is False and e["plan"]["fecha_limite"] is None
     assert e["cuenta"]["situacion"] == "liquidada" and e["solo_lectura"] is True
     with pytest.raises(ServiceError) as err:
         PlanService.confirm(db_session, req.id, secretaria.id, total=D("1000"),

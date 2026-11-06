@@ -19,11 +19,13 @@ _AVISOS = {  # kind -> (título, plantilla del correo)
     "aceptada": ("Tu prórroga fue aceptada", "decision_aceptada.html"),
     "rechazada": ("Tu solicitud de prórroga no fue autorizada", "decision_rechazada.html"),
     "carta_lista": ("Tu carta compromiso está lista para firmar", "carta_lista.html"),
+    "plan_modificado": ("Tu plan de pagos cambió", "plan_modificado.html"),
     "recordatorio": ("Recordatorio de pago de tu prórroga", "recordatorio.html"),
 }
 _CUERPOS = {  # cuerpo del aviso si no llega `body`; sin entrada, el comentario de la decisión
     "aceptada": "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos.",
     "carta_lista": "Entra a Mi prórroga para firmarla.",
+    "plan_modificado": "Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso.",
 }
 
 

@@ -6,7 +6,7 @@ from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
 EVENT_TYPES = frozenset({
     "solicitud_creada", "solicitud_cancelada", "solicitud_aceptada",
     "solicitud_rechazada", "documento_generado", "invitacion_enviada",
-    "plan_confirmado", "recibo_registrado", "recibo_anulado", "documento_firmado",
+    "plan_confirmado", "plan_modificado", "recibo_registrado", "recibo_anulado", "documento_firmado",
     "recordatorio_enviado", "lista_bloqueo_exportada", "desbloqueo_avisado",
 })
 

@@ -36,13 +36,48 @@
     </div>
   </section>
 
-  <aside class="est-panel" id="estPanel" aria-label="Expediente" hidden>
-    <div class="est-panel-bar">
-      <strong id="estPanelTitulo">Expediente</strong>
-      <button type="button" class="sol-x" id="estPanelClose" title="Cerrar (Esc)" aria-label="Cerrar">&times;</button>
+  {# Expediente: modal del diseño "Detalle de estudiante" (canvas Estudiante Modal); lo llena estudiantes.js. #}
+  <dialog class="est-modal" id="estDialog" aria-labelledby="estNombre">
+    <div class="est-m-head">
+      <div>
+        <div class="est-m-title"><h2 id="estNombre"></h2><span class="est-badge" id="estBadge"></span></div>
+        <div class="est-m-sub"><span class="est-chip" id="estControl"></span><span id="estCarrera"></span></div>
+      </div>
+      <button type="button" class="sol-x" id="estClose" title="Cerrar (Esc)" aria-label="Cerrar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
-    <div class="est-panel-body" id="estPanelBody"></div>
-  </aside>
+    <div class="est-alert" id="estSinPlan" hidden>
+      <span class="est-alert-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg></span>
+      <div><b>Falta crear el plan de pagos</b><p id="estSinPlanTxt"></p></div>
+    </div>
+    <div class="est-sum" id="estSum" hidden>
+      <div class="est-sum-main">
+        <small id="estSumLabel"></small>
+        <div class="est-sum-big"><b id="estSumValor"></b><span id="estSumDe"></span></div>
+        <div class="est-sum-prog"><span class="est-segs" id="estSegs"></span><span id="estSumAvance"></span></div>
+      </div>
+      <div class="est-prox" id="estProx"><small id="estProxLabel"></small><b id="estProxValor"></b><span id="estProxSub"></span></div>
+    </div>
+    <div class="est-tabs" role="tablist" aria-label="Expediente">
+      <button type="button" role="tab" id="estTab-plan" data-tab="plan" aria-controls="estPane-plan">Plan de pagos</button>
+      <button type="button" role="tab" id="estTab-sol" data-tab="sol" aria-controls="estPane-sol">Solicitud y documentos <b></b></button>
+      <button type="button" role="tab" id="estTab-hist" data-tab="hist" aria-controls="estPane-hist">Historial <b></b></button>
+    </div>
+    <div class="est-m-body">
+      <div class="est-error" id="estMsg" role="alert" hidden></div>
+      <div role="tabpanel" id="estPane-plan" aria-labelledby="estTab-plan"></div>
+      <div role="tabpanel" id="estPane-sol" aria-labelledby="estTab-sol" hidden></div>
+      <div role="tabpanel" id="estPane-hist" aria-labelledby="estTab-hist" hidden></div>
+    </div>
+    <div class="sec-toast" id="estToast" role="status" aria-live="polite" hidden></div>{# el modal tapa el aviso de la página #}
+  </dialog>
+  <template id="tplCopy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></svg></template>
+  <template id="tplDoc"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></template>
+  <template id="tplOk"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></template>
+  <template id="tplWarn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 6v8M12 18h.01"/></svg></template>
+  <template id="tplMail"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></template>
+  <template id="tplInfo"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg></template>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/estudiantes.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/estudiantes.js') }}"></script>

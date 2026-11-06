@@ -30,56 +30,44 @@ def test_reparto_por_omision():
     assert PlanService.reparto("3650", 3) == [D("1217"), D("1217"), D("1216")]
 
 
-def test_replantear_conserva_lo_pagado_y_reparte_lo_que_falta(db_session, aceptada, secretaria, avisos, con_plan):
-    con_plan(aceptada, [("1217.00", date(2091, 2, 1)), ("1217.00", date(2091, 3, 1)), ("1216.00", date(2091, 4, 1))],
-             pagos=["1500.00"])  # la 1 pagada, la 2 a medias
-    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"),
-                              parcialidades=[(D("2433"), date(2091, 5, 1))], now=date(2026, 11, 1))
-    vigentes = (db_session.query(ProrrogaInstallment).filter_by(request_id=req.id, superseded_at=None)
-                .order_by(ProrrogaInstallment.number).all())
-    assert [(v.number, v.amount) for v in vigentes] == [(1, D("1217.00")), (2, D("2433.00"))]
-    assert db_session.query(ProrrogaInstallment).filter(ProrrogaInstallment.request_id == req.id,
-                                                        ProrrogaInstallment.superseded_at.isnot(None)).count() == 2
-    assert [d.doc_type for d in _cartas(db_session, req)] == ["carta_compromiso_2"]
+def test_sin_pagos_el_plan_se_rehace_avisa_y_queda_en_el_historial(db_session, aceptada, secretaria, avisos):
+    from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
 
-
-def test_replanteo_sustituye_la_carta_anterior_aunque_cambie_n(db_session, aceptada, secretaria, avisos):
     PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=TRES,
                         now=date(2026, 11, 1))
-    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"),
-                              parcialidades=[(D("3650"), date(2091, 5, 1))], now=date(2026, 11, 1))
+    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3600"),
+                              parcialidades=[(D("3600"), date(2091, 5, 1))], now=date(2026, 11, 1))
+    vigentes = db_session.query(ProrrogaInstallment).filter_by(request_id=req.id, superseded_at=None).all()
+    assert [(v.number, v.amount, v.due_date) for v in vigentes] == [(1, D("3600.00"), date(2091, 5, 1))]
     assert [d.doc_type for d in _cartas(db_session, req)] == ["carta_compromiso_1"]
+    assert req.total_amount == D("3600.00") and [a[0] for a in avisos.calls] == ["carta_lista", "plan_modificado"]
+    tipos = [e.event_type for e in db_session.query(ProrrogaEvent).filter_by(request_id=req.id)
+             .order_by(ProrrogaEvent.id) if e.event_type.startswith("plan_")]
+    assert tipos == ["plan_confirmado", "plan_modificado"]
 
 
 @pytest.mark.parametrize("total, nuevas, code", [
-    (D("1000"), [(D("1000"), date(2091, 5, 1))], "total_menor_que_pagado"),       # pagado 1500
-    (D("3650"), [(D("800"), date(2091, 5, 1)), (D("800"), date(2091, 5, 2)), (D("833"), date(2091, 5, 3))],
-     "plazos_invalidos"),                                                          # 1 conservada + 3 nuevas
+    (D("3650"), [(D("900"), date(2091, 5, 1)), (D("900"), date(2091, 5, 2)), (D("900"), date(2091, 5, 3)),
+                 (D("950"), date(2091, 5, 4))], "plazos_invalidos"),
+    (D("3650"), [], "plazos_invalidos"),
     (D("3650"), [(D("2000"), date(2091, 5, 1))], "suma_no_cuadra"),
-    (D("3650"), [(D("2433"), date(2091, 1, 15))], "fechas_invalidas"),             # antes de la conservada
-    (D("3650"), [(D("2433"), date(2091, 7, 1))], "fechas_invalidas"),              # después del fin de semestre
+    (D("3650"), [(D("3650"), date(2026, 10, 31))], "fechas_invalidas"),            # antes de hoy
+    (D("3650"), [(D("3650"), date(2091, 7, 1))], "fechas_invalidas"),              # después del fin de semestre
+    (D("3650"), [(D("1825"), date(2091, 5, 2)), (D("1825"), date(2091, 5, 1))], "fechas_invalidas"),  # desordenadas
 ])
-def test_replanteos_invalidos(db_session, aceptada, secretaria, avisos, con_plan, total, nuevas, code):
-    con_plan(aceptada, [("1217.00", date(2091, 2, 1)), ("2433.00", date(2091, 3, 1))], pagos=["1500.00"])
+def test_planes_invalidos(db_session, aceptada, secretaria, avisos, total, nuevas, code):
     with pytest.raises(ServiceError) as e:
         PlanService.confirm(db_session, aceptada.id, secretaria.id, total=total, parcialidades=nuevas,
                             now=date(2026, 11, 1))
     assert e.value.code == code
 
 
-def test_conservadas_vienen_de_la_cuenta_actual(db_session, aceptada, secretaria, avisos, con_plan):  # Review Focus 2
-    con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 3, 1))], pagos=[])
-    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"),
-                              parcialidades=[(D("2000"), date(2091, 4, 1))], now=date(2026, 11, 1))
-    assert _cartas(db_session, req)[0].doc_type == "carta_compromiso_1"
-
-
-def test_liquidada_no_se_replantea(db_session, aceptada, secretaria, con_plan):
-    con_plan(aceptada, [("1000.00", date(2091, 2, 1))], pagos=["1000.00"])
+def test_con_un_pago_el_plan_ya_no_se_modifica(db_session, aceptada, secretaria, avisos, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 3, 1))], pagos=["1.00"])
     with pytest.raises(ServiceError) as e:
-        PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("1000"),
-                            parcialidades=[(D("1000"), date(2091, 4, 1))], now=date(2026, 11, 1))
-    assert e.value.code == "ya_liquidada" and e.value.status == 409
+        PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"),
+                            parcialidades=[(D("2000"), date(2091, 4, 1))], now=date(2026, 11, 1))
+    assert e.value.code == "con_pagos" and e.value.status == 409 and avisos.calls == []
 
 
 def test_api_plan_y_permiso(client_as, secretaria, estudiante, aceptada, avisos):
@@ -107,7 +95,12 @@ def test_pdf_no_disponible_deja_el_plan_anterior(db_session, aceptada, secretari
     assert len(vigentes) == 2 and _cartas(db_session, aceptada) == [] and avisos.calls == []
 
 
-def test_aviso_carta_lista_con_su_plantilla(db_session, aceptada, monkeypatch):
+@pytest.mark.parametrize("kind, titulo, cuerpo", [
+    ("carta_lista", "Tu carta compromiso está lista para firmar", "Entra a Mi prórroga para firmarla."),
+    ("plan_modificado", "Tu plan de pagos cambió",
+     "Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso."),
+])
+def test_avisos_del_plan_con_su_plantilla(db_session, aceptada, monkeypatch, kind, titulo, cuerpo):
     from types import SimpleNamespace
 
     from itcj2.apps.prorrogas_tec.services import notify
@@ -118,10 +111,10 @@ def test_aviso_carta_lista_con_su_plantilla(db_session, aceptada, monkeypatch):
     monkeypatch.setattr(msgraph_mail, "acquire_token_silent", lambda app: "tok")
     monkeypatch.setattr(msgraph_mail, "graph_send_mail", lambda token, subject, html, to, *a, **k: (
         sent.update(subject=subject, html=html) or SimpleNamespace(status_code=202, text="")))
-    notify.notify_student(db_session, aceptada, kind="carta_lista", link="/prorrogas/estudiante")
-    n = db_session.query(Notification).filter_by(user_id=aceptada.student_id, type="prorroga_carta_lista").one()
-    assert n.title == sent["subject"] == "Tu carta compromiso está lista para firmar"
-    assert n.body == "Entra a Mi prórroga para firmarla." and folio(aceptada) in sent["html"]
+    notify.notify_student(db_session, aceptada, kind=kind, link="/prorrogas/estudiante")
+    n = db_session.query(Notification).filter_by(user_id=aceptada.student_id, type=f"prorroga_{kind}").one()
+    assert n.title == sent["subject"] == titulo
+    assert n.body == cuerpo and folio(aceptada) in sent["html"]
 
 
 def test_api_reparto(client_as, secretaria):
@@ -131,40 +124,22 @@ def test_api_reparto(client_as, secretaria):
     assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=4").json()["error"] == "plazos_invalidos"
 
 
-def test_replantear_anular_y_replantear_otra_vez(db_session, aceptada, secretaria, avisos):  # Review Focus 2, M8
+def test_anular_el_unico_pago_vuelve_a_dejar_modificar_el_plan(db_session, aceptada, secretaria, avisos):
     from itcj2.apps.prorrogas_tec.services.account import load
     from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
 
-    def estado(hoy):
-        c = load(db_session, aceptada, hoy)
-        cartas = [d.doc_type for d in _cartas(db_session, aceptada)]
-        return [(p.number, p.amount, p.due_date, p.estado) for p in c.parcialidades], c.situacion, cartas
-
     PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 15),
                         parcialidades=[(D("1000"), date(2091, 2, 1)), (D("1000"), date(2091, 3, 1))])
-    assert estado(date(2091, 1, 15)) == ([(1, D("1000.00"), date(2091, 2, 1), "pendiente"),
-                                          (2, D("1000.00"), date(2091, 3, 1), "pendiente")],
-                                         "al_corriente", ["carta_compromiso_2"])
     pago = PaymentService.record(db_session, aceptada.id, secretaria.id, folio=f"M8-{aceptada.id}",
                                  paid_on=date(2091, 1, 20), amount=D("1000"), now=date(2091, 1, 20))
-    assert estado(date(2091, 1, 20))[0][0][3] == "pagada"
-    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 25),
-                        parcialidades=[(D("1000"), date(2091, 4, 1))])           # conserva la 1
-    assert estado(date(2091, 1, 25)) == ([(1, D("1000.00"), date(2091, 2, 1), "pagada"),
-                                          (2, D("1000.00"), date(2091, 4, 1), "pendiente")],
-                                         "al_corriente", ["carta_compromiso_2"])
+    with pytest.raises(ServiceError) as e:
+        PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 25),
+                            parcialidades=[(D("2000"), date(2091, 4, 1))])
+    assert e.value.code == "con_pagos"
     PaymentService.void(db_session, pago.id, secretaria.id, motivo="Recibo equivocado", now=date(2091, 2, 10))
-    assert estado(date(2091, 2, 10)) == ([(1, D("1000.00"), date(2091, 2, 1), "vencida"),
-                                          (2, D("1000.00"), date(2091, 4, 1), "pendiente")],
-                                         "atrasada", ["carta_compromiso_2"])
-    # Ya no hay pagadas: no conserva nada, así que caben 3 nuevas (con la 1 conservada serían 4).
     PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 2, 10),
-                        parcialidades=[(D("700"), date(2091, 3, 1)), (D("700"), date(2091, 4, 1)),
-                                       (D("600"), date(2091, 5, 1))])
-    assert estado(date(2091, 2, 10)) == ([(1, D("700.00"), date(2091, 3, 1), "pendiente"),
-                                          (2, D("700.00"), date(2091, 4, 1), "pendiente"),
-                                          (3, D("600.00"), date(2091, 5, 1), "pendiente")],
-                                         "al_corriente", ["carta_compromiso_3"])
-    assert aceptada.total_amount == D("2000.00")
-    assert db_session.query(ProrrogaInstallment).filter(ProrrogaInstallment.request_id == aceptada.id,
-                                                        ProrrogaInstallment.superseded_at.isnot(None)).count() == 3
+                        parcialidades=[(D("1000"), date(2091, 3, 1)), (D("1000"), date(2091, 4, 1))])
+    c = load(db_session, aceptada, date(2091, 2, 10))
+    assert [(p.number, p.amount, p.due_date, p.estado) for p in c.parcialidades] == [
+        (1, D("1000.00"), date(2091, 3, 1), "pendiente"), (2, D("1000.00"), date(2091, 4, 1), "pendiente")]
+    assert [d.doc_type for d in _cartas(db_session, aceptada)] == ["carta_compromiso_2"]

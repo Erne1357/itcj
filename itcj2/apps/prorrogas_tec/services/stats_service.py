@@ -117,7 +117,7 @@ class StatsService:
             for (_, _, due), cubierta in zip(plan, cobertura(plan, recibos[r.id])):
                 if due >= today:
                     continue
-                k = "sin_pago" if cubierta is None else "a_tiempo" if cubierta <= due else "tarde"
+                k = "sin_pago" if cubierta is None else "a_tiempo" if cubierta[0] <= due else "tarde"
                 c["vencidas"] += 1
                 c[k] += 1
                 tot["vencidas"] += 1

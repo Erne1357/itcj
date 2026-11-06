@@ -1,6 +1,6 @@
 # Secretaría · Estudiantes (plan de pagos, recibos y lista de adeudos)
 
-> **Objetivo:** que la secretaria vea a los estudiantes con prórroga aceptada, confirme o replantee su plan de pagos, registre los recibos de Caja, recuerde el pago y entregue al centro de cómputo la lista de bloqueo (y avise cuando se desbloquea).
+> **Objetivo:** que la secretaria vea a los estudiantes con prórroga aceptada, cree su plan de pagos (o lo rehaga mientras no tenga pagos), registre los recibos de Caja, recuerde el pago y entregue al centro de cómputo la lista de bloqueo (y avise cuando se desbloquea).
 
 | | |
 |---|---|
@@ -35,9 +35,9 @@ Los recibos vigentes cubren en orden FIFO la parcialidad vigente más vieja; sol
 |---|---|---|---|---|---|---|
 | 1 | Secretaria | Selector de semestre | Semestres con aceptadas; preselecciona el vigente | `GET …/estudiantes/periodos` | `StudentsService.periodos` | — |
 | 2 | Secretaria | Tabla y filtros | Busca por control o nombre (`q`), filtra, pagina (`page`, `per_page` máx. 100); trae conteos por situación | `GET …/estudiantes?period_id=&q=&filtro=&page=&per_page=` | `StudentsService.listar` | — |
-| 3 | Secretaria | Clic en una fila | Expediente: estudiante, cuenta, recibos (con anulados), carta, plan, bloqueo, recordatorio e historial | `GET …/estudiantes/{id}` | `StudentsService.expediente` | — (solo `aceptada`; si no, 404) |
+| 3 | Secretaria | Clic en una fila | Modal del estudiante: resumen de la cuenta y pestañas Plan de pagos (pagos con el recibo de Caja que cubrió cada uno, recibos, situación), Solicitud y documentos, Historial | `GET …/estudiantes/{id}` | `StudentsService.expediente` | — (solo `aceptada`; si no, 404) |
 | 4 | Secretaria | Formulario de plan | Pide el reparto sugerido (el servidor lo calcula, no el JS) | `GET …/estudiantes/reparto?total=&n=` | `PlanService.reparto` | — |
-| 5 | Secretaria | **Confirmar plan** / **Replantear** | Envía `{total, parcialidades:[{monto, fecha}]}` | `POST …/estudiantes/{id}/plan` | `PlanService.confirm` | Parcialidades en `prorrogas_installments`, `total_amount`, `plan_confirmed_at/by`; carta `carta_compromiso_{N}` nueva (y las de otro N sustituidas); evento `plan_confirmado`; aviso `carta_lista` al estudiante |
+| 5 | Secretaria | **Confirmar plan** / **Modificar plan** | Total, 1 o 2 pagos iguales y la fecha de cada uno; envía `{total, parcialidades:[{monto, fecha}]}` | `POST …/estudiantes/{id}/plan` | `PlanService.confirm` | Parcialidades en `prorrogas_installments`, `total_amount`, `plan_confirmed_at/by`; carta `carta_compromiso_{N}` nueva (y las de otro N sustituidas); evento `plan_confirmado` y aviso `carta_lista`, o al rehacerlo `plan_modificado` (evento y correo) |
 | 6 | Secretaria | **Registrar recibo** | Folio de Caja, fecha y monto | `POST …/estudiantes/{id}/recibos` | `PaymentService.record` | Fila en `prorrogas_payments`; evento `recibo_registrado` |
 | 7 | Secretaria | **Anular** | Motivo obligatorio; el recibo nunca se borra | `POST …/estudiantes/{id}/recibos/{payment_id}/anular` `{motivo}` | `PaymentService.void` | `voided_at/by`, `void_reason`; evento `recibo_anulado` |
 | 8 | Secretaria | **Recordar** | Recordatorio de pago al estudiante | `POST …/estudiantes/{id}/recordar` | `StudentsService.remind` | `last_reminded_at`; evento `recordatorio_enviado`; aviso y correo `recordatorio` |
@@ -49,11 +49,11 @@ Los pasos 5 a 8 y 10 responden con el expediente actualizado. Las rutas fijas (`
 ## Reglas del plan
 
 - Solo una solicitud `aceptada`; el total debe ser > 0 y **igual a la suma de las parcialidades vigentes**.
-- De 1 a 3 parcialidades vigentes, con fechas estrictamente ascendentes, desde hoy y hasta el `end_date` del semestre de la solicitud (`plan.fecha_limite` del expediente).
+- De 1 a 3 parcialidades vigentes (el modal ofrece 1 o 2, H18), con fechas estrictamente ascendentes, desde hoy y hasta el `end_date` del semestre de la solicitud (`plan.fecha_limite` del expediente).
 - Montos en `Decimal`, cadenas con dos decimales en el JSON (`"3650.00"`); la entrada acepta número o cadena, sin más de 2 decimales, comas, NaN ni ≤ 0. Reparto por omisión: $3,650 en 3 → $1,217 · $1,217 · $1,216.
-- **Replantear** (misma ruta, cuando ya hay plan): se conservan las parcialidades `pagada`; las demás reciben `superseded_at`. Las nuevas se numeran después de las conservadas; conservadas + nuevas ≤ 3 y nuevas ≥ 1. El total no puede ser menor a lo pagado y las fechas nuevas van después de la última conservada. Una parcialidad pagada a medias se sustituye y su dinero cubre la primera nueva. No se replantea una solicitud `liquidada`. `plan.puede_replantear` es falso si está liquidada o si hoy pasó el fin del semestre.
+- **No se replantea** (decisión del 2026-11-06): quien no paga a tiempo queda con adeudo hasta que pague. El plan solo se **rehace** (misma ruta) mientras no tenga ningún recibo vigente: todas las parcialidades anteriores reciben `superseded_at` y las nuevas se numeran desde 1. `plan.editable` es falso con un recibo vigente, sin semestre o si hoy pasó el fin del semestre.
 - La carta es `carta_compromiso_{N}` (N = parcialidades vigentes), lista todas y lleva `monto_total`, `pago{I}_monto` y `pago{I}_fecha`. El estudiante la firma desde Mi prórroga ([estudiante_solicitud.md](estudiante_solicitud.md)); firmar nunca bloquea nada.
-- Anular un recibo después de un replanteo deja sin cubrir la parcialidad conservada que cubría: la situación se recalcula y se puede replantear otra vez.
+- Anular el único recibo vuelve a dejar rehacer el plan.
 
 ## Reglas de los recibos
 
@@ -77,10 +77,9 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 |---|---|---|
 | `filtro_invalido` | El filtro de la lista no es uno de los cinco | 400 |
 | `monto_invalido` | Monto o total ≤ 0, con más de 2 decimales, con comas, NaN o infinito | 400 |
-| `plazos_invalidos` | Menos de 1 o más de 3 parcialidades (contando las conservadas), o `n` del reparto fuera de 1–3 | 400 |
+| `plazos_invalidos` | Menos de 1 o más de 3 parcialidades, o `n` del reparto fuera de 1–3 | 400 |
 | `suma_no_cuadra` | Las parcialidades no suman el total | 400 |
-| `fechas_invalidas` | Fuera de orden, antes de hoy, después del fin del semestre o antes de la última parcialidad pagada | 400 |
-| `total_menor_que_pagado` | Replantear con un total menor a lo ya pagado | 400 |
+| `fechas_invalidas` | Fuera de orden, antes de hoy o después del fin del semestre | 400 |
 | `folio_invalido` | Folio vacío o de más de 40 caracteres | 400 |
 | `fecha_invalida` | Fecha de pago futura o anterior a la solicitud | 400 |
 | `sobrepago` | El monto excede el saldo | 400 |
@@ -89,7 +88,7 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `recibo_no_encontrado` | El recibo no existe o es de otra solicitud | 404 |
 | `periodo_no_encontrado` | Exportar con un semestre inexistente | 404 |
 | `no_aceptada` | Plan o recibo sobre una solicitud que no está `aceptada` | 409 |
-| `ya_liquidada` | Replantear una prórroga liquidada | 409 |
+| `con_pagos` | Rehacer el plan cuando ya hay un recibo vigente | 409 |
 | `sin_plan` | Recibo o recordatorio sin plan confirmado | 409 |
 | `folio_duplicado` | Ya hay un recibo vigente con ese folio (también si pierde la carrera del índice) | 409 |
 | `ya_anulado` | El recibo ya estaba anulado | 409 |

@@ -24,7 +24,10 @@ def test_busqueda_por_control(client_as, secretaria, aceptada, periodo):
 def test_expediente(client_as, secretaria, aceptada, con_plan):
     con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("2000.00", date(2091, 4, 1))], pagos=["1000.00"])
     e = client_as(secretaria).get(f"{API}/{aceptada.id}").json()
-    assert e["cuenta"]["saldo"] == "2000.00" and e["plan"]["conservadas"] == [1] and e["plan"]["max_nuevas"] == 2
+    pago1, pago2 = e["cuenta"]["parcialidades"]
+    assert e["cuenta"]["saldo"] == "2000.00" and e["plan"]["editable"] is False  # ya hay un pago
+    assert pago1["recibo"] == e["recibos"][0]["folio"] and pago1["pagado_el"] == e["recibos"][0]["fecha"]
+    assert pago2["recibo"] is None and pago2["pagado_el"] is None
     assert e["recibos"][0]["folio"].startswith("T-") and e["carta"] is None and e["bloqueo"]["avisar_desbloqueo"] is False
 
 
@@ -109,10 +112,21 @@ def test_periodos_sin_aceptadas(db_session, periodo):
     assert periodo.id not in [i["id"] for i in r["items"]]
 
 
-def test_puede_replantear(db_session, aceptada, make_aceptada, con_plan):
+def test_plan_editable_solo_sin_pagos_y_en_el_semestre(db_session, aceptada, make_aceptada, con_plan):
     con_plan(aceptada, PLAN)
-    ver = lambda dia: StudentsService.expediente(db_session, aceptada.id, dia)["plan"]["puede_replantear"]  # noqa: E731
-    assert ver(date(2091, 6, 20)) is True
-    assert ver(date(2091, 6, 21)) is False
-    liq = con_plan(make_aceptada(), PLAN, pagos=["1000.00"])
-    assert StudentsService.expediente(db_session, liq.id, date(2091, 6, 20))["plan"]["puede_replantear"] is False
+    ver = lambda req, dia: StudentsService.expediente(db_session, req.id, dia)["plan"]["editable"]  # noqa: E731
+    assert ver(aceptada, date(2091, 6, 20)) is True
+    assert ver(aceptada, date(2091, 6, 21)) is False
+    abonada = con_plan(make_aceptada(), PLAN, pagos=["1.00"])
+    assert ver(abonada, date(2091, 6, 20)) is False
+
+
+def test_historial_nombra_el_documento(client_as, secretaria, db_session, aceptada):
+    from itcj2.apps.prorrogas_tec.services.events import log_event
+
+    log_event(db_session, event_type="documento_generado", request_id=aceptada.id,
+              payload={"doc_type": "carta_aceptacion", "version": 1})
+    db_session.flush()
+    ev, = [h for h in client_as(secretaria).get(f"{API}/{aceptada.id}").json()["historial"]
+           if h["tipo"] == "documento_generado"]
+    assert ev["datos"]["documento"] == "Carta de aceptación"

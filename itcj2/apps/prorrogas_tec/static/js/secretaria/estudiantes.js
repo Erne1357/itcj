@@ -1,5 +1,5 @@
 // Prórrogas · Estudiantes (vista de secretaría).
-// Lista de aceptadas por semestre y expediente lateral: cuenta, plan, recibos, documentos e historial.
+// Lista de aceptadas por semestre y expediente en modal: plan de pagos, solicitud y documentos, historial.
 // APIs: /api/prorrogas/v2/estudiantes/*. Todo texto del servidor entra con textContent (nunca innerHTML).
 (function () {
   "use strict";
@@ -14,7 +14,8 @@
   const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada"];
   const HIST = {
     solicitud_creada: "Solicitud creada", solicitud_aceptada: "Prórroga aceptada",
-    plan_confirmado: "Plan de pagos confirmado", documento_generado: "Documento generado",
+    plan_confirmado: "Plan de pagos creado", plan_modificado: "Plan de pagos modificado",
+    documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
     desbloqueo_avisado: "Desbloqueo avisado",
@@ -44,7 +45,7 @@
   function show(node, msg) { node.textContent = msg || ""; node.hidden = !msg; }
 
   function toast(msg) {
-    const t = $("secToast");
+    const t = $(dlg.open ? "estToast" : "secToast");   // el modal tapa el aviso de la página
     t.textContent = msg;
     t.hidden = false;
     clearTimeout(toast.t);
@@ -154,7 +155,7 @@
       loadList();   // también si falla: el botón vuelve a su estado real (puede_recordar)
       if (!r.ok) { toast(r.data.message || "No se pudo enviar el recordatorio."); return; }
       toast("Recordatorio enviado.");
-      if (st.openId === e.id) renderPanel(r.data);
+      if (st.openId === e.id) render(r.data);
     });
     rec.disabled = !e.puede_recordar;
     rec.title = "Enviar recordatorio de pago por correo";
@@ -208,44 +209,146 @@
     loadList();   // la exportación marca las solicitudes como bloqueadas
   }));
 
-  // ── Expediente ──────────────────────────────────────────────────────
+  // ── Expediente (modal) ──────────────────────────────────────────────
+  const dlg = $("estDialog");
+  const OPCIONES = [1, 2];   // pagos que se ofrecen al armar el plan (como en la solicitud)
+  const SITUACION = {
+    sin_plan: ["Sin plan", "gris"], al_corriente: ["Al corriente", "azul"],
+    atrasada: ["Con adeudo", "naranja"], liquidada: ["Liquidada", "vino"],
+  };
+  const PUNTO = {
+    recibo_registrado: "azul", recibo_anulado: "naranja", plan_confirmado: "vino", plan_modificado: "vino",
+    solicitud_aceptada: "vino", solicitud_creada: "tinta", recordatorio_enviado: "naranja", desbloqueo_avisado: "vino",
+  };
+  const ui = { tab: "plan", x: null, modificando: false, borrador: null };
+
+  const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const debe = (q) => money(cents(q.monto) - cents(q.cubierto));
+  const pagoLabel = (i, n) => (n === 1 ? "Pago único" : `Pago ${i}/${n}`);
+
+  function icon(id) { return $(id).content.firstElementChild.cloneNode(true); }
+
+  function fmtShort(iso) {
+    if (!iso) return "—";
+    const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+    return `${d} ${MESES[m - 1]}` + (y === new Date().getFullYear() ? "" : ` ${y}`);
+  }
+
+  function fmtDateTime(iso) {
+    const t = String(iso || "").slice(11, 16);
+    return fmtDate(iso) + (t ? `, ${t}` : "");
+  }
+
+  function diasDesde(iso) {
+    const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+    const h = new Date();
+    return Math.round((Date.UTC(h.getFullYear(), h.getMonth(), h.getDate()) - Date.UTC(y, m - 1, d)) / 864e5);
+  }
+
   async function openPanel(id) {
     const seq = ++openSeq;
+    if (st.openId !== id) Object.assign(ui, { tab: "plan", modificando: false, borrador: null });
     st.openId = id;
-    document.querySelectorAll(".est-row.is-open").forEach((n) => n.classList.remove("is-open"));
-    $("estPanel").hidden = false;
-    $("estPanelBody").textContent = "Cargando…";
+    if (!dlg.open) {
+      $("estNombre").textContent = "Cargando…";
+      ["estBadge", "estControl", "estCarrera"].forEach((k) => { $(k).textContent = ""; });
+      $("estSinPlan").hidden = $("estSum").hidden = true;
+      ["plan", "sol", "hist"].forEach((k) => { $("estPane-" + k).textContent = ""; });
+      dlg.showModal();
+    }
     const r = await api(`${EST}/${id}`);
     if (seq !== openSeq) return;
-    if (!r.ok) { $("estPanelBody").textContent = r.data.message || "No se pudo cargar el expediente."; return; }
-    renderPanel(r.data);
+    if (!r.ok) { show($("estMsg"), r.data.message || "No se pudo cargar el expediente."); return; }
+    render(r.data);
     loadList();   // marca la fila abierta
   }
 
-  function closePanel() {
+  function closePanel() { if (dlg.open) dlg.close(); }
+  dlg.addEventListener("close", () => {   // también con Esc
     openSeq += 1;
     st.openId = null;
-    $("estPanel").hidden = true;
     document.querySelectorAll(".est-row.is-open").forEach((n) => n.classList.remove("is-open"));
-  }
-  $("estPanelClose").addEventListener("click", closePanel);
-  document.addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("estPanel").hidden) closePanel(); });
+  });
+  $("estClose").addEventListener("click", closePanel);
+  dlg.addEventListener("click", (ev) => { if (ev.target === dlg) closePanel(); });
+  document.querySelectorAll(".est-tabs [data-tab]").forEach((b) => b.addEventListener("click", () => {
+    ui.tab = b.dataset.tab;
+    paintTab();
+  }));
 
-  function section(title) {
-    const s = el("section", "est-sec");
-    s.append(el("h3", null, title));
-    return s;
+  // Un expediente nuevo (respuesta de cada acción) repinta el modal y la fila.
+  function apply(r, okMsg) {
+    if (!r.ok) { show($("estMsg"), r.data.message || "No se pudo completar la acción."); return false; }
+    toast(okMsg);
+    render(r.data);
+    loadList();
+    return true;
   }
 
-  function kv(pairs) {
-    const dl = el("dl", "sol-dl");
-    pairs.forEach(([k, v]) => { dl.append(el("dt", null, k), el("dd", null, v)); });
-    return dl;
+  function render(x) {
+    ui.x = x;
+    const s = x.solicitud, e = x.estudiante, c = x.cuenta;
+    const [sit, tono] = SITUACION[c.situacion] || [c.situacion, "gris"];
+    $("estNombre").textContent = e.nombre;
+    $("estBadge").textContent = sit;
+    $("estBadge").className = "est-badge est-badge-" + tono;
+    $("estControl").textContent = e.control;
+    $("estCarrera").textContent = e.carrera || "";
+    show($("estMsg"), "");
+    const sinPlan = !c.parcialidades.length;
+    $("estSinPlan").hidden = !sinPlan;
+    $("estSinPlanTxt").textContent = `Prórroga aceptada el ${fmtDate(s.decidida)}`
+      + (s.plazos ? ` · pidió ${plural(s.plazos, "pago")}.` : ".");
+    $("estSum").hidden = sinPlan;
+    if (!sinPlan) summary(c);
+    $("estTab-sol").querySelector("b").textContent = (s.documentos || []).length || "";
+    $("estTab-hist").querySelector("b").textContent = (x.historial || []).length || "";
+    paintTab();
   }
 
-  function field(label, input) {
+  function summary(c) {
+    const ps = c.parcialidades, n = ps.length, saldo = cents(c.saldo);
+    $("estSumLabel").textContent = saldo > 0 ? "Le falta pagar" : "Pagó en total";
+    $("estSumValor").textContent = money(saldo > 0 ? saldo : cents(c.total));
+    $("estSumValor").classList.toggle("is-done", !(saldo > 0));
+    $("estSumDe").textContent = saldo > 0 ? `de ${pesos(c.total)}` : "";
+    const segs = $("estSegs");
+    segs.textContent = "";
+    ps.forEach((q) => segs.append(el("span", "est-seg est-seg-" + q.estado)));
+    $("estSumAvance").textContent = `${ps.filter((q) => q.estado === "pagada").length} de ${n} pagos cubiertos`;
+
+    const venc = ps.find((q) => q.estado === "vencida"), prox = ps.find((q) => q.estado !== "pagada");
+    const [label, valor, sub] = venc ? ["Pago vencido", `${fmtShort(venc.fecha)} · hace ${plural(diasDesde(venc.fecha), "día")}`,
+      `${debe(venc)} · ${pagoLabel(venc.numero, n).toLowerCase()}`]
+      : prox ? ["Siguiente pago", fmtShort(prox.fecha), `${debe(prox)} · ${pagoLabel(prox.numero, n).toLowerCase()}`]
+        : ["Liquidado el", fmtShort(ps[n - 1].pagado_el), "Ya no debe nada"];
+    $("estProxLabel").textContent = label;
+    $("estProxValor").textContent = valor;
+    $("estProxSub").textContent = sub;
+    $("estProx").className = "est-prox" + (venc ? " is-alert" : prox ? "" : " is-done");
+  }
+
+  function paintTab() {
+    ["plan", "sol", "hist"].forEach((k) => {
+      const on = k === ui.tab;
+      $("estTab-" + k).classList.toggle("is-active", on);
+      $("estTab-" + k).setAttribute("aria-selected", String(on));
+      $("estPane-" + k).hidden = !on;
+    });
+    const pane = $("estPane-" + ui.tab);
+    pane.textContent = "";
+    if (ui.x) pane.append(ui.tab === "plan" ? planPane(ui.x) : ui.tab === "sol" ? solPane(ui.x) : histPane(ui.x));
+  }
+
+  function card(title, cls) {
+    const c = el("section", "est-card" + (cls ? " " + cls : ""));
+    if (title) c.append(el("h3", null, title));
+    return c;
+  }
+
+  function field(label, node) {
     const l = el("label", "est-field");
-    l.append(el("span", null, label), input);
+    l.append(el("span", null, label), node);
     return l;
   }
 
@@ -256,225 +359,341 @@
     return i;
   }
 
-  const SITUACION = { sin_plan: "Sin plan", liquidada: "Liquidada", atrasada: "Con adeudo", al_corriente: "Al corriente" };
-
-  // Datos de un evento en líneas legibles: escalares juntos; cada objeto de una lista en su propia línea
-  // (parcialidades: "#1 $1,000.00 · 1 feb 2091"); cualquier otro objeto, en JSON.
-  function histLineas(datos) {
-    const esObj = (v) => v != null && typeof v === "object";
-    const item = (i) => (esObj(i) && "numero" in i ? `#${i.numero} ${pesos(i.monto)} · ${fmtDate(i.fecha)}`
-      : esObj(i) ? JSON.stringify(i) : String(i));
-    const cortos = [], lineas = [];
-    Object.entries(datos || {}).forEach(([k, v]) => {
-      if (Array.isArray(v) && v.some(esObj)) lineas.push(`${k}:`, ...v.map(item));
-      else cortos.push(`${k}: ${Array.isArray(v) ? v.join(", ") || "—" : esObj(v) ? JSON.stringify(v) : v}`);
-    });
-    return (cortos.length ? [cortos.join(" · ")] : []).concat(lineas);
-  }
-
-  function renderPanel(x) {
-    const body = $("estPanelBody");
-    body.textContent = "";
-    const s = x.solicitud, e = x.estudiante, c = x.cuenta;
-    $("estPanelTitulo").textContent = e.nombre;
-    const msg = el("div", "est-error");
-    msg.setAttribute("role", "alert");
-    msg.hidden = true;
-
-    // Datos y cuenta
-    const a = section("Cuenta");
-    a.append(kv([
-      ["Folio", s.folio], ["No. de control", e.control], ["Correo", e.correo], ["Carrera", e.carrera],
-      ["Semestre", s.semestre], ["Plazos solicitados", s.plazos ?? "—"], ["Motivo", s.motivo || "—"],
-      ["Total", c.total != null ? pesos(c.total) : "—"], ["Pagado", pesos(c.pagado)],
-      ["Saldo", c.saldo != null ? pesos(c.saldo) : "—"], ["Situación", SITUACION[c.situacion] || c.situacion],
-    ]));
-    if (s.comentario) a.append(el("p", "est-note", s.comentario));
-    body.append(msg, a);
-
-    // Un expediente nuevo reemplaza el panel y vuelve a pintar la fila.
-    const apply = (r, okMsg) => {
-      if (!r.ok) { show(msg, r.data.message || "No se pudo completar la acción."); return false; }
-      toast(okMsg);
-      renderPanel(r.data);
-      loadList();
-      return true;
-    };
-
-    body.append(planSection(x, msg, apply), recibosSection(x, msg, apply), docsSection(x));
-
-    const bl = x.bloqueo || {}, rec = x.recordatorio || {};
-    const b = section("Bloqueo y recordatorios");
-    b.append(kv([
-      ["Lista de adeudos", bl.exportada ? "Exportado el " + fmtDate(bl.exportada) : "No"],
-      ["Desbloqueo avisado", bl.avisado ? fmtDate(bl.avisado) : "No"],
-      ["Último recordatorio", rec.ultimo ? fmtDate(rec.ultimo) : "Nunca"],
-    ]));
-    if (bl.avisar_desbloqueo) {
-      b.append(el("p", null, "La cuenta quedó liquidada y estaba en la lista de bloqueo."));
-      b.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
-        show(msg, "");
-        apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");
-      }));
-    }
-    body.append(b);
-
-    const h = section("Historial");
-    const ul = el("ul", "est-hist");
-    (x.historial || []).forEach((ev) => {
-      const li = el("li");
-      li.append(el("b", null, HIST[ev.tipo] || ev.tipo), el("span", null, fmtDate(ev.fecha)));
-      histLineas(ev.datos).forEach((t) => li.append(el("small", null, t)));
-      ul.append(li);
-    });
-    h.append(ul);
-    body.append(h);
-  }
-
   // ── Plan ────────────────────────────────────────────────────────────
-  function planSection(x, msg, apply) {
-    const s = x.solicitud, c = x.cuenta, p = x.plan;
-    const sec = section("Plan de pagos");
-    const keptNums = new Set(p.conservadas || []);
-    const vigentes = c.parcialidades || [];
-    if (vigentes.length) {
-      const ul = el("ul", "est-plan");
-      vigentes.forEach((q) => {
-        const li = el("li");
-        li.append(el("span", "est-dot est-dot-" + q.estado), el("span", null, `${q.numero}. ${pesos(q.monto)}`),
-          el("span", null, fmtDate(q.fecha)), el("small", null, `cubierto ${pesos(q.cubierto)}`));
-        ul.append(li);
-      });
-      sec.append(ul);
+  function planPane(x) {
+    const c = x.cuenta, wrap = el("div", "est-plan");
+    if (!c.parcialidades.length || ui.modificando) {
+      if (x.plan.editable) wrap.append(planForm(x));
+      else wrap.append(el("p", "est-note", x.solo_lectura
+        ? "Prórroga del histórico sin semestre: solo cuenta para Estadísticas."
+        : "El semestre terminó: ya no se puede crear el plan."));
+      return wrap;
     }
-    if (!p.puede_replantear) {   // liquidada o fuera del semestre, haya plan o no
-      sec.append(el("p", "est-note", c.situacion === "liquidada"
-        ? "Cuenta liquidada." : "El semestre terminó: ya no se puede armar ni replantear el plan."));
-      return sec;
-    }
-
-    const replan = p.confirmado;
-    sec.append(el("h4", null, replan ? "Replantear lo que falta" : "Crear plan"));
-    const maxN = replan ? p.max_nuevas : 3;
-    const total = input("text", { inputmode: "decimal", "aria-label": "Total" });
-    total.value = replan ? c.total : "";
-    const n = el("select");
-    for (let i = 1; i <= maxN; i++) { const o = el("option", null, String(i)); o.value = i; n.append(o); }
-    const rowsBox = el("div", "est-plan-rows");
-    const restante = el("p", "est-note");
-    const minD = todayIso();
-    let planSeq = 0;
-    let confirmBtn = null;
-
-    const paintRest = () => {
-      const ms = [...rowsBox.querySelectorAll("input[data-m]")];
-      const base = cents(total.value) - (replan ? cents(p.suma_conservadas) : 0);
-      const sum = ms.reduce((t, i) => t + cents(i.value), 0);
-      restante.textContent = replan
-        ? `Falta por repartir: ${money(base)}. Suma de las nuevas: ${money(sum)}.`
-        : `Suma de las parcialidades: ${money(sum)}.`;
-    };
-
-    // Las filas se arman al instante desde n; el reparto sugerido solo rellena montos si sigue siendo la reconstrucción vigente.
-    const rebuild = async () => {
-      const my = ++planSeq;
-      rowsBox.textContent = "";
-      const count = Number(n.value);
-      const base = cents(total.value) - (replan ? cents(p.suma_conservadas) : 0);
-      for (let i = 0; i < count; i++) {
-        const m = input("text", { inputmode: "decimal", "data-m": "1", "aria-label": `Monto de la parcialidad ${i + 1}` });
-        m.addEventListener("input", paintRest);
-        const f = input("date", { min: minD, "data-f": "1", "aria-label": `Fecha de la parcialidad ${i + 1}` });
-        if (p.fecha_limite) f.max = p.fecha_limite;
-        const r = el("div", "est-plan-row");
-        r.append(el("span", null, `${(replan ? keptNums.size : 0) + i + 1}.`), m, f);
-        rowsBox.append(r);
-      }
-      paintRest();
-      if (confirmBtn) confirmBtn.disabled = base > 0;   // sin reparto en vuelo, el botón queda libre
-      if (!(base > 0)) return;
-      const r = await api(`${EST}/reparto?total=${(base / 100).toFixed(2)}&n=${count}`);
-      if (my !== planSeq) return;   // una reconstrucción más nueva ya decide el estado del botón
-      if (confirmBtn) confirmBtn.disabled = false;
-      if (!r.ok) return;
-      [...rowsBox.querySelectorAll("input[data-m]")].forEach((m, i) => { m.value = (r.data.montos || [])[i] || ""; });
-      paintRest();
-    };
-    total.addEventListener("change", rebuild);
-    n.addEventListener("change", rebuild);
-
-    sec.append(field("Total del adeudo", total), field(replan ? "Parcialidades nuevas" : "Parcialidades", n));
-    if (replan) sec.append(el("p", "est-note", `Conservadas (solo lectura): ${[...keptNums].join(", ")} · ${pesos(p.suma_conservadas)}`));
-    sec.append(rowsBox, restante);
-    confirmBtn = button(replan ? "Confirmar nuevo plan" : "Confirmar plan", "sec-btn est-sm", async () => {
-      show(msg, "");
-      const parc = [...rowsBox.querySelectorAll(".est-plan-row")].map((row) => ({
-        monto: row.querySelector("input[data-m]").value.trim(), fecha: row.querySelector("input[data-f]").value }));
-      if (parc.some((q) => !q.fecha)) { show(msg, "Falta la fecha de una parcialidad."); return; }
-      apply(await api(`${EST}/${s.id}/plan`, { body: { total: total.value.trim(), parcialidades: parc } }), "Plan confirmado.");
-    });
-    sec.append(confirmBtn);
-    if (total.value) rebuild();
-    return sec;
+    wrap.classList.add("has-side");
+    const main = el("div", "est-plan-main");
+    main.append(pagosHead(x));
+    c.parcialidades.forEach((q) => main.append(pagoRow(q, c.parcialidades.length)));
+    main.append(recibosCard(x));
+    wrap.append(main, situacionCard(x));
+    return wrap;
   }
 
-  // ── Recibos ─────────────────────────────────────────────────────────
-  function recibosSection(x, msg, apply) {
-    const s = x.solicitud;
-    const sec = section("Recibos de Caja");
+  function pagosHead(x) {
+    const s = x.solicitud, head = el("div", "est-pagos-head");
+    head.append(el("h3", null, "Pagos"));
+    const f = el("div", "est-folio");
+    f.append(el("span", null, "Folio de prórroga"), el("span", "est-chip", s.folio));
+    const copy = el("button", "est-ico-btn");
+    copy.type = "button";
+    copy.title = "Copiar folio";
+    copy.setAttribute("aria-label", "Copiar folio");
+    copy.append(icon("tplCopy"));
+    copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(s.folio); toast(`Folio ${s.folio} copiado.`); }
+      catch (e) { toast("No se pudo copiar el folio."); }
+    });
+    f.append(copy);
+    if (x.plan.editable) {   // sin pagos todavía: el plan se puede rehacer
+      f.append(button("Modificar plan", "sec-btn sec-btn-ghost est-sm", () => { ui.modificando = true; paintTab(); }));
+    }
+    head.append(f);
+    return head;
+  }
+
+  function pagoRow(q, n) {
+    const r = el("div", "est-pago est-pago-" + q.estado);
+    const a = el("div");
+    a.append(el("b", null, pagoLabel(q.numero, n)), el("small", null, `Vence el ${fmtDate(q.fecha)}`));
+    const estado = {
+      pagada: `Pagado el ${fmtShort(q.pagado_el)}`, vencida: `Vencido · ${plural(diasDesde(q.fecha), "día")}`,
+      parcial: `Abonado ${pesos(q.cubierto)}`, pendiente: "Pendiente",
+    }[q.estado] || q.estado;
+    r.append(a, el("span", "est-monto", pesos(q.monto)), el("span", "est-estado est-estado-" + q.estado, estado));
+    if (q.pagado_el) {
+      const rec = el("span", "est-rec");
+      rec.title = "Folio del recibo de Caja";
+      rec.append(icon("tplDoc"), el("span", null, q.recibo ? `Recibo ${q.recibo}` : "Pagado (Excel)"));
+      r.append(rec);
+    } else {
+      const sr = el("span", "est-sinrec", "Sin recibo aún");
+      sr.title = "Caja aún no registra este pago";
+      r.append(sr);
+    }
+    return r;
+  }
+
+  // shortcut: la secretaria registra y anula recibos aquí hasta que exista el usuario de Caja, que marcará cada pago.
+  function recibosCard(x) {
+    const s = x.solicitud, c = x.cuenta, sec = card("Recibos de Caja");
     const ul = el("ul", "est-recibos");
     (x.recibos || []).forEach((r) => {
       const li = el("li", r.anulado ? "is-void" : "");
-      li.append(el("b", "mono", r.folio || "Histórico"), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
+      li.append(el("b", null, r.folio || "Histórico"), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
       if (r.anulado) li.append(el("small", null, "Anulado: " + (r.motivo_anulacion || "")));
       else if (!x.solo_lectura) li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
         const motivo = prompt("Motivo de la anulación (mínimo 5 caracteres):");
         if (motivo == null) return;
-        show(msg, "");
+        show($("estMsg"), "");
         apply(await api(`${EST}/${s.id}/recibos/${r.id}/anular`, { body: { motivo: motivo.trim() } }), "Recibo anulado.");
       }));
       ul.append(li);
     });
-    if (!ul.children.length) sec.append(el("p", "est-note", "Sin recibos."));
-    sec.append(ul);
-    // Como los guards del servicio: sin_plan (las del Excel tienen total sin plan confirmado) y sin_semestre.
-    if (x.cuenta.total == null || x.solo_lectura) return sec;
+    sec.append(ul.children.length ? ul : el("p", "est-note", "Sin recibos."));
+    const prox = c.parcialidades.find((q) => q.estado !== "pagada");
+    if (x.solo_lectura || !prox) return sec;
 
     const folio = input("text", { maxlength: "40" });
     const fecha = input("date", { max: todayIso() });
     fecha.value = todayIso();
     const monto = input("text", { inputmode: "decimal" });
+    monto.value = ((cents(prox.monto) - cents(prox.cubierto)) / 100).toFixed(2);   // lo que falta del siguiente pago
     const form = el("div", "est-recibo-form");
     form.append(field("Folio de Caja", folio), field("Fecha de pago", fecha), field("Monto", monto));
     form.append(button("Registrar recibo", "sec-btn est-sm", async () => {
-      show(msg, "");
-      if (!fecha.value) { show(msg, "Falta la fecha de pago."); return; }
-      apply(await api(`${EST}/${s.id}/recibos`, { body: { folio: folio.value.trim(), fecha: fecha.value, monto: monto.value.trim() } }), "Recibo registrado.");
+      show($("estMsg"), "");
+      if (!fecha.value) { show($("estMsg"), "Falta la fecha de pago."); return; }
+      apply(await api(`${EST}/${s.id}/recibos`, { body: { folio: folio.value.trim(), fecha: fecha.value, monto: monto.value.trim() } }),
+        "Recibo registrado.");
     }));
     sec.append(form);
     return sec;
   }
 
-  // ── Documentos ──────────────────────────────────────────────────────
-  function docsSection(x) {
-    const s = x.solicitud;
-    const sec = section("Documentos");
-    const ul = el("ul", "est-docs");
+  function sitRow(tipo, title, sub) {
+    const r = el("div", "est-sit-row est-sit-" + tipo);
+    const ico = el("span", "est-sit-ico");
+    ico.append(icon({ ok: "tplOk", warn: "tplWarn", mail: "tplMail" }[tipo]));
+    const t = el("div");
+    t.append(el("b", null, title), el("small", null, sub));
+    r.append(ico, t);
+    return r;
+  }
+
+  function situacionCard(x) {
+    const s = x.solicitud, c = x.cuenta, e = x.estudiante, bl = x.bloqueo || {}, rec = x.recordatorio || {};
+    const venc = c.situacion === "atrasada", conSaldo = cents(c.saldo) > 0;
+    const sec = card("Situación del alumno", "est-sit" + (venc ? " is-alert" : ""));
+    if (bl.avisar_desbloqueo) sec.append(sitRow("warn", "Liquidó y sigue en la lista de adeudos", "Avisa el desbloqueo para sacarlo de la lista."));
+    else if (bl.exportada && c.situacion !== "liquidada") sec.append(sitRow("warn", "Está en la lista de adeudos", `Se exportó el ${fmtDate(bl.exportada)}. Sale de la lista al pagar.`));
+    else if (bl.avisado) sec.append(sitRow("ok", "Desbloqueo avisado", `El ${fmtDate(bl.avisado)}.`));
+    else if (venc) sec.append(sitRow("warn", "Tiene un pago vencido", "Saldrá en la próxima lista de adeudos que se exporte."));
+    else sec.append(sitRow("ok", "No está en la lista de adeudos", "No tiene pagos vencidos."));
+    sec.append(rec.ultimo
+      ? sitRow("mail", `Último recordatorio: ${fmtDateTime(rec.ultimo)}`, e.correo ? `Enviado a ${e.correo}` : "Aviso en la plataforma")
+      : sitRow("mail", "Sin recordatorios enviados", "Aún no se le ha enviado ninguno."));
+
+    const b = button(conSaldo ? "Enviar recordatorio" : "Sin saldo pendiente", "est-remind" + (venc ? " is-alert" : ""), async () => {
+      show($("estMsg"), "");
+      apply(await api(`${EST}/${s.id}/recordar`, { body: {} }), "Recordatorio enviado.");
+    });
+    b.prepend(icon("tplMail"));
+    b.disabled = !rec.puede;
+    sec.append(b);
+    const hint = !conSaldo ? "El estudiante ya liquidó su adeudo."
+      : !rec.puede ? (rec.ultimo ? "Ya se le envió uno en las últimas 24 horas." : "No tiene correo ni cuenta en la plataforma.")
+        : venc ? "Tiene un pago vencido: conviene avisarle." : `Se envía a ${e.correo || "su cuenta en la plataforma"}`;
+    sec.append(el("div", "est-hint" + (venc && rec.puede ? " is-alert" : ""), hint));
+    if (bl.avisar_desbloqueo) sec.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
+      show($("estMsg"), "");
+      apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");
+    }));
+    return sec;
+  }
+
+  // Crear el plan o rehacerlo (solo sin pagos): el total se reparte en pagos iguales; cada fecha la pone la secretaria.
+  function planForm(x) {
+    const s = x.solicitud, c = x.cuenta, p = x.plan, mod = c.parcialidades.length > 0;
+    const b = ui.borrador || (ui.borrador = mod
+      ? { total: c.total, n: OPCIONES.includes(c.parcialidades.length) ? c.parcialidades.length : 1,
+        fechas: c.parcialidades.map((q) => q.fecha), montos: null }
+      : { total: "", n: OPCIONES.includes(s.plazos) ? s.plazos : 1, fechas: [], montos: null });
+    let seq = 0;
+    let timer = null;
+
+    const sec = card(null, "est-form");
+    const top = el("div");
+    top.append(el("h3", null, mod ? "Modificar plan de pagos" : "Crear plan de pagos"),
+      el("div", "est-form-sub", "El total se divide en pagos iguales."));
+    const grid = el("div", "est-form-grid");
+    const left = el("div", "est-form-left");
+
+    const money$ = el("div", "est-money");
+    const total = input("text", { inputmode: "decimal", placeholder: "0.00", "aria-label": "Total del adeudo" });
+    total.value = b.total;
+    money$.append(el("span", null, "$"), total);
+    const totalField = el("div", "est-field");
+    totalField.append(el("span", null, "Total del adeudo"), money$);
+
+    const opts = el("div", "est-opts");
+    const optBtns = OPCIONES.map((v) => {
+      const o = el("button", "est-opt");
+      o.type = "button";
+      const t = el("span", "est-opt-top");
+      t.append(el("b", null, plural(v, "pago")));
+      if (v === s.plazos) t.append(el("span", "est-opt-tag", "Solicitado"));
+      o.append(t, el("small"));
+      o.addEventListener("click", () => { b.n = v; b.montos = null; rows(); reparto(); });
+      opts.append(o);
+      return o;
+    });
+    const optField = el("div", "est-field");
+    optField.append(el("span", null, "Número de pagos"), opts);
+    left.append(totalField, optField);
+
+    const prev = el("div", "est-prev");
+    prev.append(el("div", "est-prev-title", "Vista previa"));
+    const prevRows = el("div");
+    const prevHint = el("div", "est-prev-hint", "Escribe el total para ver cuánto pagará en cada fecha.");
+    prev.append(prevRows, prevHint);
+    grid.append(left, prev);
+
+    const foot = el("div", "est-form-foot");
+    const note = el("div", "est-form-note");
+    note.append(icon("tplInfo"), el("span", null, mod
+      ? "Al estudiante le llega un correo con su nuevo plan y una carta nueva para firmar."
+      : "Los recordatorios se activan cuando el plan esté creado."));
+    const actions = el("div", "est-form-actions");
+    if (mod) {
+      const cancel = el("button", "sec-btn sec-btn-ghost", "Cancelar");
+      cancel.type = "button";
+      cancel.addEventListener("click", () => { ui.modificando = false; ui.borrador = null; paintTab(); });
+      actions.append(cancel);
+    }
+    const ok = button("Confirmar plan", "est-confirm", async () => {
+      show($("estMsg"), "");
+      const r = await api(`${EST}/${s.id}/plan`, { body: {
+        total: totalTxt(), parcialidades: b.montos.map((m, i) => ({ monto: m, fecha: b.fechas[i] })) } });
+      if (r.ok) Object.assign(ui, { modificando: false, borrador: null });
+      apply(r, mod ? "Plan modificado. Le avisamos al estudiante." : "Plan confirmado.");
+    });
+    actions.append(ok);
+    foot.append(note, actions);
+    sec.append(top, grid, foot);
+
+    const totalTxt = () => { const t = cents(String(b.total).replace(/[$,\s]/g, "")); return t > 0 ? (t / 100).toFixed(2) : null; };
+    const listo = () => !!b.montos && b.montos.length === b.n && Array.from({ length: b.n }, (_, i) => b.fechas[i]).every(Boolean);
+    const paintOk = () => { ok.disabled = !listo(); };
+
+    function paintOpts() {
+      optBtns.forEach((o, i) => {
+        const v = OPCIONES[i], f = b.fechas;
+        o.setAttribute("aria-pressed", String(v === b.n));
+        o.querySelector("small").textContent = v === 1
+          ? "Una sola exhibición" + (f[0] ? ` · ${fmtShort(f[0])}` : "")
+          : f[0] && f[1] ? `${fmtShort(f[0])} y ${fmtShort(f[1])}` : "Dos pagos iguales";
+      });
+      paintOk();
+    }
+
+    function rows() {
+      paintOpts();
+      prevRows.textContent = "";
+      for (let i = 0; i < b.n; i++) {
+        const r = el("div", "est-prev-row");
+        const t = el("div");
+        const d = input("date", { min: todayIso(), "aria-label": `Fecha límite del ${pagoLabel(i + 1, b.n).toLowerCase()}` });
+        if (p.fecha_limite) d.max = p.fecha_limite;
+        d.value = b.fechas[i] || "";
+        d.addEventListener("change", () => { b.fechas[i] = d.value; paintOpts(); });
+        const lab = el("label");
+        lab.append(el("span", null, "Fecha límite:"), d);
+        t.append(el("b", null, pagoLabel(i + 1, b.n)), lab);
+        r.append(t, el("span", "est-monto" + (b.montos ? "" : " is-empty"), b.montos ? pesos(b.montos[i]) : "$ —"));
+        prevRows.append(r);
+      }
+      prevHint.hidden = !!b.montos;
+    }
+
+    async function reparto() {
+      const my = ++seq, t = totalTxt();
+      if (!t) { b.montos = null; rows(); return; }
+      const r = await api(`${EST}/reparto?total=${t}&n=${b.n}`);
+      if (my !== seq) return;
+      b.montos = r.ok ? r.data.montos : null;
+      if (!r.ok) show($("estMsg"), r.data.message || "No se pudo repartir el total.");
+      rows();
+    }
+
+    total.addEventListener("input", () => {
+      b.total = total.value;
+      b.montos = null;
+      paintOk();
+      clearTimeout(timer);
+      timer = setTimeout(reparto, 300);
+    });
+    rows();
+    if (totalTxt()) reparto();
+    return sec;
+  }
+
+  // ── Solicitud y documentos ──────────────────────────────────────────
+  function solPane(x) {
+    const s = x.solicitud, e = x.estudiante, grid = el("div", "est-two");
+    const datos = card("Datos de la solicitud");
+    [["Folio de prórroga", s.folio], ["Solicitada", fmtDateTime(s.creada)], ["Aceptada", s.decidida ? fmtDateTime(s.decidida) : "—"],
+      ["Pagos pedidos", s.plazos ?? "—"], ["Semestre", s.semestre], ["Correo", e.correo || "—"]].forEach(([k, v]) => {
+      const r = el("div", "est-kv");
+      r.append(el("span", null, k), el("span", null, String(v)));
+      datos.append(r);
+    });
+    datos.append(el("div", "est-card-note", "El motivo viene en el Formato de solicitud."));
+
+    const docs = card("Documentos");
     (s.documentos || []).forEach((d) => {
-      const li = el("li");
-      li.append(el("span", null, `${d.label} (v${d.version})`));
-      const a = el("a", null, "Ver / imprimir");
+      const r = el("div", "est-doc");
+      const ico = el("span", "est-doc-ico");
+      ico.append(icon("tplDoc"));
+      const t = el("div", "est-doc-txt");
+      const sub = el("small", null, `Versión ${d.version}`);
+      if (d.firmado) sub.append(el("span", "est-firmado", "Firmado"));
+      else if (String(d.tipo).startsWith("carta_compromiso")) sub.append(el("span", "est-pend", "Firma pendiente"));
+      t.append(el("b", null, d.label), sub);
+      const a = el("a", "est-ver", "Ver / imprimir");
       a.href = `${API}/solicitudes/${s.id}/documentos/${d.id}.pdf`;
       a.target = "_blank";
       a.rel = "noopener";
-      li.append(a);
-      if (d.firmado) li.append(el("small", null, "Firmado"));
-      else if (String(d.tipo).startsWith("carta_compromiso")) li.append(el("small", "est-pend", "Firma pendiente"));
+      r.append(ico, t, a);
+      docs.append(r);
+    });
+    if (!(s.documentos || []).length) docs.append(el("p", "est-note", "Sin documentos."));
+    grid.append(datos, docs);
+    return grid;
+  }
+
+  // ── Historial ───────────────────────────────────────────────────────
+  function detalle(ev) {
+    const d = ev.datos || {};
+    const plan = () => plural((d.parcialidades || []).length, "pago") + ": "
+      + (d.parcialidades || []).map((q) => `${pesos(q.monto)} el ${fmtDate(q.fecha)}`).join(" · ");
+    switch (ev.tipo) {
+      case "solicitud_creada": return [d.plazos ? plural(d.plazos, "pago") : null, d.periodo].filter(Boolean).join(" · ");
+      case "solicitud_aceptada": return d.comentario ? `Comentario: “${d.comentario}”` : "Sin comentario";
+      case "documento_generado": case "documento_firmado": return `${d.documento || d.doc_type} · versión ${d.version}`;
+      case "plan_confirmado": case "plan_modificado": return plan();
+      case "recibo_registrado": return `Recibo ${d.folio} · ${pesos(d.monto)} · pagado el ${fmtDate(d.fecha)}`;
+      case "recibo_anulado": return `Recibo ${d.folio} · ${pesos(d.monto)} · ${d.motivo || ""}`;
+      case "recordatorio_enviado": return d.saldo ? `Saldo de ${pesos(d.saldo)}` : "";
+      default: return "";
+    }
+  }
+
+  function histPane(x) {
+    const ul = el("ul", "est-hist");
+    (x.historial || []).forEach((ev) => {
+      const li = el("li");
+      const rail = el("span", "est-hist-rail");
+      rail.append(el("span", "est-hd est-hd-" + (PUNTO[ev.tipo] || "gris")), el("span", "est-hist-line"));
+      const t = el("div", "est-hist-txt");
+      t.append(el("b", null, HIST[ev.tipo] || ev.tipo));
+      const det = detalle(ev);
+      if (det) t.append(el("small", null, det));
+      const when = el("time", null, fmtDateTime(ev.fecha));
+      when.dateTime = ev.fecha;
+      li.append(rail, t, when);
       ul.append(li);
     });
-    if (!ul.children.length) sec.append(el("p", "est-note", "Sin documentos."));
-    sec.append(ul);
-    return sec;
+    if (!ul.children.length) return el("p", "est-note", "Sin movimientos.");
+    return ul;
   }
 
   loadPeriods();

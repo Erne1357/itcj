@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
 from io import BytesIO
 
 from openpyxl import Workbook
@@ -49,6 +48,12 @@ def _puede_recordar(req, c, ahora: datetime) -> bool:
 
 def _avisar_desbloqueo(req, c) -> bool:
     return req.block_exported_at is not None and c.situacion == "liquidada" and req.unblock_notified_at is None
+
+
+def _datos(payload: dict) -> dict:
+    """Datos del evento para el historial; un documento lleva también su nombre."""
+    t = payload.get("doc_type")
+    return payload | {"documento": DOC_TYPES[t].label} if t in DOC_TYPES else payload
 
 
 class StudentsService:
@@ -106,11 +111,14 @@ class StudentsService:
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", 404)
         c = account.load(db, req, today)
         period = db.get(AcademicPeriod, req.period_id) if req.period_id else None  # histórica sin semestre: solo lectura
-        conservadas = [p for p in c.parcialidades if p.estado == "pagada"]
-        suma = sum((p.amount for p in conservadas), Decimal("0"))
         carta = next((d for d in DocumentService.current(db, req) if d.doc_type.startswith("carta_compromiso")), None)
         recibos = (db.query(ProrrogaPayment).filter(ProrrogaPayment.request_id == req.id)
                    .order_by(ProrrogaPayment.recorded_at.desc(), ProrrogaPayment.id.desc()).all())
+        cuenta = account.cuenta_json(c)
+        vivos = [(p.paid_on, p.amount, p.folio) for p in sorted(recibos, key=lambda p: p.id) if p.voided_at is None]
+        plan = [(p.number, p.amount, p.due_date) for p in c.parcialidades]
+        for parc, r in zip(cuenta["parcialidades"], account.cobertura(plan, vivos)):  # recibo de Caja de cada pago
+            parc["recibo"], parc["pagado_el"] = (r[2], r[0].isoformat()) if r else (None, None)
         eventos = (db.query(ProrrogaEvent).filter(ProrrogaEvent.request_id == req.id)
                    .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).all())
         return {
@@ -118,7 +126,7 @@ class StudentsService:
             "solicitud": RequestService.request_out(db, req),
             "estudiante": {"nombre": req.student_name, "control": req.control_number, "correo": req.email,
                            "carrera": req.program_name},
-            "cuenta": account.cuenta_json(c),
+            "cuenta": cuenta,
             "recibos": [{"id": p.id, "folio": p.folio, "fecha": p.paid_on.isoformat(), "monto": account.money(p.amount),
                          "registrado": p.recorded_at.isoformat(),
                          "anulado": p.voided_at.isoformat() if p.voided_at else None,
@@ -127,17 +135,14 @@ class StudentsService:
                        "firmada": carta.signed_at is not None} if carta else None),
             "plan": {
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
-                "puede_replantear": period is not None and c.situacion != "liquidada" and today <= period.end_date,
-                "conservadas": [p.number for p in conservadas],
-                "suma_conservadas": account.money(suma),
-                "max_nuevas": 3 - len(conservadas),
+                "editable": period is not None and c.pagado == 0 and today <= period.end_date,  # rehacer solo sin pagos
                 "fecha_limite": period.end_date.isoformat() if period else None},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
                         "avisar_desbloqueo": _avisar_desbloqueo(req, c),
                         "avisado": req.unblock_notified_at.isoformat() if req.unblock_notified_at else None},
             "recordatorio": {"ultimo": req.last_reminded_at.isoformat() if req.last_reminded_at else None,
                              "puede": _puede_recordar(req, c, db_now())},
-            "historial": [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": e.payload}
+            "historial": [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": _datos(e.payload)}
                           for e in eventos],
         }
 

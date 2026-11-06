@@ -12,9 +12,9 @@ SEM_APP = "enero – junio 2091"
 
 
 def test_cobertura_fifo_con_fechas():  # Review Focus 5
-    recibos = [(date(2025, 1, 30), D("1500")), (date(2025, 3, 10), D("500"))]
-    assert cobertura(PLAN, recibos) == [date(2025, 1, 30), date(2025, 3, 10), None]
-    assert cobertura(PLAN, [(date(2025, 2, 1), D("2500"))]) == [date(2025, 2, 1)] * 3
+    recibos = [(date(2025, 1, 30), D("1500"), "A"), (date(2025, 3, 10), D("500"), "B")]
+    assert cobertura(PLAN, recibos) == [recibos[0], recibos[1], None]  # el recibo entero: el expediente usa su folio
+    assert cobertura(PLAN, [(date(2025, 2, 1), D("2500"))]) == [(date(2025, 2, 1), D("2500"))] * 3
 
 
 def test_resumen_del_semestre(db_session, make_historica):
