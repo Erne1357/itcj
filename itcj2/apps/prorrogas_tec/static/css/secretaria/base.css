@@ -119,8 +119,6 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .doc-add small { font-size: 13px; font-weight: 400; color: var(--muted); }
 
 /* Modal de un documento: el layout es .sol-modal (QR y solicitudes); esto es lo propio. */
-.doc-modal-bar { gap: 10px; }
-.doc-modal-bar span { flex: 1; }
 .doc-modal-bar small { flex: none; font: 13px var(--font-mono); color: rgba(247, 247, 242, .7); }
 .doc-modal-mid { gap: 10px; }
 .doc-skel { flex: 1; min-height: 0; display: grid; place-items: center; padding: 24px; }
@@ -189,18 +187,30 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 
 /* ── QR y solicitudes ────────────────────────────────────────────────── */
 .mono { font-family: var(--font-mono); }
-.sol { display: grid; grid-template-columns: 340px 1fr; background: var(--paper); border-radius: 8px; overflow: hidden; min-height: 640px; border: 1px solid rgba(0, 0, 0, .08); }
-.sol-side { background: var(--blue); padding: 20px 28px 28px; display: flex; flex-direction: column; gap: 20px; }
+.sol { display: grid; grid-template-columns: 420px minmax(0, 1fr); background: var(--paper); border-radius: 8px; overflow: hidden; min-height: 640px; border: 1px solid rgba(0, 0, 0, .08); }
+.sol-side { background: var(--blue); padding: 20px 32px 32px; display: flex; flex-direction: column; gap: 22px; }
+.sol-side-head { display: flex; justify-content: space-between; align-items: center; }
+.sol-hide { height: 32px; padding: 0 10px 0 6px; border: none; border-radius: 8px; background: rgba(26, 19, 14, .1); color: var(--ink); font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.sol-hide:hover { background: rgba(26, 19, 14, .2); }
+/* Panel oculto: queda un riel de 64px que lo vuelve a abrir. */
+.sol.is-collapsed { grid-template-columns: 64px minmax(0, 1fr); }
+.sol.is-collapsed .sol-side { padding: 0; }
+.sol.is-collapsed .sol-side > :not(.sol-rail) { display: none; }
+.sol-rail { display: none; flex: 1; width: 100%; border: none; background: transparent; color: var(--ink); cursor: pointer; flex-direction: column; align-items: center; gap: 18px; padding: 20px 0; }
+.sol.is-collapsed .sol-rail { display: flex; }
+.sol-rail:hover { background: rgba(26, 19, 14, .04); }
+.sol-rail-sq { width: 36px; height: 36px; border-radius: 8px; background: var(--ink); color: var(--paper); display: grid; place-items: center; transition: background .15s, transform .15s; }
+.sol-rail:hover .sol-rail-sq { background: #3a2c24; transform: translateX(2px); }
 .sol-side-title { margin: 0; font: 500 16px var(--font-title); }
 .sol-modes { display: flex; background: rgba(26, 19, 14, .08); padding: 4px; border-radius: 10px; }
 .sol-modes button { flex: 1; height: 36px; border: none; border-radius: 7px; background: transparent; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; }
 .sol-modes button.is-active { background: var(--paper); }
 .sol-qr { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
 .sol-qr[hidden], .sol-man[hidden] { display: none; }
-.sol-qr-box { padding: 16px; background: var(--paper); border-radius: 14px; width: 252px; min-height: 252px; display: grid; place-items: center; }
+.sol-qr-box { padding: 16px; background: var(--paper); border-radius: 14px; width: 332px; min-height: 332px; display: grid; place-items: center; }
 .sol-qr-box svg { width: 100%; height: auto; display: block; }
 .sol-qr-link { font-size: 11px; word-break: break-all; text-align: left; }
-.sol-qr-text { font: 500 19px/1.25 var(--font-title); }
+.sol-qr-text { font: 500 20px/1.25 var(--font-title); }
 .sol-timer { font: 500 15px var(--font-mono); }
 .sol-btn-line { height: 40px; padding: 0 18px; border-radius: 8px; border: 1px solid rgba(26, 19, 14, .25); background: transparent; color: var(--ink); font-size: 15px; cursor: pointer; }
 .sol-btn-line:hover { background: rgba(26, 19, 14, .08); }
@@ -229,7 +239,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-table-head h2 { margin: 0; font: 500 17px var(--font-title); }
 .sol-count { font: 500 13px var(--font-mono); background: var(--orange); padding: 2px 8px; border-radius: 10px; }
 .sol-hint { font-size: 13px; color: var(--muted); }
-.sol-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr 70px 80px; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px; }
+.sol-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr 110px 60px; align-items: center; gap: 8px; padding: 12px 24px; font-size: 15px; }
 .sol-row > * { min-width: 0; }
 .sol-row-head { padding: 10px 24px; font-size: 13px; font-weight: 600; color: var(--muted); background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .sol-row-item { border-bottom: 1px solid rgba(26, 19, 14, .06); cursor: pointer; outline: none; }
@@ -238,7 +248,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-name { font-weight: 600; }
 .sol-ctrl { font: 13px var(--font-mono); color: var(--muted); }
 .sol-mail { color: rgba(26, 19, 14, .75); overflow: hidden; text-overflow: ellipsis; }
-.sol-eye { justify-self: end; font-size: 13px; font-weight: 600; color: var(--wine); }
+.sol-eye { justify-self: end; width: 34px; height: 34px; border-radius: 8px; display: grid; place-items: center; color: var(--wine); background: rgba(101, 47, 42, .08); }
 .sol-empty { padding: 32px; text-align: center; font-size: 15px; color: var(--muted); }
 .sol-empty-error { color: var(--alert); }
 
@@ -246,8 +256,11 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-modal[open] { display: grid; grid-template-columns: 1fr 360px; }
 .sol-modal::backdrop { background: rgba(26, 19, 14, .5); }
 .sol-modal-pdf { background: #d9d6cf; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.sol-modal-bar { height: 44px; flex: none; display: flex; align-items: center; padding: 0 16px; background: var(--ink); color: var(--paper); font-size: 14px; }
-.sol-modal-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-modal-bar { height: 48px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px; background: var(--ink); color: var(--paper); font-size: 14px; }
+.sol-modal-bar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sol-bar-btn { flex: none; width: 30px; height: 30px; border-radius: 6px; background: rgba(247, 247, 242, .1); color: var(--paper) !important; display: grid; place-items: center; }
+.sol-bar-btn:hover { background: rgba(247, 247, 242, .22); }
+.sol-bar-btn[hidden] { display: none; }
 .sol-modal-pdf iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 .sol-pdf-fallback { flex: 1; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
 .sol-pdf-fallback[hidden] { display: none; }
@@ -256,7 +269,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-modal-top h2 { margin: 6px 0 0; font: 500 22px var(--font-title); overflow-wrap: anywhere; }
 .sol-modal-row { display: flex; justify-content: space-between; align-items: center; }
 .sol-modal-kind { font-size: 13px; color: var(--wine); font-weight: 600; }
-.sol-x { width: 32px; height: 32px; border: none; border-radius: 8px; background: transparent; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
+.sol-x { flex: none; width: 32px; height: 32px; display: grid; place-items: center; border: none; border-radius: 8px; background: transparent; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
 .sol-x:hover { background: #D9433B; color: #fff; }
 .sol-dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; margin: 14px 0 0; font-size: 14px; }
 .sol-dl dt { color: var(--muted); }
@@ -264,16 +277,50 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-modal-mid { padding: 16px 24px; flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .sol-modal-mid label { font-size: 13px; font-weight: 600; color: rgba(26, 19, 14, .7); }
 .sol-modal-mid textarea { flex: 1; min-height: 100px; padding: 10px 12px; border: 1px solid rgba(26, 19, 14, .18); border-radius: 8px; font: 15px var(--font-body); resize: none; background: #fff; color: var(--ink); }
-.sol-modal-actions { padding: 16px 24px; display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; background: #fff; border-top: 1px solid rgba(26, 19, 14, .08); }
-.sol-modal-actions button { height: 44px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+.sol-modal-foot { padding: 14px 24px 16px; display: flex; flex-direction: column; gap: 12px; background: #fff; border-top: 1px solid rgba(26, 19, 14, .08); }
+.sol-note { margin: 0; display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.45; color: rgba(26, 19, 14, .6); }
+.sol-note svg { flex: none; margin-top: 1px; }
+.sol-modal-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+.sol-modal-actions button { height: 44px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; }
 .sol-modal-actions button[disabled] { opacity: .6; cursor: progress; }
-.sol-btn-reject { border: 1.5px solid var(--orange); background: transparent; color: var(--ink); }
-.sol-btn-reject:hover:not([disabled]) { background: rgba(242, 115, 64, .12); }
-.sol-btn-accept { border: none; background: var(--wine); color: var(--paper); }
-.sol-btn-accept:hover:not([disabled]) { background: var(--ink); }
+.sol-btn-reject { border: 1.5px solid #C62828; background: #fff; color: #C62828; }
+.sol-btn-reject:hover:not([disabled]) { background: #C62828; color: #fff; }
+.sol-btn-accept { border: none; background: #2E7D4F; color: #fff; }
+.sol-btn-accept:hover:not([disabled]) { background: #22613C; }
+/* Modal de revisión: lo que no comparte con el de Documentos. */
+.sol-rev .sol-modal-top { padding: 18px 24px 16px; border-bottom: 0; }
+.sol-rev .sol-modal-top h2 { margin-top: 10px; font-size: 24px; line-height: 1.2; }
+.sol-kind-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sol-kind { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--wine); }
+.sol-folio { font: 500 13px var(--font-mono); color: var(--wine); background: rgba(101, 47, 42, .1); padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+.sol-who { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 14px; color: rgba(26, 19, 14, .65); }
+.sol-chip { font: 500 14px var(--font-mono); color: var(--ink); background: rgba(26, 19, 14, .07); padding: 2px 8px; border-radius: 6px; }
+.sol-rev .sol-modal-mid { padding: 0 24px 18px; gap: 16px; overflow: auto; }
+.sol-facts { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid rgba(26, 19, 14, .1); border-radius: 12px; }
+.sol-facts > div { padding: 12px 16px; display: flex; flex-direction: column; min-width: 0; }
+.sol-facts > div + div { border-left: 1px solid rgba(26, 19, 14, .08); }
+.sol-facts span { font-size: 12px; font-weight: 600; color: rgba(26, 19, 14, .55); }
+.sol-facts b { margin-top: 2px; font: 600 22px/1.25 var(--font-mono); }
+.sol-facts small { margin-top: 6px; font-size: 12px; color: rgba(26, 19, 14, .6); }
+.sol-facts small:empty { display: none; }
+.sol-contact { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: rgba(26, 19, 14, .75); }
+.sol-contact li { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sol-contact li > span { overflow-wrap: anywhere; }
+.sol-contact svg { flex: none; color: rgba(26, 19, 14, .45); }
+.sol-muted { color: rgba(26, 19, 14, .55); }
+.sol-date { color: var(--ink); }
+.sol-cmt { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid rgba(26, 19, 14, .08); }
+.sol-rev .sol-cmt label { display: flex; justify-content: space-between; gap: 8px; }
+.sol-cmt-hint { font-weight: 500; color: rgba(26, 19, 14, .5); }
+.sol-rev .sol-cmt textarea { flex: none; min-height: 88px; border: 1.5px solid rgba(26, 19, 14, .18); }
+.sol-cmt-error { font-size: 13px; font-weight: 600; color: #C62828; }
+.sol-cmt-error[hidden] { display: none; }
+.sol-cmt.is-error .sol-cmt-hint { color: #C62828; }
+.sol-cmt.is-error textarea { border-color: #C62828; }
 
 @media (max-width: 1000px) {
-  .sol { grid-template-columns: 1fr; }
+  .sol, .sol.is-collapsed { grid-template-columns: 1fr; }
+  .sol-rail { flex-direction: row; justify-content: center; padding: 12px 0; }
   .sol-main { padding: 20px 16px; }
   .sol-row { grid-template-columns: 1.4fr 1fr 60px; }
   .sol-row > :nth-child(2), .sol-row > :nth-child(3), .sol-row-head > :nth-child(5) { display: none; }

@@ -1,8 +1,16 @@
 {% extends "prorrogas_tec/secretaria/_base.html" %}
 {% block content %}
   <section class="sol" data-api="/api/prorrogas/v2">
-    <aside class="sol-side">
-      <h1 class="sol-side-title">Acceso al módulo</h1>
+    <aside class="sol-side" id="solSide">
+      <div class="sol-side-head">
+        <h1 class="sol-side-title">Acceso al módulo</h1>
+        <button type="button" class="sol-hide" id="sideHide" title="Ocultar panel" aria-controls="solSide" aria-expanded="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Ocultar</button>
+      </div>
+      <button type="button" class="sol-rail" id="sideShow" title="Mostrar QR e invitación" aria-label="Mostrar QR e invitación" aria-controls="solSide" aria-expanded="false">
+        <span class="sol-rail-sq"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></span>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7M17 21v-1"/></svg>
+      </button>
       <div class="sol-modes" role="tablist">
         <button type="button" role="tab" class="is-active" id="modeQr" aria-selected="true">Código QR</button>
         <button type="button" role="tab" id="modeMan" aria-selected="false">Sin celular</button>
@@ -57,36 +65,53 @@
     </div>
   </section>
 
-  <dialog class="sol-modal" id="revDialog" aria-labelledby="revNombre">
+  <dialog class="sol-modal sol-rev" id="revDialog" aria-labelledby="revNombre">
     <div class="sol-modal-pdf">
-      <div class="sol-modal-bar"><span id="revArchivo"></span></div>
+      <div class="sol-modal-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/></svg>
+        <span id="revArchivo"></span>
+        <a class="sol-bar-btn" id="revDescargar" title="Descargar" aria-label="Descargar el PDF" download hidden>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></a>
+      </div>
       <iframe id="revPdf" title="Formato de solicitud"></iframe>
       <div class="sol-pdf-fallback" id="revPdfMsg" hidden></div>
     </div>
     <div class="sol-modal-side">
       <div class="sol-modal-top">
-        <div class="sol-modal-row"><span class="sol-modal-kind">Solicitud de prórroga</span>
-          <button type="button" class="sol-x" id="revClose" title="Cerrar (Esc)" aria-label="Cerrar">&times;</button></div>
+        <div class="sol-modal-row">
+          <div class="sol-kind-row"><span class="sol-kind">Solicitud</span><span class="sol-folio" id="revFolio"></span></div>
+          <button type="button" class="sol-x" id="revClose" title="Cerrar (Esc)" aria-label="Cerrar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        </div>
         <h2 id="revNombre"></h2>
-        <dl class="sol-dl">
-          <dt>Folio</dt><dd id="revFolio" class="mono"></dd>
-          <dt>No. de control</dt><dd id="revControl" class="mono"></dd>
-          <dt>Correo</dt><dd id="revCorreo"></dd>
-          <dt>Recibida</dt><dd id="revFecha"></dd>
-          <dt>Plazos</dt><dd id="revPlazos"></dd>
-        </dl>
+        <div class="sol-who"><span class="sol-chip" id="revControl"></span><span id="revCarrera"></span></div>
       </div>
       <div class="sol-modal-mid">
-        <label for="revComentario">Comentario (obligatorio si se rechaza)</label>
-        <textarea id="revComentario" placeholder="Se incluirá en la carta enviada al estudiante"></textarea>
-        <div class="sol-side-error" id="revError" role="alert" hidden></div>
+        <div class="sol-facts">
+          {# una solicitud pendiente aún no tiene monto: lo fija la secretaria al armar el plan #}
+          <div><span>Monto</span><b>—</b><small>Se fija al armar el plan</small></div>
+          <div><span>Pagos pedidos</span><b id="revPlazos"></b><small id="revPorPago"></small></div>
+        </div>
+        <ul class="sol-contact">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg><span id="revCorreo"></span></li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span><span class="sol-muted">Recibida</span> <span class="sol-date" id="revFecha"></span></span></li>
+        </ul>
+        <div class="sol-cmt" id="revCmt">
+          <label for="revComentario"><span>Comentario</span><span class="sol-cmt-hint">Obligatorio si se rechaza</span></label>
+          <textarea id="revComentario" placeholder="Se incluirá en la carta enviada al estudiante"></textarea>
+          <div class="sol-cmt-error" id="revError" role="alert" hidden></div>
+        </div>
       </div>
-      <div class="sol-modal-actions">
-        <button type="button" class="sol-btn-reject" id="revReject">Rechazar</button>
-        <button type="button" class="sol-btn-accept" id="revAccept">Aceptar prórroga</button>
+      <div class="sol-modal-foot">
+        <p class="sol-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span>Al aceptar, el estudiante pasa a Estudiantes para asignarle sus nuevas fechas de pago.</span></p>
+        <div class="sol-modal-actions">
+          <button type="button" class="sol-btn-reject" id="revReject"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>Rechazar</button>
+          <button type="button" class="sol-btn-accept" id="revAccept"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Aceptar prórroga</button>
+        </div>
       </div>
     </div>
   </dialog>
+  <template id="tplEye"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></template>
 {% endblock %}
 {% block scripts %}
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"

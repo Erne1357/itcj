@@ -33,7 +33,7 @@ def pendientes(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)
         formato = next((d for d in DocumentService.current(db, r) if d.doc_type == "formato_solicitud"), None)
         items.append({
             "id": r.id, "folio": folio(r), "nombre": r.student_name, "control": r.control_number,
-            "correo": r.email, "recibida": r.created_at.isoformat(), "plazos": r.requested_terms,
+            "correo": r.email, "carrera": r.program_name, "recibida": r.created_at.isoformat(), "plazos": r.requested_terms,
             "documento_id": formato.id if formato else None})
     return {"items": items}
 

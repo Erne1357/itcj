@@ -36,9 +36,14 @@
     toast.t = setTimeout(() => { t.hidden = true; }, 3500);
   }
 
+  // "Hoy, 09:12", "Ayer, 17:30" o "27 oct, 10:15" (con el año si no es este)
   function fmtDate(iso) {
-    const d = new Date(iso);
-    return `${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+    const d = new Date(iso), hoy = new Date();
+    const hora = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const dias = Math.round((new Date(hoy.toDateString()) - new Date(d.toDateString())) / 864e5);
+    if (dias === 0) return `Hoy, ${hora}`;
+    if (dias === 1) return `Ayer, ${hora}`;
+    return `${d.getDate()} ${MESES[d.getMonth()]}${d.getFullYear() === hoy.getFullYear() ? "" : " " + d.getFullYear()}, ${hora}`;
   }
 
   // ── Modo del panel ──────────────────────────────────────────────────
@@ -52,6 +57,16 @@
   }
   $("modeQr").addEventListener("click", () => setMode(true));
   $("modeMan").addEventListener("click", () => { setMode(false); loadPrograms(); });
+
+  // Ocultar el panel deja un riel que lo vuelve a abrir; el foco pasa al botón visible.
+  function setSide(open) {
+    root.classList.toggle("is-collapsed", !open);
+    $("sideHide").setAttribute("aria-expanded", String(open));
+    $("sideShow").setAttribute("aria-expanded", String(open));
+    $(open ? "sideHide" : "sideShow").focus();
+  }
+  $("sideHide").addEventListener("click", () => setSide(false));
+  $("sideShow").addEventListener("click", () => setSide(true));
 
   // ── QR ──────────────────────────────────────────────────────────────
   let qrExpires = 0;   // en el reloj del navegador: Date.now() + ttl del servidor
@@ -187,10 +202,14 @@
     items.forEach((s) => {
       const row = el("div", "sol-row sol-row-item");
       row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `Revisar la solicitud de ${s.nombre}`);
       const who = el("div");
+      const eye = el("span", "sol-eye");
+      eye.append($("tplEye").content.cloneNode(true));
       who.append(el("div", "sol-name", s.nombre), el("div", "sol-ctrl", s.control));
       row.append(who, el("span", "sol-mail", s.correo), el("span", null, fmtDate(s.recibida)),
-        el("span", "mono", String(s.plazos)), el("span", "sol-eye", "Revisar"));
+        el("span", "mono", String(s.plazos)), eye);
       row.addEventListener("click", () => openReview(s));
       row.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openReview(s); } });
       box.append(row);
@@ -227,14 +246,18 @@
     $("revCorreo").textContent = s.correo;
     $("revFecha").textContent = fmtDate(s.recibida);
     $("revPlazos").textContent = s.plazos;
+    $("revPorPago").textContent = s.plazos === 1 ? "Pago único" : "";
+    $("revCarrera").textContent = s.carrera || "";
     $("revArchivo").textContent = `solicitud_prorroga_${s.control}.pdf`;
     $("revComentario").value = "";
-    show($("revError"), "");
+    cmtError("");
     const pdf = $("revPdf");
+    const dl = $("revDescargar");
+    dl.hidden = !s.documento_id;
     if (s.documento_id) {
       show($("revPdfMsg"), "");
       pdf.hidden = false;
-      pdf.src = `${API}/solicitudes/${s.id}/documentos/${s.documento_id}.pdf`;
+      pdf.src = dl.href = `${API}/solicitudes/${s.id}/documentos/${s.documento_id}.pdf`;
     } else {
       pdf.hidden = true;
       pdf.removeAttribute("src");
@@ -252,11 +275,23 @@
   $("revClose").addEventListener("click", closeReview);
   dlg.addEventListener("click", (e) => { if (e.target === dlg) closeReview(); });
 
+  function cmtError(msg) {
+    $("revCmt").classList.toggle("is-error", !!msg);
+    show($("revError"), msg);
+  }
+  $("revComentario").addEventListener("input", () => {
+    if ($("revCmt").classList.contains("is-error") && $("revComentario").value.trim()) cmtError("");
+  });
+
   async function decide(aceptar) {
     if (!current || deciding) return;
     const comentario = $("revComentario").value.trim();
-    if (!aceptar && !comentario) { show($("revError"), "Escribe el motivo del rechazo."); return; }
-    show($("revError"), "");
+    if (!aceptar && !comentario) {
+      cmtError("Escribe por qué se rechaza antes de continuar.");
+      $("revComentario").focus();
+      return;
+    }
+    cmtError("");
     setBusy(true);
     const s = current;
     const r = await api(`/solicitudes/${s.id}/decision`, { body: { aceptar, comentario } });

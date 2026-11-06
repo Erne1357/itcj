@@ -33,8 +33,8 @@ def test_no_se_resuelve_dos_veces(db_session, solicitud, secretaria, avisos):  #
 
 def test_api_lista_pendientes_y_decide(client_as, secretaria, solicitud, avisos):
     c = client_as(secretaria)
-    ids = [i["id"] for i in c.get("/api/prorrogas/v2/solicitudes").json()["items"]]
-    assert solicitud.id in ids
+    items = {i["id"]: i for i in c.get("/api/prorrogas/v2/solicitudes").json()["items"]}
+    assert items[solicitud.id]["carrera"] == solicitud.program_name  # el modal la muestra junto al número de control
     r = c.post(f"/api/prorrogas/v2/solicitudes/{solicitud.id}/decision", json={"aceptar": True, "comentario": ""})
     assert r.status_code == 200 and r.json()["estado"] == "aceptada"
     assert c.post(f"/api/prorrogas/v2/solicitudes/{solicitud.id}/decision",
