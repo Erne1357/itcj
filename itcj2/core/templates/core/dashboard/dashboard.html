@@ -198,16 +198,19 @@
                                 seguridad.</p>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
-                        <input type="password" class="form-control windows-input" id="newPw" minlength="8"
-                            placeholder="Ingresa tu nueva contraseña">
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label windows-text">Confirmar contraseña</label>
-                        <input type="password" class="form-control windows-input" id="confirmPw" minlength="8"
-                            placeholder="Confirma tu nueva contraseña">
-                    </div>
+                    {#- En su propio form: sueltas, el navegador toma el buscador de la barra como su usuario y lo autollena. -#}
+                    <form>
+                        <div class="mb-3">
+                            <label class="form-label windows-text">Nueva contraseña (mínimo 8 caracteres)</label>
+                            <input type="password" class="form-control windows-input" id="newPw" minlength="8"
+                                autocomplete="new-password" placeholder="Ingresa tu nueva contraseña">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label windows-text">Confirmar contraseña</label>
+                            <input type="password" class="form-control windows-input" id="confirmPw" minlength="8"
+                                autocomplete="new-password" placeholder="Confirma tu nueva contraseña">
+                        </div>
+                    </form>
                     <div id="pwErr" class="text-danger small d-none windows-text"></div>
                 </div>
                 <div class="modal-footer windows-footer">
