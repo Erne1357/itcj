@@ -24,3 +24,16 @@ def recibo_pdf_response(db, req, numero: int) -> Response:
         return error_response(404, "no_encontrada", "No se encontró el recibo.")
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": 'inline; filename="recibo.pdf"'})
+
+
+def referencia_pdf_response(req) -> Response:
+    """PDF de la referencia bancaria; `req` ya viene filtrada por quien llama (o es None)."""
+    from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
+    try:
+        data = ReferenceService.read(req) if req else b""
+    except ServiceError:
+        data = b""
+    if not data:
+        return error_response(404, "no_encontrada", "No se encontró la referencia.")
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="referencia.pdf"'})
