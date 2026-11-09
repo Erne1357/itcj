@@ -705,6 +705,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 
 .sol-side[hidden] { display: none; }
 .cfg-actions[hidden], .doc-side-btn[hidden] { display: none; }
+.sol-modal-actions button[hidden], .sol-modal-actions:not(:has(> button:not([hidden]))) { display: none; }
 .sol:has(> .sol-side[hidden]) { grid-template-columns: minmax(0, 1fr); }
 
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
