@@ -1,6 +1,7 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
 {% block cuerpo %}
 <p>La carta compromiso de tu prórroga <strong>{{ folio }}</strong> está lista para firmar.</p>
+{% include "prorrogas_tec/email/_pagos.html" %}
 <p>Entra a Mi prórroga para firmarla.</p>
 {% endblock %}
-{% block boton %}Ir a Mi prórroga{% endblock %}
+{% block boton %}Firmar mi carta{% endblock %}

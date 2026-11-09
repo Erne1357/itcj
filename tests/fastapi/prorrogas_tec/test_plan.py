@@ -158,3 +158,18 @@ def test_plan_con_pago_vencido_no_se_rehace(db_session, aceptada, secretaria, co
         PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("1000"),
                             parcialidades=[(D("1000"), date(2091, 2, 1))], now=date(2026, 11, 1))
     assert e.value.code == "con_vencidos" and e.value.status == 409
+
+
+def test_el_aviso_del_plan_lleva_fechas_y_montos(db_session, aceptada, secretaria, avisos):
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=DOS, now=date(2026, 11, 1))
+    kw = avisos.kw[0]
+    assert "$1,825.00 el 01 de febrero de 2091" in kw["body"] and kw["context"]["total"] == "$3,650.00"
+    assert [p["etiqueta"] for p in kw["context"]["pagos"]] == ["Pago 1/2", "Pago 2/2"]
+
+
+@pytest.mark.parametrize("plantilla", ["carta_lista.html", "plan_modificado.html"])
+def test_el_correo_del_plan_lista_los_pagos(plantilla):
+    from itcj2.templates import templates
+    html = templates.env.get_template(f"prorrogas_tec/email/{plantilla}").render(
+        folio="PR-1", link="x", total="$10.00", pagos=[{"etiqueta": "Pago único", "fecha": "01 de mayo de 2091", "monto": "$10.00"}])
+    assert "Pago único" in html and "01 de mayo de 2091" in html and "Firmar mi carta" in html

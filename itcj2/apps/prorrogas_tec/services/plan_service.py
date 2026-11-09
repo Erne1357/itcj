@@ -99,8 +99,13 @@ class PlanService:
             db.rollback()
             raise
         db.refresh(req)
+        n = len(nuevas)
+        pagos = [{"etiqueta": "Pago único" if n == 1 else f"Pago {i}/{n}", "fecha": fecha_larga(f), "monto": pesos(m)}
+                 for i, (m, f) in enumerate(nuevas, start=1)]
+        body = " · ".join(f"{p['monto']} el {p['fecha']}" for p in pagos) + ". Firma tu carta compromiso en Mi prórroga."
         notify.notify_student(db, req, kind="carta_lista" if evento == "plan_confirmado" else evento,
-                              link="/prorrogas/estudiante")
+                              link="/prorrogas/estudiante", body=body,
+                              context={"total": pesos(total), "pagos": pagos})
         try:  # el aviso en la plataforma sale con este commit; si falla, el plan ya está firme
             db.commit()
         except Exception:

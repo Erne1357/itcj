@@ -1,6 +1,7 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
 {% block cuerpo %}
 <p>El plan de pagos de tu prórroga <strong>{{ folio }}</strong> cambió.</p>
+{% include "prorrogas_tec/email/_pagos.html" %}
 <p>Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso.</p>
 {% endblock %}
-{% block boton %}Ir a Mi prórroga{% endblock %}
+{% block boton %}Firmar mi carta{% endblock %}
