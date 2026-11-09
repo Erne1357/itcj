@@ -23,7 +23,7 @@ def test_lista_y_semestres(client_as, cajero, periodo, aceptada, con_plan):
 def test_saldar_y_anular(client_as, cajero, aceptada, con_plan):
     con_plan(aceptada, PLAN)
     c = client_as(cajero)
-    d = c.post(f"{API}/{aceptada.id}/saldar", json={"numero": 1, "folio": "zz-200", "fecha": _hoy()}).json()
+    d = c.post(f"{API}/{aceptada.id}/saldar", json={"numero": 1, "monto": "1000.00", "folio": "zz-200", "fecha": _hoy()}).json()
     assert d["situacion"] == "liquidada" and d["pagos"][0]["recibo"]["folio"] == "ZZ-200"
     rid = d["pagos"][0]["recibo"]["id"]
     d = c.post(f"{API}/{aceptada.id}/recibos/{rid}/anular", json={"motivo": "Se capturó mal"}).json()
@@ -32,7 +32,7 @@ def test_saldar_y_anular(client_as, cajero, aceptada, con_plan):
 
 def test_saldar_fuera_de_orden_da_409(client_as, cajero, aceptada, con_plan):
     con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 5, 1))])
-    r = client_as(cajero).post(f"{API}/{aceptada.id}/saldar", json={"numero": 2, "folio": "ZZ-201", "fecha": _hoy()})
+    r = client_as(cajero).post(f"{API}/{aceptada.id}/saldar", json={"numero": 2, "monto": "1000.00", "folio": "ZZ-201", "fecha": _hoy()})
     assert r.status_code == 409 and r.json()["error"] == "pago_cambio"
 
 
@@ -71,7 +71,7 @@ def test_caja_abre_referencia_y_recibo(client_as, cajero, db_session, aceptada, 
 @pytest.mark.parametrize("metodo, ruta, cuerpo", [
     ("get", "", None), ("get", "/{id}", None), ("get", "/{id}/referencia.pdf", None),
     ("get", "/{id}/parcialidades/1/recibo.pdf", None),
-    ("post", "/{id}/saldar", {"numero": 1, "folio": "ZZ-202", "fecha": "2091-01-20"}),
+    ("post", "/{id}/saldar", {"numero": 1, "monto": "1000.00", "folio": "ZZ-202", "fecha": "2091-01-20"}),
     ("post", "/{id}/recibos/1/anular", {"motivo": "Se capturó mal"}),
 ])
 def test_solo_caja_entra(request, client_as, aceptada, quien, metodo, ruta, cuerpo):
@@ -83,4 +83,4 @@ def test_solo_caja_entra(request, client_as, aceptada, quien, metodo, ruta, cuer
 def test_admin_global_cobra(client_as, make_user, aceptada, con_plan):
     con_plan(aceptada, PLAN)
     c = client_as(make_user(first_name="GLOBAL", last_name="ADMIN"), role="admin")
-    assert c.post(f"{API}/{aceptada.id}/saldar", json={"numero": 1, "folio": "ZZ-203", "fecha": _hoy()}).status_code == 200
+    assert c.post(f"{API}/{aceptada.id}/saldar", json={"numero": 1, "monto": "1000.00", "folio": "ZZ-203", "fecha": _hoy()}).status_code == 200

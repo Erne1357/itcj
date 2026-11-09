@@ -98,3 +98,14 @@ def test_la_aceptacion_ya_no_manda_a_acordar_el_monto():
     html = templates.env.get_template("prorrogas_tec/email/decision_aceptada.html").render(folio="PR-1", link="x")
     assert "Acude" not in html and "referencia bancaria" in html
     assert "Acude" not in notify._CUERPOS["aceptada"]
+
+
+def test_cobro_o_subida_de_recibo_no_apagan_el_aviso_de_correo_fallido(db_session, solicitud, monkeypatch):  # M3
+    from itcj2.apps.prorrogas_tec.services.events import last_mail_failed, log_event
+    monkeypatch.setattr(msgraph_mail, "acquire_token_silent", lambda app: None)
+    notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante")
+    db_session.flush()
+    for t in ("recibo_registrado", "recibo_anulado", "recibo_subido"):
+        log_event(db_session, event_type=t, request_id=solicitud.id)
+    db_session.flush()
+    assert last_mail_failed(db_session, solicitud.id)

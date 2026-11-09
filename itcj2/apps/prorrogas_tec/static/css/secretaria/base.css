@@ -172,7 +172,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 @media (max-width: 1000px) {
   .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 1120px) {  /* las siete pestañas del admin global ya no caben junto a la marca y el usuario */
+@media (max-width: 1210px) {  /* las siete pestañas del admin global ya no caben junto a la marca y el usuario */
   .sec-topnav { grid-template-columns: 1fr; height: auto; gap: 0; padding: 0 16px; }
   .sec-brand { height: 48px; }
   .sec-tabs { gap: 18px; height: 48px; justify-content: flex-start; overflow-x: auto; }
@@ -787,14 +787,15 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 @media (max-width: 900px) {
   .caj-fila.caj-fila-head, .caj-f { display: none; }
   .caj-tabla { background: transparent; border: 0; border-radius: 0; overflow: visible; display: flex; flex-direction: column; gap: 10px; }
-  .caj-fila { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
-  .caj-nom { order: 1; flex: 1 1 0; min-width: 0; font-weight: 700; }
-  .caj-st { order: 2; padding: 2px 9px; }
-  .caj-c, .caj-s { order: 3; font-size: 13px; color: rgba(26, 19, 14, .62); }
-  .caj-c { font-family: var(--font-mono); }
+  /* Tres renglones: nombre + pastilla / control · semestre / fecha + detalle */
+  .caj-fila { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; gap: 8px 0; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+  .caj-nom { grid-area: 1 / 1 / 2 / 3; min-width: 0; font-weight: 700; }
+  .caj-st { grid-area: 1 / 3; padding: 2px 9px; margin-left: 8px; }
+  .caj-c, .caj-s { font-size: 13px; color: rgba(26, 19, 14, .62); }
+  .caj-c { grid-area: 2 / 1; font-family: var(--font-mono); }
   .caj-c::after { content: " ·"; }
-  .caj-s { flex: 1 1 0; min-width: 0; margin-left: -4px; }
-  .caj-nx { order: 4; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; }
+  .caj-s { grid-area: 2 / 2 / 3 / 4; min-width: 0; margin-left: 4px; }
+  .caj-nx { grid-area: 3 / 1 / 4 / 4; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 10px; }
   .caj-nx > span:last-child { font-size: 13px; }
   .caj-pags { padding: 0; }
   .caj-pags > div { display: contents; }
@@ -917,6 +918,10 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .caj-m-who h2 { font-size: 20px; }
   .caj-m-body { padding: 0 16px 24px; }
   .caj-saldar-btn { flex: 1 1 100%; }
+}
+@media (max-width: 480px) {
+  .caj-sum { padding: 12px 10px; }
+  .caj-sum-v, .caj-sum-v.is-saldo { font-size: 14px; }
 }
 
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──

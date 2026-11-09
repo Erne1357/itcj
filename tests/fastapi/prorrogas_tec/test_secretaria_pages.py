@@ -102,7 +102,7 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
 
 @pytest.mark.parametrize("ruta, cuerpo", [
     ("/api/prorrogas/v2/estudiantes/{id}/plan", {"total": "1000", "parcialidades": []}),
-    ("/api/prorrogas/v2/caja/{id}/saldar", {"numero": 1, "folio": "ZZ-X", "fecha": "2091-01-20"}),
+    ("/api/prorrogas/v2/caja/{id}/saldar", {"numero": 1, "monto": "1.00", "folio": "ZZ-X", "fecha": "2091-01-20"}),
     ("/api/prorrogas/v2/estudiantes/{id}/recordar", {}),
     ("/api/prorrogas/v2/solicitudes/{id}/decision", {"aceptar": False, "comentario": "x"}),
     ("/api/prorrogas/v2/invitaciones/qr", None),

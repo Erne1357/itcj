@@ -25,6 +25,8 @@ def log_event(db, *, event_type: str, request_id: int | None = None,
 
 def last_mail_failed(db, request_id: int) -> bool:
     """El evento más nuevo de la solicitud es `correo_no_enviado`."""
-    ultimo = (db.query(ProrrogaEvent.event_type).filter(ProrrogaEvent.request_id == request_id)
+    ultimo = (db.query(ProrrogaEvent.event_type)
+              .filter(ProrrogaEvent.request_id == request_id,
+                      ProrrogaEvent.event_type.notin_(("recibo_registrado", "recibo_anulado", "recibo_subido")))
               .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).first())
     return ultimo is not None and ultimo[0] == "correo_no_enviado"

@@ -92,6 +92,15 @@ Detalle de cada uno en el ledger del Plan 2 (`.superpowers/sdd/2026-10-29-prorro
 | R4 | Número de control del Excel con prefijo `L` (D21) (2026-11-09) | Si difiere del de la cuenta, `access` no los empareja | Normalizar el prefijo al emparejar |
 | R5 | Un recibo viejo que cubre un pago a medias y es el último vigente no tiene botón Anular en Caja (2026-11-09) | Solo pasa con capturas anteriores a Caja o del Excel; Caja no puede corregirlo desde su pantalla | Si aparece, mostrar `Anular` también en la fila parcial |
 
+## Técnicos (Plan 6)
+
+| # | Pendiente | Efecto | Arreglo propuesto |
+|---|---|---|---|
+| C1 | Un recibo que cubrió dos pagos: al anularlo el aviso solo menciona el último (2026-11-09) | Solo afecta capturas viejas | Mencionar los dos pagos en el aviso |
+| C2 | Filas históricas ya pagadas muestran "Falta subir recibo" para siempre (2026-11-09) | La spec no distingue histórico | Distinguir el origen `excel` en la spec y en Caja |
+| C3 | Esc y clic en el fondo cierran el modal de Caja y pierden un formulario a medias, igual que el canvas (2026-11-09) | Se pierde lo tecleado | Confirmar antes de cerrar si hay un formulario abierto |
+| C4 | Rehacer el plan tras anular el único recibo deja el escaneo en la parcialidad reemplazada, sin verse (2026-11-09) | El recibo subido no aparece en el plan nuevo | Reasignar el escaneo a la parcialidad nueva o avisar |
+
 ## Técnicos (diferidos de las revisiones del Plan 3, 2026-10-29)
 
 Detalle en el ledger del Plan 3 (`.superpowers/sdd/2026-10-29-prorrogas-plan3-estudiantes-pagos/progress.md`, no versionado).

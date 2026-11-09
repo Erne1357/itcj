@@ -83,8 +83,8 @@ class PaymentService:
         return pago
 
     @staticmethod
-    def settle_next(db, request_id: int, actor_id: int, *, numero: int, folio: str, paid_on: date,
-                    now: date | datetime | None = None) -> ProrrogaPayment:
+    def settle_next(db, request_id: int, actor_id: int, *, numero: int, monto: str, folio: str,
+                    paid_on: date, now: date | datetime | None = None) -> ProrrogaPayment:
         """Caja cobra completo el pago más próximo (lo que falte si ya venía cubierto en parte)."""
         today, _ = _tiempos(now)
         # Mismo candado que `record`; la transacción lo conserva hasta el commit de `record`.
@@ -102,8 +102,16 @@ class PaymentService:
             if c.proxima is None or c.proxima.number != numero:
                 raise ServiceError("pago_cambio", "Ese pago ya no es el siguiente por cobrar. Revisa el detalle.",
                                    status=409)
+            a_cobrar = c.proxima.amount - c.proxima.cubierto
+            if parse_monto(monto) != a_cobrar:  # el plan cambió mientras Caja tenía el formulario abierto
+                raise ServiceError("pago_cambio", "Ese pago ya no es el siguiente por cobrar. Revisa el detalle.",
+                                   status=409)
+            if (db.query(ProrrogaPayment.id).filter(ProrrogaPayment.request_id == req.id,
+                                                    ProrrogaPayment.voided_at.is_(None),
+                                                    ProrrogaPayment.paid_on > paid_on).first()):
+                raise ServiceError("fecha_invalida", "La fecha no puede ser anterior a la del último pago registrado.")
             return PaymentService.record(db, request_id, actor_id, folio=folio, paid_on=paid_on,
-                                         amount=c.proxima.amount - c.proxima.cubierto, now=now)
+                                         amount=a_cobrar, now=now)
         except Exception:
             db.rollback()
             raise

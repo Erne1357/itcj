@@ -385,7 +385,7 @@
       }
       card.append(row);
     } else if (p.siguiente) {
-      if (!ui.form && can(RECORD)) {
+      if (!ui.form && !ui.anul && can(RECORD)) {
         const row = el("div", "caj-saldar-row");
         row.append(el("span", venc ? "caj-nota is-venc" : "caj-nota", venc ? "Se cobra igual, sin recargo." : ""));
         row.append(button("Saldar pago", "caj-saldar-btn", async () => {
@@ -481,7 +481,7 @@
     f.dErr = !f.fecha ? "Elige la fecha de pago." : f.fecha > hoy ? "La fecha no puede ser futura." : "";
     if (f.fErr || f.dErr) { paint(); focoError(".caj-form"); return; }
     const seq = openSeq;
-    const r = await api(`${CAJA}/${x.id}/saldar`, { body: { numero: p.numero, folio, fecha: f.fecha } });
+    const r = await api(`${CAJA}/${x.id}/saldar`, { body: { numero: p.numero, monto: p.a_cobrar, folio, fecha: f.fecha } });
     if (seq !== openSeq) { loadList(); return; }   // el modal se cerró: el pago pudo guardarse
     if (r.ok) {
       const rec = (r.data.pagos.find((q) => q.numero === p.numero) || {}).recibo || {};

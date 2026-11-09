@@ -71,8 +71,9 @@ def test_sin_plan_no_hay_recibos(db_session, aceptada, secretaria):
     assert e.value.code == "sin_plan"
 
 
-def _saldar(db, req, actor, numero, folio, dia=HOY):
-    return PaymentService.settle_next(db, req.id, actor.id, numero=numero, folio=folio, paid_on=dia, now=HOY)
+def _saldar(db, req, actor, numero, folio, dia=HOY, monto="1000.00"):
+    return PaymentService.settle_next(db, req.id, actor.id, numero=numero, folio=folio, paid_on=dia, monto=monto,
+                                      now=HOY)
 
 
 def test_saldar_cobra_el_siguiente_completo(db_session, aceptada, cajero, con_plan):
@@ -84,7 +85,7 @@ def test_saldar_cobra_el_siguiente_completo(db_session, aceptada, cajero, con_pl
 
 def test_saldar_cobra_solo_lo_que_falta(db_session, aceptada, cajero, con_plan):
     con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 4, 1))], pagos=["400.00"])
-    assert _saldar(db_session, aceptada, cajero, 1, "ZZ-101").amount == D("600.00")
+    assert _saldar(db_session, aceptada, cajero, 1, "ZZ-101", monto="600.00").amount == D("600.00")
 
 
 def test_saldar_dos_veces_no_cobra_doble(db_session, aceptada, cajero, con_plan):  # Review Focus 1
@@ -137,11 +138,48 @@ def test_cobra_aunque_no_haya_firmado(db_session, aceptada, cajero, con_plan):
 ])
 def test_solo_se_anula_el_ultimo(db_session, aceptada, cajero, con_plan, dia1, dia2, ultimo):
     _plan(con_plan, aceptada)
-    pagos = [_saldar(db_session, aceptada, cajero, 1, "ZZ-110", dia=dia1),
-             _saldar(db_session, aceptada, cajero, 2, "ZZ-111", dia=dia2)]
+    pagos = [PaymentService.record(db_session, aceptada.id, cajero.id, folio=f, paid_on=d, amount=D("1000"), now=HOY)
+             for f, d in (("ZZ-110", dia1), ("ZZ-111", dia2))]
     with pytest.raises(ServiceError) as e:
         PaymentService.void(db_session, pagos[1 - ultimo].id, cajero.id, motivo="Se capturó mal", now=HOY)
     assert (e.value.code, e.value.status) == ("no_es_el_ultimo", 409)
     PaymentService.void(db_session, pagos[ultimo].id, cajero.id, motivo="Se capturó mal", now=HOY)
     PaymentService.void(db_session, pagos[1 - ultimo].id, cajero.id, motivo="Se capturó mal", now=HOY)
     assert load(db_session, aceptada, HOY).pagado == D("0")
+
+
+def test_saldar_con_monto_distinto_da_pago_cambio_y_no_registra(db_session, aceptada, cajero, con_plan):  # I1
+    _plan(con_plan, aceptada)
+    with pytest.raises(ServiceError) as e:
+        _saldar(db_session, aceptada, cajero, 1, "ZZ-120", monto="900.00")
+    assert (e.value.code, e.value.status) == ("pago_cambio", 409)
+    assert load(db_session, aceptada, HOY).pagado == D("0")
+
+
+def test_saldar_con_fecha_anterior_al_ultimo_recibo_se_rechaza(db_session, aceptada, cajero, con_plan):  # I2
+    _plan(con_plan, aceptada)
+    _saldar(db_session, aceptada, cajero, 1, "ZZ-121", dia=date(2091, 3, 5))
+    with pytest.raises(ServiceError) as e:
+        _saldar(db_session, aceptada, cajero, 2, "ZZ-122", dia=date(2091, 3, 1))
+    assert e.value.code == "fecha_invalida"
+    assert e.value.message == "La fecha no puede ser anterior a la del último pago registrado."
+    assert load(db_session, aceptada, HOY).pagado == D("1000.00")
+
+
+def test_anular_recibo_del_excel_sin_folio(db_session, aceptada, cajero, con_plan):  # M4
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
+    _plan(con_plan, aceptada)
+    p = ProrrogaPayment(request_id=aceptada.id, origin="excel", folio=None, paid_on=date(2091, 3, 1), amount=D("1000"))
+    db_session.add(p)
+    db_session.flush()
+    PaymentService.void(db_session, p.id, cajero.id, motivo="Se capturó mal", now=HOY)
+    assert p.voided_at is not None and load(db_session, aceptada, HOY).pagado == D("0")
+
+
+def test_un_recibo_anulado_no_cuenta_como_ultimo(db_session, aceptada, cajero, con_plan):  # M4
+    _plan(con_plan, aceptada)
+    pagos = [PaymentService.record(db_session, aceptada.id, cajero.id, folio=f, paid_on=d, amount=D("500"), now=HOY)
+             for f, d in (("ZZ-130", date(2091, 3, 1)), ("ZZ-131", date(2091, 3, 2)), ("ZZ-132", date(2091, 3, 3)))]
+    PaymentService.void(db_session, pagos[2].id, cajero.id, motivo="Se capturó mal", now=HOY)
+    PaymentService.void(db_session, pagos[1].id, cajero.id, motivo="Se capturó mal", now=HOY)  # el anulado se ignora
+    assert load(db_session, aceptada, HOY).pagado == D("500.00")

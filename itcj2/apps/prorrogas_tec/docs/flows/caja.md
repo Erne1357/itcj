@@ -24,7 +24,7 @@ Escritorio o celular → Prórrogas → `/prorrogas/secretaria/caja` (`static/js
 | 4 | Caja | Clic en un alumno | Detalle: datos, total, pagado, saldo y cada pago con su estado, lo que falta por cobrar, días de vencido, recibo que lo cubrió, si el alumno subió su recibo escaneado y si se puede anular | `GET …/caja/{id}` | `CajaService.detalle` | — |
 | 5 | Caja | **Abrir PDF** (referencia) | Referencia bancaria que subió el alumno, solo lectura, en otra pestaña | `GET …/caja/{id}/referencia.pdf` | `referencia_pdf_response` | — |
 | 6 | Caja | **Ver recibo** | Recibo escaneado de ese pago, en otra pestaña | `GET …/caja/{id}/parcialidades/{numero}/recibo.pdf` | `ReceiptScanService.read` | — |
-| 7 | Caja | **Saldar pago** | Folio y fecha del pago (no hay monto: se cobra completo lo que falta del pago); envía `{numero, folio, fecha}` | `POST …/caja/{id}/saldar` | `PaymentService.settle_next` → `record` | Fila en `prorrogas_payments`; evento `recibo_registrado`. Responde con el detalle actualizado |
+| 7 | Caja | **Saldar pago** | Folio y fecha del pago; el monto es el que Caja vio (lo que falta del pago) y el servidor lo verifica; envía `{numero, monto, folio, fecha}` | `POST …/caja/{id}/saldar` | `PaymentService.settle_next` → `record` | Fila en `prorrogas_payments`; evento `recibo_registrado`. Responde con el detalle actualizado |
 | 8 | Caja | **Anular recibo** | Motivo de 5 a 500 caracteres; el recibo nunca se borra; envía `{motivo}` | `POST …/caja/{id}/recibos/{payment_id}/anular` | `PaymentService.void` | `voided_at/by`, `void_reason`; evento `recibo_anulado`. Responde con el detalle actualizado |
 
 La lista, el detalle y los PDF piden `caja.api.read`; saldar y anular piden además su permiso propio. `/semestres` va antes de `/{request_id}` en el router. Todo texto del servidor entra a la pantalla con `textContent`.
@@ -49,14 +49,14 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `filtro_invalido` | El filtro de la lista no es `todos`, `con_adeudo` ni `al_corriente` | 400 |
 | `orden_invalido` | El orden no es `urgente`, `proximo`, `saldo` ni `nombre` | 400 |
 | `folio_invalido` | Folio vacío o de más de 40 caracteres | 400 |
-| `fecha_invalida` | Fecha de pago futura o anterior a la solicitud | 400 |
+| `fecha_invalida` | Fecha de pago futura, anterior a la solicitud, o (al saldar) anterior a la del último recibo vigente | 400 |
 | `motivo_requerido` | Anular con motivo de menos de 5 o más de 500 caracteres | 400 |
 | `no_encontrada` | La solicitud no existe, no está `aceptada` o no tiene semestre (en saldar, anular y detalle); también en los PDF cuando no hay referencia o recibo | 404 |
 | `recibo_no_encontrado` | Anular un recibo que no existe o es de otra solicitud | 404 |
 | `no_aceptada` | Saldar sobre una solicitud que ya no está `aceptada` (carrera con otra operación) | 409 |
 | `sin_semestre` | Saldar o anular una prórroga del Excel sin semestre de core (carrera con otra operación) | 409 |
 | `sin_plan` | Saldar sin plan confirmado | 409 |
-| `pago_cambio` | El `numero` ya no es el siguiente por cobrar (otro cobro o anulación entre medias); hay que revisar el detalle | 409 |
+| `pago_cambio` | El `numero` ya no es el siguiente por cobrar, o su monto por cobrar ya no es el `monto` que Caja vio (otro cobro, anulación o plan rehecho entre medias); hay que revisar el detalle | 409 |
 | `folio_duplicado` | Ya hay un recibo vigente con ese folio (también si pierde la carrera del índice `uq_prorrogas_payments_folio_vigente`) | 409 |
 | `ya_anulado` | El recibo ya estaba anulado | 409 |
 | `no_es_el_ultimo` | Anular un recibo que no es el último vigente | 409 |

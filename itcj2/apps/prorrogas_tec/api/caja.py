@@ -25,6 +25,7 @@ _VOID = ["prorrogas_tec.payments.api.void"]
 
 class SaldarIn(BaseModel):
     numero: int
+    monto: str
     folio: str
     fecha: date
 
@@ -71,8 +72,8 @@ def saldar(request_id: int, body: SaldarIn, db: DbSession, user: dict = require_
     try:
         if CajaService.solicitud(db, request_id) is None:
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
-        PaymentService.settle_next(db, request_id, int(user["sub"]), numero=body.numero, folio=body.folio,
-                                   paid_on=body.fecha)
+        PaymentService.settle_next(db, request_id, int(user["sub"]), numero=body.numero, monto=body.monto,
+                                   folio=body.folio, paid_on=body.fecha)
     except ServiceError as e:
         db.rollback()
         return _err(e)

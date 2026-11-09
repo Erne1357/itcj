@@ -29,6 +29,7 @@
   const AVISO = {
     aceptada: "aceptación", rechazada: "rechazo", carta_lista: "carta lista", plan_modificado: "cambio de plan",
     recordatorio: "recordatorio de pago", firma_pendiente: "firma pendiente", referencia_pendiente: "referencia pendiente",
+    recibo_inconsistente: "Aviso de inconsistencia del recibo",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -732,7 +733,7 @@
       case "recibo_registrado": return `Recibo ${d.folio} · ${pesos(d.monto)} · pagado el ${fmtDate(d.fecha)}`;
       case "recibo_subido": return `Pago ${d.numero}`;
       case "recibo_inconsistente": return `Pago ${d.numero} · ${d.motivo}`;
-      case "recibo_anulado": return `Recibo ${d.folio} · ${pesos(d.monto)} · ${d.motivo || ""}`;
+      case "recibo_anulado": return `Recibo ${d.folio || "Histórico"} · ${pesos(d.monto)} · ${d.motivo || ""}`;
       case "recordatorio_enviado": return d.saldo ? `Saldo de ${pesos(d.saldo)}` : "";
       case "recordatorio_pendiente": return d.que === "referencia" ? "Referencia bancaria" : "Firma de la carta";
       case "correo_no_enviado": return d.aviso ? `Aviso de ${AVISO[d.aviso] || d.aviso}` : "";

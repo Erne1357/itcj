@@ -134,7 +134,8 @@ def test_detalle_sin_plan(db_session, aceptada):
 def test_detalle_marca_el_siguiente_y_el_ultimo(db_session, aceptada, cajero, con_plan):
     from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
     con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 4, 1)), ("500.00", date(2091, 5, 1))])
-    PaymentService.settle_next(db_session, aceptada.id, cajero.id, numero=1, folio="ZZ-300", paid_on=HOY, now=HOY)
+    PaymentService.settle_next(db_session, aceptada.id, cajero.id, numero=1, monto="1000.00", folio="ZZ-300",
+                               paid_on=HOY, now=HOY)
     uno, dos, tres = _pagos(db_session, aceptada)
     assert (uno["estado"], uno["a_cobrar"], uno["recibo"]["folio"], uno["recibo"]["fecha"], uno["anulable"]) == (
         "pagada", "0.00", "ZZ-300", "2091-03-10", True)
