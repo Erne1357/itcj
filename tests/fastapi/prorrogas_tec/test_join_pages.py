@@ -95,3 +95,20 @@ def test_cuenta_sin_nip_va_a_centro_de_computo(client, secretaria, make_user, en
     _, token, _ = inv.invite(db_session, raw_control="99300009", email=None, actor_id=secretaria.id)
     r = client.get(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
     assert r.status_code == 403 and "Centro de Cómputo" in r.text
+
+
+def test_post_de_invitacion_sin_sesion_va_al_login_y_no_une(client, secretaria, make_user, enviar_correo, db_session):
+    u = make_user(control_number="99300012")
+    invitacion, token, _ = inv.invite(db_session, raw_control="99300012", email=None, actor_id=secretaria.id)
+    r = client.post(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"].startswith("/itcj/login?next=")
+    assert invitacion.used_at is None and db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0
+
+
+def test_post_de_invitacion_con_otra_cuenta_da_403_y_no_une(client_as, secretaria, make_user, enviar_correo, db_session):
+    u = make_user(control_number="99300013")
+    otro = make_user(control_number="99300014")
+    invitacion, token, _ = inv.invite(db_session, raw_control="99300013", email=None, actor_id=secretaria.id)
+    r = client_as(otro).post(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
+    assert r.status_code == 403 and invitacion.used_at is None
+    assert db_session.query(ProrrogaJoin).filter(ProrrogaJoin.user_id.in_([u.id, otro.id])).count() == 0

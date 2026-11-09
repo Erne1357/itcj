@@ -113,3 +113,47 @@ def test_reinvitar_revoca_la_invitacion_anterior(db_session, secretaria, make_us
         inv.consume_invitation(db_session, primero, user_id=u.id)
     assert e.value.code == "invitacion_expirada"
     assert inv.consume_invitation(db_session, segundo, user_id=u.id).via == "invitacion"
+
+
+@pytest.mark.parametrize("kwargs, code", [
+    ({"raw_control": "D99200005", "email": "x@example.invalid"}, "sin_cuenta"),
+    ({"raw_control": "123", "email": None}, "control_invalido"),
+])
+def test_invitaciones_invalidas(db_session, secretaria, enviar_correo, kwargs, code):
+    with pytest.raises(ServiceError) as e:
+        inv.invite(db_session, actor_id=secretaria.id, **kwargs)
+    assert e.value.code == code
+
+
+def test_invitar_sin_cuenta_manda_a_centro_de_computo(db_session, secretaria, enviar_correo):
+    from itcj2.core.models.user import User
+    with pytest.raises(ServiceError) as e:
+        inv.invite(db_session, raw_control="D99200003", email="p@example.invalid", actor_id=secretaria.id)
+    assert e.value.status == 404 and "Centro de Cómputo" in e.value.message
+    assert db_session.query(User).filter_by(control_number="D99200003").first() is None and enviar_correo.calls == []
+
+
+def test_doctorado_sin_correo_lo_pide(db_session, secretaria, make_user, enviar_correo):
+    make_user(control_number="D99200004").email = ""
+    with pytest.raises(ServiceError) as e:
+        inv.invite(db_session, raw_control="D99200004", email=None, actor_id=secretaria.id)
+    assert e.value.code == "correo_requerido"
+
+
+def test_consumir_une_da_el_rol_y_no_se_reusa(db_session, secretaria, make_user, enviar_correo):
+    u = make_user(control_number="99200006")
+    _, token, _ = inv.invite(db_session, raw_control="99200006", email=None, actor_id=secretaria.id)
+    join = inv.consume_invitation(db_session, token, user_id=u.id)
+    assert join.via == "invitacion" and "student" in user_roles_in_app(db_session, u.id, "prorrogas_tec")
+    with pytest.raises(ServiceError) as e:
+        inv.consume_invitation(db_session, token, user_id=u.id)
+    assert e.value.code == "invitacion_usada"
+
+
+def test_invitacion_abierta_por_otra_cuenta_no_se_consume(db_session, secretaria, make_user, enviar_correo):  # RF 5
+    make_user(control_number="99200007")
+    otro = make_user(control_number="99200008")
+    invitacion, token, _ = inv.invite(db_session, raw_control="99200007", email=None, actor_id=secretaria.id)
+    with pytest.raises(ServiceError) as e:
+        inv.consume_invitation(db_session, token, user_id=otro.id)
+    assert e.value.code == "invitacion_de_otra_cuenta" and invitacion.used_at is None
