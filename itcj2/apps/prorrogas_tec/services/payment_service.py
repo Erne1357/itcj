@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
@@ -18,7 +19,7 @@ _UQ_FOLIO = "uq_prorrogas_payments_folio_vigente"
 
 
 def _folio_duplicado() -> ServiceError:
-    return ServiceError("folio_duplicado", "Ya hay un recibo vigente con ese folio de Caja.", status=409)
+    return ServiceError("folio_duplicado", "Ese folio ya está registrado.", status=409)
 
 
 def _tiempos(now):
@@ -50,7 +51,7 @@ class PaymentService:
             _exigir_semestre(req)
             if req.total_amount is None:
                 raise ServiceError("sin_plan", "Primero hay que confirmar el plan de pagos.", status=409)
-            folio = (folio or "").strip()
+            folio = (folio or "").strip().upper()
             if not 1 <= len(folio) <= 40:
                 raise ServiceError("folio_invalido", "El folio de Caja debe tener de 1 a 40 caracteres.")
             amount = parse_monto(amount)
@@ -61,7 +62,7 @@ class PaymentService:
             if amount > saldo:
                 raise ServiceError("sobrepago", f"El monto excede el saldo pendiente ({pesos(saldo)}).")
             if (db.query(ProrrogaPayment.id)
-                    .filter(ProrrogaPayment.folio == folio, ProrrogaPayment.voided_at.is_(None)).first()):
+                    .filter(func.upper(ProrrogaPayment.folio) == folio, ProrrogaPayment.voided_at.is_(None)).first()):
                 raise _folio_duplicado()
             pago = ProrrogaPayment(request_id=req.id, folio=folio, paid_on=paid_on, amount=amount,
                                    recorded_by_id=actor_id)
@@ -82,6 +83,32 @@ class PaymentService:
         return pago
 
     @staticmethod
+    def settle_next(db, request_id: int, actor_id: int, *, numero: int, folio: str, paid_on: date,
+                    now: date | datetime | None = None) -> ProrrogaPayment:
+        """Caja cobra completo el pago más próximo (lo que falte si ya venía cubierto en parte)."""
+        today, _ = _tiempos(now)
+        # Mismo candado que `record`; la transacción lo conserva hasta el commit de `record`.
+        req = (db.query(ProrrogaRequest).filter_by(id=request_id)
+               .populate_existing().with_for_update().first())
+        if req is None:
+            raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
+        try:
+            if req.status != "aceptada":
+                raise ServiceError("no_aceptada", "Solo una solicitud aceptada lleva recibos.", status=409)
+            _exigir_semestre(req)
+            c = account.load(db, req, today)
+            if c.total is None:
+                raise ServiceError("sin_plan", "Primero hay que confirmar el plan de pagos.", status=409)
+            if c.proxima is None or c.proxima.number != numero:
+                raise ServiceError("pago_cambio", "Ese pago ya no es el siguiente por cobrar. Revisa el detalle.",
+                                   status=409)
+            return PaymentService.record(db, request_id, actor_id, folio=folio, paid_on=paid_on,
+                                         amount=c.proxima.amount - c.proxima.cubierto, now=now)
+        except Exception:
+            db.rollback()
+            raise
+
+    @staticmethod
     def void(db, payment_id: int, actor_id: int, *, motivo: str, request_id: int | None = None,
              now: date | datetime | None = None) -> ProrrogaPayment:
         """Anula un recibo. `request_id` (opcional) exige que sea de esa solicitud."""
@@ -98,6 +125,11 @@ class PaymentService:
             _exigir_semestre(req)
             if pago.voided_at is not None:
                 raise ServiceError("ya_anulado", "El recibo ya estaba anulado.", status=409)
+            ultimo = (db.query(ProrrogaPayment.id).filter(ProrrogaPayment.request_id == req.id,
+                                                          ProrrogaPayment.voided_at.is_(None))
+                      .order_by(ProrrogaPayment.paid_on.desc(), ProrrogaPayment.id.desc()).first())
+            if ultimo.id != pago.id:
+                raise ServiceError("no_es_el_ultimo", "Solo se puede anular el último recibo vigente.", status=409)
             motivo = (motivo or "").strip()
             if not 5 <= len(motivo) <= 500:
                 raise ServiceError("motivo_requerido", "El motivo debe tener de 5 a 500 caracteres.")

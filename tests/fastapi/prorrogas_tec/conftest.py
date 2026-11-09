@@ -30,11 +30,14 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.requests.api.read.all",
     "prorrogas_tec.requests.api.decide",
     "prorrogas_tec.plans.api.manage",
-    "prorrogas_tec.payments.api.record",
-    "prorrogas_tec.payments.api.void",
     "prorrogas_tec.students.api.remind",
     "prorrogas_tec.students.api.export",
     "prorrogas_tec.stats.api.read",
+]
+
+CAJA_PERMS = [
+    "prorrogas_tec.secretaria.page.caja", "prorrogas_tec.caja.api.read",
+    "prorrogas_tec.payments.api.record", "prorrogas_tec.payments.api.void",
 ]
 
 LECTOR_PERMS = [
@@ -175,6 +178,21 @@ def grant(db_session, prorrogas_app):
 def secretaria(make_user, make_role, grant):
     user = make_user(first_name="SECRETARIA", last_name="PRUEBA")
     grant(user, make_role("secretaria", SECRETARIA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def cajero(make_user, make_role, grant):
+    user = make_user(first_name="CAJERA", last_name="PRUEBA")
+    grant(user, make_role("caja", CAJA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def secretaria_sin_cobro(make_user, make_role, grant):
+    user = make_user(first_name="SECRETARIA", last_name="SINCOBRO")
+    # No uses "secretaria": hasta aplicar la semilla 09, el rol real de dev todavía cobra.
+    grant(user, make_role("secretaria_prueba", SECRETARIA_PERMS))
     return user
 
 
