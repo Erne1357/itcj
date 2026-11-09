@@ -9,7 +9,7 @@ EVENT_TYPES = frozenset({
     "plan_confirmado", "plan_modificado", "recibo_registrado", "recibo_anulado", "documento_firmado",
     "recordatorio_enviado", "lista_bloqueo_exportada", "desbloqueo_avisado",
     "correo_no_enviado", "recordatorio_pendiente",
-    "referencia_subida", "cerrada_sin_plan",
+    "referencia_subida", "cerrada_sin_plan", "recibo_subido",
 })
 
 

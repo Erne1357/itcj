@@ -8,15 +8,22 @@ from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.core.utils.timezone import db_now
 
 
+MAX_BYTES = 5 * 1024 * 1024
+
+
+def validar_pdf(data: bytes, invalido: str, muy_grande: str, nombre: str) -> None:
+    if not data.startswith(b"%PDF-"):
+        raise ServiceError(invalido, f"{nombre} debe ser un PDF.")
+    if len(data) > MAX_BYTES:
+        raise ServiceError(muy_grande, f"{nombre} no puede pasar de 5 MB.")
+
+
 class ReferenceService:
-    MAX_BYTES = 5 * 1024 * 1024
+    MAX_BYTES = MAX_BYTES
 
     @staticmethod
     def save(db, req: ProrrogaRequest, data: bytes, actor_id: int, *, now=None) -> ProrrogaRequest:
-        if not data.startswith(b"%PDF-"):
-            raise ServiceError("referencia_invalida", "La referencia debe ser un PDF.")
-        if len(data) > ReferenceService.MAX_BYTES:
-            raise ServiceError("referencia_muy_grande", "La referencia no puede pasar de 5 MB.")
+        validar_pdf(data, "referencia_invalida", "referencia_muy_grande", "La referencia")
         if req.status not in ("pendiente", "aceptada"):
             raise ServiceError("referencia_no_aplica", "Esta solicitud ya no admite referencia.", status=409)
         if req.total_amount is not None:

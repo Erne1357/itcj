@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from itcj2.apps.prorrogas_tec.api._common import error_response, service_error_response as _err
+from itcj2.apps.prorrogas_tec.api._common import error_response, recibo_pdf_response, service_error_response as _err
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
 from itcj2.apps.prorrogas_tec.documents.values import SignatureInfo
 from itcj2.apps.prorrogas_tec.services import account
@@ -20,6 +20,7 @@ from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.periods import period_label
+from itcj2.apps.prorrogas_tec.services.receipt_scan_service import ReceiptScanService
 from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.apps.prorrogas_tec.services.signature import parse_signature
@@ -61,6 +62,9 @@ def estado(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
 def _con_cuenta(db, r) -> dict:
     out = RequestService.request_out(db, r)
     out["cuenta"] = account.cuenta_json(account.load(db, r, db_now().date()))
+    subidos = ReceiptScanService.subidos(db, r.id)
+    for p in out["cuenta"]["parcialidades"]:
+        p["recibo_subido"] = subidos.get(p["numero"])
     pagos = (db.query(ProrrogaPayment)
              .filter(ProrrogaPayment.request_id == r.id, ProrrogaPayment.voided_at.is_(None))
              .order_by(ProrrogaPayment.paid_on, ProrrogaPayment.id).all())
@@ -130,6 +134,30 @@ def bajar_referencia(request_id: int, db: DbSession, user: dict = require_perms(
         return _err(e)
     return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": 'inline; filename="referencia.pdf"'})
+
+
+@router.post("/solicitudes/{request_id}/parcialidades/{numero}/recibo",
+             name="prorrogas_tec.api.estudiante.recibo_subir")
+def subir_recibo(request_id: int, numero: int, db: DbSession, archivo: UploadFile = File(...),
+                 user: dict = require_perms("prorrogas_tec", _CREATE)):
+    uid = int(user["sub"])
+    req = _propia(db, request_id, uid, lock=True)
+    if req is None:
+        db.rollback()
+        return error_response(404, "no_encontrada", "No se encontró la solicitud.")
+    try:
+        ReceiptScanService.save(db, req, numero, archivo.file.read(ReferenceService.MAX_BYTES + 1), uid)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    db.commit()
+    return _con_cuenta(db, req)
+
+
+@router.get("/solicitudes/{request_id}/parcialidades/{numero}/recibo.pdf",
+            name="prorrogas_tec.api.estudiante.recibo_bajar")
+def bajar_recibo(request_id: int, numero: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    return recibo_pdf_response(db, _propia(db, request_id, int(user["sub"])), numero)
 
 
 @router.get("/solicitudes/{request_id}/documentos/{doc_id}.pdf", name="prorrogas_tec.api.estudiante.pdf")
