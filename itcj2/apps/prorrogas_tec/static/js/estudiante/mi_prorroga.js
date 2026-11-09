@@ -42,6 +42,7 @@
     aceptada: ["Aceptada", "t-ok", "¡Tu prórroga fue aceptada!"],
     rechazada: ["Rechazada", "t-bad", "Tu solicitud no fue aceptada"],
     cancelada: ["Cancelada", "t-neutral", "Cancelaste esta solicitud"],
+    cerrada_sin_plan: ["Cerrada", "t-neutral", "Esta prórroga se cerró sin plan de pagos"],
   };
   const PARCIALIDAD = { pagada: ["Pagada", "t-ok"], parcial: ["Parcial", "t-warn"], pendiente: ["Pendiente", "t-neutral"], vencida: ["Vencida", "t-bad"] };
 

@@ -49,6 +49,10 @@ class AnularIn(BaseModel):
     motivo: str
 
 
+class CierreIn(BaseModel):
+    motivo: str
+
+
 class ExportIn(BaseModel):
     period_id: int
 
@@ -174,3 +178,13 @@ def desbloqueo(request_id: int, db: DbSession, user: dict = require_perms("prorr
         db.rollback()
         return _err(e)
     return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/cerrar-sin-plan", name="prorrogas_tec.api.estudiantes.cerrar_sin_plan")
+def cerrar_sin_plan(request_id: int, body: CierreIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _PLAN)):
+    try:
+        StudentsService.close_without_plan(db, request_id, int(user["sub"]), body.motivo)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return {"ok": True}  # ya no es aceptada: no hay expediente que devolver

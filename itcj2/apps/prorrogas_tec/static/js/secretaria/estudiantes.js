@@ -11,14 +11,14 @@
   const $ = (id) => document.getElementById(id);
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const PER_PAGE = 25;
-  const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar"];
+  const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar", "pendiente_cierre"];
   const HIST = {
     solicitud_creada: "Solicitud creada", solicitud_aceptada: "Prórroga aceptada",
     plan_confirmado: "Plan de pagos creado", plan_modificado: "Plan de pagos modificado",
     documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
-    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida",
+    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida", cerrada_sin_plan: "Cerrada sin plan",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -146,7 +146,7 @@
     const f = el("div");
     if (e.situacion === "atrasada") f.append(el("span", "est-pill est-pill-alert", "Vencida desde " + fmtDate(e.vencida_desde)));
     else if (e.situacion === "al_corriente") f.append(el("span", "est-pill", `${e.faltantes} por pagar`));
-    else if (e.situacion === "sin_plan") f.append(el("span", "est-pill est-pill-grey", "Sin plan"));
+    else if (e.situacion === "sin_plan") f.append(el("span", "est-pill est-pill-grey", e.pendiente_cierre ? "Cerrar sin plan" : "Sin plan"));
     else if (e.situacion === "liquidada") f.append(el("span", "est-check", "✓"));
     row.append(f);
 
@@ -369,6 +369,7 @@
       else wrap.append(el("p", "est-note", x.solo_lectura
         ? "Prórroga del histórico sin semestre: solo cuenta para Estadísticas."
         : "El semestre terminó: ya no se puede crear el plan."));
+      if (x.plan.cerrable) wrap.append(cierreCard(x));
       return wrap;
     }
     wrap.classList.add("has-side");
@@ -378,6 +379,23 @@
     main.append(recibosCard(x));
     wrap.append(main, situacionCard(x));
     return wrap;
+  }
+
+  // Aceptada que terminó el semestre sin plan: la secretaria la cierra con motivo escrito (no se avisa al alumno).
+  function cierreCard(x) {
+    const card = el("div", "est-card");
+    const motivo = el("textarea");
+    motivo.rows = 3;
+    motivo.maxLength = 1000;
+    motivo.placeholder = "Motivo del cierre (mínimo 10 caracteres)";
+    card.append(el("h3", null, "Cerrar sin plan"), motivo, button("Cerrar sin plan", "sec-btn est-sm", async () => {
+      const r = await api(`${EST}/${x.solicitud.id}/cerrar-sin-plan`, { body: { motivo: motivo.value } });
+      if (!r.ok) { show($("estMsg"), r.data.message || "No se pudo cerrar la solicitud."); return; }
+      toast("Solicitud cerrada.");
+      closePanel();
+      loadList();
+    }));
+    return card;
   }
 
   function pagosHead(x) {

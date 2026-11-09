@@ -210,3 +210,46 @@ def test_recordar_referencia_solo_si_falta(db_session, aceptada, secretaria, avi
     with pytest.raises(ServiceError) as e:
         StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "referencia", now=AHORA + timedelta(days=2))
     assert e.value.code == "no_aplica"
+
+
+MOTIVO_CIERRE = "No trajo su referencia a tiempo."
+
+
+def test_cerrar_sin_plan(db_session, aceptada, secretaria):
+    from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
+    req = StudentsService.close_without_plan(db_session, aceptada.id, secretaria.id, MOTIVO_CIERRE, now=date(2091, 6, 21))
+    assert req.status == "cerrada_sin_plan"
+    ev = db_session.query(ProrrogaEvent).filter_by(request_id=aceptada.id, event_type="cerrada_sin_plan").one()
+    assert ev.payload == {"motivo": MOTIVO_CIERRE}
+
+
+@pytest.mark.parametrize("motivo, dia, code", [
+    ("corto", date(2091, 6, 21), "motivo_invalido"),
+    (MOTIVO_CIERRE, date(2091, 6, 20), "semestre_en_curso"),
+])
+def test_cierre_invalido(db_session, aceptada, secretaria, motivo, dia, code):
+    with pytest.raises(ServiceError) as e:
+        StudentsService.close_without_plan(db_session, aceptada.id, secretaria.id, motivo, now=dia)
+    assert e.value.code == code
+
+
+def test_con_plan_no_se_cierra(db_session, aceptada, secretaria, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    with pytest.raises(ServiceError) as e:
+        StudentsService.close_without_plan(db_session, aceptada.id, secretaria.id, MOTIVO_CIERRE, now=date(2091, 6, 21))
+    assert e.value.code == "con_plan"
+
+
+def test_lista_marca_pendientes_de_cierre(db_session, periodo, aceptada):
+    ver = lambda dia: StudentsService.listar(db_session, periodo.id, filtro="pendiente_cierre", today=dia)  # noqa: E731
+    d = ver(date(2091, 6, 21))
+    assert [i["id"] for i in d["items"]] == [aceptada.id] and d["conteos"]["pendiente_cierre"] == 1
+    assert ver(date(2091, 6, 20))["items"] == []
+
+
+def test_cerrada_ya_no_sale_en_estudiantes(db_session, periodo, aceptada, secretaria):
+    StudentsService.close_without_plan(db_session, aceptada.id, secretaria.id, MOTIVO_CIERRE, now=date(2091, 6, 21))
+    assert StudentsService.listar(db_session, periodo.id, today=date(2091, 6, 21))["items"] == []
+    with pytest.raises(ServiceError) as e:
+        StudentsService.expediente(db_session, aceptada.id, date(2091, 6, 21))
+    assert e.value.code == "no_encontrada"

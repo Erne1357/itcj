@@ -25,7 +25,8 @@ from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
 
-FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar")
+FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar",
+           "pendiente_cierre")
 _PENDIENTES = {"firma": "firma_pendiente", "referencia": "referencia_pendiente"}
 _SITUACION = {"con_adeudo": "atrasada", "al_corriente": "al_corriente", "sin_plan": "sin_plan",
               "liquidada": "liquidada"}
@@ -93,14 +94,19 @@ class StudentsService:
             like = f"%{q.strip()}%"
             qry = qry.filter(ProrrogaRequest.control_number.ilike(like) | ProrrogaRequest.student_name.ilike(like))
         reqs = qry.all()
+        fin = db.get(AcademicPeriod, period_id).end_date
         # shortcut: situación calculada en Python por semestre; pasar a SQL si un semestre supera ~2000 solicitudes
         cuentas = account.load_many(db, reqs, today)
         conteos = {"todos": len(reqs)} | {k: sum(1 for c in cuentas.values() if c.situacion == s)
                                           for k, s in _SITUACION.items()}
         por_firmar = _sin_firmar(db, [r.id for r in reqs])
         conteos["por_firmar"] = len(por_firmar)
+        por_cerrar = {r.id for r in reqs if cuentas[r.id].situacion == "sin_plan" and today > fin}
+        conteos["pendiente_cierre"] = len(por_cerrar)
         if filtro == "por_firmar":
             reqs = [r for r in reqs if r.id in por_firmar]
+        elif filtro == "pendiente_cierre":
+            reqs = [r for r in reqs if r.id in por_cerrar]
         elif filtro != "todos":
             reqs = [r for r in reqs if cuentas[r.id].situacion == _SITUACION[filtro]]
         reqs.sort(key=lambda r: ((r.student_name or "").lower(), r.id))
@@ -116,6 +122,7 @@ class StudentsService:
                 "pagos": [p.estado for p in c.parcialidades],
                 "pagados": sum(1 for p in c.parcialidades if p.estado == "pagada"),
                 "puede_recordar": _puede_recordar(r, c, ahora), "por_firmar": r.id in por_firmar,
+                "pendiente_cierre": r.id in por_cerrar,
                 "avisar_desbloqueo": _avisar_desbloqueo(r, c)})
         return {"items": items, "total": len(reqs), "page": page, "per_page": per_page, "conteos": conteos}
 
@@ -152,6 +159,7 @@ class StudentsService:
             "plan": {
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
                 "editable": period is not None and c.pagado == 0 and c.situacion != "atrasada" and today <= period.end_date,  # rehacer solo sin pagos
+                "cerrable": c.situacion == "sin_plan" and period is not None and today > period.end_date,
                 "fecha_limite": period.end_date.isoformat() if period else None,
                 "fechas_sugeridas": [comun.payment_1_on.isoformat(), comun.payment_2_on.isoformat()] if comun else []},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
@@ -171,6 +179,30 @@ class StudentsService:
         if req is None or req.status != "aceptada":
             db.rollback()
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", status=404)
+        return req
+
+    @staticmethod
+    def close_without_plan(db, request_id: int, actor_id: int, motivo: str, *,
+                           now: date | datetime | None = None) -> ProrrogaRequest:
+        """Cierra con motivo una aceptada que terminó el semestre sin plan; no se avisa al alumno."""
+        _, today, _ = _tiempos(now)
+        motivo = (motivo or "").strip()
+        if not 10 <= len(motivo) <= 1000:
+            raise ServiceError("motivo_invalido", "El motivo debe tener entre 10 y 1000 caracteres.", 400)
+        req = StudentsService._bloquear(db, request_id)
+        try:
+            if account.load(db, req, today).total is not None:
+                raise ServiceError("con_plan", "La solicitud ya tiene plan de pagos.", status=409)
+            period = db.get(AcademicPeriod, req.period_id) if req.period_id else None
+            if period is None or today <= period.end_date:
+                raise ServiceError("semestre_en_curso", "El semestre aún no termina.", status=409)
+            req.status = "cerrada_sin_plan"
+            log_event(db, event_type="cerrada_sin_plan", request_id=req.id, actor_id=actor_id,
+                      payload={"motivo": motivo})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         return req
 
     @staticmethod
