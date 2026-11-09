@@ -61,7 +61,7 @@ def test_doble_envio_solo_crea_una(db_session, alumno_unido, make_program, firma
     _crear(db_session, alumno_unido, prog, firma_png)
     with pytest.raises(ServiceError) as e:
         _crear(db_session, alumno_unido, prog, firma_png)
-    assert e.value.code == "solicitud_abierta" and e.value.status == 409
+    assert e.value.code == "ya_solicito" and e.value.status == 409
 
 
 def test_sin_union_no_puede_solicitar(db_session, estudiante, periodo_hoy, make_program, firma_png):
@@ -115,7 +115,7 @@ def test_api_crear_ver_y_no_ver_lo_ajeno(client_as, alumno_unido, make_user, mak
                json={"plazos": 2, "motivo": MOTIVO, "program_id": prog.id, "firma": firma})
     assert r.status_code == 201 and r.json()["folio"].startswith("PR-")
     estado = c.get("/api/prorrogas/v2/estudiante/estado").json()
-    assert estado["puede_solicitar"] is False and estado["motivo"] == "solicitud_abierta"
+    assert estado["puede_solicitar"] is False and estado["motivo"] == "ya_solicito"
     doc = estado["solicitudes"][0]["documentos"][0]
     assert c.get(f"/api/prorrogas/v2/estudiante/solicitudes/{r.json()['id']}/documentos/{doc['id']}.pdf").status_code == 200
     ajeno = make_user(control_number="99500009")
@@ -159,14 +159,14 @@ def test_firma_base64_enorme_y_rgb_sin_alfa():
     assert e.value.code == "firma_invalida"
 
 
-def test_integrity_error_se_mapea_a_solicitud_abierta(db_session, alumno_unido, periodo_hoy, make_program,
+def test_integrity_error_se_mapea_a_ya_solicito(db_session, alumno_unido, periodo_hoy, make_program,
                                                       firma_png, monkeypatch):
     prog = make_program("Ingeniería de Prueba", "licenciatura")
     _crear(db_session, alumno_unido, prog, firma_png)
     monkeypatch.setattr(RequestService, "access", staticmethod(lambda *a, **k: (periodo_hoy, None)))
     with pytest.raises(ServiceError) as e:
         _crear(db_session, alumno_unido, prog, firma_png)  # el índice único dispara en el flush
-    assert e.value.code == "solicitud_abierta" and e.value.status == 409
+    assert e.value.code == "ya_solicito" and e.value.status == 409
 
 
 def test_estado_no_muestra_historicas_sin_semestre(client_as, estudiante, make_historica, periodo):  # I4
@@ -176,3 +176,32 @@ def test_estado_no_muestra_historicas_sin_semestre(client_as, estudiante, make_h
         r.student_id = estudiante.id
     ids = [s["id"] for s in client_as(estudiante).get("/api/prorrogas/v2/estudiante/estado").json()["solicitudes"]]
     assert con.id in ids and sin.id not in ids
+
+
+def test_tras_cancelar_ya_no_puede_pedir_otra(db_session, alumno_unido, make_program, firma_png):
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+    prog = make_program("Ingeniería de Prueba", "licenciatura")
+    req = _crear(db_session, alumno_unido, prog, firma_png)
+    RequestService.cancel(db_session, req.id, alumno_unido.id)
+    db_session.add(ProrrogaJoin(user_id=alumno_unido.id, via="qr", joined_at=db_now()))  # ni volviendo a unirse
+    db_session.flush()
+    with pytest.raises(ServiceError) as e:
+        _crear(db_session, alumno_unido, prog, firma_png)
+    assert e.value.code == "ya_solicito" and e.value.status == 409
+
+
+def test_tras_rechazo_ya_no_puede_pedir_otra(db_session, alumno_unido, make_program, firma_png, secretaria, avisos):
+    req = _crear(db_session, alumno_unido, make_program("Ingeniería de Prueba", "licenciatura"), firma_png)
+    RequestService.decide(db_session, req.id, secretaria.id, aceptar=False, comentario="No procede")
+    assert RequestService.access(db_session, alumno_unido.id)[1] == "ya_solicito"
+
+
+def test_la_importada_del_excel_del_semestre_cuenta(db_session, alumno_unido, periodo_hoy, make_historica):  # Review Focus 1
+    make_historica(periodo=periodo_hoy, control_number=alumno_unido.control_number)
+    assert RequestService.access(db_session, alumno_unido.id)[1] == "ya_solicito"
+
+
+def test_la_de_otro_semestre_no_cuenta(db_session, alumno_unido, periodo, make_historica):
+    make_historica(periodo=periodo, control_number=alumno_unido.control_number)
+    assert RequestService.access(db_session, alumno_unido.id)[1] is None

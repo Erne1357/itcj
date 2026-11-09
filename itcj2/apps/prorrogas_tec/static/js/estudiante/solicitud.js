@@ -72,7 +72,7 @@
     if (!est.puede_solicitar) {
       bloquear(est.motivo === "sin_acceso" ? "Pide tu acceso en la Subdirección Académica"
         : est.motivo === "no_hay_semestre" ? "Por ahora no hay un semestre abierto para prórrogas."
-        : "Ya tienes una solicitud abierta.");
+        : "Ya usaste tu solicitud de este semestre.");
       return;
     }
     (progs.items || []).forEach(function (p) {

@@ -22,7 +22,7 @@
   }
 
   async function cancelar(id, btn) {
-    if (!confirm("¿Cancelar esta solicitud?")) return;
+    if (!confirm("¿Cancelar esta solicitud? Ya no podrás pedir otra este semestre.")) return;
     btn.disabled = true;
     try {
       const r = await fetch(`${API}/solicitudes/${id}/cancelar`, { method: "POST", credentials: "include" });
@@ -191,7 +191,7 @@
     const b = el("button", "Cancelar solicitud", "btn btn-ghost");
     b.type = "button";
     b.addEventListener("click", function () { cancelar(s.id, b); });
-    sec.append(el("p", "¿Ya no la necesitas? Puedes cancelarla mientras esté pendiente.", "hint"), b);
+    sec.append(el("p", "¿Ya no la necesitas? Puedes cancelarla mientras esté pendiente, pero ya no podrás pedir otra este semestre.", "hint"), b);
     return sec;
   }
 
@@ -214,7 +214,6 @@
       if (s.estado === "rechazada" && s.comentario) {
         nodos.push(tarjeta(el("h2", "¿Por qué?", "h2"), el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote")));
       }
-      if (s.estado === "rechazada" && ultima && d.motivo === "sin_acceso") nodos.push(plantilla("mp-ahora"));
     }
     if (s.documentos && s.documentos.length) nodos.push(documentos(s));
     if (s.estado === "pendiente") nodos.push(seccionCancelar(s));
@@ -243,7 +242,7 @@
       if (!sols.length) nodos.push(plantilla("mp-como"));
     } else if (d.motivo === "no_hay_semestre" && !(sols[0] && ["pendiente", "aceptada"].includes(sols[0].estado))) {   // cerró el periodo pero su prórroga sigue viva
       nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Por ahora no hay un semestre abierto para prórrogas.", "lead")));
-    } else if (d.motivo === "sin_acceso" && !(sols[0] && sols[0].estado === "rechazada")) {   // a la rechazada la acompaña "¿Y ahora qué?"
+    } else if (d.motivo === "sin_acceso") {
       nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Pide tu acceso en la Subdirección Académica", "lead")));
     }
     const partes = sols.map((s, i) => solicitud(s, i === 0, d, titulo));

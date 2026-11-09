@@ -1,15 +1,16 @@
-"""Solicitud de prórroga del estudiante: una abierta por semestre y solo tras unirse (QR o invitación)."""
+"""Solicitud de prórroga del estudiante: una sola por semestre y solo tras unirse (QR o invitación)."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
 
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
 from itcj2.apps.prorrogas_tec.documents.values import SignatureInfo
 from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
-from itcj2.apps.prorrogas_tec.models.request import OPEN_STATUSES, ProrrogaRequest
+from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
@@ -24,7 +25,7 @@ from itcj2.core.utils.timezone import db_now
 
 logger = logging.getLogger(__name__)
 
-_ABIERTA = ("solicitud_abierta", "Ya tienes una solicitud abierta en este semestre.")
+_YA_SOLICITO = ("ya_solicito", "Ya usaste tu solicitud de este semestre.")
 
 
 class RequestService:
@@ -40,17 +41,19 @@ class RequestService:
         if ventana is None:
             return None, "no_hay_semestre"
         period = ventana.period
-        mias = db.query(ProrrogaRequest).filter_by(student_id=user_id, period_id=period.id)
-        if mias.filter(ProrrogaRequest.origin == "app", ProrrogaRequest.status.in_(OPEN_STATUSES)).first():
-            return period, "solicitud_abierta"
-        ultima = mias.order_by(ProrrogaRequest.created_at.desc(), ProrrogaRequest.id.desc()).first()
+        control = db.query(User.control_number).filter(User.id == user_id).scalar()
+        # Cuenta también la importada del Excel de este semestre (sin student_id, ligada por número de control).
+        ya = db.query(ProrrogaRequest.id).filter(
+            ProrrogaRequest.period_id == period.id,
+            or_(ProrrogaRequest.student_id == user_id,
+                and_(ProrrogaRequest.origin == "excel", ProrrogaRequest.control_number == control,
+                     control is not None)))
+        if ya.first():
+            return period, "ya_solicito"
         uniones = db.query(ProrrogaJoin.id).filter(
             ProrrogaJoin.user_id == user_id,
             ProrrogaJoin.joined_at >= ventana.opens_on,
             ProrrogaJoin.joined_at < ventana.closes_on + timedelta(days=1))
-        if ultima is not None:
-            # Contra updated_at (la mueven cancelar y decidir): unirse con la solicitud aún pendiente no cuenta.
-            uniones = uniones.filter(ProrrogaJoin.joined_at > ultima.updated_at)
         return period, (None if uniones.first() else "sin_acceso")
 
     @staticmethod
@@ -73,8 +76,8 @@ class RequestService:
         if code == "sin_acceso":
             raise ServiceError(code, "Pide en persona a la secretaría que te dé acceso (QR o invitación).",
                                status=403)
-        if code == "solicitud_abierta":
-            raise ServiceError(*_ABIERTA, status=409)
+        if code == "ya_solicito":
+            raise ServiceError(*_YA_SOLICITO, status=409)
         if code:
             raise ServiceError(code, "Por ahora no hay un periodo abierto para solicitar prórroga.", status=409)
 
@@ -101,11 +104,11 @@ class RequestService:
             log_event(db, event_type="solicitud_creada", request_id=req.id, actor_id=student.id,
                       payload={"plazos": plazos, "periodo": req.period_label})
             db.commit()
-        except IntegrityError as e:  # doble envío: gana el índice único de solicitudes abiertas
+        except IntegrityError as e:  # doble envío: gana el índice de una solicitud por semestre
             db.rollback()
             if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "uq_prorrogas_requests_semestre":
                 raise
-            raise ServiceError(*_ABIERTA, status=409)
+            raise ServiceError(*_YA_SOLICITO, status=409)
         except ServiceError:  # p. ej. pdf_no_disponible: no queda solicitud y puede reintentar
             db.rollback()
             raise

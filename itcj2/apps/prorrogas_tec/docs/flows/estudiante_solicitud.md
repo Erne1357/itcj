@@ -7,7 +7,7 @@
 | **Actores** | Estudiante (rol `student`) |
 | **Permisos** | Página: `prorrogas_tec.student.page.view` · API: `prorrogas_tec.requests.api.read.own`, `…create.own`, `…cancel.own`, `prorrogas_tec.documents.api.sign.own` |
 | **Disparador** | La secretaria le muestra el QR o le envía una invitación |
-| **Precondiciones** | Cuenta con sesión; un periodo de Prórrogas abierto hoy ([Configuración](secretaria_configuracion.md)); **una unión** (`prorrogas_joins`) dentro de ese periodo y posterior al último cambio (`updated_at`: creada, cancelada o decidida) de su última solicitud de ese semestre (puerta de acceso) |
+| **Precondiciones** | Cuenta con sesión; un periodo de Prórrogas abierto hoy ([Configuración](secretaria_configuracion.md)); **una unión** (`prorrogas_joins`) dentro de ese periodo (puerta de acceso) y ninguna solicitud suya de ese semestre |
 | **Estado final** | Solicitud `pendiente` con su `formato_solicitud` firmado; después `aceptada` o `rechazada` con su carta; si es aceptada y la secretaria confirma el plan, la carta compromiso queda firmada por el estudiante |
 
 ## Ruta en la app (UI)
@@ -42,7 +42,7 @@ Cada elemento de `solicitudes` trae, además de lo de la solicitud:
 | `por_firmar` | `id` de la carta compromiso vigente sin firmar, o `null` |
 | `documentos[].firmado` | Si el documento ya lleva la firma del estudiante |
 
-Una sola solicitud abierta por estudiante (`pendiente` o `aceptada`): lo garantiza el índice único `uq_prorrogas_requests_abierta`. Para pedir otra tras cancelar o ser rechazado hay que volver a unirse **después** de la cancelación o la decisión.
+Una sola solicitud por estudiante y semestre, aunque se rechace o se cancele (también cuenta la importada del Excel de ese semestre): lo garantiza el índice único `uq_prorrogas_requests_semestre`.
 
 ## Caminos alternos / errores ❗
 
@@ -56,9 +56,9 @@ La UI muestra `message`. En las páginas de unirse el QR inválido o vencido mue
 | `cuenta_con_nip` / `nip_invalido` / `nip_no_coincide` | Crear NIP: la cuenta ya tiene / no son 4 dígitos / no coinciden | 409 / 400 / 400 |
 | `cuenta_sin_invitacion_de_alta` | Crear NIP en una cuenta sin NIP que no nació de una invitación (la página le pide entrar con su NIP o pedir ayuda) | 403 |
 | `cuenta_sin_numero_de_control` | Una cuenta de personal escanea el QR o intenta solicitar | 403 |
-| `sin_acceso` | No hay unión posterior al último cambio de su última solicitud del semestre | 403 |
+| `sin_acceso` | Sin unión dentro del periodo | 403 |
 | `no_hay_semestre` | Ningún periodo de Prórrogas admite solicitudes hoy (sin configurar, por abrir o cerrado) | 409 |
-| `solicitud_abierta` | Ya tiene una `pendiente`/`aceptada` (doble envío incluido) | 409 |
+| `ya_solicito` | Ya tiene una solicitud de este semestre, en cualquier estado (doble envío incluido) | 409 |
 | `plazos_invalidos` / `motivo_invalido` / `carrera_invalida` | Datos fuera de rango | 400 |
 | `firma_vacia` / `firma_muy_grande` / `firma_invalida` | PNG sin trazos, de más de 200 000 bytes o 2000×2000 px, o ilegible (también al firmar la carta) | 400 |
 | `no_cancelable` | Cancelar una solicitud que ya no está `pendiente` | 409 |
