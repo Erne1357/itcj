@@ -60,6 +60,28 @@
       </div>
     </div>
   </section>
+  <dialog class="est-modal caj-modal" id="cajDialog" aria-label="Detalle del alumno">
+    <div class="caj-m-head">
+      <div class="caj-m-who">
+        <div class="est-m-title"><h2 id="cajNombre"></h2><span class="est-badge" id="cajBadge"></span></div>
+        <div class="est-m-sub"><span class="est-chip" id="cajControl"></span><span id="cajCarrera"></span><span aria-hidden="true">·</span><span id="cajSemestre"></span></div>
+      </div>
+      <div class="caj-m-acc">
+        <div class="caj-folio">
+          <div><small>Folio de prórroga</small><b id="cajFolio"></b></div>
+          <button type="button" class="est-ico-btn" id="cajCopiar" aria-label="Copiar folio de prórroga" title="Copiar folio"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a1 1 0 0 1 1-1h10"></path></svg></button>
+        </div>
+        <button type="button" class="sol-x" id="cajCerrar" aria-label="Cerrar" title="Cerrar (Esc)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+      </div>
+    </div>
+    <div class="caj-m-body" id="cajBody"></div>
+    <div class="sec-toast" id="cajToast" role="status" aria-live="polite" hidden></div>
+  </dialog>
+  <template id="tplOk"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></template>
+  <template id="tplCal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></svg></template>
+  <template id="tplLock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg></template>
+  <template id="tplDoc"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"></path><path d="M14 3v5h5"></path></svg></template>
+  <template id="tplDocTxt"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"></path><path d="M14 3v5h5M9 13h6M9 17h4"></path></svg></template>
 {% endblock %}
 {% block scripts %}
   <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/caja.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/caja.js') }}"></script>

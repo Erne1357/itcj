@@ -178,3 +178,20 @@ def test_secretaria_no_ve_caja_y_conserva_su_rotulo(client_as, secretaria):
     assert c.get(f"{BASE}/caja", follow_redirects=False).status_code == 403
     page = c.get(f"{BASE}/estudiantes").text
     assert f'href="{BASE}/caja"' not in page and "Secretaría · Subdirección Académica" in page
+
+
+def test_modal_de_caja(client_as, cajero):
+    page = client_as(cajero).get(f"{BASE}/caja").text
+    for texto in ('id="cajDialog"', "Folio de prórroga", 'aria-label="Copiar folio de prórroga"'):
+        assert texto in page
+
+
+def test_caja_js_trae_el_copy_del_diseno():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[3] / "itcj2/apps/prorrogas_tec/static/js/secretaria/caja.js").read_text(encoding="utf-8")
+    for texto in ("Aún no se puede cobrar", "Se cobra igual, sin recargo.", "Se cobra después de ",
+                  "El alumno ya subió un recibo el ", "Pago completo, sin abonos.", "Captura el folio del recibo de Caja.",
+                  "Elige la fecha de pago.", "La fecha no puede ser futura.", "La prórroga quedó liquidada.",
+                  "Escribe el motivo de la anulación.", "se conserva: sirve para verificar el folio correcto.",
+                  "Ver recibo del alumno para comparar", "Abrir PDF", "Sin referencia"):
+        assert texto in js

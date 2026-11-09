@@ -806,8 +806,117 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   #cajPrev > svg, #cajNext > svg { display: none; }
   #cajPrev > span, #cajNext > span { display: inline; }
 }
+
+/* Modal de Caja (canvas "Caja" · detalle). Reutiliza .est-modal; aquí solo lo propio. */
+.caj-modal { height: min(720px, calc(100vh - 32px)); }
+.caj-m-head { padding: 22px 28px 16px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px 16px; flex: none; }
+.caj-m-who { min-width: 0; flex: 1 1 300px; }
+.caj-m-who h2 { margin: 0; font: 500 24px/1.2 var(--font-title); overflow-wrap: anywhere; }
+.caj-m-acc { display: flex; align-items: center; gap: 10px; }
+.caj-m-acc .sol-x { width: 40px; height: 40px; }
+.caj-folio { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 6px 6px 12px; line-height: 1.2; }
+.caj-folio small { display: block; font-size: 11px; font-weight: 600; color: rgba(26, 19, 14, .62); }
+.caj-folio b { font: 600 15px var(--font-mono); }
+.caj-folio .est-ico-btn { width: 36px; height: 36px; border-radius: 8px; color: var(--wine); }
+.caj-folio .est-ico-btn:hover { background: var(--wine); color: var(--paper); }
+.caj-m-body { flex: 1; min-height: 0; overflow: auto; padding: 0 28px 24px; display: flex; flex-direction: column; gap: 22px; }
+
+.caj-notice { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+.caj-notice.is-ok { background: rgba(103, 153, 224, .14); border: 1px solid rgba(103, 153, 224, .6); }
+.caj-notice.is-anul { background: rgba(242, 115, 64, .1); border: 1px solid rgba(242, 115, 64, .45); }
+.caj-notice-ic { width: 26px; height: 26px; flex: none; border-radius: 50%; color: var(--ink); display: grid; place-items: center; }
+.is-ok .caj-notice-ic { background: var(--blue); }
+.is-anul .caj-notice-ic { background: var(--orange); }
+.caj-notice-t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.caj-notice-x { width: 32px; height: 32px; flex: none; border: none; border-radius: 6px; background: transparent; color: rgba(26, 19, 14, .55); cursor: pointer; display: grid; place-items: center; }
+
+.caj-sinplan { background: #fff; border: 1px solid rgba(242, 115, 64, .45); border-radius: 12px; padding: 20px; display: flex; gap: 14px; align-items: flex-start; line-height: 1.5; }
+.caj-sinplan-ic { width: 40px; height: 40px; flex: none; border-radius: 10px; background: rgba(242, 115, 64, .16); color: #8a3a14; display: grid; place-items: center; }
+.caj-sinplan b { font-size: 16px; }
+.caj-sinplan div > div { font-size: 14px; color: rgba(26, 19, 14, .72); margin-top: 2px; }
+
+.caj-sums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.caj-sum { padding: 12px 16px; min-width: 0; }
+.caj-sum + .caj-sum { border-left: 1px solid rgba(26, 19, 14, .08); }
+.caj-sum-l { font-size: 12px; font-weight: 600; color: rgba(26, 19, 14, .62); }
+.caj-sum-v { font: 600 17px/1.3 var(--font-mono); white-space: nowrap; }
+.caj-sum-v.is-saldo { font-size: 20px; }
+
+.caj-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.caj-pagos { flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.caj-pagos h3, .caj-ref h3 { margin: 0; font: 500 17px var(--font-title); }
+.caj-pago { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.caj-pago.is-next { border-color: rgba(26, 19, 14, .22); }
+.caj-pago.is-paid { border-color: rgba(103, 153, 224, .45); }
+.caj-pago.is-venc { background: rgba(242, 115, 64, .05); border-color: rgba(242, 115, 64, .5); }
+.caj-pago.is-just { background: rgba(103, 153, 224, .08); border-color: var(--blue); }
+.caj-pago-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+.caj-pago-t { flex: 1 1 150px; min-width: 0; }
+.caj-pago-t b { font-size: 15px; }
+.caj-pago-lim { font-size: 13px; color: rgba(26, 19, 14, .65); margin-top: 1px; }
+.caj-pago-lim span { font-family: var(--font-mono); color: var(--ink); }
+.caj-pago-m { font: 600 17px var(--font-mono); }
+.caj-pill { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1.5px solid transparent; white-space: nowrap; }
+.caj-pill.is-paid { background: rgba(103, 153, 224, .16); border-color: var(--blue); }
+.caj-pill.is-venc { background: rgba(242, 115, 64, .2); color: #8a3a14; }
+.caj-pill.is-pend { background: rgba(26, 19, 14, .07); color: rgba(26, 19, 14, .75); }
+
+.caj-paid { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 13px; }
+.caj-paid-f { color: rgba(26, 19, 14, .65); overflow-wrap: anywhere; }
+.caj-paid-f b, .caj-paid-f span { font-family: var(--font-mono); }
+.caj-paid-f b { font-weight: 600; color: var(--ink); }
+.caj-grow { flex: 1; }
+.caj-scan { display: flex; align-items: center; gap: 6px; font-weight: 600; color: rgba(26, 19, 14, .72); }
+.caj-scan.is-falta { color: #8a3a14; }
+.caj-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+.is-falta .caj-dot { background: var(--orange); }
+.caj-anular-btn { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(138, 58, 20, .35); background: transparent; color: #8a3a14; font-size: 13px; font-weight: 600; cursor: pointer; }
+.caj-anular-btn:hover { background: rgba(196, 84, 31, .08); }
+.caj-anular-btn[disabled], .caj-saldar-btn[disabled] { opacity: .6; cursor: progress; }
+
+.caj-saldar-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.caj-nota { font-size: 13px; line-height: 1.45; }
+.caj-nota.is-venc { color: var(--alert); font-weight: 600; }
+.caj-saldar-btn { height: 44px; padding: 0 22px; border-radius: 8px; border: none; background: var(--wine); color: var(--paper); font-size: 15px; font-weight: 600; cursor: pointer; }
+.caj-later { font-size: 12px; color: rgba(26, 19, 14, .62); }
+.caj-scan-pend { font-size: 13px; color: rgba(26, 19, 14, .72); background: var(--paper); border-radius: 8px; padding: 8px 10px; }
+.caj-lnk { font-weight: 600; color: var(--wine); text-decoration: underline; }
+
+.caj-form { background: var(--paper); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.caj-form-t, .caj-anul-t { font-size: 15px; }
+.caj-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.caj-field-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; color: rgba(26, 19, 14, .75); }
+.caj-lbl { font-size: 13px; font-weight: 600; color: rgba(26, 19, 14, .75); }
+.caj-field-f input:not([type="date"]), .caj-field-f textarea { border: 1.5px solid rgba(26, 19, 14, .18); border-radius: 8px; background: #fff; color: var(--ink); outline-color: var(--blue); }
+.caj-field-f input:not([type="date"]) { height: 44px; padding: 0 12px; font: 500 15px var(--font-mono); }
+.caj-field-f textarea { padding: 10px 12px; font: 14px/1.4 inherit; resize: vertical; }
+.caj-field-f.has-err input:not([type="date"]), .caj-field-f.has-err textarea { border-color: var(--alert); background: rgba(196, 84, 31, .05); }
+.caj-lock { height: 44px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px; border-radius: 8px; background: rgba(26, 19, 14, .05); border: 1.5px solid rgba(26, 19, 14, .08); font: 600 15px var(--font-mono); }
+.caj-lock svg { color: rgba(26, 19, 14, .45); }
+.caj-confirm { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.caj-confirm .sec-btn { height: 44px; padding: 0 22px; font-size: 15px; }
+.caj-confirm .sec-btn-ghost { padding: 0 16px; font-size: 14px; }
+
+.caj-anul { background: rgba(196, 84, 31, .06); border: 1px solid rgba(196, 84, 31, .3); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.caj-anul-t { color: #8a3a14; }
+.caj-anul-t span { font-family: var(--font-mono); }
+.caj-anul-d { font-size: 13px; line-height: 1.5; color: rgba(26, 19, 14, .75); margin-top: -8px; }
+.caj-anul-ok { align-self: flex-start; height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(101, 47, 42, .3); background: #fff; color: var(--wine); font-size: 13px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.sec-btn.caj-btn-anul { background: #8a3a14; }
+
+.caj-ref { flex: 1 1 240px; min-width: 0; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.caj-ref h3 { font-size: 16px; }
+.caj-ref-btn { height: 44px; border-radius: 8px; border: 1.5px solid var(--wine); color: var(--wine); font-size: 14px; font-weight: 600; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.caj-ref-btn:hover { background: var(--wine); color: var(--paper); }
+.caj-ref-vacia { height: 44px; border-radius: 8px; border: 1.5px dashed rgba(26, 19, 14, .2); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; color: rgba(26, 19, 14, .55); }
+.caj-ref-nota { font-size: 12px; color: rgba(26, 19, 14, .62); }
 @media (max-width: 760px) {
   .caj .sec-h1 { font-size: 26px; }
+  .caj-modal { height: 100%; }  /* gana a la regla de escritorio, que va después de .est-modal */
+  .caj-m-head { padding: 16px; }
+  .caj-m-who h2 { font-size: 20px; }
+  .caj-m-body { padding: 0 16px 24px; }
+  .caj-saldar-btn { flex: 1 1 100%; }
 }
 
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
