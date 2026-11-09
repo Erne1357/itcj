@@ -72,7 +72,7 @@
   function resumenAceptada(s) {
     const c = s.cuenta, p = el("p", null, "lead");
     if (s.por_firmar) p.append("Te falta ", el("strong", "un paso"), ": firmar tu carta compromiso.");
-    else if (c.total === null) p.textContent = "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos.";
+    else if (c.total === null) p.textContent = "La secretaria armará tu plan de pagos con base en tu referencia bancaria. Te avisaremos cuando esté listo.";
     else if (c.situacion === "liquidada") p.textContent = "Ya liquidaste tu prórroga.";
     else p.textContent = "Paga en las fechas de tu plan.";
     return p;
@@ -186,6 +186,41 @@
     return sec;
   }
 
+  function seccionReferencia(s) {
+    const url = `${API}/solicitudes/${s.id}/referencia.pdf`;
+    if (s.referencia) {
+      const a = el("a", "Ver mi referencia", "btn-text");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener";
+      return tarjeta(el("p", "Referencia subida el " + fecha(s.referencia.slice(0, 10)), "lead"), a);
+    }
+    const inp = el("input", null, "input"), btn = el("button", "Subir referencia", "btn"), err = el("p", null, "error");
+    inp.type = "file";
+    inp.accept = "application/pdf";
+    btn.type = "button";
+    err.hidden = true;
+    btn.addEventListener("click", async function () {
+      if (!inp.files[0]) { err.textContent = "Elige tu PDF."; err.hidden = false; return; }
+      btn.disabled = true;
+      err.hidden = true;
+      const fd = new FormData();
+      fd.append("archivo", inp.files[0]);
+      try {
+        const r = await fetch(`${API}/solicitudes/${s.id}/referencia`, { method: "POST", credentials: "include", body: fd });
+        if (r.ok) { cargar(); return; }
+        const d = await r.json().catch(() => ({}));
+        err.textContent = d.message || "No se pudo subir la referencia.";
+      } catch (e) {
+        err.textContent = "No se pudo subir la referencia.";
+      }
+      err.hidden = false;
+      btn.disabled = false;
+    });
+    return tarjeta(el("h2", "Sube tu referencia bancaria", "h2"),
+      el("p", "Con ella la secretaria arma tu plan de pagos. Solo PDF, máximo 5 MB.", "hint"), inp, btn, err);
+  }
+
   function seccionCancelar(s) {
     const sec = el("section", null, "cancelar");
     const b = el("button", "Cancelar solicitud", "btn btn-ghost");
@@ -204,9 +239,11 @@
     if (s.estado === "pendiente") {
       estado.append(el("p", "No tienes que hacer nada por ahora. Vuelve a esta página para ver la respuesta.", "lead"), datos(s));
       nodos.push(plantilla("mp-revision"));
+      if (s.cuenta.total === null) nodos.push(seccionReferencia(s));
     } else if (s.estado === "aceptada") {
       estado.append(resumenAceptada(s), datos(s));
       if (s.comentario) estado.append(el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote ok"));
+      if (s.cuenta.total === null) nodos.push(seccionReferencia(s));
       if (s.por_firmar) nodos.push(firmaSec = seccionFirma(s));
       if (s.cuenta.total !== null) nodos.push(planDePagos(s.cuenta), recibos(s.recibos || []));
     } else {

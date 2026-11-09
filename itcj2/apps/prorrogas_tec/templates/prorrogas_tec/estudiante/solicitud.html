@@ -3,7 +3,7 @@
 <div class="titulo">
   <a class="back" href="/prorrogas/estudiante"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>Mi prórroga</a>
   <h1 class="h1">Solicitar prórroga</h1>
-  <p class="lead" id="sol-lead">Son 4 pasos. Te toma unos minutos.</p>
+  <p class="lead" id="sol-lead">Son 5 pasos. Te toma unos minutos.</p>
 </div>
 <section class="card" id="sol-bloqueo" hidden>
   <p class="lead" id="sol-bloqueo-msg"></p>
@@ -30,8 +30,13 @@
     <p class="count" id="sol-cuenta">0 / 1000</p>
   </div>
   <div class="sec">
+    <h2 class="sec-h"><span class="num">4</span><label for="sol-referencia">Tu referencia bancaria (PDF)</label></h2>
+    <p class="hint">Con ella la secretaria arma tu plan de pagos. Máximo 5 MB.</p>
+    <input type="file" accept="application/pdf" id="sol-referencia" class="input">
+  </div>
+  <div class="sec">
     <div class="row">
-      <h2 class="sec-h"><span class="num">4</span>Tu firma</h2>
+      <h2 class="sec-h"><span class="num">5</span>Tu firma</h2>
       <button type="button" id="sol-borrar" class="btn-text"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Borrar</button>
     </div>
     <div class="firma">

@@ -5,7 +5,7 @@ Rutas bajo ``/api/prorrogas/v2/estudiante``; los ``ServiceError`` salen con el
 """
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.periods import period_label
+from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.apps.prorrogas_tec.services.signature import parse_signature
 from itcj2.core.models.student_profile import StudentProfile
@@ -94,6 +95,37 @@ def cancelar(request_id: int, db: DbSession, user: dict = require_perms("prorrog
         db.rollback()
         return _err(e)
     return RequestService.request_out(db, req)
+
+
+def _propia(db, request_id: int, uid: int, lock: bool = False):
+    q = db.query(ProrrogaRequest).filter(ProrrogaRequest.id == request_id, ProrrogaRequest.student_id == uid)
+    return (q.populate_existing().with_for_update() if lock else q).first()
+
+
+@router.post("/solicitudes/{request_id}/referencia", name="prorrogas_tec.api.estudiante.referencia_subir")
+def subir_referencia(request_id: int, db: DbSession, archivo: UploadFile = File(...),
+                     user: dict = require_perms("prorrogas_tec", _CREATE)):
+    uid = int(user["sub"])
+    req = _propia(db, request_id, uid, lock=True)
+    if req is None:
+        db.rollback()
+        return error_response(404, "no_encontrada", "No se encontró la solicitud.")
+    try:
+        ReferenceService.save(db, req, archivo.file.read(ReferenceService.MAX_BYTES + 1), uid)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    db.commit()
+    return RequestService.request_out(db, req)
+
+
+@router.get("/solicitudes/{request_id}/referencia.pdf", name="prorrogas_tec.api.estudiante.referencia_bajar")
+def bajar_referencia(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    req = _propia(db, request_id, int(user["sub"]))
+    if req is None or not req.reference_path:
+        return error_response(404, "no_encontrada", "No se encontró la referencia.")
+    return Response(ReferenceService.read(req), media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="referencia.pdf"'})
 
 
 @router.get("/solicitudes/{request_id}/documentos/{doc_id}.pdf", name="prorrogas_tec.api.estudiante.pdf")

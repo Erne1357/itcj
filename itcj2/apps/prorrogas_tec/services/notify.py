@@ -25,7 +25,7 @@ _AVISOS = {  # kind -> (título, plantilla del correo)
     "firma_pendiente": ("Te falta firmar tu carta compromiso", "firma_pendiente.html"),
 }
 _CUERPOS = {  # cuerpo del aviso si no llega `body`; sin entrada, el comentario de la decisión
-    "aceptada": "Acude a la Subdirección Académica para acordar el monto y las fechas de tus pagos.",
+    "aceptada": "La secretaria armará tu plan de pagos con base en tu referencia bancaria. Te avisaremos cuando esté listo.",
     "carta_lista": "Entra a Mi prórroga para firmarla.",
     "firma_pendiente": "Entra a Mi prórroga para firmarla.",
     "plan_modificado": "Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso.",

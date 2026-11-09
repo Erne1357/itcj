@@ -47,7 +47,16 @@
           firma: firma.dataURL(),
         }),
       });
-      if (r.ok) { window.location.href = "/prorrogas/estudiante"; return; }
+      if (r.ok) {
+        const arch = $("sol-referencia").files[0];
+        if (arch) {   // un fallo aquí no detiene la redirección: se sube después en Mi prórroga
+          const id = (await r.json()).id, fd = new FormData();
+          fd.append("archivo", arch);
+          await fetch(`${API}/estudiante/solicitudes/${id}/referencia`, { method: "POST", credentials: "include", body: fd }).catch(() => {});
+        }
+        window.location.href = "/prorrogas/estudiante";
+        return;
+      }
       const d = await r.json().catch(() => ({}));
       mostrarError(d.message || "No se pudo enviar la solicitud.");
     } catch (err) {

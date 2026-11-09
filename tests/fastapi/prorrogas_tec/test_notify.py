@@ -91,3 +91,10 @@ def test_con_adjunto_va_en_base64(monkeypatch):
     a, = sent["message"]["attachments"]
     assert a["@odata.type"] == "#microsoft.graph.fileAttachment" and a["name"] == "c.pdf"
     assert a["contentType"] == "application/pdf" and base64.b64decode(a["contentBytes"]) == b"%PDF"
+
+
+def test_la_aceptacion_ya_no_manda_a_acordar_el_monto():
+    from itcj2.templates import templates
+    html = templates.env.get_template("prorrogas_tec/email/decision_aceptada.html").render(folio="PR-1", link="x")
+    assert "Acude" not in html and "referencia bancaria" in html
+    assert "Acude" not in notify._CUERPOS["aceptada"]

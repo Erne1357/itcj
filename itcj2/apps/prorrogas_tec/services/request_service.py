@@ -202,6 +202,7 @@ class RequestService:
             "motivo": req.reason, "semestre": req.period_label, "creada": req.created_at.isoformat(),
             "decidida": req.decided_at.isoformat() if req.decided_at else None,
             "comentario": req.decision_comment,
+            "referencia": req.reference_uploaded_at.isoformat() if req.reference_uploaded_at else None,
             "documentos": [
                 {"id": d.id, "tipo": d.doc_type, "label": DOC_TYPES[d.doc_type].label, "version": d.version,
                  "firmado": d.signed_at is not None}
