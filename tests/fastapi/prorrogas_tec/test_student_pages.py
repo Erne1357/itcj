@@ -22,3 +22,8 @@ def test_mi_prorroga_carga_el_lienzo_compartido(client_as, estudiante):
         page = c.get(url).text
         assert "js/estudiante/firma.js" in page
     assert "Firma tu carta compromiso" in c.get("/prorrogas/estudiante").text
+
+
+def test_mi_prorroga_trae_la_campana(client_as, alumno_unido):
+    page = client_as(alumno_unido).get("/prorrogas/estudiante").text
+    assert "app-fab-widget.js" in page and "new AppNotificationFAB('prorrogas_tec'" in page

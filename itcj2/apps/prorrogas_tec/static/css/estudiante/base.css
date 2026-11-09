@@ -159,3 +159,28 @@ textarea.input { height: auto; padding: 12px; resize: vertical; }
 .rec .ico-circle .icon { width: 20px; height: 20px; }
 .rec-main { flex: 1; display: flex; flex-direction: column; }
 .rec-main strong { font-size: 15px; }
+
+/* Campana de core (AppNotificationFAB): usa utilidades de Bootstrap que aqui no se cargan; acotado para no tocar .btn ni .badge del alumno. */
+[id^="notifFab-"], [id^="notifPanel-"] { font-family: var(--font-body); }
+[id^="notifFab-"] .d-flex, [id^="notifFab-"].d-flex, [id^="notifPanel-"] .d-flex { display: flex; }
+[id^="notifFab-"].align-items-center, [id^="notifPanel-"] .align-items-center { align-items: center; }
+[id^="notifFab-"].justify-content-center, [id^="notifPanel-"] .justify-content-center { justify-content: center; }
+[id^="notifFab-"] .fs-4 { font-size: 1.5rem; }
+[id^="notifPanel-"] .fs-1 { font-size: 2.5rem; }
+[id^="notifPanel-"] .fw-semibold { font-weight: 600; }
+[id^="notifPanel-"] .small { font-size: .875em; }
+[id^="notifPanel-"] .text-center { text-align: center; }
+[id^="notifPanel-"] .text-muted { color: #6c757d; }
+[id^="notifPanel-"] .mt-2 { margin-top: .5rem; }
+[id^="notifPanel-"] .ms-2 { margin-left: .5rem; }
+[id^="notifPanel-"] .mb-0 { margin-bottom: 0; }
+[id^="notifPanel-"] .py-4 { padding-top: 1.5rem; padding-bottom: 1.5rem; }
+[id^="notifFab-"] .rounded-pill { border-radius: 50rem; }
+[id^="notifFab-"] .text-bg-danger { color: #fff; background-color: #dc3545; }
+[id^="notifPanel-"] .bg-primary { background-color: #0d6efd; }
+/* .btn del alumno es de ancho completo y 52px: aqui es el boton chico del widget. */
+[id^="notifPanel-"] .btn { display: inline-block; width: auto; height: auto; font: inherit; line-height: 1.5; }
+[id^="notifPanel-"] .btn:hover { background: #0d6efd; color: #fff; }
+[id^="notifFab-"] .badge { display: inline-flex; justify-content: center; gap: 0; padding: 0 5px; font-family: inherit; }
+[id^="notifFab-"] .badge::before { content: none; }
+[id^="notifFab-"] .badge[hidden] { display: none; }
