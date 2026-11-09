@@ -146,3 +146,41 @@ def test_recordatorio_que_no_sale_no_bloquea_24h(db_session, aceptada, secretari
     monkeypatch.setattr(notify, "send_email", lambda **k: True)
     StudentsService.remind(db_session, aceptada.id, secretaria.id, now=AHORA)
     assert aceptada.last_reminded_at is not None
+
+
+API = "/api/prorrogas/v2/estudiantes"
+
+
+def _carta(db, req, firmada=False):
+    from itcj2.apps.prorrogas_tec.models.document import ProrrogaDocument
+    d = ProrrogaDocument(request_id=req.id, doc_type="carta_compromiso_1", version=1, context={}, file_path="x.pdf",
+                         sha256="0" * 64, signed_at=AHORA if firmada else None)
+    db.add(d)
+    db.flush()
+    return d
+
+
+def test_filtro_y_marca_de_firma_pendiente(client_as, secretaria, db_session, periodo, aceptada, make_aceptada):
+    _carta(db_session, aceptada)
+    _carta(db_session, make_aceptada(), firmada=True)
+    d = client_as(secretaria).get(f"{API}?period_id={periodo.id}&filtro=por_firmar&per_page=100").json()
+    assert [i["id"] for i in d["items"]] == [aceptada.id] and d["items"][0]["por_firmar"] is True
+    assert d["conteos"]["por_firmar"] == 1
+
+
+def test_recordar_firma_una_vez_al_dia(db_session, aceptada, secretaria, avisos):
+    _carta(db_session, aceptada)
+    StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "firma", now=AHORA)
+    assert avisos.calls[0][0] == "firma_pendiente"
+    with pytest.raises(ServiceError) as e:
+        StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "firma", now=AHORA + timedelta(hours=23))
+    assert e.value.code == "ya_recordado"
+    StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "firma", now=AHORA + timedelta(hours=25))
+    assert len(avisos.calls) == 2
+
+
+def test_no_recuerda_si_ya_firmo(db_session, aceptada, secretaria, avisos):
+    _carta(db_session, aceptada, firmada=True)
+    with pytest.raises(ServiceError) as e:
+        StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "firma", now=AHORA)
+    assert e.value.code == "no_aplica"

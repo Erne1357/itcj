@@ -136,6 +136,21 @@ def recordar(request_id: int, db: DbSession, user: dict = require_perms("prorrog
     return StudentsService.expediente(db, request_id, db_now().date())
 
 
+class PendienteIn(BaseModel):
+    que: str
+
+
+@router.post("/{request_id}/recordar-pendiente", name="prorrogas_tec.api.estudiantes.recordar_pendiente")
+def recordar_pendiente(request_id: int, body: PendienteIn, db: DbSession,
+                       user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.remind_pending(db, request_id, int(user["sub"]), body.que)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
 @router.post("/{request_id}/desbloqueo-avisado", name="prorrogas_tec.api.estudiantes.desbloqueo")
 def desbloqueo(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _EXPORT)):
     try:

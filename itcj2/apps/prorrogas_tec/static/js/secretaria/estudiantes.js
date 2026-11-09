@@ -11,14 +11,14 @@
   const $ = (id) => document.getElementById(id);
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const PER_PAGE = 25;
-  const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada"];
+  const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar"];
   const HIST = {
     solicitud_creada: "Solicitud creada", solicitud_aceptada: "Prórroga aceptada",
     plan_confirmado: "Plan de pagos creado", plan_modificado: "Plan de pagos modificado",
     documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
-    desbloqueo_avisado: "Desbloqueo avisado", correo_no_enviado: "Correo sin enviar",
+    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -133,6 +133,7 @@
     row.append(el("span", "mono", e.control));
     const name = el("span", "est-name", e.nombre);
     if (e.avisar_desbloqueo) name.append(el("span", "est-tag", "Avisar desbloqueo"));
+    if (e.por_firmar) name.append(el("span", "est-tag", "Falta firma"));
     row.append(name);
 
     const pagos = el("div", "est-pagos");
@@ -494,6 +495,10 @@
       : !rec.puede ? (rec.ultimo ? "Ya se le envió uno en las últimas 24 horas." : "No tiene correo ni cuenta en la plataforma.")
         : venc ? "Tiene un pago vencido: conviene avisarle." : `Se envía a ${e.correo || "su cuenta en la plataforma"}`;
     sec.append(el("div", "est-hint" + (venc && rec.puede ? " is-alert" : ""), hint));
+    if (x.carta && !x.carta.firmada) sec.append(button("Recordar firma", "sec-btn est-sm", async () => {
+      show($("estMsg"), "");
+      apply(await api(`${EST}/${s.id}/recordar-pendiente`, { body: { que: "firma" } }), "Recordatorio de firma enviado.");
+    }));
     if (bl.avisar_desbloqueo) sec.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
       show($("estMsg"), "");
       apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");

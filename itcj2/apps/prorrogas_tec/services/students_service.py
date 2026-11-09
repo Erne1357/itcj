@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
+from itcj2.apps.prorrogas_tec.models.document import ProrrogaDocument
 from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
 from itcj2.apps.prorrogas_tec.models.period import ProrrogaPeriod
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
@@ -24,7 +25,8 @@ from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
 
-FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada")
+FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar")
+_PENDIENTES = {"firma": "firma_pendiente"}
 _SITUACION = {"con_adeudo": "atrasada", "al_corriente": "al_corriente", "sin_plan": "sin_plan",
               "liquidada": "liquidada"}
 _ENTRE_RECORDATORIOS = timedelta(hours=24)
@@ -47,6 +49,16 @@ def _puede_recordar(req, c, ahora: datetime) -> bool:
 
 def _avisar_desbloqueo(req, c) -> bool:
     return req.block_exported_at is not None and c.situacion == "liquidada" and req.unblock_notified_at is None
+
+
+def _sin_firmar(db, ids: list[int]) -> set[int]:
+    """Solicitudes con carta compromiso vigente (no reemplazada) sin firmar; mismo criterio que el expediente."""
+    if not ids:
+        return set()
+    rows = (db.query(ProrrogaDocument.request_id)
+            .filter(ProrrogaDocument.request_id.in_(ids), ProrrogaDocument.superseded_at.is_(None),
+                    ProrrogaDocument.doc_type.like("carta_compromiso%"), ProrrogaDocument.signed_at.is_(None)))
+    return {r[0] for r in rows}
 
 
 def _datos(payload: dict) -> dict:
@@ -85,7 +97,11 @@ class StudentsService:
         cuentas = account.load_many(db, reqs, today)
         conteos = {"todos": len(reqs)} | {k: sum(1 for c in cuentas.values() if c.situacion == s)
                                           for k, s in _SITUACION.items()}
-        if filtro != "todos":
+        por_firmar = _sin_firmar(db, [r.id for r in reqs])
+        conteos["por_firmar"] = len(por_firmar)
+        if filtro == "por_firmar":
+            reqs = [r for r in reqs if r.id in por_firmar]
+        elif filtro != "todos":
             reqs = [r for r in reqs if cuentas[r.id].situacion == _SITUACION[filtro]]
         reqs.sort(key=lambda r: ((r.student_name or "").lower(), r.id))
         pagina = reqs[(page - 1) * per_page: page * per_page]
@@ -99,7 +115,7 @@ class StudentsService:
                 "vencida_desde": c.vencida_desde.isoformat() if c.vencida_desde else None,
                 "pagos": [p.estado for p in c.parcialidades],
                 "pagados": sum(1 for p in c.parcialidades if p.estado == "pagada"),
-                "puede_recordar": _puede_recordar(r, c, ahora),
+                "puede_recordar": _puede_recordar(r, c, ahora), "por_firmar": r.id in por_firmar,
                 "avisar_desbloqueo": _avisar_desbloqueo(r, c)})
         return {"items": items, "total": len(reqs), "page": page, "per_page": per_page, "conteos": conteos}
 
@@ -192,6 +208,47 @@ class StudentsService:
                       payload={"saldo": account.money(c.saldo)})
         else:  # no cuenta: que se pueda reintentar sin esperar 24 h
             req.last_reminded_at = previo
+        try:
+            db.commit()
+        except Exception:
+            logger.exception("No se pudo guardar el aviso de la solicitud %s", req.id)
+            db.rollback()
+        if not salio:
+            raise ServiceError("correo_no_salio",
+                               "El recordatorio no salió: revisa la conexión del correo en /itcj/config/email.",
+                               status=502)
+        return req
+
+    @staticmethod
+    def remind_pending(db, request_id: int, actor_id: int, que: str, *,
+                       now: date | datetime | None = None) -> ProrrogaRequest:
+        """Recordatorio de un pendiente del alumno (hoy, la firma); como máximo uno cada 24 h por pendiente."""
+        if que not in _PENDIENTES:
+            raise ServiceError("que_invalido", "Pendiente no válido.", 400)
+        kind = _PENDIENTES[que]
+        _, _, ts = _tiempos(now)
+        req = StudentsService._bloquear(db, request_id)
+        try:
+            if req.id not in _sin_firmar(db, [req.id]):
+                raise ServiceError("no_aplica", "El estudiante no tiene firma pendiente.", status=409)
+            if not (req.student_id or req.email):
+                raise ServiceError("sin_destinatario", "Esta prórroga no tiene cuenta ni correo para avisar.",
+                                   status=409)
+            previos = (db.query(ProrrogaEvent).filter_by(request_id=req.id, event_type="recordatorio_pendiente")
+                       .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).all())
+            ultimo = next((e.created_at for e in previos if e.payload.get("que") == que), None)
+            if ultimo and ts - ultimo < _ENTRE_RECORDATORIOS:
+                raise ServiceError("ya_recordado", "Ya se le recordó en las últimas 24 horas.", status=409,
+                                   siguiente=(ultimo + _ENTRE_RECORDATORIOS).isoformat())
+            db.commit()  # sin candados durante Graph
+        except Exception:
+            db.rollback()
+            raise
+        db.refresh(req)
+        salio = notify.notify_student(db, req, kind=kind, link="/prorrogas/estudiante")
+        if salio:
+            log_event(db, event_type="recordatorio_pendiente", request_id=req.id, actor_id=actor_id,
+                      payload={"que": que}).created_at = ts
         try:
             db.commit()
         except Exception:
