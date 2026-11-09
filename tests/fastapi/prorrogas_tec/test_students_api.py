@@ -135,3 +135,12 @@ def test_historial_nombra_el_documento(client_as, secretaria, db_session, acepta
     ev, = [h for h in client_as(secretaria).get(f"{API}/{aceptada.id}").json()["historial"]
            if h["tipo"] == "documento_generado"]
     assert ev["datos"]["documento"] == "Carta de aceptación"
+
+
+def test_expediente_avisa_si_el_ultimo_correo_fallo(db_session, aceptada):
+    from itcj2.apps.prorrogas_tec.services.events import log_event
+    dia = date(2091, 2, 1)
+    assert StudentsService.expediente(db_session, aceptada.id, dia)["correo_enviado"] is True
+    log_event(db_session, event_type="correo_no_enviado", request_id=aceptada.id, payload={"aviso": "carta_lista"})
+    db_session.flush()
+    assert StudentsService.expediente(db_session, aceptada.id, dia)["correo_enviado"] is False

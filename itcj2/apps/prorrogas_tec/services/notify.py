@@ -6,6 +6,7 @@ jamás, porque una liga de invitación en el log es una credencial en texto clar
 """
 import logging
 
+from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.config import get_settings
 from itcj2.core.services.notification_service import NotificationService
@@ -62,8 +63,12 @@ def send_email(*, template: str, context: dict, subject: str, to: str | None,
 
 
 def notify_student(db, req, *, kind: str, link: str, body: str | None = None,
-                   context: dict | None = None) -> None:
-    """Aviso al estudiante: notificación en la plataforma y correo. Nunca lanza."""
+                   context: dict | None = None) -> bool:
+    """Aviso al estudiante: notificación en la plataforma y correo. Nunca lanza.
+
+    `True` si el correo salió o si la solicitud no tiene correo (basta el aviso en la plataforma).
+    Si no salió, deja `correo_no_enviado` en el historial; quien llama hace el commit.
+    """
     title, template = _AVISOS[kind]
     if body is None:
         body = _CUERPOS.get(kind, (req.decision_comment or "")[:200])
@@ -74,7 +79,14 @@ def notify_student(db, req, *, kind: str, link: str, body: str | None = None,
     except Exception:
         logger.exception("No se pudo crear el aviso de la solicitud %s", req.id)
     url = f"{get_settings().DOMAIN}{link}"  # en el correo la liga es absoluta; en la plataforma, relativa
-    send_email(template=template,
-               context={"folio": folio(req), "link": url, "comentario": req.decision_comment,
-                        **(context or {})},
-               subject=title, to=req.email, link=url)
+    ok = send_email(template=template,
+                    context={"folio": folio(req), "link": url, "comentario": req.decision_comment,
+                             **(context or {})},
+                    subject=title, to=req.email, link=url) or not req.email
+    if not ok:
+        try:
+            with db.begin_nested():
+                log_event(db, event_type="correo_no_enviado", request_id=req.id, payload={"aviso": kind})
+        except Exception:
+            logger.exception("No se pudo anotar el correo no enviado de la solicitud %s", req.id)
+    return ok

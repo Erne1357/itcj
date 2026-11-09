@@ -18,7 +18,7 @@
     documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
-    desbloqueo_avisado: "Desbloqueo avisado",
+    desbloqueo_avisado: "Desbloqueo avisado", correo_no_enviado: "Correo sin enviar",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -281,6 +281,7 @@
     if (!r.ok) { show($("estMsg"), r.data.message || "No se pudo completar la acción."); return false; }
     toast(okMsg);
     render(r.data);
+    if (r.data.correo_enviado === false) show($("estMsg"), "Se guardó, pero el correo al estudiante no salió. Avísale por otro medio.");
     loadList();
     return true;
   }

@@ -44,3 +44,28 @@ def test_un_aviso_que_falla_no_envenena_la_sesion(db_session, solicitud, monkeyp
     monkeypatch.setattr(msgraph_mail, "acquire_token_silent", lambda app: None)
     notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante")
     assert db_session.query(ProrrogaRequest).filter_by(id=solicitud.id).one()
+
+
+def test_si_el_correo_falla_queda_en_el_historial(db_session, solicitud, monkeypatch):
+    from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
+    from itcj2.apps.prorrogas_tec.services.events import last_mail_failed
+    monkeypatch.setattr(msgraph_mail, "acquire_token_silent", lambda app: None)
+    assert notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante") is False
+    db_session.flush()
+    ev = db_session.query(ProrrogaEvent).filter_by(request_id=solicitud.id, event_type="correo_no_enviado").one()
+    assert ev.payload == {"aviso": "aceptada"} and last_mail_failed(db_session, solicitud.id)
+
+
+def test_sin_correo_capturado_basta_el_aviso(db_session, solicitud):
+    solicitud.email = None
+    assert notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante") is True
+
+
+def test_notify_student_no_lanza_si_el_historial_falla(db_session, solicitud, monkeypatch):
+    monkeypatch.setattr(msgraph_mail, "acquire_token_silent", lambda app: None)
+
+    def roto(*a, **k):
+        raise RuntimeError("bitácora caída")
+
+    monkeypatch.setattr(notify, "log_event", roto)
+    assert notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante") is False

@@ -94,6 +94,10 @@ def lookup(db, raw_control: str) -> dict:
     }
 
 
+def invitation_link(token: str) -> str:
+    return f"{get_settings().DOMAIN}/prorrogas/unirse/invitacion/{token}"
+
+
 def invite(db, *, raw_control, email, actor_id, now=None) -> tuple[ProrrogaInvitation, str, bool]:
     """Registra la invitación y luego manda el correo. Devuelve `(invitación, token, enviado)`."""
     now = now or db_now()
@@ -121,7 +125,7 @@ def invite(db, *, raw_control, email, actor_id, now=None) -> tuple[ProrrogaInvit
     log_event(db, event_type="invitacion_enviada", actor_id=actor_id,
               payload={"invitation_id": invitacion.id, "control_number": control})
     db.commit()  # antes del correo: sin candados durante Graph y sin ligas a una invitación que no se guardó
-    link = f"{get_settings().DOMAIN}/prorrogas/unirse/invitacion/{token}"
+    link = invitation_link(token)
     enviado = notify.send_email(template="invitacion.html", context={"link": link},
                                 subject="Invitación al módulo de Prórrogas", to=correo, link=link)
     return invitacion, token, enviado

@@ -379,15 +379,20 @@ def enviar_correo(monkeypatch):
 
 @pytest.fixture()
 def avisos(monkeypatch):
-    """Parcha `notify.notify_student`; `.calls` guarda `(kind, req.id, link)`."""
+    """Parcha `notify.notify_student`; `.calls` guarda `(kind, req.id, link)`, `.kw` los extras. Devuelve True."""
     from types import SimpleNamespace
 
     from itcj2.apps.prorrogas_tec.services import notify
 
-    calls = []
-    monkeypatch.setattr(notify, "notify_student",
-                        lambda db, req, *, kind, link, **kw: calls.append((kind, req.id, link)))
-    return SimpleNamespace(calls=calls)
+    calls, extras = [], []
+
+    def fake(db, req, *, kind, link, **kw):
+        calls.append((kind, req.id, link))
+        extras.append(kw)
+        return True
+
+    monkeypatch.setattr(notify, "notify_student", fake)
+    return SimpleNamespace(calls=calls, kw=extras)
 
 
 @pytest.fixture()

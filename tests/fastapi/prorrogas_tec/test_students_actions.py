@@ -132,3 +132,17 @@ def test_no_se_recuerda_sin_cuenta_ni_correo(db_session, make_historica, secreta
     with pytest.raises(ServiceError) as e:
         StudentsService.remind(db_session, req.id, secretaria.id, now=AHORA)
     assert (e.value.code, e.value.status) == ("sin_destinatario", 409) and avisos.calls == []
+
+
+def test_recordatorio_que_no_sale_no_bloquea_24h(db_session, aceptada, secretaria, con_plan, monkeypatch):  # Review Focus 2
+    from itcj2.apps.prorrogas_tec.services import notify
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    monkeypatch.setattr(notify, "send_email", lambda **k: False)
+    with pytest.raises(ServiceError) as e:
+        StudentsService.remind(db_session, aceptada.id, secretaria.id, now=AHORA)
+    assert e.value.code == "correo_no_salio" and e.value.status == 502
+    db_session.refresh(aceptada)
+    assert aceptada.last_reminded_at is None
+    monkeypatch.setattr(notify, "send_email", lambda **k: True)
+    StudentsService.remind(db_session, aceptada.id, secretaria.id, now=AHORA)
+    assert aceptada.last_reminded_at is not None

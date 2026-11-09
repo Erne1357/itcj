@@ -157,3 +157,17 @@ def test_invitacion_abierta_por_otra_cuenta_no_se_consume(db_session, secretaria
     with pytest.raises(ServiceError) as e:
         inv.consume_invitation(db_session, token, user_id=otro.id)
     assert e.value.code == "invitacion_de_otra_cuenta" and invitacion.used_at is None
+
+
+def test_api_si_el_correo_no_sale_devuelve_la_liga(client_as, secretaria, make_user, monkeypatch):
+    from itcj2.apps.prorrogas_tec.services import notify
+    make_user(control_number="99200020")
+    monkeypatch.setattr(notify, "send_email", lambda **k: False)
+    d = client_as(secretaria).post("/api/prorrogas/v2/invitaciones", json={"control_number": "99200020"}).json()
+    assert d["enviado"] is False and "/prorrogas/unirse/invitacion/" in d["liga"]
+
+
+def test_api_si_el_correo_sale_no_hay_liga(client_as, secretaria, make_user, enviar_correo):
+    make_user(control_number="99200021")
+    d = client_as(secretaria).post("/api/prorrogas/v2/invitaciones", json={"control_number": "99200021"}).json()
+    assert d["enviado"] is True and "liga" not in d

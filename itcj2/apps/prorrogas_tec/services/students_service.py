@@ -16,7 +16,7 @@ from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services import account, notify
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
-from itcj2.apps.prorrogas_tec.services.events import log_event
+from itcj2.apps.prorrogas_tec.services.events import last_mail_failed, log_event
 from itcj2.apps.prorrogas_tec.services.formatting import fecha_larga, pesos
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
@@ -143,6 +143,7 @@ class StudentsService:
                         "avisado": req.unblock_notified_at.isoformat() if req.unblock_notified_at else None},
             "recordatorio": {"ultimo": req.last_reminded_at.isoformat() if req.last_reminded_at else None,
                              "puede": _puede_recordar(req, c, db_now())},
+            "correo_enviado": not last_mail_failed(db, req.id),
             "historial": [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": _datos(e.payload)}
                           for e in eventos],
         }
@@ -175,24 +176,31 @@ class StudentsService:
                                    siguiente=(req.last_reminded_at + _ENTRE_RECORDATORIOS).isoformat())
             p = c.proxima
             fecha, monto, vencido = fecha_larga(p.due_date), pesos(p.amount - p.cubierto), p.due_date < today
-            req.last_reminded_at = ts
-            log_event(db, event_type="recordatorio_enviado", request_id=req.id, actor_id=actor_id,
-                      payload={"saldo": account.money(c.saldo)})
-            db.commit()
+            previo, req.last_reminded_at = req.last_reminded_at, ts
+            db.commit()  # sin candados durante Graph
         except Exception:
             db.rollback()
             raise
         db.refresh(req)
         body = (f"Saldo {pesos(c.saldo)}. Tienes un pago vencido desde el {fecha} por {monto}." if vencido
                 else f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.")
-        notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante", body=body,
-                              context={"saldo": pesos(c.saldo), "proxima_fecha": fecha, "proxima_monto": monto,
-                                       "vencido": vencido})
+        salio = notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante", body=body,
+                                      context={"saldo": pesos(c.saldo), "proxima_fecha": fecha,
+                                               "proxima_monto": monto, "vencido": vencido})
+        if salio:
+            log_event(db, event_type="recordatorio_enviado", request_id=req.id, actor_id=actor_id,
+                      payload={"saldo": account.money(c.saldo)})
+        else:  # no cuenta: que se pueda reintentar sin esperar 24 h
+            req.last_reminded_at = previo
         try:
             db.commit()
         except Exception:
             logger.exception("No se pudo guardar el aviso de la solicitud %s", req.id)
             db.rollback()
+        if not salio:
+            raise ServiceError("correo_no_salio",
+                               "El recordatorio no salió: revisa la conexión del correo en /itcj/config/email.",
+                               status=502)
         return req
 
     @staticmethod

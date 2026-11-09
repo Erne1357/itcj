@@ -11,6 +11,7 @@ from itcj2.apps.prorrogas_tec.models.document import ProrrogaDocument
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
+from itcj2.apps.prorrogas_tec.services.events import last_mail_failed
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.dependencies import DbSession, require_perms
@@ -64,4 +65,4 @@ def decidir(request_id: int, body: DecisionIn, db: DbSession,
     except ServiceError as e:
         db.rollback()
         return _err(e)
-    return RequestService.request_out(db, req)
+    return {**RequestService.request_out(db, req), "correo_enviado": not last_mail_failed(db, req.id)}

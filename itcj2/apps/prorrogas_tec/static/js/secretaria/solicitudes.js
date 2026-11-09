@@ -140,6 +140,7 @@
     $("invExtra").hidden = true;
     show($("invFound"), "");
     show($("invError"), "");
+    $("invCopiar").hidden = true;
     if (!control) return;
     const r = await api(`/invitaciones/alumno?control=${encodeURIComponent(control)}`);
     if (!r.ok) { show($("invError"), r.data.message || "No se pudo buscar el número de control."); return; }
@@ -152,9 +153,16 @@
   }
   $("invControl").addEventListener("change", lookup);
 
+  let ligaInv = null;
+  $("invCopiar").addEventListener("click", async function () {
+    try { await navigator.clipboard.writeText(ligaInv); toast("Liga copiada"); }
+    catch (_) { toast("No se pudo copiar la liga"); }
+  });
+
   $("paneMan").addEventListener("submit", async function (e) {
     e.preventDefault();
     show($("invError"), "");
+    $("invCopiar").hidden = true;
     if (!lookedUp || lookedUp.control_number !== $("invControl").value.trim().toUpperCase()) await lookup();
     if (!lookedUp) return;
     const body = { control_number: lookedUp.control_number, correo: $("invCorreo").value.trim() || null };
@@ -169,6 +177,7 @@
     // Sin buzón la invitación no llega a nadie: no tiene aviso en la plataforma.
     if (r.data.enviado) toast(`Invitación enviada a ${r.data.correo}`);
     else show($("invError"), "La invitación quedó registrada pero el correo no salió. Revisa la conexión del correo en /itcj/config/email.");
+    if (r.data.liga) { ligaInv = r.data.liga; $("invCopiar").hidden = false; }
     loadToday();
   });
 
@@ -281,7 +290,8 @@
       dlg.close();
       items = items.filter((x) => x.id !== s.id);
       renderRows();
-      toast(r.ok ? (aceptar ? `Prórroga aceptada: ${s.folio}` : `Solicitud rechazada: ${s.folio}`)
+      toast(r.ok && r.data.correo_enviado === false ? "Se guardó, pero el correo al estudiante no salió. Avísale por otro medio."
+            : r.ok ? (aceptar ? `Prórroga aceptada: ${s.folio}` : `Solicitud rechazada: ${s.folio}`)
                  : (r.data.message || "La solicitud ya fue resuelta."));
       return;
     }

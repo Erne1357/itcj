@@ -8,6 +8,7 @@ EVENT_TYPES = frozenset({
     "solicitud_rechazada", "documento_generado", "invitacion_enviada",
     "plan_confirmado", "plan_modificado", "recibo_registrado", "recibo_anulado", "documento_firmado",
     "recordatorio_enviado", "lista_bloqueo_exportada", "desbloqueo_avisado",
+    "correo_no_enviado",
 })
 
 
@@ -19,3 +20,10 @@ def log_event(db, *, event_type: str, request_id: int | None = None,
                        event_type=event_type, payload=payload or {})
     db.add(ev)
     return ev
+
+
+def last_mail_failed(db, request_id: int) -> bool:
+    """El evento más nuevo de la solicitud es `correo_no_enviado`."""
+    ultimo = (db.query(ProrrogaEvent.event_type).filter(ProrrogaEvent.request_id == request_id)
+              .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).first())
+    return ultimo is not None and ultimo[0] == "correo_no_enviado"
