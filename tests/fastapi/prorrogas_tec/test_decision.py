@@ -80,3 +80,13 @@ def test_pdf_no_disponible_deja_la_solicitud_pendiente(db_session, solicitud, se
     db_session.refresh(solicitud)
     assert solicitud.status == "pendiente" and solicitud.decided_by_id is None
     assert DocumentService.current(db_session, solicitud) == [] and avisos.calls == []
+
+
+@pytest.mark.parametrize("aceptar, tipo", [(True, "carta_aceptacion"), (False, "carta_rechazo")])
+def test_la_decision_adjunta_la_carta(db_session, solicitud, secretaria, monkeypatch, aceptar, tipo):
+    from itcj2.apps.prorrogas_tec.services import notify
+    enviados = []
+    monkeypatch.setattr(notify, "send_email", lambda **k: enviados.append(k) or True)
+    RequestService.decide(db_session, solicitud.id, secretaria.id, aceptar=aceptar, comentario="Motivo de prueba")
+    nombre, pdf = enviados[0]["attachments"][0]
+    assert nombre.endswith(f"-{tipo}.pdf") and pdf.startswith(b"%PDF")

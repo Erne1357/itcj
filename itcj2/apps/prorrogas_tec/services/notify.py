@@ -40,7 +40,7 @@ def _is_production() -> bool:
 
 
 def send_email(*, template: str, context: dict, subject: str, to: str | None,
-               link: str | None = None) -> bool:
+               link: str | None = None, attachments: list[tuple[str, bytes]] | None = None) -> bool:
     """Manda un correo por Graph. `True` solo con HTTP 200/202. Nunca lanza."""
     try:
         if link and not _is_production():
@@ -53,7 +53,7 @@ def send_email(*, template: str, context: dict, subject: str, to: str | None,
             return False
         from itcj2.templates import templates
         html = templates.env.get_template(f"prorrogas_tec/email/{template}").render(**context)
-        r = msgraph_mail.graph_send_mail(token, subject, html, [to])
+        r = msgraph_mail.graph_send_mail(token, subject, html, [to], attachments=attachments)
         if r.status_code in (200, 202):
             return True
         logger.warning("graph_send_mail devolvió %s para %s: %s", r.status_code, to, r.text[:200])
@@ -63,7 +63,7 @@ def send_email(*, template: str, context: dict, subject: str, to: str | None,
 
 
 def notify_student(db, req, *, kind: str, link: str, body: str | None = None,
-                   context: dict | None = None) -> bool:
+                   context: dict | None = None, attachments: list[tuple[str, bytes]] | None = None) -> bool:
     """Aviso al estudiante: notificación en la plataforma y correo. Nunca lanza.
 
     `True` si el correo salió o si la solicitud no tiene correo (basta el aviso en la plataforma).
@@ -82,7 +82,7 @@ def notify_student(db, req, *, kind: str, link: str, body: str | None = None,
     ok = send_email(template=template,
                     context={"folio": folio(req), "link": url, "comentario": req.decision_comment,
                              **(context or {})},
-                    subject=title, to=req.email, link=url) or not req.email
+                    subject=title, to=req.email, link=url, attachments=attachments) or not req.email
     if not ok:
         try:
             with db.begin_nested():

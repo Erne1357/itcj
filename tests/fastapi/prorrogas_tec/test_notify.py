@@ -69,3 +69,25 @@ def test_notify_student_no_lanza_si_el_historial_falla(db_session, solicitud, mo
 
     monkeypatch.setattr(notify, "log_event", roto)
     assert notify.notify_student(db_session, solicitud, kind="aceptada", link="/prorrogas/estudiante") is False
+
+
+def _post_falso(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(msgraph_mail.requests, "post",
+                        lambda url, headers, json, timeout: sent.update(json) or SimpleNamespace(status_code=202))
+    return sent
+
+
+def test_sin_adjuntos_el_envio_no_cambia(monkeypatch):  # lo comparten AgendaTec, Mantenimiento y TitulaTec
+    sent = _post_falso(monkeypatch)
+    msgraph_mail.graph_send_mail("t", "s", "<p>", ["a@example.invalid"])
+    assert "attachments" not in sent["message"]
+
+
+def test_con_adjunto_va_en_base64(monkeypatch):
+    import base64
+    sent = _post_falso(monkeypatch)
+    msgraph_mail.graph_send_mail("t", "s", "<p>", ["a@example.invalid"], attachments=[("c.pdf", b"%PDF")])
+    a, = sent["message"]["attachments"]
+    assert a["@odata.type"] == "#microsoft.graph.fileAttachment" and a["name"] == "c.pdf"
+    assert a["contentType"] == "application/pdf" and base64.b64decode(a["contentBytes"]) == b"%PDF"

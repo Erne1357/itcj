@@ -6,6 +6,7 @@ Cada app de ITCJ puede conectar su propia cuenta de correo.
 Los tokens se almacenan por separado en instance/apps/{app_key}/email/.
 Se usa un unico registro de app en Azure AD (credenciales compartidas).
 """
+import base64
 import json
 import logging
 import os
@@ -268,8 +269,12 @@ def graph_send_mail(
     content_html: str,
     to_list: list[str],
     save_to_sent: bool = True,
+    attachments: list[tuple[str, bytes]] | None = None,
 ):
-    """Envio delegado: usa /me/sendMail (envia como el usuario autenticado)."""
+    """Envio delegado: usa /me/sendMail (envia como el usuario autenticado).
+
+    `attachments`: pares (nombre, bytes) de PDF; sin ellos el mensaje no cambia.
+    """
     endpoint = "https://graph.microsoft.com/v1.0/me/sendMail"
     payload = {
         "message": {
@@ -281,6 +286,12 @@ def graph_send_mail(
         },
         "saveToSentItems": bool(save_to_sent),
     }
+    if attachments:
+        payload["message"]["attachments"] = [
+            {"@odata.type": "#microsoft.graph.fileAttachment", "name": name,
+             "contentType": "application/pdf", "contentBytes": base64.b64encode(data).decode("ascii")}
+            for name, data in attachments
+        ]
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",

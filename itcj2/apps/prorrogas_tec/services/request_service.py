@@ -175,14 +175,25 @@ class RequestService:
             db.rollback()
             raise
         db.refresh(req)
+        tipo = "carta_aceptacion" if aceptar else "carta_rechazo"
         notify.notify_student(db, req, kind="aceptada" if aceptar else "rechazada",
-                              link="/prorrogas/estudiante")
+                              link="/prorrogas/estudiante", attachments=RequestService._carta_adjunta(db, req, tipo))
         try:  # el aviso en la plataforma sale con este commit; si falla, la decisión ya está firme
             db.commit()
         except Exception:
             logger.exception("No se pudo guardar el aviso de la solicitud %s", req.id)
             db.rollback()
         return req
+
+    @staticmethod
+    def _carta_adjunta(db, req, tipo: str) -> list[tuple[str, bytes]] | None:
+        """La carta vigente en PDF para el correo; si no se puede leer, el aviso sale sin adjunto."""
+        try:
+            doc = next(d for d in DocumentService.current(db, req) if d.doc_type == tipo)
+            return [(f"{doc.context['folio']}-{doc.doc_type}.pdf", DocumentService.read_pdf(doc))]
+        except Exception:
+            logger.exception("No se pudo adjuntar la carta %s de la solicitud %s", tipo, req.id)
+            return None
 
     @staticmethod
     def request_out(db, req: ProrrogaRequest) -> dict:
