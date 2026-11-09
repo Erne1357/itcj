@@ -59,10 +59,8 @@ Los pasos 5, 7, 8 y 10 responden con el expediente actualizado. Las rutas fijas 
 ## Reglas de los recibos
 
 - Los captura **Caja** ([caja.md](caja.md)); la secretaria ya no registra ni anula recibos. Requieren plan y solicitud `aceptada`.
-- Folio de Caja: `strip()`, de 1 a 40 caracteres, **único entre los recibos vigentes de todas las solicitudes** (índice único parcial `uq_prorrogas_payments_folio_vigente`); un folio anulado se puede volver a usar.
-- Monto ≤ saldo (sin sobrepago). Fecha de pago entre la fecha de creación de la solicitud y hoy.
-- Anular (en Caja) pide motivo de 5 a 500 caracteres después de `strip()`.
-- Plan, recibo, firma, recordar y desbloqueo toman primero el candado de fila de la solicitud (`FOR UPDATE`); dos recibos a la vez se serializan y el segundo que excede el saldo da `sobrepago`.
+- Folio, fecha, monto cobrado, anulación y sus errores (`folio_invalido`, `fecha_invalida`, `folio_duplicado`, `motivo_requerido`, `ya_anulado`…) son de Caja: ver [caja.md](caja.md).
+- Plan, firma, recordar y desbloqueo toman primero el candado de fila de la solicitud (`FOR UPDATE`).
 
 ## Recordar, lista de adeudos y desbloqueo
 
@@ -81,23 +79,16 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `plazos_invalidos` | Menos de 1 o más de 3 parcialidades, o `n` del reparto fuera de 1–3 | 400 |
 | `suma_no_cuadra` | Las parcialidades no suman el total | 400 |
 | `fechas_invalidas` | Fuera de orden, antes de hoy o después del fin del semestre | 400 |
-| `folio_invalido` | Folio vacío o de más de 40 caracteres | 400 |
-| `fecha_invalida` | Fecha de pago futura o anterior a la solicitud | 400 |
-| `sobrepago` | El monto excede el saldo | 400 |
-| `motivo_requerido` | Anular (en Caja) con motivo de menos de 5 o más de 500 caracteres | 400 |
 | `motivo_invalido` | Cerrar sin plan o avisar una inconsistencia con motivo fuera de rango (10 a 1000 y 10 a 500 caracteres) | 400 |
 | `no_encontrada` | La solicitud no existe o no está `aceptada` | 404 |
-| `recibo_no_encontrado` | El recibo no existe o es de otra solicitud | 404 |
 | `periodo_no_encontrado` | Exportar con un semestre inexistente | 404 |
-| `no_aceptada` | Plan o recibo sobre una solicitud que no está `aceptada` | 409 |
+| `no_aceptada` | Plan sobre una solicitud que no está `aceptada` | 409 |
 | `con_pagos` | Rehacer el plan cuando ya hay un recibo vigente | 409 |
-| `sin_plan` | Recibo o recordatorio sin plan confirmado | 409 |
-| `folio_duplicado` | Ya hay un recibo vigente con ese folio (también si pierde la carrera del índice) | 409 |
-| `ya_anulado` | El recibo ya estaba anulado | 409 |
+| `sin_plan` | Recordatorio sin plan confirmado | 409 |
 | `sin_saldo` | Recordar sin saldo pendiente | 409 |
 | `ya_recordado` | Se recordó hace menos de 24 h | 409 |
 | `sin_destinatario` | Recordar una prórroga sin cuenta ni correo (importada del Excel) | 409 |
-| `sin_semestre` | Plan, recibo o anulación en una prórroga del Excel sin semestre de core (solo lectura) | 409 |
+| `sin_semestre` | Plan en una prórroga del Excel sin semestre de core (solo lectura) | 409 |
 | `no_aplica` | Avisar desbloqueo sin lista exportada, sin liquidar o ya avisado; avisar una inconsistencia de un recibo que el alumno aún no sube | 409 |
 | `pdf_no_disponible` | LibreOffice falló al generar la carta; el plan no se guarda y se puede reintentar | 503 |
 
