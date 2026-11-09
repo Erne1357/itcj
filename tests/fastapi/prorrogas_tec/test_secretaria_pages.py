@@ -63,3 +63,33 @@ def test_aterrizaje_lleva_al_admin_a_la_vista_nueva_no_a_la_del_fork(client_as, 
     grant(admin, make_role("admin", SECRETARIA_PERMS))
     r = client_as(admin).get("/prorrogas/", follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == BASE
+
+
+def test_lector_solo_ve_sus_pestanas(client_as, lector):
+    page = client_as(lector).get(f"{BASE}/estadisticas").text
+    assert f'href="{BASE}/estudiantes"' in page
+    assert f'href="{BASE}/documentos"' not in page and f'href="{BASE}/configuracion"' not in page
+
+
+@pytest.mark.parametrize("tab", ["documentos", "configuracion"])
+def test_lector_no_abre_lo_que_no_le_toca(client_as, lector, tab):  # Review Focus 5
+    assert client_as(lector).get(f"{BASE}/{tab}", follow_redirects=False).status_code == 403
+
+
+def test_raiz_lleva_a_la_primera_pestana_permitida(client_as, make_user, make_role, grant):
+    u = make_user()
+    grant(u, make_role("solo_stats", ["prorrogas_tec.secretaria.page.estadisticas"]))
+    r = client_as(u).get(BASE, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == f"{BASE}/estadisticas"
+
+
+def test_admin_global_entra_sin_rol_en_la_app(client_as, make_user):
+    c = client_as(make_user(first_name="GLOBAL", last_name="ADMIN"), role="admin")
+    assert c.get(f"{BASE}/documentos").status_code == 200
+    r = c.get("/prorrogas/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == BASE
+
+
+def test_raiz_sin_sesion_va_al_login(client):
+    r = client.get(BASE, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/itcj/login"

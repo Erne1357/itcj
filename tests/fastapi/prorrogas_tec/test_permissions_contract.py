@@ -38,4 +38,4 @@ def test_la_tarea_de_recordatorios_esta_sembrada():
 
 
 def test_el_censo_no_esta_vacio():
-    assert "prorrogas_tec.secretaria.page.view" in _codes_in_code()
+    assert "prorrogas_tec.secretaria.page.estudiantes" in _codes_in_code()

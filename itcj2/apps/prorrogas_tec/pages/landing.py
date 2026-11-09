@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from itcj2.dependencies import require_page_login
+from itcj2.dependencies import is_global_admin, require_page_login
 
 logger = logging.getLogger("itcj2.apps.prorrogas_tec.pages.landing")
 
@@ -36,6 +36,8 @@ async def home(
     from itcj2.core.services.authz_service import user_roles_in_app
     from itcj2.database import SessionLocal
 
+    if is_global_admin(user):  # sin rol en la app, igual entra a secretaría
+        return RedirectResponse("/prorrogas/secretaria", status_code=302)
     user_id = int(user["sub"])
     db = SessionLocal()
     try:

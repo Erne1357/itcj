@@ -14,74 +14,63 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
 
-from itcj2.dependencies import require_page_app
+from itcj2.apps.prorrogas_tec.services.access import perms_of, require_tab
+from itcj2.database import get_db
+from itcj2.exceptions import PageForbidden, PageLoginRequired
 from itcj2.templates import render
 
 logger = logging.getLogger("itcj2.apps.prorrogas_tec.pages.secretaria")
 
+# (clave, etiqueta, permiso). Los códigos van literales: la prueba de contrato los busca en el DML.
+# `...page.consulta` se siembra con esta tarea y entra aquí cuando exista la pestaña.
 TABS = (
-    ("estadisticas", "Estadísticas"),
-    ("solicitudes", "QR y solicitudes"),
-    ("estudiantes", "Estudiantes"),
-    ("documentos", "Documentos"),
-    ("configuracion", "Configuración"),
+    ("estadisticas", "Estadísticas", "prorrogas_tec.secretaria.page.estadisticas"),
+    ("solicitudes", "QR y solicitudes", "prorrogas_tec.secretaria.page.solicitudes"),
+    ("estudiantes", "Estudiantes", "prorrogas_tec.secretaria.page.estudiantes"),
+    ("documentos", "Documentos", "prorrogas_tec.secretaria.page.documentos"),
+    ("configuracion", "Configuración", "prorrogas_tec.secretaria.page.configuracion"),
 )
+_PERM = {key: code for key, _, code in TABS}
+_HOME_ORDER = ("solicitudes", "estudiantes", "estadisticas", "documentos", "configuracion")
 
-_VIEW = ["prorrogas_tec.secretaria.page.view"]
+router = APIRouter(prefix="/secretaria", tags=["prorrogas_tec-pages-secretaria"])
 
-router = APIRouter(
-    prefix="/secretaria",
-    tags=["prorrogas_tec-pages-secretaria"],
-    dependencies=[Depends(require_page_app("prorrogas_tec", perms=_VIEW))],
-)
+
+def _contexto(request: Request, active: str, title: str) -> dict:
+    perms = request.state.prorrogas_perms
+    return {
+        "title": title,
+        "tabs": [(k, label) for k, label, code in TABS if "*" in perms or code in perms],
+        "perms": perms,
+        "active": active,
+    }
 
 
 @router.get("", name="prorrogas_tec.pages.secretaria.home")
-async def secretaria_home():
-    return RedirectResponse("/prorrogas/secretaria/solicitudes", status_code=302)
+async def secretaria_home(request: Request, db: Session = Depends(get_db)):
+    user = getattr(request.state, "current_user", None)
+    if not user:
+        raise PageLoginRequired()
+    perms = perms_of(db, user)
+    for key in _HOME_ORDER:
+        if "*" in perms or _PERM[key] in perms:
+            return RedirectResponse(f"/prorrogas/secretaria/{key}", status_code=302)
+    raise PageForbidden(has_app_access=False)
 
 
-@router.get("/solicitudes", name="prorrogas_tec.pages.secretaria.solicitudes")
-async def secretaria_solicitudes(request: Request):
-    return render(request, "prorrogas_tec/secretaria/solicitudes.html", {
-        "title": "Prórrogas · QR y solicitudes",
-        "tabs": TABS,
-        "active": "solicitudes",
-    })
+def _tab(key: str, template: str, title: str):
+    @router.get(f"/{key}", name=f"prorrogas_tec.pages.secretaria.{key}",
+                dependencies=[Depends(require_tab(_PERM[key]))])
+    async def view(request: Request):
+        return render(request, f"prorrogas_tec/secretaria/{template}.html", _contexto(request, key, title))
+
+    return view
 
 
-@router.get("/documentos", name="prorrogas_tec.pages.secretaria.documentos")
-async def secretaria_documentos(request: Request):
-    return render(request, "prorrogas_tec/secretaria/documentos.html", {
-        "title": "Prórrogas · Documentos",
-        "tabs": TABS,
-        "active": "documentos",
-    })
-
-
-@router.get("/estudiantes", name="prorrogas_tec.pages.secretaria.estudiantes")
-async def secretaria_estudiantes(request: Request):
-    return render(request, "prorrogas_tec/secretaria/estudiantes.html", {
-        "title": "Prórrogas · Estudiantes",
-        "tabs": TABS,
-        "active": "estudiantes",
-    })
-
-
-@router.get("/configuracion", name="prorrogas_tec.pages.secretaria.configuracion")
-async def secretaria_configuracion(request: Request):
-    return render(request, "prorrogas_tec/secretaria/configuracion.html", {
-        "title": "Prórrogas · Configuración",
-        "tabs": TABS,
-        "active": "configuracion",
-    })
-
-
-@router.get("/estadisticas", name="prorrogas_tec.pages.secretaria.estadisticas")
-async def secretaria_estadisticas(request: Request):
-    return render(request, "prorrogas_tec/secretaria/estadisticas.html", {
-        "title": "Prórrogas · Estadísticas",
-        "tabs": TABS,
-        "active": "estadisticas",
-    })
+secretaria_solicitudes = _tab("solicitudes", "solicitudes", "Prórrogas · QR y solicitudes")
+secretaria_documentos = _tab("documentos", "documentos", "Prórrogas · Documentos")
+secretaria_estudiantes = _tab("estudiantes", "estudiantes", "Prórrogas · Estudiantes")
+secretaria_configuracion = _tab("configuracion", "configuracion", "Prórrogas · Configuración")
+secretaria_estadisticas = _tab("estadisticas", "estadisticas", "Prórrogas · Estadísticas")

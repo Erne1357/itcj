@@ -18,6 +18,12 @@ APP_KEY = "prorrogas_tec"
 
 SECRETARIA_PERMS = [
     "prorrogas_tec.secretaria.page.view",
+    "prorrogas_tec.secretaria.page.estadisticas",
+    "prorrogas_tec.secretaria.page.solicitudes",
+    "prorrogas_tec.secretaria.page.estudiantes",
+    "prorrogas_tec.secretaria.page.documentos",
+    "prorrogas_tec.secretaria.page.configuracion",
+    "prorrogas_tec.secretaria.page.consulta",
     "prorrogas_tec.templates.api.read",
     "prorrogas_tec.templates.api.upload",
     "prorrogas_tec.invitations.api.create",
@@ -29,6 +35,12 @@ SECRETARIA_PERMS = [
     "prorrogas_tec.students.api.remind",
     "prorrogas_tec.students.api.export",
     "prorrogas_tec.stats.api.read",
+]
+
+LECTOR_PERMS = [
+    "prorrogas_tec.secretaria.page.estadisticas", "prorrogas_tec.secretaria.page.solicitudes",
+    "prorrogas_tec.secretaria.page.estudiantes", "prorrogas_tec.secretaria.page.consulta",
+    "prorrogas_tec.requests.api.read.all", "prorrogas_tec.stats.api.read",
 ]
 
 STUDENT_PERMS = [
@@ -163,6 +175,14 @@ def grant(db_session, prorrogas_app):
 def secretaria(make_user, make_role, grant):
     user = make_user(first_name="SECRETARIA", last_name="PRUEBA")
     grant(user, make_role("secretaria", SECRETARIA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def lector(make_user, make_role, grant):
+    user = make_user(first_name="LECTOR", last_name="PRUEBA")
+    # No uses "admin": las pruebas ven el rol real de dev, con escritura hasta aplicar la semilla.
+    grant(user, make_role("lector_prueba", LECTOR_PERMS))
     return user
 
 
