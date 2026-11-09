@@ -48,3 +48,7 @@ def test_estado_desconocido_lo_rechaza_la_bd(db_session, make_user, periodo):
                                  "/api/prorrogas/v2/periods/", "/api/prorrogas/v2/request2/mine"])
 def test_las_rutas_del_fork_ya_no_existen(client, url):
     assert client.get(url, follow_redirects=False).status_code == 404
+
+
+def test_columnas_de_caja():
+    assert {"receipt_path", "receipt_uploaded_at"} <= set(Base.metadata.tables["prorrogas_installments"].c.keys())

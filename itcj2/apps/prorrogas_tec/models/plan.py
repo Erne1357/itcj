@@ -18,6 +18,8 @@ class ProrrogaInstallment(Base):
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     superseded_at = Column(DateTime)
     last_reminder_days = Column(SmallInteger)
+    receipt_path = Column(Text)
+    receipt_uploaded_at = Column(DateTime)
 
     __table_args__ = (
         CheckConstraint("number BETWEEN 1 AND 6", name="ck_prorrogas_installments_number"),
@@ -28,7 +30,7 @@ class ProrrogaInstallment(Base):
 
 
 class ProrrogaPayment(Base):
-    """Recibo de Caja: lo captura la secretaria (app) o llega del Excel (folio)."""
+    """Recibo de Caja: lo captura Caja (app) o llega del Excel (folio)."""
     __tablename__ = "prorrogas_payments"
 
     id = Column(BigInteger, primary_key=True)
