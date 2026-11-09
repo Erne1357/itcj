@@ -61,12 +61,17 @@
     if (st.semestre) qs.set("semestre", st.semestre);
     const r = await api(CAJA + "?" + qs);
     if (seq !== listSeq) return;
-    if (!r.ok) { show($("cajError"), r.data.message || "No se pudo cargar la lista."); return; }
+    if (!r.ok) {
+      show($("cajError"), r.data.message || "No se pudo cargar la lista.");
+      ["cajRes", "cajNone", "cajVacio", "cajListHead"].forEach((id) => { $(id).hidden = true; });
+      return;
+    }
     show($("cajError"), "");
     renderList(r.data);
   }
 
   function renderList(d) {
+    st.page = d.page;
     const buscando = !!st.q;
     $("cajListHead").hidden = buscando;
     $("cajPags").hidden = true;
@@ -149,6 +154,7 @@
   $("cajSem").addEventListener("change", (ev) => {
     st.semestre = ev.target.value;
     ev.target.classList.toggle("is-set", !!st.semestre);
+    $("cajSemHint").textContent = st.semestre ? `Solo en ${ev.target.selectedOptions[0].textContent}.` : "Busca en todos los semestres.";
     reiniciar();
   });
   $("cajOrden").addEventListener("change", (ev) => { st.orden = ev.target.value; reiniciar(); });

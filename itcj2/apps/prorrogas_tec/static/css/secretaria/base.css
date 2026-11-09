@@ -781,10 +781,11 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 #cajPrev > span, #cajNext > span { display: none; }
 #cajNums { display: flex; gap: 4px; }
 #cajNums button { min-width: 36px; height: 36px; padding: 0 6px; border-radius: 8px; font: 600 13px var(--font-mono); }
-#cajNums button.is-cur { background: rgba(103, 153, 224, .22); }
+#cajNums button.is-cur { background: var(--wine); color: var(--paper); }
+.caj-hint { font-size: 12px; font-weight: 400; color: rgba(26, 19, 14, .62); }
 
 @media (max-width: 900px) {
-  .caj-fila-head, .caj-f { display: none; }
+  .caj-fila.caj-fila-head, .caj-f { display: none; }
   .caj-tabla { background: transparent; border: 0; border-radius: 0; overflow: visible; display: flex; flex-direction: column; gap: 10px; }
   .caj-fila { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
   .caj-nom { order: 1; flex: 1 1 0; min-width: 0; font-weight: 700; }
