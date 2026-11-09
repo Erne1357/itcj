@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
-| **Permisos** | Página: `prorrogas_tec.secretaria.page.view` · API: `prorrogas_tec.templates.api.read`, `prorrogas_tec.templates.api.upload` |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.documentos` · API: `prorrogas_tec.templates.api.read`, `prorrogas_tec.templates.api.upload` |
 | **Disparador** | Cambian el formato oficial o los funcionarios que firman, o empieza un año nuevo |
 | **Precondiciones** | `init-prorrogas` corrido (siembra `04_insert_secretaria.sql`); LibreOffice en el contenedor para la vista previa |
 | **Estado final** | La plantilla subida es la que se usa para ese formato en ese año (y en los siguientes hasta que se suba otra) |

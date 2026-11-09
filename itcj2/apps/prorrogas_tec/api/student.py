@@ -124,7 +124,11 @@ def bajar_referencia(request_id: int, db: DbSession, user: dict = require_perms(
     req = _propia(db, request_id, int(user["sub"]))
     if req is None or not req.reference_path:
         return error_response(404, "no_encontrada", "No se encontró la referencia.")
-    return Response(ReferenceService.read(req), media_type="application/pdf",
+    try:
+        data = ReferenceService.read(req)
+    except ServiceError as e:
+        return _err(e)
+    return Response(data, media_type="application/pdf",
                     headers={"Content-Disposition": 'inline; filename="referencia.pdf"'})
 
 

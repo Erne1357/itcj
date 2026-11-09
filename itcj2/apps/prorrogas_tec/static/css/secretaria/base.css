@@ -316,7 +316,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-cmt-hint { font-weight: 500; color: rgba(26, 19, 14, .5); }
 .sol-rev .sol-cmt textarea { flex: none; min-height: 88px; border: 1.5px solid rgba(26, 19, 14, .18); }
 .sol-cmt-error { font-size: 13px; font-weight: 600; color: #C62828; }
-.sol-cmt-error[hidden] { display: none; }
+.sol-cmt-error[hidden], .sol-cmt[hidden], .sol-note[hidden] { display: none; }
 .sol-cmt.is-error .sol-cmt-hint { color: #C62828; }
 .sol-cmt.is-error textarea { border-color: #C62828; }
 

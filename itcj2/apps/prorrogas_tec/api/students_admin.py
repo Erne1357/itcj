@@ -96,7 +96,7 @@ def referencia(request_id: int, db: DbSession, user: dict = require_perms("prorr
     req = db.get(ProrrogaRequest, request_id)
     try:
         data = ReferenceService.read(req) if req else b""
-    except (ServiceError, FileNotFoundError):
+    except ServiceError:
         data = b""
     if not data:
         return error_response(404, "no_encontrada", "No se encontró la referencia.")

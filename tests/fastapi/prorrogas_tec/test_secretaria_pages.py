@@ -106,9 +106,18 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
     ("/api/prorrogas/v2/estudiantes/{id}/recordar", {}),
     ("/api/prorrogas/v2/solicitudes/{id}/decision", {"aceptar": False, "comentario": "x"}),
     ("/api/prorrogas/v2/invitaciones/qr", None),
+    ("/api/prorrogas/v2/estudiantes/{id}/recordar-pendiente", {"que": "firma"}),
+    ("/api/prorrogas/v2/estudiantes/{id}/cerrar-sin-plan", {"motivo": "Sin referencia a tiempo."}),
+    ("/api/prorrogas/v2/estudiantes/adeudos.xlsx", {"period_id": 1}),
+    ("/api/prorrogas/v2/estudiantes/{id}/desbloqueo-avisado", {}),
+    ("/api/prorrogas/v2/estudiantes/{id}/recibos/1/anular", {"motivo": "Capturado por error."}),
 ])
 def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review Focus 5
     assert client_as(lector).post(ruta.format(id=aceptada.id), json=cuerpo).status_code == 403
+
+
+def test_sin_lectura_no_baja_la_referencia(client_as, estudiante, aceptada):
+    assert client_as(estudiante).get(f"/api/prorrogas/v2/estudiantes/{aceptada.id}/referencia.pdf").status_code == 403
 
 
 def test_lector_si_consulta(client_as, lector, aceptada):

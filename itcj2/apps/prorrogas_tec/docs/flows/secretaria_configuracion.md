@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
-| **Permisos** | Página: `prorrogas_tec.secretaria.page.view` · API: `prorrogas_tec.requests.api.read.all` (ver), `prorrogas_tec.plans.api.manage` (guardar) |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.configuracion` · API: `prorrogas_tec.requests.api.read.all` (ver), `prorrogas_tec.plans.api.manage` (guardar) |
 | **Disparador** | Empieza un semestre o se acerca la reinscripción |
 | **Precondiciones** | El semestre ya existe en core (lo dan de alta los administradores; aquí no se crea) |
 | **Estado final** | Una fila en `prorrogas_periods` para ese semestre |

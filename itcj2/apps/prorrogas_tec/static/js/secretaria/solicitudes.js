@@ -322,7 +322,10 @@
   });
 
   if (conQr) { regenQr(); loadToday(); } else $("solSide").hidden = true;
-  if (!can("prorrogas_tec.requests.api.decide")) $("revAccept").hidden = $("revReject").hidden = true;
+  if (!can("prorrogas_tec.requests.api.decide")) {
+    $("revAccept").hidden = $("revReject").hidden = $("revCmt").hidden = true;
+    document.querySelector(".sol-note").hidden = true;
+  }
   loadPending();
   armRefresh();
 })();

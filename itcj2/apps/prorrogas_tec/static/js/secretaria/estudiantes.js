@@ -22,7 +22,12 @@
     documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
-    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida", cerrada_sin_plan: "Cerrada sin plan",
+    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de pendiente enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida", cerrada_sin_plan: "Cerrada sin plan",
+  };
+
+  const AVISO = {
+    aceptada: "aceptación", rechazada: "rechazo", carta_lista: "carta lista", plan_modificado: "cambio de plan",
+    recordatorio: "recordatorio de pago", firma_pendiente: "firma pendiente", referencia_pendiente: "referencia pendiente",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -267,6 +272,7 @@
     if (seq !== openSeq) return;
     if (!r.ok) { show($("estMsg"), r.data.message || "No se pudo cargar el expediente."); return; }
     render(r.data);
+    if (r.data.correo_enviado === false) show($("estMsg"), "El último correo al estudiante no salió. Avísale por otro medio.");
     loadList();   // marca la fila abierta
   }
 
@@ -371,7 +377,9 @@
   function planPane(x) {
     const c = x.cuenta, wrap = el("div", "est-plan");
     if (!c.parcialidades.length || ui.modificando) {
-      if (x.plan.editable) { if (can(PLANES)) wrap.append(planForm(x)); }
+      if (x.plan.editable) {
+        wrap.append(can(PLANES) ? planForm(x) : el("p", "est-note", "Aún no tiene plan de pagos."));
+      }
       else wrap.append(el("p", "est-note", x.solo_lectura
         ? "Prórroga del histórico sin semestre: solo cuenta para Estadísticas."
         : "El semestre terminó: ya no se puede crear el plan."));
@@ -540,7 +548,7 @@
       a.rel = "noopener";
       box.append(a);
     } else {
-      box.append(el("span", null, "Sin referencia "), !can(REMIND) ? "" : button("Recordar referencia", "sec-btn est-sm", async () => {
+      box.append(el("span", null, "Sin referencia "), !can(REMIND) || x.cuenta.total !== null ? "" : button("Recordar referencia", "sec-btn est-sm", async () => {
         show($("estMsg"), "");
         apply(await api(`${EST}/${s.id}/recordar-pendiente`, { body: { que: "referencia" } }), "Recordatorio de referencia enviado.");
       }));
@@ -726,6 +734,8 @@
       case "recibo_registrado": return `Recibo ${d.folio} · ${pesos(d.monto)} · pagado el ${fmtDate(d.fecha)}`;
       case "recibo_anulado": return `Recibo ${d.folio} · ${pesos(d.monto)} · ${d.motivo || ""}`;
       case "recordatorio_enviado": return d.saldo ? `Saldo de ${pesos(d.saldo)}` : "";
+      case "recordatorio_pendiente": return d.que === "referencia" ? "Referencia bancaria" : "Firma de la carta";
+      case "correo_no_enviado": return d.aviso ? `Aviso de ${AVISO[d.aviso] || d.aviso}` : "";
       default: return "";
     }
   }

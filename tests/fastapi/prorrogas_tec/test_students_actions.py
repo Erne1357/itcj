@@ -253,3 +253,28 @@ def test_cerrada_ya_no_sale_en_estudiantes(db_session, periodo, aceptada, secret
     with pytest.raises(ServiceError) as e:
         StudentsService.expediente(db_session, aceptada.id, date(2091, 6, 21))
     assert e.value.code == "no_encontrada"
+
+
+def test_no_se_recuerda_referencia_con_plan_ni_sin_semestre(db_session, aceptada, make_aceptada, secretaria, con_plan, avisos):  # I1
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    sin_semestre = make_aceptada()
+    sin_semestre.period_id = None
+    db_session.commit()  # el rollback del servicio al fallar descartaría lo que solo está en flush
+    for rid in (aceptada.id, sin_semestre.id):
+        with pytest.raises(ServiceError) as e:
+            StudentsService.remind_pending(db_session, rid, secretaria.id, "referencia", now=AHORA)
+        assert e.value.code == "no_aplica"
+
+
+def test_listar_con_semestre_inexistente_es_404(db_session):  # T14
+    with pytest.raises(ServiceError) as e:
+        StudentsService.listar(db_session, 0, today=date(2091, 6, 21))
+    assert e.value.code == "periodo_no_encontrado" and e.value.status == 404
+
+
+def test_leer_referencia_sin_archivo_es_404(db_session, aceptada):  # T12-a
+    from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
+    aceptada.reference_path = "referencias/0/no-existe.pdf"
+    with pytest.raises(ServiceError) as e:
+        ReferenceService.read(aceptada)
+    assert e.value.code == "no_encontrada" and e.value.status == 404

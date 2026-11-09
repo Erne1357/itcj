@@ -285,7 +285,7 @@
     }
     const partes = sols.map((s, i) => solicitud(s, i === 0, d, titulo));
     partes.forEach(function (p) { nodos.push(...p.nodos); });
-    if (!nodos.length) nodos.push(tarjeta(el("p", "Aún no tienes solicitudes.", "lead")));
+    if (!nodos.length) nodos.push(tarjeta(el("p", d.motivo === "ya_solicito" ? "Ya usaste tu solicitud de este semestre." : "Aún no tienes solicitudes.", "lead")));
     root.replaceChildren(...nodos);
     partes.forEach(function (p) { p.crearLienzo(); });
   }

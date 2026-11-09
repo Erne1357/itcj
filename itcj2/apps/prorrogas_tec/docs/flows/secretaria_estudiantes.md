@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
-| **Permisos** | Página: `prorrogas_tec.secretaria.page.view` · API: leer lista, expediente y reparto con `prorrogas_tec.requests.api.read.all`; plan `prorrogas_tec.plans.api.manage`; recibos `prorrogas_tec.payments.api.record` y `…payments.api.void`; recordar `prorrogas_tec.students.api.remind`; exportar y avisar desbloqueo `prorrogas_tec.students.api.export` |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.estudiantes` · API: leer lista, expediente y reparto con `prorrogas_tec.requests.api.read.all`; plan `prorrogas_tec.plans.api.manage`; recibos `prorrogas_tec.payments.api.record` y `…payments.api.void`; recordar `prorrogas_tec.students.api.remind`; exportar y avisar desbloqueo `prorrogas_tec.students.api.export` |
 | **Disparador** | Una solicitud queda `aceptada` (llega a la lista **sin plan**) o el estudiante paga en Caja |
 | **Precondiciones** | `init-prorrogas` corrido (trae los permisos del Plan 3); LibreOffice para generar la carta compromiso |
 | **Estado final** | Solicitud con plan, recibos vigentes y situación `liquidada`; el centro de cómputo ya tiene la lista y el estudiante sabe que se desbloqueó |
@@ -50,9 +50,9 @@ Los pasos 5 a 8 y 10 responden con el expediente actualizado. Las rutas fijas (`
 ## Reglas del plan
 
 - Solo una solicitud `aceptada`; el total debe ser > 0 y **igual a la suma de las parcialidades vigentes**.
-- De 1 a 3 parcialidades vigentes (el modal ofrece 1 o 2, H18), con fechas estrictamente ascendentes, desde hoy y hasta el `end_date` del semestre de la solicitud (`plan.fecha_limite` del expediente).
-- Montos en `Decimal`, cadenas con dos decimales en el JSON (`"3650.00"`); la entrada acepta número o cadena, sin más de 2 decimales, comas, NaN ni ≤ 0. Reparto por omisión: $3,650 en 3 → $1,217 · $1,217 · $1,216.
-- **No se replantea** (decisión del 2026-11-06): quien no paga a tiempo queda con adeudo hasta que pague. El plan solo se **rehace** (misma ruta) mientras no tenga ningún recibo vigente: todas las parcialidades anteriores reciben `superseded_at` y las nuevas se numeran desde 1. `plan.editable` es falso con un recibo vigente, sin semestre o si hoy pasó el fin del semestre.
+- De 1 a 2 parcialidades vigentes en un plan nuevo (`MAX_PAGOS_PLAN`, H18; las históricas pueden tener 3), con fechas estrictamente ascendentes, desde hoy y hasta el `end_date` del semestre de la solicitud (`plan.fecha_limite` del expediente).
+- Montos en `Decimal`, cadenas con dos decimales en el JSON (`"3650.00"`); la entrada acepta número o cadena, sin más de 2 decimales, comas, NaN ni ≤ 0. Reparto por omisión: $3,650 en 2 → $1,825 · $1,825.
+- **No se replantea** (decisión del 2026-11-06): quien no paga a tiempo queda con adeudo hasta que pague. El plan solo se **rehace** (misma ruta) mientras no tenga ningún recibo vigente ni parcialidades vencidas: todas las parcialidades anteriores reciben `superseded_at` y las nuevas se numeran desde 1. `plan.editable` es falso con un recibo vigente, con una parcialidad vencida (situación atrasada), sin semestre o si hoy pasó el fin del semestre.
 - La carta es `carta_compromiso_{N}` (N = parcialidades vigentes), lista todas y lleva `monto_total`, `pago{I}_monto` y `pago{I}_fecha`. El estudiante la firma desde Mi prórroga ([estudiante_solicitud.md](estudiante_solicitud.md)); firmar nunca bloquea nada.
 - Anular el único recibo vuelve a dejar rehacer el plan.
 
@@ -76,7 +76,7 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 
 | Código | Cuándo | HTTP |
 |---|---|---|
-| `filtro_invalido` | El filtro de la lista no es uno de los cinco | 400 |
+| `filtro_invalido` | El filtro de la lista no es uno de los siete | 400 |
 | `monto_invalido` | Monto o total ≤ 0, con más de 2 decimales, con comas, NaN o infinito | 400 |
 | `plazos_invalidos` | Menos de 1 o más de 3 parcialidades, o `n` del reparto fuera de 1–3 | 400 |
 | `suma_no_cuadra` | Las parcialidades no suman el total | 400 |

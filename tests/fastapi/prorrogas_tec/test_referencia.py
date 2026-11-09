@@ -46,6 +46,16 @@ def test_referencia_ajena_no_existe(client_as, estudiante, solicitud):  # Review
 
 def test_con_plan_ya_no_se_cambia(client_as, duena, solicitud, db_session):
     solicitud.plan_confirmed_at = db_now()
+    solicitud.total_amount = 1000
     db_session.flush()
     r = _subir(client_as(duena), solicitud.id)
     assert r.status_code == 409 and r.json()["error"] == "referencia_fija"
+
+
+def test_resubir_sobrescribe_el_mismo_archivo(client_as, duena, solicitud):  # T12-b
+    c = client_as(duena)
+    _subir(c, solicitud.id)
+    primera = solicitud.reference_path
+    _subir(c, solicitud.id, PDF + b" v2")
+    assert solicitud.reference_path == primera == f"referencias/{solicitud.period_id}/{solicitud.id}.pdf"
+    assert c.get(f"{API}/{solicitud.id}/referencia.pdf").content == PDF + b" v2"

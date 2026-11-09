@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
-| **Permisos** | Página: `prorrogas_tec.secretaria.page.view` · API: `prorrogas_tec.invitations.api.create`, `prorrogas_tec.requests.api.read.all`, `prorrogas_tec.requests.api.decide` |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.solicitudes` · API: `prorrogas_tec.invitations.api.create`, `prorrogas_tec.requests.api.read.all`, `prorrogas_tec.requests.api.decide` |
 | **Disparador** | Un estudiante llega a la Subdirección a pedir su prórroga |
 | **Precondiciones** | `init-prorrogas` corrido; un semestre en `core_academic_periods` que cubra hoy (no `ARCHIVED`) para que el estudiante pueda solicitar; LibreOffice para generar las cartas |
 | **Estado final** | La solicitud pasa de `pendiente` a `aceptada` o `rechazada`, con su carta (`carta_aceptacion` / `carta_rechazo`) y un aviso al estudiante |

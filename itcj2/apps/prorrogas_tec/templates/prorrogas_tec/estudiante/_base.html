@@ -24,9 +24,11 @@
   <main class="est-main">
     {% block content %}{% endblock %}
   </main>
+  {% if current_user %}
   <script src="/static/core/js/notifications/app-fab-widget.js?v={{ sv('core', 'js/notifications/app-fab-widget.js') }}"></script>
   <script>
     try { new AppNotificationFAB('prorrogas_tec', '/api/core/v2', { color: '#652F2A', colorDark: '#4f2420' }); } catch (e) {}
   </script>
+  {% endif %}
 </body>
 </html>

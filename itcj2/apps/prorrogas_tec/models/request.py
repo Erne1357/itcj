@@ -7,7 +7,6 @@ from sqlalchemy.sql import text
 from itcj2.models.base import Base
 
 STATUSES = ("pendiente", "aceptada", "rechazada", "cancelada", "cerrada_sin_plan")
-OPEN_STATUSES = ("pendiente", "aceptada")
 
 
 class ProrrogaRequest(Base):

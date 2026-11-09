@@ -94,7 +94,10 @@ class StudentsService:
             like = f"%{q.strip()}%"
             qry = qry.filter(ProrrogaRequest.control_number.ilike(like) | ProrrogaRequest.student_name.ilike(like))
         reqs = qry.all()
-        fin = db.get(AcademicPeriod, period_id).end_date
+        periodo = db.get(AcademicPeriod, period_id)
+        if periodo is None:
+            raise ServiceError("periodo_no_encontrado", "No se encontró el semestre.", status=404)
+        fin = periodo.end_date
         # shortcut: situación calculada en Python por semestre; pasar a SQL si un semestre supera ~2000 solicitudes
         cuentas = account.load_many(db, reqs, today)
         conteos = {"todos": len(reqs)} | {k: sum(1 for c in cuentas.values() if c.situacion == s)
@@ -268,7 +271,8 @@ class StudentsService:
         _, _, ts = _tiempos(now)
         req = StudentsService._bloquear(db, request_id)
         try:
-            pendiente = req.id in _sin_firmar(db, [req.id]) if que == "firma" else not req.reference_path
+            pendiente = req.id in _sin_firmar(db, [req.id]) if que == "firma" else (
+                not req.reference_path and req.total_amount is None and req.period_id is not None)
             if not pendiente:
                 raise ServiceError("no_aplica", f"El estudiante no tiene {que} pendiente.", status=409)
             if not (req.student_id or req.email):

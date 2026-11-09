@@ -1,8 +1,6 @@
 """Referencia bancaria del alumno: un PDF por solicitud, que la secretaria consulta para armar el plan."""
 from __future__ import annotations
 
-import hashlib
-
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services import storage
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
@@ -21,11 +19,11 @@ class ReferenceService:
             raise ServiceError("referencia_muy_grande", "La referencia no puede pasar de 5 MB.")
         if req.status not in ("pendiente", "aceptada"):
             raise ServiceError("referencia_no_aplica", "Esta solicitud ya no admite referencia.", status=409)
-        if req.plan_confirmed_at is not None:
+        if req.total_amount is not None:
             raise ServiceError("referencia_fija",
                                "Tu plan ya está armado: la referencia ya no se puede cambiar.", status=409)
-        # la ruta sale solo de ids y del hash: nunca del nombre que mandó el alumno
-        rel = f"referencias/{req.period_id}/{req.id}-{hashlib.sha256(data).hexdigest()[:12]}.pdf"
+        # la ruta sale solo de ids (una por solicitud, se sobrescribe): nunca del nombre que mandó el alumno
+        rel = f"referencias/{req.period_id}/{req.id}.pdf"
         storage.write_atomic(rel, data)
         req.reference_path = rel
         req.reference_uploaded_at = now or db_now()
@@ -37,4 +35,7 @@ class ReferenceService:
     def read(req: ProrrogaRequest) -> bytes:
         if not req.reference_path:
             raise ServiceError("sin_referencia", "Aún no subes tu referencia.", status=404)
-        return storage.abs_path(req.reference_path).read_bytes()
+        try:
+            return storage.abs_path(req.reference_path).read_bytes()
+        except FileNotFoundError:
+            raise ServiceError("no_encontrada", "No se encontró la referencia.", status=404) from None
