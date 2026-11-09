@@ -1,0 +1,7 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% block cuerpo %}
+<p>La secretaría revisó el recibo que subiste del <strong>pago {{ numero }}</strong> de la prórroga <strong>{{ folio }}</strong> y encontró algo que no coincide:</p>
+<p><strong>Motivo:</strong> {{ motivo }}</p>
+<p>Si hace falta, súbelo de nuevo en Mi prórroga.</p>
+{% endblock %}
+{% block boton %}Ir a Mi prórroga{% endblock %}

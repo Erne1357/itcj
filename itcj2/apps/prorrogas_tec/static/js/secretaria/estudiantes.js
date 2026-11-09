@@ -23,6 +23,7 @@
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
     desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de pendiente enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida", cerrada_sin_plan: "Cerrada sin plan",
+    recibo_subido: "Recibo subido por el alumno", recibo_inconsistente: "Aviso de inconsistencia del recibo",
   };
 
   const AVISO = {
@@ -231,8 +232,9 @@
   const PUNTO = {
     recibo_registrado: "azul", recibo_anulado: "naranja", plan_confirmado: "vino", plan_modificado: "vino",
     solicitud_aceptada: "vino", solicitud_creada: "tinta", recordatorio_enviado: "naranja", desbloqueo_avisado: "vino",
+    recibo_subido: "azul", recibo_inconsistente: "naranja",
   };
-  const ui = { tab: "plan", x: null, modificando: false, borrador: null };
+  const ui = { tab: "plan", x: null, modificando: false, borrador: null, avisando: null };
 
   const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
   const debe = (q) => money(cents(q.monto) - cents(q.cubierto));
@@ -259,7 +261,7 @@
 
   async function openPanel(id) {
     const seq = ++openSeq;
-    if (st.openId !== id) Object.assign(ui, { tab: "plan", modificando: false, borrador: null });
+    if (st.openId !== id) Object.assign(ui, { tab: "plan", modificando: false, borrador: null, avisando: null });
     st.openId = id;
     if (!dlg.open) {
       $("estNombre").textContent = "Cargando…";
@@ -383,7 +385,7 @@
     wrap.classList.add("has-side");
     const main = el("div", "est-plan-main");
     main.append(pagosHead(x));
-    c.parcialidades.forEach((q) => main.append(pagoRow(q, c.parcialidades.length)));
+    c.parcialidades.forEach((q) => main.append(pagoRow(q, c.parcialidades.length, x.solicitud.id)));
     main.append(recibosCard(x));
     wrap.append(main, situacionCard(x));
     return wrap;
@@ -428,7 +430,32 @@
     return head;
   }
 
-  function pagoRow(q, n) {
+  // Recibo escaneado que subió el alumno: la secretaria lo abre y, si no coincide, avisa.
+  function scanRow(q, sid) {
+    const row = el("div", "est-pago-scan");
+    if (!q.recibo_subido) { row.append("Falta subir recibo"); return row; }
+    const a = el("a", "est-ver", "Ver recibo");
+    a.href = `${API}${EST}/${sid}/parcialidades/${q.numero}/recibo.pdf`;
+    a.target = "_blank";
+    a.rel = "noopener";
+    row.append(`Recibo subido el ${fmtDate(q.recibo_subido)}`, a);
+    if (!can(REMIND)) return row;
+    if (ui.avisando !== q.numero) {
+      row.append(button("Avisar inconsistencia", "sec-btn sec-btn-ghost est-sm", () => { ui.avisando = q.numero; paintTab(); }));
+      return row;
+    }
+    const ta = el("textarea");
+    ta.maxLength = 500;
+    ta.rows = 2;
+    ta.placeholder = "¿Qué no coincide? (mínimo 10 caracteres)";
+    row.append(ta, button("Enviar aviso", "sec-btn est-sm", async () => {
+      const ok = apply(await api(`${EST}/${sid}/parcialidades/${q.numero}/avisar-inconsistencia`, { body: { motivo: ta.value } }), "Aviso enviado.");
+      if (ok) { ui.avisando = null; paintTab(); }
+    }), button("Cancelar", "sec-btn sec-btn-ghost est-sm", () => { ui.avisando = null; paintTab(); }));
+    return row;
+  }
+
+  function pagoRow(q, n, sid) {
     const r = el("div", "est-pago est-pago-" + q.estado);
     const a = el("div");
     a.append(el("b", null, pagoLabel(q.numero, n)), el("small", null, `Vence el ${fmtDate(q.fecha)}`));
@@ -447,6 +474,7 @@
       sr.title = "Caja aún no registra este pago";
       r.append(sr);
     }
+    if (q.estado === "pagada" || q.recibo_subido) r.append(scanRow(q, sid));
     return r;
   }
 
@@ -702,6 +730,8 @@
       case "documento_generado": case "documento_firmado": return `${d.documento || d.doc_type} · versión ${d.version}`;
       case "plan_confirmado": case "plan_modificado": return plan();
       case "recibo_registrado": return `Recibo ${d.folio} · ${pesos(d.monto)} · pagado el ${fmtDate(d.fecha)}`;
+      case "recibo_subido": return `Pago ${d.numero}`;
+      case "recibo_inconsistente": return `Pago ${d.numero} · ${d.motivo}`;
       case "recibo_anulado": return `Recibo ${d.folio} · ${pesos(d.monto)} · ${d.motivo || ""}`;
       case "recordatorio_enviado": return d.saldo ? `Saldo de ${pesos(d.saldo)}` : "";
       case "recordatorio_pendiente": return d.que === "referencia" ? "Referencia bancaria" : "Firma de la carta";

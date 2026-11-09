@@ -424,6 +424,8 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .est-pago { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) auto 150px 150px; align-items: center; gap: 14px; }
 .est-pago b { display: block; font-size: 15px; }
 .est-pago small { display: block; font-size: 13px; color: var(--m-muted); margin-top: 1px; }
+.est-pago-scan { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; color: var(--m-muted); }
+.est-pago-scan textarea { flex: 1 1 100%; padding: 8px 10px; border: 1.5px solid rgba(26, 19, 14, .18); border-radius: 8px; font: inherit; }
 .est-pago-pagada { border-color: rgba(103, 153, 224, .45); }
 .est-pago-vencida { background: rgba(242, 115, 64, .06); border-color: rgba(242, 115, 64, .55); }
 .est-monto { font: 600 15px var(--font-mono); text-align: right; white-space: nowrap; }

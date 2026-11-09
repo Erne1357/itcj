@@ -278,3 +278,64 @@ def test_leer_referencia_sin_archivo_es_404(db_session, aceptada):  # T12-a
     with pytest.raises(ServiceError) as e:
         ReferenceService.read(aceptada)
     assert e.value.code == "no_encontrada" and e.value.status == 404
+
+
+MOTIVO_AVISO = "El folio no coincide con el de Caja."
+
+
+def _con_recibo(db, req):
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment
+    from itcj2.apps.prorrogas_tec.services import storage
+    i = db.query(ProrrogaInstallment).filter_by(request_id=req.id, number=1).one()
+    i.receipt_path, i.receipt_uploaded_at = f"recibos/0/{req.id}-1-abc.pdf", datetime(2091, 3, 1, 9, 0)
+    storage.write_atomic(i.receipt_path, b"%PDF-1.4 x")
+    db.flush()
+
+
+def test_la_secretaria_ve_y_abre_el_recibo(client_as, secretaria, db_session, aceptada, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    c = client_as(secretaria)
+    assert c.get(f"{API}/{aceptada.id}/parcialidades/1/recibo.pdf").status_code == 404
+    _con_recibo(db_session, aceptada)
+    assert c.get(f"{API}/{aceptada.id}").json()["cuenta"]["parcialidades"][0]["recibo_subido"] == "2091-03-01T09:00:00"
+    assert c.get(f"{API}/{aceptada.id}/parcialidades/1/recibo.pdf").content == b"%PDF-1.4 x"
+
+
+def test_avisar_inconsistencia(db_session, aceptada, secretaria, con_plan, enviar_correo):
+    from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
+    from itcj2.core.models.notification import Notification
+    from itcj2.templates import templates
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    _con_recibo(db_session, aceptada)
+    StudentsService.report_receipt_issue(db_session, aceptada.id, secretaria.id, 1, f"  {MOTIVO_AVISO}  ")
+    ev = db_session.query(ProrrogaEvent).filter_by(request_id=aceptada.id, event_type="recibo_inconsistente").one()
+    assert ev.payload == {"numero": 1, "motivo": MOTIVO_AVISO} and ev.actor_id == secretaria.id
+    n = db_session.query(Notification).filter_by(user_id=aceptada.student_id, type="prorroga_recibo_inconsistente").one()
+    assert n.title == "Revisa el recibo que subiste" and n.body == f"Pago 1: {MOTIVO_AVISO}"
+    envio = enviar_correo.calls[0]
+    assert envio["subject"] == n.title
+    html = templates.env.get_template("prorrogas_tec/email/recibo_inconsistente.html").render(**envio["context"])
+    assert MOTIVO_AVISO in html
+
+
+@pytest.mark.parametrize("motivo", ["muy corto", "x" * 501])
+def test_motivo_del_aviso_invalido(db_session, aceptada, secretaria, motivo):
+    with pytest.raises(ServiceError) as e:
+        StudentsService.report_receipt_issue(db_session, aceptada.id, secretaria.id, 1, motivo)
+    assert (e.value.code, e.value.status) == ("motivo_invalido", 400)
+
+
+def test_sin_recibo_no_se_avisa(db_session, aceptada, secretaria, con_plan, enviar_correo):
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    with pytest.raises(ServiceError) as e:
+        StudentsService.report_receipt_issue(db_session, aceptada.id, secretaria.id, 1, MOTIVO_AVISO)
+    assert (e.value.code, e.value.status) == ("no_aplica", 409) and enviar_correo.calls == []
+
+
+def test_aviso_cuyo_correo_no_sale_se_guarda_y_lo_dice(client_as, secretaria, db_session, aceptada, con_plan, monkeypatch):
+    from itcj2.apps.prorrogas_tec.services import notify
+    monkeypatch.setattr(notify, "send_email", lambda **k: False)
+    con_plan(aceptada, [("1000.00", date(2091, 5, 1))])
+    _con_recibo(db_session, aceptada)
+    r = client_as(secretaria).post(f"{API}/{aceptada.id}/parcialidades/1/avisar-inconsistencia", json={"motivo": MOTIVO_AVISO})
+    assert r.status_code == 200 and r.json()["correo_enviado"] is False

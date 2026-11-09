@@ -111,6 +111,7 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
     ("/api/prorrogas/v2/estudiantes/adeudos.xlsx", {"period_id": 1}),
     ("/api/prorrogas/v2/estudiantes/{id}/desbloqueo-avisado", {}),
     ("/api/prorrogas/v2/caja/{id}/recibos/1/anular", {"motivo": "Capturado por error."}),
+    ("/api/prorrogas/v2/estudiantes/{id}/parcialidades/1/avisar-inconsistencia", {"motivo": "Motivo de prueba larga"}),
 ])
 def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review Focus 5
     assert client_as(lector).post(ruta.format(id=aceptada.id), json=cuerpo).status_code == 403

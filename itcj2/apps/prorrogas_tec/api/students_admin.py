@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, Response
 from pydantic import BaseModel
 
-from itcj2.apps.prorrogas_tec.api._common import referencia_pdf_response, service_error_response as _err
+from itcj2.apps.prorrogas_tec.api._common import recibo_pdf_response, referencia_pdf_response, service_error_response as _err
 from itcj2.apps.prorrogas_tec.services.account import money
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.formatting import parse_monto
@@ -82,6 +82,11 @@ def referencia(request_id: int, db: DbSession, user: dict = require_perms("prorr
     return referencia_pdf_response(db.get(ProrrogaRequest, request_id))
 
 
+@router.get("/{request_id}/parcialidades/{numero}/recibo.pdf", name="prorrogas_tec.api.estudiantes.recibo")
+def recibo(request_id: int, numero: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    return recibo_pdf_response(db, db.get(ProrrogaRequest, request_id), numero)
+
+
 @router.get("/{request_id}", name="prorrogas_tec.api.estudiantes.expediente")
 def expediente(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
     try:
@@ -120,6 +125,22 @@ def recordar_pendiente(request_id: int, body: PendienteIn, db: DbSession,
                        user: dict = require_perms("prorrogas_tec", _REMIND)):
     try:
         StudentsService.remind_pending(db, request_id, int(user["sub"]), body.que)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+class InconsistenciaIn(BaseModel):
+    motivo: str
+
+
+@router.post("/{request_id}/parcialidades/{numero}/avisar-inconsistencia",
+             name="prorrogas_tec.api.estudiantes.avisar_inconsistencia")
+def avisar_inconsistencia(request_id: int, numero: int, body: InconsistenciaIn, db: DbSession,
+                          user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.report_receipt_issue(db, request_id, int(user["sub"]), numero, body.motivo)
     except ServiceError as e:
         db.rollback()
         return _err(e)

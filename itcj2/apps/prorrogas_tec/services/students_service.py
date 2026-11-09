@@ -21,6 +21,7 @@ from itcj2.apps.prorrogas_tec.services.events import last_mail_failed, log_event
 from itcj2.apps.prorrogas_tec.services.formatting import fecha_larga, pesos
 from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
+from itcj2.apps.prorrogas_tec.services.receipt_scan_service import ReceiptScanService
 from itcj2.apps.prorrogas_tec.services.request_service import RequestService
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
@@ -143,8 +144,10 @@ class StudentsService:
         cuenta = account.cuenta_json(c)
         vivos = [(p.paid_on, p.amount, p.folio) for p in sorted(recibos, key=lambda p: p.id) if p.voided_at is None]
         plan = [(p.number, p.amount, p.due_date) for p in c.parcialidades]
+        subidos = ReceiptScanService.subidos(db, req.id)
         for parc, r in zip(cuenta["parcialidades"], account.cobertura(plan, vivos)):  # recibo de Caja de cada pago
             parc["recibo"], parc["pagado_el"] = (r[2], r[0].isoformat()) if r else (None, None)
+            parc["recibo_subido"] = subidos.get(parc["numero"])
         return {
             "solo_lectura": req.period_id is None,  # del Excel sin semestre de core: solo cuenta para Estadísticas
             "solicitud": RequestService.request_out(db, req),
@@ -259,6 +262,28 @@ class StudentsService:
             raise ServiceError("correo_no_salio",
                                "El recordatorio no salió: revisa la conexión del correo en /itcj/config/email.",
                                status=502)
+        return req
+
+    @staticmethod
+    def report_receipt_issue(db, request_id: int, actor_id: int, numero: int, motivo: str) -> ProrrogaRequest:
+        """La secretaria avisa al alumno que su recibo escaneado no coincide; no cambia nada más."""
+        motivo = (motivo or "").strip()
+        if not 10 <= len(motivo) <= 500:
+            raise ServiceError("motivo_invalido", "El motivo debe tener entre 10 y 500 caracteres.", 400)
+        req = db.get(ProrrogaRequest, request_id)
+        if req is None or req.status != "aceptada":
+            raise ServiceError("no_encontrada", "No se encontró la solicitud.", 404)
+        try:
+            if numero not in ReceiptScanService.subidos(db, req.id):
+                raise ServiceError("no_aplica", "El alumno aún no sube ese recibo.", status=409)
+            log_event(db, event_type="recibo_inconsistente", request_id=req.id, actor_id=actor_id,
+                      payload={"numero": numero, "motivo": motivo})
+            notify.notify_student(db, req, kind="recibo_inconsistente", link="/prorrogas/estudiante",
+                                  body=f"Pago {numero}: {motivo}", context={"numero": numero, "motivo": motivo})
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         return req
 
     @staticmethod
