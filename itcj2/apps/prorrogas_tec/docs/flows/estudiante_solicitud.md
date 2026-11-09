@@ -28,6 +28,7 @@ Invitación: `/prorrogas/unirse/invitacion/{token}` (no crea cuentas: sin sesió
 | 5 | Estudiante | **Cancelar** | Solo mientras está `pendiente` | `POST …/estudiante/solicitudes/{id}/cancelar` | `RequestService.cancel` | `status=cancelada`, evento `solicitud_cancelada` |
 | 6 | Estudiante | Mi prórroga | Una vez aceptada, ve su **plan** (total, pagado, saldo, situación, próxima parcialidad y cada parcialidad con su estado) y sus **recibos** vigentes (folio, fecha, monto) | `GET …/estudiante/estado` | `account.cuenta_json` | — |
 | 7 | Estudiante | **Firmar carta compromiso** | Aviso `carta_lista` (plataforma y correo) cuando la secretaria confirma o replantea el plan; dibuja su firma en el lienzo (`static/js/estudiante/firma.js`, compartido con la solicitud) y envía | `POST …/estudiante/solicitudes/{id}/documentos/{doc_id}/firmar` `{firma}` | `parse_signature`, `DocumentService.sign` | Nueva versión de la carta con la firma, IP y agente; sustituye a la anterior; evento `documento_firmado`. No bloquea nada. Responde con la solicitud (mismos campos que `/estado`) |
+| 8 | Estudiante | Mi prórroga | Cuando Caja salda un pago, sube el PDF (hasta 5 MB) de su recibo escaneado de ese pago; puede reemplazarlo. Es obligatorio subirlo, pero nadie lo valida: la secretaria puede avisarle una inconsistencia ([secretaria_estudiantes.md](secretaria_estudiantes.md)) | `POST …/estudiante/solicitudes/{id}/parcialidades/{numero}/recibo` (archivo `archivo`); `GET …/parcialidades/{numero}/recibo.pdf` lo vuelve a abrir | `ReceiptScanService.save`, `.read` | Archivo `recibos/{semestre}/{id}-{numero}-{hash}.pdf`; `receipt_path` y `receipt_uploaded_at` de la parcialidad; evento `recibo_subido`. Responde con la solicitud (mismos campos que `/estado`) |
 
 La firma vuelve a llenar la carta desde el contexto congelado del documento (`doc.context`) y con la misma plantilla con que se generó, nunca desde la cuenta viva: el PDF firmado dice lo que el estudiante revisó. Cada replanteo genera una carta nueva y sustituye la anterior; una carta sustituida ya no se firma.
 
@@ -39,6 +40,7 @@ Cada elemento de `solicitudes` trae, además de lo de la solicitud:
 |---|---|
 | `cuenta` | `total`, `pagado`, `saldo` (cadenas con dos decimales; `null` sin plan), `situacion` (`sin_plan`, `al_corriente`, `atrasada`, `liquidada`), `faltantes`, `vencida_desde`, `proxima` y `parcialidades` (`numero`, `monto`, `fecha`, `cubierto`, `estado`: `pagada`, `vencida`, `parcial`, `pendiente`) |
 | `recibos` | Recibos vigentes (los anulados no salen): `folio`, `fecha`, `monto` |
+| `cuenta.parcialidades[].recibo_subido` | Fecha (ISO) en que subió el recibo escaneado de ese pago, o `null` si aún no lo sube |
 | `por_firmar` | `id` de la carta compromiso vigente sin firmar, o `null` |
 | `documentos[].firmado` | Si el documento ya lleva la firma del estudiante |
 
@@ -64,6 +66,8 @@ La UI muestra `message`. En las páginas de unirse el QR inválido o vencido mue
 | `documento_no_vigente` | Firmar una carta que un replanteo ya sustituyó | 409 |
 | `no_firmable` | Firmar un documento que no es una carta compromiso | 409 |
 | `ya_firmado` | La carta ya está firmada (dos firmas a la vez: pasa una, por el candado de fila) | 409 |
+| `recibo_invalido` / `recibo_muy_grande` | El recibo no es un PDF / pasa de 5 MB | 400 |
+| `recibo_no_aplica` | Subir recibo de un pago que aún no está cubierto (o de una prórroga sin semestre) | 409 |
 | `pdf_no_disponible` | LibreOffice falló: no queda solicitud (o no queda firmada la carta) y puede reintentar | 503 |
 
 ## Flujos relacionados

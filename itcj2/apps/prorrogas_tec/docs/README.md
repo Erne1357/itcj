@@ -33,6 +33,7 @@ cambies uno sin el otro.
 itcj2/apps/prorrogas_tec/
 ├── router.py                   API: /api/prorrogas/v2 (programs, templates, invitaciones, estudiante, solicitudes, estadísticas)
 ├── api/
+│   ├── caja.py                 Caja · lista Por cobrar, búsqueda, detalle, saldar, anular, referencia y recibo escaneado
 │   ├── _common.py              ServiceError → {"error", "message", …} en la raíz del JSON
 │   ├── invitations.py          secretaría · QR, búsqueda por número de control, invitación manual, resumen del día
 │   ├── programs.py             catálogo de carreras
@@ -50,7 +51,9 @@ itcj2/apps/prorrogas_tec/
 │   ├── stats_service.py        estadísticas por semestre: aceptación, línea de tiempo y cumplimiento (cobertura FIFO)
 │   ├── students_service.py     lista, expediente, recordar, adeudos.xlsx y aviso de desbloqueo
 │   ├── plan_service.py         confirmar y replantear el plan de pagos (genera la carta compromiso)
-│   ├── payment_service.py      registrar y anular recibos de Caja
+│   ├── payment_service.py      saldar el pago siguiente y anular el último
+│   ├── caja_service.py         Caja: lista Por cobrar, búsqueda y detalle de cada pago
+│   ├── receipt_scan_service.py recibo escaneado (PDF) que sube el alumno por cada pago cubierto
 │   ├── document_service.py     genera, versiona y guarda los PDF de una solicitud
 │   ├── template_service.py     plantillas por año: subir, validar, resolver cuál usar
 │   ├── docx_fill.py            llena marcadores {{x}} en .docx (aunque Word los parta)
@@ -78,7 +81,7 @@ itcj2/apps/prorrogas_tec/
 │                               js/secretaria/estudiantes.js · js/secretaria/estadisticas.js · js/estudiante/firma.js (lienzo compartido)
 └── docs/
     ├── README.md · PENDIENTES.md
-    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · secretaria_estadisticas · secretaria_configuracion · historico_excel · estudiante_solicitud
+    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · secretaria_estadisticas · secretaria_configuracion · caja · historico_excel · estudiante_solicitud
                                 (UI → endpoint → service → BD de cada flujo)
 ```
 
@@ -122,7 +125,8 @@ hereda la invalidación del caché de authz de `execute_sql_file`.
 
 | Rol | Pestañas | Puede |
 |---|---|---|
-| `secretaria` | Estadísticas, QR y solicitudes, Estudiantes, Documentos, Configuración, Consulta | Todo: decidir solicitudes, planes, recibos, recordatorios, invitaciones, plantillas y ajustes |
+| `secretaria` | Estadísticas, QR y solicitudes, Estudiantes, Documentos, Configuración, Consulta | Todo menos cobrar: decidir solicitudes, planes, recordatorios, invitaciones, plantillas y ajustes; ve pagos y recibos, avisa inconsistencias |
+| `caja` | Estudiantes (la de Caja) | Buscar, ver detalle y referencia, saldar, anular el último, ver recibo escaneado |
 | `admin` (de la app) | Estadísticas, QR y solicitudes, Estudiantes, Consulta | Solo lectura. No ve Documentos ni Configuración y no exporta la lista con bloqueo. La semilla `08_insert_plan5.sql` lo deja así en cada `init-prorrogas` |
 | admin global | Todas | Escritura, para emergencias |
 

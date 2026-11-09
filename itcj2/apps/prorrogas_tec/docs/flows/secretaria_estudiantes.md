@@ -1,12 +1,12 @@
 # Secretaría · Estudiantes (plan de pagos, recibos y lista de adeudos)
 
-> **Objetivo:** que la secretaria vea a los estudiantes con prórroga aceptada, cree su plan de pagos (o lo rehaga mientras no tenga pagos), registre los recibos de Caja, recuerde el pago y entregue al centro de cómputo la lista de bloqueo (y avise cuando se desbloquea).
+> **Objetivo:** que la secretaria vea a los estudiantes con prórroga aceptada, cree su plan de pagos (o lo rehaga mientras no tenga pagos), vea los recibos de Caja y avise si el recibo escaneado no coincide, recuerde el pago y entregue al centro de cómputo la lista de bloqueo (y avise cuando se desbloquea).
 
 | | |
 |---|---|
 | **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
-| **Permisos** | Página: `prorrogas_tec.secretaria.page.estudiantes` · API: leer lista, expediente y reparto con `prorrogas_tec.requests.api.read.all`; plan `prorrogas_tec.plans.api.manage`; recibos `prorrogas_tec.payments.api.record` y `…payments.api.void`; recordar `prorrogas_tec.students.api.remind`; exportar y avisar desbloqueo `prorrogas_tec.students.api.export` |
-| **Disparador** | Una solicitud queda `aceptada` (llega a la lista **sin plan**) o el estudiante paga en Caja |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.estudiantes` · API: leer lista, expediente y reparto con `prorrogas_tec.requests.api.read.all`; plan `prorrogas_tec.plans.api.manage`; recordar y avisar una inconsistencia `prorrogas_tec.students.api.remind`; exportar y avisar desbloqueo `prorrogas_tec.students.api.export` |
+| **Disparador** | Una solicitud queda `aceptada` (llega a la lista **sin plan**) o el estudiante paga en Caja (que ahora captura los recibos: [caja.md](caja.md)) |
 | **Precondiciones** | `init-prorrogas` corrido (trae los permisos del Plan 3); LibreOffice para generar la carta compromiso |
 | **Estado final** | Solicitud con plan, recibos vigentes y situación `liquidada`; el centro de cómputo ya tiene la lista y el estudiante sabe que se desbloqueó |
 
@@ -38,14 +38,14 @@ Los recibos vigentes cubren en orden FIFO la parcialidad vigente más vieja; sol
 | 3 | Secretaria | Clic en una fila | Modal del estudiante: resumen de la cuenta y pestañas Plan de pagos (pagos con el recibo de Caja que cubrió cada uno, recibos, situación), Solicitud y documentos, Historial | `GET …/estudiantes/{id}` | `StudentsService.expediente` | — (solo `aceptada`; si no, 404) |
 | 4 | Secretaria | Formulario de plan | Pide el reparto sugerido (el servidor lo calcula, no el JS) | `GET …/estudiantes/reparto?total=&n=` | `PlanService.reparto` | — |
 | 5 | Secretaria | **Confirmar plan** / **Modificar plan** (solo si no hay pagos ni parcialidades vencidas: `con_pagos` / `con_vencidos`, 409) | Total, 1 o 2 pagos iguales y la fecha de cada uno (un plan nuevo arranca con las de [Configuración](secretaria_configuracion.md), salvo las que ya pasaron); envía `{total, parcialidades:[{monto, fecha}]}` | `POST …/estudiantes/{id}/plan` | `PlanService.confirm` | Parcialidades en `prorrogas_installments`, `total_amount`, `plan_confirmed_at/by`; carta `carta_compromiso_{N}` nueva (y las de otro N sustituidas); evento `plan_confirmado` y aviso `carta_lista`, o al rehacerlo `plan_modificado` (evento y correo) |
-| 6 | Secretaria | **Registrar recibo** | Folio de Caja, fecha y monto | `POST …/estudiantes/{id}/recibos` | `PaymentService.record` | Fila en `prorrogas_payments`; evento `recibo_registrado` |
-| 7 | Secretaria | **Anular** | Motivo obligatorio; el recibo nunca se borra | `POST …/estudiantes/{id}/recibos/{payment_id}/anular` `{motivo}` | `PaymentService.void` | `voided_at/by`, `void_reason`; evento `recibo_anulado` |
+| 6 | Secretaria | **Ver recibo** | Abre el recibo escaneado que subió el alumno de un pago cubierto, en otra pestaña | `GET …/estudiantes/{id}/parcialidades/{numero}/recibo.pdf` | `ReceiptScanService.read` | — |
+| 7 | Secretaria | **Avisar inconsistencia** | Motivo de 10 a 500 caracteres; solo si el alumno ya subió ese recibo; no cambia nada más | `POST …/estudiantes/{id}/parcialidades/{numero}/avisar-inconsistencia` `{motivo}` | `StudentsService.report_receipt_issue` | Evento `recibo_inconsistente`; aviso y correo al alumno (`recibo_inconsistente`) |
 | 8 | Secretaria | **Recordar** | Recordatorio de pago al estudiante | `POST …/estudiantes/{id}/recordar` | `StudentsService.remind` | `last_reminded_at`; evento `recordatorio_enviado`; aviso y correo `recordatorio` |
 | 9 | Secretaria | **Exportar adeudos** | Descarga el `.xlsx` del semestre elegido | `POST …/estudiantes/adeudos.xlsx` `{period_id}` | `StudentsService.export_adeudos` | `block_exported_at` (solo si estaba vacío) en cada solicitud listada; evento `lista_bloqueo_exportada` |
 | 10 | Secretaria | **Avisar desbloqueo** | Marca que ya se avisó al centro de cómputo | `POST …/estudiantes/{id}/desbloqueo-avisado` | `StudentsService.mark_unblock` | `unblock_notified_at`; evento `desbloqueo_avisado` |
 | 11 | Secretaria | **Cerrar sin plan** | Aceptada sin plan cuando el semestre ya terminó (`semestre_en_curso`, `con_plan`: 409); motivo de 10 a 1000 caracteres (`motivo_invalido`, 400). Filtro `Por cerrar` (`pendiente_cierre`); `plan.cerrable` en el expediente. No avisa al alumno; responde `{ok: true}` y la solicitud sale de Estudiantes | `POST …/estudiantes/{id}/cerrar-sin-plan` `{motivo}` | `StudentsService.close_without_plan` | `status = cerrada_sin_plan`; evento `cerrada_sin_plan` con el motivo |
 
-Los pasos 5 a 8 y 10 responden con el expediente actualizado. Las rutas fijas (`periodos`, `reparto`, `adeudos.xlsx`) van antes de `/{request_id}`. El PDF de la carta se abre en una pestaña nueva con la ruta de PDF de la secretaria (Plan 2); "imprimir" es imprimir desde el navegador.
+Los pasos 5, 7, 8 y 10 responden con el expediente actualizado. Las rutas fijas (`periodos`, `reparto`, `adeudos.xlsx`) van antes de `/{request_id}`. El PDF de la carta se abre en una pestaña nueva con la ruta de PDF de la secretaria (Plan 2); "imprimir" es imprimir desde el navegador.
 
 ## Reglas del plan
 
@@ -58,10 +58,10 @@ Los pasos 5 a 8 y 10 responden con el expediente actualizado. Las rutas fijas (`
 
 ## Reglas de los recibos
 
-- Requieren plan y solicitud `aceptada`.
+- Los captura **Caja** ([caja.md](caja.md)); la secretaria ya no registra ni anula recibos. Requieren plan y solicitud `aceptada`.
 - Folio de Caja: `strip()`, de 1 a 40 caracteres, **único entre los recibos vigentes de todas las solicitudes** (índice único parcial `uq_prorrogas_payments_folio_vigente`); un folio anulado se puede volver a usar.
 - Monto ≤ saldo (sin sobrepago). Fecha de pago entre la fecha de creación de la solicitud y hoy.
-- Anular pide motivo de 5 a 500 caracteres después de `strip()`.
+- Anular (en Caja) pide motivo de 5 a 500 caracteres después de `strip()`.
 - Plan, recibo, firma, recordar y desbloqueo toman primero el candado de fila de la solicitud (`FOR UPDATE`); dos recibos a la vez se serializan y el segundo que excede el saldo da `sobrepago`.
 
 ## Recordar, lista de adeudos y desbloqueo
@@ -84,7 +84,8 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `folio_invalido` | Folio vacío o de más de 40 caracteres | 400 |
 | `fecha_invalida` | Fecha de pago futura o anterior a la solicitud | 400 |
 | `sobrepago` | El monto excede el saldo | 400 |
-| `motivo_requerido` | Anular con motivo de menos de 5 o más de 500 caracteres | 400 |
+| `motivo_requerido` | Anular (en Caja) con motivo de menos de 5 o más de 500 caracteres | 400 |
+| `motivo_invalido` | Cerrar sin plan o avisar una inconsistencia con motivo fuera de rango (10 a 1000 y 10 a 500 caracteres) | 400 |
 | `no_encontrada` | La solicitud no existe o no está `aceptada` | 404 |
 | `recibo_no_encontrado` | El recibo no existe o es de otra solicitud | 404 |
 | `periodo_no_encontrado` | Exportar con un semestre inexistente | 404 |
@@ -97,7 +98,7 @@ Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra
 | `ya_recordado` | Se recordó hace menos de 24 h | 409 |
 | `sin_destinatario` | Recordar una prórroga sin cuenta ni correo (importada del Excel) | 409 |
 | `sin_semestre` | Plan, recibo o anulación en una prórroga del Excel sin semestre de core (solo lectura) | 409 |
-| `no_aplica` | Avisar desbloqueo sin lista exportada, sin liquidar o ya avisado | 409 |
+| `no_aplica` | Avisar desbloqueo sin lista exportada, sin liquidar o ya avisado; avisar una inconsistencia de un recibo que el alumno aún no sube | 409 |
 | `pdf_no_disponible` | LibreOffice falló al generar la carta; el plan no se guarda y se puede reintentar | 503 |
 
 ## Flujos relacionados
