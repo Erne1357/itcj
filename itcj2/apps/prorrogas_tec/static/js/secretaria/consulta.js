@@ -85,18 +85,19 @@
     estado.append(pill(it.estado));
     r.append(el("span", "mono", it.control || "—"), nombre, el("span", null, it.carrera || "—"),
              el("span", null, it.semestre || "—"), estado);
-    const abrir = () => openDetail(it.id);
+    const abrir = () => openDetail(it);
     r.addEventListener("click", abrir);
     r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrir(); } });
     return r;
   }
 
-  async function openDetail(id) {
-    const { ok, data } = await get("/" + id);
+  async function openDetail(it) {
+    const { ok, data } = await get("/" + it.id);
     if (!ok) { showError(data.message || "No se pudo abrir la solicitud."); return; }
-    $("cstNombre").textContent = data.nombre || "";
-    $("cstControl").textContent = data.control || "";
-    $("cstCarrera").textContent = data.carrera || "";
+    // request_out no trae al alumno: el encabezado sale de la fila.
+    $("cstNombre").textContent = it.nombre || "";
+    $("cstControl").textContent = it.control || "";
+    $("cstCarrera").textContent = it.carrera || "";
     const dl = $("cstDatos");
     dl.replaceChildren();
     const datos = [["Folio", data.folio], ["Estado", (ESTADOS[data.estado] || [data.estado])[0]],
@@ -118,6 +119,7 @@
     hist.replaceChildren(...data.historial.map((e) => {
       const li = el("li");
       li.append(el("b", null, e.tipo.replace(/_/g, " ")), el("time", null, " " + fmtDateTime(e.fecha)));
+      if (e.datos && e.datos.motivo) li.append(el("div", null, "Motivo: " + e.datos.motivo));
       return li;
     }));
     if (!data.historial.length) hist.append(el("li", null, "Sin movimientos."));
