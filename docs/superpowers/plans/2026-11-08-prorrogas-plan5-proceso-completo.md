@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Cerrar 23 de los 28 puntos que le faltan a Prórrogas: reglas, avisos, referencia bancaria y roles. Cajas (22 a 26) queda para un plan propio cuando exista su diseño.
+**Goal:** Cerrar 22 de los 28 puntos que le faltan a Prórrogas: reglas, avisos, referencia bancaria y roles. Cajas (22 a 26) queda para un plan propio cuando exista su diseño, y el rol Jefe (31) se pospuso.
 
 **Architecture:** Casi todo vive en `itcj2/apps/prorrogas_tec`. Lo compartido se toca en tres sitios, solo agregando: adjunto opcional en `graph_send_mail`, una línea en el `include` de Celery y dos paquetes de fuentes en el Dockerfile. Hay una sola migración, al inicio, y un solo archivo de semillas que se aplica al final.
 
@@ -19,7 +19,8 @@
 - Recordatorios automáticos a 5, 1 y 0 días; ninguno después del vencimiento; si el plan se confirma tarde, solo los que queden.
 - Referencia bancaria: PDF. Se puede capturar el monto sin ella.
 - Aceptada sin plan al terminar el semestre: la cierra la secretaria con motivo escrito; queda en el historial.
-- Rol `admin` de la app: solo lectura. Admin global: escritura para emergencias. Jefe (solo lectura): Director, Subdirector Académico y Subdirectores. Los lectores no ven Documentos ni Configuración y no exportan la lista con bloqueo.
+- Rol `admin` de la app: solo lectura. Admin global: escritura para emergencias. Los lectores no ven Documentos ni Configuración y no exportan la lista con bloqueo.
+- El rol Jefe (punto 31) queda fuera de este plan por decisión del usuario: no crees el rol ni ligues puestos.
 - Excel de impagos: fecha de exportación, No. de control, Nombre, Carrera, Monto debido (saldo total).
 
 **Seguridad y datos**
@@ -868,8 +869,9 @@ LECTOR_PERMS = [
 
 @pytest.fixture()
 def lector(make_user, make_role, grant):
-    user = make_user(first_name="JEFE", last_name="PRUEBA")
-    grant(user, make_role("jefe", LECTOR_PERMS))
+    user = make_user(first_name="LECTOR", last_name="PRUEBA")
+    # No uses "admin": las pruebas ven el rol real de dev, con escritura hasta aplicar la semilla.
+    grant(user, make_role("lector_prueba", LECTOR_PERMS))
     return user
 ```
 
@@ -904,7 +906,7 @@ def test_admin_global_entra_sin_rol_en_la_app(client_as, make_user):
 - [ ] **Step 3:** `PYT T/test_secretaria_pages.py`. Esperado: FALLAN.
 - [ ] **Step 4: `access.py`.** Usa `is_global_admin`, `cached_has_assignment` y `cached_perms`, y `PageLoginRequired`/`PageForbidden` de `itcj2.exceptions`, con el mismo orden de chequeos que `require_page_app`, salvo que `{"*"}` pasa cualquier pestaña.
 - [ ] **Step 5: `secretaria.py`.** `TABS` lleva `(clave, etiqueta, permiso)`. Cada ruta usa `dependencies=[Depends(require_tab(...))]` y se quita la dependencia del router y `_VIEW`. `_contexto(request, active, title)` entrega las pestañas permitidas (`"*" in perms or codigo in perms`) y `perms`. `secretaria_home` exige sesión (`PageLoginRequired`) y redirige a la primera permitida en `("solicitudes", "estudiantes", "estadisticas", "documentos", "configuracion")`; si no hay ninguna, `PageForbidden`. La plantilla sigue recibiendo pares; ajusta el `for` si hace falta.
-- [ ] **Step 6: Entrada.** `_ROLE_HOME` suma `("jefe", "/prorrogas/secretaria")`. Un admin global sin rol va a `/prorrogas/secretaria`. En el contrato, `test_el_censo_no_esta_vacio` usa `prorrogas_tec.secretaria.page.estudiantes`.
+- [ ] **Step 6: Entrada.** Un admin global sin rol va a `/prorrogas/secretaria`. En el contrato, `test_el_censo_no_esta_vacio` usa `prorrogas_tec.secretaria.page.estudiantes`.
 - [ ] **Step 7: Semilla.** En `08_insert_plan5.sql`: los seis permisos y su asignación a `secretaria`.
 - [ ] **Step 8:** `PYT T/`. Esperado: todo pasa.
 - [ ] **Step 9:** **COMMIT** (sin `database/`) `feat(prorrogas): un permiso por pestana y entrada segun el rol`
@@ -944,10 +946,10 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
 - [ ] **Step 6:** `PYT T/`. Esperado: todo pasa.
 - [ ] **Step 7:** **COMMIT** `feat(prorrogas): cada rol solo ve lo que puede hacer`
 
-### Task 17: Admin de solo lectura y rol Jefe (puntos 29 y 31)
+### Task 17: Admin de solo lectura (punto 29)
 
 **Files:**
-- Modify: `database/DML/prorrogas_tec/08_insert_plan5.sql` (fuera de git), `APP/docs/README.md`
+- Modify: `database/DML/prorrogas_tec/08_insert_plan5.sql` (fuera de git), `APP/docs/README.md`, `APP/pages/landing.py`
 - Test: `T/test_secretaria_pages.py`
 
 **Interfaces:**
@@ -969,22 +971,15 @@ def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review
 
 def test_lector_si_consulta(client_as, lector, aceptada):
     assert client_as(lector).get(f"/api/prorrogas/v2/estudiantes/{aceptada.id}").status_code == 200
-
-
-def test_aterrizaje_del_jefe(client_as, lector):
-    r = client_as(lector).get("/prorrogas/", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == BASE
 ```
 
 - [ ] **Step 2:** `PYT T/test_secretaria_pages.py`. Esperado: pasan si Task 15 está bien; si fallan, corrige ahí.
 - [ ] **Step 3: Semilla** (va al final de `_DML_FILES` para ganarle a lo que otorgan 02, 04, 05, 06 y 07):
-  - Crea el rol `jefe` con `INSERT ... ON CONFLICT (name) DO NOTHING`.
-  - `jefe` y `admin` reciben los seis códigos de `LECTOR_PERMS`.
+  - `admin` recibe los seis códigos de `LECTOR_PERMS`.
   - `DELETE FROM core_role_permissions WHERE role_id = v_role_admin AND perm_id IN (SELECT id FROM core_permissions WHERE app_id = v_app_id AND code NOT IN (<LECTOR_PERMS>))`. Solo toca permisos de Prórrogas.
-  - `INSERT INTO core_position_app_roles (position_id, app_id, role_id)` para los puestos `director`, `head_sub_academic`, `head_sub_planning`, `subdirector_admin_services`, con `ON CONFLICT DO NOTHING`.
-- [ ] **Step 4: Doc.** Agrega a `APP/docs/README.md` qué ve cada rol: `secretaria`, `admin`, `jefe` y admin global.
+- [ ] **Step 4: Doc.** Agrega a `APP/docs/README.md` qué ve cada rol: `secretaria`, `admin` y admin global. En `APP/pages/landing.py`, corrige el comentario de `admin` en `_ROLE_HOME`: ya es solo lectura.
 - [ ] **Step 5:** `PYT T/`. Esperado: todo pasa.
-- [ ] **Step 6:** **COMMIT** (sin `database/`) `feat(prorrogas): admin de solo lectura y rol Jefe por puesto`
+- [ ] **Step 6:** **COMMIT** (sin `database/`) `feat(prorrogas): admin de la app en solo lectura`
 
 ### Task 18: Consulta de todas las solicitudes (punto 32)
 
@@ -1078,7 +1073,7 @@ def test_pestana_consulta(client_as, lector):
 docker compose -f /home/deigol/repos/itcj/docker/compose/docker-compose.dev.yml exec backend python -m itcj2.cli.main prorrogas init-prorrogas
 ```
 
-Verifica: `admin` y `jefe` con 6 permisos de Prórrogas, 4 puestos ligados a `jefe` y 1 fila `prorrogas.payment_reminders` en `core_periodic_tasks`.
+Verifica: `admin` con 6 permisos de Prórrogas y 1 fila `prorrogas.payment_reminders` en `core_periodic_tasks`.
 
 - [ ] **Step 3: Revisión en navegador** con datos de prueba, en escritorio y a 390 px: Solicitudes como lector (sin QR ni decisiones), Estudiantes (filtros nuevos, firma, referencia, cierre), Mi prórroga (campana, subida), invitación (pantalla Aceptar) y Consulta. Sin datos reales en capturas ni artefactos.
 - [ ] **Step 4: Docs.** `secretaria_consulta.md` con el formato de los demás flujos. Marca en `PENDIENTES.md` cada punto cerrado con **[hecho]**, fecha y commit, y agrega lo que requiere a una persona: copiar `08_insert_plan5.sql` a producción, conectar el buzón (H2), reconstruir la imagen y revisar las cartas.
