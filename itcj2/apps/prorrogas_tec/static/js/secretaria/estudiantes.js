@@ -360,12 +360,6 @@
     return c;
   }
 
-  function field(label, node) {
-    const l = el("label", "est-field");
-    l.append(el("span", null, label), node);
-    return l;
-  }
-
   function input(type, attrs) {
     const i = el("input");
     i.type = type;
@@ -456,40 +450,16 @@
     return r;
   }
 
-  // shortcut: la secretaria registra y anula recibos aquí hasta que exista el usuario de Caja, que marcará cada pago.
   function recibosCard(x) {
-    const s = x.solicitud, c = x.cuenta, sec = card("Recibos de Caja");
+    const sec = card("Recibos de Caja");
     const ul = el("ul", "est-recibos");
     (x.recibos || []).forEach((r) => {
       const li = el("li", r.anulado ? "is-void" : "");
       li.append(el("b", null, r.folio || "Histórico"), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
       if (r.anulado) li.append(el("small", null, "Anulado: " + (r.motivo_anulacion || "")));
-      else if (!x.solo_lectura && can("prorrogas_tec.payments.api.void")) li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
-        const motivo = prompt("Motivo de la anulación (mínimo 5 caracteres):");
-        if (motivo == null) return;
-        show($("estMsg"), "");
-        apply(await api(`${EST}/${s.id}/recibos/${r.id}/anular`, { body: { motivo: motivo.trim() } }), "Recibo anulado.");
-      }));
       ul.append(li);
     });
     sec.append(ul.children.length ? ul : el("p", "est-note", "Sin recibos."));
-    const prox = c.parcialidades.find((q) => q.estado !== "pagada");
-    if (x.solo_lectura || !prox || !can("prorrogas_tec.payments.api.record")) return sec;
-
-    const folio = input("text", { maxlength: "40" });
-    const fecha = input("date", { max: todayIso() });
-    fecha.value = todayIso();
-    const monto = input("text", { inputmode: "decimal" });
-    monto.value = ((cents(prox.monto) - cents(prox.cubierto)) / 100).toFixed(2);   // lo que falta del siguiente pago
-    const form = el("div", "est-recibo-form");
-    form.append(field("Folio de Caja", folio), field("Fecha de pago", fecha), field("Monto", monto));
-    form.append(button("Registrar recibo", "sec-btn est-sm", async () => {
-      show($("estMsg"), "");
-      if (!fecha.value) { show($("estMsg"), "Falta la fecha de pago."); return; }
-      apply(await api(`${EST}/${s.id}/recibos`, { body: { folio: folio.value.trim(), fecha: fecha.value, monto: monto.value.trim() } }),
-        "Recibo registrado.");
-    }));
-    sec.append(form);
     return sec;
   }
 

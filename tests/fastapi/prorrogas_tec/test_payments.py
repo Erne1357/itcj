@@ -71,18 +71,6 @@ def test_sin_plan_no_hay_recibos(db_session, aceptada, secretaria):
     assert e.value.code == "sin_plan"
 
 
-def test_api_registrar_y_anular(client_as, secretaria, aceptada, con_plan):
-    from itcj2.core.utils.timezone import db_now
-    _plan(con_plan, aceptada)
-    c = client_as(secretaria)
-    e = c.post(f"/api/prorrogas/v2/estudiantes/{aceptada.id}/recibos",
-               json={"folio": "C-8", "fecha": db_now().date().isoformat(), "monto": "250.50"}).json()
-    rid = e["recibos"][0]["id"]
-    assert e["cuenta"]["pagado"] == "250.50"
-    e = c.post(f"/api/prorrogas/v2/estudiantes/{aceptada.id}/recibos/{rid}/anular", json={"motivo": "Duplicado"}).json()
-    assert e["cuenta"]["pagado"] == "0.00" and e["recibos"][0]["anulado"]
-
-
 def _saldar(db, req, actor, numero, folio, dia=HOY):
     return PaymentService.settle_next(db, req.id, actor.id, numero=numero, folio=folio, paid_on=dia, now=HOY)
 

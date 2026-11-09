@@ -102,7 +102,7 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
 
 @pytest.mark.parametrize("ruta, cuerpo", [
     ("/api/prorrogas/v2/estudiantes/{id}/plan", {"total": "1000", "parcialidades": []}),
-    ("/api/prorrogas/v2/estudiantes/{id}/recibos", {"folio": "X", "fecha": "2091-01-20", "monto": "1"}),
+    ("/api/prorrogas/v2/caja/{id}/saldar", {"numero": 1, "folio": "ZZ-X", "fecha": "2091-01-20"}),
     ("/api/prorrogas/v2/estudiantes/{id}/recordar", {}),
     ("/api/prorrogas/v2/solicitudes/{id}/decision", {"aceptar": False, "comentario": "x"}),
     ("/api/prorrogas/v2/invitaciones/qr", None),
@@ -110,7 +110,7 @@ def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
     ("/api/prorrogas/v2/estudiantes/{id}/cerrar-sin-plan", {"motivo": "Sin referencia a tiempo."}),
     ("/api/prorrogas/v2/estudiantes/adeudos.xlsx", {"period_id": 1}),
     ("/api/prorrogas/v2/estudiantes/{id}/desbloqueo-avisado", {}),
-    ("/api/prorrogas/v2/estudiantes/{id}/recibos/1/anular", {"motivo": "Capturado por error."}),
+    ("/api/prorrogas/v2/caja/{id}/recibos/1/anular", {"motivo": "Capturado por error."}),
 ])
 def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review Focus 5
     assert client_as(lector).post(ruta.format(id=aceptada.id), json=cuerpo).status_code == 403
@@ -128,3 +128,15 @@ def test_pestana_consulta(client_as, lector):
     page = client_as(lector).get(f"{BASE}/consulta").text
     for texto in ("Consulta", "consulta.js"):
         assert texto in page
+
+
+@pytest.mark.parametrize("ruta", ["/recibos", "/recibos/1/anular"])
+def test_la_secretaria_ya_no_tiene_rutas_de_cobro(client_as, secretaria, aceptada, ruta):
+    assert client_as(secretaria).post(f"/api/prorrogas/v2/estudiantes/{aceptada.id}{ruta}", json={}).status_code == 404
+
+
+def test_estudiantes_js_ya_no_cobra():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[3] / "itcj2/apps/prorrogas_tec/static/js/secretaria/estudiantes.js").read_text(encoding="utf-8")
+    for texto in ("/recibos", "Registrar recibo", "payments.api", "shortcut: la secretaria"):
+        assert texto not in js

@@ -442,8 +442,6 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .est-recibos li b { font: 500 14px var(--font-mono); }
 .est-recibos li small { color: var(--m-muted); }
 .est-recibos li.is-void b, .est-recibos li.is-void span { text-decoration: line-through; color: var(--m-muted); }
-.est-recibo-form { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: end; }
-.est-modal .est-recibo-form .sec-btn { height: 38px; white-space: nowrap; }
 .est-sit.is-alert { border-color: rgba(242, 115, 64, .55); }
 .est-sit-row { display: flex; align-items: flex-start; gap: 10px; }
 .est-sit-ico { width: 26px; height: 26px; flex: none; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; background: rgba(26, 19, 14, .07); color: rgba(26, 19, 14, .6); }
@@ -523,7 +521,6 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .est-row-head { display: none; }
   .est-plan.has-side, .est-form-grid, .est-two { grid-template-columns: 1fr; }
   .est-pago { grid-template-columns: minmax(0, 1fr) auto; }
-  .est-recibo-form { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 760px) {
   .est-modal { width: 100%; height: 100%; max-width: 100%; max-height: 100%; border-radius: 0; }
@@ -533,7 +530,6 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .est-prox { border-left: 0; border-top: 1px solid rgba(26, 19, 14, .08); border-radius: 0 0 11px 11px; }
   .est-tabs { padding: 0 16px; gap: 20px; }
   .est-m-body { padding: 16px; }
-  .est-recibo-form { grid-template-columns: 1fr; }
   .est-hist li { grid-template-columns: 20px minmax(0, 1fr); }
   .est-hist time { grid-column: 2; padding: 0 0 12px; }
 }

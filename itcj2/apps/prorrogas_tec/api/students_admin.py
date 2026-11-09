@@ -11,7 +11,6 @@ from itcj2.apps.prorrogas_tec.api._common import referencia_pdf_response, servic
 from itcj2.apps.prorrogas_tec.services.account import money
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.formatting import parse_monto
-from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services.plan_service import PlanService
 from itcj2.apps.prorrogas_tec.services.students_service import StudentsService
@@ -22,8 +21,6 @@ router = APIRouter(tags=["prorrogas_tec-estudiantes"])
 
 _READ = ["prorrogas_tec.requests.api.read.all"]
 _PLAN = ["prorrogas_tec.plans.api.manage"]
-_RECORD = ["prorrogas_tec.payments.api.record"]
-_VOID = ["prorrogas_tec.payments.api.void"]
 _REMIND = ["prorrogas_tec.students.api.remind"]
 _EXPORT = ["prorrogas_tec.students.api.export"]
 
@@ -36,16 +33,6 @@ class ParcialidadIn(BaseModel):
 class PlanIn(BaseModel):
     total: str | int | float
     parcialidades: list[ParcialidadIn]
-
-
-class ReciboIn(BaseModel):
-    folio: str
-    fecha: date
-    monto: str | int | float
-
-
-class AnularIn(BaseModel):
-    motivo: str
 
 
 class CierreIn(BaseModel):
@@ -108,28 +95,6 @@ def plan(request_id: int, body: PlanIn, db: DbSession, user: dict = require_perm
     try:
         PlanService.confirm(db, request_id, int(user["sub"]), total=parse_monto(body.total),
                             parcialidades=[(parse_monto(p.monto), p.fecha) for p in body.parcialidades])
-    except ServiceError as e:
-        db.rollback()
-        return _err(e)
-    return StudentsService.expediente(db, request_id, db_now().date())
-
-
-@router.post("/{request_id}/recibos", name="prorrogas_tec.api.estudiantes.recibo")
-def recibo(request_id: int, body: ReciboIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _RECORD)):
-    try:
-        PaymentService.record(db, request_id, int(user["sub"]), folio=body.folio, paid_on=body.fecha,
-                              amount=body.monto)
-    except ServiceError as e:
-        db.rollback()
-        return _err(e)
-    return StudentsService.expediente(db, request_id, db_now().date())
-
-
-@router.post("/{request_id}/recibos/{payment_id}/anular", name="prorrogas_tec.api.estudiantes.recibo_anular")
-def recibo_anular(request_id: int, payment_id: int, body: AnularIn, db: DbSession,
-                  user: dict = require_perms("prorrogas_tec", _VOID)):
-    try:
-        PaymentService.void(db, payment_id, int(user["sub"]), motivo=body.motivo, request_id=request_id)
     except ServiceError as e:
         db.rollback()
         return _err(e)
