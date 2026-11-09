@@ -241,7 +241,7 @@
       nodos.push(tarjeta(encabezado("Estado", sols.length ? "Puedes solicitar" : "Sin solicitud", "t-neutral"), titulo("Mi prórroga"),
         el("p", sols.length ? "Puedes pedir una nueva prórroga aquí mismo." : "Todavía no has pedido una prórroga. Puedes hacerlo aquí mismo.", "lead"), a));
       if (!sols.length) nodos.push(plantilla("mp-como"));
-    } else if (d.motivo === "no_hay_semestre") {
+    } else if (d.motivo === "no_hay_semestre" && !(sols[0] && ["pendiente", "aceptada"].includes(sols[0].estado))) {   // cerró el periodo pero su prórroga sigue viva
       nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Por ahora no hay un semestre abierto para prórrogas.", "lead")));
     } else if (d.motivo === "sin_acceso" && !(sols[0] && sols[0].estado === "rechazada")) {   // a la rechazada la acompaña "¿Y ahora qué?"
       nodos.push(tarjeta(el("p", "Mi prórroga", "label"), el("p", "Pide tu acceso en la Subdirección Académica", "lead")));

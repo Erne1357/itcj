@@ -5,7 +5,7 @@ import itcj2.models  # noqa: F401
 from itcj2.models.base import Base
 
 NUEVAS = {"prorrogas_installments", "prorrogas_payments", "prorrogas_templates", "prorrogas_requests", "prorrogas_documents", "prorrogas_signatures",
-          "prorrogas_invitations", "prorrogas_joins", "prorrogas_events"}
+          "prorrogas_invitations", "prorrogas_joins", "prorrogas_events", "prorrogas_periods"}
 
 
 def test_las_tablas_de_prorrogas_son_las_del_spec():

@@ -239,8 +239,9 @@ def periodo(db_session):
 
 @pytest.fixture()
 def periodo_hoy(db_session):
-    """Semestre vigente hoy; el de inicio más reciente, así que `period_for` lo elige."""
+    """Semestre vigente hoy, el de inicio más reciente (`period_for` lo elige), con solicitudes abiertas."""
     from datetime import timedelta
+    from itcj2.apps.prorrogas_tec.models.period import ProrrogaPeriod
     from itcj2.core.models.academic_period import AcademicPeriod
     from itcj2.core.utils.timezone import db_now
 
@@ -249,6 +250,11 @@ def periodo_hoy(db_session):
     p = AcademicPeriod(code=f"H{n:05d}", name=f"Prórrogas hoy {n}", start_date=hoy - timedelta(days=1),
                        end_date=hoy + timedelta(days=60), status="INACTIVE")
     db_session.add(p)
+    db_session.flush()
+    # Las pruebas ven lo commiteado en dev: un periodo real de estas fechas chocaría con este (se revierte al final).
+    db_session.query(ProrrogaPeriod).delete()
+    db_session.add(ProrrogaPeriod(period_id=p.id, opens_on=hoy - timedelta(days=1), closes_on=hoy + timedelta(days=30),
+                                  payment_1_on=hoy + timedelta(days=31), payment_2_on=hoy + timedelta(days=45)))
     db_session.flush()
     return p
 

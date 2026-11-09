@@ -78,7 +78,7 @@ itcj2/apps/prorrogas_tec/
 │                               js/secretaria/estudiantes.js · js/secretaria/estadisticas.js · js/estudiante/firma.js (lienzo compartido)
 └── docs/
     ├── README.md · PENDIENTES.md
-    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · secretaria_estadisticas · historico_excel · estudiante_solicitud
+    └── flows/                  secretaria_documentos · secretaria_solicitudes · secretaria_estudiantes · secretaria_estadisticas · secretaria_configuracion · historico_excel · estudiante_solicitud
                                 (UI → endpoint → service → BD de cada flujo)
 ```
 

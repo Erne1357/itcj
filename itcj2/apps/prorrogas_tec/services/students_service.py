@@ -10,6 +10,7 @@ from openpyxl.styles import Font
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
 from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
+from itcj2.apps.prorrogas_tec.models.period import ProrrogaPeriod
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services import account, notify
@@ -111,6 +112,7 @@ class StudentsService:
             raise ServiceError("no_encontrada", "No se encontró la solicitud.", 404)
         c = account.load(db, req, today)
         period = db.get(AcademicPeriod, req.period_id) if req.period_id else None  # histórica sin semestre: solo lectura
+        comun = db.query(ProrrogaPeriod).filter_by(period_id=req.period_id).first()  # fechas de Configuración
         carta = next((d for d in DocumentService.current(db, req) if d.doc_type.startswith("carta_compromiso")), None)
         recibos = (db.query(ProrrogaPayment).filter(ProrrogaPayment.request_id == req.id)
                    .order_by(ProrrogaPayment.recorded_at.desc(), ProrrogaPayment.id.desc()).all())
@@ -136,7 +138,8 @@ class StudentsService:
             "plan": {
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
                 "editable": period is not None and c.pagado == 0 and today <= period.end_date,  # rehacer solo sin pagos
-                "fecha_limite": period.end_date.isoformat() if period else None},
+                "fecha_limite": period.end_date.isoformat() if period else None,
+                "fechas_sugeridas": [comun.payment_1_on.isoformat(), comun.payment_2_on.isoformat()] if comun else []},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
                         "avisar_desbloqueo": _avisar_desbloqueo(req, c),
                         "avisado": req.unblock_notified_at.isoformat() if req.unblock_notified_at else None},

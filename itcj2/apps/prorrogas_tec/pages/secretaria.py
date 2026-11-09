@@ -6,6 +6,7 @@ Rutas (todas bajo /prorrogas/secretaria):
   GET /documentos     → plantillas de los formatos
   GET /estudiantes    → lista de aceptadas por semestre y expediente (plan, recibos, documentos)
   GET /estadisticas   → gráficas, cumplimiento de pago y detalle por carrera
+  GET /configuracion  → periodo de cada semestre: ventana de solicitudes y fechas comunes de pago
 
 Diseño: docs/design/prorrogas/secretaria-final.dc.html (barra = componente TopNav).
 """
@@ -24,6 +25,7 @@ TABS = (
     ("solicitudes", "QR y solicitudes"),
     ("estudiantes", "Estudiantes"),
     ("documentos", "Documentos"),
+    ("configuracion", "Configuración"),
 )
 
 _VIEW = ["prorrogas_tec.secretaria.page.view"]
@@ -64,6 +66,15 @@ async def secretaria_estudiantes(request: Request):
         "title": "Prórrogas · Estudiantes",
         "tabs": TABS,
         "active": "estudiantes",
+    })
+
+
+@router.get("/configuracion", name="prorrogas_tec.pages.secretaria.configuracion")
+async def secretaria_configuracion(request: Request):
+    return render(request, "prorrogas_tec/secretaria/configuracion.html", {
+        "title": "Prórrogas · Configuración",
+        "tabs": TABS,
+        "active": "configuracion",
     })
 
 

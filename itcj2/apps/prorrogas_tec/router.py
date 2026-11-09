@@ -1,6 +1,7 @@
 # """Prorrogas_tec app — router assembly (v2)."""
 from fastapi import APIRouter
 
+from itcj2.apps.prorrogas_tec.api.configuracion import router as configuracion
 from itcj2.apps.prorrogas_tec.api.invitations import router as invitations
 from itcj2.apps.prorrogas_tec.api.programs import router as programs
 from itcj2.apps.prorrogas_tec.api.requests_admin import router as requests_admin
@@ -19,3 +20,4 @@ prorrogas_tec_router.include_router(student, prefix="/estudiante")
 prorrogas_tec_router.include_router(requests_admin, prefix="/solicitudes")
 prorrogas_tec_router.include_router(students_admin, prefix="/estudiantes")
 prorrogas_tec_router.include_router(stats, prefix="/estadisticas")
+prorrogas_tec_router.include_router(configuracion, prefix="/configuracion")

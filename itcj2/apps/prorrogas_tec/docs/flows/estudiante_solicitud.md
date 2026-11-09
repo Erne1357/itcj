@@ -7,7 +7,7 @@
 | **Actores** | Estudiante (rol `student`) |
 | **Permisos** | Página: `prorrogas_tec.student.page.view` · API: `prorrogas_tec.requests.api.read.own`, `…create.own`, `…cancel.own`, `prorrogas_tec.documents.api.sign.own` |
 | **Disparador** | La secretaria le muestra el QR o le envía una invitación |
-| **Precondiciones** | Cuenta con sesión; un semestre vigente; **una unión** (`prorrogas_joins`) dentro del semestre y posterior al último cambio (`updated_at`: creada, cancelada o decidida) de su última solicitud de ese semestre (puerta de acceso) |
+| **Precondiciones** | Cuenta con sesión; un periodo de Prórrogas abierto hoy ([Configuración](secretaria_configuracion.md)); **una unión** (`prorrogas_joins`) dentro de ese periodo y posterior al último cambio (`updated_at`: creada, cancelada o decidida) de su última solicitud de ese semestre (puerta de acceso) |
 | **Estado final** | Solicitud `pendiente` con su `formato_solicitud` firmado; después `aceptada` o `rechazada` con su carta; si es aceptada y la secretaria confirma el plan, la carta compromiso queda firmada por el estudiante |
 
 ## Ruta en la app (UI)
@@ -57,7 +57,7 @@ La UI muestra `message`. En las páginas de unirse el QR inválido o vencido mue
 | `cuenta_sin_invitacion_de_alta` | Crear NIP en una cuenta sin NIP que no nació de una invitación (la página le pide entrar con su NIP o pedir ayuda) | 403 |
 | `cuenta_sin_numero_de_control` | Una cuenta de personal escanea el QR o intenta solicitar | 403 |
 | `sin_acceso` | No hay unión posterior al último cambio de su última solicitud del semestre | 403 |
-| `no_hay_semestre` | Ningún período no archivado cubre hoy | 409 |
+| `no_hay_semestre` | Ningún periodo de Prórrogas admite solicitudes hoy (sin configurar, por abrir o cerrado) | 409 |
 | `solicitud_abierta` | Ya tiene una `pendiente`/`aceptada` (doble envío incluido) | 409 |
 | `plazos_invalidos` / `motivo_invalido` / `carrera_invalida` | Datos fuera de rango | 400 |
 | `firma_vacia` / `firma_muy_grande` / `firma_invalida` | PNG sin trazos, de más de 200 000 bytes o 2000×2000 px, o ilegible (también al firmar la carta) | 400 |

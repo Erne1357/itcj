@@ -16,7 +16,7 @@ from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.formatting import nombre_oficial
 from itcj2.apps.prorrogas_tec.services.identity import folio, institutional_email
 from itcj2.apps.prorrogas_tec.services import notify
-from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
+from itcj2.apps.prorrogas_tec.services.periods import open_window, period_label
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.models.program import Program
 from itcj2.core.models.user import User
@@ -34,19 +34,20 @@ class RequestService:
 
     @staticmethod
     def access(db, user_id: int, *, now: datetime | None = None) -> tuple[AcademicPeriod | None, str | None]:
-        """Semestre actual y, si no puede solicitar, el código que lo impide."""
+        """Semestre con solicitudes abiertas hoy y, si no puede solicitar, el código que lo impide."""
         now = now or db_now()
-        period = period_for(db, now.date())
-        if period is None:
+        ventana = open_window(db, now.date())
+        if ventana is None:
             return None, "no_hay_semestre"
+        period = ventana.period
         mias = db.query(ProrrogaRequest).filter_by(student_id=user_id, period_id=period.id)
         if mias.filter(ProrrogaRequest.origin == "app", ProrrogaRequest.status.in_(OPEN_STATUSES)).first():
             return period, "solicitud_abierta"
         ultima = mias.order_by(ProrrogaRequest.created_at.desc(), ProrrogaRequest.id.desc()).first()
         uniones = db.query(ProrrogaJoin.id).filter(
             ProrrogaJoin.user_id == user_id,
-            ProrrogaJoin.joined_at >= period.start_date,
-            ProrrogaJoin.joined_at < period.end_date + timedelta(days=1))
+            ProrrogaJoin.joined_at >= ventana.opens_on,
+            ProrrogaJoin.joined_at < ventana.closes_on + timedelta(days=1))
         if ultima is not None:
             # Contra updated_at (la mueven cancelar y decidir): unirse con la solicitud aún pendiente no cuenta.
             uniones = uniones.filter(ProrrogaJoin.joined_at > ultima.updated_at)
@@ -75,7 +76,7 @@ class RequestService:
         if code == "solicitud_abierta":
             raise ServiceError(*_ABIERTA, status=409)
         if code:
-            raise ServiceError(code, "No hay un semestre vigente para solicitar.", status=409)
+            raise ServiceError(code, "Por ahora no hay un periodo abierto para solicitar prórroga.", status=409)
 
         # Spec 5: institucional para licenciatura y maestría; si no hay (D, B...), el que capturó la secretaria.
         try:

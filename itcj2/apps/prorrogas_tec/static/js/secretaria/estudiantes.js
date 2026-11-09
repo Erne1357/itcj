@@ -500,13 +500,15 @@
     return sec;
   }
 
-  // Crear el plan o rehacerlo (solo sin pagos): el total se reparte en pagos iguales; cada fecha la pone la secretaria.
+  // Crear el plan o rehacerlo (solo sin pagos): el total se reparte en pagos iguales.
+  // Un plan nuevo arranca con las fechas de Configuración; si una ya pasó queda vacía y la secretaria elige otra.
   function planForm(x) {
     const s = x.solicitud, c = x.cuenta, p = x.plan, mod = c.parcialidades.length > 0;
     const b = ui.borrador || (ui.borrador = mod
       ? { total: c.total, n: OPCIONES.includes(c.parcialidades.length) ? c.parcialidades.length : 1,
         fechas: c.parcialidades.map((q) => q.fecha), montos: null }
-      : { total: "", n: OPCIONES.includes(s.plazos) ? s.plazos : 1, fechas: [], montos: null });
+      : { total: "", n: OPCIONES.includes(s.plazos) ? s.plazos : 1,
+        fechas: p.fechas_sugeridas.map((f) => (f >= todayIso() ? f : "")), montos: null });
     let seq = 0;
     let timer = null;
 
