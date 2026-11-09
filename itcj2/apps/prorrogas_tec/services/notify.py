@@ -23,11 +23,13 @@ _AVISOS = {  # kind -> (título, plantilla del correo)
     "plan_modificado": ("Tu plan de pagos cambió", "plan_modificado.html"),
     "recordatorio": ("Recordatorio de pago de tu prórroga", "recordatorio.html"),
     "firma_pendiente": ("Te falta firmar tu carta compromiso", "firma_pendiente.html"),
+    "referencia_pendiente": ("Falta tu referencia bancaria", "referencia_pendiente.html"),
 }
 _CUERPOS = {  # cuerpo del aviso si no llega `body`; sin entrada, el comentario de la decisión
     "aceptada": "La secretaria armará tu plan de pagos con base en tu referencia bancaria. Te avisaremos cuando esté listo.",
     "carta_lista": "Entra a Mi prórroga para firmarla.",
     "firma_pendiente": "Entra a Mi prórroga para firmarla.",
+    "referencia_pendiente": "Súbela en Mi prórroga para que armen tu plan de pagos.",
     "plan_modificado": "Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso.",
 }
 

@@ -7,11 +7,13 @@ from datetime import date
 from fastapi import APIRouter, Response
 from pydantic import BaseModel
 
-from itcj2.apps.prorrogas_tec.api._common import service_error_response as _err
+from itcj2.apps.prorrogas_tec.api._common import error_response, service_error_response as _err
 from itcj2.apps.prorrogas_tec.services.account import money
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.formatting import parse_monto
 from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
+from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
 from itcj2.apps.prorrogas_tec.services.plan_service import PlanService
 from itcj2.apps.prorrogas_tec.services.students_service import StudentsService
 from itcj2.core.utils.timezone import db_now
@@ -83,6 +85,19 @@ def exportar(body: ExportIn, db: DbSession, user: dict = require_perms("prorroga
         return _err(e)
     return Response(content=data, headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
                     media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@router.get("/{request_id}/referencia.pdf", name="prorrogas_tec.api.estudiantes.referencia")
+def referencia(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    req = db.get(ProrrogaRequest, request_id)
+    try:
+        data = ReferenceService.read(req) if req else b""
+    except (ServiceError, FileNotFoundError):
+        data = b""
+    if not data:
+        return error_response(404, "no_encontrada", "No se encontró la referencia.")
+    return Response(data, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="referencia.pdf"'})
 
 
 @router.get("/{request_id}", name="prorrogas_tec.api.estudiantes.expediente")

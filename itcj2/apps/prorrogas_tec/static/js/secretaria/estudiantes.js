@@ -18,7 +18,7 @@
     documento_generado: "Documento generado",
     documento_firmado: "Carta firmada por el estudiante", recibo_registrado: "Recibo registrado",
     recibo_anulado: "Recibo anulado", recordatorio_enviado: "Recordatorio enviado",
-    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar",
+    desbloqueo_avisado: "Desbloqueo avisado", recordatorio_pendiente: "Recordatorio de firma enviado", correo_no_enviado: "Correo sin enviar", referencia_subida: "Referencia bancaria subida",
   };
 
   const st = { period: null, q: "", filtro: "todos", page: 1, openId: null };
@@ -506,6 +506,24 @@
     return sec;
   }
 
+  // Enlace a la referencia bancaria del alumno, o aviso de que falta con botón para recordársela.
+  function refNode(x) {
+    const s = x.solicitud, box = el("span", "est-ref");
+    if (s.referencia) {
+      const a = el("a", "est-ver", "Ver referencia");
+      a.href = `${API}${EST}/${s.id}/referencia.pdf`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      box.append(a);
+    } else {
+      box.append(el("span", null, "Sin referencia "), button("Recordar referencia", "sec-btn est-sm", async () => {
+        show($("estMsg"), "");
+        apply(await api(`${EST}/${s.id}/recordar-pendiente`, { body: { que: "referencia" } }), "Recordatorio de referencia enviado.");
+      }));
+    }
+    return box;
+  }
+
   // Crear el plan o rehacerlo (solo sin pagos): el total se reparte en pagos iguales.
   // Un plan nuevo arranca con las fechas de Configuración; si una ya pasó queda vacía y la secretaria elige otra.
   function planForm(x) {
@@ -530,7 +548,7 @@
     total.value = b.total;
     money$.append(el("span", null, "$"), total);
     const totalField = el("div", "est-field");
-    totalField.append(el("span", null, "Total del adeudo"), money$);
+    totalField.append(el("span", null, "Total del adeudo"), money$, refNode(x));
 
     const opts = el("div", "est-opts");
     const optBtns = OPCIONES.map((v) => {
@@ -644,6 +662,9 @@
       r.append(el("span", null, k), el("span", null, String(v)));
       datos.append(r);
     });
+    const rr = el("div", "est-kv");
+    rr.append(el("span", null, "Referencia"), refNode(x));
+    datos.append(rr);
     datos.append(el("div", "est-card-note", "El motivo viene en el Formato de solicitud."));
 
     const docs = card("Documentos");

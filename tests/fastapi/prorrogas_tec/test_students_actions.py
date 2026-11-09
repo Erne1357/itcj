@@ -184,3 +184,29 @@ def test_no_recuerda_si_ya_firmo(db_session, aceptada, secretaria, avisos):
     with pytest.raises(ServiceError) as e:
         StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "firma", now=AHORA)
     assert e.value.code == "no_aplica"
+
+
+def test_secretaria_abre_la_referencia(client_as, secretaria, db_session, aceptada):
+    from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
+    url = f"{API}/{aceptada.id}/referencia.pdf"
+    assert client_as(secretaria).get(url).status_code == 404
+    assert client_as(secretaria).get(f"{API}/{aceptada.id}").json()["solicitud"]["referencia"] is None
+    ReferenceService.save(db_session, aceptada, b"%PDF-1.4 x", aceptada.student_id)
+    assert client_as(secretaria).get(url).content == b"%PDF-1.4 x"
+    assert client_as(secretaria).get(f"{API}/{aceptada.id}").json()["solicitud"]["referencia"]
+
+
+def test_referencia_con_archivo_borrado_es_404(client_as, secretaria, db_session, aceptada):
+    aceptada.reference_path = "referencias/0/no-existe.pdf"
+    db_session.flush()
+    assert client_as(secretaria).get(f"{API}/{aceptada.id}/referencia.pdf").status_code == 404
+
+
+def test_recordar_referencia_solo_si_falta(db_session, aceptada, secretaria, avisos):
+    from itcj2.apps.prorrogas_tec.services.reference_service import ReferenceService
+    StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "referencia", now=AHORA)
+    assert avisos.calls[0][0] == "referencia_pendiente"
+    ReferenceService.save(db_session, aceptada, b"%PDF-1.4 x", aceptada.student_id)
+    with pytest.raises(ServiceError) as e:
+        StudentsService.remind_pending(db_session, aceptada.id, secretaria.id, "referencia", now=AHORA + timedelta(days=2))
+    assert e.value.code == "no_aplica"

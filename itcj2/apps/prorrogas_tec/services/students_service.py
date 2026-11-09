@@ -26,7 +26,7 @@ from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
 
 FILTROS = ("todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar")
-_PENDIENTES = {"firma": "firma_pendiente"}
+_PENDIENTES = {"firma": "firma_pendiente", "referencia": "referencia_pendiente"}
 _SITUACION = {"con_adeudo": "atrasada", "al_corriente": "al_corriente", "sin_plan": "sin_plan",
               "liquidada": "liquidada"}
 _ENTRE_RECORDATORIOS = timedelta(hours=24)
@@ -232,8 +232,9 @@ class StudentsService:
         _, _, ts = _tiempos(now)
         req = StudentsService._bloquear(db, request_id)
         try:
-            if req.id not in _sin_firmar(db, [req.id]):
-                raise ServiceError("no_aplica", "El estudiante no tiene firma pendiente.", status=409)
+            pendiente = req.id in _sin_firmar(db, [req.id]) if que == "firma" else not req.reference_path
+            if not pendiente:
+                raise ServiceError("no_aplica", f"El estudiante no tiene {que} pendiente.", status=409)
             if not (req.student_id or req.email):
                 raise ServiceError("sin_destinatario", "Esta prórroga no tiene cuenta ni correo para avisar.",
                                    status=409)
