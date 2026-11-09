@@ -15,6 +15,7 @@ _DML_FILES = [
     "05_insert_plan2.sql",
     "06_insert_plan3.sql",
     "07_insert_plan4.sql",
+    "08_insert_plan5.sql",
 ]
 
 

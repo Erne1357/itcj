@@ -32,5 +32,10 @@ def test_todo_permiso_que_exige_el_codigo_esta_sembrado():
     assert _codes_in_code() - sembrados == set()
 
 
+@pytest.mark.skipif(not DML.exists(), reason="database/ esta en .gitignore (CI)")
+def test_la_tarea_de_recordatorios_esta_sembrada():
+    assert "prorrogas.payment_reminders" in (DML / "08_insert_plan5.sql").read_text(encoding="utf-8")
+
+
 def test_el_censo_no_esta_vacio():
     assert "prorrogas_tec.secretaria.page.view" in _codes_in_code()
