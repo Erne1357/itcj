@@ -113,12 +113,17 @@ def test_periodos_sin_aceptadas(db_session, periodo):
 
 
 def test_plan_editable_solo_sin_pagos_y_en_el_semestre(db_session, aceptada, make_aceptada, con_plan):
-    con_plan(aceptada, PLAN)
+    con_plan(aceptada, [("1000.00", date(2091, 6, 20))])
     ver = lambda req, dia: StudentsService.expediente(db_session, req.id, dia)["plan"]["editable"]  # noqa: E731
     assert ver(aceptada, date(2091, 6, 20)) is True
     assert ver(aceptada, date(2091, 6, 21)) is False
     abonada = con_plan(make_aceptada(), PLAN, pagos=["1.00"])
     assert ver(abonada, date(2091, 6, 20)) is False
+
+
+def test_plan_vencido_no_es_editable(db_session, aceptada, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 2, 1))])
+    assert StudentsService.expediente(db_session, aceptada.id, date(2091, 3, 1))["plan"]["editable"] is False
 
 
 def test_historial_nombra_el_documento(client_as, secretaria, db_session, aceptada):

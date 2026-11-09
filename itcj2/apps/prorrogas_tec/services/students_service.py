@@ -29,9 +29,7 @@ _SITUACION = {"con_adeudo": "atrasada", "al_corriente": "al_corriente", "sin_pla
               "liquidada": "liquidada"}
 _ENTRE_RECORDATORIOS = timedelta(hours=24)
 logger = logging.getLogger(__name__)
-_COLUMNAS = [("No. de control", 16), ("Nombre", 36), ("Carrera", 36), ("Correo", 32),
-             ("Folio de la prórroga", 20), ("Monto total", 14), ("Pagado", 14), ("Saldo", 14),
-             ("Parcialidades vencidas", 22), ("Vencida desde", 16)]
+_COLUMNAS = [("No. de control", 16), ("Nombre", 36), ("Carrera", 36), ("Monto debido", 16)]
 _DINERO = '"$"#,##0.00'
 
 
@@ -137,7 +135,7 @@ class StudentsService:
                        "firmada": carta.signed_at is not None} if carta else None),
             "plan": {
                 "confirmado": req.plan_confirmed_at.isoformat() if req.plan_confirmed_at else None,
-                "editable": period is not None and c.pagado == 0 and today <= period.end_date,  # rehacer solo sin pagos
+                "editable": period is not None and c.pagado == 0 and c.situacion != "atrasada" and today <= period.end_date,  # rehacer solo sin pagos
                 "fecha_limite": period.end_date.isoformat() if period else None,
                 "fechas_sugeridas": [comun.payment_1_on.isoformat(), comun.payment_2_on.isoformat()] if comun else []},
             "bloqueo": {"exportada": req.block_exported_at.isoformat() if req.block_exported_at else None,
@@ -222,23 +220,20 @@ class StudentsService:
             celda.font = Font(bold=True)
             ws.column_dimensions[celda.column_letter].width = ancho
         for r, c in filas:
-            ws.append([r.control_number, r.student_name, r.program_name, r.email, folio(r), c.total, c.pagado,
-                       c.saldo, sum(1 for p in c.parcialidades if p.estado == "vencida"), c.vencida_desde])
+            ws.append([r.control_number, r.student_name, r.program_name, c.saldo])
             fila = ws.max_row
-            for col in range(1, 6):  # texto: openpyxl haría fórmula de un nombre que empiece con "="
+            for col in range(1, 4):  # texto: openpyxl haría fórmula de un nombre que empiece con "="
                 celda = ws.cell(row=fila, column=col)
                 if isinstance(celda.value, str):
                     celda.data_type = "s"
-            for col in (6, 7, 8):
-                ws.cell(row=fila, column=col).number_format = _DINERO
-            ws.cell(row=fila, column=10).number_format = "DD/MM/YYYY"
+            ws.cell(row=fila, column=4).number_format = _DINERO
             # Se conserva la primera exportación; si ya se avisó su desbloqueo, empieza un ciclo nuevo.
             if r.block_exported_at is None or r.unblock_notified_at is not None:
                 r.block_exported_at, r.unblock_notified_at = ts, None
         if not filas:
             ws.append(["Sin estudiantes con adeudo"])
         ws.freeze_panes = "A8"
-        ws.auto_filter.ref = f"A7:J{max(ws.max_row, 8)}"
+        ws.auto_filter.ref = f"A7:D{max(ws.max_row, 8)}"
         log_event(db, event_type="lista_bloqueo_exportada", request_id=None, actor_id=actor_id,
                   payload={"period_id": period_id, "estudiantes": len(filas), "solicitudes": [r.id for r, _ in filas]})
         try:

@@ -17,7 +17,8 @@ MESES: tuple[str, ...] = (
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 )
 
-MAX_PAGOS = 3
+MAX_PAGOS = 3  # split_amount (muestra de carta_compromiso_3)
+MAX_PAGOS_PLAN = 2  # tope de un plan nuevo
 MONTO_MAX = Decimal("99999999.99")  # tope de Numeric(10,2)
 
 

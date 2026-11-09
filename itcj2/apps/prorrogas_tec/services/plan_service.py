@@ -12,7 +12,7 @@ from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.formatting import (
-    MAX_PAGOS, fecha_larga, parse_monto, pesos, split_amount,
+    MAX_PAGOS_PLAN, fecha_larga, parse_monto, pesos, split_amount,
 )
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def _plazos_invalidos() -> ServiceError:
-    return ServiceError("plazos_invalidos", f"El plan debe tener de 1 a {MAX_PAGOS} parcialidades.")
+    return ServiceError("plazos_invalidos", f"El plan debe tener de 1 a {MAX_PAGOS_PLAN} parcialidades.")
 
 
 class PlanService:
@@ -30,7 +30,7 @@ class PlanService:
     def reparto(total, n: int) -> list[Decimal]:
         """Montos sugeridos: `total` en `n` parcialidades de pesos enteros."""
         total = parse_monto(total)
-        if not 1 <= n <= MAX_PAGOS:
+        if not 1 <= n <= MAX_PAGOS_PLAN:
             raise _plazos_invalidos()
         return split_amount(total, n)
 
@@ -50,12 +50,16 @@ class PlanService:
                 raise ServiceError("no_aceptada", "Solo una solicitud aceptada lleva plan de pagos.", status=409)
             if req.period_id is None:
                 raise ServiceError("sin_semestre", "Esta prórroga histórica no tiene semestre en el sistema.", status=409)
-            if account.load(db, req, today).pagado > 0:  # quien no paga a tiempo queda con adeudo; no se replantea
+            cuenta = account.load(db, req, today)
+            if cuenta.pagado > 0:  # quien no paga a tiempo queda con adeudo; no se replantea
                 raise ServiceError("con_pagos", "Ya hay pagos registrados: el plan ya no se puede modificar.",
+                                   status=409)
+            if cuenta.situacion == "atrasada":
+                raise ServiceError("con_vencidos", "Este plan tiene pagos vencidos: ya no se puede modificar.",
                                    status=409)
             total = parse_monto(total)
             nuevas = [(parse_monto(m), f) for m, f in parcialidades]
-            if not 1 <= len(nuevas) <= MAX_PAGOS:
+            if not 1 <= len(nuevas) <= MAX_PAGOS_PLAN:
                 raise _plazos_invalidos()
             if sum(m for m, _ in nuevas) != total:
                 raise ServiceError("suma_no_cuadra", "Las parcialidades deben sumar el total.")

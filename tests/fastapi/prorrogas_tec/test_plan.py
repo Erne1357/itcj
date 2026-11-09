@@ -10,6 +10,7 @@ from itcj2.apps.prorrogas_tec.services.identity import folio
 from itcj2.apps.prorrogas_tec.services.plan_service import PlanService
 
 pytestmark = pytest.mark.usefixtures("pdf_falso")
+DOS = [(D("1825"), date(2091, 2, 1)), (D("1825"), date(2091, 4, 1))]
 TRES = [(D("1217"), date(2091, 2, 1)), (D("1217"), date(2091, 3, 1)), (D("1216"), date(2091, 4, 1))]
 
 
@@ -18,22 +19,22 @@ def _cartas(db, req):
 
 
 def test_primer_plan_genera_la_carta_y_avisa(db_session, aceptada, secretaria, avisos):
-    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=TRES,
+    req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=DOS,
                               now=date(2026, 11, 1))
     carta, = _cartas(db_session, req)
-    assert carta.doc_type == "carta_compromiso_3" and carta.context["monto_total"] == "$3,650.00"
-    assert carta.context["pago3_monto"] == "$1,216.00" and carta.context["pago1_fecha"] == "01 de febrero de 2091"
+    assert carta.doc_type == "carta_compromiso_2" and carta.context["monto_total"] == "$3,650.00"
+    assert carta.context["pago2_monto"] == "$1,825.00" and carta.context["pago1_fecha"] == "01 de febrero de 2091"
     assert req.total_amount == D("3650.00") and [a[0] for a in avisos.calls] == ["carta_lista"]
 
 
 def test_reparto_por_omision():
-    assert PlanService.reparto("3650", 3) == [D("1217"), D("1217"), D("1216")]
+    assert PlanService.reparto("3650", 2) == [D("1825"), D("1825")]
 
 
 def test_sin_pagos_el_plan_se_rehace_avisa_y_queda_en_el_historial(db_session, aceptada, secretaria, avisos):
     from itcj2.apps.prorrogas_tec.models.event import ProrrogaEvent
 
-    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=TRES,
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=DOS,
                         now=date(2026, 11, 1))
     req = PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3600"),
                               parcialidades=[(D("3600"), date(2091, 5, 1))], now=date(2026, 11, 1))
@@ -119,9 +120,9 @@ def test_avisos_del_plan_con_su_plantilla(db_session, aceptada, monkeypatch, kin
 
 def test_api_reparto(client_as, secretaria):
     c = client_as(secretaria)
-    assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=3").json() == {
-        "montos": ["1217.00", "1217.00", "1216.00"]}
-    assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=4").json()["error"] == "plazos_invalidos"
+    assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=2").json() == {
+        "montos": ["1825.00", "1825.00"]}
+    assert c.get("/api/prorrogas/v2/estudiantes/reparto?total=3650&n=3").json()["error"] == "plazos_invalidos"
 
 
 def test_anular_el_unico_pago_vuelve_a_dejar_modificar_el_plan(db_session, aceptada, secretaria, avisos):
@@ -136,10 +137,24 @@ def test_anular_el_unico_pago_vuelve_a_dejar_modificar_el_plan(db_session, acept
         PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 25),
                             parcialidades=[(D("2000"), date(2091, 4, 1))])
     assert e.value.code == "con_pagos"
-    PaymentService.void(db_session, pago.id, secretaria.id, motivo="Recibo equivocado", now=date(2091, 2, 10))
-    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 2, 10),
+    PaymentService.void(db_session, pago.id, secretaria.id, motivo="Recibo equivocado", now=date(2091, 1, 30))
+    PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("2000"), now=date(2091, 1, 30),
                         parcialidades=[(D("1000"), date(2091, 3, 1)), (D("1000"), date(2091, 4, 1))])
-    c = load(db_session, aceptada, date(2091, 2, 10))
+    c = load(db_session, aceptada, date(2091, 1, 30))
     assert [(p.number, p.amount, p.due_date, p.estado) for p in c.parcialidades] == [
         (1, D("1000.00"), date(2091, 3, 1), "pendiente"), (2, D("1000.00"), date(2091, 4, 1), "pendiente")]
     assert [d.doc_type for d in _cartas(db_session, aceptada)] == ["carta_compromiso_2"]
+
+
+def test_plan_nuevo_no_admite_tres_pagos(db_session, aceptada, secretaria, avisos):
+    with pytest.raises(ServiceError) as e:
+        PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("3650"), parcialidades=TRES, now=date(2026, 11, 1))
+    assert e.value.code == "plazos_invalidos"
+
+
+def test_plan_con_pago_vencido_no_se_rehace(db_session, aceptada, secretaria, con_plan, avisos):
+    con_plan(aceptada, [("1000.00", date(2026, 10, 1))])
+    with pytest.raises(ServiceError) as e:
+        PlanService.confirm(db_session, aceptada.id, secretaria.id, total=D("1000"),
+                            parcialidades=[(D("1000"), date(2091, 2, 1))], now=date(2026, 11, 1))
+    assert e.value.code == "con_vencidos" and e.value.status == 409

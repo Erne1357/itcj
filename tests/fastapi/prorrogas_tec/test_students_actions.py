@@ -39,7 +39,9 @@ def test_excel_de_adeudos_se_explica_solo(db_session, aceptada, make_aceptada, s
     ws = load_workbook(BytesIO(data)).active
     assert ws["A1"].value == "Lista de adeudos de prórrogas" and "02/11/2026" in ws["A3"].value
     assert "parcialidad vencida y no cubierta" in ws["A4"].value and ws.freeze_panes == "A8" and ws.auto_filter.ref
-    assert [c.value for c in ws[7]][:3] == ["No. de control", "Nombre", "Carrera"]
+    assert [c.value for c in ws[7]] == ["No. de control", "Nombre", "Carrera", "Monto debido"]
+    fila = next(r for r in ws.iter_rows(min_row=8, values_only=True) if r[0] == aceptada.control_number)
+    assert float(fila[3]) == 1300.0  # saldo total
     controles = [r[0].value for r in ws.iter_rows(min_row=8)]
     assert aceptada.control_number in controles and al_dia.control_number not in controles
     assert nombre.startswith("adeudos-prorrogas-") and nombre.endswith(".xlsx")
