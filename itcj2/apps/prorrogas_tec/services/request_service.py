@@ -103,7 +103,7 @@ class RequestService:
             db.commit()
         except IntegrityError as e:  # doble envío: gana el índice único de solicitudes abiertas
             db.rollback()
-            if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "uq_prorrogas_requests_abierta":
+            if getattr(getattr(e.orig, "diag", None), "constraint_name", None) != "uq_prorrogas_requests_semestre":
                 raise
             raise ServiceError(*_ABIERTA, status=409)
         except ServiceError:  # p. ej. pdf_no_disponible: no queda solicitud y puede reintentar

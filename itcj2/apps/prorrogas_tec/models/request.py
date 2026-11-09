@@ -6,7 +6,7 @@ from sqlalchemy.sql import text
 
 from itcj2.models.base import Base
 
-STATUSES = ("pendiente", "aceptada", "rechazada", "cancelada")
+STATUSES = ("pendiente", "aceptada", "rechazada", "cancelada", "cerrada_sin_plan")
 OPEN_STATUSES = ("pendiente", "aceptada")
 
 
@@ -37,6 +37,8 @@ class ProrrogaRequest(Base):
     block_exported_at = Column(DateTime)
     unblock_notified_at = Column(DateTime)
     last_reminded_at = Column(DateTime)
+    reference_path = Column(Text)
+    reference_uploaded_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     updated_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
 
@@ -45,11 +47,11 @@ class ProrrogaRequest(Base):
     __table_args__ = (
         CheckConstraint("origin IN ('app','excel')", name="ck_prorrogas_requests_origin"),
         CheckConstraint("origin = 'excel' OR student_id IS NOT NULL", name="ck_prorrogas_requests_student"),
-        CheckConstraint("status IN ('pendiente','aceptada','rechazada','cancelada')",
+        CheckConstraint("status IN ('pendiente','aceptada','rechazada','cancelada','cerrada_sin_plan')",
                         name="ck_prorrogas_requests_status"),
         CheckConstraint("requested_terms BETWEEN 1 AND 3", name="ck_prorrogas_requests_terms"),
         CheckConstraint("total_amount IS NULL OR total_amount > 0", name="ck_prorrogas_requests_total"),
-        Index("uq_prorrogas_requests_abierta", "student_id", "period_id", unique=True,
-              postgresql_where=text("status IN ('pendiente','aceptada') AND origin = 'app'")),
+        Index("uq_prorrogas_requests_semestre", "student_id", "period_id", unique=True,
+              postgresql_where=text("origin = 'app'")),
         Index("ix_prorrogas_requests_estado", "status", "created_at"),
     )

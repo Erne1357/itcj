@@ -70,29 +70,6 @@ def test_sin_union_no_puede_solicitar(db_session, estudiante, periodo_hoy, make_
     assert e.value.code == "sin_acceso"
 
 
-def test_tras_cancelar_hay_que_unirse_otra_vez(db_session, alumno_unido, make_program, firma_png):
-    prog = make_program("Ingeniería de Prueba", "licenciatura")
-    req = _crear(db_session, alumno_unido, prog, firma_png)
-    RequestService.cancel(db_session, req.id, alumno_unido.id)
-    with pytest.raises(ServiceError) as e:
-        _crear(db_session, alumno_unido, prog, firma_png)
-    assert e.value.code == "sin_acceso"
-
-
-def test_union_mientras_estaba_pendiente_no_sirve_tras_cancelar(db_session, alumno_unido, make_program, firma_png):
-    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
-    from itcj2.core.utils.timezone import db_now
-    prog = make_program("Ingeniería de Prueba", "licenciatura")
-    t = db_now()
-    req = _crear(db_session, alumno_unido, prog, firma_png, now=t)
-    db_session.add(ProrrogaJoin(user_id=alumno_unido.id, via="qr", joined_at=t + timedelta(seconds=10)))
-    db_session.flush()
-    RequestService.cancel(db_session, req.id, alumno_unido.id, now=t + timedelta(seconds=20))
-    with pytest.raises(ServiceError) as e:  # la unión es anterior a la cancelación: hace falta otra visita
-        _crear(db_session, alumno_unido, prog, firma_png, now=t + timedelta(seconds=30))
-    assert e.value.code == "sin_acceso"
-
-
 def test_cuenta_sin_numero_de_control_no_solicita(db_session, make_user, periodo_hoy, make_program, firma_png):
     from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
     from itcj2.core.utils.timezone import db_now

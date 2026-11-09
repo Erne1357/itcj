@@ -17,6 +17,7 @@ class ProrrogaInstallment(Base):
     due_date = Column(Date, nullable=False)
     created_at = Column(DateTime, nullable=False, server_default=text("NOW()"))
     superseded_at = Column(DateTime)
+    last_reminder_days = Column(SmallInteger)
 
     __table_args__ = (
         CheckConstraint("number BETWEEN 1 AND 6", name="ck_prorrogas_installments_number"),

@@ -18,20 +18,24 @@ def _solicitud(user, periodo, **kw):
                            student_name="PRUEBA", requested_terms=1, **kw)
 
 
-def test_una_sola_solicitud_abierta_por_semestre(db_session, make_user, periodo):  # Review Focus 1
+def test_una_sola_solicitud_por_semestre(db_session, make_user, periodo):  # aunque la primera se rechazara
     u = make_user(control_number="99100001")
-    db_session.add(_solicitud(u, periodo))
+    db_session.add(_solicitud(u, periodo, status="rechazada"))
     db_session.flush()
     db_session.add(_solicitud(u, periodo))
     with pytest.raises(IntegrityError):
         db_session.flush()
 
 
-def test_una_rechazada_no_cuenta_como_abierta(db_session, make_user, periodo):
-    u = make_user(control_number="99100002")
-    db_session.add(_solicitud(u, periodo, status="rechazada"))
-    db_session.add(_solicitud(u, periodo))
+def test_cerrada_sin_plan_es_un_estado_valido(db_session, make_user, periodo):
+    db_session.add(_solicitud(make_user(control_number="99100004"), periodo, status="cerrada_sin_plan"))
     db_session.flush()
+
+
+def test_columnas_del_plan_5():
+    t = Base.metadata.tables
+    assert {"reference_path", "reference_uploaded_at"} <= set(t["prorrogas_requests"].c.keys())
+    assert "last_reminder_days" in t["prorrogas_installments"].c
 
 
 def test_estado_desconocido_lo_rechaza_la_bd(db_session, make_user, periodo):
