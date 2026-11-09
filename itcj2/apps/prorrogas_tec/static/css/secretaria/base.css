@@ -172,7 +172,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 @media (max-width: 1000px) {
   .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 900px) {  /* las cinco pestañas ya no caben junto a la marca y el usuario */
+@media (max-width: 1020px) {  /* las seis pestañas ya no caben junto a la marca y el usuario */
   .sec-topnav { grid-template-columns: 1fr; height: auto; gap: 0; padding: 0 16px; }
   .sec-brand { height: 48px; }
   .sec-tabs { gap: 18px; height: 48px; justify-content: flex-start; overflow-x: auto; }
@@ -708,6 +708,19 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-modal-actions button[hidden], .sol-modal-actions:not(:has(> button:not([hidden]))) { display: none; }
 .sol:has(> .sol-side[hidden]) { grid-template-columns: minmax(0, 1fr); }
 
+/* ── Consulta (aspecto de Estudiantes) ──────────────────────────────── */
+.cst { display: flex; flex-direction: column; gap: 14px; }
+.est-row.cst-row { grid-template-columns: 130px 1.4fr 1.4fr 150px 150px; }
+.cst-dlg { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+.cst-dlg h3 { margin: 8px 0 0; font: 600 15px var(--font-title); }
+.cst-sub { display: flex; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.cst-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; margin: 0; font-size: 14px; }
+.cst-dl dt { color: var(--muted); }
+.cst-dl dd { margin: 0; overflow-wrap: anywhere; }
+.cst-docs, .cst-hist { margin: 0; padding-left: 18px; font-size: 14px; }
+.cst-hist time { color: var(--muted); }
+@media (max-width: 900px) { .est-row.cst-row { grid-template-columns: 1fr 1fr; } }
+
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
    Va al final y con body.sec para ganar a .sec-main y a las tarjetas de cada pestaña;
    body.sec solo existe en secretaria/_base.html, así que no toca nada fuera de esta vista. */
@@ -716,8 +729,10 @@ body.sec .sec-main > .sec-card,
 body.sec .sec-main > .sol { flex: 1; border: 0; border-radius: 0; box-shadow: none; }
 body.sec .sec-main > .est { flex: 1; padding: 24px 32px; background: var(--paper); }
 body.sec .sec-main > .cfg { flex: 1; padding: 28px 40px 40px; background: var(--paper); }
+body.sec .sec-main > .cst { flex: 1; padding: 24px 32px; background: var(--paper); }
 @media (max-width: 760px) {
   body.sec .sec-main { min-height: 0; }
   body.sec .sec-main > .est { padding: 16px; }
   body.sec .sec-main > .cfg { padding: 20px 16px 32px; }
+  body.sec .sec-main > .cst { padding: 16px; }
 }

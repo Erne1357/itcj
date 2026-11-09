@@ -39,12 +39,22 @@ def pendientes(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)
     return {"items": items}
 
 
+@router.get("/todas", name="prorrogas_tec.api.solicitudes.todas")  # antes de /{request_id}
+def todas(db: DbSession, estado: str | None = None, semestre: str | None = None, q: str | None = None,
+          page: int = 1, per_page: int = 25, user: dict = require_perms("prorrogas_tec", _READ)):
+    try:
+        return RequestService.search(db, estado=estado, semestre=semestre, q=q, page=page, per_page=per_page)
+    except ServiceError as e:
+        return _err(e)
+
+
 @router.get("/{request_id}", name="prorrogas_tec.api.solicitudes.ver")
 def ver(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
     req = db.get(ProrrogaRequest, request_id)
     if req is None:
         return error_response(404, "no_encontrada", "No se encontró la solicitud.")
-    return RequestService.request_out(db, req)
+    from itcj2.apps.prorrogas_tec.services.students_service import StudentsService  # students_service importa request_service
+    return {**RequestService.request_out(db, req), "historial": StudentsService.historial(db, req.id)}
 
 
 @router.get("/{request_id}/documentos/{doc_id}.pdf", name="prorrogas_tec.api.solicitudes.pdf")

@@ -142,8 +142,6 @@ class StudentsService:
         plan = [(p.number, p.amount, p.due_date) for p in c.parcialidades]
         for parc, r in zip(cuenta["parcialidades"], account.cobertura(plan, vivos)):  # recibo de Caja de cada pago
             parc["recibo"], parc["pagado_el"] = (r[2], r[0].isoformat()) if r else (None, None)
-        eventos = (db.query(ProrrogaEvent).filter(ProrrogaEvent.request_id == req.id)
-                   .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).all())
         return {
             "solo_lectura": req.period_id is None,  # del Excel sin semestre de core: solo cuenta para Estadísticas
             "solicitud": RequestService.request_out(db, req),
@@ -168,9 +166,15 @@ class StudentsService:
             "recordatorio": {"ultimo": req.last_reminded_at.isoformat() if req.last_reminded_at else None,
                              "puede": _puede_recordar(req, c, db_now())},
             "correo_enviado": not last_mail_failed(db, req.id),
-            "historial": [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": _datos(e.payload)}
-                          for e in eventos],
+            "historial": StudentsService.historial(db, req.id),
         }
+
+    @staticmethod
+    def historial(db, request_id: int) -> list[dict]:
+        eventos = (db.query(ProrrogaEvent).filter(ProrrogaEvent.request_id == request_id)
+                   .order_by(ProrrogaEvent.created_at.desc(), ProrrogaEvent.id.desc()).all())
+        return [{"tipo": e.event_type, "fecha": e.created_at.isoformat(), "datos": _datos(e.payload)}
+                for e in eventos]
 
     @staticmethod
     def _bloquear(db, request_id: int) -> ProrrogaRequest:

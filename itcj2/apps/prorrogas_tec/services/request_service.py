@@ -4,13 +4,13 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, distinct, or_
 from sqlalchemy.exc import IntegrityError
 
 from itcj2.apps.prorrogas_tec.documents.catalog import DOC_TYPES
 from itcj2.apps.prorrogas_tec.documents.values import SignatureInfo
 from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
-from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+from itcj2.apps.prorrogas_tec.models.request import STATUSES, ProrrogaRequest
 from itcj2.apps.prorrogas_tec.services.document_service import DocumentService
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
@@ -194,6 +194,33 @@ class RequestService:
         except Exception:
             logger.exception("No se pudo adjuntar la carta %s de la solicitud %s", tipo, req.id)
             return None
+
+    @staticmethod
+    def search(db, *, estado: str | None = None, semestre: str | None = None, q: str | None = None,
+               page: int = 1, per_page: int = 25) -> dict:
+        """Todas las solicitudes (también históricas y sin semestre de core) para la pestaña Consulta."""
+        if estado and estado not in STATUSES:
+            raise ServiceError("estado_invalido", "Estado no válido.", 400)
+        page, per_page = max(page, 1), min(max(per_page, 1), 100)
+        qry = db.query(ProrrogaRequest)
+        if estado:
+            qry = qry.filter(ProrrogaRequest.status == estado)
+        if semestre:
+            qry = qry.filter(ProrrogaRequest.period_label == semestre)
+        if q and q.strip():
+            lit = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")  # % y _ son literales
+            like = f"%{lit}%"
+            qry = qry.filter(ProrrogaRequest.control_number.ilike(like, escape="\\")
+                             | ProrrogaRequest.student_name.ilike(like, escape="\\"))
+        rows = (qry.order_by(ProrrogaRequest.created_at.desc(), ProrrogaRequest.id.desc())
+                .offset((page - 1) * per_page).limit(per_page).all())
+        semestres = [r[0] for r in db.query(distinct(ProrrogaRequest.period_label))
+                     .filter(ProrrogaRequest.period_label.isnot(None)).order_by(ProrrogaRequest.period_label)]
+        return {
+            "items": [{"id": r.id, "folio": folio(r), "control": r.control_number, "nombre": r.student_name,
+                       "carrera": r.program_name, "semestre": r.period_label, "estado": r.status,
+                       "origen": r.origin, "creada": r.created_at.isoformat()} for r in rows],
+            "total": qry.order_by(None).count(), "page": page, "per_page": per_page, "semestres": semestres}
 
     @staticmethod
     def request_out(db, req: ProrrogaRequest) -> dict:

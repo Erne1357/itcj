@@ -5,6 +5,7 @@ Rutas (todas bajo /prorrogas/secretaria):
   GET /solicitudes    → QR, invitación manual y revisión de pendientes
   GET /documentos     → plantillas de los formatos
   GET /estudiantes    → lista de aceptadas por semestre y expediente (plan, recibos, documentos)
+  GET /consulta       → todas las solicitudes con filtros e historial
   GET /estadisticas   → gráficas, cumplimiento de pago y detalle por carrera
   GET /configuracion  → periodo de cada semestre: ventana de solicitudes y fechas comunes de pago
 
@@ -24,16 +25,16 @@ from itcj2.templates import render
 logger = logging.getLogger("itcj2.apps.prorrogas_tec.pages.secretaria")
 
 # (clave, etiqueta, permiso). Los códigos van literales: la prueba de contrato los busca en el DML.
-# `...page.consulta` se siembra con esta tarea y entra aquí cuando exista la pestaña.
 TABS = (
     ("estadisticas", "Estadísticas", "prorrogas_tec.secretaria.page.estadisticas"),
     ("solicitudes", "QR y solicitudes", "prorrogas_tec.secretaria.page.solicitudes"),
     ("estudiantes", "Estudiantes", "prorrogas_tec.secretaria.page.estudiantes"),
+    ("consulta", "Consulta", "prorrogas_tec.secretaria.page.consulta"),
     ("documentos", "Documentos", "prorrogas_tec.secretaria.page.documentos"),
     ("configuracion", "Configuración", "prorrogas_tec.secretaria.page.configuracion"),
 )
 _PERM = {key: code for key, _, code in TABS}
-_HOME_ORDER = ("solicitudes", "estudiantes", "estadisticas", "documentos", "configuracion")
+_HOME_ORDER = ("solicitudes", "estudiantes", "estadisticas", "consulta", "documentos", "configuracion")
 
 router = APIRouter(prefix="/secretaria", tags=["prorrogas_tec-pages-secretaria"])
 
@@ -73,4 +74,5 @@ secretaria_solicitudes = _tab("solicitudes", "solicitudes", "Prórrogas · QR y 
 secretaria_documentos = _tab("documentos", "documentos", "Prórrogas · Documentos")
 secretaria_estudiantes = _tab("estudiantes", "estudiantes", "Prórrogas · Estudiantes")
 secretaria_configuracion = _tab("configuracion", "configuracion", "Prórrogas · Configuración")
+secretaria_consulta = _tab("consulta", "consulta", "Prórrogas · Consulta")
 secretaria_estadisticas = _tab("estadisticas", "estadisticas", "Prórrogas · Estadísticas")

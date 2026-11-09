@@ -113,3 +113,9 @@ def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review
 
 def test_lector_si_consulta(client_as, lector, aceptada):
     assert client_as(lector).get(f"/api/prorrogas/v2/estudiantes/{aceptada.id}").status_code == 200
+
+
+def test_pestana_consulta(client_as, lector):
+    page = client_as(lector).get(f"{BASE}/consulta").text
+    for texto in ("Consulta", "consulta.js"):
+        assert texto in page
