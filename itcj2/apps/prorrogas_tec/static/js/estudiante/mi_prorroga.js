@@ -79,7 +79,47 @@
     return p;
   }
 
-  function planDePagos(c) {
+  // Subir o reemplazar el recibo de un pago cubierto; un fallo se muestra aquí y no toca el resto de la pantalla.
+  function reciboPago(s, p) {
+    const url = `${API}/solicitudes/${s.id}/parcialidades/${p.numero}`;
+    const div = el("div", null, "pay-recibo"), err = el("p", null, "error");
+    err.hidden = true;
+    const lab = el("label", null, "btn-text"), inp = el("input");
+    inp.type = "file";
+    inp.accept = "application/pdf";
+    inp.hidden = true;
+    lab.append(p.recibo_subido ? "Reemplazar" : "Subir PDF", inp);
+    if (p.recibo_subido) {
+      const a = el("a", "Ver recibo", "btn-text");
+      a.href = `${url}/recibo.pdf`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      div.append(el("span", "Recibo subido el " + fecha(p.recibo_subido.slice(0, 10)), "hint"), a);
+    } else {
+      div.append(el("span", "Falta subir recibo", "badge t-warn"));
+    }
+    div.append(lab, err);
+    inp.addEventListener("change", async function () {
+      if (!inp.files[0]) return;
+      err.hidden = true;
+      const fd = new FormData();
+      fd.append("archivo", inp.files[0]);
+      try {
+        const r = await fetch(`${url}/recibo`, { method: "POST", credentials: "include", body: fd });
+        if (r.ok) { cargar(); return; }
+        const d = await r.json().catch(() => ({}));
+        err.textContent = d.message || "No se pudo subir el recibo.";
+      } catch (e) {
+        err.textContent = "No se pudo subir el recibo.";
+      }
+      err.hidden = false;
+      inp.value = "";
+    });
+    return div;
+  }
+
+  function planDePagos(s) {
+    const c = s.cuenta;
     const izq = el("div"), der = el("p", null, "hint"), saldo = el("div", null, "saldo");
     izq.append(el("p", "Te falta pagar", "label"), el("p", dinero(c.saldo), "big"));
     der.append("Pagado " + dinero(c.pagado), el("br"), "de " + dinero(c.total));
@@ -103,6 +143,7 @@
       if (p.estado === "parcial") detalle += ` · ${dinero(p.cubierto)} cubierto`;
       const main = el("div", null, "pay-main");
       main.append(el("strong", dinero(p.monto)), el("span", detalle, "hint"));
+      if (pagada) main.append(reciboPago(s, p));
       const [txt, cls] = esSigue && p.estado === "pendiente" ? ["Sigue", "t-warn"] : PARCIALIDAD[p.estado] || [p.estado, "t-neutral"];
       li.append(n, main, el("span", txt, "badge " + cls));
       ol.append(li);
@@ -246,7 +287,7 @@
       if (s.comentario) estado.append(el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote ok"));
       if (s.cuenta.total === null) nodos.push(seccionReferencia(s));
       if (s.por_firmar) nodos.push(firmaSec = seccionFirma(s));
-      if (s.cuenta.total !== null) nodos.push(planDePagos(s.cuenta), recibos(s.recibos || []));
+      if (s.cuenta.total !== null) nodos.push(planDePagos(s), recibos(s.recibos || []));
     } else {
       estado.append(datos(s));
       if (s.estado === "rechazada" && s.comentario) {

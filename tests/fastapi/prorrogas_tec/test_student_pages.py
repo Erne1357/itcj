@@ -27,3 +27,10 @@ def test_mi_prorroga_carga_el_lienzo_compartido(client_as, estudiante):
 def test_mi_prorroga_trae_la_campana(client_as, alumno_unido):
     page = client_as(alumno_unido).get("/prorrogas/estudiante").text
     assert "app-fab-widget.js" in page and "new AppNotificationFAB('prorrogas_tec'" in page
+
+
+def test_mi_prorroga_pide_el_recibo_de_cada_pago():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[3] / "itcj2/apps/prorrogas_tec/static/js/estudiante/mi_prorroga.js").read_text(encoding="utf-8")
+    for texto in ("Falta subir recibo", "Recibo subido el ", "Ver recibo", "Reemplazar", "/recibo.pdf"):
+        assert texto in js
