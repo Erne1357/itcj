@@ -6,7 +6,7 @@ RUN sed -i 's/Components: main/Components: main contrib/' /etc/apt/sources.list.
  && apt-get update && apt-get install -y --no-install-recommends \
     build-essential ca-certificates tzdata curl \
     libreoffice-writer \
-    fonts-liberation fonts-dejavu-core \
+    fonts-liberation fonts-dejavu-core fonts-noto-core fonts-montserrat \
     ttf-mscorefonts-installer \
     unixodbc tdsodbc freetds-bin \
     libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \

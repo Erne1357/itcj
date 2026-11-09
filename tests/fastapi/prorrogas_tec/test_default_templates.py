@@ -26,3 +26,13 @@ def test_plantilla_del_sistema_no_trae_datos_de_estudiantes_reales(code):
 def test_plantilla_del_sistema_se_llena_con_los_datos_de_ejemplo(code):
     out = fill_docx(default_template_path(code).read_bytes(), *sample_values(code))
     assert find_placeholders(out) == set()
+
+
+def test_las_cartas_no_piden_una_fuente_comercial():
+    from zipfile import ZipFile
+    from itcj2.apps.prorrogas_tec.documents.catalog import DEFAULTS_DIR
+    for docx in DEFAULTS_DIR.glob("*.docx"):
+        z = ZipFile(docx)
+        for n in z.namelist():
+            if n.startswith("word/") and n.endswith(".xml") and n != "word/fontTable.xml":
+                assert b"Geomanist" not in z.read(n), (docx.name, n)
