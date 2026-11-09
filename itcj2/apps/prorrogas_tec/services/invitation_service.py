@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import re
 import secrets
 import uuid
 from datetime import datetime, timedelta
@@ -21,20 +20,16 @@ from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
 from itcj2.apps.prorrogas_tec.services.identity import institutional_email, normalize_control
 from itcj2.config import get_settings
-from itcj2.core.models.program import Program
-from itcj2.core.models.role import Role
 from itcj2.core.models.user import User
 from itcj2.core.services.authz_service import grant_role
-from itcj2.core.services.student_profile_service import StudentProfileService
 from itcj2.core.utils.email_tools import is_valid_email, normalize_email
-from itcj2.core.utils.security import hash_nip
 from itcj2.core.utils.timezone import db_now
 
 APP_KEY = "prorrogas_tec"
 QR_TTL = timedelta(minutes=5)
 INVITATION_TTL = timedelta(hours=48)
 QR_PURPOSE = "prorrogas_join"
-_NIP = re.compile(r"\d{4}")
+SIN_NIP = "Tu cuenta todavía no tiene NIP. Acude a Centro de Cómputo para que te lo den."
 
 
 def _qr_key() -> bytes:
@@ -95,37 +90,22 @@ def lookup(db, raw_control: str) -> dict:
         "existe": user is not None,
         "nombre": " ".join(p for p in (user.first_name, user.last_name, user.middle_name) if p) if user else None,
         "correo_sugerido": sugerido,
-        "requiere_datos": user is None,
         "requiere_correo": sugerido is None,
     }
 
 
-def invite(db, *, raw_control, email, actor_id, nombres=None, apellido_paterno=None,
-           apellido_materno=None, program_id=None, now=None) -> tuple[ProrrogaInvitation, str, bool]:
+def invite(db, *, raw_control, email, actor_id, now=None) -> tuple[ProrrogaInvitation, str, bool]:
     """Registra la invitación y luego manda el correo. Devuelve `(invitación, token, enviado)`."""
     now = now or db_now()
     control = _control(raw_control)
     user = _user_by_control(db, control)
-    correo = normalize_email(email) or institutional_email(control) or (normalize_email(user.email) if user else None)
+    if user is None:
+        raise ServiceError("sin_cuenta", "No hay cuenta con ese número. El alumno debe acudir a Centro de Cómputo para que lo den de alta.", status=404)
+    correo = normalize_email(email) or institutional_email(control) or normalize_email(user.email)
     if not correo:
         raise ServiceError("correo_requerido", "Captura el correo de la persona.", status=400)
     if not is_valid_email(correo):
         raise ServiceError("correo_invalido", "El correo no es válido.", status=400)
-
-    created = user is None
-    if created:
-        nombres, ap_pat = (nombres or "").strip(), (apellido_paterno or "").strip()
-        if not (nombres and ap_pat and program_id):
-            raise ServiceError("datos_requeridos", "Faltan nombres, apellido paterno o carrera.", status=400)
-        if db.get(Program, program_id) is None:
-            raise ServiceError("carrera_invalida", "La carrera no existe.", status=400)
-        role = db.query(Role).filter(Role.name == "student").first()
-        user = User(first_name=nombres.upper(), last_name=ap_pat.upper(),
-                    middle_name=(apellido_materno or "").strip().upper() or None,
-                    control_number=control, email=correo, role_id=role.id if role else None, is_active=True)
-        db.add(user)
-        db.flush()
-        StudentProfileService.set_fields(db, user.id, program_id=program_id)
 
     # Una invitación nueva revoca las anteriores sin usar (p. ej. las enviadas a un correo mal escrito).
     for previa in db.query(ProrrogaInvitation).filter(
@@ -135,7 +115,7 @@ def invite(db, *, raw_control, email, actor_id, nombres=None, apellido_paterno=N
     token = secrets.token_urlsafe(32)
     invitacion = ProrrogaInvitation(
         control_number=control, email=correo, user_id=user.id, token_sha256=_sha(token),
-        expires_at=now + INVITATION_TTL, created_by_id=actor_id, user_created=created, created_at=now)
+        expires_at=now + INVITATION_TTL, created_by_id=actor_id, created_at=now)
     db.add(invitacion)
     db.flush()
     log_event(db, event_type="invitacion_enviada", actor_id=actor_id,
@@ -198,35 +178,6 @@ def consume_invitation(db, raw_token: str, *, user_id: int, now: datetime | None
     invitacion.used_at = now
     return join(db, user_id, via="invitacion", issued_by_id=invitacion.created_by_id,
                 invitation_id=invitacion.id, now=now)
-
-
-SIN_INVITACION_DE_ALTA = ("Esta cuenta ya existe. Entra con tu número de control y tu NIP; "
-                          "si no lo recuerdas, pide ayuda en la Subdirección Académica.")
-
-
-def can_set_initial_nip(db, user: User) -> bool:
-    """Spec 8.2: "Crea tu NIP" solo para cuentas sin NIP que nacieron de una invitación manual.
-
-    Basta con cualquier invitación que la haya creado, no solo la actual: así una
-    reinvitación (p. ej. tras un correo mal escrito) sigue sirviendo.
-    """
-    return not user.password_hash and db.query(ProrrogaInvitation.id).filter(
-        ProrrogaInvitation.user_id == user.id, ProrrogaInvitation.user_created.is_(True)).first() is not None
-
-
-def set_initial_nip(db, raw_token: str, nip: str, nip2: str) -> None:
-    invitacion = _usable(db, raw_token, db_now())
-    user = invitacion.user
-    if user.password_hash:
-        raise ServiceError("cuenta_con_nip", "La cuenta ya tiene NIP.", status=409)
-    if not can_set_initial_nip(db, user):  # cuenta previa sin NIP: crearlo aquí sería tomar una cuenta ajena
-        raise ServiceError("cuenta_sin_invitacion_de_alta", SIN_INVITACION_DE_ALTA, status=403)
-    if not _NIP.fullmatch(nip or ""):
-        raise ServiceError("nip_invalido", "El NIP debe tener 4 dígitos.", status=400)
-    if nip != nip2:
-        raise ServiceError("nip_no_coincide", "Los NIP no coinciden.", status=400)
-    user.password_hash = hash_nip(nip)
-    db.commit()
 
 
 # --- Resumen --------------------------------------------------------------

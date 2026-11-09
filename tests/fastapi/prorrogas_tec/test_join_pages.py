@@ -39,28 +39,6 @@ def test_qr_vencido_muestra_mensaje_y_no_une(client_as, secretaria, make_user, d
     assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0
 
 
-def test_invitacion_de_cuenta_nueva_pide_crear_nip_y_luego_login(client, secretaria, make_program, enviar_correo, db_session):
-    prog = make_program("Doctorado de Prueba", "doctorado")
-    invitacion, token, _ = inv.invite(db_session, raw_control="D99300003", email="n@example.invalid",
-                                   actor_id=secretaria.id, nombres="Eva", apellido_paterno="Ruiz", program_id=prog.id)
-    url = f"/prorrogas/unirse/invitacion/{token}"
-    r = client.get(url)
-    assert "Crea tu NIP" in r.text and r.headers["referrer-policy"] == "no-referrer"
-    assert "D99300003" not in r.text
-    r = client.post(url, data={"nip": "4321", "nip2": "4321"}, follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"].startswith("/itcj/login?next=")
-    db_session.refresh(invitacion.user)
-    assert invitacion.user.password_hash
-
-
-def test_nip_distinto_vuelve_a_mostrar_el_formulario(client, secretaria, make_program, enviar_correo, db_session):
-    prog = make_program("Doctorado de Prueba", "doctorado")
-    _, token, _ = inv.invite(db_session, raw_control="D99300006", email="m@example.invalid",
-                          actor_id=secretaria.id, nombres="Eva", apellido_paterno="Ruiz", program_id=prog.id)
-    r = client.post(f"/prorrogas/unirse/invitacion/{token}", data={"nip": "4321", "nip2": "1234"})
-    assert r.status_code == 400 and "Crea tu NIP" in r.text and "no coinciden" in r.text
-
-
 def test_invitacion_abierta_con_otra_cuenta(client_as, secretaria, make_user, enviar_correo, db_session):  # RF 5
     make_user(control_number="99300004")
     otro = make_user(control_number="99300005")
@@ -100,26 +78,20 @@ def test_cuenta_sin_numero_de_control_no_se_une_por_qr(client_as, secretaria, ma
     assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0
 
 
-def test_cuenta_existente_sin_nip_no_ve_crea_nip(client, secretaria, make_user, enviar_correo, db_session):
-    u = make_user(control_number="99300009")  # cuenta previa sin NIP: no nació de una invitación
+def test_invitacion_con_sesion_pregunta_y_al_aceptar_une(client_as, secretaria, make_user, enviar_correo, db_session):
+    u = make_user(control_number="99300011")
+    _, token, _ = inv.invite(db_session, raw_control="99300011", email=None, actor_id=secretaria.id)
+    c, url = client_as(u), f"/prorrogas/unirse/invitacion/{token}"
+    r = c.get(url, follow_redirects=False)
+    assert r.status_code == 200 and "Aceptar y continuar" in r.text and "99300011" in r.text
+    assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id).count() == 0  # ver la pregunta no une
+    r = c.post(url, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/prorrogas/estudiante/solicitud"
+    assert db_session.query(ProrrogaJoin).filter_by(user_id=u.id, via="invitacion").count() == 1
+
+
+def test_cuenta_sin_nip_va_a_centro_de_computo(client, secretaria, make_user, enviar_correo, db_session):
+    make_user(control_number="99300009")
     _, token, _ = inv.invite(db_session, raw_control="99300009", email=None, actor_id=secretaria.id)
-    url = f"/prorrogas/unirse/invitacion/{token}"
-    r = client.get(url, follow_redirects=False)
-    assert r.status_code == 403 and "Crea tu NIP" not in r.text and "Esta cuenta ya existe" in r.text
-    r = client.post(url, data={"nip": "1234", "nip2": "1234"}, follow_redirects=False)
-    assert r.status_code == 403 and "Esta cuenta ya existe" in r.text
-    db_session.refresh(u)
-    assert u.password_hash is None
-
-
-def test_cuenta_creada_y_reinvitada_si_crea_nip(client, secretaria, make_program, enviar_correo, db_session):
-    prog = make_program("Doctorado de Prueba", "doctorado")
-    previa, _, _ = inv.invite(db_session, raw_control="D99300010", email="mal@example.invalid",
-                           actor_id=secretaria.id, nombres="Eva", apellido_paterno="Ruiz", program_id=prog.id)
-    _, token, _ = inv.invite(db_session, raw_control="D99300010", email="bien@example.invalid", actor_id=secretaria.id)
-    url = f"/prorrogas/unirse/invitacion/{token}"
-    assert "Crea tu NIP" in client.get(url).text
-    r = client.post(url, data={"nip": "4321", "nip2": "4321"}, follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"].startswith("/itcj/login?next=")
-    db_session.refresh(previa.user)
-    assert previa.user.password_hash
+    r = client.get(f"/prorrogas/unirse/invitacion/{token}", follow_redirects=False)
+    assert r.status_code == 403 and "Centro de Cómputo" in r.text

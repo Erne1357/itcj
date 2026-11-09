@@ -13,7 +13,7 @@
 ## Ruta en la app (UI)
 
 QR: `/prorrogas/unirse?t=…` (sin sesión, primero `/itcj/login?next=`) → pantalla **Unirse a Prórrogas** (Aceptar) → `/prorrogas/estudiante/solicitud` (formulario) → `/prorrogas/estudiante` (**Mi prórroga**).
-Invitación: `/prorrogas/unirse/invitacion/{token}` (solo una cuenta que nació de una invitación crea aquí su NIP de 4 dígitos) → mismo formulario.
+Invitación: `/prorrogas/unirse/invitacion/{token}` (no crea cuentas: sin sesión va al login; sin NIP, a Centro de Cómputo) → pantalla Aceptar.
 
 ## Pasos
 
@@ -21,7 +21,7 @@ Invitación: `/prorrogas/unirse/invitacion/{token}` (solo una cuenta que nació 
 |---|---|---|---|---|---|---|
 | 1 | Estudiante | Escanea el QR | Sin sesión va directo a `/itcj/login?next=` y regresa; con sesión ve su nombre y número de control y le pregunta si acepta entrar (un QR vencido o una cuenta sin número de control ven el error sin el botón) | `GET /prorrogas/unirse?t=` | `invitation_service.read_qr`, `.joinable_student` | — |
 | 1a | Estudiante | Unirse a Prórrogas | **Aceptar y continuar**: se une y pasa a la solicitud (el QR se vuelve a validar) | `POST /prorrogas/unirse` (`t` en el formulario) | `read_qr`, `join` | Fila en `prorrogas_joins` (`via=qr`) |
-| 1b | Estudiante | Enlace del correo | Alternativa: invitación manual; solo la cuenta invitada puede usarla | `GET/POST /prorrogas/unirse/invitacion/{token}` | `validate_invitation`, `set_initial_nip`, `consume_invitation` | NIP inicial si la cuenta es nueva; invitación marcada usada; unión (`via=invitacion`) |
+| 1b | Estudiante | Enlace del correo | Alternativa: invitación manual; solo la cuenta invitada puede usarla | `GET/POST /prorrogas/unirse/invitacion/{token}` | `validate_invitation`, `consume_invitation` | Login con credenciales institucionales; pantalla Aceptar (GET pregunta, POST une); invitación marcada usada; unión (`via=invitacion`) |
 | 2 | Estudiante | Solicitud | Ve si puede solicitar, su semestre y su carrera | `GET /api/prorrogas/v2/estudiante/estado` | `RequestService.access`, `.mine` | — |
 | 3 | Estudiante | **Enviar solicitud** | Pagos (1 o 2; antes 1–3), motivo (20–1000), carrera y firma | `POST …/estudiante/solicitudes` | `parse_signature`, `RequestService.create`, `DocumentService.generate` | `prorrogas_requests` (`pendiente`), `formato_solicitud` firmado con IP y agente, evento `solicitud_creada` |
 | 4 | Estudiante | Mi prórroga | Ve estado, comentario y documentos; descarga los PDF | `GET …/estudiante/solicitudes/{id}/documentos/{doc}.pdf` | — | — |
@@ -53,8 +53,6 @@ La UI muestra `message`. En las páginas de unirse el QR inválido o vencido mue
 | `qr_invalido` / `qr_expirado` | QR alterado / de más de 5 min | 400 / 410 |
 | `invitacion_invalida` / `invitacion_usada` / `invitacion_expirada` | Enlace desconocido / ya usado / de más de 48 h | 404 / 409 / 410 |
 | `invitacion_de_otra_cuenta` | Se abre con otra cuenta; la invitación no se consume | 403 |
-| `cuenta_con_nip` / `nip_invalido` / `nip_no_coincide` | Crear NIP: la cuenta ya tiene / no son 4 dígitos / no coinciden | 409 / 400 / 400 |
-| `cuenta_sin_invitacion_de_alta` | Crear NIP en una cuenta sin NIP que no nació de una invitación (la página le pide entrar con su NIP o pedir ayuda) | 403 |
 | `cuenta_sin_numero_de_control` | Una cuenta de personal escanea el QR o intenta solicitar | 403 |
 | `sin_acceso` | Sin unión dentro del periodo | 403 |
 | `no_hay_semestre` | Ningún periodo de Prórrogas admite solicitudes hoy (sin configurar, por abrir o cerrado) | 409 |

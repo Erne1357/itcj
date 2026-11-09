@@ -56,7 +56,7 @@
     $("paneMan").hidden = qr;
   }
   $("modeQr").addEventListener("click", () => setMode(true));
-  $("modeMan").addEventListener("click", () => { setMode(false); loadPrograms(); });
+  $("modeMan").addEventListener("click", () => setMode(false));
 
   // Ocultar el panel deja un riel que lo vuelve a abrir; el foco pasa al botón visible.
   function setSide(open) {
@@ -133,19 +133,6 @@
   }
 
   // ── Invitación manual ───────────────────────────────────────────────
-  let programsLoaded = false;
-  async function loadPrograms() {
-    if (programsLoaded) return;
-    const r = await api("/programs?limit=500");
-    if (!r.ok) return;
-    programsLoaded = true;
-    (r.data.items || []).forEach((p) => {
-      const o = el("option", null, p.name);
-      o.value = p.id;
-      $("invCarrera").append(o);
-    });
-  }
-
   let lookedUp = null;
   async function lookup() {
     const control = $("invControl").value.trim();
@@ -159,9 +146,9 @@
     lookedUp = r.data;
     $("invControl").value = r.data.control_number;
     $("invExtra").hidden = false;
-    $("invDatos").hidden = !r.data.requiere_datos;
     $("invCorreo").value = r.data.correo_sugerido || "";
-    show($("invFound"), r.data.existe ? `Cuenta existente: ${r.data.nombre}` : "No hay cuenta con ese número: captura sus datos.");
+    show($("invFound"), r.data.existe ? `Cuenta existente: ${r.data.nombre}` : "No hay cuenta con ese número: debe acudir a Centro de Cómputo.");
+    $("invSend").disabled = !r.data.existe;
   }
   $("invControl").addEventListener("change", lookup);
 
@@ -171,12 +158,6 @@
     if (!lookedUp || lookedUp.control_number !== $("invControl").value.trim().toUpperCase()) await lookup();
     if (!lookedUp) return;
     const body = { control_number: lookedUp.control_number, correo: $("invCorreo").value.trim() || null };
-    if (lookedUp.requiere_datos) {
-      body.nombres = $("invNombres").value;
-      body.apellido_paterno = $("invPaterno").value;
-      body.apellido_materno = $("invMaterno").value || null;
-      body.program_id = parseInt($("invCarrera").value, 10) || null;
-    }
     $("invSend").disabled = true;
     const r = await api("/invitaciones", { body });
     $("invSend").disabled = false;

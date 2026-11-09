@@ -21,10 +21,6 @@ _CREATE = ["prorrogas_tec.invitations.api.create"]
 class InvitationIn(BaseModel):
     control_number: str
     correo: Optional[str] = None
-    nombres: Optional[str] = None
-    apellido_paterno: Optional[str] = None
-    apellido_materno: Optional[str] = None
-    program_id: Optional[int] = None
 
 
 @router.post("/qr", name="prorrogas_tec.api.invitaciones.qr")
@@ -44,9 +40,7 @@ def lookup(db: DbSession, control: str = Query(...), user: dict = require_perms(
 def create(body: InvitationIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _CREATE)):
     try:
         inv, _token, enviado = svc.invite(
-            db, raw_control=body.control_number, email=body.correo, actor_id=int(user["sub"]),
-            nombres=body.nombres, apellido_paterno=body.apellido_paterno,
-            apellido_materno=body.apellido_materno, program_id=body.program_id)
+            db, raw_control=body.control_number, email=body.correo, actor_id=int(user["sub"]))
     except ServiceError as e:
         db.rollback()
         return _err(e)

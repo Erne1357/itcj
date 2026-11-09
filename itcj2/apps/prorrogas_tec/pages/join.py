@@ -1,4 +1,4 @@
-"""Unirse al módulo de Prórrogas: QR, enlace de invitación y "Crea tu NIP".
+"""Unirse al módulo de Prórrogas: QR y enlace de invitación (ambos pasan por Aceptar).
 
 Rutas públicas (sin ``require_page_app``: quien se une todavía no tiene el rol).
 El token viaja en la URL, así que toda respuesta lleva ``Referrer-Policy: no-referrer``
@@ -79,10 +79,6 @@ def unirse_aceptar(request: Request, db: DbSession, t: str = Form("")):
     return _redirect(SOLICITUD)
 
 
-def _nip_form(request, token, status=200, error=None):
-    return _page(request, "crea_nip.html", {"title": "Prórrogas · Crea tu NIP", "token": token, "error": error}, status)
-
-
 @router.get("/invitacion/{token}", name="prorrogas_tec.pages.unirse.invitacion")
 def unirse_invitacion(request: Request, db: DbSession, token: str):
     try:
@@ -90,29 +86,24 @@ def unirse_invitacion(request: Request, db: DbSession, token: str):
     except ServiceError as e:
         return _error(request, e.message, e.status)
     uid = _user_id(request)
-    if uid is None and not invitacion.user.password_hash:
-        # Cuenta nueva sin sesión: aún no puede iniciarla, así que crea su NIP primero.
-        # Una cuenta previa sin NIP no: crearlo aquí sería tomarla (spec 8.2).
-        if inv.can_set_initial_nip(db, invitacion.user):
-            return _nip_form(request, token)
-        return _error(request, inv.SIN_INVITACION_DE_ALTA, 403)
     if uid is None:
+        if not invitacion.user.password_hash:
+            return _error(request, inv.SIN_NIP, 403)
+        return _login(f"/prorrogas/unirse/invitacion/{token}")
+    if uid != invitacion.user_id:
+        return _error(request, "Esta invitación es de otra cuenta.", 403)
+    user = invitacion.user
+    return _page(request, "unirse_aceptar.html", {"title": "Prórrogas · Unirse", "token": token,
+                                                   "nombre": user.full_name, "control": user.control_number})
+
+
+@router.post("/invitacion/{token}", name="prorrogas_tec.pages.unirse.invitacion_aceptar")
+def unirse_invitacion_aceptar(request: Request, db: DbSession, token: str):
+    uid = _user_id(request)
+    if uid is None:  # la sesión venció entre ver la pregunta y aceptar
         return _login(f"/prorrogas/unirse/invitacion/{token}")
     try:
         inv.consume_invitation(db, token, user_id=uid)
     except ServiceError as e:
         return _error(request, e.message, e.status)
     return _redirect(SOLICITUD)
-
-
-@router.post("/invitacion/{token}", name="prorrogas_tec.pages.unirse.crear_nip")
-def unirse_crear_nip(request: Request, db: DbSession, token: str,
-                     nip: str = Form(""), nip2: str = Form("")):
-    try:
-        inv.set_initial_nip(db, token, nip, nip2)
-    except ServiceError as e:
-        if e.status == 400:
-            return _nip_form(request, token, 400, e.message)
-        if e.code != "cuenta_con_nip":  # inválida, usada o vencida
-            return _error(request, e.message, e.status)
-    return _login(f"/prorrogas/unirse/invitacion/{token}")

@@ -222,7 +222,7 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .sol-man-title { margin: 0; font: 500 19px var(--font-title); }
 .sol-man-hint { margin: 0; font-size: 14px; line-height: 1.5; color: rgba(26, 19, 14, .7); }
 .sol-man input, .sol-man select { width: 100%; height: 42px; padding: 0 12px; border: 1px solid rgba(26, 19, 14, .2); border-radius: 8px; font-size: 15px; background: var(--paper); color: var(--ink); }
-.sol-man #invExtra, .sol-man #invDatos { display: flex; flex-direction: column; gap: 10px; }
+.sol-man #invExtra { display: flex; flex-direction: column; gap: 10px; }
 .sol-man [hidden] { display: none !important; }
 .sol-man-found { font-size: 13px; font-weight: 600; }
 .sol-btn-dark { height: 44px; border-radius: 8px; border: none; background: var(--ink); color: var(--paper); font-size: 15px; font-weight: 700; cursor: pointer; }
