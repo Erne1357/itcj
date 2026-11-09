@@ -264,7 +264,8 @@
     const n = el("div", "caj-notice " + (kind === "ok" ? "is-ok" : "is-anul"));
     n.setAttribute("role", "status");
     const ic = el("span", "caj-notice-ic");
-    ic.append(icon("tplOk"));
+    if (kind === "err") ic.append(el("b", null, "!"));   // un fallo no lleva la palomita de éxito
+    else ic.append(icon("tplOk"));
     const x = el("button", "caj-notice-x");
     x.type = "button";
     x.setAttribute("aria-label", "Cerrar aviso");
@@ -416,6 +417,14 @@
     return e;
   }
 
+  // Al teclear se retira el error del campo (estado, texto y aria-invalid) sin repintar.
+  function limpiar(obj, key, wrap, input, errNode) {
+    obj[key] = "";
+    errNode.hidden = true;
+    wrap.classList.remove("has-err");
+    input.setAttribute("aria-invalid", "false");
+  }
+
   function saldarForm(x, p, label) {
     const f = ui.form;
     const box = el("div", "caj-form");
@@ -432,9 +441,9 @@
     const inp = el("input");
     inp.value = f.folio; inp.placeholder = "Ej. C-10302"; inp.maxLength = 40; inp.autocomplete = "off";
     inp.setAttribute("aria-invalid", String(!!f.fErr));
-    inp.addEventListener("input", () => { f.folio = inp.value; f.fErr = ""; });
     lf.append(inp);
-    fieldErr(lf, f.fErr);
+    const ferr = fieldErr(lf, f.fErr);
+    inp.addEventListener("input", () => { f.folio = inp.value; limpiar(f, "fErr", lf, inp, ferr); });
 
     const ld = el("label", "caj-field-f cfg-field" + (f.dErr ? " has-err" : ""), "Fecha de pago");
     const box2 = el("span", "cfg-date");
@@ -473,7 +482,7 @@
     if (f.fErr || f.dErr) { paint(); focoError(".caj-form"); return; }
     const seq = openSeq;
     const r = await api(`${CAJA}/${x.id}/saldar`, { body: { numero: p.numero, folio, fecha: f.fecha } });
-    if (seq !== openSeq) return;
+    if (seq !== openSeq) { loadList(); return; }   // el modal se cerró: el pago pudo guardarse
     if (r.ok) {
       const rec = (r.data.pagos.find((q) => q.numero === p.numero) || {}).recibo || {};
       Object.assign(ui, { form: null, just: p.numero, x: r.data,
@@ -508,9 +517,9 @@
     const ta = el("textarea");
     ta.rows = 2; ta.placeholder = "Ej. Se capturó mal el folio"; ta.value = a.motivo; ta.maxLength = 500;
     ta.setAttribute("aria-invalid", String(!!a.err));
-    ta.addEventListener("input", () => { a.motivo = ta.value; a.err = ""; });
     lab.append(ta);
-    fieldErr(lab, a.err);
+    const aerr = fieldErr(lab, a.err);
+    ta.addEventListener("input", () => { a.motivo = ta.value; limpiar(a, "err", lab, ta, aerr); });
     const acts = el("div", "caj-confirm");
     const cancel = el("button", "sec-btn sec-btn-ghost", "Cancelar");
     cancel.type = "button";
@@ -526,10 +535,11 @@
     if (!motivo) { a.err = "Escribe el motivo de la anulación."; paint(); focoError(".caj-anul"); return; }
     const seq = openSeq;
     const r = await api(`${CAJA}/${x.id}/recibos/${p.recibo.id}/anular`, { body: { motivo } });
-    if (seq !== openSeq) return;
+    if (seq !== openSeq) { loadList(); return; }   // el modal se cerró: la anulación pudo guardarse
     if (r.ok) {
+      const nuevo = (r.data.pagos.find((q) => q.numero === p.numero) || {}).estado;   // p era "pagada": el estado nuevo viene en la respuesta
       Object.assign(ui, { anul: null, just: null, x: r.data,
-        notice: { kind: "anul", text: `Recibo ${p.recibo.folio || "Histórico"} anulado. ${label} vuelve a estar ${p.estado === "vencida" ? "vencido" : "pendiente"}.` } });
+        notice: { kind: "anul", text: `Recibo ${p.recibo.folio || "Histórico"} anulado. ${label} vuelve a estar ${nuevo === "vencida" ? "vencido" : "pendiente"}.` } });
       paint();
       loadList();
       return;
@@ -540,7 +550,7 @@
 
   // Cualquier otro rechazo: Caja ve el estado real y el motivo en el aviso.
   async function recargar(msg) {
-    Object.assign(ui, { form: null, anul: null, just: null, notice: { kind: "anul", text: msg } });
+    Object.assign(ui, { form: null, anul: null, just: null, notice: { kind: "err", text: msg } });
     const seq = openSeq;
     if (await cargar(ui.x.id, seq)) loadList();
   }
