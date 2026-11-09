@@ -75,3 +75,12 @@ def test_api_permiso_y_csv(client_as, secretaria, estudiante, make_historica):
     csv = c.get("/api/prorrogas/v2/estadisticas/detalle.csv", params={"semestre": "enero – junio 2089"})
     assert csv.status_code == 200 and csv.content.startswith(b"\xef\xbb\xbfCarrera,")
     assert client_as(estudiante).get("/api/prorrogas/v2/estadisticas").status_code == 403
+
+
+def test_cerrada_sin_plan_sigue_contando_como_aceptada(db_session, make_aceptada):
+    hoy = date(2096, 11, 1)
+    base = StatsService.resumen(db_session, SEM_APP, hoy)["aceptacion"]["aceptadas"]
+    make_aceptada()
+    make_aceptada().status = "cerrada_sin_plan"
+    db_session.flush()
+    assert StatsService.resumen(db_session, SEM_APP, hoy)["aceptacion"]["aceptadas"] == base + 2

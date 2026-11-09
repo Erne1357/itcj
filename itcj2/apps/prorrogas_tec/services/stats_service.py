@@ -14,6 +14,7 @@ from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
 from itcj2.core.models.academic_period import AcademicPeriod
 from itcj2.core.utils.timezone import db_now
 
+ACEPTADAS = ("aceptada", "cerrada_sin_plan")  # cerrarla después no cambia que fue aceptada
 SIN_CARRERA = "Sin carrera"
 ENCABEZADO = ["Carrera", "Solicitudes", "Aceptación (%)", "Monto prorrogado", "Vencidas", "Pagó a tiempo",
               "Pagó tarde", "Sin pago"]
@@ -104,13 +105,14 @@ class StatsService:
                 pendientes.append(r.created_at.date())
             if r.decided_at is not None:
                 respuestas.append((r.decided_at - r.created_at).total_seconds() / 86400)
-            if r.status in ("aceptada", "rechazada"):
-                c[r.status + "s"] += 1
+            estado = "aceptada" if r.status in ACEPTADAS else r.status
+            if estado in ("aceptada", "rechazada"):
+                c[estado + "s"] += 1
                 d = r.created_at.date()
-                i = 0 if r.status == "aceptada" else 1
+                i = 0 if estado == "aceptada" else 1
                 semanal[d - timedelta(days=d.weekday())][i] += 1
                 mensual[d.strftime("%Y-%m")][i] += 1
-            if r.status == "aceptada":
+            if estado == "aceptada":
                 plazos.append(r.requested_terms if r.requested_terms is not None else len(vigentes[r.id]))
             plan = sorted(vigentes[r.id], key=lambda i: i[0])
             sin_pago_req = False
