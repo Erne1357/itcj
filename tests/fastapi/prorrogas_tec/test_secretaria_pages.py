@@ -55,7 +55,7 @@ def test_aterrizaje_lleva_a_la_secretaria_a_su_vista(client_as, secretaria):
 
 
 def test_aterrizaje_lleva_al_admin_a_la_vista_nueva_no_a_la_del_fork(client_as, make_user, make_role, grant):
-    # El admin de la app tiene los mismos permisos que la secretaria (04_insert_secretaria.sql);
+    # Se le dan los permisos de secretaria a mano: la prueba no depende de lo que tenga el admin real en la base.
     # /prorrogas/admin/* es la vista vieja del fork que el Plan 2 elimina (spec §12).
     from tests.fastapi.prorrogas_tec.conftest import SECRETARIA_PERMS
 
@@ -98,3 +98,18 @@ def test_raiz_sin_sesion_va_al_login(client):
 def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
     page = client_as(lector).get(f"{BASE}/estudiantes").text
     assert "prorrogas_tec.requests.api.read.all" in page and "prorrogas_tec.payments.api.record" not in page
+
+
+@pytest.mark.parametrize("ruta, cuerpo", [
+    ("/api/prorrogas/v2/estudiantes/{id}/plan", {"total": "1000", "parcialidades": []}),
+    ("/api/prorrogas/v2/estudiantes/{id}/recibos", {"folio": "X", "fecha": "2091-01-20", "monto": "1"}),
+    ("/api/prorrogas/v2/estudiantes/{id}/recordar", {}),
+    ("/api/prorrogas/v2/solicitudes/{id}/decision", {"aceptar": False, "comentario": "x"}),
+    ("/api/prorrogas/v2/invitaciones/qr", None),
+])
+def test_lector_no_escribe(client_as, lector, aceptada, ruta, cuerpo):  # Review Focus 5
+    assert client_as(lector).post(ruta.format(id=aceptada.id), json=cuerpo).status_code == 403
+
+
+def test_lector_si_consulta(client_as, lector, aceptada):
+    assert client_as(lector).get(f"/api/prorrogas/v2/estudiantes/{aceptada.id}").status_code == 200

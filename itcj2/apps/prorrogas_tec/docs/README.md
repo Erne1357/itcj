@@ -118,6 +118,16 @@ hereda la invalidación del caché de authz de `execute_sql_file`.
 
 ---
 
+## Qué ve cada rol
+
+| Rol | Pestañas | Puede |
+|---|---|---|
+| `secretaria` | Estadísticas, QR y solicitudes, Estudiantes, Documentos, Configuración, Consulta | Todo: decidir solicitudes, planes, recibos, recordatorios, invitaciones, plantillas y ajustes |
+| `admin` (de la app) | Estadísticas, QR y solicitudes, Estudiantes, Consulta | Solo lectura. No ve Documentos ni Configuración y no exporta la lista con bloqueo. La semilla `08_insert_plan5.sql` lo deja así en cada `init-prorrogas` |
+| admin global | Todas | Escritura, para emergencias |
+
+---
+
 ## Renderizado de páginas
 
 A diferencia de titulatec y directory —que tienen su propia instancia de

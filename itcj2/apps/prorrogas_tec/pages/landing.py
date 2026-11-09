@@ -21,7 +21,7 @@ router = APIRouter(tags=["prorrogas_tec-pages-landing"])
 # admin a la vez el destino dependía del orden en que los devolvía la BD.)
 _ROLE_HOME: tuple[tuple[str, str], ...] = (
     ("secretaria", "/prorrogas/secretaria"),
-    # El admin de la app tiene los permisos de la secretaria (04_insert_secretaria.sql).
+    # El admin de la app es de solo lectura (08_insert_plan5.sql): ve las mismas pantallas de consulta.
     ("admin",      "/prorrogas/secretaria"),
     ("student",    "/prorrogas/estudiante"),
 )
