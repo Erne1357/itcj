@@ -16,6 +16,7 @@ _DML_FILES = [
     "06_insert_plan3.sql",
     "07_insert_plan4.sql",
     "08_insert_plan5.sql",
+    "09_insert_caja.sql",
 ]
 
 
@@ -32,6 +33,8 @@ def init_prorrogas_command():
       05_insert_plan2.sql           — permisos de invitaciones, solicitudes y decisión (secretaria, admin, student)
       06_insert_plan3.sql           — permisos de plan de pago, recibos, recordatorios y exportación (secretaria, admin) y firma propia (student)
       07_insert_plan4.sql           — permiso de estadísticas (secretaria, admin)
+      08_insert_plan5.sql           — permisos del Plan 5 (consulta y demás) y deja al admin de la app en solo lectura
+      09_insert_caja.sql            — rol caja y sus permisos; la secretaria deja de cobrar (va al final: 06 se los devuelve en cada corrida)
 
     Corre SOLO `database/DML/prorrogas_tec/`: no re-ejecuta ningún DML ya
     aplicado de otras apps. Todo el SQL usa ON CONFLICT, así que repetirlo es
