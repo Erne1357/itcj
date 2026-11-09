@@ -8,6 +8,8 @@
   if (!root) return;
   const API = root.dataset.api;
   const $ = (id) => document.getElementById(id);
+  const perms = (document.body.dataset.perms || "").split(" ");
+  const can = (p) => perms.includes("*") || perms.includes(p);
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const KEYS = ["abre", "cierra", "pago1", "pago2"];
   const CHIP = { sin: "Sin configurar", por: "Por abrir", abi: "Abierto", cer: "Cerrado" };
@@ -46,7 +48,9 @@
     if (body) Object.assign(o, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     try {
       const r = await fetch(API + path, o);
-      return { ok: r.ok, data: await r.json().catch(() => ({})) };
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 403 && !data.message) data.message = "No tienes permiso para esta acción.";
+      return { ok: r.ok, data };
     } catch (e) {
       return { ok: false, data: { message: "Sin conexión con el servidor." } };
     }
@@ -216,5 +220,9 @@
     toast("Periodo guardado");
   });
 
+  if (!can("prorrogas_tec.plans.api.manage")) {   // solo lectura: sin Guardar ni campos editables
+    root.querySelector(".cfg-actions").hidden = true;
+    root.querySelectorAll(".cfg-field input").forEach((inp) => { inp.disabled = true; });
+  }
   cargar();
 })();

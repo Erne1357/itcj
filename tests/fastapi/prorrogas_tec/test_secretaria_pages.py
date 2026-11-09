@@ -93,3 +93,8 @@ def test_admin_global_entra_sin_rol_en_la_app(client_as, make_user):
 def test_raiz_sin_sesion_va_al_login(client):
     r = client.get(BASE, follow_redirects=False)
     assert r.status_code == 302 and r.headers["location"] == "/itcj/login"
+
+
+def test_la_pagina_publica_los_permisos_del_usuario(client_as, lector):
+    page = client_as(lector).get(f"{BASE}/estudiantes").text
+    assert "prorrogas_tec.requests.api.read.all" in page and "prorrogas_tec.payments.api.record" not in page

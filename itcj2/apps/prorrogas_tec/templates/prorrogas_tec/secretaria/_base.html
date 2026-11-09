@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='prorrogas_tec/css/secretaria/base.css') }}?v={{ sv('prorrogas_tec', 'css/secretaria/base.css') }}">
   {% block head %}{% endblock %}
 </head>
-<body class="sec">
+<body class="sec" data-perms="{{ perms|sort|join(' ') }}">
   {# Barra superior: componente TopNav del diseño (docs/design/prorrogas). #}
   <header class="sec-topnav">
     <a class="sec-brand" href="/prorrogas/secretaria">

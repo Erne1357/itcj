@@ -8,6 +8,9 @@
   if (!root) return;
   const API = root.dataset.api;
   const $ = (id) => document.getElementById(id);
+  const perms = (document.body.dataset.perms || "").split(" ");
+  const can = (p) => perms.includes("*") || perms.includes(p);
+  const conQr = can("prorrogas_tec.invitations.api.create");
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
   function el(tag, cls, text) {
@@ -23,6 +26,7 @@
     let r;
     try { r = await fetch(API + path, o); } catch (e) { return { ok: false, status: 0, data: { message: "Sin conexión con el servidor." } }; }
     const data = await r.json().catch(() => ({}));
+    if (r.status === 403 && !data.message) data.message = "No tienes permiso para esta acción.";
     return { ok: r.ok, status: r.status, data };
   }
 
@@ -304,7 +308,7 @@
   // ── Refresco y pestaña oculta ───────────────────────────────────────
   let listTimer = null;
   function refresh() {
-    loadToday();
+    if (conQr) loadToday();
     if (!dlg.open) loadPending();   // con el modal abierto no se toca la tabla; entra en el siguiente ciclo
   }
   function armRefresh() { clearInterval(listTimer); listTimer = setInterval(refresh, 20000); }
@@ -312,13 +316,13 @@
   // Oculta: se detienen el contador y el refresco. Al volver: se regenera el QR si venció y se refresca la lista.
   document.addEventListener("visibilitychange", function () {
     if (document.hidden) { clearInterval(qrTimer); clearInterval(listTimer); return; }
-    if (qrExpires) { tick(); armQr(); }   // si venció, tick() regenera; el intervalo reintenta si el freno lo detuvo
+    if (conQr && qrExpires) { tick(); armQr(); }   // si venció, tick() regenera; el intervalo reintenta si el freno lo detuvo
     refresh();
     armRefresh();
   });
 
-  regenQr();
-  loadToday();
+  if (conQr) { regenQr(); loadToday(); } else $("solSide").hidden = true;
+  if (!can("prorrogas_tec.requests.api.decide")) $("revAccept").hidden = $("revReject").hidden = true;
   loadPending();
   armRefresh();
 })();

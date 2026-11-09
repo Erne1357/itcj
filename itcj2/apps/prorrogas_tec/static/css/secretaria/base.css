@@ -703,6 +703,10 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
   .cfg-actions { flex: 1 1 100%; }
 }
 
+.sol-side[hidden] { display: none; }
+.cfg-actions[hidden], .doc-side-btn[hidden] { display: none; }
+.sol:has(> .sol-side[hidden]) { grid-template-columns: minmax(0, 1fr); }
+
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
    Va al final y con body.sec para ganar a .sec-main y a las tarjetas de cada pestaña;
    body.sec solo existe en secretaria/_base.html, así que no toca nada fuera de esta vista. */

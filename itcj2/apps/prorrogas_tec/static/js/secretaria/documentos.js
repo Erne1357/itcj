@@ -8,6 +8,9 @@
   const root = document.querySelector(".docs");
   if (!root) return;
   const API = root.dataset.api;
+  const perms = (document.body.dataset.perms || "").split(" ");
+  const can = (p) => perms.includes("*") || perms.includes(p);
+  const puedeSubir = can("prorrogas_tec.templates.api.upload");
 
   const $years = document.getElementById("docsYears");
   const $yearLabel = document.getElementById("docsYearLabel");
@@ -110,12 +113,12 @@
             <a class="doc-dl" href="${descarga(p)}">${DL_ICON}Descargar</a>
           </div>
         </article>`).join("");
-    $grid.innerHTML = cards + `
+    $grid.innerHTML = cards + (!puedeSubir ? "" : `
       <button type="button" class="doc-add" data-upload="">
         <span class="doc-add-icon">${PLUS_ICON}</span>
         Subir plantilla para ${year}
         <small>Solo Word (.docx)</small>
-      </button>`;
+      </button>`);
   }
 
   const plantillas = () => data.anios.find((a) => a.anio === year).plantillas;
@@ -205,6 +208,7 @@
     try {
       const r = await fetch(API, { method: "POST", body: fd, credentials: "include" });
       const body = await r.json().catch(() => ({}));
+      if (r.status === 403 && !body.message) body.message = "No tienes permiso para esta acción.";
       if (!r.ok) {
         const names = body.desconocidos || body.faltantes;
         // `mal_escritos` trae el texto tal cual (ya con sus llaves); los otros, solo el nombre.
@@ -243,6 +247,7 @@
   $doc.addEventListener("close", () => { pdfSeq++; clearPreview(); abierto = null; });
   $doc.addEventListener("click", (ev) => { if (ev.target === $doc) $doc.close(); });  // clic en el fondo
   document.getElementById("docClose").addEventListener("click", () => $doc.close());
+  document.getElementById("docReemplazar").hidden = !puedeSubir;
   document.getElementById("docReemplazar").addEventListener("click", () => openUpload(abierto));
   $type.addEventListener("change", renderMarkers);
   $markers.addEventListener("click", (ev) => {

@@ -9,8 +9,12 @@
   const API = root.dataset.api;
   const EST = "/estudiantes";
   const $ = (id) => document.getElementById(id);
+  const perms = (document.body.dataset.perms || "").split(" ");
+  const can = (p) => perms.includes("*") || perms.includes(p);
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const PER_PAGE = 25;
+  const PLANES = "prorrogas_tec.plans.api.manage";
+  const REMIND = "prorrogas_tec.students.api.remind";
   const FILTROS = ["todos", "con_adeudo", "al_corriente", "sin_plan", "liquidada", "por_firmar", "pendiente_cierre"];
   const HIST = {
     solicitud_creada: "Solicitud creada", solicitud_aceptada: "Prórroga aceptada",
@@ -39,6 +43,7 @@
     let r;
     try { r = await fetch(API + path, o); } catch (e) { return { ok: false, status: 0, data: { message: "Sin conexión con el servidor." } }; }
     const data = await r.json().catch(() => ({}));
+    if (r.status === 403 && !data.message) data.message = "No tienes permiso para esta acción.";
     return { ok: r.ok, status: r.status, data };
   }
 
@@ -161,7 +166,7 @@
     rec.disabled = !e.puede_recordar;
     rec.title = "Enviar recordatorio de pago por correo";
     rec.addEventListener("click", (ev) => ev.stopPropagation());
-    c.append(rec);
+    if (can("prorrogas_tec.students.api.remind")) c.append(rec);
     row.append(c);
 
     const open = () => openPanel(e.id);
@@ -183,6 +188,7 @@
   $("estPrev").addEventListener("click", () => { st.page -= 1; loadList(); });
   $("estNext").addEventListener("click", () => { st.page += 1; loadList(); });
 
+  if (!can("prorrogas_tec.students.api.export")) $("estExport").hidden = true;
   $("estExport").addEventListener("click", (ev) => busy(ev.currentTarget, async () => {
     let r;
     try {
@@ -365,11 +371,11 @@
   function planPane(x) {
     const c = x.cuenta, wrap = el("div", "est-plan");
     if (!c.parcialidades.length || ui.modificando) {
-      if (x.plan.editable) wrap.append(planForm(x));
+      if (x.plan.editable) { if (can(PLANES)) wrap.append(planForm(x)); }
       else wrap.append(el("p", "est-note", x.solo_lectura
         ? "Prórroga del histórico sin semestre: solo cuenta para Estadísticas."
         : "El semestre terminó: ya no se puede crear el plan."));
-      if (x.plan.cerrable) wrap.append(cierreCard(x));
+      if (x.plan.cerrable && can(PLANES)) wrap.append(cierreCard(x));
       return wrap;
     }
     wrap.classList.add("has-side");
@@ -413,7 +419,7 @@
       catch (e) { toast("No se pudo copiar el folio."); }
     });
     f.append(copy);
-    if (x.plan.editable) {   // sin pagos todavía: el plan se puede rehacer
+    if (x.plan.editable && can(PLANES)) {   // sin pagos todavía: el plan se puede rehacer
       f.append(button("Modificar plan", "sec-btn sec-btn-ghost est-sm", () => { ui.modificando = true; paintTab(); }));
     }
     head.append(f);
@@ -450,7 +456,7 @@
       const li = el("li", r.anulado ? "is-void" : "");
       li.append(el("b", null, r.folio || "Histórico"), el("span", null, fmtDate(r.fecha)), el("span", null, pesos(r.monto)));
       if (r.anulado) li.append(el("small", null, "Anulado: " + (r.motivo_anulacion || "")));
-      else if (!x.solo_lectura) li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
+      else if (!x.solo_lectura && can("prorrogas_tec.payments.api.void")) li.append(button("Anular", "sec-btn sec-btn-ghost est-sm", async () => {
         const motivo = prompt("Motivo de la anulación (mínimo 5 caracteres):");
         if (motivo == null) return;
         show($("estMsg"), "");
@@ -460,7 +466,7 @@
     });
     sec.append(ul.children.length ? ul : el("p", "est-note", "Sin recibos."));
     const prox = c.parcialidades.find((q) => q.estado !== "pagada");
-    if (x.solo_lectura || !prox) return sec;
+    if (x.solo_lectura || !prox || !can("prorrogas_tec.payments.api.record")) return sec;
 
     const folio = input("text", { maxlength: "40" });
     const fecha = input("date", { max: todayIso() });
@@ -508,16 +514,16 @@
     });
     b.prepend(icon("tplMail"));
     b.disabled = !rec.puede;
-    sec.append(b);
+    if (can(REMIND)) sec.append(b);
     const hint = !conSaldo ? "El estudiante ya liquidó su adeudo."
       : !rec.puede ? (rec.ultimo ? "Ya se le envió uno en las últimas 24 horas." : "No tiene correo ni cuenta en la plataforma.")
         : venc ? "Tiene un pago vencido: conviene avisarle." : `Se envía a ${e.correo || "su cuenta en la plataforma"}`;
     sec.append(el("div", "est-hint" + (venc && rec.puede ? " is-alert" : ""), hint));
-    if (x.carta && !x.carta.firmada) sec.append(button("Recordar firma", "sec-btn est-sm", async () => {
+    if (x.carta && !x.carta.firmada && can(REMIND)) sec.append(button("Recordar firma", "sec-btn est-sm", async () => {
       show($("estMsg"), "");
       apply(await api(`${EST}/${s.id}/recordar-pendiente`, { body: { que: "firma" } }), "Recordatorio de firma enviado.");
     }));
-    if (bl.avisar_desbloqueo) sec.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
+    if (bl.avisar_desbloqueo && can("prorrogas_tec.students.api.export")) sec.append(button("Avisar desbloqueo", "sec-btn est-sm", async () => {
       show($("estMsg"), "");
       apply(await api(`${EST}/${s.id}/desbloqueo-avisado`, { body: {} }), "Desbloqueo avisado.");
     }));
@@ -534,7 +540,7 @@
       a.rel = "noopener";
       box.append(a);
     } else {
-      box.append(el("span", null, "Sin referencia "), button("Recordar referencia", "sec-btn est-sm", async () => {
+      box.append(el("span", null, "Sin referencia "), !can(REMIND) ? "" : button("Recordar referencia", "sec-btn est-sm", async () => {
         show($("estMsg"), "");
         apply(await api(`${EST}/${s.id}/recordar-pendiente`, { body: { que: "referencia" } }), "Recordatorio de referencia enviado.");
       }));
