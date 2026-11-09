@@ -71,7 +71,7 @@ def test_lector_solo_ve_sus_pestanas(client_as, lector):
     assert f'href="{BASE}/documentos"' not in page and f'href="{BASE}/configuracion"' not in page
 
 
-@pytest.mark.parametrize("tab", ["documentos", "configuracion"])
+@pytest.mark.parametrize("tab", ["documentos", "configuracion", "caja"])
 def test_lector_no_abre_lo_que_no_le_toca(client_as, lector, tab):  # Review Focus 5
     assert client_as(lector).get(f"{BASE}/{tab}", follow_redirects=False).status_code == 403
 
@@ -141,3 +141,40 @@ def test_estudiantes_js_ya_no_cobra():
     js = (Path(__file__).resolve().parents[3] / "itcj2/apps/prorrogas_tec/static/js/secretaria/estudiantes.js").read_text(encoding="utf-8")
     for texto in ("/recibos", "Registrar recibo", "payments.api", "shortcut: la secretaria"):
         assert texto not in js
+
+
+def test_pestana_caja(client_as, cajero):
+    page = client_as(cajero).get(f"{BASE}/caja").text
+    for texto in ("Busca al alumno o elígelo de la lista para cobrar su siguiente pago.", "No. de control o nombre",
+                  "Todos los semestres", "Por cobrar", "Ordenar por", "Más urgente", "Próximo pago", "Saldo mayor",
+                  "Nombre (A–Z)", "Con adeudo", "Al corriente", "No hay alumnos en este filtro.",
+                  "No encontramos a ese alumno.", "debe acudir a Centro de Cómputo", "caja.js"):
+        assert texto in page
+
+
+def test_cajero_solo_ve_su_pestana_rotulada_estudiantes(client_as, cajero):
+    page = client_as(cajero).get(f"{BASE}/caja").text
+    assert f'href="{BASE}/caja"' in page and f'href="{BASE}/estudiantes"' not in page
+    assert "<span>Estudiantes</span>" in page and "<span>Caja</span>" not in page
+    assert '<div class="sec-user-role">Caja</div>' in page and "sec-topnav-one" in page
+    assert "prorrogas_tec.payments.api.record" in page
+
+
+def test_admin_global_ve_las_dos_y_la_de_caja_se_rotula_caja(client_as, make_user):
+    page = client_as(make_user(first_name="GLOBAL", last_name="ADMIN"), role="admin").get(f"{BASE}/caja").text
+    assert "<span>Caja</span>" in page and "<span>Estudiantes</span>" in page and f'href="{BASE}/estudiantes"' in page
+
+
+def test_cajero_entra_directo_a_su_pestana(client_as, cajero):
+    c = client_as(cajero)
+    r = c.get("/prorrogas/", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == BASE
+    r = c.get(BASE, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == f"{BASE}/caja"
+
+
+def test_secretaria_no_ve_caja_y_conserva_su_rotulo(client_as, secretaria):
+    c = client_as(secretaria)
+    assert c.get(f"{BASE}/caja", follow_redirects=False).status_code == 403
+    page = c.get(f"{BASE}/estudiantes").text
+    assert f'href="{BASE}/caja"' not in page and "Secretaría · Subdirección Académica" in page

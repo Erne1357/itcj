@@ -172,12 +172,15 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 @media (max-width: 1000px) {
   .docs-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 1020px) {  /* las seis pestañas ya no caben junto a la marca y el usuario */
+@media (max-width: 1120px) {  /* las siete pestañas del admin global ya no caben junto a la marca y el usuario */
   .sec-topnav { grid-template-columns: 1fr; height: auto; gap: 0; padding: 0 16px; }
   .sec-brand { height: 48px; }
   .sec-tabs { gap: 18px; height: 48px; justify-content: flex-start; overflow-x: auto; }
   .sec-tab { height: 48px; font-size: 14px; }
   .sec-user { display: none; }
+  .sec-topnav-one { grid-template-columns: 1fr auto; height: 56px; }  /* una sola pestaña: sin barra de pestañas */
+  .sec-topnav-one .sec-tabs { display: none; }
+  .sec-topnav-one .sec-user { display: block; }
 }
 @media (max-width: 760px) {
   .docs { grid-template-columns: 1fr; }
@@ -719,6 +722,93 @@ body.sec { margin: 0; background: var(--bg); color: var(--ink); font-family: var
 .cst-hist time { color: var(--muted); }
 @media (max-width: 900px) { .est-row.cst-row { grid-template-columns: 1fr 1fr; } }
 
+/* ── Caja ── */
+.caj { display: flex; flex-direction: column; gap: 28px; }
+.caj [hidden] { display: none !important; }
+.caj .sec-h1 { letter-spacing: -.02em; line-height: 1.15; }
+.caj-sub { margin: 4px 0 0; font-size: 14px; color: rgba(26, 19, 14, .62); }
+.caj-bar { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px 16px; }
+.caj-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; color: rgba(26, 19, 14, .75); }
+.caj-field-q { flex: 1 1 380px; max-width: 720px; }
+.caj-field-sem { flex: 0 1 260px; }
+.caj-q { display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 8px 0 16px; border: 2px solid var(--line); border-radius: 10px; background: #fff; }
+.caj-q.has-text { border-color: var(--blue); }
+.caj-q > svg { color: rgba(26, 19, 14, .5); flex: none; }
+.caj-q input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 17px; font-weight: 400; color: var(--ink); }
+.caj-q button { width: 40px; height: 40px; flex: none; border: none; border-radius: 8px; background: transparent; color: rgba(26, 19, 14, .55); cursor: pointer; display: grid; place-items: center; }
+.caj-q button:hover { background: rgba(26, 19, 14, .06); }
+.caj-field select { height: 54px; padding: 0 12px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 15px; font-weight: 600; color: var(--ink); }
+#cajSem.is-set { border-color: var(--blue); }
+
+.caj-vacio { border: 1.5px dashed rgba(26, 19, 14, .18); border-radius: 12px; padding: 28px 20px; text-align: center; color: rgba(26, 19, 14, .62); font-size: 14px; line-height: 1.5; }
+.caj-none { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 22px 20px; display: flex; gap: 14px; align-items: flex-start; }
+.caj-none > span { width: 38px; height: 38px; flex: none; border-radius: 10px; background: rgba(242, 115, 64, .16); color: #8a3a14; display: grid; place-items: center; }
+.caj-none b { display: block; font-size: 16px; font-weight: 700; }
+.caj-none p { margin: 2px 0 0; font-size: 14px; line-height: 1.5; color: rgba(26, 19, 14, .7); }
+
+.caj-listhead { display: flex; flex-direction: column; gap: 6px; }
+.caj-listtop { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; }
+.caj-listtop h2 { font: 500 20px var(--font-title); margin: 0; }
+.caj-count { font-size: 13px; color: rgba(26, 19, 14, .62); margin-top: 2px; }
+.caj-orden { display: flex; align-items: center; gap: 8px; font-size: 13px; color: rgba(26, 19, 14, .62); }
+.caj-orden select { height: 40px; padding: 0 8px; border: 1px solid rgba(26, 19, 14, .18); border-radius: 8px; background: #fff; font-size: 14px; font-weight: 600; color: var(--ink); }
+.caj-tabs { display: flex; flex-wrap: wrap; gap: 4px 24px; border-bottom: 1px solid var(--line); margin-top: 6px; }
+.caj-tabs button { height: 44px; padding: 3px 0 0; margin-bottom: -1px; border: none; border-bottom: 3px solid transparent; background: transparent; font-size: 14px; font-weight: 600; color: rgba(26, 19, 14, .62); cursor: pointer; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.caj-tabs button[aria-selected="true"] { border-bottom-color: var(--orange); color: var(--ink); }
+.caj-tabs b { font: 500 12px var(--font-mono); background: rgba(26, 19, 14, .08); color: var(--ink); padding: 1px 7px; border-radius: 10px; }
+
+.caj-res { display: flex; flex-direction: column; gap: 10px; }
+.caj-tabla { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.caj-fila { width: 100%; display: grid; grid-template-columns: 108px minmax(0, 1.5fr) minmax(0, 1.2fr) 150px minmax(0, 1.25fr) 128px; gap: 16px; align-items: center; padding: 13px 20px; background: #fff; border: none; border-bottom: 1px solid rgba(26, 19, 14, .07); border-radius: 0; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
+.caj-fila:hover, .caj-fila.is-open { background: rgba(103, 153, 224, .07); }
+.caj-fila-head { padding: 11px 20px; background: #FBFBF8; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; color: rgba(26, 19, 14, .62); cursor: default; }
+.caj-fila-head:hover { background: #FBFBF8; }
+.caj-c { font: 500 14px var(--font-mono); color: rgba(26, 19, 14, .75); }
+.caj-nom { font-weight: 600; font-size: 15px; }
+.caj-s { color: rgba(26, 19, 14, .62); }
+.caj-f { font: 500 13px var(--font-mono); color: rgba(26, 19, 14, .62); }
+.caj-nx { display: flex; flex-direction: column; gap: 1px; }
+.caj-nx > span:first-child { font: 600 14px var(--font-mono); }
+.caj-nx > span:last-child { font-size: 12px; color: rgba(26, 19, 14, .62); }
+.caj-st { justify-self: start; font-size: 12px; white-space: nowrap; }
+
+.caj-pags { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 20px; }
+.caj-pags > span { font-size: 13px; color: rgba(26, 19, 14, .62); }
+.caj-pags > div { display: flex; align-items: center; gap: 4px; }
+.caj-pags button { border: none; background: transparent; color: var(--ink); cursor: pointer; }
+.caj-pags button:disabled { color: rgba(26, 19, 14, .3); cursor: default; }
+#cajPrev, #cajNext { width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; }
+#cajPrev > span, #cajNext > span { display: none; }
+#cajNums { display: flex; gap: 4px; }
+#cajNums button { min-width: 36px; height: 36px; padding: 0 6px; border-radius: 8px; font: 600 13px var(--font-mono); }
+#cajNums button.is-cur { background: rgba(103, 153, 224, .22); }
+
+@media (max-width: 900px) {
+  .caj-fila-head, .caj-f { display: none; }
+  .caj-tabla { background: transparent; border: 0; border-radius: 0; overflow: visible; display: flex; flex-direction: column; gap: 10px; }
+  .caj-fila { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 14px 16px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+  .caj-nom { order: 1; flex: 1 1 0; min-width: 0; font-weight: 700; }
+  .caj-st { order: 2; padding: 2px 9px; }
+  .caj-c, .caj-s { order: 3; font-size: 13px; color: rgba(26, 19, 14, .62); }
+  .caj-c { font-family: var(--font-mono); }
+  .caj-c::after { content: " ·"; }
+  .caj-s { flex: 1 1 0; min-width: 0; margin-left: -4px; }
+  .caj-nx { order: 4; flex-direction: row; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%; }
+  .caj-nx > span:last-child { font-size: 13px; }
+  .caj-pags { padding: 0; }
+  .caj-pags > div { display: contents; }
+  .caj-pags > span { order: 2; }
+  #cajPrev { order: 1; }
+  #cajNext { order: 3; }
+  #cajNums { display: none; }
+  #cajPrev, #cajNext { width: auto; height: 44px; padding: 0 14px; border: 1px solid rgba(26, 19, 14, .15); background: #fff; font-size: 14px; font-weight: 600; }
+  #cajPrev > svg, #cajNext > svg { display: none; }
+  #cajPrev > span, #cajNext > span { display: inline; }
+}
+@media (max-width: 760px) {
+  .caj .sec-h1 { font-size: 26px; }
+}
+
 /* ── Ancho completo (como el diseño): bajo la barra, el contenido llena la ventana ──
    Va al final y con body.sec para ganar a .sec-main y a las tarjetas de cada pestaña;
    body.sec solo existe en secretaria/_base.html, así que no toca nada fuera de esta vista. */
@@ -728,9 +818,11 @@ body.sec .sec-main > .sol { flex: 1; border: 0; border-radius: 0; box-shadow: no
 body.sec .sec-main > .est { flex: 1; padding: 24px 32px; background: var(--paper); }
 body.sec .sec-main > .cfg { flex: 1; padding: 28px 40px 40px; background: var(--paper); }
 body.sec .sec-main > .cst { flex: 1; padding: 24px 32px; background: var(--paper); }
+body.sec .sec-main > .caj { flex: 1; padding: 28px 40px; background: var(--paper); }
 @media (max-width: 760px) {
   body.sec .sec-main { min-height: 0; }
   body.sec .sec-main > .est { padding: 16px; }
   body.sec .sec-main > .cfg { padding: 20px 16px 32px; }
   body.sec .sec-main > .cst { padding: 16px; }
+  body.sec .sec-main > .caj { padding: 20px 16px 28px; }
 }

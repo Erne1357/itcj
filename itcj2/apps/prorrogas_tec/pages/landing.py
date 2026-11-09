@@ -23,6 +23,7 @@ _ROLE_HOME: tuple[tuple[str, str], ...] = (
     ("secretaria", "/prorrogas/secretaria"),
     # El admin de la app es de solo lectura (08_insert_plan5.sql): ve las mismas pantallas de consulta.
     ("admin",      "/prorrogas/secretaria"),
+    ("caja",      "/prorrogas/secretaria"),
     ("student",    "/prorrogas/estudiante"),
 )
 

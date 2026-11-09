@@ -5,6 +5,7 @@ Rutas (todas bajo /prorrogas/secretaria):
   GET /solicitudes    → QR, invitación manual y revisión de pendientes
   GET /documentos     → plantillas de los formatos
   GET /estudiantes    → lista de aceptadas por semestre y expediente (plan, recibos, documentos)
+  GET /caja           → cobro de pagos (rol Caja)
   GET /consulta       → todas las solicitudes con filtros e historial
   GET /estadisticas   → gráficas, cumplimiento de pago y detalle por carrera
   GET /configuracion  → periodo de cada semestre: ventana de solicitudes y fechas comunes de pago
@@ -29,21 +30,26 @@ TABS = (
     ("estadisticas", "Estadísticas", "prorrogas_tec.secretaria.page.estadisticas"),
     ("solicitudes", "QR y solicitudes", "prorrogas_tec.secretaria.page.solicitudes"),
     ("estudiantes", "Estudiantes", "prorrogas_tec.secretaria.page.estudiantes"),
+    ("caja", "Caja", "prorrogas_tec.secretaria.page.caja"),
     ("consulta", "Consulta", "prorrogas_tec.secretaria.page.consulta"),
     ("documentos", "Documentos", "prorrogas_tec.secretaria.page.documentos"),
     ("configuracion", "Configuración", "prorrogas_tec.secretaria.page.configuracion"),
 )
 _PERM = {key: code for key, _, code in TABS}
-_HOME_ORDER = ("solicitudes", "estudiantes", "estadisticas", "consulta", "documentos", "configuracion")
+_HOME_ORDER = ("solicitudes", "estudiantes", "estadisticas", "consulta", "documentos", "configuracion", "caja")
 
 router = APIRouter(prefix="/secretaria", tags=["prorrogas_tec-pages-secretaria"])
 
 
 def _contexto(request: Request, active: str, title: str) -> dict:
     perms = request.state.prorrogas_perms
+    visibles = [(k, label) for k, label, code in TABS if "*" in perms or code in perms]
+    if not any(k == "estudiantes" for k, _ in visibles):  # Caja entra por la pestaña que, para ella, se llama Estudiantes
+        visibles = [(k, "Estudiantes" if k == "caja" else label) for k, label in visibles]
     return {
         "title": title,
-        "tabs": [(k, label) for k, label, code in TABS if "*" in perms or code in perms],
+        "tabs": visibles,
+        "rol_usuario": "Caja" if [k for k, _ in visibles] == ["caja"] else "Secretaría · Subdirección Académica",
         "perms": perms,
         "active": active,
     }
@@ -74,5 +80,6 @@ secretaria_solicitudes = _tab("solicitudes", "solicitudes", "Prórrogas · QR y 
 secretaria_documentos = _tab("documentos", "documentos", "Prórrogas · Documentos")
 secretaria_estudiantes = _tab("estudiantes", "estudiantes", "Prórrogas · Estudiantes")
 secretaria_configuracion = _tab("configuracion", "configuracion", "Prórrogas · Configuración")
+secretaria_caja = _tab("caja", "caja", "Prórrogas · Caja")
 secretaria_consulta = _tab("consulta", "consulta", "Prórrogas · Consulta")
 secretaria_estadisticas = _tab("estadisticas", "estadisticas", "Prórrogas · Estadísticas")
