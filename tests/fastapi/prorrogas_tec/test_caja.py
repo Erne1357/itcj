@@ -120,3 +120,63 @@ def test_parametros_invalidos(db_session, periodo, kw, code):
     with pytest.raises(ServiceError) as e:
         _lista(db_session, periodo, **kw)
     assert (e.value.code, e.value.status) == (code, 400)
+
+
+def _pagos(db, req):
+    return CajaService.detalle(db, req.id, HOY)["pagos"]
+
+
+def test_detalle_sin_plan(db_session, aceptada):
+    d = CajaService.detalle(db_session, aceptada.id, HOY)
+    assert (d["situacion"], d["pagos"], d["total"], d["referencia"]) == ("sin_plan", [], None, False)
+
+
+def test_detalle_marca_el_siguiente_y_el_ultimo(db_session, aceptada, cajero, con_plan):
+    from itcj2.apps.prorrogas_tec.services.payment_service import PaymentService
+    con_plan(aceptada, [("1000.00", date(2091, 2, 1)), ("1000.00", date(2091, 4, 1)), ("500.00", date(2091, 5, 1))])
+    PaymentService.settle_next(db_session, aceptada.id, cajero.id, numero=1, folio="ZZ-300", paid_on=HOY, now=HOY)
+    uno, dos, tres = _pagos(db_session, aceptada)
+    assert (uno["estado"], uno["a_cobrar"], uno["recibo"]["folio"], uno["recibo"]["fecha"], uno["anulable"]) == (
+        "pagada", "0.00", "ZZ-300", "2091-03-10", True)
+    assert (dos["siguiente"], dos["a_cobrar"], dos["anulable"], tres["siguiente"]) == (True, "1000.00", False, False)
+    d = CajaService.detalle(db_session, aceptada.id, HOY)
+    assert (d["total"], d["pagado"], d["saldo"]) == ("2500.00", "1000.00", "1500.00")
+
+
+def test_detalle_un_recibo_de_dos_pagos_solo_se_anula_en_el_ultimo(db_session, aceptada, con_plan):
+    con_plan(aceptada, [("500.00", date(2091, 4, 1)), ("500.00", date(2091, 5, 1))], pagos=["1000.00"])
+    assert [p["anulable"] for p in _pagos(db_session, aceptada)] == [False, True]
+
+
+def test_detalle_vencido_cuenta_los_dias(db_session, aceptada, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 3, 1))])
+    p, = _pagos(db_session, aceptada)
+    assert (p["estado"], p["dias_vencido"], p["siguiente"]) == ("vencida", 9, True)
+
+
+def test_detalle_a_medias_cobra_lo_que_falta(db_session, aceptada, con_plan):
+    con_plan(aceptada, [("1000.00", date(2091, 4, 1))], pagos=["400.00"])
+    p, = _pagos(db_session, aceptada)
+    assert (p["estado"], p["monto"], p["a_cobrar"], p["recibo"], p["anulable"]) == ("parcial", "1000.00", "600.00", None, False)
+
+
+def test_detalle_recibo_del_excel_sin_folio(db_session, periodo, make_historica):  # Review Focus 4
+    p, = _pagos(db_session, make_historica(periodo=periodo, pagadas=(0,)))
+    assert p["recibo"]["folio"] is None and p["anulable"] is True
+
+
+def test_detalle_trae_el_recibo_escaneado(db_session, aceptada, con_plan):
+    from datetime import datetime
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment
+    con_plan(aceptada, [("1000.00", date(2091, 4, 1))])
+    i = db_session.query(ProrrogaInstallment).filter_by(request_id=aceptada.id, number=1).one()
+    i.receipt_path, i.receipt_uploaded_at = "recibos/x.pdf", datetime(2091, 3, 1, 9, 0)
+    db_session.flush()
+    assert _pagos(db_session, aceptada)[0]["recibo_subido"] == "2091-03-01T09:00:00"
+
+
+def test_detalle_fuera_de_caja_es_404(db_session, make_historica, solicitud):
+    for rid in (make_historica().id, solicitud.id):
+        with pytest.raises(ServiceError) as e:
+            CajaService.detalle(db_session, rid, HOY)
+        assert (e.value.code, e.value.status) == ("no_encontrada", 404)
