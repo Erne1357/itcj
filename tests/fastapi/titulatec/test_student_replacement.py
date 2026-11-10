@@ -282,6 +282,70 @@ class TestSubirYBorrar:
 
 
 # ===========================================================================
+# 2b. Ya liberado (fase 3+, 2026-11-10): mismo flujo fuera del cotejo
+# ===========================================================================
+def _intro(html: str) -> str:
+    return html.split('id="tt-replacement-intro"')[1].split("</div>")[0]
+
+
+class TestYaLiberado:
+    def test_documentos_abre_el_modo_reemplazo_sin_hablar_de_la_cita(
+            self, escenario, client_as):
+        esc = escenario(current_phase=3, abiertos={"curp": "rejected"})
+
+        resp = client_as(esc.student).get(DOCS, follow_redirects=False)
+
+        assert resp.status_code == 200, resp.text[:300]
+        html = resp.text
+        assert _zonas_de_subida(html) == {"curp"}
+        assert "hx-delete" not in html
+        assert MOTIVO in html
+        assert "cotejo" not in _intro(html).lower()
+
+    def test_en_el_cotejo_el_texto_sigue_hablando_de_la_cita(self, escenario, client_as):
+        esc = escenario(current_phase=2, abiertos={"curp": "rejected"})
+
+        html = client_as(esc.student).get(DOCS, follow_redirects=False).text
+
+        assert "presentar en tu cita de cotejo" in _intro(html)
+
+    def test_sin_reemplazo_documentos_redirige(self, escenario, client_as):
+        esc = escenario(current_phase=3)
+
+        resp = client_as(esc.student).get(DOCS, follow_redirects=False)
+
+        assert resp.status_code == 302, resp.text[:300]
+
+    def test_sube_el_documento_pedido_y_solo_ese(self, escenario, client_as, db_session):
+        esc = escenario(current_phase=3, abiertos={"curp": "rejected"})
+
+        otro = client_as(esc.student).post(f"{DOCS}/birth_certificate", files={"archivo": PDF})
+        assert otro.status_code == 400, otro.text[:300]
+
+        resp = client_as(esc.student).post(f"{DOCS}/curp", files={"archivo": PDF})
+        assert resp.status_code == 200, resp.text[:300]
+        assert not resp.headers.get("X-Tt-Error")
+        doc = _doc(db_session, esc.process.id, "curp")
+        assert doc.review_status == "pending" and doc.replacement_requested_at is not None
+        assert _doc(db_session, esc.process.id, "birth_certificate").review_status == "approved"
+
+    def test_tablero_pinta_el_aviso_en_la_tarjeta_actual(self, escenario, client_as):
+        esc = escenario(current_phase=3, abiertos={"curp": "rejected"})
+
+        html = client_as(esc.student).get(DASH).text
+
+        assert html.count('id="tt-replacement-notice"') == 1
+        assert MOTIVO in html and "Subir reemplazo" in html
+
+    def test_tablero_sin_reemplazo_no_pinta_el_aviso(self, escenario, client_as):
+        esc = escenario(current_phase=3)
+
+        html = client_as(esc.student).get(DASH).text
+
+        assert "tt-replacement-notice" not in html
+
+
+# ===========================================================================
 # 3. Aviso en el tablero y en «Mi cita»
 # ===========================================================================
 class TestAviso:

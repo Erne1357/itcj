@@ -61,7 +61,7 @@
   {% set BASE = page_url ~ '/' ~ detail.process.id %}
   {% set QZ = ('?' ~ q_zone) if q_zone else '' %}
   {% set ab = (detail.docs | selectattr('type_code', 'equalto', detail.doc_abierto) | list | first) %}
-  {% set puede_pedir = detail.can_request_replacement and detail.in_cotejo %}
+  {% set puede_pedir = detail.can_request_replacement and detail.replacement_phase_ok %}
   {% set puede_aprobar = ab and ab.replacement and ab.doc.review_status == 'pending'
                          and detail.can_approve_docs %}
   {% if ab and (ab.replacement or puede_pedir) %}

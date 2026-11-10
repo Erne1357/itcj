@@ -368,9 +368,9 @@ permiso propio:
   `pages/documents.py:23`), solo `titulatec_school_services_head` y `admin` (D1). Los encargados que
   dictaminan NO lo tienen: no ven el botón y la ruta responde 403.
 - **Botón «Pedir reemplazo»** (`#tt-inline-replace`, `partials/documents_body.html`): aparece junto a
-  Aprobar/Rechazar cuando coinciden `phase_closed` (la fase 1 ya pasó), `detail.in_cotejo` (el proceso
-  está `active` y parado en la fase `review_appointment` del catálogo; lo calcula `_annotate_phase_lock`,
-  `pages/documents.py:301`) y el permiso (`can_request_replacement`, `:364`, de la MISMA lectura de
+  Aprobar/Rechazar cuando coinciden `phase_closed` (la fase 1 ya pasó; la bandeja solo lista procesos
+  `active`, así que es la regla de `DocumentService.replacement_phase_ok` —cotejo o, desde 2026-11-10,
+  ya liberado—; lo calcula `_annotate_phase_lock`, `pages/documents.py:301`) y el permiso (`can_request_replacement`, `:364`, de la MISMA lectura de
   permisos de la bandeja — sin consulta nueva). Usa el motivo del formulario («Comentario», que ahora
   dice «obligatorio si rechazas o pides reemplazo») y se confirma con `hx-confirm="Pedir reemplazo|…"` +
   `data-tt-confirm-ok`. El JS del panel (`static/js/admin/doc-viewer.js:180`) lo muestra solo con la fase
@@ -392,7 +392,7 @@ permiso propio:
 - **El reemplazo subido entra a «Por evaluar»** (el alumno resube → `pending`, como siempre) y se
   **aprueba con el Aprobar de siempre**: `DocumentService.review` permite aprobar uno no aprobado aunque
   la fase esté cerrada, y al aprobar limpia `replacement_requested_at`. La fila del selector lleva la
-  píldora «Reemplazo en cotejo» (`d.replacement`, `data-replacement`; la bandera sale de la MISMA consulta
+  píldora «Reemplazo pedido» (`d.replacement`, `data-replacement`; la bandera sale de la MISMA consulta
   de `_doc_states`, `pages/documents.py:184`, con el predicado único `DocumentService.replacement_open`) y aprobar no auto-avanza nada (la fase 1 ya cerró).
 - **Lo que NO hay:** botón «Pedir reemplazo» dentro del modal grande del visor; recordatorios por
   reemplazo abierto (el barrido de documentos solo mira la fase 1).

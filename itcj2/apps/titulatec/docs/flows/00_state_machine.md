@@ -210,9 +210,10 @@ con la columna no NULL. Cuatro consecuencias que no se deducen del diagrama:
   resube; `save()` limpia el dictamen, así que `pending_abierto` ya no lo tiene
   (`DocumentService.open_replacements().note` es `None`). El original queda en el
   `ProcessEvent(document_replacement_requested)`.
-- **El proceso no regresa de fase** (D2): sigue en `current_phase = 2` con su cita. La puerta de
-  `request_replacement` exige proceso `active`, `current_phase` == fase `review_appointment` del
-  catálogo (falla CERRADO si el catálogo no la tiene) y que esa `ProcessPhase` no esté `approved`.
+- **El proceso no regresa de fase** (D2): sigue en su `current_phase` (2 con su cita o, desde
+  2026-11-10, 3+ ya liberado). La puerta de `request_replacement` es
+  `DocumentService.replacement_phase_ok`: proceso `active` y `current_phase` MAYOR que la fase
+  `initial_docs` del catálogo (falla CERRADO si el catálogo no la tiene). Ya no exige estar en el cotejo.
 - **`review` NO cambia su regla de congelado** (decisión 2026-10-04): rechazar un documento con la
   fase ya pasada por la vía normal sigue dando `PHASE_CLOSED_MSG`. El rechazo de la jefa en la fase 2
   es otra vía, con permiso propio — [detalle en la bandeja](phase1_school_services_review_docs.md#excepción-al-dictamen-congelado-el-reemplazo-en-el-cotejo-2026-10-15).
@@ -231,7 +232,8 @@ Quién lo ve y qué bloquea: [flujo completo](xcut_cotejo_document_replacement.m
 «ok»: `initial_docs_approved_map(..., replacement_ok=True)`).
 
 Evento nuevo: `document_replacement_requested` (`models/process_event.py:39`), con
-`phase_number` = la fase de cotejo y payload `{type_code, note}`. Aprobar un reemplazo escribe el
+`phase_number` = la fase ACTUAL del proceso al pedirlo (2 en el cotejo, 3+ ya liberado) y payload
+`{type_code, note}`. Aprobar un reemplazo escribe el
 `document_approved` de siempre con `"replacement": true` en el payload.
 
 ## Estado de una cita (`ReviewAppointment.status`) — Fase 2

@@ -85,9 +85,9 @@
        nada pendiente y no se veía que el alumno aún debe ese documento. #}
     {% set en_cotejo = detail.docs | selectattr('status', 'equalto', 'excused') | list %}
     {% set sin_enviar = detail.docs | selectattr('status', 'equalto', 'missing') | list %}
-    {# «Pedir reemplazo» (spec 2026-10-15): con el dictamen congelado y el proceso
-       en la cita de cotejo, solo quien tiene `request_replacement`. #}
-    {% set can_replace = can_request_replacement and detail.phase_closed and detail.in_cotejo %}
+    {# «Pedir reemplazo» (spec 2026-10-15; desde 2026-11-10 en cualquier fase tras
+       la 01): con el dictamen congelado, solo quien tiene `request_replacement`. #}
+    {% set can_replace = can_request_replacement and detail.phase_closed %}
     <div id="tt-doc-review" data-process="{{ detail.process_id }}"
          data-phase-closed="{{ '1' if detail.phase_closed else '0' }}">
       {# El expediente contesta lo que esta bandeja no puede: si este documento
@@ -118,7 +118,7 @@
                   data-closes="{{ '1' if d.closes_phase else '0' }}"
                   data-replacement="{{ '1' if d.replacement else '0' }}">
             {{ d.name }} {{ estado_pill(d.status) }}
-            {% if d.replacement %}<span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Reemplazo en cotejo</span>{% endif %}
+            {% if d.replacement %}<span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>Reemplazo pedido</span>{% endif %}
           </button>
           {% endfor %}
           {# Sin archivo que abrir (nada que picar): un span, no un button --

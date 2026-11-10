@@ -252,7 +252,8 @@ la fase 1 ya esté cerrada — **solo ese documento**.
   Servicios Escolares y está en revisión…»), pegado por OOB como el de la fase 1.
 - **`POST /student/documents/{type_code}`** (`document_upload`, `pages/student.py:1271`). `_phase_guard`
   sigue siendo lo primero; si niega, la subida se permite **solo** si el tipo es de la fase 1 y
-  `student_can_replace` aplica: proceso `active`, `current_phase` == fase `review_appointment`, fila con
+  `student_can_replace` aplica: `replacement_phase_ok` (proceso `active` y fase 1 ya cerrada: cotejo o,
+  desde 2026-11-10, ya liberado), fila con
   reemplazo abierto (`replacement_requested_at` y `review_status != "approved"`, el predicado único `DocumentService.replacement_open`). La guarda de la ruta es `DocumentService.student_can_replace`, que a su vez usa `replacement_open` (`pages/student.py:1353-1362`).
   Cualquier otra cosa devuelve la respuesta de la guarda (400). La guarda del set del perfil
   (`_initial_docs_set_guard`) sigue aplicando, y la respuesta del slot conserva el modo reemplazo.

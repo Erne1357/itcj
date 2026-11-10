@@ -93,11 +93,18 @@ class TestFicha:
         assert r.status_code == 200
         assert "appt-docreplace-ask" not in r.text
 
-    def test_fuera_de_cotejo_no_ofrece_pedir(self, client_as, esc, db_session):
-        esc["process"].current_phase = 3
+    def test_con_la_fase_1_abierta_no_ofrece_pedir(self, client_as, esc, db_session):
+        esc["process"].current_phase = 1
         db_session.flush()
         r = _panel(client_as, esc)
         assert "appt-docreplace-ask" not in r.text
+
+    def test_ya_liberado_sigue_ofreciendo_pedir(self, client_as, esc, db_session):
+        """2026-11-10: pasada la fase de cotejo también se pide."""
+        esc["process"].current_phase = 3
+        db_session.flush()
+        r = _panel(client_as, esc)
+        assert "appt-docreplace-ask" in r.text
 
     def test_reemplazo_rechazado_muestra_el_motivo_y_no_aprobar(
             self, client_as, esc, db_session):
@@ -141,7 +148,7 @@ class TestFicha:
         ctx = _detail_ctx(db_session, esc["process"].id, user_id=esc["jefa"].id)
         assert ctx["can_request_replacement"] is True
         assert ctx["can_approve_docs"] is True
-        assert ctx["in_cotejo"] is True
+        assert ctx["replacement_phase_ok"] is True
         for d in ctx["docs"]:
             assert isinstance(d["replacement"], bool)
             assert "review_note" in d
@@ -184,11 +191,17 @@ class TestPedir:
         assert esc["doc"].review_status == "rejected"
         assert esc["doc"].replacement_requested_at is not None
 
-    def test_fuera_de_cotejo_400_con_mensaje(self, client_as, esc, db_session):
-        esc["process"].current_phase = 3
+    def test_con_la_fase_1_abierta_400_con_mensaje(self, client_as, esc, db_session):
+        esc["process"].current_phase = 1
         db_session.flush()
         r = client_as(esc["jefa"]).post(_url(esc, "reemplazo"), data={"note": "x"})
         assert r.status_code == 400 and _msg(r)
+
+    def test_ya_liberado_200(self, client_as, esc, db_session):
+        esc["process"].current_phase = 3
+        db_session.flush()
+        r = client_as(esc["jefa"]).post(_url(esc, "reemplazo"), data={"note": "x"})
+        assert r.status_code == 200, _msg(r)
 
 
 class TestAprobar:

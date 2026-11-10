@@ -3,13 +3,18 @@
 > **Objetivo:** cuando el egresado presenta en la cita de cotejo (fase 2) un documento DISTINTO del que subió
 > en la fase 1, la jefatura de Servicios Escolares pide el reemplazo, el egresado lo sube y se aprueba — **sin
 > regresar el proceso de fase** y sin romper el congelado del dictamen de la fase 1.
+>
+> **Desde 2026-11-10 ya no solo en el cotejo:** la jefatura lo pide en **cualquier fase tras la 1**, incluido
+> el egresado ya liberado (fase 3+, en manos del Departamento de Titulación). Mismo flujo, mismo permiso, mismas
+> pantallas. Decisiones del usuario: la bandeja «Liberados» de Titulación NO cambia, y Documentos del alumno
+> se ve igual que en el cotejo (todos sus documentos, solo el pedido se puede subir).
 
 | | |
 |---|---|
 | **Actor(es)** | 🏛️ Jefatura de Servicios Escolares (pide) · 🏛️ jefa o encargado con `document.api.approve` (aprueba) · 👤 Alumno (sube) |
 | **Permiso(s)** | pedir: `titulatec.document.api.request_replacement` (solo `titulatec_school_services_head` y `admin`, D1) · aprobar: `titulatec.document.api.approve` · alumno: `document.api.upload.own` |
-| **Trigger** | En la cita, el egresado trae en físico otro documento válido que el subido en la fase 1 |
-| **Precondiciones** | Proceso `active`, `current_phase` == fase `review_appointment` del catálogo y esa `ProcessPhase` **no** `approved`; el tipo es de la fase `initial_docs` y está en el set del perfil; el documento tiene fila |
+| **Trigger** | En la cita, el egresado trae en físico otro documento válido que el subido en la fase 1 — o, ya liberado, Servicios Escolares necesita corregir uno |
+| **Precondiciones** | `DocumentService.replacement_phase_ok`: proceso `active` y `current_phase` **mayor** que la fase `initial_docs` del catálogo (2, 3, …; hasta 2026-11-10 era solo la de cotejo sin liberar); el tipo es de la fase `initial_docs` y está en el set del perfil; el documento tiene fila |
 | **Sub-flujos** | ⤵ [bandeja de Documentos](phase1_school_services_review_docs.md) · ⤵ [panel de la cita](phase2_appointment_loop.md) · ⤵ [expediente](xcut_admin_process_expediente.md) · ⤵ [el alumno sube](phase1_student_upload_initial_docs.md) · ⤵ [correos](xcut_student_email_notifications.md) |
 | **Estado final** | Documento `approved` con `replacement_requested_at = NULL`; la fase 2 puede liberarse otra vez |
 
@@ -47,16 +52,18 @@ mientras la subida del alumno lo daba por cerrado.
 
 Tres sitios para **pedir** (D5), uno para **subir**, dos para **aprobar**:
 
-1. 🏛️ **Bandeja Documentos** (`/titulatec/admin/documents`): con la fase 1 ya cerrada y el proceso en cotejo,
-   botón «Pedir reemplazo» junto al dictamen; usa el motivo del formulario. La fila lleva la píldora
-   «Reemplazo en cotejo».
+1. 🏛️ **Bandeja Documentos** (`/titulatec/admin/documents`): con la fase 1 ya cerrada (la bandeja solo lista
+   procesos activos), botón «Pedir reemplazo» junto al dictamen; usa el motivo del formulario. La fila lleva
+   la píldora «Reemplazo pedido».
 2. 🏛️ **Panel «Atender» de la cita** (`/titulatec/admin/appointments`): bajo el visor del documento abierto,
    «Pedir reemplazo» (abre un textarea por `&reemplazo=<code>`) y, si el alumno ya subió, «Aprobar reemplazo».
+   Ofrece pedir con el proceso activo en el cotejo o después (`replacement_phase_ok` del contexto).
 3. 🏛️ **Expediente** (`/titulatec/admin/processes/{id}`): en la lista de documentos de la fase 1, `<details>`
-   «Pedir reemplazo» con motivo obligatorio y la píldora «Reemplazo pedido en cotejo».
-4. 👤 **Alumno**: aviso con botón «Subir reemplazo» en el tablero (tarjeta de la fase de cotejo) y en «Mi
-   cita»; lleva a `/titulatec/student/documents`, que se pinta en **modo reemplazo** (solo el documento
-   pedido es subible, el resto de solo lectura, sin borrar).
+   «Pedir reemplazo» con motivo obligatorio y la píldora «Reemplazo pedido».
+4. 👤 **Alumno**: aviso con botón «Subir reemplazo» en el tablero (tarjeta de su fase ACTUAL, la que sea
+   tras la 1) y en «Mi cita» (solo existe en la fase 2); lleva a `/titulatec/student/documents`, que se pinta
+   en **modo reemplazo** (solo el documento pedido es subible, el resto de solo lectura, sin borrar). Los
+   textos de esa página hablan de la cita de cotejo solo si el proceso está en ella (`replace_in_cotejo`).
 5. 🏛️ **Aprobar**: el Aprobar de siempre de la bandeja Documentos (el reemplazo subido entra a «Por evaluar») o
    «Aprobar reemplazo» del panel de la cita.
 
@@ -92,7 +99,7 @@ sequenceDiagram
 
 | # | Actor | UI / dónde | Acción | Endpoint | Service · método | Efecto en BD | Eventos / Notif |
 |---|---|---|---|---|---|---|---|
-| 1a | 🏛️ | Bandeja Documentos | pedir reemplazo | `POST /titulatec/admin/documents/{pid}/document/reemplazo` (form `type_code`, `note`) — `pages/documents.py:509` | `DocumentService.request_replacement` (`services/document_service.py:899`) | `titulatec_documents`: `rejected`, `review_note`, `reviewed_by_id`, `replacement_requested_at` | `document_replacement_requested` (fase de cotejo, `{type_code, note}`) · notif `DOCUMENT_REPLACEMENT_REQUESTED` · correo `docs_review` (rechazo) |
+| 1a | 🏛️ | Bandeja Documentos | pedir reemplazo | `POST /titulatec/admin/documents/{pid}/document/reemplazo` (form `type_code`, `note`) — `pages/documents.py:509` | `DocumentService.request_replacement` (`services/document_service.py:899`) | `titulatec_documents`: `rejected`, `review_note`, `reviewed_by_id`, `replacement_requested_at` | `document_replacement_requested` (fase ACTUAL del proceso, `{type_code, note}`) · notif `DOCUMENT_REPLACEMENT_REQUESTED` (misma fase) · correo `docs_review` (rechazo) |
 | 1b | 🏛️ | Panel de Citas | ídem | `POST /titulatec/admin/appointments/{pid}/documents/{type_code}/reemplazo` (`note`) — `pages/appointments.py:2213` | ídem | ídem | ídem |
 | 1c | 🏛️ | Expediente | ídem | `POST /titulatec/admin/processes/{pid}/documents/{type_code}/reemplazo` (`note`) — `pages/admin.py:2611` | ídem | ídem | ídem |
 | 2 | 👤 | `/student/documents` (modo reemplazo) | sube el reemplazo | `POST /student/documents/{type_code}` — `pages/student.py:1270` | `DocumentService.student_can_replace` → `save()` (`:635`, re-verifica con la fila bloqueada, R8) | `pending`, nota y revisor limpios; `version` suma 1; **la bandera sigue abierta** | `document_uploaded` |
@@ -101,8 +108,9 @@ sequenceDiagram
 | 4 | 🏛️ | Cita / expediente | liberar la fase 02 | `POST /{pid}/fase2/aprobar` · `POST .../phase/{n}/approve` | `PhaseService.approve_phase` → `_cotejo_gate_error` (`services/phase_service.py:363`) | — | se **niega** con un reemplazo abierto (ver abajo) |
 
 Reglas de `request_replacement` (en este orden, todas `ValueError` ASCII sin escribir nada): motivo no vacío
-tras `strip()` y ≤ `REPLACEMENT_NOTE_MAX` = 1000; el proceso existe y está `active`; `current_phase` == fase de
-cotejo (sin esa fase en el catálogo falla CERRADO) y esa `ProcessPhase` no está `approved`; el tipo es de la
+tras `strip()` y ≤ `REPLACEMENT_NOTE_MAX` = 1000; el proceso existe y está `active`; `current_phase` mayor que
+la fase `initial_docs` (`replacement_phase_ok`; si no, `REPLACEMENT_PHASE1_OPEN_MSG` —en la fase 1 se corrige
+con el dictamen normal—; sin esa fase en el catálogo falla CERRADO); el tipo es de la
 fase `initial_docs`, está activo y en el set del perfil (`initial_doc_types_for`); el documento existe (se
 bloquea con `with_for_update`). Antes de validar la fase bloquea la fila del **proceso** (R9, abajo). Pedirlo desde
 `pending` + abierto vale (archivo equivocado) y conserva la fecha.
@@ -127,8 +135,9 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
 - **Pedir vs. liberar la fase 2 (R9).** `request_replacement` bloquea la fila del proceso (`FOR NO KEY UPDATE`,
   `key_share=True`, mismo modo que `ProcessService.cancel`) antes de validar la fase, y
   `PhaseService.approve_phase` toma el mismo bloqueo antes de validar y de su compuerta
-  (`PhaseService._lock_process_row`, `services/phase_service.py:263`, llamado en `:463`). O el pedido ve la
-  fase ya liberada, o la liberación espera y ve el reemplazo abierto. `NO KEY` no choca con el `FOR KEY SHARE`
+  (`PhaseService._lock_process_row`, `services/phase_service.py:263`, llamado en `:463`). O la liberación
+  ve el reemplazo abierto y se niega, o el pedido llega con el proceso ya en la fase 3 y el reemplazo queda
+  abierto ahí (desde 2026-11-10 eso es válido: ya no hay compuerta que trabar). `NO KEY` no choca con el `FOR KEY SHARE`
   de los INSERT con FK al proceso. **Desde R14 (2026-10-15) ese bloqueo ya no es exclusivo de la fase de
   cotejo:** `approve_phase` y `reject_phase` lo toman en TODAS las fases, antes de `assert_can_transition`
   (dictamen de fase serializado: [máquina de estados](00_state_machine.md), párrafo
@@ -149,6 +158,10 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
   cotejo: «No se puede liberar la fase 02: falta aprobar el reemplazo de: {nombres}.». Aplica a las dos vías
   de aprobar la fase 2 (la cita y el expediente, que es también «Mover de fase»); el mensaje lleva acentos, así
   que las rutas lo pasan por `_hdr()`.
+- **Ya liberado (fase 3+, 2026-11-10) no bloquea nada.** La fase 2 ya se aprobó y del corte en adelante el
+  proceso lo lleva Titulación en T-soft: no hay compuerta que trabar. La bandeja «Liberados» no lo muestra
+  (decisión del usuario). Aprobarlo con el proceso en la fase 3 pasa: el corte de `review` solo congela
+  TIPOS de fase ≥ corte, y los de la fase 1 están por debajo.
 - **No bloquea agendar (D2).** La cola del encargado cuenta un documento con reemplazo abierto como «ok»
   (`initial_docs_approved_map(..., replacement_ok=True)`, `services/appointment_service.py:411`); el
   auto-avance 1→2 de la bandeja sigue con la regla estricta. `AppointmentService.create` nunca miró documentos.
@@ -164,13 +177,14 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
 
 ## Eventos, avisos y correos
 
-- `ProcessEvent` `document_replacement_requested` (`models/process_event.py:39`), `phase_number` = fase de
-  cotejo, payload `{type_code, note}`. Etiqueta del alumno en `_EVENT_LABELS` («Servicios Escolares te pidió
+- `ProcessEvent` `document_replacement_requested` (`models/process_event.py:39`), `phase_number` = fase
+  ACTUAL del proceso al pedirlo (2 en el cotejo, 3+ ya liberado), payload `{type_code, note}`. Etiqueta del alumno en `_EVENT_LABELS` («Servicios Escolares te pidió
   reemplazar un documento», `pages/student.py:290`) y del personal en `_EVENT_UI` («Reemplazo de documento
   solicitado», `arrow-repeat`, `amber`, `pages/admin.py:1328`). El espejo de la bitácora lo cubre el prefijo
   `document_` (`services/audit_actions.py:158`).
-- Aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED` («{nombre}: {motivo}»), cuya liga `/student/fase/2` redirige al
-  tablero: el aviso `partials/student/_replacement_notice.html` es el destino real.
+- Aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED` («{nombre}: {motivo}»), cuya liga `/student/fase/{actual}`
+  redirige al tablero: el aviso `partials/student/_replacement_notice.html`, en la tarjeta de la fase actual,
+  es el destino real.
 - Correo: el de dictamen de siempre, `StudentMail.doc_reviewed(status="rejected", note=motivo)`, grupo
   `docs:{pid}`, que lleva a Documentos (ahora en modo reemplazo). Sin `kind` nuevo.
 
@@ -178,8 +192,9 @@ Tres carreras que la primera versión dejaba abiertas, cada una cerrada con un b
 
 - Motivo vacío → 400 `X-Tt-Error` (en el panel de Citas, antes de abrir sesión). Proceso fuera de alcance → 404.
   Sin permiso → 403. Vista resumida del Departamento de Titulación (expediente) → 403.
-- Proceso no en cotejo / fase 2 ya liberada / tipo fuera del set / sin documento → 400 con el
-  `REPLACEMENT_*_MSG` correspondiente.
+- Proceso en la fase 0/1 (`REPLACEMENT_PHASE1_OPEN_MSG`) / tipo fuera del set / sin documento → 400 con el
+  `REPLACEMENT_*_MSG` correspondiente. (Hasta 2026-11-10 también «fuera del cotejo» y «fase 2 ya liberada»;
+  esos dos mensajes ya no existen.)
 - «Aprobar reemplazo» del panel sobre un documento sin reemplazo abierto (incluido un `approved` con la
   bandera vieja, R7) → 400 «Ese documento no tiene un reemplazo pendiente.».
 - «Aprobar reemplazo» con otra versión en la fila, o sin versión → 200 + re-render + aviso de advertencia,
@@ -210,7 +225,9 @@ avisos), pero conviene limpiar la columna:
 ## Fuera de alcance
 
 Recordatorios por reemplazo abierto; el motivo en el Tablero de la jefa; el botón dentro del modal grande del
-visor de la bandeja; reemplazar documentos de fases ≥ 3; que Servicios Escolares suba el archivo por el alumno.
+visor de la bandeja; reemplazar documentos cuyo TIPO es de una fase ≥ 3 (sigue siendo solo la fase 1, aunque
+el proceso ya esté en la 3+); que Servicios Escolares suba el archivo por el alumno; avisar a Titulación en
+«Liberados» (decisión 2026-11-10).
 
 ## Qué lo cubre
 

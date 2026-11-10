@@ -176,7 +176,7 @@
     if (actions) actions.hidden = !inline && !inlineRej;
     // «Pedir reemplazo» (cita de cotejo, 2026-10-15): solo con la fase cerrada y
     // un documento con archivo que reemplazar. El botón existe solo con el
-    // permiso nuevo y el proceso en cotejo (servidor). Sin botón en el modal.
+    // permiso nuevo y la fase 01 cerrada (servidor). Sin botón en el modal.
     var inlineRepl = $('tt-inline-replace');
     if (inlineRepl) inlineRepl.hidden = !(S.phaseClosed && pick.dataset.url);
     if (!inline) return;

@@ -2,10 +2,10 @@
    _replacement_notice.html — aviso de «reemplazo de documento» (alumno,
    2026-10-15, spec reemplazo-cotejo §7.2).
 
-   Lo pinta el tablero (tarjeta de la fase de cotejo) y «Mi cita» (FUERA de
-   `#tt-cita-card`, que se swappea solo). Es el destino real del aviso in-app
-   `DOCUMENT_REPLACEMENT_REQUESTED`, cuya liga `/student/fase/2` redirige al
-   tablero.
+   Lo pinta el tablero (tarjeta de la fase ACTUAL, cualquiera tras la 01 desde
+   2026-11-10) y «Mi cita» (FUERA de `#tt-cita-card`, que se swappea solo). Es el
+   destino real del aviso in-app `DOCUMENT_REPLACEMENT_REQUESTED`, cuya liga
+   `/student/fase/{actual}` redirige al tablero.
 
    Contexto: `replacements` -> `DocumentService.open_replacements`:
    [{type_code, name, status, note, requested_at}]. Lista vacía = no pinta nada.

@@ -973,6 +973,13 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
         "format_b": _format_b_progress(db.get(FormatB, process.id)),
     }
 
+    # Reemplazos abiertos (2026-10-15; desde 2026-11-10 en cualquier fase tras la
+    # 01): UNA consulta y SOLO para la tarjeta ACTUAL cuando el proceso los
+    # admite (`replacement_phase_ok`, con la fase del catálogo ya cargado). En
+    # la fase 0/1 el tablero no paga nada extra.
+    admite_reemplazo = DocumentService.replacement_phase_ok(
+        process, next((pd.number for pd in pdefs if pd.code == "initial_docs"), None))
+
     cards = []
     for pd in pdefs:
         ph = ph_by_number.get(pd.number)
@@ -1007,13 +1014,8 @@ def _phases_ctx(db, process, *, open_phase: int | None = None) -> dict:
             progress=progress,
             survey=(survey if pd.code == "review_appointment" else None),
             library=(library if pd.code == "review_appointment" else None),
-            # Reemplazos abiertos en la cita de cotejo (2026-10-15): UNA consulta
-            # y SOLO para la tarjeta de la fase de cotejo cuando es la actual;
-            # en cualquier otra fase el tablero no paga nada extra.
-            replacements=(
-                DocumentService.open_replacements(db, process.id)
-                if (pd.code == "review_appointment" and is_current
-                    and process.status == "active") else None),
+            replacements=(DocumentService.open_replacements(db, process.id)
+                          if (is_current and admite_reemplazo) else None),
         ))
 
     total = len(pdefs) or 9
@@ -1197,6 +1199,7 @@ def documents(
     from itcj2.database import SessionLocal
     from itcj2.apps.titulatec.models import Document, DocumentType
     from itcj2.apps.titulatec.services.document_service import DocumentService
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
     from itcj2.apps.titulatec.services.track_service import TrackService, TRACK_LICENCIATURA
 
     db = SessionLocal()
@@ -1207,10 +1210,10 @@ def documents(
         fase_inicial = _phase_of(db, "initial_docs")
         fuera_de_fase = _phase_guard_page(db, process, fase_inicial)
         # Modo reemplazo (2026-10-15): fuera de la fase 1 la página solo se
-        # reabre si Servicios Escolares pidió reemplazar algún documento en la
-        # cita de cotejo y el alumno puede subirlo (`student_can_replace`). Sin
-        # eso, el redirect de siempre. En la fase 1 (`fuera_de_fase` None) esta
-        # rama no consulta nada.
+        # reabre si Servicios Escolares pidió reemplazar algún documento (en el
+        # cotejo o, desde 2026-11-10, ya liberado) y el alumno puede subirlo
+        # (`student_can_replace`). Sin eso, el redirect de siempre. En la fase 1
+        # (`fuera_de_fase` None) esta rama no consulta nada.
         replace_mode = False
         abiertos: dict[str, dict] = {}
         if fuera_de_fase:
@@ -1267,6 +1270,9 @@ def documents(
             "track": track,
             "docs_total": len(slots),
             "replace_mode": replace_mode,
+            # Los textos del modo reemplazo hablan de la cita solo si está en ella.
+            "replace_in_cotejo": (replace_mode
+                                  and process.current_phase == PhaseService.PHASE_COTEJO),
         }
     finally:
         db.close()

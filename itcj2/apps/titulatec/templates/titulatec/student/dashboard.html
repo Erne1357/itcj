@@ -113,8 +113,9 @@
           {% endif %}
 
           {% if current.replacements %}
-          {# Reemplazo de documento pedido en la cita de cotejo (2026-10-15): destino
-             real del aviso in-app (`/student/fase/2` redirige aquí). #}
+          {# Reemplazo de documento pedido tras la fase 01 (2026-10-15; cualquier fase
+             desde 2026-11-10): destino real del aviso in-app (`/student/fase/N`
+             redirige aquí). #}
           {% with replacements = current.replacements %}{% include "titulatec/partials/student/_replacement_notice.html" %}{% endwith %}
           {% endif %}
 

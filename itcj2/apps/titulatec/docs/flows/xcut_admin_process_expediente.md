@@ -80,20 +80,20 @@ fase cuando quedan los tres aprobados; el del detalle no hacía ninguna de las d
 Se borró `POST /processes/{id}/documents/{type}/review`; queda el de la bandeja.
 
 **Única excepción: «Pedir reemplazo» (2026-10-15).** La lista de documentos de la fase 1
-(`partials/processes/_exp_phase.html`) sigue siendo de solo lectura salvo por UNA acción: con el proceso
-en la cita de cotejo y el permiso `titulatec.document.api.request_replacement` (solo la jefatura de
+(`partials/processes/_exp_phase.html`) sigue siendo de solo lectura salvo por UNA acción: con la fase 1
+ya cerrada (cotejo o, desde 2026-11-10, ya liberado) y el permiso `titulatec.document.api.request_replacement` (solo la jefatura de
 Servicios Escolares y `admin`), cada documento con fila trae un `<details id="exp-repl-det-{type_code}">`
 «Pedir reemplazo» con un textarea de motivo (obligatorio, ≤1000) y confirmación `hx-confirm` +
 `data-tt-confirm-ok`. No hay Aprobar ni Rechazar aquí: aprobar el reemplazo vive en la bandeja de
 Documentos y en el panel de Citas. Flujo completo:
 [`xcut_cotejo_document_replacement.md`](xcut_cotejo_document_replacement.md).
 
-- **Cuándo se pinta.** `_detail_ctx` calcula `in_cotejo` (proceso `active`, `current_phase` == fase
-  `review_appointment` del catálogo y esa `ProcessPhase` no `approved`; `pages/admin.py:1786-1790`, sin
-  consulta extra: reusa `pdefs`/`fases_db`) y `can_request_replacement` = permiso ∧ `in_cotejo`
-  (`:1844-1846`), las mismas condiciones que `request_replacement` niega con 400.
+- **Cuándo se pinta.** `_detail_ctx` calcula `replacement_phase_ok`
+  (`DocumentService.replacement_phase_ok`: proceso `active` y `current_phase` mayor que la fase
+  `initial_docs`; sin consulta extra: la fase sale de `pdefs`) y `can_request_replacement` = permiso ∧
+  `replacement_phase_ok`, las mismas condiciones que `request_replacement` niega con 400.
 - **Qué muestra de un reemplazo abierto.** Cada documento lleva `doc.replacement` (`pages/admin.py:1686`):
-  píldora ámbar «Reemplazo pedido en cotejo» y, si el alumno ya resubió (`pending`), «Reemplazo subido ·
+  píldora ámbar «Reemplazo pedido» y, si el alumno ya resubió (`pending`), «Reemplazo subido ·
   por aprobar». El motivo sale como `review_note` mientras está `rejected`.
 - **Ruta.** `POST /titulatec/admin/processes/{process_id}/documents/{type_code}/reemplazo`
   (`document_replacement`, `pages/admin.py:2613`; `async def` solo para leer el form +
@@ -248,7 +248,7 @@ primero. Decisiones:
 | `process_created` | `import_service.import_rows` | 0 | `source` (`csv`\|`manual`), `folio` |
 | `document_uploaded` | `DocumentService.save` | la del tipo | `type_code`, `original_name`, `version` |
 | `document_approved` / `document_rejected` | `DocumentService.review` | la del documento | `type_code`, `note` (+ `replacement: true` si el aprobado cerró un reemplazo, 2026-10-15) |
-| `document_replacement_requested` | `DocumentService.request_replacement` (2026-10-15) | la de cotejo (`review_appointment`) | `type_code`, `note` |
+| `document_replacement_requested` | `DocumentService.request_replacement` (2026-10-15) | la actual del proceso al pedirlo (2 en el cotejo, 3+ ya liberado; antes de 2026-11-10 siempre la de cotejo) | `type_code`, `note` |
 | `document_deleted` | `DocumentService.delete` | la del documento | `type_code` |
 | `phase_approved` / `phase_rejected` / `process_completed` | `PhaseService` | la de la fase | `reason` |
 | `appointment_*` (7 tipos) | `AppointmentService` | 2 | `scheduled_at`, `window_id`, `reason` |

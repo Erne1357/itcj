@@ -9,7 +9,7 @@
    Documentos, que exige motivo al rechazar y auto-avanza la fase al aprobar el
    tercero; tener dos caminos con dos reglas era la razón de quitarlo de aquí.
    La ÚNICA acción sobre los documentos es «Pedir reemplazo» (spec 2026-10-15):
-   con el proceso en la cita de cotejo y el permiso
+   con la fase 01 ya cerrada (cotejo o después, 2026-11-10) y el permiso
    `titulatec.document.api.request_replacement` (`can_request_replacement`), un
    `<details>` por documento con motivo obligatorio. El reemplazo abierto se
    pinta con su píldora; aprobarlo se hace en la bandeja o en el panel de Citas.
@@ -66,7 +66,7 @@
            `pending` sin motivo. #}
         {% if d.doc.replacement %}
         <span class="meta">
-          <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reemplazo pedido en cotejo</span>
+          <span class="tt-pill tt-pill--amber"><i class="bi bi-arrow-repeat" aria-hidden="true"></i>Reemplazo pedido</span>
           {%- if d.doc.review_status == 'pending' %} · Reemplazo subido · por aprobar{% endif %}</span>
         {% endif %}
         {% elif d.excused %}
@@ -95,7 +95,7 @@
          {% if d.type_code == doc_abierto %}aria-current="true"{% endif %}>
         <i class="bi bi-eye me-1" aria-hidden="true"></i>Ver</a>
       {% endif %}
-      {# Con «Archivo perdido» también: en la fase 2 pedir el reemplazo es la
+      {# Con «Archivo perdido» también: tras la fase 1 pedir el reemplazo es la
          única vía de que el egresado lo vuelva a subir. #}
       {% if can_request_replacement and d.doc %}
       {# «Pedir reemplazo»: id estable por documento (morph). Un `<details>`
