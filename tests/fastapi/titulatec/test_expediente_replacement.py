@@ -11,8 +11,9 @@ de negativas) es de `DocumentService.request_replacement`
 * motivo vacío / el service que niega -> 400 + `X-Tt-Error`, sin escribir;
 * éxito -> el expediente re-renderizado (`#exp-shell`) + `X-Tt-Notice`, el
   documento `rejected` con su bandera;
-* el `<details>` «Pedir reemplazo» aparece SOLO con permiso + proceso en cotejo,
-  y la píldora «Reemplazo pedido en cotejo» con el reemplazo abierto.
+* el `<details>` «Pedir reemplazo» aparece SOLO con permiso + fase 1 cerrada
+  (cotejo o, desde 2026-11-10, ya liberado), y la píldora «Reemplazo pedido»
+  con el reemplazo abierto.
 """
 from __future__ import annotations
 
@@ -119,7 +120,7 @@ class TestRuta:
     def test_el_expediente_devuelto_ya_muestra_la_pildora(self, caso, client_as):
         esc = caso()
         html = _post(client_as, esc).text
-        assert "Reemplazo pedido en cotejo" in _panel1(html)
+        assert "Reemplazo pedido" in _panel1(html)
 
     def test_sin_el_permiso_es_403_y_no_escribe(self, caso, client_as, db_session):
         esc = caso(con_permiso=False)
@@ -162,13 +163,22 @@ class TestRuta:
         assert doc.review_status == "approved"
         assert doc.replacement_requested_at is None
 
-    def test_fuera_de_cotejo_el_service_niega_con_400(self, caso, client_as, db_session):
+    def test_con_la_fase_1_abierta_el_service_niega_con_400(self, caso, client_as,
+                                                           db_session):
         from itcj2.apps.titulatec.services.document_service import DocumentService
-        esc = caso(current_phase=3)
+        esc = caso(current_phase=1)
         resp = _post(client_as, esc)
         assert resp.status_code == 400
-        assert _msg(resp) == DocumentService.REPLACEMENT_NOT_COTEJO_MSG
+        assert _msg(resp) == DocumentService.REPLACEMENT_PHASE1_OPEN_MSG
         assert _doc(db_session, esc["proc"].id).replacement_requested_at is None
+
+    def test_ya_liberado_tambien_se_pide(self, caso, client_as, db_session):
+        """2026-11-10: con el egresado en la fase 3 (liberado) también."""
+        esc = caso(current_phase=3)
+        resp = _post(client_as, esc)
+        assert resp.status_code == 200, _msg(resp)
+        assert _doc(db_session, esc["proc"].id).replacement_requested_at is not None
+        assert "Reemplazo pedido" in _panel1(resp.text)
 
     def test_un_tipo_que_no_es_de_la_fase_1_es_400(self, caso, client_as):
         esc = caso()
@@ -236,12 +246,13 @@ class TestPintado:
         assert "Pedir reemplazo" not in panel
         assert "/reemplazo" not in panel
 
-    @pytest.mark.parametrize("fase", [1, 3])
-    def test_fuera_de_cotejo_no_hay_form(self, caso, client_as, fase):
+    @pytest.mark.parametrize("fase,hay_form", [(1, False), (3, True), (5, True)])
+    def test_el_form_sale_solo_con_la_fase_1_cerrada(self, caso, client_as, fase,
+                                                    hay_form):
         esc = caso(current_phase=fase)
         panel = _panel1(client_as(esc["officer"]).get(
             f"{URL}/{esc['proc'].id}?fase=1").text)
-        assert "Pedir reemplazo" not in panel
+        assert ("Pedir reemplazo" in panel) is hay_form
 
     def test_proceso_revocado_no_ofrece_el_form(self, caso, client_as):
         esc = caso(status="cancelled")
@@ -266,9 +277,9 @@ class TestPintado:
         esc = caso(abiertos=("curp",))
         panel = _panel1(client_as(esc["officer"]).get(
             f"{URL}/{esc['proc'].id}?fase=1").text)
-        assert panel.count("Reemplazo pedido en cotejo") == 1
+        assert panel.count("Reemplazo pedido") == 1
         fila_curp = panel.split('id="exp-doc-curp"')[1].split('id="exp-doc-')[0]
-        assert "Reemplazo pedido en cotejo" in fila_curp
+        assert "Reemplazo pedido" in fila_curp
 
     def test_rechazado_muestra_el_motivo_y_pendiente_dice_por_aprobar(
             self, caso, client_as, db_session):
@@ -292,7 +303,7 @@ class TestPintado:
         esc = caso(con_permiso=False, abiertos=("curp",))
         panel = _panel1(client_as(esc["officer"]).get(
             f"{URL}/{esc['proc'].id}?fase=1").text)
-        assert "Reemplazo pedido en cotejo" in panel
+        assert "Reemplazo pedido" in panel
         assert "Pedir reemplazo" not in panel
 
     def test_un_aprobado_con_bandera_vieja_no_lleva_la_pildora(
@@ -304,7 +315,7 @@ class TestPintado:
         db_session.flush()
         panel = _panel1(client_as(esc["officer"]).get(
             f"{URL}/{esc['proc'].id}?fase=1").text)
-        assert "Reemplazo pedido en cotejo" not in panel
+        assert "Reemplazo pedido" not in panel
         assert 'id="exp-repl-curp"' in panel, "el form de pedir sí sigue ahí"
 
     def test_el_comentario_de_cabecera_ya_no_dice_solo_lectura(self):

@@ -343,8 +343,8 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
     # que `ProcessService.cancel` deja vigente).
     can_register_prior = False
     # Reemplazo de documentos en el cotejo (spec 2026-10-15 §7.1): cada botón
-    # solo se pinta para quien tiene su permiso; `in_cotejo` (proceso activo y
-    # parado en la fase de cotejo) evita ofrecer un botón que el servicio
+    # solo se pinta para quien tiene su permiso; `replacement_phase_ok` (proceso
+    # activo y fase 01 cerrada) evita ofrecer un botón que el servicio
     # contestaría con 400.
     can_request_replacement = False
     can_approve_docs = False
@@ -500,8 +500,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int, doc_abierto=None) -> dict 
         "can_register_prior": can_register_prior,
         "can_request_replacement": can_request_replacement,
         "can_approve_docs": can_approve_docs,
-        "in_cotejo": bool(proc.status == "active"
-                          and proc.current_phase == PhaseService.PHASE_COTEJO),
+        # La regla de `DocumentService.replacement_phase_ok` (activo y fase 01
+        # cerrada = en el cotejo o después, 2026-11-10) sin consultar el catálogo:
+        # esta pantalla ya fija el cotejo en `PHASE_COTEJO`.
+        "replacement_phase_ok": bool(proc.status == "active"
+                                     and proc.current_phase >= PhaseService.PHASE_COTEJO),
         "walkins_hoy": walkins_hoy,
         # I-3: `liberaciones_pendientes` apaga «Agendar a este alumno» /
         # «Atender ahora» en la plantilla cuando abrirían un intento que la

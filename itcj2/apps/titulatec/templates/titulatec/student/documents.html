@@ -3,7 +3,7 @@
 {% block student_active %}docs{% endblock %}
 {% block student_page %}student_documents{% endblock %}
 {% block student_appbar_title %}{{ 'Reemplazo de documentos' if replace_mode else 'Documentos iniciales' }}{% endblock %}
-{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{% if replace_mode %}Cita de cotejo{% elif track == "posgrado" %}Fase 01 · {{ docs_total }} documentos{% else %}Fase 01 · Acta · Certificado · CURP{% endif %}</div>{% endblock %}
+{% block student_appbar_sub %}<div style="font-size:.75rem;color:var(--tt-mute)">{% if replace_mode %}{{ 'Cita de cotejo' if replace_in_cotejo else 'Servicios Escolares' }}{% elif track == "posgrado" %}Fase 01 · {{ docs_total }} documentos{% else %}Fase 01 · Acta · Certificado · CURP{% endif %}</div>{% endblock %}
 {% block student_appbar_left %}
   <a href="/titulatec/student/dashboard" class="tt-iconbtn" aria-label="Volver"><i class="bi bi-chevron-left"></i></a>
 {% endblock %}
@@ -18,11 +18,11 @@
       </div>
     {% else %}
       {% if replace_mode %}<div class="tt-card mb-3 tt-anim-in" id="tt-replacement-intro">
-        <span class="tt-kicker">Reemplazo de documentos · Cita de cotejo</span>
+        <span class="tt-kicker">Reemplazo de documentos{{ ' · Cita de cotejo' if replace_in_cotejo }}</span>
         <p class="mb-0 mt-1" style="font-size:.82rem;color:var(--tt-slate)">
-          Servicios Escolares te pidió volver a subir los documentos marcados. Sube el que vas a
-          presentar en tu cita de cotejo; los demás no se pueden cambiar. Cuando lo apruebe, ya no
-          tendrás que hacer nada más aquí.
+          Servicios Escolares te pidió volver a subir los documentos marcados.
+          {% if replace_in_cotejo %}Sube el que vas a presentar en tu cita de cotejo; los{% else %}Los{% endif %}
+          demás no se pueden cambiar. Cuando lo apruebe, ya no tendrás que hacer nada más aquí.
         </p>
       </div>{% else %}<div class="tt-card mb-3 tt-anim-in">
         <span class="tt-kicker">Sube tus {{ docs_total }} documentos</span>

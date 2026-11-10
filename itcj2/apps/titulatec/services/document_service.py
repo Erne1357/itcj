@@ -62,10 +62,9 @@ class DocumentService:
     REPLACEMENT_NO_PROCESS_MSG = "El proceso no existe."
     REPLACEMENT_INACTIVE_MSG = ("El proceso no esta activo: no admite reemplazo "
                                 "de documentos.")
-    REPLACEMENT_NOT_COTEJO_MSG = ("Solo se puede pedir el reemplazo de un documento "
-                                  "durante la cita de cotejo (fase 02).")
-    REPLACEMENT_COTEJO_CLOSED_MSG = ("La fase 02 ya fue liberada: ya no se puede pedir "
-                                     "el reemplazo de un documento.")
+    # 2026-11-10: ya no solo en el cotejo -- en cualquier fase tras la 01.
+    REPLACEMENT_PHASE1_OPEN_MSG = ("La fase 01 sigue abierta: el documento se corrige "
+                                   "con el dictamen de la bandeja de Documentos.")
     REPLACEMENT_NOT_INITIAL_MSG = ("Ese documento no es de la fase 01 del alumno: "
                                    "no admite reemplazo.")
     REPLACEMENT_NO_DOC_MSG = ("El alumno no ha subido ese documento: no hay nada "
@@ -891,49 +890,68 @@ class DocumentService:
     # DISTINTO del que subió en la fase 1. `review` congela el dictamen de una
     # fase ya pasada (`PHASE_CLOSED_MSG`), así que la jefatura de Servicios
     # Escolares tiene su vía APARTE, con permiso propio: `request_replacement`.
+    # Desde 2026-11-10 vale en CUALQUIER fase tras la 1 (`replacement_phase_ok`),
+    # también con el egresado ya liberado, no solo en el cotejo.
     # «Reemplazo abierto» = `replacement_requested_at` no NULL Y no `approved`
     # (`replacement_open`, R7); lo cierra solo `review(status="approved")`.
     # Ciclo: approved -> (pide) rejected+abierto -> (sube) pending+abierto ->
     # (aprueba) approved, cerrado.
     @staticmethod
+    def replacement_phase_ok(process, initial_docs_phase) -> bool:
+        """¿El proceso admite reemplazos por su FASE? `active` y con la fase
+        `initial_docs` ya cerrada (`current_phase` mayor que ella), en
+        CUALQUIER fase posterior: el cotejo (spec 2026-10-15) y, desde
+        2026-11-10, también ya liberado por Servicios Escolares (fase 3+, en
+        manos de Titulación). PURO: el llamador resuelve `initial_docs_phase`
+        del catálogo; None -> False (falla CERRADO).
+
+        Lo usan `request_replacement`, `student_can_replace` y los botones
+        «Pedir reemplazo» (bandeja, expediente, tablero del alumno).
+        """
+        actual = getattr(process, "current_phase", None)
+        return (process is not None and process.status == "active"
+                and isinstance(initial_docs_phase, int)
+                and isinstance(actual, int) and not isinstance(actual, bool)
+                and actual > initial_docs_phase)
+
+    @staticmethod
     def request_replacement(db: Session, process_id: int, type_code: str, *,
                             note: str | None, actor_id: int):
         """La jefatura pide que el egresado vuelva a subir un documento de su
-        fase 1 estando en la cita de cotejo (spec §4.1 y §5). Devuelve el
-        `Document`.
+        fase 1 en cualquier fase posterior: la cita de cotejo (spec §4.1 y §5)
+        o, desde 2026-11-10, ya liberado. Devuelve el `Document`.
 
         Exige, en este orden (cualquier otra cosa -> `ValueError` con un
         `REPLACEMENT_*_MSG` ASCII, SIN escribir nada): motivo no vacío tras
         `strip()` y de a lo más `REPLACEMENT_NOTE_MAX` caracteres; el proceso
-        existe y está `active`; su `current_phase` es la fase
-        `review_appointment` del catálogo (sin esa fase en el catálogo, falla
-        CERRADO) y esa `ProcessPhase` no está `approved`; el TIPO es de la
-        fase `initial_docs`, está activo y pertenece al set del perfil
-        (`initial_doc_types_for`); y el documento existe. La fila se bloquea
-        (`with_for_update`) antes de escribir.
+        existe y está `active`; ya pasó la fase `initial_docs`
+        (`replacement_phase_ok`; sin esa fase en el catálogo, falla CERRADO);
+        el TIPO es de la fase `initial_docs`, está activo y pertenece al set
+        del perfil (`initial_doc_types_for`); y el documento existe. La fila
+        se bloquea (`with_for_update`) antes de escribir.
 
         R9 (revisión final 2026-10-15): ANTES de validar la fase se bloquea la
         fila del PROCESO (`FOR NO KEY UPDATE`, `key_share=True`, igual que
         `ProcessService.cancel`) y se relee. `PhaseService.approve_phase`
         toma el mismo bloqueo al liberar la fase 2, antes de su compuerta: o
-        este pedido ve la fase ya liberada (`REPLACEMENT_COTEJO_CLOSED_MSG`),
-        o la liberación espera y ve el reemplazo abierto. Antes las dos podían
-        validar a la vez y terminar con la fase 2 aprobada Y un reemplazo
-        abierto que nadie iba a cerrar. `NO KEY` no choca con el `FOR KEY
-        SHARE` de los INSERT con FK al proceso (eventos, avisos).
+        la liberación ve el reemplazo abierto y se niega, o este pedido ve el
+        proceso ya en la fase 3 y el reemplazo queda abierto ahí (ya no hay
+        compuerta que trabar). `NO KEY` no choca con el `FOR KEY SHARE` de
+        los INSERT con FK al proceso (eventos, avisos).
 
         Escribe `rejected` + motivo + revisor y, SOLO si no estaba abierto,
         `replacement_requested_at = db_now()`: pedirlo otra vez (p. ej. el
         alumno subió el archivo equivocado) conserva la fecha original. Deja
-        `ProcessEvent(document_replacement_requested)` en la fase de cotejo
-        (la bitácora lo espeja sola), el aviso in-app
-        `DOCUMENT_REPLACEMENT_REQUESTED` y el correo de dictamen de siempre
+        `ProcessEvent(document_replacement_requested)` en la fase ACTUAL del
+        proceso (la bitácora lo espeja sola), el aviso in-app
+        `DOCUMENT_REPLACEMENT_REQUESTED` (también de la fase actual: su liga
+        abre esa tarjeta del tablero) y el correo de dictamen de siempre
         (`StudentMail.doc_reviewed`, grupo `docs:`). Commit propio.
 
         No mira permisos: eso es de la ruta (`titulatec.document.api.
         request_replacement`).
         """
-        from itcj2.apps.titulatec.models import DocumentType, ProcessPhase, TitulationProcess
+        from itcj2.apps.titulatec.models import DocumentType, TitulationProcess
         from itcj2.apps.titulatec.services.notify import notify_student
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         from itcj2.apps.titulatec.services.student_mail import StudentMail
@@ -952,19 +970,12 @@ class DocumentService:
             raise ValueError(DocumentService.REPLACEMENT_NO_PROCESS_MSG)
         if process.status != "active":
             raise ValueError(DocumentService.REPLACEMENT_INACTIVE_MSG)
-        fase_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
-        if fase_cotejo is None or process.current_phase != fase_cotejo:
-            raise ValueError(DocumentService.REPLACEMENT_NOT_COTEJO_MSG)
-        estado_fase = (db.query(ProcessPhase.status)
-                       .filter_by(process_id=process.id, phase_number=fase_cotejo)
-                       .scalar())
-        if estado_fase == "approved":
-            raise ValueError(DocumentService.REPLACEMENT_COTEJO_CLOSED_MSG)
-
         fase_inicial = PhaseService.phase_number_for_code(db, "initial_docs")
+        if not DocumentService.replacement_phase_ok(process, fase_inicial):
+            raise ValueError(DocumentService.REPLACEMENT_PHASE1_OPEN_MSG)
+
         dtype = db.query(DocumentType).filter_by(code=type_code).first()
-        if (dtype is None or fase_inicial is None
-                or dtype.phase_number != fase_inicial or not dtype.is_active
+        if (dtype is None or dtype.phase_number != fase_inicial or not dtype.is_active
                 or type_code not in DocumentService.initial_doc_types_for(db, process)):
             raise ValueError(DocumentService.REPLACEMENT_NOT_INITIAL_MSG)
 
@@ -979,12 +990,12 @@ class DocumentService:
             doc.replacement_requested_at = db_now()
 
         DocumentService._log(db, process.id, actor_id, "document_replacement_requested",
-                             fase_cotejo, {"type_code": type_code, "note": motivo})
+                             process.current_phase, {"type_code": type_code, "note": motivo})
         nombre = dtype.name or type_code
         notify_student(db, process.student_id, type="DOCUMENT_REPLACEMENT_REQUESTED",
                        title="Servicios Escolares te pidió reemplazar un documento",
                        body=f"{nombre}: {motivo}",
-                       process_id=process.id, phase_number=fase_cotejo)
+                       process_id=process.id, phase_number=process.current_phase)
         # El correo de dictamen de siempre: lleva a Documentos, que se abre en
         # modo reemplazo para este documento. Sin kind nuevo (spec §5).
         StudentMail.doc_reviewed(db, process, type_code=type_code, doc_name=nombre,
@@ -1028,10 +1039,11 @@ class DocumentService:
 
     @staticmethod
     def student_can_replace(db: Session, process, type_code: str) -> bool:
-        """¿Puede el alumno SUBIR este documento de la fase 1 estando ya en la
-        cita de cotejo? (spec §4.3). Proceso `active`, `current_phase` == fase
-        `review_appointment` del catálogo y reemplazo ABIERTO en la fila
-        (`replacement_open`, R7: bandera y no `approved`). `process=None` -> False.
+        """¿Puede el alumno SUBIR este documento de la fase 1 estando ya en una
+        fase posterior? (spec §4.3; desde 2026-11-10 no solo en el cotejo).
+        `replacement_phase_ok` (activo y fase 1 cerrada) y reemplazo ABIERTO
+        en la fila (`replacement_open`, R7: bandera y no `approved`).
+        `process=None` -> False.
 
         Es la excepción a `_phase_guard` SOLO para subir: borrar sigue negado
         fuera de la fase 1, y la guarda del set del perfil la sigue aplicando
@@ -1042,8 +1054,8 @@ class DocumentService:
 
         if process is None or process.status != "active":
             return False
-        fase_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
-        if fase_cotejo is None or process.current_phase != fase_cotejo:
+        if not DocumentService.replacement_phase_ok(
+                process, PhaseService.phase_number_for_code(db, "initial_docs")):
             return False
         doc = DocumentService.get_document(db, process.id, type_code)
         return doc is not None and DocumentService.replacement_open(

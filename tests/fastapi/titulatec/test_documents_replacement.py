@@ -106,7 +106,7 @@ def test_sin_tipo_de_documento_es_400(escenario, jefa, client_as):
     assert resp.headers["X-Tt-Error"]
 
 
-def test_fuera_de_la_cita_de_cotejo_es_400_con_el_mensaje_del_service(
+def test_con_la_fase_1_abierta_es_400_con_el_mensaje_del_service(
         escenario, jefa, client_as):
     from itcj2.apps.titulatec.services.document_service import DocumentService
 
@@ -115,7 +115,7 @@ def test_fuera_de_la_cita_de_cotejo_es_400_con_el_mensaje_del_service(
     resp = client_as(jefa).post(URL % proc.id, data={"type_code": "curp", "note": "Otro"})
 
     assert resp.status_code == 400
-    assert resp.headers["X-Tt-Error"] == DocumentService.REPLACEMENT_NOT_COTEJO_MSG
+    assert resp.headers["X-Tt-Error"] == DocumentService.REPLACEMENT_PHASE1_OPEN_MSG
 
 
 # ───────────────────────────── éxito ──────────────────────────────────────────
@@ -181,13 +181,29 @@ def test_el_boton_no_aparece_en_la_fase_1(escenario, jefa, client_as):
     assert 'id="tt-inline-replace"' not in html
 
 
-def test_el_boton_no_aparece_pasada_la_fase_de_cotejo(escenario, jefa, client_as):
+def test_el_boton_sigue_ya_liberado(escenario, jefa, client_as):
+    """2026-11-10: pasada la fase de cotejo (fase 3, liberado) también se pide."""
     proc, _ = escenario(current_phase=3)
 
     html = _body(client_as(jefa), proc)
 
     assert 'data-phase-closed="1"' in html
-    assert 'id="tt-inline-replace"' not in html
+    assert 'id="tt-inline-replace"' in html
+
+
+def test_ya_liberado_se_pide_desde_la_bandeja(escenario, jefa, client_as, db_session):
+    from itcj2.apps.titulatec.models import Document
+
+    proc, _ = escenario(current_phase=3)
+
+    resp = client_as(jefa).post(URL % proc.id,
+                                data={"type_code": "curp", "note": "No coincide con T-soft"})
+
+    assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
+    db_session.expire_all()
+    doc = db_session.query(Document).filter_by(process_id=proc.id, type_code="curp").one()
+    assert (doc.review_status, doc.replacement_requested_at is not None) == ("rejected", True)
+    assert "Reemplazo pedido" in resp.text
 
 
 def test_solo_con_el_permiso_nuevo_el_form_existe(escenario, make_head, client_as):
@@ -211,7 +227,7 @@ def test_la_pildora_marca_solo_el_documento_con_reemplazo_abierto(
 
     html = _body(client_as(jefa), proc)
 
-    assert html.count("Reemplazo en cotejo") == 1
+    assert html.count("Reemplazo pedido") == 1
     assert html.count('data-replacement="1"') == 1
     assert html.count('data-replacement="0"') == 2
 
@@ -223,7 +239,7 @@ def test_un_aprobado_con_bandera_vieja_no_es_reemplazo_abierto(escenario, jefa, 
 
     html = _body(client_as(jefa), proc)
 
-    assert "Reemplazo en cotejo" not in html
+    assert "Reemplazo pedido" not in html
     assert html.count('data-replacement="0"') == 3
     assert 'id="tt-inline-replace"' in html, "pedir uno nuevo sí sigue disponible"
 

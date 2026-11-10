@@ -315,11 +315,9 @@ def _annotate_phase_lock(db, detail):
 
     n = PhaseService.phase_number_for_code(db, "initial_docs")
     current = detail.get("current_phase")
-    # `in_cotejo`: el proceso (siempre `active` aquí: `_body_ctx` solo arma
-    # procesos activos) está en la fase `review_appointment` del catálogo. Con
-    # `phase_closed` y el permiso nuevo habilita «Pedir reemplazo».
-    n_cotejo = PhaseService.phase_number_for_code(db, "review_appointment")
-    detail["in_cotejo"] = n_cotejo is not None and current == n_cotejo
+    # `phase_closed` + el permiso habilitan «Pedir reemplazo»: los procesos de
+    # aquí son siempre `active` (`_body_ctx`), así que es la misma regla que
+    # `DocumentService.replacement_phase_ok` (2026-11-10: cualquier fase tras la 01).
     en_fase = n is not None and current == n
     detail["phase_closed"] = n is not None and isinstance(current, int) and current > n
     faltan = [d for d in detail["docs"] if d["status"] not in ("approved", "excused")]

@@ -1782,13 +1782,11 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
             "when": (f"{ful.fulfilled_at:%d/%m/%Y}" if ful and ful.fulfilled_at else None),
         })
 
-    # ¿El proceso está en la cita de cotejo y sin liberarla? Misma regla que
-    # `request_replacement` (R4: la fase sale del catálogo por su código).
-    fase_cotejo = next((pd.number for pd in pdefs if pd.code == "review_appointment"), None)
-    ph_cotejo = fases_db.get(fase_cotejo) if fase_cotejo is not None else None
-    in_cotejo = (proc.status == "active" and fase_cotejo is not None
-                 and current == fase_cotejo
-                 and not (ph_cotejo is not None and ph_cotejo.status == "approved"))
+    # ¿Admite reemplazos? Misma regla que `request_replacement`
+    # (`replacement_phase_ok`: activo y fase 01 cerrada, 2026-11-10); la fase
+    # sale del catálogo ya cargado, sin consulta extra.
+    replacement_phase_ok = DocumentService.replacement_phase_ok(
+        proc, next((pd.number for pd in pdefs if pd.code == "initial_docs"), None))
 
     # Los controles se pintan solo para quien puede usarlos: un boton que
     # contesta 403 es peor que no estar. Mismo patron que `cohort_detail`.
@@ -1841,14 +1839,12 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         # (`titulatec.library_clearance.api.prior`, ya otorgado por el DML).
         can_register_prior = ("titulatec.library_clearance.api.prior" in _user_perms
                               and proc.status != "cancelled")
-        # «Pedir reemplazo» (spec 2026-10-15 §7.1): permiso propio Y proceso en
-        # la cita de cotejo (activo, fase de cotejo sin liberar) -las mismas
-        # condiciones que `DocumentService.request_replacement` niega con 400-:
-        # un botón que contesta 400 es peor que no estar. `pdefs`/`fases_db` ya
-        # están cargados arriba, sin consulta extra.
+        # «Pedir reemplazo» (spec 2026-10-15 §7.1): permiso propio Y la regla de
+        # fase de `DocumentService.request_replacement` (lo que niega con 400):
+        # un botón que contesta 400 es peor que no estar.
         can_request_replacement = (
             "titulatec.document.api.request_replacement" in _user_perms
-            and in_cotejo)
+            and replacement_phase_ok)
 
     # La revocación vigente (motivo, cuándo, quién). Dict plano: se renderiza
     # después del `db.close()` de la ruta.
@@ -1955,7 +1951,6 @@ def _detail_ctx(db, process_id: int, *, user_id: int | None = None, open_phase=N
         "library": library,
         "can_register_prior": can_register_prior,
         "can_request_replacement": can_request_replacement,
-        "in_cotejo": in_cotejo,
         "format_amount": format_amount,
         "correos": correos,
     }

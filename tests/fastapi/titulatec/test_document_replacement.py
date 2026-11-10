@@ -16,9 +16,10 @@ Ciclo: approved -> (pide) rejected+abierto -> (sube) pending+abierto ->
 
 Lo que se fija aquí:
 
-* la matriz de `request_replacement` (fase 1/2/3, inactivo, sin documento, sin
-  motivo, fuera del set del perfil, fase 2 ya aprobada, catálogo sin la fase de
-  cotejo) -- todo error con mensaje ASCII y SIN escribir nada;
+* la matriz de `request_replacement` (fase 0/1 negada; 2 y, desde 2026-11-10,
+  3+ ya liberado sí; inactivo, sin documento, sin motivo, fuera del set del
+  perfil, catálogo sin la fase inicial) -- todo error con mensaje ASCII y SIN
+  escribir nada;
 * pedirlo otra vez conserva la fecha original;
 * `save` conserva la bandera y deja el documento «por evaluar»;
 * `review` aprueba y limpia; el rechazo por la vía normal sigue negado;
@@ -169,6 +170,29 @@ class TestPedirReemplazo:
             "status": "rejected", "note": "El acta fisica es otra",
         })]
 
+    @pytest.mark.parametrize("fase", [3, 4])
+    def test_ya_liberado_tambien_y_el_rastro_va_en_su_fase(self, db_session, esc, fase):
+        """2026-11-10: la jefa lo pide también con el egresado ya liberado (fase 2
+        aprobada, proceso en manos de Titulación). Evento y aviso van en la fase
+        ACTUAL: su liga abre la tarjeta que el alumno tiene enfrente."""
+        from itcj2.apps.titulatec.models import ProcessPhase
+        proc, _docs, student = esc["build"](current_phase=fase)
+        (db_session.query(ProcessPhase)
+         .filter_by(process_id=proc.id, phase_number=2).one()).status = "approved"
+        db_session.flush()
+
+        _pedir(db_session, proc, "curp", note="El acta de T-soft no coincide", esc=esc)
+
+        doc = _doc(db_session, proc.id)
+        assert (doc.review_status, doc.review_note) == (
+            "rejected", "El acta de T-soft no coincide")
+        assert doc.replacement_requested_at is not None
+        [ev] = _eventos(db_session, proc.id, "document_replacement_requested")
+        assert ev.phase_number == fase
+        [(sid, aviso)] = esc["avisos"]
+        assert (sid, aviso["phase_number"]) == (student.id, fase)
+        assert len(esc["correos"]) == 1
+
     def test_pedirlo_otra_vez_conserva_la_fecha_original(self, db_session, esc,
                                                          make_user):
         proc, _docs, _ = esc["build"](estados=("approved", "approved", "rejected"),
@@ -226,15 +250,15 @@ class TestPedirReemplazoNegativas:
         assert (doc.review_status, doc.replacement_requested_at) == (estado, None)
         assert _eventos(db, proc.id, "document_replacement_requested") == []
 
-    @pytest.mark.parametrize("fase", [1, 3])
-    def test_fuera_de_la_fase_de_cotejo(self, db_session, esc, fase):
+    @pytest.mark.parametrize("fase", [0, 1])
+    def test_con_la_fase_1_abierta_es_la_via_normal(self, db_session, esc, fase):
         from itcj2.apps.titulatec.services.document_service import DocumentService
         proc, _docs, _ = esc["build"](current_phase=fase)
 
         with pytest.raises(ValueError) as exc:
             _pedir(db_session, proc, esc=esc)
 
-        assert str(exc.value) == DocumentService.REPLACEMENT_NOT_COTEJO_MSG
+        assert str(exc.value) == DocumentService.REPLACEMENT_PHASE1_OPEN_MSG
         self._sin_cambios(db_session, proc)
         assert esc["avisos"] == [] and esc["correos"] == []
 
@@ -304,33 +328,19 @@ class TestPedirReemplazoNegativas:
 
         assert str(exc.value) == DocumentService.REPLACEMENT_NOT_INITIAL_MSG
 
-    def test_con_la_fase_2_ya_aprobada(self, db_session, esc):
-        from itcj2.apps.titulatec.models import ProcessPhase
-        from itcj2.apps.titulatec.services.document_service import DocumentService
-        proc, _docs, _ = esc["build"]()
-        (db_session.query(ProcessPhase)
-         .filter_by(process_id=proc.id, phase_number=2).one()).status = "approved"
-        db_session.flush()
-
-        with pytest.raises(ValueError) as exc:
-            _pedir(db_session, proc, esc=esc)
-
-        assert str(exc.value) == DocumentService.REPLACEMENT_COTEJO_CLOSED_MSG
-        self._sin_cambios(db_session, proc)
-
-    def test_sin_la_fase_de_cotejo_en_el_catalogo_falla_cerrado(self, db_session, esc,
-                                                                monkeypatch):
+    def test_sin_la_fase_inicial_en_el_catalogo_falla_cerrado(self, db_session, esc,
+                                                              monkeypatch):
         from itcj2.apps.titulatec.services.document_service import DocumentService
         from itcj2.apps.titulatec.services.phase_service import PhaseService
         proc, _docs, _ = esc["build"]()
         original = PhaseService.phase_number_for_code
         monkeypatch.setattr(PhaseService, "phase_number_for_code", staticmethod(
-            lambda db, code: None if code == "review_appointment" else original(db, code)))
+            lambda db, code: None if code == "initial_docs" else original(db, code)))
 
         with pytest.raises(ValueError) as exc:
             _pedir(db_session, proc, esc=esc)
 
-        assert str(exc.value) == DocumentService.REPLACEMENT_NOT_COTEJO_MSG
+        assert str(exc.value) == DocumentService.REPLACEMENT_PHASE1_OPEN_MSG
         self._sin_cambios(db_session, proc)
 
     def test_proceso_inexistente(self, db_session, esc):
@@ -426,7 +436,8 @@ class TestLecturas:
         (2, "active", "approved", False, False),     # cerrado
         (2, "active", "rejected", False, False),     # rechazado sin reemplazo
         (1, "active", "rejected", True, False),      # fase 1: la vía normal
-        (3, "active", "rejected", True, False),
+        (3, "active", "rejected", True, True),       # ya liberado (2026-11-10)
+        (3, "active", "approved", False, False),
         (2, "on_hold", "rejected", True, False),
         (2, "cancelled", "rejected", True, False),
     ])
@@ -772,7 +783,8 @@ class TestBloqueoDelProceso:
         _, sql = _contar(db_session, lambda: _pedir(db_session, proc, "curp", esc=esc))
 
         bloqueo = _primera(sql, _lock_del_proceso)
-        fase = _primera(sql, lambda s: "FROM titulatec_process_phases" in s)
+        # La fase se valida contra el catálogo (`initial_docs`, 2026-11-10).
+        fase = _primera(sql, lambda s: "FROM titulatec_phase_definitions" in s)
         assert bloqueo is not None, sql
         assert fase is not None and bloqueo < fase, sql
 

@@ -326,8 +326,9 @@ Aquí solo lo que pasa en este panel:
   fuera de `#appt-docbar`: ni el `src` del iframe ni los botones de documento cambian, así que el PDF no se
   recarga. Muestra la píldora de estado, «Reemplazo pedido» y, con `rejected`, el motivo; con `pending` +
   abierto, «Reemplazo subido · por aprobar».
-- **«Pedir reemplazo»** (solo con `titulatec.document.api.request_replacement` y el proceso en cotejo:
-  `can_request_replacement`, `pages/appointments.py:346-358`) es una **navegación** con `&reemplazo=<type_code>`
+- **«Pedir reemplazo»** (solo con `titulatec.document.api.request_replacement` y el proceso activo en el
+  cotejo o después —`replacement_phase_ok`, 2026-11-10—: `can_request_replacement`,
+  `pages/appointments.py:346-358`) es una **navegación** con `&reemplazo=<type_code>`
   — el mismo idiom que `&rechazar=` de la fase 02 (`hx-confirm` no recoge texto, `prompt()` está prohibido) —
   que abre el textarea `#appt-docreplace-note`. La ruta es `document_replacement`
   (`pages/appointments.py:2215`, `async def` solo para leer el form + `_cuerpo_document_replacement`, `:2235`):
