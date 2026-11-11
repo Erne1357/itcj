@@ -1,4 +1,4 @@
-"""Genera las 6 plantillas del sistema de Prórrogas a partir de las cartas reales.
+"""Genera las 5 plantillas del sistema de Prórrogas a partir de las cartas reales.
 
 Uso (dentro del contenedor backend, desde /app):
 
@@ -6,11 +6,16 @@ Uso (dentro del contenedor backend, desde /app):
         --source instance/tmp/prorrogas_ejemplos \
         --out itcj2/apps/prorrogas_tec/documents/defaults
 
-- Las tres cartas compromiso salen de las tres cartas reales de Antecedentes:
+- Las dos cartas compromiso salen de las cartas reales de Antecedentes (la de 3
+  pagos ya no es válida, 2026-11-10):
   los datos del estudiante se cambian por marcadores (tabla LITERALS) y se
   agrega el lugar de la firma electrónica sobre el nombre del estudiante.
 - Las otras tres (aceptación, rechazo, formato de solicitud) parten del
   membrete de la carta de 1 pago y llevan el texto de spec §6.4.
+
+OJO (2026-11-10): las cartas compromiso de `defaults/` se corrigieron a mano después
+(una sola hoja, la de 1 pago con el diseño de la de 2, fecha sin resaltado negro y la
+firma sobre la raya). Correr esto de nuevo las regresa a la versión vieja.
 
 Se detiene con código 1 si un texto real no aparece tal cual o si una plantilla
 generada no cumple los marcadores de su formato: nunca escribe a medias.
@@ -42,7 +47,6 @@ BASE_NEW_LETTERS = "Prórroga un pago 2026.docx"
 SOURCES = {
     "carta_compromiso_1": "Prórroga un pago 2026.docx",
     "carta_compromiso_2": "Prórroga en dos exhibiciones 2026.docx",
-    "carta_compromiso_3": "Prórroga tres pagos 2026 .docx",
 }
 
 # Texto real → marcador, en orden. Las claves salen de las cartas de Antecedentes.
@@ -69,20 +73,6 @@ LITERALS = {
         "Licenciatura en Administración": "{{carrera}}",
         "$1,575.00 a efectuarse el día 26 de febrero de 2026": "{{pago1_monto}} a efectuarse el día {{pago1_fecha}}",
         "$1,575.00 a efectuarse el día 23 de abril de 2026": "{{pago2_monto}} a efectuarse el día {{pago2_fecha}}",
-        "MARIO MACARIO RUIZ GRIJALVA": "{{director_nombre}}",
-        "EDUARDO RAFAEL POBLANO OJINAGA": "{{subdirector_admin_nombre}}",
-        "Jeovanny Rafael Rodríguez Mejía": "{{subdirector_nombre}}",
-    },
-    "carta_compromiso_3": {
-        "03/febrero/2026": "{{fecha}}",
-        "$3,650.00": "{{monto_total}}",
-        "enero – junio 2026": "{{semestre}}",
-        "HERNANDEZ SOLANO JOSE ESAU": "{{nombre}}",
-        "24112010": "{{no_control}}",
-        "Ingeniería en Sistemas Computacionales EAD": "{{carrera}}",
-        "$1,217.00 a efectuarse el día 13 de febrero de 2026": "{{pago1_monto}} a efectuarse el día {{pago1_fecha}}",
-        "$1,217.00 a efectuarse el día 27 de febrero de 2026": "{{pago2_monto}} a efectuarse el día {{pago2_fecha}}",
-        "$1,216.00 a efectuarse el día 27 de marzo de 2026": "{{pago3_monto}} a efectuarse el día {{pago3_fecha}}",
         "MARIO MACARIO RUIZ GRIJALVA": "{{director_nombre}}",
         "EDUARDO RAFAEL POBLANO OJINAGA": "{{subdirector_admin_nombre}}",
         "Jeovanny Rafael Rodríguez Mejía": "{{subdirector_nombre}}",
@@ -237,7 +227,7 @@ def validate(code: str, data: bytes) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--source", required=True, type=Path, help="carpeta con las 3 cartas reales")
+    ap.add_argument("--source", required=True, type=Path, help="carpeta con las cartas reales")
     ap.add_argument("--out", required=True, type=Path, help="carpeta de salida (documents/defaults)")
     args = ap.parse_args()
 

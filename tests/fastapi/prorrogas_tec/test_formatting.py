@@ -35,14 +35,13 @@ def test_semestre_label():
 
 
 def test_split_amount_pesos_enteros_con_sobrante_a_los_primeros():
-    assert split_amount(Decimal("3650"), 3) == [Decimal("1217"), Decimal("1217"), Decimal("1216")]
+    assert split_amount(Decimal("3651"), 2) == [Decimal("1826"), Decimal("1825")]
     assert split_amount(Decimal("3150"), 2) == [Decimal("1575"), Decimal("1575")]
     assert split_amount(Decimal("6400"), 1) == [Decimal("6400")]
     assert split_amount(Decimal("1000.50"), 2) == [Decimal("500"), Decimal("500.50")]
-    assert sum(split_amount(Decimal("3651"), 3)) == Decimal("3651")
 
 
-@pytest.mark.parametrize("total, n", [(Decimal("100"), 0), (Decimal("100"), 4), (Decimal("0"), 1)])
+@pytest.mark.parametrize("total, n", [(Decimal("100"), 0), (Decimal("100"), 3), (Decimal("0"), 1)])
 def test_split_amount_rechaza_entradas_fuera_de_rango(total, n):
     with pytest.raises(ValueError):
         split_amount(total, n)

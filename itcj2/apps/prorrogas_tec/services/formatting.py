@@ -17,8 +17,7 @@ MESES: tuple[str, ...] = (
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 )
 
-MAX_PAGOS = 3  # split_amount (muestra de carta_compromiso_3)
-MAX_PAGOS_PLAN = 2  # tope de un plan nuevo
+MAX_PAGOS_PLAN = 2  # tope de un plan nuevo (las históricas del Excel pueden tener 3)
 MONTO_MAX = Decimal("99999999.99")  # tope de Numeric(10,2)
 
 
@@ -70,11 +69,11 @@ def split_amount(total: Decimal, n: int) -> list[Decimal]:
     """Reparte ``total`` en ``n`` pagos de pesos enteros.
 
     El sobrante de pesos va a los primeros pagos y los centavos al último:
-    $3,650 en 3 → $1,217 · $1,217 · $1,216, como en la carta real de 3 pagos.
+    $3,651 en 2 → $1,826 · $1,825.
     """
     total = Decimal(total)
-    if not 1 <= n <= MAX_PAGOS:
-        raise ValueError(f"El número de pagos debe estar entre 1 y {MAX_PAGOS}.")
+    if not 1 <= n <= MAX_PAGOS_PLAN:
+        raise ValueError(f"El número de pagos debe estar entre 1 y {MAX_PAGOS_PLAN}.")
     if total <= 0:
         raise ValueError("El monto debe ser mayor que cero.")
     enteros = int(total)

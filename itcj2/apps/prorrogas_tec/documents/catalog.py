@@ -74,8 +74,7 @@ DOC_TYPES: dict[str, DocType] = {
             images=frozenset(),
         ),
         _compromiso(1),
-        _compromiso(2),
-        _compromiso(3),
+        _compromiso(2),  # la de 3 pagos ya no es válida (2026-11-10)
     )
 }
 

@@ -72,7 +72,7 @@ itcj2/apps/prorrogas_tec/
 │   ├── limpio.py               escribe y lee el archivo limpio (Parcialidades y Revisar)
 │   └── importador.py           crea las solicitudes origin='excel' (idempotente por ref, --dry-run)
 ├── documents/
-│   ├── catalog.py              los 6 formatos y sus marcadores (spec §6.2)
+│   ├── catalog.py              los 5 formatos y sus marcadores (spec §6.2)
 │   ├── values.py               valores con que se llena cada formato
 │   └── defaults/               plantillas del sistema (tools/prorrogas/build_default_templates.py)
 ├── pages/                      /prorrogas · router, landing, join (unirse y Crea tu NIP), secretaria, student

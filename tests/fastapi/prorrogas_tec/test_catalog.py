@@ -9,9 +9,9 @@ from itcj2.apps.prorrogas_tec.documents.catalog import (
 )
 
 
-def test_hay_seis_formatos_en_orden():
+def test_hay_cinco_formatos_en_orden():  # la carta de 3 pagos ya no es válida
     assert list(DOC_TYPES) == ["formato_solicitud", "carta_aceptacion", "carta_rechazo",
-                               "carta_compromiso_1", "carta_compromiso_2", "carta_compromiso_3"]
+                               "carta_compromiso_1", "carta_compromiso_2"]
 
 
 @pytest.mark.parametrize("code", list(DOC_TYPES))
@@ -41,9 +41,9 @@ def test_los_datos_de_ejemplo_cubren_todo_lo_permitido(code):
     assert DOC_TYPES[code].allowed <= set(values) | set(images)
 
 
-def test_ejemplo_de_tres_pagos_reparte_3650():
-    values, _ = sample_values("carta_compromiso_3", today=date(2026, 1, 13))
-    assert [values[f"pago{i}_monto"] for i in (1, 2, 3)] == ["$1,217.00", "$1,217.00", "$1,216.00"]
+def test_ejemplo_de_dos_pagos_reparte_3650():
+    values, _ = sample_values("carta_compromiso_2", today=date(2026, 1, 13))
+    assert [values[f"pago{i}_monto"] for i in (1, 2)] == ["$1,825.00", "$1,825.00"]
     assert values["pago1_fecha"] == "13 de febrero de 2026" and values["fecha"] == "13/enero/2026"
 
 

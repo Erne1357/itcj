@@ -24,12 +24,12 @@ def test_estudiante_recibe_403(client_as, estudiante):
     assert client_as(estudiante).get(API).status_code == 403
 
 
-def test_lista_seis_tipos_y_el_anio_actual(client_as, secretaria):
+def test_lista_cinco_tipos_y_el_anio_actual(client_as, secretaria):  # la carta de 3 pagos ya no es válida
     body = client_as(secretaria).get(API).json()
-    assert [t["code"] for t in body["tipos"]][0] == "formato_solicitud" and len(body["tipos"]) == 6
+    assert [t["code"] for t in body["tipos"]][0] == "formato_solicitud" and len(body["tipos"]) == 5
     assert db_now().year in [a["anio"] for a in body["anios"]]
     for a in body["anios"]:
-        assert len(a["plantillas"]) == 6
+        assert len(a["plantillas"]) == 5
         assert {p["origen"] for p in a["plantillas"]} <= {"subida", "heredada", "sistema"}
 
 
@@ -78,7 +78,7 @@ def test_vista_previa_devuelve_pdf_sin_marcadores(client_as, secretaria, monkeyp
         return b"%PDF-1.4 fake"
 
     monkeypatch.setattr("itcj2.core.utils.docx_pdf.docx_to_pdf", fake)
-    r = client_as(secretaria).get(f"{API}/vista-previa/carta_compromiso_3.pdf?anio={ANIO}")
+    r = client_as(secretaria).get(f"{API}/vista-previa/carta_compromiso_2.pdf?anio={ANIO}")
     assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
     assert seen == {"placeholders": set(), "kind": "prorrogas_documento"}
 

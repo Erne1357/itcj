@@ -46,7 +46,7 @@ _COMPROMISO = {"director_nombre", "subdirector_nombre", "subdirector_admin_nombr
 
 @pytest.mark.parametrize("code, marcadores", [
     ("carta_compromiso_1", _COMPROMISO), ("carta_compromiso_2", _COMPROMISO),
-    ("carta_compromiso_3", _COMPROMISO), ("formato_solicitud", {"subdirector_nombre"}),
+    ("formato_solicitud", {"subdirector_nombre"}),
 ])
 def test_las_plantillas_del_sistema_ya_no_traen_el_nombre_escrito(code, marcadores):
     assert marcadores <= set(find_placeholders(default_template_path(code).read_bytes()))
