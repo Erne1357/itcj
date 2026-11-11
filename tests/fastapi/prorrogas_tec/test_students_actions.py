@@ -119,10 +119,12 @@ def test_recordatorio_dice_si_el_pago_ya_vencio(db_session, aceptada, make_acept
                for r in (aceptada, al_dia)]
     assert cuerpos == ["Saldo $1,000.00. Tienes un pago vencido desde el 01 de enero de 2020 por $1,000.00.",
                        "Saldo $500.00. Próximo pago: 01 de mayo de 2091 por $500.00."]
+    assert [c["subject"] for c in enviar_correo.calls] == ["Tienes un pago vencido", "Tu próximo pago vence el 01 de mayo"]
     plantilla = templates.env.get_template("prorrogas_tec/email/recordatorio.html")
     vencido, proximo = (plantilla.render(**c["context"]) for c in enviar_correo.calls)
-    assert "pago vencido desde el 01 de enero de 2020 por $1,000.00" in vencido and "próximo pago" not in vencido
-    assert "Tu próximo pago es el 01 de mayo de 2091 por $500.00" in proximo and "vencido" not in proximo
+    assert "Venció el" in vencido and "01 de enero de 2020" in vencido and "$1,000.00" in vencido
+    assert "No podrás inscribirte" in vencido and "próximo pago" not in vencido
+    assert "Tu próximo pago vence el 01 de mayo de 2091" in proximo and "$500.00" in proximo and "vencido" not in proximo
 
 
 def test_no_se_recuerda_sin_cuenta_ni_correo(db_session, make_historica, secretaria, avisos):  # M4

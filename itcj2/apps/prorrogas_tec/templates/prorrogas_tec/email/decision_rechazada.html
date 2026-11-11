@@ -1,6 +1,13 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "neutro" %}
+{% block titulo %}Tu solicitud de prórroga no fue autorizada{% endblock %}
+{% block preheader %}{% if comentario %}Aquí está el motivo. {% endif %}{% if adjunto %}Tu carta de resolución viene adjunta.{% endif %}{% endblock %}
+{% block etiqueta %}No autorizada{% endblock %}
+{% block encabezado %}Tu solicitud no fue autorizada{% endblock %}
 {% block cuerpo %}
-<p>Tu solicitud de prórroga <strong>{{ folio }}</strong> no fue autorizada.</p>
-{% if comentario %}<p><strong>Motivo:</strong> {{ comentario }}</p>{% endif %}
+{% if comentario %}{{ m.motivo(comentario) }}{% endif %}
+<p style="{{ m.P }}">{% if adjunto %}Tu carta de resolución viene adjunta en PDF.{% else %}Puedes descargar tu carta de resolución en Mi prórroga.{% endif %}</p>
+<p style="{{ m.NOTA }}">Si tienes dudas, acude a la Subdirección Académica.</p>
 {% endblock %}
 {% block boton %}Ver mi solicitud{% endblock %}

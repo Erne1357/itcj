@@ -1,6 +1,11 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "pendiente" %}
+{% block titulo %}Te falta firmar tu carta compromiso{% endblock %}
+{% block preheader %}Puedes firmarla desde tu celular en Mi prórroga.{% endblock %}
+{% block etiqueta %}Firma pendiente{% endblock %}
+{% block encabezado %}Te falta firmar tu carta compromiso{% endblock %}
 {% block cuerpo %}
-<p>Aún te falta firmar la carta compromiso de tu prórroga <strong>{{ folio }}</strong>.</p>
-<p>Entra a Mi prórroga para firmarla.</p>
+<p style="{{ m.P }}margin-bottom:24px;">Entra a Mi prórroga y fírmala en pantalla. Puedes hacerlo desde tu celular o tu computadora.</p>
 {% endblock %}
 {% block boton %}Firmar mi carta{% endblock %}

@@ -246,6 +246,7 @@ class StudentsService:
         body = (f"Saldo {pesos(c.saldo)}. Tienes un pago vencido desde el {fecha} por {monto}." if vencido
                 else f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.")
         salio = notify.notify_student(db, req, kind="recordatorio", link="/prorrogas/estudiante", body=body,
+                                      titulo=notify.titulo_recordatorio(p.due_date, vencido),
                                       context={"saldo": pesos(c.saldo), "proxima_fecha": fecha,
                                                "proxima_monto": monto, "vencido": vencido})
         if salio:

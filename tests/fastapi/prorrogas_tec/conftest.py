@@ -206,7 +206,8 @@ def lector(make_user, make_role, grant):
 
 @pytest.fixture()
 def estudiante(make_user, make_role, grant):
-    user = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=f"99{next(_seq):06d}")
+    # 99440…: con "99{n:06d}" la primera era 99000001, el estudiante de prueba de la base de dev
+    user = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=f"99440{next(_seq):03d}")
     grant(user, make_role("student", STUDENT_PERMS))
     return user
 

@@ -1,6 +1,7 @@
 """Recibos de Caja de una solicitud con plan: registrar y anular (nunca se borran)."""
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time
 from decimal import Decimal
 
@@ -9,11 +10,13 @@ from sqlalchemy.exc import IntegrityError
 
 from itcj2.apps.prorrogas_tec.models.plan import ProrrogaPayment
 from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
-from itcj2.apps.prorrogas_tec.services import account
+from itcj2.apps.prorrogas_tec.services import account, notify
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
 from itcj2.apps.prorrogas_tec.services.events import log_event
-from itcj2.apps.prorrogas_tec.services.formatting import parse_monto, pesos
+from itcj2.apps.prorrogas_tec.services.formatting import fecha_larga, parse_monto, pesos
 from itcj2.core.utils.timezone import db_now
+
+logger = logging.getLogger(__name__)
 
 _UQ_FOLIO = "uq_prorrogas_payments_folio_vigente"
 
@@ -80,7 +83,29 @@ class PaymentService:
         except Exception:
             db.rollback()
             raise
+        PaymentService._avisar(db, request_id, req, pago, today)
         return pago
+
+    @staticmethod
+    def _avisar(db, request_id: int, req, pago, today: date) -> None:
+        """Aviso y correo del recibo; el que liquida manda el de prórroga pagada. Va tras el commit: sin candados
+        durante Graph, y nunca lanza: el recibo ya está firme y Caja no debe ver un error."""
+        try:
+            c = account.load(db, req, today)
+            datos = {"monto": pesos(pago.amount), "fecha": fecha_larga(pago.paid_on), "folio_caja": pago.folio,
+                     "total": pesos(c.total), "saldo": pesos(c.saldo)}
+            if c.situacion == "liquidada":
+                kind, body = "liquidada", f"Pagaste {datos['total']} en total. Sube el recibo de tu último pago en Mi prórroga."
+            else:
+                datos.update(proxima_fecha=fecha_larga(c.proxima.due_date),
+                             proxima_monto=pesos(c.proxima.amount - c.proxima.cubierto))
+                kind, body = "pago_registrado", (f"{datos['monto']} con folio {pago.folio}. Saldo {datos['saldo']}. "
+                                                 "Sube tu recibo en Mi prórroga.")
+            notify.notify_student(db, req, kind=kind, link="/prorrogas/estudiante", body=body, context=datos)
+            db.commit()  # el aviso en la plataforma sale con este commit
+        except Exception:
+            logger.exception("No se pudo guardar el aviso del recibo de la solicitud %s", request_id)
+            db.rollback()
 
     @staticmethod
     def settle_next(db, request_id: int, actor_id: int, *, numero: int, monto: str, folio: str,

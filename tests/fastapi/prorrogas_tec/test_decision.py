@@ -90,3 +90,4 @@ def test_la_decision_adjunta_la_carta(db_session, solicitud, secretaria, monkeyp
     RequestService.decide(db_session, solicitud.id, secretaria.id, aceptar=aceptar, comentario="Motivo de prueba")
     nombre, pdf = enviados[0]["attachments"][0]
     assert nombre.endswith(f"-{tipo}.pdf") and pdf.startswith(b"%PDF")
+    assert enviados[0]["context"]["adjunto"] is True  # el correo dice "viene adjunta" solo si de verdad va

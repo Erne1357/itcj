@@ -270,10 +270,13 @@ def graph_send_mail(
     to_list: list[str],
     save_to_sent: bool = True,
     attachments: list[tuple[str, bytes]] | None = None,
+    inline: list[tuple[str, bytes]] | None = None,
 ):
     """Envio delegado: usa /me/sendMail (envia como el usuario autenticado).
 
     `attachments`: pares (nombre, bytes) de PDF; sin ellos el mensaje no cambia.
+    `inline`: pares (cid, bytes) de PNG que el HTML usa como `src="cid:<cid>"`. Van dentro
+    del correo, así que Outlook los muestra sin "Descargar imágenes".
     """
     endpoint = "https://graph.microsoft.com/v1.0/me/sendMail"
     payload = {
@@ -286,12 +289,17 @@ def graph_send_mail(
         },
         "saveToSentItems": bool(save_to_sent),
     }
-    if attachments:
-        payload["message"]["attachments"] = [
-            {"@odata.type": "#microsoft.graph.fileAttachment", "name": name,
-             "contentType": "application/pdf", "contentBytes": base64.b64encode(data).decode("ascii")}
-            for name, data in attachments
-        ]
+    adjuntos = [
+        {"@odata.type": "#microsoft.graph.fileAttachment", "name": name,
+         "contentType": "application/pdf", "contentBytes": base64.b64encode(data).decode("ascii")}
+        for name, data in attachments or []
+    ] + [
+        {"@odata.type": "#microsoft.graph.fileAttachment", "name": cid, "contentId": cid, "isInline": True,
+         "contentType": "image/png", "contentBytes": base64.b64encode(data).decode("ascii")}
+        for cid, data in inline or []
+    ]
+    if adjuntos:
+        payload["message"]["attachments"] = adjuntos
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",

@@ -97,7 +97,7 @@ def test_pdf_no_disponible_deja_el_plan_anterior(db_session, aceptada, secretari
 
 
 @pytest.mark.parametrize("kind, titulo, cuerpo", [
-    ("carta_lista", "Tu carta compromiso está lista para firmar", "Entra a Mi prórroga para firmarla."),
+    ("carta_lista", "Firma tu carta compromiso", "Entra a Mi prórroga para firmarla."),
     ("plan_modificado", "Tu plan de pagos cambió",
      "Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso."),
 ])
@@ -167,9 +167,10 @@ def test_el_aviso_del_plan_lleva_fechas_y_montos(db_session, aceptada, secretari
     assert [p["etiqueta"] for p in kw["context"]["pagos"]] == ["Pago 1/2", "Pago 2/2"]
 
 
-@pytest.mark.parametrize("plantilla", ["carta_lista.html", "plan_modificado.html"])
-def test_el_correo_del_plan_lista_los_pagos(plantilla):
+@pytest.mark.parametrize("plantilla, boton", [("carta_lista.html", "Firmar mi carta"),
+                                              ("plan_modificado.html", "Firmar mi nueva carta")])
+def test_el_correo_del_plan_lista_los_pagos(plantilla, boton):
     from itcj2.templates import templates
     html = templates.env.get_template(f"prorrogas_tec/email/{plantilla}").render(
         folio="PR-1", link="x", total="$10.00", pagos=[{"etiqueta": "Pago único", "fecha": "01 de mayo de 2091", "monto": "$10.00"}])
-    assert "Pago único" in html and "01 de mayo de 2091" in html and "Firmar mi carta" in html
+    assert "Pago único" in html and "01 de mayo de 2091" in html and boton in html

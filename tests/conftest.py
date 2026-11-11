@@ -124,6 +124,14 @@ def _sin_veredicto_compartido_de_contrasena(monkeypatch):
     monkeypatch.setattr("itcj2.core.utils.security._shared_redis", lambda: None)
 
 
+@pytest.fixture(autouse=True)
+def _sin_buzones_reales(monkeypatch, tmp_path):
+    """Ninguna prueba manda correos de verdad. Con un buzón conectado en dev (instance/apps/<app>/email),
+    las pruebas que avisan al estudiante mandaban correos reales (2026-11-10). Aquí ningún buzón existe:
+    `acquire_token_silent` da None en todas las apps. La prueba que simula un envío parcha el suyo."""
+    monkeypatch.setattr("itcj2.core.utils.msgraph_mail._INSTANCE_BASE", tmp_path / "apps")
+
+
 # ---------------------------------------------------------------------------
 # App fixture: FastAPI TestClient con mocks
 # ---------------------------------------------------------------------------

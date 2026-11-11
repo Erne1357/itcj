@@ -40,6 +40,7 @@ class ReminderService:
                 fecha, monto = fecha_larga(p.due_date), pesos(p.amount - p.cubierto)
                 salio = notify.notify_student(
                     db, req, kind="recordatorio", link="/prorrogas/estudiante",
+                    titulo=notify.titulo_recordatorio(p.due_date, False),
                     body=f"Saldo {pesos(c.saldo)}. Próximo pago: {fecha} por {monto}.",
                     context={"saldo": pesos(c.saldo), "proxima_fecha": fecha, "proxima_monto": monto,
                              "vencido": False})

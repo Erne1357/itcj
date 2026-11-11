@@ -1,6 +1,14 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "ok" %}
+{% block titulo %}Tu prórroga fue aceptada{% endblock %}
+{% block preheader %}{% if adjunto %}Tu carta de aceptación viene adjunta. {% endif %}Te llegará otro correo cuando tu plan de pagos esté listo.{% endblock %}
+{% block etiqueta %}Aceptada{% endblock %}
+{% block encabezado %}Tu prórroga fue aceptada{% endblock %}
 {% block cuerpo %}
-<p>Tu solicitud de prórroga <strong>{{ folio }}</strong> fue aceptada.</p>
-<p>La secretaria armará tu plan de pagos con base en tu referencia bancaria. Te avisaremos cuando esté listo.</p>
+<p style="{{ m.P }}">{% if adjunto %}Tu carta de aceptación viene adjunta en PDF.{% else %}Puedes descargar tu carta de aceptación en Mi prórroga.{% endif %}</p>
+{{ m.pasos(["Se prepara tu plan de pagos con tu referencia bancaria.",
+            "Te llegará un correo cuando esté listo para que firmes tu carta compromiso."]) }}
+<p style="{{ m.NOTA }}">Si aún no subes tu referencia bancaria, súbela en Mi prórroga.</p>
 {% endblock %}
 {% block boton %}Ver mi solicitud{% endblock %}

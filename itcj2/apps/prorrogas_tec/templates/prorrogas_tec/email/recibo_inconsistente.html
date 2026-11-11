@@ -1,7 +1,13 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "pendiente" %}
+{% block titulo %}Revisa el recibo que subiste{% endblock %}
+{% block preheader %}Hay un dato que no coincide en el recibo del pago {{ numero }}.{% endblock %}
+{% block etiqueta %}Recibo por revisar{% endblock %}
+{% block encabezado %}Revisa el recibo del pago {{ numero }}{% endblock %}
 {% block cuerpo %}
-<p>La secretaría revisó el recibo que subiste del <strong>pago {{ numero }}</strong> de la prórroga <strong>{{ folio }}</strong> y encontró algo que no coincide:</p>
-<p><strong>Motivo:</strong> {{ motivo }}</p>
-<p>Si hace falta, súbelo de nuevo en Mi prórroga.</p>
+<p style="{{ m.P }}">Tu recibo del pago {{ numero }} tiene un dato que no coincide:</p>
+{{ m.motivo(motivo) }}
+<p style="{{ m.NOTA }}">Si subiste el archivo equivocado, cámbialo en Mi prórroga.</p>
 {% endblock %}
-{% block boton %}Ir a Mi prórroga{% endblock %}
+{% block boton %}Revisar mi recibo{% endblock %}

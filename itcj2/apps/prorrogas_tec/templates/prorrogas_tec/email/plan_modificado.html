@@ -1,7 +1,13 @@
 {% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "pendiente" %}
+{% block titulo %}Tu plan de pagos cambió{% endblock %}
+{% block preheader %}Revisa las nuevas fechas y firma tu nueva carta.{% endblock %}
+{% block etiqueta %}Firma pendiente{% endblock %}
+{% block encabezado %}Tu plan de pagos cambió{% endblock %}
 {% block cuerpo %}
-<p>El plan de pagos de tu prórroga <strong>{{ folio }}</strong> cambió.</p>
+<p style="{{ m.P }}">Estas son las nuevas fechas de tu prórroga:</p>
 {% include "prorrogas_tec/email/_pagos.html" %}
-<p>Revisa tus nuevas fechas en Mi prórroga y firma tu nueva carta compromiso.</p>
+<p style="{{ m.NOTA }}">La carta anterior ya no es válida. Firma la nueva en Mi prórroga.</p>
 {% endblock %}
-{% block boton %}Firmar mi carta{% endblock %}
+{% block boton %}Firmar mi nueva carta{% endblock %}

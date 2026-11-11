@@ -127,7 +127,7 @@ def invite(db, *, raw_control, email, actor_id, now=None) -> tuple[ProrrogaInvit
     db.commit()  # antes del correo: sin candados durante Graph y sin ligas a una invitación que no se guardó
     link = invitation_link(token)
     enviado = notify.send_email(template="invitacion.html", context={"link": link},
-                                subject="Invitación al módulo de Prórrogas", to=correo, link=link)
+                                subject="Ya puedes solicitar tu prórroga de pago", to=correo, link=link)
     return invitacion, token, enviado
 
 

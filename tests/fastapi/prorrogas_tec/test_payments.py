@@ -97,6 +97,16 @@ def test_saldar_dos_veces_no_cobra_doble(db_session, aceptada, cajero, con_plan)
     assert load(db_session, aceptada, HOY).pagado == D("1000.00")
 
 
+def test_cada_cobro_avisa_y_el_ultimo_avisa_que_quedo_pagada(db_session, aceptada, cajero, con_plan):
+    from itcj2.core.models.notification import Notification
+    _plan(con_plan, aceptada)
+    _saldar(db_session, aceptada, cajero, 1, "ZZ-110")
+    _saldar(db_session, aceptada, cajero, 2, "ZZ-111")
+    tipos = [n.type for n in db_session.query(Notification).filter_by(user_id=aceptada.student_id)
+             .order_by(Notification.id)]
+    assert tipos == ["prorroga_pago_registrado", "prorroga_liquidada"]
+
+
 @pytest.mark.parametrize("numero", [2, 9])
 def test_saldar_fuera_de_orden(db_session, aceptada, cajero, con_plan, numero):
     _plan(con_plan, aceptada)

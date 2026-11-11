@@ -1,0 +1,15 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "ok" %}
+{% block titulo %}Tu pago quedó registrado{% endblock %}
+{% block preheader %}Caja registró tu pago de {{ monto }}. Sube tu recibo en Mi prórroga para que quede respaldado.{% endblock %}
+{% block etiqueta %}Pago registrado{% endblock %}
+{% block encabezado %}Tu pago quedó registrado{% endblock %}
+{% block cuerpo %}
+<p style="{{ m.P }}">La Caja de Recursos Financieros registró tu pago.</p>
+{{ m.datos([("Monto pagado", monto), ("Fecha de pago", fecha), ("Folio del recibo", folio_caja),
+            ("Saldo pendiente de tu prórroga", saldo)]) }}
+{{ m.pasos(["Sube tu recibo escaneado en Mi prórroga. Así tu pago queda respaldado también de tu lado.",
+            "Tu próximo pago es de " ~ proxima_monto ~ " a más tardar el " ~ proxima_fecha ~ "."], margen="24px") }}
+{% endblock %}
+{% block boton %}Subir mi recibo{% endblock %}
