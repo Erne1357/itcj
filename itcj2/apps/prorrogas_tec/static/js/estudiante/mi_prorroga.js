@@ -73,7 +73,7 @@
   function resumenAceptada(s) {
     const c = s.cuenta, p = el("p", null, "lead");
     if (s.por_firmar) p.append("Te falta ", el("strong", "un paso"), ": firmar tu carta compromiso.");
-    else if (c.total === null) p.textContent = "La secretaria armará tu plan de pagos con base en tu referencia bancaria. Te avisaremos cuando esté listo.";
+    else if (c.total === null) p.textContent = "Tu plan de pagos se arma con base en tu referencia bancaria. Te avisaremos cuando esté listo.";
     else if (c.situacion === "liquidada") p.textContent = "Ya liquidaste tu prórroga.";
     else p.textContent = "Paga en las fechas de tu plan.";
     return p;
@@ -260,7 +260,7 @@
       btn.disabled = false;
     });
     return tarjeta(el("h2", "Sube tu referencia bancaria", "h2"),
-      el("p", "Con ella la secretaria arma tu plan de pagos. Solo PDF, máximo 5 MB.", "hint"), inp, btn, err);
+      el("p", "Con ella se arma tu plan de pagos. Solo PDF, máximo 5 MB.", "hint"), inp, btn, err);
   }
 
   function seccionCancelar(s) {
@@ -284,14 +284,14 @@
       if (s.cuenta.total === null) nodos.push(seccionReferencia(s));
     } else if (s.estado === "aceptada") {
       estado.append(resumenAceptada(s), datos(s));
-      if (s.comentario) estado.append(el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote ok"));
+      if (s.comentario) estado.append(el("p", "Comentario de la Subdirección Académica", "label"), el("p", s.comentario, "quote ok"));
       if (s.cuenta.total === null) nodos.push(seccionReferencia(s));
       if (s.por_firmar) nodos.push(firmaSec = seccionFirma(s));
       if (s.cuenta.total !== null) nodos.push(planDePagos(s), recibos(s.recibos || []));
     } else {
       estado.append(datos(s));
       if (s.estado === "rechazada" && s.comentario) {
-        nodos.push(tarjeta(el("h2", "¿Por qué?", "h2"), el("p", "Comentario de la secretaria", "label"), el("p", s.comentario, "quote")));
+        nodos.push(tarjeta(el("h2", "¿Por qué?", "h2"), el("p", "Comentario de la Subdirección Académica", "label"), el("p", s.comentario, "quote")));
       }
     }
     if (s.documentos && s.documentos.length) nodos.push(documentos(s));

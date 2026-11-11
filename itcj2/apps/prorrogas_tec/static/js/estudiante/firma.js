@@ -43,6 +43,8 @@
       trazos++;
       avisar();
     }
+    // iOS: con el dedo quieto abre la lupa y selecciona el texto vecino ("Borrar"); así el toque solo dibuja.
+    canvas.addEventListener("touchstart", function (e) { e.preventDefault(); }, { passive: false });
     canvas.addEventListener("pointerup", fin);
     canvas.addEventListener("pointercancel", fin);
 

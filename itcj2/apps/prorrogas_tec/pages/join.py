@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 
 from itcj2.apps.prorrogas_tec.services import invitation_service as inv
 from itcj2.apps.prorrogas_tec.services.errors import ServiceError
+from itcj2.apps.prorrogas_tec.services.identity import nombre_corto
 from itcj2.dependencies import DbSession
 from itcj2.templates import render
 
@@ -64,7 +65,8 @@ def unirse_qr(request: Request, db: DbSession, t: str = ""):
     except ServiceError as e:
         return _qr_error(request, e)
     return _page(request, "unirse_aceptar.html", {"title": "Prórrogas · Unirse", "token": t,
-                                                   "nombre": user.full_name, "control": user.control_number})
+                                                   "nombre": user.full_name, "control": user.control_number,
+                                                   "nombre_corto": nombre_corto(user.first_name, user.last_name)})
 
 
 @router.post("", name="prorrogas_tec.pages.unirse.aceptar")
@@ -94,7 +96,8 @@ def unirse_invitacion(request: Request, db: DbSession, token: str):
         return _error(request, "Esta invitación es de otra cuenta.", 403)
     user = invitacion.user
     return _page(request, "unirse_aceptar.html", {"title": "Prórrogas · Unirse", "token": token,
-                                                   "nombre": user.full_name, "control": user.control_number})
+                                                   "nombre": user.full_name, "control": user.control_number,
+                                                   "nombre_corto": nombre_corto(user.first_name, user.last_name)})
 
 
 @router.post("/invitacion/{token}", name="prorrogas_tec.pages.unirse.invitacion_aceptar")

@@ -31,6 +31,11 @@ def folio(req) -> str:
     return f"PR-{codigo}-{req.id:05d}"
 
 
+def nombre_corto(first_name: str | None, last_name: str | None) -> str:
+    """Primer apellido y primer nombre: ``PÉREZ`` + ``JUAN CARLOS`` → ``Pérez Juan`` (cabe en la barra del celular)."""
+    return " ".join([(last_name or "").strip().title()] + (first_name or "").split()[:1]).title().strip()
+
+
 def _codigo_de_etiqueta(etiqueta: str) -> str:
     """Históricas sin semestre de core: ``agosto – diciembre 2024`` → ``20243``."""
     p = etiqueta.split()

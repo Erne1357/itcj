@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from itcj2.apps.prorrogas_tec.services.events import log_event
-from itcj2.apps.prorrogas_tec.services.identity import folio, institutional_email, normalize_control
+from itcj2.apps.prorrogas_tec.services.identity import folio, institutional_email, normalize_control, nombre_corto
 from itcj2.apps.prorrogas_tec.services.periods import period_for, period_label
 
 
@@ -55,3 +55,9 @@ def test_semestre_ignora_los_archivados(db_session, periodo):
                                   end_date=date(2091, 6, 10), status="ARCHIVED"))
     db_session.flush()
     assert period_for(db_session, date(2091, 2, 1)).id == periodo.id
+
+
+def test_nombre_corto_para_la_barra():
+    assert nombre_corto("JUAN CARLOS", "PÉREZ") == "Pérez Juan"
+    assert nombre_corto("MARÍA", "DE LA CRUZ") == "De La Cruz María"
+    assert [nombre_corto(None, "PÉREZ"), nombre_corto("JUAN", None), nombre_corto(None, None)] == ["Pérez", "Juan", ""]
