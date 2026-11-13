@@ -268,7 +268,7 @@
     if (st && host.contains(st.box)) return st;
 
     var input = host.querySelector('input[name="pattern"]');
-    st = { seq: parse(input && input.value), input: input, drawing: false, fresh: false, anims: [] };
+    st = { seq: parse(input && input.value), host: host, input: input, drawing: false, fresh: false, anims: [] };
     states.set(host, st);
 
     st.box = el('div', 'cam-pattern cam-editor__device');
@@ -302,24 +302,30 @@
       st.fresh = false;
       st.grid.rubber.classList.remove('is-on');
     }
+    pad.addEventListener('contextmenu', function (e) { e.preventDefault(); });   // pulsación larga táctil
     pad.addEventListener('pointerdown', function (e) {
-      if (e.button > 0) return;
-      if (pad.setPointerCapture) pad.setPointerCapture(e.pointerId);
+      if (e.button > 0 || (st.drawing && e.pointerId !== st.pid)) return;   // un solo puntero traza
+      st.pid = e.pointerId;
+      try { pad.setPointerCapture(e.pointerId); } catch (err) { /* puntero ya inactivo */ }
       st.drawing = true;
       st.fresh = true;          // trazo nuevo = patrón nuevo, pero solo si toca un punto
       st.last = local(e);
       if (st.last && hit(st, st.last, st.last)) render(st);
     });
     pad.addEventListener('pointermove', function (e) {
-      if (!st.drawing) return;
+      if (!st.drawing || e.pointerId !== st.pid) return;
       var pt = local(e);
       if (!pt) return;
+      if (!st.last) st.last = pt;
       if (hit(st, st.last, pt)) render(st);
       st.last = pt;
       rubber(st, pt);
     });
-    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { pad.addEventListener(t, end); });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) {
+      pad.addEventListener(t, function (e) { if (e.pointerId === st.pid) end(); });
+    });
     pad.addEventListener('keydown', function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;   // no secuestrar Ctrl/Cmd+1 (cambio de pestaña)
       if (/^[1-9]$/.test(e.key)) add(st, +e.key);
       else if (e.key === 'Backspace') st.seq.pop();
       else if (e.key === 'Delete') st.seq = [];
@@ -373,9 +379,11 @@
     setSeq(st.grid, st.seq);
     paint(st.grid, st.seq, n, n - 1, -1);
     if (st.pinged) { ping(st, st.pinged); st.pinged = 0; }
-    if (st.input && st.input.value !== val) {
-      st.input.value = val;
-      st.input.dispatchEvent(new Event('change', { bubbles: true }));
+    var input = st.host.querySelector('input[name="pattern"]') || st.input;   // un morph pudo reemplazarlo
+    st.input = input;
+    if (input && input.value !== val) {
+      input.value = val;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
     }
     st.readout.textContent = n ? st.seq.join(' → ') : 'Traza el patrón sobre la cuadrícula';
     st.readout.classList.toggle('is-empty', !n);
@@ -415,7 +423,7 @@
     var scope = btn.closest('[data-revealed]') || document;
     var pw = scope.querySelector('[data-cam-pw]');
     if (!pw) return;
-    var text = pw.textContent;
+    var text = pw.textContent;   // el portapapeles conserva la contraseña tras sellar (inherente, por diseño)
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(
         function () { copied(btn, pw, true); },
@@ -487,7 +495,7 @@
   }
 
   function tick(box, st) {
-    if (!box.isConnected) { clearInterval(st.timer); return; }
+    if (!box.isConnected || !box.hasAttribute('data-revealed')) { clearInterval(st.timer); return; }
     var left = st.deadline - Date.now();
     if (left <= 0) {
       seal(box, false);
@@ -504,6 +512,10 @@
   function seal(box, byUser) {
     var st = states.get(box);
     if (st && st.timer) clearInterval(st.timer);
+    box.querySelectorAll('[data-cam-copy]').forEach(function (b) {
+      var cs = states.get(b);
+      if (cs) clearTimeout(cs.t);
+    });
     var hadFocus = box.contains(document.activeElement);
     var tpl = box.querySelector(':scope > template[data-cam-sealed]');
     if (!tpl) { box.remove(); return; }
