@@ -16,7 +16,7 @@ from itcj2.core.services import desktop_service as ds
 from itcj2.database import get_db
 from tests.conftest import make_jwt
 
-APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "titulatec", "prorrogas_tec"]
+APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "cameras", "titulatec", "prorrogas_tec"]
 
 # Sprite del contrato compartido (plan, "Contratos compartidos").
 SPRITE = ("menu search bell wifi wifi-off minus square restore x refresh external trash user "
