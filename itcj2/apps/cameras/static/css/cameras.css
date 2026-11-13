@@ -327,7 +327,9 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-dot__halo, .cam-dot__ping, .cam-dot__disc { transform-box: fill-box; transform-origin: center; }
 .cam-dot__idle { fill: var(--cam-screen-idle); transition: opacity .15s; }
 .cam-grid--edit .cam-dot__idle { fill: none; stroke: var(--cam-screen-idle); stroke-width: 2.5; }
-.cam-dot__pos { fill: var(--cam-screen-mute); font-size: 15px; font-weight: 600; transition: opacity .15s; }
+.cam-dot__pos { fill: var(--cam-screen-mute); font-size: 15px; font-weight: 600; opacity: 0; transition: opacity .15s; }
+/* numero de posicion solo con foco de teclado, para teclear 1-9 */
+.cam-grid--edit:focus-visible .cam-dot__pos { opacity: 1; }
 .cam-dot__halo { fill: none; stroke: var(--cam-signal); stroke-width: 2.5; opacity: 0; }
 .cam-dot__ping { fill: none; stroke: var(--cam-signal); stroke-width: 3; opacity: 0; }
 .cam-dot__disc {
