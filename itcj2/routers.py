@@ -37,6 +37,10 @@ def register_routers(app: FastAPI):
     from itcj2.apps.directory.router import directory_router
     app.include_router(directory_router)
 
+    # Cameras API v2 (placeholder; app pages-only)
+    from itcj2.apps.cameras.router import cameras_router
+    app.include_router(cameras_router)
+
     # Prórrogas API v2 (prórrogas de pago — /api/prorrogas/v2)
     from itcj2.apps.prorrogas_tec.router import prorrogas_tec_router
     app.include_router(prorrogas_tec_router)
@@ -70,6 +74,10 @@ def register_routers(app: FastAPI):
     # Directory pages (prefix /directory): directorio de extensiones telefónicas
     from itcj2.apps.directory.pages.router import directory_pages_router
     app.include_router(directory_pages_router)
+
+    # Cameras pages (prefix /cameras): credenciales cifradas de DVR
+    from itcj2.apps.cameras.pages.router import cameras_pages_router
+    app.include_router(cameras_pages_router)
 
     # Prórrogas pages (prefix /prorrogas): landing, student, admin
     from itcj2.apps.prorrogas_tec.pages.router import prorrogas_tec_pages_router

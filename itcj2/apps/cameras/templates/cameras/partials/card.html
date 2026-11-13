@@ -1,0 +1,20 @@
+{# Tarjeta sellada de un DVR. Nunca lleva usuario, notas ni secretos. #}
+{% set bits = [d.brand, d.model, (d.channels ~ ' canales') if d.channels else none]|select|list %}
+<li class="cam-card" id="cam-dvr-{{ d.id }}">
+  <div class="cam-card__head">
+    <div class="cam-card__id">
+      <h3 class="cam-card__name">{{ d.name }}</h3>
+      {% if bits %}<p class="cam-card__meta">{% for b in bits %}<span>{{ b }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    </div>
+  </div>
+  <ul class="cam-card__depts" aria-label="Departamentos">
+    {% for dep in d.departments %}<li class="cam-chip" title="{{ dep.name }}">{{ dep.name }}</li>
+    {% else %}<li class="cam-chip cam-chip--none">Sin departamento: solo lo ve Soporte</li>{% endfor %}
+  </ul>
+  {% include "cameras/partials/card_secret.html" %}
+  {% if viewer.can_update_password or viewer.can_manage %}
+  <div class="cam-card__foot" id="cam-pwslot-{{ d.id }}">
+    <button type="button" class="cam-btn cam-btn--quiet cam-btn--sm" hx-get="/cameras/dvrs/{{ d.id }}/password" hx-target="#cam-pwslot-{{ d.id }}" hx-swap="innerHTML"><i class="bi bi-key" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span>Cambiar contraseña</button>
+  </div>
+  {% endif %}
+</li>

@@ -1,0 +1,9 @@
+{% if not groups %}{% include "cameras/partials/empty.html" %}{% endif %}
+{% for place, dvrs in groups %}
+<section class="cam-group" aria-labelledby="cam-loc-{{ loop.index }}">
+  <h2 class="cam-group__title" id="cam-loc-{{ loop.index }}"><i class="bi bi-geo-alt" aria-hidden="true"></i><span class="cam-group__place">{{ place }}</span><span class="cam-group__count">{{ dvrs|length }} DVR</span></h2>
+  <ul class="cam-group__list">
+    {% for d in dvrs %}{% include "cameras/partials/card.html" %}{% endfor %}
+  </ul>
+</section>
+{% endfor %}

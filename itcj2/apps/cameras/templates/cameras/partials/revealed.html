@@ -1,0 +1,24 @@
+{# Fragmento de POST /cameras/dvrs/{id}/reveal (Cache-Control: no-store). #}
+<div class="cam-secret" id="cam-secret-{{ d.id }}" data-revealed data-seal-after="30">
+  <div class="cam-reveal">
+    <div class="cam-reveal__bar">
+      <p class="cam-reveal__countdown"><i class="bi bi-eye" aria-hidden="true"></i>Se oculta en <b data-cam-countdown>30</b> s</p>
+      <button type="button" class="cam-btn cam-btn--quiet cam-btn--sm" data-cam-seal-now><i class="bi bi-eye-slash" aria-hidden="true"></i>Ocultar</button>
+    </div>
+    <div class="cam-reveal__fuse" aria-hidden="true"><span data-cam-fuse></span></div>
+    {% if rv.pattern %}<div class="cam-pattern" data-pattern-viewer data-pattern="{{ rv.pattern }}" data-autoplay></div>{% endif %}
+    {% if rv.password is not none %}
+    <section class="cam-reveal__block" aria-label="Contraseña">
+      <div class="cam-reveal__row">
+        <h4 class="cam-reveal__label">Contraseña</h4>
+        <button type="button" class="cam-btn cam-btn--ghost cam-btn--sm" data-cam-copy><i class="bi bi-copy" aria-hidden="true"></i><span data-cam-copy-label>Copiar</span></button>
+      </div>
+      <p class="cam-pw" data-cam-pw>{{ rv.password }}</p>
+      {% if rv.password_changed_at %}<p class="cam-reveal__meta">Actualizada{% if rv.password_changed_by %} por {{ rv.password_changed_by }}{% endif %} el {{ rv.password_changed_at.strftime("%d/%m/%Y %H:%M") }}</p>{% endif %}
+    </section>
+    {% endif %}
+    {% if rv.username %}<dl class="cam-reveal__facts"><div><dt>Usuario</dt><dd><code>{{ rv.username }}</code></dd></div></dl>{% endif %}
+    {% if rv.notes %}<div class="cam-reveal__notes"><h4 class="cam-reveal__label">Notas</h4><p>{{ rv.notes }}</p></div>{% endif %}
+  </div>
+  <template data-cam-sealed>{% include "cameras/partials/card_secret.html" %}</template>
+</div>

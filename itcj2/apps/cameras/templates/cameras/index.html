@@ -1,0 +1,22 @@
+{% extends "cameras/base_cameras.html" %}
+{% block body %}
+<main class="cam-page">
+  <header class="cam-head">
+    <div>
+      <h1 class="cam-head__title"><span class="cam-mark" aria-hidden="true"><i class="bi bi-camera-video-fill"></i></span>Cámaras</h1>
+      <p class="cam-head__sub">{% if viewer.can_manage %}DVR registrados, agrupados por ubicación.{% else %}Patrón y contraseña de los DVR de tu departamento.{% endif %}</p>
+    </div>
+  </header>
+
+  <form class="cam-search" role="search" novalidate>
+    <i class="bi bi-search" aria-hidden="true"></i>
+    <label for="cam-q" class="visually-hidden">Buscar DVR</label>
+    <input id="cam-q" class="form-control cam-search__input" type="search" name="q" value="{{ q }}"
+           placeholder="Nombre, ubicación o departamento" autocomplete="off"
+           hx-get="/cameras/list" hx-target="#cam-list" hx-swap="morph:innerHTML"
+           hx-trigger="keyup changed delay:400ms, search">
+  </form>
+
+  <div id="cam-list">{% include "cameras/partials/list.html" %}</div>
+</main>
+{% endblock %}
