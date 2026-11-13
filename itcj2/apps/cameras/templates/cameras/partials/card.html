@@ -1,0 +1,54 @@
+{# Tarjeta sellada de un DVR. Nunca lleva usuario, notas ni secretos: «Revelar» abre el diálogo #cam-reveal. #}
+{% set bits = [d.brand, d.model, (d.channels ~ ' canales') if d.channels else none]|select|list %}
+{% set what = 'patrón y contraseña' if (d.pattern_cipher and d.password_cipher) else ('patrón' if d.pattern_cipher else ('contraseña' if d.password_cipher else '')) %}
+{% set can_pw = viewer.can_update_password or viewer.can_manage %}
+{% macro reveal_button(extra='', label='Revelar') -%}
+<button type="button" class="cam-btn cam-btn--reveal{{ extra }}" hx-post="/cameras/dvrs/{{ d.id }}/reveal" hx-target="#cam-reveal-body" hx-swap="innerHTML"
+        data-cam-reveal="{{ d.id }}" data-name="{{ d.name }}" data-place="{{ d.location or '' }}" aria-haspopup="dialog" aria-describedby="cam-name-{{ d.id }}"><i class="bi bi-eye-fill" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span><span>{{ label }}</span></button>
+{%- endmacro %}
+{% macro pw_button(cls, text) -%}
+<button type="button" class="cam-btn cam-btn--quiet {{ cls }}" hx-get="/cameras/dvrs/{{ d.id }}/password" hx-target="#cam-pwslot-{{ d.id }}" hx-swap="innerHTML"{% if not text %} aria-label="Cambiar contraseña de DVR {{ d.name }}" title="Cambiar contraseña"{% endif %}><i class="bi bi-key" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span>{{ text }}</button>
+{%- endmacro %}
+{% if viewer.can_manage %}
+<li class="cam-card cam-card--row" id="cam-dvr-{{ d.id }}">
+  <div class="cam-card__id">
+    <h3 class="cam-card__name" id="cam-name-{{ d.id }}">{{ d.name }}</h3>
+    {% if bits %}<p class="cam-card__meta">{% for b in bits %}<span>{{ b }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+  </div>
+  <ul class="cam-card__depts" aria-label="Departamentos">
+    {% for dep in d.departments[:2] %}<li class="cam-chip" title="{{ dep.name }}">{{ dep.name }}</li>{% endfor %}
+    {% if d.departments|length > 2 %}{% set rest = d.departments[2:]|map(attribute='name')|join(', ') %}<li class="cam-chip cam-chip--more" title="{{ rest }}">+{{ d.departments|length - 2 }}<span class="visually-hidden"> más: {{ rest }}</span></li>{% endif %}
+    {% if not d.departments %}<li class="cam-chip cam-chip--none">Sin departamento: solo lo ve Soporte</li>{% endif %}
+  </ul>
+  <ul class="cam-card__stored" aria-label="Guardado en este DVR">
+    {% if d.pattern_cipher %}<li class="cam-badge"><i class="bi bi-grid-3x3-gap-fill" aria-hidden="true"></i>Patrón</li>{% endif %}
+    {% if d.password_cipher %}<li class="cam-badge"><i class="bi bi-key-fill" aria-hidden="true"></i>Contraseña</li>{% endif %}
+  </ul>
+  <div class="cam-card__reveal">{{ reveal_button() }}</div>
+  <div class="cam-card__tools">
+    {{ pw_button('cam-btn--icon', '') }}
+    <a class="cam-btn cam-btn--quiet cam-btn--icon" href="/cameras/dvrs/{{ d.id }}/edit" aria-label="Editar DVR {{ d.name }}" title="Editar"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+    <button type="button" class="cam-btn cam-btn--quiet cam-btn--icon" data-cam-deactivate="{{ d.id }}" data-name="{{ d.name }}" aria-label="Dar de baja DVR {{ d.name }}" title="Dar de baja"><i class="bi bi-archive" aria-hidden="true"></i></button>
+  </div>
+  <div class="cam-card__slot" id="cam-pwslot-{{ d.id }}"></div>
+</li>
+{% else %}
+<li class="cam-card cam-card--tile" id="cam-dvr-{{ d.id }}">
+  {# Carátula: anticipa lo sellado (los 9 puntos y/o la contraseña enmascarada). Decorativa: el botón lo dice en texto. #}
+  <div class="cam-face" aria-hidden="true">
+    {% if d.pattern_cipher %}<span class="cam-face__grid">{% for _ in range(9) %}<span></span>{% endfor %}</span>{% endif %}
+    {% if d.password_cipher %}<span class="cam-face__mask">{% for _ in range(8) %}<span></span>{% endfor %}</span>{% endif %}
+  </div>
+  <div class="cam-card__body">
+    <h3 class="cam-card__name" id="cam-name-{{ d.id }}">{{ d.name }}</h3>
+    {% if d.location %}<p class="cam-card__place" title="{{ d.location }}"><i class="bi bi-geo-alt" aria-hidden="true"></i><span>{{ d.location }}</span></p>{% endif %}
+    {% if bits %}<p class="cam-card__meta">{% for b in bits %}<span>{{ b }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+    {% if d.departments|length > 1 %}<p class="cam-card__shared"><i class="bi bi-people" aria-hidden="true"></i>Compartido entre {{ d.departments|length }} departamentos</p>{% endif %}
+  </div>
+  <div class="cam-card__actions">
+    {{ reveal_button(' cam-btn--block', ('Revelar ' ~ what) if what else 'Revelar') }}
+    {% if can_pw %}{{ pw_button('cam-btn--sm', 'Cambiar contraseña') }}{% endif %}
+  </div>
+  <div class="cam-card__slot" id="cam-pwslot-{{ d.id }}"></div>
+</li>
+{% endif %}

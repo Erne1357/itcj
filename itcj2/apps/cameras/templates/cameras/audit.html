@@ -1,0 +1,39 @@
+{% extends "cameras/base_cameras.html" %}
+{% block title %}Bitácora · Cámaras{% endblock %}
+{% block body %}
+<main class="cam-page">
+  <nav class="cam-crumb" aria-label="Regresar"><a href="/cameras/"><i class="bi bi-arrow-left" aria-hidden="true"></i>Cámaras</a></nav>
+  <header class="cam-head">
+    <div>
+      <h1 class="cam-head__title">Bitácora</h1>
+      <p class="cam-head__sub">Quién revisó o cambió qué. Nunca incluye contraseñas ni patrones.</p>
+    </div>
+  </header>
+
+  <form class="cam-audit__filters" hx-get="/cameras/audit" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML" hx-trigger="change">
+    <div class="cam-field">
+      <label class="form-label" for="a-dvr">DVR</label>
+      <select class="form-select" id="a-dvr" name="dvr_id">
+        <option value="">Todos</option>
+        {% for i, n in dvr_options %}<option value="{{ i }}"{% if f.dvr_id == i %} selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="cam-field">
+      <label class="form-label" for="a-actor">Persona</label>
+      <select class="form-select" id="a-actor" name="actor_id">
+        <option value="">Todas</option>
+        {% for i, n in actor_options %}<option value="{{ i }}"{% if f.actor_id == i %} selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="cam-field">
+      <label class="form-label" for="a-act">Acción</label>
+      <select class="form-select" id="a-act" name="action">
+        <option value="">Todas</option>
+        {% for k, label in actions.items() %}<option value="{{ k }}"{% if f.action == k %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+  </form>
+
+  <div id="cam-audit-rows">{% include "cameras/partials/audit_rows.html" %}</div>
+</main>
+{% endblock %}

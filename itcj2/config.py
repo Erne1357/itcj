@@ -580,6 +580,10 @@ class Settings(BaseSettings):
     # `repr=False`: que ni el nombre del campo salga en un traceback de arranque.
     TITULATEC_NIP_STASH_KEY: str | None = Field(default=None, repr=False)
 
+    # Llave Fernet de las credenciales de DVR de Cámaras. Sin ella la app abre pero
+    # guardar/revelar falla cerrado. RESPALDARLA: si se pierde, los secretos se pierden.
+    CAMERAS_SECRET_KEY: str | None = Field(default=None, repr=False)
+
     # Correos del proceso al egresado (spec 2026-09-28, motor D4: bandeja
     # `titulatec_email_outbox` + despachador Celery cada 5 minutos). Cambiar
     # cualquiera exige variable de entorno y reiniciar TODOS los procesos
@@ -630,6 +634,19 @@ class Settings(BaseSettings):
                 Fernet(key.encode())
             except Exception:
                 raise ValueError("TITULATEC_NIP_STASH_KEY no es una llave Fernet válida "
+                                 "(32 bytes en base64 url-safe).") from None
+        return self
+
+    @model_validator(mode="after")
+    def _cameras_key_valida(self):
+        """Igual que la del stash de NIPs; el mensaje no incluye la llave."""
+        key = self.CAMERAS_SECRET_KEY
+        if key:
+            from cryptography.fernet import Fernet
+            try:
+                Fernet(key.encode())
+            except Exception:
+                raise ValueError("CAMERAS_SECRET_KEY no es una llave Fernet válida "
                                  "(32 bytes en base64 url-safe).") from None
         return self
 

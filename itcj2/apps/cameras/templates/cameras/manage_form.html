@@ -1,0 +1,14 @@
+{% extends "cameras/base_cameras.html" %}
+{% block title %}{% if d %}Editar DVR{% else %}Registrar DVR{% endif %} · Cámaras{% endblock %}
+{% block body %}
+<main class="cam-page">
+  <nav class="cam-crumb" aria-label="Regresar"><a href="/cameras/"><i class="bi bi-arrow-left" aria-hidden="true"></i>Cámaras</a></nav>
+  <header class="cam-head">
+    <div>
+      <h1 class="cam-head__title">{% if d %}Editar DVR{% else %}Registrar DVR{% endif %}</h1>
+      {% if d %}<p class="cam-head__sub">{{ d.name }}</p>{% endif %}
+    </div>
+  </header>
+  {% include "cameras/partials/dvr_form.html" %}
+</main>
+{% endblock %}

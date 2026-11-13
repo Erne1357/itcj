@@ -1,0 +1,12 @@
+{% extends "cameras/base_cameras.html" %}
+{% block title %}No encontrado · Cámaras{% endblock %}
+{% block body %}
+<main class="cam-page">
+  <nav class="cam-crumb" aria-label="Regresar"><a href="/cameras/"><i class="bi bi-arrow-left" aria-hidden="true"></i>Cámaras</a></nav>
+  <div class="cam-empty">
+    <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-camera-video-off"></i></span>
+    <h1 class="cam-empty__title">No encontrado.</h1>
+    <p class="cam-empty__hint"><a href="/cameras/">Volver a la lista de cámaras</a></p>
+  </div>
+</main>
+{% endblock %}

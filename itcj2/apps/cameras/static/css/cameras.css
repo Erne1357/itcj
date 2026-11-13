@@ -1,0 +1,723 @@
+/* =============================================================================
+   Cámaras: estilos propios, encima de Bootstrap 5.3. Prefijo cam- en BEM.
+
+   Dirección visual: página clara y fría (la de toda la plataforma) con un
+   "aparato" grafito donde vive el patrón, como la pantalla del DVR que el jefe
+   tiene enfrente. Una sola señal de acento, verde lima de alta visibilidad, que
+   solo aparece en lo revelado y en lo activo. Tipografía: Barlow (UI) y
+   JetBrains Mono (contraseña, distingue 0/O y l/1/I). La plantilla base debe
+   cargar las dos de Google Fonts: Barlow 400;500;600;700 y JetBrains Mono 500;700.
+
+   Mapa de bloques (las plantillas usan EXACTAMENTE estos nombres):
+   - cam-body ............ <body> de la app (fondo, fuente, remapeo de Bootstrap)
+   - cam-appbar .......... barra del iframe móvil: __title (visible solo con
+                           body.in-mobile-iframe, que pone mobile-app-shell.js)
+   - cam-page ............ contenedor de vista (tope 1240 px, márgenes)
+   - cam-crumb ........... enlace de regreso arriba de un formulario
+   - cam-head ............ cabecera de vista: __title, __sub, __tools (buscador
+                           y acciones en la línea del título)
+   - cam-mark ............ marca de la app (cuadro grafito con cámara lima)
+   - cam-search .......... buscador: __input (con .form-control)
+   - cam-rack ............ Soporte: panel único con los grupos en filas
+   - cam-group ........... una ubicación: __title, __place, __count, __list
+   - cam-card ............ un DVR. --row (Soporte: __id, __depts, __stored,
+                           __reveal, __tools) o --tile (Jefe: cam-face,
+                           __body, __place, __shared, __actions). Ambas: __name,
+                           __meta (cada dato en un span), __slot (hueco del
+                           formulario de contraseña, id cam-pwslot-N)
+   - cam-tiles ........... rejilla de tarjetas del jefe
+   - cam-face ............ carátula grafito de la tarjeta: __grid (9 puntos),
+                           __mask (contraseña enmascarada, longitud fija)
+   - cam-chip ............ depto ligado; --none = sin departamento, --more = +N
+   - cam-badge ........... qué guarda el DVR (patrón, contraseña)
+   - cam-modal ........... <dialog> del revelado: __panel, __head, __id,
+                           __title, __sub, __body (hoja inferior bajo 640 px)
+   - cam-secret .......... lo revelado ([data-revealed], dentro de __body);
+                           --pattern = trae patrón; .is-ending en los últimos 5 s
+   - cam-reveal .......... piezas de lo revelado: __timer, __countdown, __fuse,
+                           __device, __info, __block, __row, __label, __meta,
+                           __facts, __notes, __error, __error-tile
+   - cam-pattern ......... aparato grafito del visor y del editor: __screen,
+                           __console, __caption, __controls
+   - cam-grid ............ el SVG 3x3 (lo dibuja pattern.js): --edit,
+                           __rubber, cam-seg, cam-arrow, cam-dot con __halo,
+                           __ping, __idle, __pos, __disc, __num; estados
+                           is-on, is-start, is-current
+   - cam-pw .............. contraseña en celdas (pattern.js la parte): __ch
+                           con --digit, --symbol, --space; __legend, __key;
+                           __plain (campo del respaldo de copiado)
+   - cam-editor .......... editor del patrón: __device, __readout, __status
+   - cam-btn ............. botones: --primary, --reveal, --ghost, --quiet,
+                           --dark, --signal, --icon, --sm; .is-copied
+   - cam-spin ............ indicador dentro de un botón con .htmx-request
+   - cam-empty ........... estado vacío: __tile, __title, __hint, __action
+   - cam-panel ........... superficie blanca de un formulario (sin anidar)
+   - cam-form ............ formulario: --narrow, __section, __intro, __title,
+                           __hint, __fields, __actions
+   - cam-field ........... campo: --wide, __hint, __error
+   - cam-note ............ aviso en línea: --warn, --ok, --error
+   - cam-picker .......... multiselección de deptos: __top, __search,
+                           __list, __item, __empty, __count (pie)
+   - cam-form__error ..... aviso de error al tope del formulario (con cam-note)
+   - cam-audit ........... bitacora: __filters (selects en fila fluida),
+                           __table (tabla; bajo 768 px cada fila es una
+                           tarjeta apilada con data-label), __when, __act,
+                           __detail, __pager (__total, __links)
+   ============================================================================= */
+
+:root {
+  /* Neutros fríos (hex = OKLCH de origen; contraste medido) */
+  --cam-bg: #f5f7f9;            /* oklch(.975 .004 250) fondo de página */
+  --cam-surface: #ffffff;
+  --cam-ink: #141b24;           /* oklch(.22 .02 255)  17.3:1 sobre blanco */
+  --cam-ink-2: #4e5661;         /* oklch(.45 .02 255)   7.4:1 blanco, 6.9:1 fondo */
+  --cam-line: #dee2e6;          /* separadores: decoración, no texto */
+  --cam-line-strong: #8a929c;   /* borde de controles de formulario, 3.15:1 */
+
+  /* El aparato: pantalla grafito como la del DVR */
+  --cam-screen: #13181e;        /* oklch(.205 .014 255) */
+  --cam-screen-2: #252b32;      /* botones sobre la pantalla */
+  --cam-screen-3: #343b44;      /* hover */
+  --cam-screen-ink: #ebeff4;    /* 15.5:1 sobre pantalla */
+  --cam-screen-mute: #9ea5af;   /*  7.2:1 sobre pantalla, 5.8:1 sobre botón */
+  --cam-screen-idle: #636a72;   /*  3.3:1 punto en reposo (gráfico, no texto) */
+
+  /* La señal: verde lima de alta visibilidad. Solo sobre grafito o como fondo */
+  --cam-signal: #c1ef4e;        /* oklch(.89 .19 124) 13.4:1 sobre pantalla */
+  --cam-signal-hover: #d0f56e;
+  --cam-signal-soft: #ebfbcf;   /* fondo de selección */
+  --cam-signal-ink: #426005;    /* oklch(.45 .115 128) 7.2:1 blanco: dígitos, texto ok */
+  --cam-focus: #4a710a;         /* anillo de foco sobre claro, 5.8:1 */
+
+  /* Estados */
+  --cam-symbol: #b13e06;        /* símbolos de la contraseña, 5.9:1 */
+  --cam-warn: #b15300;          /* cuenta regresiva final, 5.1:1 */
+  --cam-warn-soft: #fff4e5;
+  --cam-warn-ink: #7a3a00;      /* 7.9:1 sobre warn-soft */
+  --cam-warn-on-screen: #f2b25c;/* 9.6:1 sobre pantalla */
+  --cam-danger: #c22826;        /* 5.8:1 blanco, 5.1:1 sobre danger-soft */
+  --cam-danger-soft: #ffece9;
+
+  /* Tipo: escala fija en rem (registro product) */
+  --cam-font: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cam-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --cam-fs-xs: .75rem;
+  --cam-fs-sm: .875rem;
+  --cam-fs-md: 1rem;
+  --cam-fs-lg: 1.25rem;
+  --cam-fs-xl: 1.5rem;
+
+  /* Forma y movimiento */
+  --cam-r-sm: 8px;
+  --cam-r: 12px;
+  --cam-r-lg: 14px;
+  --cam-tap: 44px;
+  --cam-ease: cubic-bezier(.16, 1, .3, 1);        /* expo out: entradas */
+  --cam-ease-quart: cubic-bezier(.25, 1, .5, 1);  /* quart out: respuestas */
+  --cam-z-sticky: 20;
+  --cam-z-appbar: 1030;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+.cam-body {
+  --bs-body-font-family: var(--cam-font);
+  --bs-body-color: var(--cam-ink);
+  --bs-link-color-rgb: 74, 113, 10;
+  --bs-link-hover-color-rgb: 66, 96, 5;
+  font-family: var(--cam-font);
+  color: var(--cam-ink);
+  background: var(--cam-bg);
+  -webkit-font-smoothing: antialiased;
+}
+.cam-page { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+@media (min-width: 768px) { .cam-page { padding: 28px 24px 64px; } }
+
+.cam-body :focus-visible { outline: 3px solid var(--cam-focus); outline-offset: 2px; }
+.cam-body .form-label,
+.cam-body .form-check-label { font-size: var(--cam-fs-sm); font-weight: 600; color: var(--cam-ink); }
+.cam-body .form-control,
+.cam-body .form-select { border-color: var(--cam-line-strong); border-radius: 10px; min-height: 42px; }
+.cam-body .form-control:focus,
+.cam-body .form-select:focus {
+  border-color: var(--cam-ink);
+  box-shadow: 0 0 0 3px rgba(74, 113, 10, .28);
+}
+.cam-body .form-control::placeholder { color: var(--cam-ink-2); opacity: 1; }
+.cam-body .form-check-input { border-color: var(--cam-line-strong); }
+.cam-body .form-check-input:checked { background-color: var(--cam-ink); border-color: var(--cam-ink); }
+.cam-body .form-check-input:focus { box-shadow: 0 0 0 3px rgba(74, 113, 10, .28); border-color: var(--cam-ink); }
+
+/* ── App bar del iframe móvil (como Directorio) ─────────────────────────── */
+.cam-appbar { display: none; }
+body.in-mobile-iframe .cam-appbar {
+  display: flex; align-items: center; gap: .5rem;
+  position: sticky; top: 0; z-index: var(--cam-z-appbar);
+  padding: calc(env(safe-area-inset-top, 0px) + .5rem) .75rem .5rem;
+  background: var(--cam-screen); color: var(--cam-screen-ink);
+}
+.cam-appbar__title { display: flex; align-items: center; gap: .5rem; font-size: var(--cam-fs-md); font-weight: 600; }
+.cam-appbar__title .bi { color: var(--cam-signal); }
+body.in-mobile-iframe .cam-head__title { display: none; }
+
+/* ── Cabecera de vista ───────────────────────────────────────────────────── */
+.cam-crumb { margin-bottom: 12px; font-size: var(--cam-fs-sm); }
+.cam-crumb a { display: inline-flex; align-items: center; gap: .375rem; min-height: 32px; color: var(--cam-ink-2); font-weight: 600; text-decoration: none; }
+.cam-crumb a:hover { color: var(--cam-ink); }
+
+.cam-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
+  gap: 16px 24px; margin-bottom: 24px;
+}
+.cam-head > :first-child { min-width: 0; }
+.cam-head__title {
+  display: flex; align-items: center; gap: .625rem; margin: 0;
+  font-size: var(--cam-fs-xl); font-weight: 700; line-height: 1.15; letter-spacing: -.01em;
+  text-wrap: balance;
+}
+.cam-head__sub { margin: .375rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-wrap: pretty; }
+/* Buscador y acciones en la línea del título: la lista empieza más arriba. */
+.cam-head__tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+@media (max-width: 767.98px) { .cam-head__tools { flex: 1 1 100%; } }
+
+.cam-mark {
+  flex: none; display: grid; place-items: center;
+  width: 36px; height: 36px; border-radius: 10px;
+  background: var(--cam-screen); color: var(--cam-signal); font-size: 1.05rem;
+}
+
+/* ── Buscador ────────────────────────────────────────────────────────────── */
+.cam-search { position: relative; flex: 1 1 auto; min-width: 0; }
+@media (min-width: 768px) { .cam-search { flex: 0 1 auto; width: 22rem; } }
+.cam-search > .bi {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--cam-ink-2); pointer-events: none;
+}
+.cam-body .cam-search__input { min-height: 40px; padding-left: 2.5rem; background: var(--cam-surface); }
+@media (pointer: coarse) { .cam-body .cam-search__input { min-height: var(--cam-tap); } }
+
+/* ── Soporte: inventario en filas dentro de un solo panel ────────────────── */
+.cam-rack {
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg);
+  overflow: hidden;   /* recorta la banda del primer grupo; los focos quedan dentro del relleno */
+}
+.cam-group + .cam-group { border-top: 1px solid var(--cam-line); }
+.cam-group__title {
+  display: flex; align-items: center; gap: .5rem; margin: 0; padding: 9px 16px;
+  font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.35; color: var(--cam-ink);
+  background: var(--cam-bg); border-bottom: 1px solid var(--cam-line);
+}
+@media (min-width: 768px) { .cam-group__title { padding: 9px 20px; } }
+.cam-group__title > .bi { flex: none; color: var(--cam-ink-2); }
+.cam-group__place { min-width: 0; overflow-wrap: anywhere; }
+.cam-group__count {
+  flex: none; min-width: 1.5rem; padding: 0 7px; text-align: center;
+  font-size: var(--cam-fs-xs); font-weight: 600; line-height: 1.375rem; color: var(--cam-ink-2);
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.cam-group__list { margin: 0; padding: 0; list-style: none; }
+
+/* Fila. Móvil: apilada. 768+: nombre | qué guarda | Revelar | herramientas, deptos debajo.
+   1100+: todo en una línea. */
+.cam-card { min-width: 0; }
+.cam-card--row {
+  display: grid; align-items: center; gap: 10px 16px; padding: 14px 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "id tools" "depts depts" "stored reveal";
+}
+.cam-card--row + .cam-card--row { border-top: 1px solid var(--cam-line); }
+.cam-card--row .cam-card__id { grid-area: id; min-width: 0; }
+.cam-card--row .cam-card__depts { grid-area: depts; }
+.cam-card--row .cam-card__stored { grid-area: stored; }
+.cam-card--row .cam-card__reveal { grid-area: reveal; }
+.cam-card--row .cam-card__tools { grid-area: tools; align-self: start; margin: -6px -8px 0 0; }
+@media (min-width: 768px) {
+  .cam-card--row {
+    gap: 8px 24px; padding: 14px 20px;
+    grid-template-columns: minmax(0, 1fr) 7.5rem auto auto;
+    grid-template-areas: "id stored reveal tools" "depts depts depts depts";
+  }
+  .cam-card--row .cam-card__tools { align-self: center; margin: 0 -8px 0 -14px; }
+  .cam-card--row .cam-card__stored { flex-direction: column; gap: 4px; }
+}
+@media (min-width: 1100px) {
+  .cam-card--row {
+    grid-template-columns: minmax(13rem, 1fr) minmax(0, 1.4fr) 7.5rem auto auto;
+    grid-template-areas: "id depts stored reveal tools";
+  }
+}
+.cam-card__slot { grid-column: 1 / -1; min-width: 0; }
+.cam-card__slot:empty { display: none; }
+
+.cam-card__name { margin: 0; font-size: var(--cam-fs-md); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
+.cam-card__meta { margin: .2rem 0 0; font-size: .8125rem; color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-card__meta > span { white-space: nowrap; }
+.cam-card__tools { display: flex; gap: 2px; }
+.cam-card__depts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.cam-card__stored { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; }
+
+.cam-chip {
+  display: inline-block; max-width: 100%; padding: 3px 10px;
+  font-size: var(--cam-fs-xs); font-weight: 500; line-height: 1.35; color: var(--cam-ink-2);
+  background: var(--cam-bg); border: 1px solid var(--cam-line); border-radius: 999px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cam-chip--none { border-style: dashed; background: transparent; }
+.cam-chip--more { flex: none; font-weight: 600; color: var(--cam-ink); cursor: default; }
+
+.cam-badge {
+  display: inline-flex; align-items: center; gap: .375rem;
+  font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); white-space: nowrap;
+}
+.cam-badge .bi { color: var(--cam-ink); font-size: .8125rem; }
+
+/* ── Jefe: tarjetas con carátula ─────────────────────────────────────────── */
+/* Sin estirar: abrir el formulario de contraseña en una tarjeta no agranda a sus vecinas. */
+.cam-tiles {
+  display: grid; gap: 20px; align-items: start; margin: 0; padding: 0; list-style: none;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+}
+.cam-card--tile {
+  display: flex; flex-direction: column; padding: 6px;
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: 16px;
+}
+/* La carátula es la pantalla del DVR, apagada: anticipa qué hay detrás de «Revelar»
+   (los 9 puntos del patrón y/o las celdas de la contraseña, siempre 8: no delata su largo). */
+.cam-face {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 24px; height: 8.5rem; padding: 0 16px;
+  border-radius: 11px; color: var(--cam-screen-idle);
+  background: radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, .08), transparent 62%), var(--cam-screen);
+}
+.cam-face__grid { display: grid; grid-template-columns: repeat(3, 1fr); place-items: center; width: 84px; height: 84px; }
+.cam-face__grid > span {
+  width: 12px; height: 12px; border-radius: 50%; background: currentColor;
+  transition: background-color .18s ease-out, transform .22s var(--cam-ease);
+}
+.cam-face__mask { display: flex; gap: 4px; }
+.cam-face__mask > span {
+  display: grid; place-items: center; width: 14px; height: 22px; border-radius: 4px;
+  background: var(--cam-screen-2);
+}
+.cam-face__mask > span::after {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  transition: background-color .18s ease-out;
+}
+/* Pasar por «Revelar» enciende la carátula en diagonal, del 1 al 9. */
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face { color: var(--cam-signal); }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face__grid > span { transform: scale(1.18); }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(2), :nth-child(4)) { transition-delay: 35ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(3), :nth-child(5), :nth-child(7)) { transition-delay: 70ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(6), :nth-child(8)) { transition-delay: 105ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:nth-child(9) { transition-delay: 140ms; }
+.cam-card--tile:has(.cam-btn--reveal.htmx-request) .cam-face > * { animation: cam-blink .7s ease-in-out infinite alternate; }
+@keyframes cam-blink { to { opacity: .4; } }
+
+.cam-card--tile .cam-card__body { display: flex; flex-direction: column; gap: 6px; padding: 16px 12px 4px; }
+.cam-card--tile .cam-card__name { font-size: 1.1875rem; line-height: 1.25; text-wrap: balance; }
+.cam-card__place,
+.cam-card__shared { display: flex; align-items: baseline; gap: .375rem; margin: 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-card__place > .bi,
+.cam-card__shared > .bi { flex: none; transform: translateY(1px); }
+.cam-card--tile .cam-card__meta { margin: 0; font-size: var(--cam-fs-sm); }
+/* Una ubicación larguísima no estira la fila de tarjetas; completa va en el diálogo y en title. */
+.cam-card--tile .cam-card__place > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.cam-card--tile .cam-card__actions { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 10px 6px; }
+.cam-card--tile .cam-card__slot { padding: 0 10px 10px; }
+@media (max-width: 575.98px) { .cam-face { height: 7rem; } }
+
+/* Formulario de contraseña dentro de una fila o tarjeta: sin la barra pegajosa del panel. */
+.cam-card__slot .cam-form--narrow { padding-top: 14px; }
+.cam-card--row .cam-card__slot { border-top: 1px dashed var(--cam-line); margin-top: 6px; }
+.cam-card__slot .cam-form__actions { position: static; margin: 0; padding: 4px 0 0; background: none; border: 0; border-radius: 0; }
+
+/* ── Diálogo de revelado ─────────────────────────────────────────────────── */
+/* El <dialog> nativo cubre la pantalla y es transparente; el panel es lo visible.
+   Así un clic que cae en el diálogo mismo cayó fuera del panel (cierra). */
+.cam-modal {
+  width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 24px;
+  border: 0; background: transparent; color: var(--cam-ink); overflow: hidden;
+}
+.cam-modal[open] { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; }
+.cam-modal::backdrop { background: rgba(10, 14, 19, .64); animation: cam-fade .22s ease-out backwards; }
+.cam-modal__panel {
+  position: relative; display: flex; flex-direction: column; width: min(100%, 30rem); max-height: 100%;
+  background: var(--cam-surface); border-radius: 16px;
+  box-shadow: 0 32px 64px -24px rgba(10, 14, 19, .6);
+  animation: cam-modal-in .36s var(--cam-ease) backwards;
+}
+/* Patrón + datos: dos columnas, el aparato a la izquierda. */
+@media (min-width: 720px) {
+  .cam-modal__panel:has(.cam-secret--pattern .cam-reveal__info > *) { width: min(100%, 54rem); }
+  .cam-secret--pattern:has(.cam-reveal__info > *) { grid-template-columns: minmax(0, 23rem) minmax(15rem, 1fr); column-gap: 28px; }
+}
+.cam-modal__head {
+  display: flex; align-items: flex-start; gap: 12px; padding: 16px 16px 14px 20px;
+  border-bottom: 1px solid var(--cam-line);
+}
+.cam-modal__id { flex: 1; min-width: 0; }
+.cam-modal__title { margin: 0; font-size: var(--cam-fs-lg); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance; }
+.cam-modal__sub { margin: .2rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-modal__body { --cam-pad-t: 16px; --cam-pad-x: 20px; min-height: 0; padding: var(--cam-pad-t) var(--cam-pad-x) 22px; overflow: auto; overscroll-behavior: contain; }
+.cam-modal__body > .cam-field__error {
+  margin: 0; padding: 12px 14px; font-size: var(--cam-fs-sm);
+  background: var(--cam-danger-soft); border-radius: 10px;
+}
+
+@keyframes cam-fade { from { opacity: 0; } }
+@keyframes cam-modal-in {
+  from { opacity: 0; transform: translate(var(--cam-from-x, 0px), var(--cam-from-y, 16px)) scale(.92); }
+}
+@keyframes cam-sheet-in { from { transform: translateY(100%); } }
+@keyframes cam-rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* Móvil: hoja inferior a todo lo ancho. */
+@media (max-width: 639.98px) {
+  .cam-modal { padding: 12px 0 0; }
+  .cam-modal[open] { place-items: end stretch; }
+  .cam-modal__panel {
+    width: 100%; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation-name: cam-sheet-in; animation-duration: .4s;
+  }
+  .cam-modal__head { padding: 14px 12px 12px 16px; }
+  .cam-modal__title { font-size: 1.125rem; }
+  .cam-modal__sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .cam-modal__body { --cam-pad-t: 14px; --cam-pad-x: 16px; padding-bottom: 18px; }
+}
+/* Pantallas bajas (teléfono acostado, ventana chica del escritorio). */
+@media (max-height: 560px) {
+  .cam-modal { padding-top: 8px; }
+  .cam-modal__head { padding-top: 10px; padding-bottom: 10px; }
+  .cam-modal__title { font-size: var(--cam-fs-md); }
+  .cam-modal__sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-height: 560px) and (min-width: 640px) { .cam-modal { padding: 8px 24px; } }
+
+/* ── Secreto revelado (dentro del diálogo) ───────────────────────────────── */
+.cam-secret { display: grid; gap: 16px; align-items: start; }
+/* La cuenta regresiva se queda arriba aunque el cuerpo haga scroll (hoja móvil). */
+.cam-reveal__timer {
+  grid-column: 1 / -1; position: sticky; top: calc(-1 * var(--cam-pad-t, 0px)); z-index: 2; display: flex; align-items: center; gap: 12px;
+  margin: calc(-1 * var(--cam-pad-t, 0px)) calc(-1 * var(--cam-pad-x, 0px)) 0;
+  padding: var(--cam-pad-t, 0px) var(--cam-pad-x, 0px) 6px; background: var(--cam-surface);
+}
+.cam-reveal__countdown {
+  flex: none; display: flex; align-items: center; gap: .4rem; margin: 0;
+  font-size: var(--cam-fs-sm); color: var(--cam-ink-2);
+}
+.cam-reveal__countdown b { min-width: 2ch; text-align: right; font-weight: 700; color: var(--cam-ink); font-variant-numeric: tabular-nums; }
+.cam-reveal__fuse { flex: 1; height: 4px; border-radius: 999px; background: var(--cam-line); overflow: hidden; }
+.cam-reveal__fuse > span {
+  display: block; height: 100%; background: var(--cam-ink); border-radius: inherit;
+  transform-origin: left center; transition: transform .25s linear, background-color .3s;
+}
+.cam-secret.is-ending .cam-reveal__fuse > span { background: var(--cam-warn); }
+.cam-secret.is-ending .cam-reveal__countdown,
+.cam-secret.is-ending .cam-reveal__countdown b { color: var(--cam-warn); }
+
+/* El aparato se abre desde el centro, como un obturador; los datos suben detrás.
+   Solo `backwards`: con el clip-path final aplicado, los focos del borde quedarían recortados. */
+.cam-reveal__device { min-width: 0; animation: cam-open .5s var(--cam-ease) .1s backwards; }
+@keyframes cam-open {
+  from { clip-path: inset(50% 0 50% 0 round 12px); opacity: .3; }
+  to   { clip-path: inset(0 0 0 0 round 0); opacity: 1; }
+}
+.cam-reveal__info { display: flex; flex-direction: column; gap: 18px; min-width: 0; animation: cam-rise .4s var(--cam-ease) .18s backwards; }
+.cam-reveal__info:not(:has(> *)) { display: none; }
+.cam-reveal__block { display: flex; flex-direction: column; gap: 10px; }
+.cam-reveal__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.cam-reveal__label { margin: 0; font-size: var(--cam-fs-sm); font-weight: 600; color: var(--cam-ink); }
+.cam-reveal__meta { margin: 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
+.cam-reveal__facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; padding-top: 14px; border-top: 1px solid var(--cam-line); font-size: var(--cam-fs-sm); }
+.cam-reveal__block + .cam-reveal__facts { margin-top: -2px; }
+.cam-reveal__facts > div { display: flex; align-items: baseline; gap: .5rem; }
+.cam-reveal__facts dt { font-weight: 600; }
+.cam-reveal__facts dd { margin: 0; }
+.cam-reveal__facts code { font-family: var(--cam-mono); font-size: .9375rem; color: var(--cam-ink); }
+.cam-reveal__notes { padding: 10px 12px; background: var(--cam-bg); border-radius: 10px; }
+.cam-reveal__notes p { margin: .25rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); white-space: pre-line; overflow-wrap: anywhere; }
+.cam-reveal__error { display: flex; align-items: flex-start; gap: 14px; }
+.cam-reveal__error p { margin: 0; font-size: var(--cam-fs-sm); line-height: 1.45; color: var(--cam-ink); text-wrap: pretty; }
+.cam-reveal__error-tile {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+  font-size: 1.25rem; color: var(--cam-danger); background: var(--cam-danger-soft);
+}
+
+/* ── Aparato del patrón (visor y editor) ─────────────────────────────────── */
+.cam-pattern {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  color: var(--cam-screen-ink); border-radius: var(--cam-r-lg);
+  background: radial-gradient(120% 70% at 0% 0%, rgba(255, 255, 255, .06), transparent 60%), var(--cam-screen);
+}
+.cam-pattern :focus-visible { outline-color: var(--cam-signal); }
+.cam-pattern__screen { width: 100%; max-width: 22rem; margin: 0 auto; }
+.cam-pattern__console { display: flex; flex-direction: column; gap: 10px; }
+.cam-pattern__caption {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; margin: 0; min-height: 2.6em;
+  padding: 0 4px; font-size: var(--cam-fs-sm); color: var(--cam-screen-mute);
+}
+.cam-pattern__caption b { font-size: var(--cam-fs-md); font-weight: 700; color: var(--cam-screen-ink); font-variant-numeric: tabular-nums; }
+.cam-pattern__controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.cam-pattern__controls .cam-btn { padding: 0 12px; gap: .375rem; }
+.cam-pattern__controls .cam-btn--icon { padding: 0; }
+.cam-pattern__controls > :last-child { margin-left: auto; }
+/* En el diálogo, la cuadrícula cede ante la altura: el aparato cabe sin hacer scroll. */
+.cam-modal .cam-pattern__screen { max-width: min(22rem, max(12rem, 100vh - 22rem)); max-width: min(22rem, max(12rem, 100dvh - 22rem)); }
+
+.cam-grid { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--cam-font); user-select: none; -webkit-user-select: none; }
+.cam-grid--edit { touch-action: none; cursor: crosshair; border-radius: var(--cam-r); }
+.cam-grid--edit:focus-visible { outline: 3px solid var(--cam-signal); outline-offset: 4px; }
+/* Chrome pinta su anillo `auto` al enfocar el SVG con el puntero; solo teclado. */
+.cam-grid--edit:focus:not(:focus-visible) { outline: none; }
+
+.cam-seg {
+  fill: none; stroke: var(--cam-signal); stroke-width: 9; stroke-linecap: round;
+  stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0;
+}
+.cam-seg.is-on { opacity: 1; }
+.cam-arrow { fill: var(--cam-signal); stroke: none; opacity: 0; transition: opacity .2s ease-out; }
+.cam-arrow.is-on { opacity: 1; }
+.cam-grid__rubber { stroke: var(--cam-signal); stroke-width: 9; stroke-linecap: round; opacity: 0; pointer-events: none; }
+.cam-grid__rubber.is-on { opacity: .45; }
+
+.cam-dot__halo, .cam-dot__ping, .cam-dot__disc { transform-box: fill-box; transform-origin: center; }
+.cam-dot__idle { fill: var(--cam-screen-idle); transition: opacity .15s; }
+.cam-grid--edit .cam-dot__idle { fill: none; stroke: var(--cam-screen-idle); stroke-width: 2.5; }
+.cam-dot__pos { fill: var(--cam-screen-mute); font-size: 15px; font-weight: 600; opacity: 0; transition: opacity .15s; }
+/* numero de posicion solo con foco de teclado, para teclear 1-9 */
+.cam-grid--edit:focus-visible .cam-dot__pos { opacity: 1; }
+.cam-dot__halo { fill: none; stroke: var(--cam-signal); stroke-width: 2.5; opacity: 0; }
+.cam-dot__ping { fill: none; stroke: var(--cam-signal); stroke-width: 3; opacity: 0; }
+.cam-dot__disc {
+  fill: var(--cam-signal); opacity: 0; transform: scale(.35);
+  transition: transform .34s var(--cam-ease), opacity .18s ease-out;
+}
+.cam-dot__num { fill: var(--cam-screen); font-size: 23px; font-weight: 700; opacity: 0; transition: opacity .2s .06s; }
+.cam-dot.is-on .cam-dot__disc { opacity: 1; transform: none; }
+.cam-dot.is-on .cam-dot__num { opacity: 1; }
+.cam-dot.is-on .cam-dot__idle,
+.cam-dot.is-on .cam-dot__pos { opacity: 0; }
+.cam-dot.is-start .cam-dot__halo { opacity: .55; }
+.cam-dot.is-current .cam-dot__halo { opacity: 1; animation: cam-pulse 1.6s var(--cam-ease-quart) infinite; }
+@keyframes cam-pulse {
+  0%   { transform: scale(.8); opacity: 1; }
+  100% { transform: scale(1.3); opacity: 0; }
+}
+
+/* ── Contraseña en celdas ────────────────────────────────────────────────── */
+/* Los índices son ::after: no entran al copiar ni a la selección de respaldo. */
+.cam-pw {
+  display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 0;
+  font-family: var(--cam-mono); font-size: 1.5rem; font-weight: 700; line-height: 1;
+  color: var(--cam-ink); font-variant-ligatures: none;
+}
+.cam-pw__ch {
+  position: relative; display: inline-flex; justify-content: center;
+  min-width: 1.15em; padding: 8px 2px 22px; white-space: pre;
+  background: var(--cam-bg); border-radius: 6px;
+}
+.cam-pw__ch::after {
+  content: attr(data-i); content: attr(data-i) / "";
+  position: absolute; left: 0; right: 0; bottom: 5px; text-align: center;
+  font-family: var(--cam-font); font-size: var(--cam-fs-xs); font-weight: 500; color: var(--cam-ink-2);
+}
+.cam-pw__ch--digit { color: var(--cam-signal-ink); }
+.cam-pw__ch--symbol { color: var(--cam-symbol); }
+/* El espacio real se queda (para copiar); se ve como ␣ en una celda punteada. */
+.cam-pw__ch--space { font-size: 0; min-width: 1.75rem; outline: 1.5px dashed var(--cam-line-strong); outline-offset: -3px; }
+.cam-pw__ch--space::before { content: "␣"; content: "␣" / "espacio"; font-size: 1.5rem; color: var(--cam-ink-2); }
+.cam-pw.is-copied .cam-pw__ch { animation: cam-wave .55s var(--cam-ease-quart) calc(min(var(--i, 0), 24) * 24ms); }
+@keyframes cam-wave { 30% { background: var(--cam-signal); } }
+.cam-pw__legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: -2px 0 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
+.cam-pw__key { font-family: var(--cam-mono); font-weight: 700; margin-right: .25rem; }
+.cam-body .cam-pw__plain { font-family: var(--cam-mono); font-size: var(--cam-fs-md); font-weight: 700; }
+
+/* ── Editor del patrón ───────────────────────────────────────────────────── */
+.cam-editor { display: grid; gap: 12px 24px; align-items: start; }
+@media (min-width: 768px) { .cam-editor { grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); } }
+.cam-editor__device { min-width: 0; }
+.cam-editor__readout {
+  margin: 0; padding: 0 4px; min-height: 1.5em;
+  font-family: var(--cam-mono); font-size: var(--cam-fs-md); font-weight: 700; color: var(--cam-screen-ink);
+  overflow-wrap: anywhere; text-wrap: balance;
+}
+.cam-editor__readout.is-empty { font-family: var(--cam-font); font-size: var(--cam-fs-sm); font-weight: 500; color: var(--cam-screen-mute); }
+.cam-editor__status { margin: -6px 0 0; padding: 0 4px; font-size: var(--cam-fs-sm); color: var(--cam-screen-mute); }
+.cam-editor__status.is-short { color: var(--cam-warn-on-screen); }
+.cam-editor__status.is-ready { color: var(--cam-signal); }
+
+/* ── Botones ─────────────────────────────────────────────────────────────── */
+.cam-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+  min-height: 40px; padding: 0 16px; border: 1px solid transparent; border-radius: 10px;
+  font: inherit; font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.1; white-space: nowrap;
+  text-decoration: none; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: background-color .15s ease-out, color .15s ease-out, border-color .15s ease-out, transform .1s ease-out;
+}
+.cam-btn:active:not(:disabled) { transform: scale(.97); }
+.cam-btn:disabled { opacity: .4; cursor: not-allowed; }
+.cam-btn--primary,
+.cam-btn--reveal { background: var(--cam-ink); color: #fff; }
+.cam-btn--primary:hover,
+.cam-btn--reveal:hover { background: #2a323d; color: #fff; }
+.cam-btn--reveal { padding: 0 18px; }
+.cam-btn--block { width: 100%; min-height: 48px; font-size: var(--cam-fs-md); }
+.cam-btn--reveal .bi { color: var(--cam-signal); }
+.cam-btn--ghost { background: var(--cam-surface); border-color: var(--cam-line); color: var(--cam-ink); }
+.cam-btn--ghost:hover { background: var(--cam-bg); border-color: var(--cam-line-strong); color: var(--cam-ink); }
+.cam-btn--quiet { background: transparent; color: var(--cam-ink-2); }
+.cam-btn--quiet:hover { background: var(--cam-bg); color: var(--cam-ink); }
+.cam-btn--dark { background: var(--cam-screen-2); color: var(--cam-screen-ink); }
+.cam-btn--dark:hover:not(:disabled) { background: var(--cam-screen-3); color: #fff; }
+.cam-btn--signal { background: var(--cam-signal); color: var(--cam-screen); }
+.cam-btn--signal:hover { background: var(--cam-signal-hover); color: var(--cam-screen); }
+.cam-btn--icon { width: 40px; padding: 0; }
+.cam-btn--sm { min-height: 34px; padding: 0 12px; font-size: .8125rem; }
+.cam-btn--sm.cam-btn--icon { width: 34px; }
+.cam-btn.is-copied,
+.cam-btn.is-copied:hover { background: var(--cam-signal); border-color: var(--cam-signal); color: var(--cam-screen); }
+@media (pointer: coarse) {
+  .cam-btn { min-height: var(--cam-tap); }
+  .cam-btn--icon { width: var(--cam-tap); }
+  .cam-btn--sm { min-height: 40px; }
+  .cam-btn--sm.cam-btn--icon { width: 40px; }
+}
+
+.cam-spin {
+  display: none; width: 1em; height: 1em; border-radius: 50%;
+  border: 2px solid currentColor; border-right-color: transparent;
+  animation: cam-spin .7s linear infinite;
+}
+.htmx-request > .cam-spin { display: inline-block; }
+.htmx-request > .bi { display: none; }
+.cam-btn.htmx-request { pointer-events: none; }
+@keyframes cam-spin { to { transform: rotate(360deg); } }
+
+/* ── Estados vacíos ──────────────────────────────────────────────────────── */
+.cam-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  max-width: 34rem; margin: 0 auto; padding: 48px 16px; text-align: center;
+}
+.cam-empty__tile {
+  display: grid; place-items: center; width: 64px; height: 64px; margin-bottom: 8px;
+  border-radius: 16px; background: var(--cam-screen); color: var(--cam-screen-mute); font-size: 1.6rem;
+}
+.cam-empty__title { margin: 0; font-size: 1.125rem; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+.cam-empty__hint { margin: 0; max-width: 44ch; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-wrap: pretty; }
+.cam-empty__action { margin-top: 8px; }
+
+/* ── Formularios ─────────────────────────────────────────────────────────── */
+.cam-panel {
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg);
+  padding: 4px 16px 0;
+}
+@media (min-width: 768px) { .cam-panel { padding: 4px 28px 0; } }
+.cam-form { max-width: 60rem; }
+.cam-form--narrow { max-width: 32rem; padding-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+.cam-form__section { display: grid; gap: 16px; padding: 24px 0; }
+.cam-form__section + .cam-form__section { border-top: 1px solid var(--cam-line); }
+@media (min-width: 992px) {
+  .cam-form__section { grid-template-columns: 15rem minmax(0, 1fr); gap: 32px; }
+}
+.cam-form__title { margin: 0; font-size: var(--cam-fs-md); font-weight: 600; }
+.cam-form__hint { margin: .375rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-wrap: pretty; }
+.cam-form__fields { display: grid; gap: 18px 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); align-content: start; }
+.cam-form__actions {
+  position: sticky; bottom: 0; z-index: var(--cam-z-sticky);
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px;
+  margin: 0 -16px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--cam-surface); border-top: 1px solid var(--cam-line);
+  border-radius: 0 0 var(--cam-r-lg) var(--cam-r-lg);
+}
+@media (min-width: 768px) { .cam-form__actions { margin: 0 -28px; padding-left: 28px; padding-right: 28px; } }
+.cam-form--narrow .cam-form__actions { margin-top: 4px; }
+
+.cam-field { display: flex; flex-direction: column; min-width: 0; }
+.cam-field--wide { grid-column: 1 / -1; }
+.cam-field .form-label { margin-bottom: .375rem; }
+.cam-field__hint { margin: .375rem 0 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); text-wrap: pretty; }
+.cam-field__error { display: flex; gap: .375rem; margin: .375rem 0 0; font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-danger); }
+.cam-body .form-control.is-invalid { border-color: var(--cam-danger); background-image: none; padding-right: .75rem; }
+
+.cam-note {
+  display: flex; gap: .5rem; align-items: flex-start; margin: 0; padding: 10px 12px;
+  font-size: var(--cam-fs-sm); line-height: 1.4; color: var(--cam-ink-2);
+  background: var(--cam-bg); border-radius: 10px; text-wrap: pretty;
+}
+.cam-note > .bi { flex: none; margin-top: .1rem; }
+.cam-note--warn { color: var(--cam-warn-ink); background: var(--cam-warn-soft); }
+.cam-note--ok { color: var(--cam-signal-ink); background: var(--cam-signal-soft); font-weight: 600; }
+.cam-note--error { color: var(--cam-danger); background: var(--cam-danger-soft); }
+.cam-field > .cam-note { margin-top: .5rem; }
+
+/* Multiselección de departamentos: casillas nativas + filtro (pattern.js). */
+.cam-picker { min-width: 0; background: var(--cam-surface); border: 1px solid var(--cam-line-strong); border-radius: var(--cam-r); overflow: hidden; }
+.cam-picker__top {
+  display: flex; align-items: center; gap: 8px; padding: 4px 12px;
+  border-bottom: 1px solid var(--cam-line); color: var(--cam-ink-2);
+}
+.cam-picker__search {
+  flex: 1; min-width: 0; min-height: 40px; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: var(--cam-fs-sm); color: var(--cam-ink);
+}
+.cam-picker__search::placeholder { color: var(--cam-ink-2); }
+.cam-picker:focus-within { border-color: var(--cam-ink); box-shadow: 0 0 0 3px rgba(74, 113, 10, .28); }
+.cam-picker__count {
+  margin: 0; padding: 8px 12px; border-top: 1px solid var(--cam-line);
+  font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); font-variant-numeric: tabular-nums;
+}
+.cam-picker__list { max-height: 15rem; margin: 0; padding: 4px; overflow: auto; overscroll-behavior: contain; list-style: none; }
+.cam-picker__item > label {
+  display: flex; align-items: flex-start; gap: 10px; min-height: 40px; padding: 9px 10px;
+  font-size: var(--cam-fs-sm); line-height: 1.35; border-radius: var(--cam-r-sm); cursor: pointer;
+}
+.cam-picker__item > label:hover { background: var(--cam-bg); }
+.cam-picker__item .form-check-input { flex: none; margin: .05rem 0 0; }
+.cam-picker__item:has(input:checked) > label { font-weight: 600; }
+.cam-picker__empty { margin: 0; padding: 16px; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-align: center; }
+
+/* ── Gestión: aviso de error del formulario ──────────────────────────────── */
+.cam-form__error { margin: 20px 0 0; }
+
+/* ── Bitácora: tabla que se apila bajo 768 px (sin scroll horizontal) ───── */
+.cam-audit__filters {
+  display: grid; gap: 12px 16px; margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 18rem));
+}
+.cam-audit { background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg); overflow: hidden; }
+.cam-audit__table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--cam-fs-sm); }
+.cam-audit__table th {
+  padding: 10px 14px; text-align: left; font-size: var(--cam-fs-xs); font-weight: 600;
+  color: var(--cam-ink-2); background: var(--cam-bg); border-bottom: 1px solid var(--cam-line);
+}
+.cam-audit__table td { padding: 12px 14px; vertical-align: top; overflow-wrap: anywhere; border-top: 1px solid var(--cam-line); }
+.cam-audit__table tbody tr:first-child td { border-top: 0; }
+.cam-audit__table th:nth-child(1), .cam-audit__table td:nth-child(1) { width: 10.5rem; }
+.cam-audit__when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cam-audit__act { display: block; font-weight: 600; }
+.cam-audit__detail { display: block; margin-top: 2px; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
+.cam-audit__pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 16px; }
+.cam-audit__total { font-size: var(--cam-fs-sm); color: var(--cam-ink-2); font-variant-numeric: tabular-nums; }
+.cam-audit__links { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 767.98px) {
+  .cam-audit { background: transparent; border: 0; border-radius: 0; overflow: visible; }
+  .cam-audit__table, .cam-audit__table tbody, .cam-audit__table tr, .cam-audit__table td { display: block; width: 100%; }
+  .cam-audit__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .cam-audit__table tr { margin-bottom: 10px; background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r); }
+  .cam-audit__table td { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 8px; padding: 8px 12px; border-top: 0; }
+  .cam-audit__table th:nth-child(1), .cam-audit__table td:nth-child(1) { width: 100%; }
+  .cam-audit__table td::before { content: attr(data-label); font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); padding-top: 2px; }
+  .cam-audit__when { white-space: normal; }
+  /* el detalle de la acción ocupa su propia línea a ancho completo */
+  .cam-audit__detail { grid-column: 1 / -1; margin-top: 0; overflow-wrap: break-word; }
+}
+
+/* ── Movimiento reducido: todo aparece en su estado final, sin trayecto ─── */
+@media (prefers-reduced-motion: reduce) {
+  .cam-modal::backdrop, .cam-modal__panel, .cam-reveal__device, .cam-reveal__info,
+  .cam-pw.is-copied .cam-pw__ch, .cam-card--tile .cam-face > * { animation: none; }
+  .cam-dot__disc, .cam-dot__num, .cam-dot__idle, .cam-dot__pos, .cam-arrow,
+  .cam-reveal__fuse > span, .cam-btn, .cam-face__grid > span, .cam-face__mask > span::after { transition: none; }
+  .cam-dot.is-current .cam-dot__halo { animation: none; opacity: 1; }
+  .cam-btn:active:not(:disabled) { transform: none; }
+  .cam-spin { animation-duration: 1.6s; }
+}

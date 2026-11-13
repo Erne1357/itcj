@@ -1,0 +1,15 @@
+<div class="cam-empty" data-cam-empty>
+{% if q %}
+  <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-search"></i></span>
+  <h2 class="cam-empty__title">Ningún DVR coincide con «{{ q }}»</h2>
+  <p class="cam-empty__hint">Busca por nombre del DVR, ubicación o departamento.</p>
+{% elif not viewer.see_all and not viewer.dept_ids %}
+  <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-diagram-3"></i></span>
+  <h2 class="cam-empty__title">Tu puesto no está ligado a un departamento</h2>
+  <p class="cam-empty__hint">Sin un departamento no hay DVR que mostrarte. Pide a Soporte que revise tu acceso a Cámaras.</p>
+{% else %}
+  <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-camera-video-off"></i></span>
+  <h2 class="cam-empty__title">{% if viewer.see_all %}Aún no hay DVR registrados{% else %}Tu departamento no tiene DVR registrados{% endif %}</h2>
+  <p class="cam-empty__hint">Si tu área tiene un grabador de cámaras, pide a Soporte que lo registre. Aparecerá aquí en cuanto lo liguen a tu departamento.</p>
+{% endif %}
+</div>

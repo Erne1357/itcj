@@ -1,0 +1,25 @@
+{# Fragmento de POST /cameras/dvrs/{id}/reveal (Cache-Control: no-store). Entra en el cuerpo del diálogo
+   #cam-reveal; pattern.js lo quita del DOM a los 30 s o al cerrar. #}
+{% set has_pw = rv.password is not none %}
+<div class="cam-secret{% if rv.pattern %} cam-secret--pattern{% endif %}" data-revealed data-seal-after="30">
+  <div class="cam-reveal__timer">
+    <p class="cam-reveal__countdown"><i class="bi bi-eye" aria-hidden="true"></i>Se oculta en <b data-cam-countdown>30</b> s</p>
+    <div class="cam-reveal__fuse" aria-hidden="true"><span data-cam-fuse></span></div>
+  </div>
+  {% if rv.pattern %}<div class="cam-reveal__device"><div class="cam-pattern" data-pattern-viewer data-pattern="{{ rv.pattern }}" data-autoplay></div></div>{% endif %}
+  <div class="cam-reveal__info">
+    {% if has_pw %}
+    <section class="cam-reveal__block" aria-labelledby="cam-pw-label">
+      <div class="cam-reveal__row">
+        <h3 class="cam-reveal__label" id="cam-pw-label">Contraseña</h3>
+        <button type="button" class="cam-btn cam-btn--ghost cam-btn--sm" data-cam-copy><i class="bi bi-copy" aria-hidden="true"></i><span data-cam-copy-label>Copiar</span></button>
+      </div>
+      <p class="cam-pw" data-cam-pw>{{ rv.password }}</p>
+      {% if rv.password_changed_at %}<p class="cam-reveal__meta">Actualizada{% if rv.password_changed_by %} por {{ rv.password_changed_by }}{% endif %} el {{ rv.password_changed_at.strftime("%d/%m/%Y %H:%M") }}</p>{% endif %}
+    </section>
+    {% endif %}
+    {% if rv.username %}<dl class="cam-reveal__facts"><div><dt>Usuario</dt><dd><code>{{ rv.username }}</code></dd></div></dl>{% endif %}
+    {% if rv.notes %}<div class="cam-reveal__notes"><h3 class="cam-reveal__label">Notas</h3><p>{{ rv.notes }}</p></div>{% endif %}
+    {% if not rv.pattern and not has_pw %}<p class="cam-note"><i class="bi bi-info-circle" aria-hidden="true"></i><span>Este DVR no tiene patrón ni contraseña guardados. Pide a Soporte que los capture.</span></p>{% endif %}
+  </div>
+</div>
