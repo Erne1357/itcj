@@ -39,7 +39,12 @@ from itcj2.observability.work import (
 # Re-medido el 2026-09-24 con la presencia por app de la ronda 3
 # (`itcj_presence_app_users`, 10 series fijas más): 805 pares -> 17.028 series
 # (fijas 928). Margen: 2.972 series, ~148 pares nuevos. El tope no se mueve.
-MAX_SERIES_PER_TARGET = 20_000
+# Subido de 20.000 a 23.300 el 2026-11-13 para el merge de Prórrogas (PR #92): 924 pares -> 20.264 series
+# proyectadas en CI (fijas 1.784); el tope nuevo devuelve el margen de ~150 pares de la ronda 2.
+# shortcut: se subió SIN la palanca (1) ni la (2): falta medir en el Prometheus de producción
+# `count by (instance) ({__name__=~"itcj_.*"})` y `prometheus_tsdb_head_series`, y ver con `df -h` si
+# `--storage.tsdb.retention.size` (platform/docker-compose.yml) aguanta este tope; si no, subirlo o bajar este.
+MAX_SERIES_PER_TARGET = 23_300
 
 # Peor caso de estados distintos por par (método, ruta) en el contador (§6).
 MAX_STATUS = 6
