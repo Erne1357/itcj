@@ -6,6 +6,12 @@
       <h3 class="cam-card__name">{{ d.name }}</h3>
       {% if bits %}<p class="cam-card__meta">{% for b in bits %}<span>{{ b }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
     </div>
+    {% if viewer.can_manage %}
+    <div class="cam-card__tools">
+      <a class="cam-btn cam-btn--quiet cam-btn--icon" href="/cameras/dvrs/{{ d.id }}/edit" aria-label="Editar DVR {{ d.name }}"><i class="bi bi-pencil" aria-hidden="true"></i></a>
+      <button type="button" class="cam-btn cam-btn--quiet cam-btn--icon" data-cam-deactivate="{{ d.id }}" data-name="{{ d.name }}" aria-label="Dar de baja DVR {{ d.name }}"><i class="bi bi-archive" aria-hidden="true"></i></button>
+    </div>
+    {% endif %}
   </div>
   <ul class="cam-card__depts" aria-label="Departamentos">
     {% for dep in d.departments %}<li class="cam-chip" title="{{ dep.name }}">{{ dep.name }}</li>

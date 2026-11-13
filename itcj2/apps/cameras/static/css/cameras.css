@@ -52,6 +52,11 @@
    - cam-note ............ aviso en línea: --warn, --ok, --error
    - cam-picker .......... multiselección de deptos: __top, __search,
                            __list, __item, __empty, __count (pie)
+   - cam-form__error ..... aviso de error al tope del formulario (con cam-note)
+   - cam-audit ........... bitacora: __filters (selects en fila fluida),
+                           __table (tabla; bajo 768 px cada fila es una
+                           tarjeta apilada con data-label), __when, __act,
+                           __detail, __pager (__total, __links)
    - cam-anim-sealed ..... la pone pattern.js al volver a sellar
    ============================================================================= */
 
@@ -518,6 +523,40 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-picker__item .form-check-input { flex: none; margin: .05rem 0 0; }
 .cam-picker__item:has(input:checked) > label { font-weight: 600; }
 .cam-picker__empty { margin: 0; padding: 16px; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-align: center; }
+
+/* ── Gestión: aviso de error del formulario ──────────────────────────────── */
+.cam-form__error { margin: 20px 0 0; }
+
+/* ── Bitácora: tabla que se apila bajo 768 px (sin scroll horizontal) ───── */
+.cam-audit__filters {
+  display: grid; gap: 12px 16px; margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 18rem));
+}
+.cam-audit { background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg); overflow: hidden; }
+.cam-audit__table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--cam-fs-sm); }
+.cam-audit__table th {
+  padding: 10px 14px; text-align: left; font-size: var(--cam-fs-xs); font-weight: 600;
+  color: var(--cam-ink-2); background: var(--cam-bg); border-bottom: 1px solid var(--cam-line);
+}
+.cam-audit__table td { padding: 12px 14px; vertical-align: top; overflow-wrap: anywhere; border-top: 1px solid var(--cam-line); }
+.cam-audit__table tbody tr:first-child td { border-top: 0; }
+.cam-audit__table th:nth-child(1), .cam-audit__table td:nth-child(1) { width: 10.5rem; }
+.cam-audit__when { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cam-audit__act { display: block; font-weight: 600; }
+.cam-audit__detail { display: block; margin-top: 2px; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
+.cam-audit__pager { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-top: 16px; }
+.cam-audit__total { font-size: var(--cam-fs-sm); color: var(--cam-ink-2); font-variant-numeric: tabular-nums; }
+.cam-audit__links { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 767.98px) {
+  .cam-audit { background: transparent; border: 0; border-radius: 0; overflow: visible; }
+  .cam-audit__table, .cam-audit__table tbody, .cam-audit__table tr, .cam-audit__table td { display: block; width: 100%; }
+  .cam-audit__table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .cam-audit__table tr { margin-bottom: 10px; background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r); }
+  .cam-audit__table td { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 8px; padding: 8px 12px; border-top: 0; }
+  .cam-audit__table th:nth-child(1), .cam-audit__table td:nth-child(1) { width: 100%; }
+  .cam-audit__table td::before { content: attr(data-label); font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); padding-top: 2px; }
+  .cam-audit__when { white-space: normal; }
+}
 
 /* ── Movimiento reducido: todo aparece en su estado final, sin trayecto ─── */
 @media (prefers-reduced-motion: reduce) {

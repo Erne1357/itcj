@@ -6,6 +6,12 @@
       <h1 class="cam-head__title"><span class="cam-mark" aria-hidden="true"><i class="bi bi-camera-video-fill"></i></span>Cámaras</h1>
       <p class="cam-head__sub">{% if viewer.can_manage %}DVR registrados, agrupados por ubicación.{% else %}Patrón y contraseña de los DVR de tu departamento.{% endif %}</p>
     </div>
+    {% if viewer.can_manage or viewer.can_audit %}
+    <div class="cam-head__actions">
+      {% if viewer.can_audit %}<a class="cam-btn cam-btn--ghost" href="/cameras/audit"><i class="bi bi-journal-text" aria-hidden="true"></i><span>Bitácora</span></a>{% endif %}
+      {% if viewer.can_manage %}<a class="cam-btn cam-btn--primary" href="/cameras/dvrs/new" aria-label="Registrar DVR"><i class="bi bi-plus-lg" aria-hidden="true"></i><span class="d-none d-sm-inline">Registrar DVR</span></a>{% endif %}
+    </div>
+    {% endif %}
   </header>
 
   <form class="cam-search" role="search" novalidate>

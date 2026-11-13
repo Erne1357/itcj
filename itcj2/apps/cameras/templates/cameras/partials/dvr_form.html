@@ -1,0 +1,112 @@
+{# Formulario de solo escritura: nunca se rellena contraseña, patrón, usuario ni notas. #}
+{% set action = '/cameras/dvrs/' ~ d.id if d else '/cameras/dvrs' %}
+<form class="cam-panel cam-form" id="cam-dvr-form" method="post" autocomplete="off" action="{{ action }}"
+      hx-post="{{ action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  {% if error %}<p class="cam-note cam-note--error cam-form__error" role="alert"><i class="bi bi-exclamation-octagon-fill" aria-hidden="true"></i><span>{{ error }}</span></p>{% endif %}
+  <section class="cam-form__section">
+    <div class="cam-form__intro">
+      <h2 class="cam-form__title">Datos del DVR</h2>
+      <p class="cam-form__hint">Es lo que ven en la lista quienes tienen acceso, sin revelar nada.</p>
+    </div>
+    <div class="cam-form__fields">
+      <div class="cam-field cam-field--wide">
+        <label class="form-label" for="f-name">Nombre</label>
+        <input class="form-control" id="f-name" name="name" maxlength="100" required value="{{ v.name or '' }}">
+      </div>
+      <div class="cam-field cam-field--wide">
+        <label class="form-label" for="f-loc">Ubicación</label>
+        <input class="form-control" id="f-loc" name="location" maxlength="150" list="f-loc-list" value="{{ v.location or '' }}">
+        <datalist id="f-loc-list">{% for loc in locations %}<option value="{{ loc }}">{% endfor %}</datalist>
+        <p class="cam-field__hint">Agrupa la lista. Escríbela igual para los DVR del mismo lugar.</p>
+      </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-brand">Marca</label>
+        <input class="form-control" id="f-brand" name="brand" maxlength="50" value="{{ v.brand or '' }}">
+      </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-model">Modelo</label>
+        <input class="form-control" id="f-model" name="model" maxlength="80" value="{{ v.model or '' }}">
+      </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-ch">Canales</label>
+        <input class="form-control" id="f-ch" name="channels" type="number" min="1" max="128" inputmode="numeric" value="{{ v.channels or '' }}">
+      </div>
+    </div>
+  </section>
+
+  <section class="cam-form__section">
+    <div class="cam-form__intro">
+      <h2 class="cam-form__title">Departamentos</h2>
+      <p class="cam-form__hint">Sus jefes podrán revelar el patrón y la contraseña. Sin departamento, solo lo ve Soporte.</p>
+    </div>
+    <div class="cam-picker" data-cam-picker>
+      <div class="cam-picker__top">
+        <i class="bi bi-search" aria-hidden="true"></i>
+        <label class="visually-hidden" for="f-dept-q">Buscar departamento</label>
+        <input class="cam-picker__search" id="f-dept-q" type="search" placeholder="Buscar departamento" autocomplete="off" data-cam-filter aria-controls="f-dept-list">
+      </div>
+      <ul class="cam-picker__list" id="f-dept-list" aria-label="Departamentos">
+        {% for dep in departments %}<li class="cam-picker__item" data-cam-filter-item><label><input class="form-check-input" type="checkbox" name="department_ids" value="{{ dep.id }}"{% if dep.id in selected %} checked{% endif %}>{{ dep.name }}</label></li>{% endfor %}
+      </ul>
+      <p class="cam-picker__empty" data-cam-filter-empty hidden>Ningún departamento coincide.</p>
+      <p class="cam-picker__count" data-cam-picker-count aria-live="polite"></p>
+    </div>
+  </section>
+
+  <section class="cam-form__section">
+    <div class="cam-form__intro">
+      <h2 class="cam-form__title">Acceso</h2>
+      <p class="cam-form__hint">Se guarda cifrado. Este formulario nunca muestra lo que ya está guardado: solo lo reemplaza{% if d %}; en blanco, se conserva{% endif %}.</p>
+    </div>
+    <div class="cam-form__fields">
+      <div class="cam-field cam-field--wide">
+        <label class="form-label" for="f-user">Usuario del DVR</label>
+        <input class="form-control" id="f-user" name="username" maxlength="50" autocomplete="off">
+        <p class="cam-field__hint">{% if d %}Déjalo en blanco para conservar el actual. {% endif %}Solo se muestra al revelar.</p>
+        {% if d %}<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="f-user-del" name="remove_username"><label class="form-check-label" for="f-user-del">Quitar usuario</label></div>{% endif %}
+      </div>
+      {% if has_password %}
+      <div class="cam-field cam-field--wide">
+        <p class="cam-note cam-note--ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>Contraseña configurada. Escribe una nueva para reemplazarla.</span></p>
+      </div>
+      {% endif %}
+      <div class="cam-field">
+        <label class="form-label" for="f-pw">{% if has_password %}Contraseña nueva{% else %}Contraseña{% endif %}</label>
+        <input class="form-control" id="f-pw" name="password" type="password" autocomplete="new-password">
+        {% if d %}<p class="cam-field__hint">Déjala en blanco para conservar la actual.</p>{% endif %}
+      </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-pw2">Confírmala</label>
+        <input class="form-control" id="f-pw2" name="password_confirm" type="password" autocomplete="new-password">
+      </div>
+      {% if has_password %}
+      <div class="cam-field cam-field--wide">
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="f-pw-del" name="remove_password"><label class="form-check-label" for="f-pw-del">Quitar contraseña</label></div>
+      </div>
+      {% endif %}
+      <div class="cam-field cam-field--wide">
+        <span class="form-label" id="f-pattern-label">Patrón</span>
+        {% if has_pattern %}<p class="cam-note cam-note--ok"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>Patrón configurado. Dibuja uno nuevo para reemplazarlo.</span></p>{% endif %}
+        <div class="cam-editor" data-pattern-editor aria-labelledby="f-pattern-label">
+          <input type="hidden" name="pattern" value="">
+          <div>
+            <p class="cam-field__hint">Traza con el dedo o el mouse, igual que en el DVR: cuenta cada punto por el que pases. También puedes teclear los números; el 1 es arriba a la izquierda y el 9 abajo a la derecha.</p>
+            {% if has_pattern %}<div class="form-check mt-3"><input class="form-check-input" type="checkbox" id="f-pat-del" name="remove_pattern"><label class="form-check-label" for="f-pat-del">Quitar patrón</label></div>{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="cam-field cam-field--wide">
+        <label class="form-label" for="f-notes">Notas</label>
+        <textarea class="form-control" id="f-notes" name="notes" rows="3"></textarea>
+        {% if d %}<p class="cam-field__hint">Déjalas en blanco para conservar las actuales.</p>{% endif %}
+        <p class="cam-note cam-note--warn"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i><span>Las notas no se cifran y solo aparecen al revelar. No escribas contraseñas ni patrones aquí.</span></p>
+        {% if d %}<div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="f-notes-del" name="remove_notes"><label class="form-check-label" for="f-notes-del">Quitar notas</label></div>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="cam-form__actions">
+    <a class="cam-btn cam-btn--ghost" href="/cameras/">Cancelar</a>
+    <button type="submit" class="cam-btn cam-btn--primary"><span class="cam-spin" aria-hidden="true"></span><span>{% if d %}Guardar cambios{% else %}Registrar DVR{% endif %}</span></button>
+  </div>
+</form>

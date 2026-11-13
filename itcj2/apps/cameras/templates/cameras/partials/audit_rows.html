@@ -1,0 +1,31 @@
+{% if not rows %}
+<div class="cam-empty">
+  <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-journal-text"></i></span>
+  <h2 class="cam-empty__title">Sin movimientos</h2>
+  <p class="cam-empty__hint">No hay registros con esos filtros.</p>
+</div>
+{% else %}
+<div class="cam-audit">
+  <table class="cam-audit__table">
+    <thead><tr><th scope="col">Fecha</th><th scope="col">Quién</th><th scope="col">DVR</th><th scope="col">Acción</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td data-label="Fecha" class="cam-audit__when">{{ r.created_at.strftime('%d/%m/%Y %H:%M') if r.created_at else '' }}</td>
+        <td data-label="Quién">{{ r.actor_name or 'Usuario desconocido' }}</td>
+        <td data-label="DVR">{{ r.dvr_name or '—' }}</td>
+        <td data-label="Acción"><span class="cam-audit__act">{{ r.label }}</span>{% if r.text %}<span class="cam-audit__detail">{{ r.text }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% set qs = '&dvr_id=' ~ f.dvr_id ~ '&action=' ~ f.action ~ '&actor_id=' ~ f.actor_id %}
+<nav class="cam-audit__pager" aria-label="Paginación">
+  <span class="cam-audit__total">{{ total }} registro{{ '' if total == 1 else 's' }} · página {{ page }} de {{ total_pages }}</span>
+  <span class="cam-audit__links">
+    {% if page > 1 %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML"><i class="bi bi-chevron-left" aria-hidden="true"></i>Anterior</a>{% endif %}
+    {% if page < total_pages %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML">Siguiente<i class="bi bi-chevron-right" aria-hidden="true"></i></a>{% endif %}
+  </span>
+</nav>
+{% endif %}
