@@ -1,0 +1,89 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% macro campo(key, label, hint="") %}
+  <label class="cfg-field" data-k="{{ key }}">{{ label }}
+    <span class="cfg-date">
+      <span class="cfg-date-txt"></span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      <input type="date">
+    </span>
+    <span class="cfg-err" hidden><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5h.01"/></svg><span></span></span>
+    {% if hint %}<span class="cfg-hint">{{ hint }}</span>{% endif %}
+  </label>
+{% endmacro %}
+{% block content %}
+  {# Diseño: "Configuración · periodo" (canvas Estudiante Modal); lo llena configuracion.js. #}
+  <section class="cfg" data-api="/api/prorrogas/v2/configuracion/periodos">
+    <div>
+      <h1 class="sec-h1">Configuración</h1>
+      <p class="cfg-sub">Periodo de prórrogas del semestre: cuándo se puede solicitar y cuándo se paga.</p>
+    </div>
+    <div class="cfg-msg" id="cfgMsg" role="alert" hidden></div>
+    <div class="cfg-card cfg-vacio" id="cfgVacio" hidden>Aún no hay semestres. Los dan de alta los administradores.</div>
+
+    <div class="cfg-main" id="cfgMain" hidden>
+      <div class="cfg-card cfg-sem">
+        <label>Semestre
+          <select id="cfgSem"></select>
+        </label>
+        <div class="cfg-sem-info">
+          <div>Inicia <b id="cfgIni"></b> · Termina <b id="cfgFin"></b></div>
+          <div class="cfg-lock"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Lo definen los administradores</div>
+        </div>
+      </div>
+
+      <div class="cfg-banner" id="cfgBanner" role="status">
+        <span class="cfg-pill"><i></i><span id="cfgChip"></span></span>
+        <span id="cfgAviso"></span>
+      </div>
+
+      <div class="cfg-cols">
+        <form class="cfg-card cfg-form" id="cfgForm" novalidate>
+          <div class="cfg-body">
+            <div class="cfg-group">
+              <h2>Solicitudes</h2>
+              <div class="cfg-fields">
+                {{ campo("abre", "Abre solicitudes", "Puede ser antes del inicio del semestre.") }}
+                {{ campo("cierra", "Cierra solicitudes") }}
+              </div>
+            </div>
+            <div class="cfg-group">
+              <h2>Pagos</h2>
+              <div class="cfg-fields">
+                {{ campo("pago1", "Fecha del pago 1", "Puede ser desde el día siguiente a la apertura.") }}
+                {{ campo("pago2", "Fecha del pago 2") }}
+              </div>
+              <div class="cfg-note">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>
+                <span><strong>Con 1 pago</strong> se usa la fecha del pago 1; <strong>con 2 pagos</strong>, las dos. Se llenan solas en cada plan y puedes moverlas por alumno.</span>
+              </div>
+            </div>
+          </div>
+          <div class="cfg-foot">
+            <div>
+              <div class="cfg-status" id="cfgStatus"><i></i><span></span></div>
+              <div class="cfg-keep">Los planes ya creados conservan sus fechas.</div>
+            </div>
+            <div class="cfg-actions">
+              <button type="button" class="cfg-discard" id="cfgDescartar" hidden>Descartar</button>
+              <button type="submit" class="cfg-save" id="cfgGuardar">Guardar</button>
+            </div>
+          </div>
+        </form>
+
+        <aside class="cfg-card cfg-tl" aria-label="El periodo en orden">
+          <h2>El periodo en orden</h2>
+          <div class="cfg-line" id="cfgLinea" aria-hidden="true"></div>
+          <div class="cfg-legend">
+            <span><i class="cfg-k-sem"></i>Semestre</span>
+            <span><i class="cfg-k-win"></i>Solicitudes abiertas</span>
+            <span id="cfgLeyHoy"><i class="cfg-k-hoy"></i><span></span></span>
+          </div>
+          <ol class="cfg-pasos" id="cfgPasos"></ol>
+        </aside>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/configuracion.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/configuracion.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,50 @@
+"""
+Landing page de AgendaTec — redirige al home según el rol del usuario.
+Equivalente a la ruta ``@agendatec_pages_bp.get("/")`` de Flask.
+
+Rutas:
+  GET /prorrogas_tec/  → Redirige al dashboard según rol
+"""
+import logging
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
+
+from itcj2.dependencies import is_global_admin, require_page_login
+
+logger = logging.getLogger("itcj2.apps.prorrogas_tec.pages.landing")
+
+router = APIRouter(tags=["prorrogas_tec-pages-landing"])
+
+# En orden de prioridad: el primer rol que tenga el usuario decide su destino.
+# (Antes se tomaba un rol cualquiera del conjunto, así que con secretaria y
+# admin a la vez el destino dependía del orden en que los devolvía la BD.)
+_ROLE_HOME: tuple[tuple[str, str], ...] = (
+    ("secretaria", "/prorrogas/secretaria"),
+    # El admin de la app es de solo lectura (08_insert_plan5.sql): ve las mismas pantallas de consulta.
+    ("admin",      "/prorrogas/secretaria"),
+    ("caja",      "/prorrogas/secretaria"),
+    ("student",    "/prorrogas/estudiante"),
+)
+
+
+@router.get("/", name="prorrogas_tec.pages.landing.home")
+async def home(
+    request: Request,
+    user: dict = Depends(require_page_login),
+):
+    """Redirige a la vista que le toca al usuario según sus roles en la app."""
+    from itcj2.core.services.authz_service import user_roles_in_app
+    from itcj2.database import SessionLocal
+
+    if is_global_admin(user):  # sin rol en la app, igual entra a secretaría
+        return RedirectResponse("/prorrogas/secretaria", status_code=302)
+    user_id = int(user["sub"])
+    db = SessionLocal()
+    try:
+        roles = user_roles_in_app(db, user_id, "prorrogas_tec")
+    finally:
+        db.close()
+    destination = next((url for role, url in _ROLE_HOME if role in roles), "/prorrogas/estudiante")
+    logger.debug("Redirigiendo usuario %s (roles=%s) a %s", user_id, sorted(roles), destination)
+    return RedirectResponse(destination, status_code=302)

@@ -1,0 +1,89 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="sec-card docs" data-api="/api/prorrogas/v2/templates">
+    <aside class="docs-years">
+      <div class="docs-years-title">Años</div>
+      <div class="docs-years-list" id="docsYears" role="tablist" aria-label="Año"></div>
+    </aside>
+
+    <div class="docs-main">
+      <div class="docs-head">
+        <h1 class="sec-h1">Plantillas <span class="docs-year-label" id="docsYearLabel"></span></h1>
+        <p class="docs-hint">
+          El sistema llena estas plantillas de Word para cada estudiante. Para cambiar un formato, descárgalo,
+          edítalo en Word sin tocar los marcadores <code>{{ '{{' }}así{{ '}}' }}</code> y súbelo para el año.
+        </p>
+        <p class="docs-warn" id="docsVacantes" role="status" hidden></p>
+      </div>
+      <div class="docs-grid" id="docsGrid" aria-live="polite">
+        <div class="docs-loading">Cargando plantillas…</div>
+      </div>
+    </div>
+  </section>
+
+  {# Vista de un documento: reutiliza el modal de revisión de "QR y solicitudes" (.sol-modal). #}
+  <dialog class="sol-modal" id="docDialog" aria-labelledby="docNombre">
+    <div class="sol-modal-pdf">
+      <div class="sol-modal-bar doc-modal-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/></svg>
+        <span id="docArchivo"></span>
+        <small>Datos de ejemplo</small>
+      </div>
+      <iframe id="docPdf" title="Vista previa con datos de ejemplo" hidden></iframe>
+      <div class="doc-skel" id="docSkel" aria-hidden="true" hidden><div class="doc-skel-page"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="sol-pdf-fallback" id="docPdfMsg" role="status" hidden></div>
+    </div>
+    <div class="sol-modal-side">
+      <div class="sol-modal-top">
+        <div class="sol-modal-row"><span class="sol-modal-kind">Plantilla <span id="docAnio"></span></span>
+          <button type="button" class="sol-x" id="docClose" title="Cerrar (Esc)" aria-label="Cerrar">&times;</button></div>
+        <h2 id="docNombre"></h2>
+        <dl class="sol-dl">
+          <dt>Formato</dt><dd class="mono">DOCX</dd>
+          <dt>Archivo en uso</dt><dd id="docOrigen"></dd>
+        </dl>
+      </div>
+      <div class="sol-modal-mid doc-modal-mid">
+        <button type="button" class="doc-side-btn" id="docReemplazar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"/></svg>
+          Reemplazar archivo
+        </button>
+        <p class="doc-modal-note">Al reemplazar, las cartas nuevas usarán el archivo actualizado. Las ya generadas no cambian.</p>
+        <p class="doc-modal-note">Para editarla: descárgala, cámbiala en Word sin tocar los marcadores y súbela con <strong>Reemplazar archivo</strong>.</p>
+      </div>
+      <div class="doc-modal-foot">
+        <a class="sol-btn-accept doc-modal-dl" id="docDescargar" href="#">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          Descargar
+        </a>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="sec-dialog" id="uploadDialog" aria-labelledby="uploadTitle">
+    <form method="dialog" class="sec-dialog-form" id="uploadForm">
+      <h2 id="uploadTitle">Subir plantilla para <span id="uploadYear"></span></h2>
+      <label class="sec-field">
+        <span>Formato</span>
+        <select id="uploadType" name="doc_type" required></select>
+      </label>
+      <label class="sec-field">
+        <span>Archivo de Word (.docx)</span>
+        <input type="file" id="uploadFile" name="archivo" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" required>
+      </label>
+      <div class="sec-markers">
+        <div class="sec-markers-title">Marcadores de este formato</div>
+        <p class="sec-markers-hint">Los <strong>marcados</strong> son obligatorios. Escríbelos tal cual en Word.</p>
+        <div class="sec-markers-list" id="uploadMarkers"></div>
+      </div>
+      <div class="sec-dialog-error" id="uploadError" role="alert" hidden></div>
+      <div class="sec-dialog-actions">
+        <button type="button" class="sec-btn sec-btn-ghost" id="uploadCancel">Cancelar</button>
+        <button type="submit" class="sec-btn" id="uploadSubmit">Subir</button>
+      </div>
+    </form>
+  </dialog>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/documentos.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/documentos.js') }}"></script>
+{% endblock %}

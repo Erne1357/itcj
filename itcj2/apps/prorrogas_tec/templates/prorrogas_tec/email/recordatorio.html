@@ -1,0 +1,38 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "urgente" if vencido else "neutro" %}
+{% block titulo %}{% if vencido %}Tienes un pago vencido{% else %}Tu próximo pago vence el {{ proxima_fecha }}{% endif %}{% endblock %}
+{% block preheader %}{% if vencido %}Tu pago de {{ proxima_monto }} venció el {{ proxima_fecha }}. Págalo lo antes posible.{% else %}Paga {{ proxima_monto }} en la Caja de Recursos Financieros a más tardar ese día.{% endif %}{% endblock %}
+{% block etiqueta %}{% if vencido %}Pago vencido{% else %}Recordatorio{% endif %}{% endblock %}
+{% block encabezado %}{% if vencido %}Tienes un pago vencido{% else %}Tu próximo pago vence el {{ proxima_fecha }}{% endif %}{% endblock %}
+{% block cuerpo %}
+{% if vencido %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px;background-color:#FFFFFF;border:2px solid #F27340;">
+  <tr><td style="padding:12px 20px;border-bottom:1px solid #E2E0D6;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#652F2A;">Monto vencido</p>
+    <p style="margin:2px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:28px;line-height:34px;font-weight:700;color:#652F2A;">{{ proxima_monto }}</p>
+  </td></tr>
+  <tr><td style="padding:12px 20px;border-bottom:1px solid #E2E0D6;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#5C5650;">Venció el</p>
+    <p style="margin:2px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:22px;font-weight:700;color:#652F2A;">{{ proxima_fecha }}</p>
+  </td></tr>
+  <tr><td style="padding:12px 20px;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#5C5650;">Saldo pendiente de tu prórroga</p>
+    <p style="margin:2px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:22px;font-weight:700;color:#1A130E;">{{ saldo }}</p>
+  </td></tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px;background-color:#B3261E;">
+  <tr><td bgcolor="#B3261E" style="padding:16px 18px;background-color:#B3261E;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:16px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#FFFFFF;">Importante</p>
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:18px;line-height:25px;font-weight:700;color:#FFFFFF;">No podrás inscribirte al siguiente semestre hasta que liquides tu adeudo.</p>
+  </td></tr>
+</table>
+{{ m.pasos(["Págalo en la Caja de Recursos Financieros y menciona tu folio.",
+            "Luego sube tu recibo escaneado en Mi prórroga."], fondo="#F7F7F2", borde="#E2E0D6", margen="24px") }}
+{% else %}
+{{ m.datos([("Monto a pagar", proxima_monto), ("Fecha límite", proxima_fecha), ("Saldo pendiente de tu prórroga", saldo)]) }}
+{{ m.pasos(["Paga en la Caja de Recursos Financieros y menciona tu folio.",
+            "Luego sube tu recibo escaneado en Mi prórroga."], margen="24px") }}
+{% endif %}
+{% endblock %}
+{% block boton %}Ir a Mi prórroga{% endblock %}

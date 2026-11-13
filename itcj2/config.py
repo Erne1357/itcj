@@ -473,6 +473,9 @@ class Settings(BaseSettings):
     # (TIPO = ACTA | CERTIFICADO | CURP | código del tipo en mayúsculas, `utils/storage.py`).
     # Solo se conserva la última versión de cada documento (se sobreescribe por nombre fijo).
     TITULATEC_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "titulatec")
+    # Prórrogas — plantillas .docx que sube la secretaria y documentos generados.
+    # Estructura: instance/apps/prorrogas_tec/templates/{año}/{tipo}-{sha12}.docx
+    PRORROGAS_UPLOAD_PATH: str = os.path.join(os.path.abspath("instance"), "apps", "prorrogas_tec")
     TITULATEC_MAX_IMAGE_SIZE: int = 3 * 1024 * 1024
     # PDFs (2026-09-28): dos topes distintos a propósito.
     # - MAX_PDF_SIZE es lo que pesa el archivo GUARDADO. 2 MB alcanza de sobra

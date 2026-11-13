@@ -1,0 +1,60 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block content %}
+<div id="mp-root" class="stack">
+  <section class="card"><p class="label">Mi prórroga</p><p class="hint">Cargando…</p></section>
+</div>
+
+<template id="mp-como">
+  <section class="card">
+    <h2 class="h2">¿Cómo funciona?</h2>
+    <ol class="steps">
+      <li class="step"><span class="dot">1</span><div class="step-body"><p class="step-title">Llenas y firmas tu solicitud</p><p class="hint">Explicas tu motivo y eliges 1 o 2 pagos.</p></div></li>
+      <li class="step"><span class="dot">2</span><div class="step-body"><p class="step-title">La revisan en la escuela</p><p class="hint">Aquí verás si está pendiente, aceptada o rechazada.</p></div></li>
+      <li class="step"><span class="dot">3</span><div class="step-body"><p class="step-title">Si la aceptan, firmas y pagas</p><p class="hint">Firmas tu carta compromiso y pagas en las fechas de tu plan.</p></div></li>
+    </ol>
+  </section>
+</template>
+
+<template id="mp-revision">
+  <section class="card">
+    <h2 class="h2">¿En qué va?</h2>
+    <ol class="steps">
+      <li class="step done"><span class="dot"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span><div class="step-body"><p class="step-title">Solicitud enviada</p><p class="hint">Ya la recibimos con tu firma.</p></div></li>
+      <li class="step now" aria-current="step"><span class="dot">2</span><div class="step-body"><p class="step-title">En revisión</p><p class="hint">La escuela está revisando tu caso.</p></div></li>
+      <li class="step todo"><span class="dot">3</span><div class="step-body"><p class="step-title">Respuesta</p><p class="hint">Aceptada o rechazada, la verás aquí.</p></div></li>
+    </ol>
+  </section>
+</template>
+
+<template id="mp-firma-tpl">
+  <section class="card action">
+    <span class="badge t-wine" style="align-self: flex-start;">Pendiente de ti</span>
+    <h2 class="h2">Firma tu carta compromiso</h2>
+    <p class="hint">En ella te comprometes a pagar en las fechas de tu plan. Léela antes de firmar.</p>
+    <a class="pdf-link mp-pdf" target="_blank" rel="noopener"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></svg><span>Ver la carta (PDF)</span><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></svg></a>
+    <div class="row">
+      <p class="label">Tu firma</p>
+      <button type="button" class="btn-text mp-borrar"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Borrar</button>
+    </div>
+    <div class="firma">
+      <canvas aria-label="Espacio para firmar con el dedo"></canvas>
+      <span class="firma-line" aria-hidden="true"></span>
+      <p class="firma-hint" aria-hidden="true">Firma aquí con tu dedo</p>
+    </div>
+    <label class="check"><input type="checkbox" class="mp-acepto"><span>Leí la carta y <strong>firmo este documento</strong>.</span></label>
+    <p class="error mp-error" role="alert" hidden></p>
+    <button type="button" class="btn mp-firmar" disabled>Firmar carta</button>
+  </section>
+</template>
+
+<template id="mp-iconos">
+  <svg data-i="doc" class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></svg>
+  <svg data-i="chev" class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+  <svg data-i="check" class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>
+  <svg data-i="arrow" class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+  <svg data-i="recibo" class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>
+</template>
+
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/firma.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/firma.js') }}"></script>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/mi_prorroga.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/mi_prorroga.js') }}"></script>
+{% endblock %}

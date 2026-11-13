@@ -1,0 +1,13 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "neutro" %}
+{% block titulo %}Ya puedes solicitar tu prórroga de pago{% endblock %}
+{% block preheader %}Tienes 48 horas para aceptar la invitación.{% endblock %}
+{% block etiqueta %}Invitación{% endblock %}
+{% block encabezado %}Ya puedes solicitar tu prórroga{% endblock %}
+{% block cuerpo %}
+<p style="{{ m.P }}">Recibiste una invitación para pedir tu prórroga de pago en línea. Ahí llenas tu solicitud, la firmas y puedes seguir su progreso.</p>
+{{ m.datos([("Vence", "En 48 horas"), ("Entra con", "Tu número de control y tu NIP")]) }}
+<p style="{{ m.NOTA }}">Si no tienes NIP, solicítalo en el Centro de Cómputo. Esta liga es personal; no la compartas.</p>
+{% endblock %}
+{% block boton %}Aceptar invitación{% endblock %}

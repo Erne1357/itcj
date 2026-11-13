@@ -1,0 +1,64 @@
+{# Envoltura común de los correos de Prórrogas. Tablas de 600px y estilos en línea porque Outlook de
+   escritorio ignora casi todo el CSS; el <style> solo ajusta el celular. Cada correo fija `tono`
+   (neutro, ok, pendiente, urgente) con un `set` antes de sus bloques. #}
+{%- set tonos = {
+  "neutro": "border:1px solid #C9C6BC;background-color:#FFFFFF;color:#4A433D;",
+  "ok": "border:1px solid #6799E0;background-color:#FFFFFF;color:#1A130E;",
+  "pendiente": "border:1px solid #F27340;background-color:#FFFFFF;color:#652F2A;",
+  "urgente": "border:1px solid #652F2A;background-color:#652F2A;color:#FFFFFF;",
+} -%}
+{%- set urgente = tono == "urgente" -%}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>{% block titulo %}Prórrogas ITCJ{% endblock %}</title>
+  <style>
+    @media (max-width: 620px) {
+      .cab { padding: 16px 24px !important; }
+      .pad { padding: 24px 24px 28px !important; }
+      .titulo { font-size: 24px !important; line-height: 30px !important; }
+      .boton { width: 100% !important; }
+      .boton td { text-align: center !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#F7F7F2;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{% block preheader %}{% endblock %}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F7F7F2;">
+    <tr><td align="center" style="padding:32px 12px 40px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
+             style="width:600px;max-width:100%;background-color:#FFFFFF;border:1px solid #E2E0D6;">
+        <tr><td class="cab" style="padding:20px 40px;border-bottom:3px solid {{ '#652F2A' if urgente else '#6799E0' }};">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="vertical-align:middle;"><img src="{{ logo_url }}" width="101" height="48" alt="Instituto Tecnológico de Ciudad Juárez" style="display:block;width:101px;height:48px;border:0;"></td>
+            <td align="right" style="vertical-align:middle;text-align:right;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#4A433D;">Prórrogas</td>
+          </tr></table>
+        </td></tr>
+        <tr><td class="pad" style="padding:32px 40px 36px;font-family:Arial,Helvetica,sans-serif;color:#1A130E;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="padding:3px 8px;{{ tonos.get(tono, tonos.neutro) }}font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:16px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">{% block etiqueta %}{% endblock %}</td>
+          </tr></table>
+          <h1{% if not urgente %} class="titulo"{% endif %} style="margin:14px 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:26px;line-height:32px;font-weight:700;color:{{ '#652F2A' if urgente else '#1A130E' }};">{% block encabezado %}{% endblock %}</h1>
+          {%- if folio %}
+          <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;color:#5C5650;">Folio <span style="font-family:Consolas,'Courier New',monospace;font-weight:700;color:#652F2A;">{{ folio }}</span></p>
+          {%- endif %}
+          {% block cuerpo %}{% endblock %}
+          <table role="presentation" class="boton" cellpadding="0" cellspacing="0" border="0"><tr>
+            <td bgcolor="#652F2A" style="padding:14px 28px;background-color:#652F2A;"><a href="{{ link }}" style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:20px;font-weight:700;color:#FFFFFF;text-decoration:none;">{% block boton %}Abrir{% endblock %}</a></td>
+          </tr></table>
+          <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#5C5650;">Si el botón no funciona, copia esta liga en tu navegador:<br><a href="{{ link }}" style="color:#652F2A;word-break:break-all;">{{ link }}</a></p>
+        </td></tr>
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;">
+        <tr><td style="padding:24px 28px 0;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:18px;color:#5C5650;">
+          <p style="margin:0 0 8px;">Subdirección Académica · Instituto Tecnológico de Ciudad Juárez</p>
+          <p style="margin:0;">Correo automático de la Plataforma Digital del ITCJ. Si no esperabas este mensaje, ignóralo.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>

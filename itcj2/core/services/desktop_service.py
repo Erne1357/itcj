@@ -25,6 +25,9 @@ DESKTOP_APPS: list[dict] = [
     {"key": "titulatec", "name": "TitulaTec", "url": "/titulatec/", "prefixes": ["/titulatec"],
      "icon": "graduation", "image": "core/images/app-icons/titulatec.webp",
      "pinned": True, "on_desktop": True, "badge_key": "titulatec", "system": False},
+    {"key": "prorrogas_tec", "name": "Prórrogas", "url": "/prorrogas/", "prefixes": ["/prorrogas"],
+     "icon": "briefcase", "image": "core/images/app-icons/prorrogas_tec.webp",
+     "pinned": True, "on_desktop": True, "badge_key": "prorrogas_tec", "system": False},
     # Apps del sistema: sin imagen, ni en el escritorio ni ancladas.
     {"key": "profile", "name": "Perfil", "url": "/itcj/profile", "prefixes": ["/itcj/profile"],
      "icon": "user", "image": None,

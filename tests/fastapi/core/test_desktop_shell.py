@@ -16,7 +16,7 @@ from itcj2.core.services import desktop_service as ds
 from itcj2.database import get_db
 from tests.conftest import make_jwt
 
-APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "titulatec"]
+APP_KEYS = ["agendatec", "helpdesk", "maint", "directory", "titulatec", "prorrogas_tec"]
 
 # Sprite del contrato compartido (plan, "Contratos compartidos").
 SPRITE = ("menu search bell wifi wifi-off minus square restore x refresh external trash user "
@@ -59,7 +59,7 @@ def _one(doc, xpath):
 # ---------------------------------------------------------------------------
 # Tiles del escritorio
 # ---------------------------------------------------------------------------
-def test_cinco_tiles_de_apps_mas_la_papelera_en_el_grid(doc):
+def test_tiles_de_apps_mas_la_papelera_en_el_grid(doc):
     tiles = doc.xpath('//*[@id="desktop-grid"]/*[contains(concat(" ", @class, " "), " desktop-icon ")]')
     keys = [t.get("data-app") for t in tiles]
     assert keys[0] == "papelera", "la Papelera decorativa va primero"

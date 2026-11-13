@@ -1,0 +1,14 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "ok" %}
+{% block titulo %}Terminaste de pagar tu prórroga{% endblock %}
+{% block preheader %}Caja registró tu último pago. Ya no tienes saldo pendiente de tu prórroga.{% endblock %}
+{% block etiqueta %}Pagada{% endblock %}
+{% block encabezado %}Terminaste de pagar tu prórroga{% endblock %}
+{% block cuerpo %}
+<p style="{{ m.P }}">La Caja de Recursos Financieros registró tu último pago. Ya no tienes saldo pendiente de tu prórroga.</p>
+{{ m.datos([("Total pagado", total), ("Último pago", monto ~ " el " ~ fecha), ("Folio del recibo", folio_caja)]) }}
+{{ m.pasos(["Sube el recibo de este último pago en Mi prórroga, si aún no lo haces.",
+            "Guarda tus recibos: son tu comprobante de pago."], margen="24px") }}
+{% endblock %}
+{% block boton %}Ir a Mi prórroga{% endblock %}

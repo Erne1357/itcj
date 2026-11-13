@@ -101,6 +101,7 @@ DOCUMENT_KIND_ENGINE = MappingProxyType({
     "inventory_report_lifecycle": "csv",
     "retirement_oficio": "openpyxl",  # R36: el oficio de bajas no pasa a PDF
     "agendatec_report": "xlsxwriter",
+    "prorrogas_documento": "libreoffice",  # cartas de Prórrogas (core/utils/docx_pdf.py)
 })
 DOCUMENT_KINDS = frozenset(DOCUMENT_KIND_ENGINE)
 DOCUMENT_ENGINES = frozenset(DOCUMENT_KIND_ENGINE.values())

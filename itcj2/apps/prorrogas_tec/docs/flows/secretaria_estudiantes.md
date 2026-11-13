@@ -1,0 +1,99 @@
+# Secretaría · Estudiantes (plan de pagos, recibos y lista de adeudos)
+
+> **Objetivo:** que la secretaria vea a los estudiantes con prórroga aceptada, cree su plan de pagos (o lo rehaga mientras no tenga pagos), vea los recibos de Caja y avise si el recibo escaneado no coincide, recuerde el pago y entregue al centro de cómputo la lista de bloqueo (y avise cuando se desbloquea).
+
+| | |
+|---|---|
+| **Actores** | Secretaria (rol `secretaria`), admin de la app (rol `admin`) |
+| **Permisos** | Página: `prorrogas_tec.secretaria.page.estudiantes` · API: leer lista, expediente y reparto con `prorrogas_tec.requests.api.read.all`; plan `prorrogas_tec.plans.api.manage`; recordar y avisar una inconsistencia `prorrogas_tec.students.api.remind`; exportar y avisar desbloqueo `prorrogas_tec.students.api.export` |
+| **Disparador** | Una solicitud queda `aceptada` (llega a la lista **sin plan**) o el estudiante paga en Caja (que ahora captura los recibos: [caja.md](caja.md)) |
+| **Precondiciones** | `init-prorrogas` corrido (trae los permisos del Plan 3); LibreOffice para generar la carta compromiso |
+| **Estado final** | Solicitud con plan, recibos vigentes y situación `liquidada`; el centro de cómputo ya tiene la lista y el estudiante sabe que se desbloqueó |
+
+## Ruta en la app (UI)
+
+Escritorio → Prórrogas → `/prorrogas/secretaria/estudiantes` → pestaña **Estudiantes** (`static/js/secretaria/estudiantes.js`). Todas las rutas de API cuelgan de `/api/prorrogas/v2/estudiantes`.
+
+## Situación
+
+Se calcula al leer (`services/account.py`), nunca se guarda:
+
+| Situación | Cuándo |
+|---|---|
+| `sin_plan` | Aceptada sin plan confirmado |
+| `liquidada` | Pagado ≥ total |
+| `atrasada` | Alguna parcialidad vigente con fecha < hoy y no cubierta |
+| `al_corriente` | Lo demás |
+
+**Hoy** = `db_now().date()` (hora de Ciudad Juárez). Filtros de la vista: `todos`, `con_adeudo` (= `atrasada`), `al_corriente`, `sin_plan`, `liquidada`. La lista calcula la cuenta de todas las aceptadas del semestre en Python y luego filtra y pagina (`# shortcut`: pasar a SQL si un semestre supera ~2000 solicitudes).
+
+Los recibos vigentes cubren en orden FIFO la parcialidad vigente más vieja; solo importa la **suma** de lo pagado. Estado de cada parcialidad, en este orden: `pagada`, `vencida` (fecha < hoy y no cubierta), `parcial`, `pendiente`.
+
+## Pasos
+
+| # | Actor | UI | Acción | Endpoint | Service · método | Efecto en BD |
+|---|---|---|---|---|---|---|
+| 1 | Secretaria | Selector de semestre | Semestres con aceptadas; preselecciona el vigente | `GET …/estudiantes/periodos` | `StudentsService.periodos` | — |
+| 2 | Secretaria | Tabla y filtros | Busca por control o nombre (`q`), filtra, pagina (`page`, `per_page` máx. 100); trae conteos por situación | `GET …/estudiantes?period_id=&q=&filtro=&page=&per_page=` | `StudentsService.listar` | — |
+| 3 | Secretaria | Clic en una fila | Modal del estudiante: resumen de la cuenta y pestañas Plan de pagos (pagos con el recibo de Caja que cubrió cada uno, recibos, situación), Solicitud y documentos, Historial | `GET …/estudiantes/{id}` | `StudentsService.expediente` | — (solo `aceptada`; si no, 404) |
+| 4 | Secretaria | Formulario de plan | Pide el reparto sugerido (el servidor lo calcula, no el JS) | `GET …/estudiantes/reparto?total=&n=` | `PlanService.reparto` | — |
+| 5 | Secretaria | **Confirmar plan** / **Modificar plan** (solo si no hay pagos ni parcialidades vencidas: `con_pagos` / `con_vencidos`, 409) | Total, 1 o 2 pagos iguales y la fecha de cada uno (un plan nuevo arranca con las de [Configuración](secretaria_configuracion.md), salvo las que ya pasaron); envía `{total, parcialidades:[{monto, fecha}]}` | `POST …/estudiantes/{id}/plan` | `PlanService.confirm` | Parcialidades en `prorrogas_installments`, `total_amount`, `plan_confirmed_at/by`; carta `carta_compromiso_{N}` nueva (y las de otro N sustituidas); evento `plan_confirmado` y aviso `carta_lista`, o al rehacerlo `plan_modificado` (evento y correo) |
+| 6 | Secretaria | **Ver recibo** | Abre el recibo escaneado que subió el alumno de un pago cubierto, en otra pestaña | `GET …/estudiantes/{id}/parcialidades/{numero}/recibo.pdf` | `ReceiptScanService.read` | — |
+| 7 | Secretaria | **Avisar inconsistencia** | Motivo de 10 a 500 caracteres; solo si el alumno ya subió ese recibo; no cambia nada más | `POST …/estudiantes/{id}/parcialidades/{numero}/avisar-inconsistencia` `{motivo}` | `StudentsService.report_receipt_issue` | Evento `recibo_inconsistente`; aviso y correo al alumno (`recibo_inconsistente`) |
+| 8 | Secretaria | **Recordar** | Recordatorio de pago al estudiante | `POST …/estudiantes/{id}/recordar` | `StudentsService.remind` | `last_reminded_at`; evento `recordatorio_enviado`; aviso y correo `recordatorio` |
+| 9 | Secretaria | **Exportar adeudos** | Descarga el `.xlsx` del semestre elegido | `POST …/estudiantes/adeudos.xlsx` `{period_id}` | `StudentsService.export_adeudos` | `block_exported_at` (solo si estaba vacío) en cada solicitud listada; evento `lista_bloqueo_exportada` |
+| 10 | Secretaria | **Avisar desbloqueo** | Marca que ya se avisó al centro de cómputo | `POST …/estudiantes/{id}/desbloqueo-avisado` | `StudentsService.mark_unblock` | `unblock_notified_at`; evento `desbloqueo_avisado` |
+| 11 | Secretaria | **Cerrar sin plan** | Aceptada sin plan cuando el semestre ya terminó (`semestre_en_curso`, `con_plan`: 409); motivo de 10 a 1000 caracteres (`motivo_invalido`, 400). Filtro `Por cerrar` (`pendiente_cierre`); `plan.cerrable` en el expediente. No avisa al alumno; responde `{ok: true}` y la solicitud sale de Estudiantes | `POST …/estudiantes/{id}/cerrar-sin-plan` `{motivo}` | `StudentsService.close_without_plan` | `status = cerrada_sin_plan`; evento `cerrada_sin_plan` con el motivo |
+
+Los pasos 5, 7, 8 y 10 responden con el expediente actualizado. Las rutas fijas (`periodos`, `reparto`, `adeudos.xlsx`) van antes de `/{request_id}`. El PDF de la carta se abre en una pestaña nueva con la ruta de PDF de la secretaria (Plan 2); "imprimir" es imprimir desde el navegador.
+
+## Reglas del plan
+
+- Solo una solicitud `aceptada`; el total debe ser > 0 y **igual a la suma de las parcialidades vigentes**.
+- De 1 a 2 parcialidades vigentes en un plan nuevo (`MAX_PAGOS_PLAN`; las históricas pueden tener 3), con fechas estrictamente ascendentes, desde hoy y hasta el `end_date` del semestre de la solicitud (`plan.fecha_limite` del expediente).
+- Montos en `Decimal`, cadenas con dos decimales en el JSON (`"3650.00"`); la entrada acepta número o cadena, sin más de 2 decimales, comas, NaN ni ≤ 0. Reparto por omisión: $3,650 en 2 → $1,825 · $1,825.
+- **No se replantea** (decisión del 2026-11-06): quien no paga a tiempo queda con adeudo hasta que pague. El plan solo se **rehace** (misma ruta) mientras no tenga ningún recibo vigente ni parcialidades vencidas: todas las parcialidades anteriores reciben `superseded_at` y las nuevas se numeran desde 1. `plan.editable` es falso con un recibo vigente, con una parcialidad vencida (situación atrasada), sin semestre o si hoy pasó el fin del semestre.
+- La carta es `carta_compromiso_{N}` (N = parcialidades vigentes), lista todas y lleva `monto_total`, `pago{I}_monto` y `pago{I}_fecha`. El estudiante la firma desde Mi prórroga ([estudiante_solicitud.md](estudiante_solicitud.md)); firmar nunca bloquea nada.
+- Anular el único recibo vuelve a dejar rehacer el plan.
+
+## Reglas de los recibos
+
+- Los captura **Caja** ([caja.md](caja.md)); la secretaria ya no registra ni anula recibos. Requieren plan y solicitud `aceptada`.
+- Folio, fecha, monto cobrado, anulación y sus errores (`folio_invalido`, `fecha_invalida`, `folio_duplicado`, `motivo_requerido`, `ya_anulado`…) son de Caja: ver [caja.md](caja.md).
+- Plan, firma, recordar y desbloqueo toman primero el candado de fila de la solicitud (`FOR UPDATE`).
+
+## Recordar, lista de adeudos y desbloqueo
+
+- **Recordar:** solo con plan y saldo > 0, una vez cada 24 h por solicitud (`last_reminded_at`). `recordatorio.puede` y `puede_recordar` en la lista lo anticipan.
+- **Lista de adeudos (§16.1):** las `atrasada` del semestre elegido al momento de exportar. Hoja `Adeudos` con título, semestre, fecha, línea del criterio y total; tabla desde la fila 7 con 4 columnas (No. de control, Nombre, Carrera, Monto debido = saldo total), encabezados congelados y filtro. Sin adeudos trae una fila "Sin estudiantes con adeudo". Es `POST` porque cambia `block_exported_at`; el JS arma la descarga con un `Blob`.
+- **Avisar desbloqueo (§16.2):** solo si la solicitud tiene `block_exported_at`, está `liquidada` y `unblock_notified_at` está vacío (`bloqueo.avisar_desbloqueo`); en la lista, `avisar_desbloqueo`.
+
+## Caminos alternos / errores ❗
+
+Todos salen como `{"error", "message", …}` en la raíz del JSON; la UI muestra `message`.
+
+| Código | Cuándo | HTTP |
+|---|---|---|
+| `filtro_invalido` | El filtro de la lista no es uno de los siete | 400 |
+| `monto_invalido` | Monto o total ≤ 0, con más de 2 decimales, con comas, NaN o infinito | 400 |
+| `plazos_invalidos` | Menos de 1 o más de 2 parcialidades, o `n` del reparto fuera de 1–2 | 400 |
+| `suma_no_cuadra` | Las parcialidades no suman el total | 400 |
+| `fechas_invalidas` | Fuera de orden, antes de hoy o después del fin del semestre | 400 |
+| `motivo_invalido` | Cerrar sin plan o avisar una inconsistencia con motivo fuera de rango (10 a 1000 y 10 a 500 caracteres) | 400 |
+| `no_encontrada` | La solicitud no existe o no está `aceptada` | 404 |
+| `periodo_no_encontrado` | Exportar con un semestre inexistente | 404 |
+| `no_aceptada` | Plan sobre una solicitud que no está `aceptada` | 409 |
+| `con_pagos` | Rehacer el plan cuando ya hay un recibo vigente | 409 |
+| `sin_plan` | Recordatorio sin plan confirmado | 409 |
+| `sin_saldo` | Recordar sin saldo pendiente | 409 |
+| `ya_recordado` | Se recordó hace menos de 24 h | 409 |
+| `sin_destinatario` | Recordar una prórroga sin cuenta ni correo (importada del Excel) | 409 |
+| `sin_semestre` | Plan en una prórroga del Excel sin semestre de core (solo lectura) | 409 |
+| `no_aplica` | Avisar desbloqueo sin lista exportada, sin liquidar o ya avisado; avisar una inconsistencia de un recibo que el alumno aún no sube | 409 |
+| `pdf_no_disponible` | LibreOffice falló al generar la carta; el plan no se guarda y se puede reintentar | 503 |
+
+## Flujos relacionados
+
+- Lado del estudiante: [estudiante_solicitud.md](estudiante_solicitud.md).
+- Antes: [secretaria_solicitudes.md](secretaria_solicitudes.md) (aceptar la solicitud).
+- Spec: `docs/superpowers/specs/2026-10-29-prorrogas-modulo1-design.md` §16.

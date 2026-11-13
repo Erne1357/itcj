@@ -102,6 +102,7 @@ def test_closed_label_sets_match_the_contract():
         "inventory_report_equipment", "inventory_report_movements",
         "inventory_report_warranty", "inventory_report_maintenance",
         "inventory_report_lifecycle", "retirement_oficio", "agendatec_report",
+        "prorrogas_documento",
     })
     assert work.DOCUMENT_ENGINES == frozenset(
         {"libreoffice", "openpyxl", "xlsxwriter", "csv"}
@@ -127,6 +128,7 @@ def test_each_kind_has_exactly_one_engine():
         "inventory_report_lifecycle": "csv",
         "retirement_oficio": "openpyxl",  # R36: openpyxl, sin PDF
         "agendatec_report": "xlsxwriter",
+        "prorrogas_documento": "libreoffice",
     }
     assert work.DOCUMENT_KINDS == frozenset(work.DOCUMENT_KIND_ENGINE)
     assert work.DOCUMENT_ENGINES == frozenset(work.DOCUMENT_KIND_ENGINE.values())

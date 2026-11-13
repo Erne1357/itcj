@@ -1,0 +1,36 @@
+def test_anonimo_va_al_login(client):
+    r = client.get("/prorrogas/estudiante", follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == "/itcj/login"
+
+
+def test_estudiante_ve_mi_prorroga_y_la_solicitud(client_as, estudiante):
+    c = client_as(estudiante)
+    assert "Mi prórroga" in c.get("/prorrogas/estudiante").text
+    page = c.get("/prorrogas/estudiante/solicitud").text
+    assert "firmo este documento" in page and "<canvas" in page
+    assert 'name="plazos" value="2"' in page and 'value="3"' not in page  # solo 1 o 2 pagos
+    assert '<option value="">Elige tu carrera</option>' in page  # nada preseleccionado a ciegas
+
+
+def test_la_secretaria_no_entra_a_la_vista_del_estudiante(client_as, secretaria):
+    assert client_as(secretaria).get("/prorrogas/estudiante", follow_redirects=False).status_code == 403
+
+
+def test_mi_prorroga_carga_el_lienzo_compartido(client_as, estudiante):
+    c = client_as(estudiante)
+    for url in ("/prorrogas/estudiante", "/prorrogas/estudiante/solicitud"):
+        page = c.get(url).text
+        assert "js/estudiante/firma.js" in page
+    assert "Firma tu carta compromiso" in c.get("/prorrogas/estudiante").text
+
+
+def test_mi_prorroga_trae_la_campana(client_as, alumno_unido):
+    page = client_as(alumno_unido).get("/prorrogas/estudiante").text
+    assert "app-fab-widget.js" in page and "new AppNotificationFAB('prorrogas_tec'" in page
+
+
+def test_mi_prorroga_pide_el_recibo_de_cada_pago():
+    from pathlib import Path
+    js = (Path(__file__).resolve().parents[3] / "itcj2/apps/prorrogas_tec/static/js/estudiante/mi_prorroga.js").read_text(encoding="utf-8")
+    for texto in ("Falta subir recibo", "Recibo subido el ", "Ver recibo", "Reemplazar", "/recibo.pdf"):
+        assert texto in js

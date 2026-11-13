@@ -1,0 +1,516 @@
+"""Fixtures de Prórrogas.
+
+Las pruebas corren contra el Postgres de dev dentro de un savepoint
+(`tests/fastapi/conftest.py::db_session`): lo que crean se descarta al final,
+pero SÍ ven lo que ya esté commiteado en dev. Por eso las pruebas de plantillas
+usan años lejanos (2089–2095), donde no hay plantillas reales.
+"""
+from io import BytesIO
+from itertools import count
+
+import pytest
+
+import itcj2.models  # noqa: F401  (resuelve mappers antes de tocar servicios)
+from itcj2.database import get_db
+from tests.conftest import make_jwt
+
+APP_KEY = "prorrogas_tec"
+
+SECRETARIA_PERMS = [
+    "prorrogas_tec.secretaria.page.view",
+    "prorrogas_tec.secretaria.page.estadisticas",
+    "prorrogas_tec.secretaria.page.solicitudes",
+    "prorrogas_tec.secretaria.page.estudiantes",
+    "prorrogas_tec.secretaria.page.documentos",
+    "prorrogas_tec.secretaria.page.configuracion",
+    "prorrogas_tec.secretaria.page.consulta",
+    "prorrogas_tec.templates.api.read",
+    "prorrogas_tec.templates.api.upload",
+    "prorrogas_tec.invitations.api.create",
+    "prorrogas_tec.requests.api.read.all",
+    "prorrogas_tec.requests.api.decide",
+    "prorrogas_tec.plans.api.manage",
+    "prorrogas_tec.students.api.remind",
+    "prorrogas_tec.students.api.export",
+    "prorrogas_tec.stats.api.read",
+]
+
+CAJA_PERMS = [
+    "prorrogas_tec.secretaria.page.caja", "prorrogas_tec.caja.api.read",
+    "prorrogas_tec.payments.api.record", "prorrogas_tec.payments.api.void",
+]
+
+LECTOR_PERMS = [
+    "prorrogas_tec.secretaria.page.estadisticas", "prorrogas_tec.secretaria.page.solicitudes",
+    "prorrogas_tec.secretaria.page.estudiantes", "prorrogas_tec.secretaria.page.consulta",
+    "prorrogas_tec.requests.api.read.all", "prorrogas_tec.stats.api.read",
+]
+
+STUDENT_PERMS = [
+    "prorrogas_tec.student.page.view",
+    "prorrogas_tec.requests.api.create.own",
+    "prorrogas_tec.requests.api.read.own",
+    "prorrogas_tec.requests.api.cancel.own",
+    "prorrogas_tec.documents.api.sign.own",
+]
+
+_seq = count(1)
+
+
+# ---------------------------------------------------------------------------
+# Sesión y cliente (mismo arnés que tests/fastapi/titulatec/conftest.py)
+# ---------------------------------------------------------------------------
+
+class _TestSession:
+    """Proxy sobre la sesión del test que ignora `close()` y el `with`."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+@pytest.fixture()
+def patched_session_local(db_session, monkeypatch):
+    """`SessionLocal()` -> la sesión del test (rutas que abren su propia sesión)."""
+    monkeypatch.setattr("itcj2.database.SessionLocal", lambda: _TestSession(db_session))
+    return db_session
+
+
+@pytest.fixture()
+def client(app_client, db_session, patched_session_local):
+    def _override():
+        yield db_session
+
+    app_client.app.dependency_overrides[get_db] = _override
+    yield app_client
+    app_client.app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture()
+def client_as(client):
+    """Cliente autenticado como `user`; `role=""` para que no haya atajo de admin."""
+    def _as(user, role=""):
+        token = make_jwt(user_id=user.id, role=role, name=user.full_name, cn=user.control_number)
+        client.cookies.set("itcj_token", token)
+        return client
+
+    return _as
+
+
+# ---------------------------------------------------------------------------
+# App, permisos y roles de Prórrogas
+# ---------------------------------------------------------------------------
+
+def _invalidate(user_id: int) -> None:
+    try:
+        from itcj2.core.services.authz_cache import invalidate_user_app
+        invalidate_user_app(user_id, APP_KEY)
+    except Exception:
+        pass
+
+
+@pytest.fixture()
+def prorrogas_app(db_session):
+    from itcj2.core.models.app import App
+
+    app = db_session.query(App).filter_by(key=APP_KEY).first()
+    if app is None:
+        app = App(key=APP_KEY, name="Prórrogas", is_active=True)
+        db_session.add(app)
+        db_session.flush()
+    return app
+
+
+@pytest.fixture()
+def make_role(db_session, prorrogas_app):
+    """Rol (por nombre) con los permisos indicados en prorrogas_tec. Idempotente."""
+    from itcj2.core.models.permission import Permission
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.role_permission import RolePermission
+
+    def _make(name, perm_codes=()):
+        role = db_session.query(Role).filter_by(name=name).first()
+        if role is None:
+            role = Role(name=name)
+            db_session.add(role)
+            db_session.flush()
+        for code in perm_codes:
+            perm = db_session.query(Permission).filter_by(app_id=prorrogas_app.id, code=code).first()
+            if perm is None:
+                perm = Permission(app_id=prorrogas_app.id, code=code, name=code[:120])
+                db_session.add(perm)
+                db_session.flush()
+            if db_session.query(RolePermission).filter_by(role_id=role.id, perm_id=perm.id).first() is None:
+                db_session.add(RolePermission(role_id=role.id, perm_id=perm.id))
+        db_session.flush()
+        return role
+
+    return _make
+
+
+@pytest.fixture()
+def grant(db_session, prorrogas_app):
+    """`UserAppRole`: rol directo del usuario en prorrogas_tec."""
+    from itcj2.core.models.user_app_role import UserAppRole
+
+    def _grant(user, role):
+        if db_session.query(UserAppRole).filter_by(
+                user_id=user.id, app_id=prorrogas_app.id, role_id=role.id).first() is None:
+            db_session.add(UserAppRole(user_id=user.id, app_id=prorrogas_app.id, role_id=role.id))
+            db_session.flush()
+        _invalidate(user.id)
+
+    return _grant
+
+
+@pytest.fixture()
+def secretaria(make_user, make_role, grant):
+    user = make_user(first_name="SECRETARIA", last_name="PRUEBA")
+    grant(user, make_role("secretaria", SECRETARIA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def cajero(make_user, make_role, grant):
+    user = make_user(first_name="CAJERA", last_name="PRUEBA")
+    grant(user, make_role("caja", CAJA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def secretaria_sin_cobro(make_user, make_role, grant):
+    user = make_user(first_name="SECRETARIA", last_name="SINCOBRO")
+    # No uses "secretaria": hasta aplicar la semilla 09, el rol real de dev todavía cobra.
+    grant(user, make_role("secretaria_prueba", SECRETARIA_PERMS))
+    return user
+
+
+@pytest.fixture()
+def lector(make_user, make_role, grant):
+    user = make_user(first_name="LECTOR", last_name="PRUEBA")
+    # No uses "admin": las pruebas ven el rol real de dev, con escritura hasta aplicar la semilla.
+    grant(user, make_role("lector_prueba", LECTOR_PERMS))
+    return user
+
+
+@pytest.fixture()
+def estudiante(make_user, make_role, grant):
+    # 99440…: con "99{n:06d}" la primera era 99000001, el estudiante de prueba de la base de dev
+    user = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=f"99440{next(_seq):03d}")
+    grant(user, make_role("student", STUDENT_PERMS))
+    return user
+
+
+@pytest.fixture(autouse=True)
+def almacen(tmp_path, monkeypatch):
+    """Los archivos de plantillas van a `tmp_path`, nunca a `instance/` real."""
+    from itcj2.apps.prorrogas_tec.services import storage
+
+    base = tmp_path / "prorrogas_tec"
+    monkeypatch.setattr(storage, "_base", lambda: base)
+    return base
+
+
+@pytest.fixture()
+def make_user(db_session):
+    """Usuario sintético. Nombres ficticios, correo .invalid."""
+    from itcj2.core.models.user import User
+
+    def _make(first_name="ACTOR", last_name="PRUEBA", middle_name=None, control_number=None,
+              username=None, email=None):
+        n = next(_seq)
+        user = User(
+            first_name=first_name,
+            last_name=last_name,
+            middle_name=middle_name,
+            username=username or f"pr_test_{n}_{id(db_session)}",
+            control_number=control_number,
+            email=email or f"pr.test.{n}@example.invalid",
+            is_active=True,
+        )
+        db_session.add(user)
+        db_session.flush()
+        return user
+
+    return _make
+
+
+@pytest.fixture()
+def docx_con():
+    """`.docx` con un párrafo por línea."""
+    from docx import Document
+
+    def _make(*lines: str) -> bytes:
+        d = Document()
+        for line in lines:
+            d.add_paragraph(line)
+        buf = BytesIO()
+        d.save(buf)
+        return buf.getvalue()
+
+    return _make
+
+
+@pytest.fixture()
+def periodo(db_session):
+    """Semestre sintetico en 2091 (sin choque con semestres reales)."""
+    from datetime import date
+    from itcj2.core.models.academic_period import AcademicPeriod
+
+    n = next(_seq)
+    p = AcademicPeriod(code=f"T{n:05d}", name=f"Prórrogas prueba {n}", start_date=date(2091, 1, 10),
+                       end_date=date(2091, 6, 20), status="INACTIVE")
+    db_session.add(p)
+    db_session.flush()
+    return p
+
+
+@pytest.fixture()
+def periodo_hoy(db_session):
+    """Semestre vigente hoy, el de inicio más reciente (`period_for` lo elige), con solicitudes abiertas."""
+    from datetime import timedelta
+    from itcj2.apps.prorrogas_tec.models.period import ProrrogaPeriod
+    from itcj2.core.models.academic_period import AcademicPeriod
+    from itcj2.core.utils.timezone import db_now
+
+    hoy = db_now().date()
+    n = next(_seq)
+    p = AcademicPeriod(code=f"H{n:05d}", name=f"Prórrogas hoy {n}", start_date=hoy - timedelta(days=1),
+                       end_date=hoy + timedelta(days=60), status="INACTIVE")
+    db_session.add(p)
+    db_session.flush()
+    # Las pruebas ven lo commiteado en dev: un periodo real de estas fechas chocaría con este (se revierte al final).
+    db_session.query(ProrrogaPeriod).delete()
+    db_session.add(ProrrogaPeriod(period_id=p.id, opens_on=hoy - timedelta(days=1), closes_on=hoy + timedelta(days=30),
+                                  payment_1_on=hoy + timedelta(days=31), payment_2_on=hoy + timedelta(days=45)))
+    db_session.flush()
+    return p
+
+
+@pytest.fixture()
+def alumno_unido(db_session, estudiante, periodo_hoy):
+    """Estudiante que ya se unió (por QR) hace un minuto, dentro del semestre."""
+    from datetime import timedelta
+    from itcj2.apps.prorrogas_tec.models.invitation import ProrrogaJoin
+    from itcj2.core.utils.timezone import db_now
+
+    db_session.add(ProrrogaJoin(user_id=estudiante.id, via="qr", joined_at=db_now() - timedelta(minutes=1)))
+    db_session.flush()
+    return estudiante
+
+
+@pytest.fixture()
+def firma_png():
+    from itcj2.apps.prorrogas_tec.documents.catalog import sample_signature_png
+
+    return sample_signature_png()
+
+
+@pytest.fixture()
+def make_program(db_session):
+    """Carrera (`core_programs`), idempotente por nombre (como en TitulaTec)."""
+    from itcj2.core.models.program import Program
+
+    def _make(name, level="licenciatura"):
+        prog = db_session.query(Program).filter_by(name=name).first()
+        if prog is None:
+            prog = Program(name=name, level=level)
+            db_session.add(prog)
+        elif prog.level != level:
+            prog.level = level
+        db_session.flush()
+        return prog
+
+    return _make
+
+
+@pytest.fixture()
+def solicitud(db_session, make_user, periodo):
+    """Solicitud pendiente de un estudiante sintético (con flush + refresh para los defaults del servidor)."""
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.core.utils.timezone import db_now
+
+    u = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number="99400001")
+    req = ProrrogaRequest(
+        student_id=u.id, period_id=periodo.id, period_label="enero – junio 2091", status="pendiente",
+        requested_terms=2, reason="Motivo de prueba de treinta c.", control_number="99400001",
+        student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
+        email="L99400001@cdjuarez.tecnm.mx", created_at=db_now(),  # ver make_aceptada
+    )
+    db_session.add(req)
+    db_session.flush()
+    db_session.refresh(req)
+    return req
+
+
+@pytest.fixture()
+def make_aceptada(db_session, make_user, periodo):
+    """Solicitud `aceptada` de un estudiante sintético (control 99410xxx por secuencia)."""
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.core.utils.timezone import db_now
+
+    def _make(control_number=None):
+        control = control_number or f"99410{next(_seq):03d}"
+        u = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number=control)
+        req = ProrrogaRequest(
+            student_id=u.id, period_id=periodo.id, period_label="enero – junio 2091", status="aceptada",
+            requested_terms=2, reason="Motivo de prueba de treinta c.", control_number=control,
+            student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
+            email=f"L{control}@cdjuarez.tecnm.mx", decided_at=db_now(),
+            # Hora local, no el NOW() de la base: el Postgres de CI corre en UTC (prod y dev, en Juárez) y
+            # de 17:00 a 24:00 la solicitud "nacía mañana": un pago de hoy salía anterior a ella (400).
+            created_at=db_now(),
+        )
+        db_session.add(req)
+        db_session.flush()
+        db_session.refresh(req)
+        return req
+
+    return _make
+
+
+@pytest.fixture()
+def aceptada(make_aceptada):
+    return make_aceptada()
+
+
+@pytest.fixture()
+def pdf_falso(monkeypatch):
+    """Parcha la conversión a PDF; `.calls` guarda los marcadores que quedaron y el kind."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services.docx_fill import find_placeholders
+    from itcj2.core.utils import docx_pdf
+
+    calls = []
+
+    def fake(data, *, kind):
+        calls.append({"placeholders": find_placeholders(data), "kind": kind})
+        return b"%PDF-1.4 fake"
+
+    monkeypatch.setattr(docx_pdf, "docx_to_pdf", fake)
+    return SimpleNamespace(calls=calls)
+
+
+@pytest.fixture()
+def enviar_correo(monkeypatch):
+    """Parcha `notify.send_email`; `.calls` guarda los kwargs de cada envío."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services import notify
+
+    calls = []
+
+    def fake(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr(notify, "send_email", fake)
+    return SimpleNamespace(calls=calls)
+
+
+@pytest.fixture()
+def avisos(monkeypatch):
+    """Parcha `notify.notify_student`; `.calls` guarda `(kind, req.id, link)`, `.kw` los extras. Devuelve True."""
+    from types import SimpleNamespace
+
+    from itcj2.apps.prorrogas_tec.services import notify
+
+    calls, extras = [], []
+
+    def fake(db, req, *, kind, link, **kw):
+        calls.append((kind, req.id, link))
+        extras.append(kw)
+        return True
+
+    monkeypatch.setattr(notify, "notify_student", fake)
+    return SimpleNamespace(calls=calls, kw=extras)
+
+
+@pytest.fixture()
+def con_plan(db_session):
+    """Plan vigente (parcialidades numeradas 1…) y recibos para `req`; total = suma. Devuelve `req`."""
+    from decimal import Decimal
+
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
+
+    def _plan(req, parcialidades, pagos=()):
+        for n, (monto, fecha) in enumerate(parcialidades, start=1):
+            db_session.add(ProrrogaInstallment(request_id=req.id, number=n, amount=Decimal(monto), due_date=fecha))
+        for monto in pagos:
+            db_session.add(ProrrogaPayment(request_id=req.id, origin="app", folio=f"T-{next(_seq)}",
+                                           paid_on=req.created_at.date(), amount=Decimal(monto)))
+        req.total_amount = sum((Decimal(m) for m, _ in parcialidades), Decimal("0"))
+        db_session.flush()
+        return req
+
+    return _plan
+
+
+@pytest.fixture()
+def make_historica(db_session):
+    """Solicitud histórica de Excel (`origin='excel'`, aceptada, sin alumno). Sin `periodo` queda sin semestre de core."""
+    from datetime import date
+    from decimal import Decimal
+
+    from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
+    from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.apps.prorrogas_tec.services.periods import period_label
+    from itcj2.core.utils.timezone import db_now
+
+    def _make(periodo=None, control_number=None, parcialidades=(("1000.00", date(2025, 2, 1)),), pagadas=()):
+        req = ProrrogaRequest(
+            origin="excel", status="aceptada", import_ref=f"T#{next(_seq)}", requested_terms=None, reason=None,
+            student_id=None, email=None, control_number=control_number or f"99420{next(_seq):03d}",
+            student_name="ESTUDIANTE HISTORICO", program_name="Contador publico", program_level="licenciatura",
+            period_id=periodo.id if periodo else None,
+            period_label=period_label(periodo) if periodo else "enero – junio 2089", created_at=db_now(),  # ver make_aceptada
+        )
+        db_session.add(req)
+        db_session.flush()
+        for n, (monto, fecha) in enumerate(parcialidades, start=1):
+            db_session.add(ProrrogaInstallment(request_id=req.id, number=n, amount=Decimal(monto), due_date=fecha))
+        for i in pagadas:
+            monto, fecha = parcialidades[i]
+            db_session.add(ProrrogaPayment(request_id=req.id, origin="excel", folio=None, paid_on=fecha,
+                                           amount=Decimal(monto)))
+        req.total_amount = sum((Decimal(m) for m, _ in parcialidades), Decimal("0"))
+        db_session.flush()
+        db_session.refresh(req)
+        return req
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# Excel histórico sintético (nunca el real)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def libro(tmp_path):
+    """`libro({hoja: [encabezado, renglón, ...]})` → ruta de un `.xlsx` sintético en `tmp_path`."""
+    from openpyxl import Workbook
+
+    def _make(hojas: dict[str, list[list]]):
+        wb = Workbook()
+        wb.remove(wb.active)
+        for nombre, filas in hojas.items():
+            ws = wb.create_sheet(nombre)
+            for fila in filas:
+                ws.append(fila)
+        ruta = tmp_path / "libro.xlsx"
+        wb.save(ruta)
+        return ruta
+
+    return _make

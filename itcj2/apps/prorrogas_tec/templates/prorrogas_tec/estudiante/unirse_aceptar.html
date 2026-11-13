@@ -1,0 +1,28 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block content %}
+<div class="titulo">
+  <h1 class="h1">Unirse a Prórrogas</h1>
+  <p class="lead">Confirma que eres tú para entrar al módulo.</p>
+</div>
+<section class="card">
+  <p class="label">Vas a entrar como</p>
+  <div>
+    <p class="who-name">{{ nombre }}</p>
+    <p class="hint">No. de control <span class="mono" style="color: var(--ink); font-weight: 500;">{{ control }}</span></p>
+  </div>
+</section>
+<section class="card">
+  <h2 class="h2">Al aceptar podrás</h2>
+  <ul class="ticks">
+    <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Llenar tu solicitud de prórroga</li>
+    <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Ver si fue aceptada o no</li>
+    <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Consultar tu plan de pagos</li>
+    <li><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Subir tu referencia bancaria</li>
+  </ul>
+</section>
+<form method="post" style="margin-top: 8px;">
+  <input type="hidden" name="t" value="{{ token }}">
+  <button class="btn" type="submit">Aceptar y continuar</button>
+  <p class="hint" style="text-align: center;">¿No eres tú? Cierra esta página y avisa en la Subdirección Académica.</p>
+</form>
+{% endblock %}

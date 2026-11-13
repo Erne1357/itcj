@@ -54,3 +54,10 @@ from itcj2.apps.maint.models import (  # noqa: F401
 
 # Directory
 from itcj2.apps.directory.models import DirectoryEntry, DirectorySettings  # noqa: F401
+
+# Prorrogas
+# Registra los modelos de la app para que Base.metadata y los mappers queden completos.
+from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
+    ProrrogaDocument, ProrrogaEvent, ProrrogaInvitation, ProrrogaJoin,
+    ProrrogaRequest, ProrrogaSignature, ProrrogaTemplate, ProrrogaInstallment, ProrrogaPayment,
+)

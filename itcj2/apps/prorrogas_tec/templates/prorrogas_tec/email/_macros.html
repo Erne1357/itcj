@@ -1,0 +1,39 @@
+{# Piezas de los correos de Prórrogas. Letra en cada elemento: Outlook no la hereda de la celda. #}
+{% set P = "margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#1A130E;" %}
+{% set NOTA = "margin:0 0 24px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;color:#5C5650;" %}
+
+{% macro datos(filas) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px;background-color:#EEF3FC;border:1px solid #D3E1F6;">
+  {%- for etiqueta, valor in filas %}
+  <tr><td style="padding:12px 20px;{{ 'border-bottom:1px solid #D3E1F6;' if not loop.last }}font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#5C5650;">{{ etiqueta }}</p>
+    <p style="margin:2px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:22px;font-weight:700;color:#1A130E;">{{ valor }}</p>
+  </td></tr>
+  {%- endfor %}
+</table>
+{%- endmacro %}
+
+{% macro motivo(texto) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 16px;background-color:#EEF3FC;border:1px solid #D3E1F6;">
+  <tr><td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#5C5650;">Motivo</p>
+    <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:22px;color:#1A130E;">{{ texto }}</p>
+  </td></tr>
+</table>
+{%- endmacro %}
+
+{% macro pasos(lista, fondo="#EEF3FC", borde="#D3E1F6", margen="16px") -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 {{ margen }};background-color:{{ fondo }};border:1px solid {{ borde }};">
+  <tr><td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;">
+    <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#5C5650;">Qué sigue</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+      {%- for paso in lista %}
+      <tr>
+        <td width="20" style="width:20px;padding:{{ '0' if loop.first else '10px 0 0' }};vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:22px;font-weight:700;color:#652F2A;">{{ loop.index }}</td>
+        <td style="padding:{{ '0' if loop.first else '10px 0 0' }};vertical-align:top;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:22px;color:#1A130E;">{{ paso }}</td>
+      </tr>
+      {%- endfor %}
+    </table>
+  </td></tr>
+</table>
+{%- endmacro %}

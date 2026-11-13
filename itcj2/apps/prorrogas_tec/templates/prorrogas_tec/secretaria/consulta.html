@@ -1,0 +1,51 @@
+{% extends "prorrogas_tec/secretaria/_base.html" %}
+{% block content %}
+  <section class="cst" data-api="/api/prorrogas/v2">
+    <h1 class="sec-h1">Consulta</h1>
+    <div class="est-bar">
+      <select id="cstEstado" aria-label="Estado">
+        <option value="">Todos los estados</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="aceptada">Aceptada</option>
+        <option value="rechazada">Rechazada</option>
+        <option value="cancelada">Cancelada</option>
+        <option value="cerrada_sin_plan">Cerrada sin plan</option>
+      </select>
+      <select id="cstSemestre" aria-label="Semestre"><option value="">Todos los semestres</option></select>
+      <div class="est-search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="cstQ" type="search" placeholder="Buscar por nombre o No. de control" aria-label="Buscar por nombre o No. de control" maxlength="80">
+      </div>
+    </div>
+    <div class="est-error" id="cstError" role="alert" hidden></div>
+    <div class="est-row cst-row est-row-head" aria-hidden="true">
+      <span>No. de control</span><span>Nombre</span><span>Carrera</span><span>Semestre</span><span>Estado</span>
+    </div>
+    <div id="cstRows" aria-live="polite"></div>
+    <div class="est-empty" id="cstVacio" hidden>No hay solicitudes con estos filtros.</div>
+    <div class="est-foot">
+      <span id="cstMostrando"></span>
+      <span class="est-pager">
+        <button type="button" class="sec-btn sec-btn-ghost" id="cstPrev">Anterior</button>
+        <span id="cstPagina"></span>
+        <button type="button" class="sec-btn sec-btn-ghost" id="cstNext">Siguiente</button>
+      </span>
+    </div>
+  </section>
+
+  <dialog class="sec-dialog cst-dlg" id="cstDialog" aria-labelledby="cstNombre">
+    <div class="sec-dialog-form">
+      <h2 id="cstNombre"></h2>
+      <div class="cst-sub"><span class="est-chip" id="cstControl"></span> <span id="cstCarrera"></span></div>
+      <dl class="cst-dl" id="cstDatos"></dl>
+      <h3>Documentos</h3>
+      <ul class="cst-docs" id="cstDocs"></ul>
+      <h3>Historial</h3>
+      <ul class="cst-hist" id="cstHist"></ul>
+      <div class="sec-dialog-actions"><button type="button" class="sec-btn sec-btn-ghost" id="cstClose">Cerrar</button></div>
+    </div>
+  </dialog>
+{% endblock %}
+{% block scripts %}
+  <script src="{{ url_for('static', filename='prorrogas_tec/js/secretaria/consulta.js') }}?v={{ sv('prorrogas_tec', 'js/secretaria/consulta.js') }}"></script>
+{% endblock %}

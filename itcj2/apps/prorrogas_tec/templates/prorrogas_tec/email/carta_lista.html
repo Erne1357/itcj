@@ -1,0 +1,13 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "pendiente" %}
+{% block titulo %}Firma tu carta compromiso{% endblock %}
+{% block preheader %}Tu plan de pagos está listo: {{ pagos|length }} pago{{ "s" if pagos|length != 1 }}, {{ total }} en total.{% endblock %}
+{% block etiqueta %}Firma pendiente{% endblock %}
+{% block encabezado %}Tu plan de pagos está listo{% endblock %}
+{% block cuerpo %}
+<p style="{{ m.P }}">Revisa las fechas y firma tu carta compromiso en Mi prórroga.</p>
+{% include "prorrogas_tec/email/_pagos.html" %}
+<p style="{{ m.NOTA }}">{% if pagos|length == 1 %}Págalo{% else %}Paga cada uno{% endif %} en la Caja de Recursos Financieros a más tardar en su fecha.</p>
+{% endblock %}
+{% block boton %}Firmar mi carta{% endblock %}

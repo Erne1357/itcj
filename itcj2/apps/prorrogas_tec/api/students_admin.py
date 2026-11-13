@@ -1,0 +1,167 @@
+"""API de la secretaria: pestaña Estudiantes (lista, expediente y plan de pagos).
+
+Rutas bajo ``/api/prorrogas/v2/estudiantes``.
+"""
+from datetime import date
+
+from fastapi import APIRouter, Response
+from pydantic import BaseModel
+
+from itcj2.apps.prorrogas_tec.api._common import recibo_pdf_response, referencia_pdf_response, service_error_response as _err
+from itcj2.apps.prorrogas_tec.services.account import money
+from itcj2.apps.prorrogas_tec.services.errors import ServiceError
+from itcj2.apps.prorrogas_tec.services.formatting import parse_monto
+from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+from itcj2.apps.prorrogas_tec.services.plan_service import PlanService
+from itcj2.apps.prorrogas_tec.services.students_service import StudentsService
+from itcj2.core.utils.timezone import db_now
+from itcj2.dependencies import DbSession, require_perms
+
+router = APIRouter(tags=["prorrogas_tec-estudiantes"])
+
+_READ = ["prorrogas_tec.requests.api.read.all"]
+_PLAN = ["prorrogas_tec.plans.api.manage"]
+_REMIND = ["prorrogas_tec.students.api.remind"]
+_EXPORT = ["prorrogas_tec.students.api.export"]
+
+
+class ParcialidadIn(BaseModel):
+    monto: str | int | float
+    fecha: date
+
+
+class PlanIn(BaseModel):
+    total: str | int | float
+    parcialidades: list[ParcialidadIn]
+
+
+class CierreIn(BaseModel):
+    motivo: str
+
+
+class ExportIn(BaseModel):
+    period_id: int
+
+
+@router.get("/periodos", name="prorrogas_tec.api.estudiantes.periodos")
+def periodos(db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    return StudentsService.periodos(db, db_now().date())
+
+
+@router.get("", name="prorrogas_tec.api.estudiantes.lista")
+def lista(period_id: int, db: DbSession, q: str | None = None, filtro: str = "todos", page: int = 1,
+          per_page: int = 25, user: dict = require_perms("prorrogas_tec", _READ)):
+    try:
+        return StudentsService.listar(db, period_id, q=q, filtro=filtro, page=page, per_page=per_page,
+                                      today=db_now().date())
+    except ServiceError as e:
+        return _err(e)
+
+
+@router.get("/reparto", name="prorrogas_tec.api.estudiantes.reparto")  # antes de /{request_id}
+def reparto(total: str, n: int, user: dict = require_perms("prorrogas_tec", _READ)):
+    try:
+        return {"montos": [money(x) for x in PlanService.reparto(total, n)]}
+    except ServiceError as e:
+        return _err(e)
+
+
+@router.post("/adeudos.xlsx", name="prorrogas_tec.api.estudiantes.exportar")
+def exportar(body: ExportIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _EXPORT)):
+    try:
+        data, nombre = StudentsService.export_adeudos(db, body.period_id, int(user["sub"]))
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return Response(content=data, headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@router.get("/{request_id}/referencia.pdf", name="prorrogas_tec.api.estudiantes.referencia")
+def referencia(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    return referencia_pdf_response(db.get(ProrrogaRequest, request_id))
+
+
+@router.get("/{request_id}/parcialidades/{numero}/recibo.pdf", name="prorrogas_tec.api.estudiantes.recibo")
+def recibo(request_id: int, numero: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    return recibo_pdf_response(db, db.get(ProrrogaRequest, request_id), numero)
+
+
+@router.get("/{request_id}", name="prorrogas_tec.api.estudiantes.expediente")
+def expediente(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _READ)):
+    try:
+        return StudentsService.expediente(db, request_id, db_now().date())
+    except ServiceError as e:
+        return _err(e)
+
+
+@router.post("/{request_id}/plan", name="prorrogas_tec.api.estudiantes.plan")
+def plan(request_id: int, body: PlanIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _PLAN)):
+    try:
+        PlanService.confirm(db, request_id, int(user["sub"]), total=parse_monto(body.total),
+                            parcialidades=[(parse_monto(p.monto), p.fecha) for p in body.parcialidades])
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/recordar", name="prorrogas_tec.api.estudiantes.recordar")
+def recordar(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.remind(db, request_id, int(user["sub"]))
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+class PendienteIn(BaseModel):
+    que: str
+
+
+@router.post("/{request_id}/recordar-pendiente", name="prorrogas_tec.api.estudiantes.recordar_pendiente")
+def recordar_pendiente(request_id: int, body: PendienteIn, db: DbSession,
+                       user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.remind_pending(db, request_id, int(user["sub"]), body.que)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+class InconsistenciaIn(BaseModel):
+    motivo: str
+
+
+@router.post("/{request_id}/parcialidades/{numero}/avisar-inconsistencia",
+             name="prorrogas_tec.api.estudiantes.avisar_inconsistencia")
+def avisar_inconsistencia(request_id: int, numero: int, body: InconsistenciaIn, db: DbSession,
+                          user: dict = require_perms("prorrogas_tec", _REMIND)):
+    try:
+        StudentsService.report_receipt_issue(db, request_id, int(user["sub"]), numero, body.motivo)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/desbloqueo-avisado", name="prorrogas_tec.api.estudiantes.desbloqueo")
+def desbloqueo(request_id: int, db: DbSession, user: dict = require_perms("prorrogas_tec", _EXPORT)):
+    try:
+        StudentsService.mark_unblock(db, request_id, int(user["sub"]))
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return StudentsService.expediente(db, request_id, db_now().date())
+
+
+@router.post("/{request_id}/cerrar-sin-plan", name="prorrogas_tec.api.estudiantes.cerrar_sin_plan")
+def cerrar_sin_plan(request_id: int, body: CierreIn, db: DbSession, user: dict = require_perms("prorrogas_tec", _PLAN)):
+    try:
+        StudentsService.close_without_plan(db, request_id, int(user["sub"]), body.motivo)
+    except ServiceError as e:
+        db.rollback()
+        return _err(e)
+    return {"ok": True}  # ya no es aceptada: no hay expediente que devolver

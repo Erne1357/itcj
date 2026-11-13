@@ -72,6 +72,7 @@ def create_celery_app() -> Celery:
             "itcj2.tasks.notification_tasks",
             "itcj2.tasks.mundial_tasks",
             "itcj2.tasks.titulatec_tasks",
+            "itcj2.tasks.prorrogas_tasks",
         ],
     )
 

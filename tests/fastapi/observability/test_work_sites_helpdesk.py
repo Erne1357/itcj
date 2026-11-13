@@ -42,9 +42,10 @@ class TestDocumentServiceLibreOffice:
 
     def test_ok_records_one_observation_with_exact_labels(self, monkeypatch):
         from itcj2.apps.helpdesk.services import document_service
+        from itcj2.core.utils import docx_pdf
 
-        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
-        monkeypatch.setattr(document_service.subprocess, "run", _fake_soffice_run)
+        monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+        monkeypatch.setattr(docx_pdf.subprocess, "run", _fake_soffice_run)
 
         before = counts(self.LABELS)
         result = document_service._convert_docx_to_pdf(BytesIO(b"docx"), kind="solicitud")
@@ -71,15 +72,16 @@ class TestDocumentServiceLibreOffice:
         mensaje, solo clasificarlo como outcome=error. El returncode no es
         etiqueta (contrato): va en la línea de log."""
         from itcj2.apps.helpdesk.services import document_service
+        from itcj2.core.utils import docx_pdf
 
         def _fake_run(cmd, **kwargs):
             return SimpleNamespace(returncode=returncode, stdout="", stderr=stderr)
 
-        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
-        monkeypatch.setattr(document_service.subprocess, "run", _fake_run)
+        monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+        monkeypatch.setattr(docx_pdf.subprocess, "run", _fake_run)
 
         before = counts(self.LABELS)
-        with caplog.at_level(logging.ERROR, logger=document_service.logger.name):
+        with caplog.at_level(logging.ERROR, logger=docx_pdf.logger.name):
             with pytest.raises(RuntimeError) as info:
                 document_service._convert_docx_to_pdf(BytesIO(b"docx"), kind="solicitud")
 
@@ -88,7 +90,7 @@ class TestDocumentServiceLibreOffice:
         assert delta(before, counts(self.LABELS)) == only("error")
         [line] = [
             r.getMessage() for r in caplog.records
-            if r.name == document_service.logger.name and r.levelno == logging.ERROR
+            if r.name == docx_pdf.logger.name and r.levelno == logging.ERROR
         ]
         assert f"returncode={returncode}" in line
         assert "kind=solicitud" in line
@@ -99,12 +101,13 @@ class TestDocumentServiceLibreOffice:
         fallaba igual; lo que cambia es que el panel lo cuente como error y no
         como éxito."""
         from itcj2.apps.helpdesk.services import document_service
+        from itcj2.core.utils import docx_pdf
 
         def _fake_run(cmd, **kwargs):
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
-        monkeypatch.setattr(document_service.subprocess, "run", _fake_run)
+        monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+        monkeypatch.setattr(docx_pdf.subprocess, "run", _fake_run)
 
         before = counts(self.LABELS)
         with pytest.raises(RuntimeError) as info:
@@ -115,14 +118,15 @@ class TestDocumentServiceLibreOffice:
 
     def test_timeout_records_timeout_and_reraises_the_same_exception(self, monkeypatch):
         from itcj2.apps.helpdesk.services import document_service
+        from itcj2.core.utils import docx_pdf
 
         exc = subprocess.TimeoutExpired(["soffice"], 60)
 
         def _fake_run(cmd, **kwargs):
             raise exc
 
-        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
-        monkeypatch.setattr(document_service.subprocess, "run", _fake_run)
+        monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+        monkeypatch.setattr(docx_pdf.subprocess, "run", _fake_run)
 
         before = counts(self.LABELS)
         with pytest.raises(subprocess.TimeoutExpired) as info:
@@ -135,9 +139,10 @@ class TestDocumentServiceLibreOffice:
         """`generate_orden_trabajo_pdf` debe pasar kind='orden_trabajo', no
         'solicitud' (el kind lo decide el llamador, no `_convert_docx_to_pdf`)."""
         from itcj2.apps.helpdesk.services import document_service
+        from itcj2.core.utils import docx_pdf
 
-        monkeypatch.setattr(document_service, "_find_libreoffice_cmd", lambda: "soffice")
-        monkeypatch.setattr(document_service.subprocess, "run", _fake_soffice_run)
+        monkeypatch.setattr(docx_pdf, "find_libreoffice", lambda: "soffice")
+        monkeypatch.setattr(docx_pdf.subprocess, "run", _fake_soffice_run)
 
         labels = {"kind": "orden_trabajo", "engine": "libreoffice"}
         before = counts(labels)

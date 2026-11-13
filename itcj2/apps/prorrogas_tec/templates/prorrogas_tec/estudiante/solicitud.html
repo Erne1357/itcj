@@ -1,0 +1,54 @@
+{% extends "prorrogas_tec/estudiante/_base.html" %}
+{% block atras %}<a class="est-atras" href="/prorrogas/estudiante" aria-label="Regresar a Mi prórroga"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>{% endblock %}
+{% block content %}
+<div class="titulo">
+  <h1 class="h1">Solicitar prórroga</h1>
+  <p class="lead" id="sol-lead">Son 5 pasos. Te toma unos minutos.</p>
+</div>
+<section class="card" id="sol-bloqueo" hidden>
+  <p class="lead" id="sol-bloqueo-msg"></p>
+  <a class="btn btn-ghost" href="/prorrogas/estudiante">Volver a Mi prórroga</a>
+</section>
+<form id="sol-form" class="card" hidden novalidate>
+  <div class="sec">
+    <h2 class="sec-h"><span class="num">1</span><label for="sol-carrera">Tu carrera</label></h2>
+    <select id="sol-carrera" class="input" required><option value="">Elige tu carrera</option></select>
+  </div>
+  <fieldset class="sec">
+    <legend class="vh">¿En cuántos pagos?</legend>
+    <p class="sec-h" aria-hidden="true"><span class="num">2</span>¿En cuántos pagos?</p>
+    <p class="hint">El total se divide en partes iguales.</p>
+    <div class="seg">
+      <label><input type="radio" name="plazos" value="1"><strong>1</strong><span>pago</span></label>
+      <label><input type="radio" name="plazos" value="2" checked><strong>2</strong><span>pagos</span></label>
+    </div>
+  </fieldset>
+  <div class="sec">
+    <h2 class="sec-h"><span class="num">3</span><label for="sol-motivo">¿Por qué la necesitas?</label></h2>
+    <p class="hint">Cuéntalo con tus palabras, en pocas líneas (mínimo 20 caracteres).</p>
+    <textarea id="sol-motivo" class="input" rows="5" maxlength="1000" placeholder="Ej. Mi familia tuvo un gasto inesperado este mes…"></textarea>
+    <p class="count" id="sol-cuenta">0 / 1000</p>
+  </div>
+  <div class="sec">
+    <h2 class="sec-h"><span class="num">4</span><label for="sol-referencia">Tu referencia bancaria (PDF)</label></h2>
+    <p class="hint"><strong>¿Aún no la tienes? Puedes enviar tu solicitud sin ella</strong> y subirla después en Mi prórroga. Con ella se arma tu plan de pagos. Máximo 5 MB.</p>
+    <input type="file" accept="application/pdf" id="sol-referencia" class="input">
+  </div>
+  <div class="sec">
+    <div class="row">
+      <h2 class="sec-h"><span class="num">5</span>Tu firma</h2>
+      <button type="button" id="sol-borrar" class="btn-text"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Borrar</button>
+    </div>
+    <div class="firma">
+      <canvas id="sol-firma" aria-label="Espacio para firmar con el dedo"></canvas>
+      <span class="firma-line" aria-hidden="true"></span>
+      <p class="firma-hint" aria-hidden="true">Firma aquí con tu dedo</p>
+    </div>
+    <label class="check"><input type="checkbox" id="sol-acepto"><span>Confirmo que los datos son correctos y <strong>firmo este documento</strong>.</span></label>
+  </div>
+  <p class="error" id="sol-error" role="alert" hidden></p>
+  <button type="submit" id="sol-enviar" class="btn" disabled>Enviar solicitud</button>
+</form>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/firma.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/firma.js') }}"></script>
+<script src="{{ url_for('static', filename='prorrogas_tec/js/estudiante/solicitud.js') }}?v={{ sv('prorrogas_tec', 'js/estudiante/solicitud.js') }}"></script>
+{% endblock %}

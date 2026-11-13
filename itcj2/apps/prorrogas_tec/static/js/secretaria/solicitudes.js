@@ -1,0 +1,331 @@
+// Prórrogas · QR y solicitudes (vista de secretaría).
+// QR rotativo o invitación manual, tabla de pendientes y modal de revisión.
+// APIs: /api/prorrogas/v2/{invitaciones,solicitudes,programs}. Todo texto del servidor entra con textContent.
+(function () {
+  "use strict";
+
+  const root = document.querySelector(".sol");
+  if (!root) return;
+  const API = root.dataset.api;
+  const $ = (id) => document.getElementById(id);
+  const perms = (document.body.dataset.perms || "").split(" ");
+  const can = (p) => perms.includes("*") || perms.includes(p);
+  const conQr = can("prorrogas_tec.invitations.api.create");
+  const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  async function api(path, opts) {
+    const o = Object.assign({ credentials: "include" }, opts);
+    if (o.body !== undefined) { o.method = "POST"; o.headers = { "Content-Type": "application/json" }; o.body = JSON.stringify(o.body); }
+    let r;
+    try { r = await fetch(API + path, o); } catch (e) { return { ok: false, status: 0, data: { message: "Sin conexión con el servidor." } }; }
+    const data = await r.json().catch(() => ({}));
+    if (r.status === 403 && !data.message) data.message = "No tienes permiso para esta acción.";
+    return { ok: r.ok, status: r.status, data };
+  }
+
+  function show(node, msg) { node.textContent = msg || ""; node.hidden = !msg; }
+
+  function toast(msg) {
+    const t = $("secToast");
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => { t.hidden = true; }, 3500);
+  }
+
+  // "Hoy, 09:12", "Ayer, 17:30" o "27 oct, 10:15" (con el año si no es este)
+  function fmtDate(iso) {
+    const d = new Date(iso), hoy = new Date();
+    const hora = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const dias = Math.round((new Date(hoy.toDateString()) - new Date(d.toDateString())) / 864e5);
+    if (dias === 0) return `Hoy, ${hora}`;
+    if (dias === 1) return `Ayer, ${hora}`;
+    return `${d.getDate()} ${MESES[d.getMonth()]}${d.getFullYear() === hoy.getFullYear() ? "" : " " + d.getFullYear()}, ${hora}`;
+  }
+
+  // ── Modo del panel ──────────────────────────────────────────────────
+  function setMode(qr) {
+    $("modeQr").classList.toggle("is-active", qr);
+    $("modeMan").classList.toggle("is-active", !qr);
+    $("modeQr").setAttribute("aria-selected", String(qr));
+    $("modeMan").setAttribute("aria-selected", String(!qr));
+    $("paneQr").hidden = !qr;
+    $("paneMan").hidden = qr;
+  }
+  $("modeQr").addEventListener("click", () => setMode(true));
+  $("modeMan").addEventListener("click", () => setMode(false));
+
+  // Ocultar el panel deja un riel que lo vuelve a abrir; el foco pasa al botón visible.
+  function setSide(open) {
+    root.classList.toggle("is-collapsed", !open);
+    $("sideHide").setAttribute("aria-expanded", String(open));
+    $("sideShow").setAttribute("aria-expanded", String(open));
+    $(open ? "sideHide" : "sideShow").focus();
+  }
+  $("sideHide").addEventListener("click", () => setSide(false));
+  $("sideShow").addEventListener("click", () => setSide(true));
+
+  // ── QR ──────────────────────────────────────────────────────────────
+  let qrExpires = 0;   // en el reloj del navegador: Date.now() + ttl del servidor
+  let qrTimer = null;
+  let qrBusy = false;
+  let qrIssued = 0;    // última emisión; frena un ciclo de regeneraciones si el reloj o el ttl fallan
+  const QR_MIN_GAP = 5000;
+
+  function armQr() { clearInterval(qrTimer); qrTimer = setInterval(tick, 1000); }
+
+  function drawQr(link) {
+    const box = $("qrBox");
+    box.textContent = "";
+    if (typeof qrcode === "undefined") {   // sin la librería, el enlace en texto sigue sirviendo
+      box.append(el("code", "sol-qr-link", link));
+      return;
+    }
+    const q = qrcode(0, "M");
+    q.addData(link);
+    q.make();
+    box.innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }); // SVG generado por la librería, sin datos del servidor
+    const svg = box.querySelector("svg");
+    if (svg) svg.setAttribute("aria-label", "Código QR para unirse");
+  }
+
+  function tick() {
+    const left = Math.max(0, Math.round((qrExpires - Date.now()) / 1000));
+    $("qrTimer").textContent = `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
+    if (left === 0 && Date.now() - qrIssued >= QR_MIN_GAP) regenQr();
+  }
+
+  async function regenQr() {
+    if (qrBusy) return;
+    qrBusy = true;
+    clearInterval(qrTimer);
+    const r = await api("/invitaciones/qr", { method: "POST", body: {} });
+    qrBusy = false;
+    qrIssued = Date.now();
+    if (!r.ok) {
+      show($("qrError"), r.data.message || "No se pudo generar el código.");
+      return;
+    }
+    show($("qrError"), "");
+    qrExpires = Date.now() + r.data.ttl * 1000;   // nunca contra expires_at: es hora del servidor sin zona
+    drawQr(location.origin + r.data.path);
+    tick();
+    armQr();
+  }
+  $("qrRegen").addEventListener("click", regenQr);
+
+  // ── Resumen del día ─────────────────────────────────────────────────
+  async function loadToday() {
+    const r = await api("/invitaciones/hoy");
+    if (!r.ok) return;
+    $("cntJoin").textContent = r.data.se_unieron_hoy;
+    $("cntInv").textContent = r.data.invitaciones_hoy;
+    const ul = $("invLast");
+    ul.textContent = "";
+    (r.data.ultimas || []).forEach((i) => {
+      const li = el("li");
+      li.append(el("span", null, i.correo), el("span", null, i.hora));
+      ul.append(li);
+    });
+  }
+
+  // ── Invitación manual ───────────────────────────────────────────────
+  let lookedUp = null;
+  async function lookup() {
+    const control = $("invControl").value.trim();
+    lookedUp = null;
+    $("invExtra").hidden = true;
+    show($("invFound"), "");
+    show($("invError"), "");
+    $("invCopiar").hidden = true;
+    if (!control) return;
+    const r = await api(`/invitaciones/alumno?control=${encodeURIComponent(control)}`);
+    if (!r.ok) { show($("invError"), r.data.message || "No se pudo buscar el número de control."); return; }
+    lookedUp = r.data;
+    $("invControl").value = r.data.control_number;
+    $("invExtra").hidden = false;
+    $("invCorreo").value = r.data.correo_sugerido || "";
+    show($("invFound"), r.data.existe ? `Cuenta existente: ${r.data.nombre}` : "No hay cuenta con ese número: debe acudir a Centro de Cómputo.");
+    $("invSend").disabled = !r.data.existe;
+  }
+  $("invControl").addEventListener("change", lookup);
+
+  let ligaInv = null;
+  $("invCopiar").addEventListener("click", async function () {
+    try { await navigator.clipboard.writeText(ligaInv); toast("Liga copiada"); }
+    catch (_) { toast("No se pudo copiar la liga"); }
+  });
+
+  $("paneMan").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    show($("invError"), "");
+    $("invCopiar").hidden = true;
+    if (!lookedUp || lookedUp.control_number !== $("invControl").value.trim().toUpperCase()) await lookup();
+    if (!lookedUp) return;
+    const body = { control_number: lookedUp.control_number, correo: $("invCorreo").value.trim() || null };
+    $("invSend").disabled = true;
+    const r = await api("/invitaciones", { body });
+    $("invSend").disabled = false;
+    if (!r.ok) { show($("invError"), r.data.message || "No se pudo enviar la invitación."); return; }
+    $("paneMan").reset();
+    $("invExtra").hidden = true;
+    show($("invFound"), "");
+    lookedUp = null;
+    // Sin buzón la invitación no llega a nadie: no tiene aviso en la plataforma.
+    if (r.data.enviado) toast(`Invitación enviada a ${r.data.correo}`);
+    else show($("invError"), "La invitación quedó registrada pero el correo no salió. Revisa la conexión del correo en /itcj/config/email.");
+    if (r.data.liga) { ligaInv = r.data.liga; $("invCopiar").hidden = false; }
+    loadToday();
+  });
+
+  // ── Pendientes ──────────────────────────────────────────────────────
+  let items = null;   // null hasta la primera carga, para que esa siempre pinte (aunque venga vacía)
+
+  function renderRows() {
+    const box = $("pendRows");
+    box.textContent = "";
+    $("pendCount").textContent = items.length;
+    $("pendEmpty").hidden = items.length > 0;
+    items.forEach((s) => {
+      const row = el("div", "sol-row sol-row-item");
+      row.tabIndex = 0;
+      row.setAttribute("role", "button");
+      row.setAttribute("aria-label", `Revisar la solicitud de ${s.nombre}`);
+      const who = el("div");
+      const eye = el("span", "sol-eye");
+      eye.append($("tplEye").content.cloneNode(true));
+      who.append(el("div", "sol-name", s.nombre), el("div", "sol-ctrl", s.control));
+      row.append(who, el("span", "sol-mail", s.correo), el("span", null, fmtDate(s.recibida)),
+        el("span", "mono", String(s.plazos)), eye);
+      row.addEventListener("click", () => openReview(s));
+      row.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openReview(s); } });
+      box.append(row);
+    });
+  }
+
+  async function loadPending() {
+    const r = await api("/solicitudes");
+    show($("pendError"), r.ok ? "" : (r.data.message || "No se pudieron cargar las solicitudes."));
+    if (!r.ok) return;
+    const next = r.data.items || [];
+    if (JSON.stringify(next) === JSON.stringify(items)) return;   // sin cambios: no rehacer filas (ni perder el foco)
+    items = next;
+    renderRows();
+  }
+
+  // ── Modal de revisión ───────────────────────────────────────────────
+  const dlg = $("revDialog");
+  let current = null;
+  let deciding = false;
+
+  function setBusy(b) {
+    deciding = b;
+    $("revReject").disabled = b;
+    $("revAccept").disabled = b;
+  }
+
+  function openReview(s) {
+    current = s;
+    setBusy(false);
+    $("revNombre").textContent = s.nombre;
+    $("revFolio").textContent = s.folio;
+    $("revControl").textContent = s.control;
+    $("revCorreo").textContent = s.correo;
+    $("revFecha").textContent = fmtDate(s.recibida);
+    $("revPlazos").textContent = s.plazos;
+    $("revPorPago").textContent = s.plazos === 1 ? "Pago único" : "";
+    $("revCarrera").textContent = s.carrera || "";
+    $("revArchivo").textContent = `solicitud_prorroga_${s.control}.pdf`;
+    $("revComentario").value = "";
+    cmtError("");
+    const pdf = $("revPdf");
+    const dl = $("revDescargar");
+    dl.hidden = !s.documento_id;
+    if (s.documento_id) {
+      show($("revPdfMsg"), "");
+      pdf.hidden = false;
+      pdf.src = dl.href = `${API}/solicitudes/${s.id}/documentos/${s.documento_id}.pdf`;
+    } else {
+      pdf.hidden = true;
+      pdf.removeAttribute("src");
+      show($("revPdfMsg"), "Esta solicitud no tiene PDF disponible.");
+    }
+    dlg.showModal();
+  }
+
+  function closeReview() {
+    if (deciding) return;
+    dlg.close();
+  }
+  dlg.addEventListener("close", () => { $("revPdf").removeAttribute("src"); current = null; });
+  dlg.addEventListener("cancel", (e) => { if (deciding) e.preventDefault(); });
+  $("revClose").addEventListener("click", closeReview);
+  dlg.addEventListener("click", (e) => { if (e.target === dlg) closeReview(); });
+
+  function cmtError(msg) {
+    $("revCmt").classList.toggle("is-error", !!msg);
+    show($("revError"), msg);
+  }
+  $("revComentario").addEventListener("input", () => {
+    if ($("revCmt").classList.contains("is-error") && $("revComentario").value.trim()) cmtError("");
+  });
+
+  async function decide(aceptar) {
+    if (!current || deciding) return;
+    const comentario = $("revComentario").value.trim();
+    if (!aceptar && !comentario) {
+      cmtError("Escribe por qué se rechaza antes de continuar.");
+      $("revComentario").focus();
+      return;
+    }
+    cmtError("");
+    setBusy(true);
+    const s = current;
+    const r = await api(`/solicitudes/${s.id}/decision`, { body: { aceptar, comentario } });
+    if (r.ok || r.status === 409) {   // 409 ya_resuelta: otra secretaria la decidió; también sale de la lista
+      deciding = false;
+      dlg.close();
+      items = items.filter((x) => x.id !== s.id);
+      renderRows();
+      toast(r.ok && r.data.correo_enviado === false ? "Se guardó, pero el correo al estudiante no salió. Avísale por otro medio."
+            : r.ok ? (aceptar ? `Prórroga aceptada: ${s.folio}` : `Solicitud rechazada: ${s.folio}`)
+                 : (r.data.message || "La solicitud ya fue resuelta."));
+      return;
+    }
+    setBusy(false);
+    show($("revError"), r.data.message || "No se pudo guardar la decisión.");
+  }
+  $("revAccept").addEventListener("click", () => decide(true));
+  $("revReject").addEventListener("click", () => decide(false));
+
+  // ── Refresco y pestaña oculta ───────────────────────────────────────
+  let listTimer = null;
+  function refresh() {
+    if (conQr) loadToday();
+    if (!dlg.open) loadPending();   // con el modal abierto no se toca la tabla; entra en el siguiente ciclo
+  }
+  function armRefresh() { clearInterval(listTimer); listTimer = setInterval(refresh, 20000); }
+
+  // Oculta: se detienen el contador y el refresco. Al volver: se regenera el QR si venció y se refresca la lista.
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) { clearInterval(qrTimer); clearInterval(listTimer); return; }
+    if (conQr && qrExpires) { tick(); armQr(); }   // si venció, tick() regenera; el intervalo reintenta si el freno lo detuvo
+    refresh();
+    armRefresh();
+  });
+
+  if (conQr) { regenQr(); loadToday(); } else $("solSide").hidden = true;
+  if (!can("prorrogas_tec.requests.api.decide")) {
+    $("revAccept").hidden = $("revReject").hidden = $("revCmt").hidden = true;
+    document.querySelector(".sol-note").hidden = true;
+  }
+  loadPending();
+  armRefresh();
+})();

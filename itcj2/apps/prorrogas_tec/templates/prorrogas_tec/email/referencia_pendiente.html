@@ -1,0 +1,11 @@
+{% extends "prorrogas_tec/email/_base_email.html" %}
+{% import "prorrogas_tec/email/_macros.html" as m %}
+{% set tono = "pendiente" %}
+{% block titulo %}Falta tu referencia bancaria{% endblock %}
+{% block preheader %}Súbela en PDF para preparar tu plan de pagos.{% endblock %}
+{% block etiqueta %}Documento pendiente{% endblock %}
+{% block encabezado %}Falta tu referencia bancaria{% endblock %}
+{% block cuerpo %}
+<p style="{{ m.P }}margin-bottom:24px;">Es necesaria para preparar tu plan de pagos. Súbela en PDF en Mi prórroga.</p>
+{% endblock %}
+{% block boton %}Subir mi referencia{% endblock %}

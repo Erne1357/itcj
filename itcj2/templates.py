@@ -39,6 +39,10 @@ templates = Jinja2Templates(
         os.path.join(_BASE, "itcj2", "apps", "agendatec", "templates"),
         os.path.join(_BASE, "itcj2", "apps", "helpdesk", "templates"),
         os.path.join(_BASE, "itcj2", "apps", "vistetec", "templates"),
+        # Prórrogas usa `render()` de este módulo (no una instancia propia de
+        # Jinja2Templates como titulatec/directory), así que sus templates
+        # tienen que estar en ESTE searchpath o `render` no los encuentra.
+        os.path.join(_BASE, "itcj2", "apps", "prorrogas_tec", "templates"),
     ]
 )
 
@@ -356,6 +360,17 @@ ENDPOINT_MAP: dict[str, str] = {
     "agendatec_api.api_admin.admin_users.update_coordinator":            "/api/agendatec/v2/admin/users/coordinators/{coord_id}",
     "agendatec_api.api_admin.admin_users.list_students":                 "/api/agendatec/v2/admin/users/students",
     "agendatec_api.api_admin.admin_users.search_users_for_coordinator":  "/api/agendatec/v2/admin/users/search",
+
+    # ── Prórrogas: Páginas ───────────────────────────────────────────────────
+    # OJO al desfase: la app se llama `prorrogas_tec` (key de core_apps, paquete
+    # Python) pero sus URLs son `/prorrogas` y `/api/prorrogas/v2`, igual que
+    # helpdesk vs help-desk (gotcha #12 de CLAUDE.md).
+
+
+    # ── Prórrogas: API ───────────────────────────────────────────────────────
+
+
+    "prorrogas_tec_api.api_programs.list_programs":      "/api/prorrogas/v2/programs",
 
     # ── VisteTec: Páginas ────────────────────────────────────────────────────
     # Student
