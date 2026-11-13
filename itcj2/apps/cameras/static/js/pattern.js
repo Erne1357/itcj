@@ -5,14 +5,19 @@
  *   mountViewer(el)  visor. Lee data-pattern="1259" y data-autoplay de el.
  *   mountEditor(el)  editor. Escribe la secuencia en el input[name="pattern"]
  *                    que vive dentro del mismo [data-pattern-editor].
- *   sealAll(root)    reemplaza cada [data-revealed] por su
- *                    <template data-cam-sealed> (lo llaman los 30 s, pagehide y
- *                    visibilitychange a oculta).
+ *   sealAll(root)    quita del DOM cada [data-revealed] y cierra su diálogo
+ *                    (lo llaman los 30 s, pagehide y visibilitychange a oculta).
+ *
+ * Diálogo de revelado (dialog[data-cam-modal], nativo): el botón
+ * [data-cam-reveal] hace hx-post y su respuesta (o el error) entra en
+ * [data-cam-modal-body]; al llegar se abre con showModal(). Cerrar (botón
+ * [data-cam-modal-close], Esc, clic en el fondo) SELLA: vacía el cuerpo y
+ * devuelve el foco al botón que lo abrió.
  *
  * Además, por delegación y por atributos (sin API): [data-cam-copy] copia la
- * contraseña de su bloque revelado, [data-cam-seal-now] sella ya,
- * [data-cam-pw] se parte en celdas, [data-cam-filter] filtra la lista de su
- * aria-controls y [data-cam-picker] cuenta sus casillas marcadas.
+ * contraseña de su bloque revelado, [data-cam-pw] se parte en celdas,
+ * [data-cam-filter] filtra la lista de su aria-controls y [data-cam-picker]
+ * cuenta sus casillas marcadas.
  *
  * Morph-safe (HTMX + Idiomorph): todo valor llega por data-*, se relee en cada
  * montaje y montar dos veces no duplica nada. El estado vive en un WeakMap.
@@ -71,11 +76,13 @@
     return new Set(seq).size === seq.length ? seq : [];
   }
 
+  // Con un diálogo modal abierto todo lo de afuera es inerte (y mudo): la región
+  // viva va dentro del diálogo abierto, si lo hay.
   function announce(msg) {
-    var n = document.getElementById('cam-live');
+    var host = document.querySelector('dialog[data-cam-modal][open] .cam-modal__panel') || document.body;
+    var n = host.querySelector(':scope > .cam-live');
     if (!n) {
-      n = el('div', 'visually-hidden', document.body);
-      n.id = 'cam-live';
+      n = el('div', 'visually-hidden cam-live', host);
       n.setAttribute('aria-live', 'polite');
     }
     n.textContent = '';
@@ -498,7 +505,7 @@
     if (!box.isConnected || !box.hasAttribute('data-revealed')) { clearInterval(st.timer); return; }
     var left = st.deadline - Date.now();
     if (left <= 0) {
-      seal(box, false);
+      seal(box);
       announce('Se ocultaron otra vez el patrón y la contraseña');
       return;
     }
@@ -509,32 +516,121 @@
     if (s <= 5 && !st.warned) { st.warned = true; announce('Se ocultará en 5 segundos'); }
   }
 
-  function seal(box, byUser) {
+  // Quita lo revelado del DOM (no basta ocultarlo) y para sus relojes.
+  function wipe(box) {
     var st = states.get(box);
     if (st && st.timer) clearInterval(st.timer);
     box.querySelectorAll('[data-cam-copy]').forEach(function (b) {
       var cs = states.get(b);
       if (cs) clearTimeout(cs.t);
     });
-    var hadFocus = box.contains(document.activeElement);
-    var tpl = box.querySelector(':scope > template[data-cam-sealed]');
-    if (!tpl) { box.remove(); return; }
-    var frag = tpl.content.cloneNode(true), first = frag.firstElementChild;
-    box.replaceWith(frag);
-    if (!first) return;
-    first.classList.add('cam-anim-sealed');
-    if (window.htmx) window.htmx.process(first);
-    var again = first.querySelector('button');
-    if ((byUser || hadFocus) && again) again.focus({ preventScroll: true });
+    box.querySelectorAll('[data-pattern-viewer]').forEach(function (v) {
+      var vs = states.get(v);
+      if (vs) stop(vs);
+    });
+    box.remove();
+  }
+
+  function seal(box) {
+    var dlg = modalOf(box);
+    wipe(box);
+    if (dlg) closeModal(dlg);
   }
 
   function sealAll(root) {
     root = root || document;
     var list = Array.from(root.querySelectorAll('[data-revealed]'));
     if (root.matches && root.matches('[data-revealed]')) list.unshift(root);
-    list.forEach(function (box) { seal(box, false); });
+    list.forEach(seal);
     return list.length;
   }
+
+  // === DIÁLOGO DE REVELADO ===
+  var opener = null;        // id del DVR cuyo «Revelar» abrió el diálogo (el foco vuelve ahí)
+  var pending = null;       // botón «Revelar» con petición en curso
+  var downOnBackdrop = false;
+
+  function modalOf(n) { return n && n.closest ? n.closest('dialog[data-cam-modal]') : null; }
+
+  function openModal(dlg, btn) {
+    if (btn) {
+      opener = btn.getAttribute('data-cam-reveal');
+      var title = dlg.querySelector('[data-cam-modal-title]'), sub = dlg.querySelector('[data-cam-modal-sub]');
+      if (title) title.textContent = btn.getAttribute('data-name') || 'DVR';
+      if (sub) {
+        sub.textContent = btn.getAttribute('data-place') || '';
+        sub.hidden = !sub.textContent;
+      }
+      // El panel entra desde el lado del botón (un tercio del trayecto): se lee de dónde salió.
+      var r = btn.getBoundingClientRect(), panel = dlg.querySelector('.cam-modal__panel');
+      if (panel) {
+        panel.style.setProperty('--cam-from-x', Math.round((r.left + r.width / 2 - window.innerWidth / 2) / 3) + 'px');
+        panel.style.setProperty('--cam-from-y', Math.round((r.top + r.height / 2 - window.innerHeight / 2) / 3) + 'px');
+      }
+    }
+    if (!dlg.open) dlg.showModal();
+  }
+
+  // Cerrar = sellar: el cuerpo se vacía antes de cerrar; el evento close devuelve el foco.
+  function closeModal(dlg) {
+    Array.from(dlg.querySelectorAll('[data-revealed]')).forEach(wipe);
+    var body = dlg.querySelector('[data-cam-modal-body]');
+    if (body) body.textContent = '';
+    if (dlg.open) dlg.close();
+  }
+
+  function failReveal(btn, msg) {
+    pending = null;
+    var dlg = document.querySelector('dialog[data-cam-modal]');
+    var body = dlg && dlg.querySelector('[data-cam-modal-body]');
+    if (!body) return;
+    body.textContent = '';
+    el('p', 'cam-field__error', body, msg).setAttribute('role', 'alert');
+    openModal(dlg, btn);
+  }
+
+  function revealBtn(n) { return n && n.closest ? n.closest('[data-cam-reveal]') : null; }
+
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    var b = revealBtn(e.target);
+    if (b) pending = b;
+  });
+  document.addEventListener('htmx:afterSwap', function (e) {
+    var dlg = modalOf(e.detail && e.detail.target);
+    if (!dlg || !pending) return;
+    openModal(dlg, pending);
+    pending = null;
+  });
+  document.addEventListener('htmx:sendError', function (e) {
+    var b = revealBtn(e.target);
+    if (b) failReveal(b, 'Sin conexión con el servidor. Intenta de nuevo.');
+  });
+  document.addEventListener('htmx:responseError', function (e) {
+    var b = revealBtn(e.target);
+    if (b) failReveal(b, 'Error inesperado del servidor. Intenta de nuevo.');
+  });
+
+  // cancel y close no burbujean: se escuchan en captura.
+  document.addEventListener('cancel', function (e) {
+    var dlg = e.target;
+    if (!dlg.matches || !dlg.matches('dialog[data-cam-modal]')) return;
+    e.preventDefault();      // Esc: sellar antes de cerrar
+    closeModal(dlg);
+  }, true);
+  document.addEventListener('close', function (e) {
+    var dlg = e.target;
+    if (!dlg.matches || !dlg.matches('dialog[data-cam-modal]')) return;
+    closeModal(dlg);         // por si se cerró por otra vía: nada queda en el DOM
+    var btn = opener && document.querySelector('[data-cam-reveal="' + opener + '"]');
+    opener = null;
+    if (btn) btn.focus({ preventScroll: true });
+  }, true);
+  // Clic en el fondo: el diálogo ocupa la pantalla y el panel es su único hijo,
+  // así que un clic que empieza y termina en el diálogo mismo cayó fuera del panel
+  // (arrastrar para seleccionar la contraseña y soltar afuera no cierra).
+  document.addEventListener('pointerdown', function (e) {
+    downOnBackdrop = !!(e.target.matches && e.target.matches('dialog[data-cam-modal]'));
+  }, true);
 
   // === FILTRO Y CONTADOR DE LA MULTISELECCIÓN ===
   function fold(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim(); }
@@ -562,11 +658,18 @@
   }
 
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-cam-copy], [data-cam-seal-now]');
+    if (e.target.matches && e.target.matches('dialog[data-cam-modal]')) {
+      if (downOnBackdrop) closeModal(e.target);
+      return;
+    }
+    var t = e.target.closest && e.target.closest('[data-cam-copy], [data-cam-modal-close]');
     if (!t) return;
     if (t.hasAttribute('data-cam-copy')) { copy(t); return; }
-    var box = t.closest('[data-revealed]');
-    if (box) { seal(box, true); announce('Se ocultaron el patrón y la contraseña'); }
+    var dlg = modalOf(t);
+    if (!dlg) return;
+    var had = dlg.querySelector('[data-revealed]');
+    closeModal(dlg);
+    if (had) announce('Se ocultaron el patrón y la contraseña');
   });
 
   document.addEventListener('input', function (e) {

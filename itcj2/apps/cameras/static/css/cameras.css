@@ -14,23 +14,29 @@
                            body.in-mobile-iframe, que pone mobile-app-shell.js)
    - cam-page ............ contenedor de vista (tope 1240 px, márgenes)
    - cam-crumb ........... enlace de regreso arriba de un formulario
-   - cam-head ............ cabecera de vista: __title, __sub, __actions
+   - cam-head ............ cabecera de vista: __title, __sub, __tools (buscador
+                           y acciones en la línea del título)
    - cam-mark ............ marca de la app (cuadro grafito con cámara lima)
    - cam-search .......... buscador: __input (con .form-control)
+   - cam-rack ............ Soporte: panel único con los grupos en filas
    - cam-group ........... una ubicación: __title, __place, __count, __list
-   - cam-card ............ un DVR: __head, __id, __name, __meta (cada dato
-                           en un span, no se parte), __tools,
-                           __depts, __foot
-   - cam-chip ............ depto ligado; --none = sin departamento
+   - cam-card ............ un DVR. --row (Soporte: __id, __depts, __stored,
+                           __reveal, __tools) o --tile (Jefe: cam-face,
+                           __body, __place, __shared, __actions). Ambas: __name,
+                           __meta (cada dato en un span), __slot (hueco del
+                           formulario de contraseña, id cam-pwslot-N)
+   - cam-tiles ........... rejilla de tarjetas del jefe
+   - cam-face ............ carátula grafito de la tarjeta: __grid (9 puntos),
+                           __mask (contraseña enmascarada, longitud fija)
+   - cam-chip ............ depto ligado; --none = sin departamento, --more = +N
    - cam-badge ........... qué guarda el DVR (patrón, contraseña)
-   - cam-secret .......... contenedor que intercambia el "Revelar" (id estable
-                           por DVR). Con [data-revealed] es la versión revelada y
-                           lleva dentro un template[data-cam-sealed] con su
-                           versión sellada; .is-ending en los últimos 5 s
-   - cam-seal ............ versión sellada: __tile (--pattern, --password),
-                           __what, __error
-   - cam-reveal .......... versión revelada: __bar, __countdown, __fuse,
-                           __block, __row, __label, __meta, __facts, __notes
+   - cam-modal ........... <dialog> del revelado: __panel, __head, __id,
+                           __title, __sub, __body (hoja inferior bajo 640 px)
+   - cam-secret .......... lo revelado ([data-revealed], dentro de __body);
+                           --pattern = trae patrón; .is-ending en los últimos 5 s
+   - cam-reveal .......... piezas de lo revelado: __timer, __countdown, __fuse,
+                           __device, __info, __block, __row, __label, __meta,
+                           __facts, __notes, __error, __error-tile
    - cam-pattern ......... aparato grafito del visor y del editor: __screen,
                            __console, __caption, __controls
    - cam-grid ............ el SVG 3x3 (lo dibuja pattern.js): --edit,
@@ -57,7 +63,6 @@
                            __table (tabla; bajo 768 px cada fila es una
                            tarjeta apilada con data-label), __when, __act,
                            __detail, __pager (__total, __links)
-   - cam-anim-sealed ..... la pone pattern.js al volver a sellar
    ============================================================================= */
 
 :root {
@@ -161,7 +166,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 
 .cam-head {
   display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between;
-  gap: 12px 16px; margin-bottom: 20px;
+  gap: 16px 24px; margin-bottom: 24px;
 }
 .cam-head > :first-child { min-width: 0; }
 .cam-head__title {
@@ -170,7 +175,9 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   text-wrap: balance;
 }
 .cam-head__sub { margin: .375rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-wrap: pretty; }
-.cam-head__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Buscador y acciones en la línea del título: la lista empieza más arriba. */
+.cam-head__tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+@media (max-width: 767.98px) { .cam-head__tools { flex: 1 1 100%; } }
 
 .cam-mark {
   flex: none; display: grid; place-items: center;
@@ -179,46 +186,75 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 }
 
 /* ── Buscador ────────────────────────────────────────────────────────────── */
-.cam-search { position: relative; max-width: 34rem; margin-bottom: 28px; }
+.cam-search { position: relative; flex: 1 1 auto; min-width: 0; }
+@media (min-width: 768px) { .cam-search { flex: 0 1 auto; width: 22rem; } }
 .cam-search > .bi {
   position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
   color: var(--cam-ink-2); pointer-events: none;
 }
-.cam-body .cam-search__input { min-height: var(--cam-tap); padding-left: 2.5rem; background: var(--cam-surface); }
+.cam-body .cam-search__input { min-height: 40px; padding-left: 2.5rem; background: var(--cam-surface); }
+@media (pointer: coarse) { .cam-body .cam-search__input { min-height: var(--cam-tap); } }
 
-/* ── Grupos por ubicación ────────────────────────────────────────────────── */
-.cam-group + .cam-group { margin-top: 36px; }
+/* ── Soporte: inventario en filas dentro de un solo panel ────────────────── */
+.cam-rack {
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg);
+  overflow: hidden;   /* recorta la banda del primer grupo; los focos quedan dentro del relleno */
+}
+.cam-group + .cam-group { border-top: 1px solid var(--cam-line); }
 .cam-group__title {
-  display: flex; align-items: baseline; gap: .5rem; margin: 0 0 14px;
-  font-size: var(--cam-fs-lg); font-weight: 600; line-height: 1.25;
+  display: flex; align-items: center; gap: .5rem; margin: 0; padding: 9px 16px;
+  font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.35; color: var(--cam-ink);
+  background: var(--cam-bg); border-bottom: 1px solid var(--cam-line);
 }
-@media (max-width: 420px) { .cam-group__title { font-size: clamp(1rem, 5.2vw, var(--cam-fs-lg)); } }
-.cam-group__title > .bi { flex: none; font-size: var(--cam-fs-md); color: var(--cam-ink-2); transform: translateY(1px); }
-.cam-group__place { min-width: 0; overflow-wrap: anywhere; text-wrap: balance; }
+@media (min-width: 768px) { .cam-group__title { padding: 9px 20px; } }
+.cam-group__title > .bi { flex: none; color: var(--cam-ink-2); }
+.cam-group__place { min-width: 0; overflow-wrap: anywhere; }
 .cam-group__count {
-  flex: none; font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
+  flex: none; min-width: 1.5rem; padding: 0 7px; text-align: center;
+  font-size: var(--cam-fs-xs); font-weight: 600; line-height: 1.375rem; color: var(--cam-ink-2);
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
-.cam-group__list {
-  display: grid; gap: 16px; align-items: start;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
-  margin: 0; padding: 0; list-style: none;
-}
+.cam-group__list { margin: 0; padding: 0; list-style: none; }
 
-/* ── Tarjeta de DVR ──────────────────────────────────────────────────────── */
-.cam-card {
-  display: flex; flex-direction: column; gap: 12px; min-width: 0;
-  padding: 14px; background: var(--cam-surface);
-  border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg);
+/* Fila. Móvil: apilada. 768+: nombre | qué guarda | Revelar | herramientas, deptos debajo.
+   1100+: todo en una línea. */
+.cam-card { min-width: 0; }
+.cam-card--row {
+  display: grid; align-items: center; gap: 10px 16px; padding: 14px 16px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "id tools" "depts depts" "stored reveal";
 }
-.cam-card__head { display: flex; align-items: flex-start; gap: 8px; }
-.cam-card__id { flex: 1; min-width: 0; }
-.cam-card__name { margin: 0; font-size: 1.0625rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
-.cam-card__meta { margin: .25rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-card--row + .cam-card--row { border-top: 1px solid var(--cam-line); }
+.cam-card--row .cam-card__id { grid-area: id; min-width: 0; }
+.cam-card--row .cam-card__depts { grid-area: depts; }
+.cam-card--row .cam-card__stored { grid-area: stored; }
+.cam-card--row .cam-card__reveal { grid-area: reveal; }
+.cam-card--row .cam-card__tools { grid-area: tools; align-self: start; margin: -6px -8px 0 0; }
+@media (min-width: 768px) {
+  .cam-card--row {
+    gap: 8px 24px; padding: 14px 20px;
+    grid-template-columns: minmax(0, 1fr) 7.5rem auto auto;
+    grid-template-areas: "id stored reveal tools" "depts depts depts depts";
+  }
+  .cam-card--row .cam-card__tools { align-self: center; margin: 0 -8px 0 -14px; }
+  .cam-card--row .cam-card__stored { flex-direction: column; gap: 4px; }
+}
+@media (min-width: 1100px) {
+  .cam-card--row {
+    grid-template-columns: minmax(13rem, 1fr) minmax(0, 1.4fr) 7.5rem auto auto;
+    grid-template-areas: "id depts stored reveal tools";
+  }
+}
+.cam-card__slot { grid-column: 1 / -1; min-width: 0; }
+.cam-card__slot:empty { display: none; }
+
+.cam-card__name { margin: 0; font-size: var(--cam-fs-md); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
+.cam-card__meta { margin: .2rem 0 0; font-size: .8125rem; color: var(--cam-ink-2); overflow-wrap: anywhere; }
 .cam-card__meta > span { white-space: nowrap; }
-.cam-card__tools { flex: none; display: flex; gap: 2px; margin: -6px -8px 0 0; }
-.cam-card__depts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
-.cam-card__foot { display: flex; justify-content: flex-end; margin: -4px -8px -8px 0; }
+.cam-card__tools { display: flex; gap: 2px; }
+.cam-card__depts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.cam-card__stored { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; }
 
 .cam-chip {
   display: inline-block; max-width: 100%; padding: 3px 10px;
@@ -227,49 +263,149 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .cam-chip--none { border-style: dashed; background: transparent; }
+.cam-chip--more { flex: none; font-weight: 600; color: var(--cam-ink); cursor: default; }
 
 .cam-badge {
-  display: inline-flex; align-items: center; gap: .3rem;
+  display: inline-flex; align-items: center; gap: .375rem;
   font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); white-space: nowrap;
 }
 .cam-badge .bi { color: var(--cam-ink); font-size: .8125rem; }
 
-/* ── Secreto: sellado ⇄ revelado ─────────────────────────────────────────── */
-.cam-secret { padding-top: 12px; border-top: 1px solid var(--cam-line); }
+/* ── Jefe: tarjetas con carátula ─────────────────────────────────────────── */
+/* Sin estirar: abrir el formulario de contraseña en una tarjeta no agranda a sus vecinas. */
+.cam-tiles {
+  display: grid; gap: 20px; align-items: start; margin: 0; padding: 0; list-style: none;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+}
+.cam-card--tile {
+  display: flex; flex-direction: column; padding: 6px;
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: 16px;
+}
+/* La carátula es la pantalla del DVR, apagada: anticipa qué hay detrás de «Revelar»
+   (los 9 puntos del patrón y/o las celdas de la contraseña, siempre 8: no delata su largo). */
+.cam-face {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 24px; height: 8.5rem; padding: 0 16px;
+  border-radius: 11px; color: var(--cam-screen-idle);
+  background: radial-gradient(120% 90% at 0% 0%, rgba(255, 255, 255, .08), transparent 62%), var(--cam-screen);
+}
+.cam-face__grid { display: grid; grid-template-columns: repeat(3, 1fr); place-items: center; width: 84px; height: 84px; }
+.cam-face__grid > span {
+  width: 12px; height: 12px; border-radius: 50%; background: currentColor;
+  transition: background-color .18s ease-out, transform .22s var(--cam-ease);
+}
+.cam-face__mask { display: flex; gap: 4px; }
+.cam-face__mask > span {
+  display: grid; place-items: center; width: 14px; height: 22px; border-radius: 4px;
+  background: var(--cam-screen-2);
+}
+.cam-face__mask > span::after {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  transition: background-color .18s ease-out;
+}
+/* Pasar por «Revelar» enciende la carátula en diagonal, del 1 al 9. */
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face { color: var(--cam-signal); }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face__grid > span { transform: scale(1.18); }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(2), :nth-child(4)) { transition-delay: 35ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(3), :nth-child(5), :nth-child(7)) { transition-delay: 70ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(6), :nth-child(8)) { transition-delay: 105ms; }
+.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:nth-child(9) { transition-delay: 140ms; }
+.cam-card--tile:has(.cam-btn--reveal.htmx-request) .cam-face > * { animation: cam-blink .7s ease-in-out infinite alternate; }
+@keyframes cam-blink { to { opacity: .4; } }
 
-.cam-seal { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.cam-seal__tile {
-  flex: none; display: grid; place-items: center;
-  width: 48px; height: 48px; border-radius: 10px;
-  background-color: var(--cam-screen); color: var(--cam-screen-mute); font-size: 1.1rem;
+.cam-card--tile .cam-card__body { display: flex; flex-direction: column; gap: 6px; padding: 16px 12px 4px; }
+.cam-card--tile .cam-card__name { font-size: 1.1875rem; line-height: 1.25; text-wrap: balance; }
+.cam-card__place,
+.cam-card__shared { display: flex; align-items: baseline; gap: .375rem; margin: 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-card__place > .bi,
+.cam-card__shared > .bi { flex: none; transform: translateY(1px); }
+.cam-card--tile .cam-card__meta { margin: 0; font-size: var(--cam-fs-sm); }
+/* Una ubicación larguísima no estira la fila de tarjetas; completa va en el diálogo y en title. */
+.cam-card--tile .cam-card__place > span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.cam-card--tile .cam-card__actions { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 10px 6px; }
+.cam-card--tile .cam-card__slot { padding: 0 10px 10px; }
+@media (max-width: 575.98px) { .cam-face { height: 7rem; } }
+
+/* Formulario de contraseña dentro de una fila o tarjeta: sin la barra pegajosa del panel. */
+.cam-card__slot .cam-form--narrow { padding-top: 14px; }
+.cam-card--row .cam-card__slot { border-top: 1px dashed var(--cam-line); margin-top: 6px; }
+.cam-card__slot .cam-form__actions { position: static; margin: 0; padding: 4px 0 0; background: none; border: 0; border-radius: 0; }
+
+/* ── Diálogo de revelado ─────────────────────────────────────────────────── */
+/* El <dialog> nativo cubre la pantalla y es transparente; el panel es lo visible.
+   Así un clic que cae en el diálogo mismo cayó fuera del panel (cierra). */
+.cam-modal {
+  width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 24px;
+  border: 0; background: transparent; color: var(--cam-ink); overflow: hidden;
 }
-/* Nueve puntos sin marcado: un degradado radial por tercio. */
-.cam-seal__tile--pattern {
-  background-image: radial-gradient(circle, var(--cam-screen-idle) 0 2.5px, transparent 3px);
-  background-size: calc(100% / 3) calc(100% / 3);
+.cam-modal[open] { display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; }
+.cam-modal::backdrop { background: rgba(10, 14, 19, .64); animation: cam-fade .22s ease-out backwards; }
+.cam-modal__panel {
+  position: relative; display: flex; flex-direction: column; width: min(100%, 30rem); max-height: 100%;
+  background: var(--cam-surface); border-radius: 16px;
+  box-shadow: 0 32px 64px -24px rgba(10, 14, 19, .6);
+  animation: cam-modal-in .36s var(--cam-ease) backwards;
 }
-/* Una insignia por línea: así mosaico, insignias y botón caben en 300 px. */
-.cam-seal__what { flex: 1; min-width: 6.5rem; display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
-.cam-seal .cam-btn--reveal { margin-left: auto; }
-.cam-seal__error {
-  flex-basis: 100%; display: flex; gap: .5rem; margin: 0; padding: 10px 12px;
-  font-size: var(--cam-fs-sm); color: var(--cam-danger); background: var(--cam-danger-soft); border-radius: 10px;
+/* Patrón + datos: dos columnas, el aparato a la izquierda. */
+@media (min-width: 720px) {
+  .cam-modal__panel:has(.cam-secret--pattern .cam-reveal__info > *) { width: min(100%, 54rem); }
+  .cam-secret--pattern:has(.cam-reveal__info > *) { grid-template-columns: minmax(0, 23rem) minmax(15rem, 1fr); column-gap: 28px; }
+}
+.cam-modal__head {
+  display: flex; align-items: flex-start; gap: 12px; padding: 16px 16px 14px 20px;
+  border-bottom: 1px solid var(--cam-line);
+}
+.cam-modal__id { flex: 1; min-width: 0; }
+.cam-modal__title { margin: 0; font-size: var(--cam-fs-lg); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance; }
+.cam-modal__sub { margin: .2rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-modal__body { --cam-pad-t: 16px; --cam-pad-x: 20px; min-height: 0; padding: var(--cam-pad-t) var(--cam-pad-x) 22px; overflow: auto; overscroll-behavior: contain; }
+.cam-modal__body > .cam-field__error {
+  margin: 0; padding: 12px 14px; font-size: var(--cam-fs-sm);
+  background: var(--cam-danger-soft); border-radius: 10px;
 }
 
-/* Revelado: se abre desde el centro, como un obturador. Solo `backwards`: con
-   el clip-path final aplicado, los anillos de foco del borde quedarían recortados. */
-.cam-reveal { display: flex; flex-direction: column; gap: 14px; animation: cam-open .5s var(--cam-ease) backwards; }
-@keyframes cam-open {
-  from { clip-path: inset(50% 0 50% 0 round 12px); opacity: .3; }
-  to   { clip-path: inset(0 0 0 0 round 0); opacity: 1; }
+@keyframes cam-fade { from { opacity: 0; } }
+@keyframes cam-modal-in {
+  from { opacity: 0; transform: translate(var(--cam-from-x, 0px), var(--cam-from-y, 16px)) scale(.92); }
 }
-.cam-reveal__bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: -6px; }
+@keyframes cam-sheet-in { from { transform: translateY(100%); } }
+@keyframes cam-rise { from { opacity: 0; transform: translateY(8px); } }
+
+/* Móvil: hoja inferior a todo lo ancho. */
+@media (max-width: 639.98px) {
+  .cam-modal { padding: 12px 0 0; }
+  .cam-modal[open] { place-items: end stretch; }
+  .cam-modal__panel {
+    width: 100%; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px);
+    animation-name: cam-sheet-in; animation-duration: .4s;
+  }
+  .cam-modal__head { padding: 14px 12px 12px 16px; }
+  .cam-modal__title { font-size: 1.125rem; }
+  .cam-modal__sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .cam-modal__body { --cam-pad-t: 14px; --cam-pad-x: 16px; padding-bottom: 18px; }
+}
+/* Pantallas bajas (teléfono acostado, ventana chica del escritorio). */
+@media (max-height: 560px) {
+  .cam-modal { padding-top: 8px; }
+  .cam-modal__head { padding-top: 10px; padding-bottom: 10px; }
+  .cam-modal__title { font-size: var(--cam-fs-md); }
+  .cam-modal__sub { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-height: 560px) and (min-width: 640px) { .cam-modal { padding: 8px 24px; } }
+
+/* ── Secreto revelado (dentro del diálogo) ───────────────────────────────── */
+.cam-secret { display: grid; gap: 16px; align-items: start; }
+/* La cuenta regresiva se queda arriba aunque el cuerpo haga scroll (hoja móvil). */
+.cam-reveal__timer {
+  grid-column: 1 / -1; position: sticky; top: calc(-1 * var(--cam-pad-t, 0px)); z-index: 2; display: flex; align-items: center; gap: 12px;
+  margin: calc(-1 * var(--cam-pad-t, 0px)) calc(-1 * var(--cam-pad-x, 0px)) 0;
+  padding: var(--cam-pad-t, 0px) var(--cam-pad-x, 0px) 6px; background: var(--cam-surface);
+}
 .cam-reveal__countdown {
-  display: flex; align-items: center; gap: .4rem; margin: 0;
+  flex: none; display: flex; align-items: center; gap: .4rem; margin: 0;
   font-size: var(--cam-fs-sm); color: var(--cam-ink-2);
 }
 .cam-reveal__countdown b { min-width: 2ch; text-align: right; font-weight: 700; color: var(--cam-ink); font-variant-numeric: tabular-nums; }
-.cam-reveal__fuse { height: 4px; border-radius: 999px; background: var(--cam-line); overflow: hidden; }
+.cam-reveal__fuse { flex: 1; height: 4px; border-radius: 999px; background: var(--cam-line); overflow: hidden; }
 .cam-reveal__fuse > span {
   display: block; height: 100%; background: var(--cam-ink); border-radius: inherit;
   transform-origin: left center; transition: transform .25s linear, background-color .3s;
@@ -278,20 +414,33 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-secret.is-ending .cam-reveal__countdown,
 .cam-secret.is-ending .cam-reveal__countdown b { color: var(--cam-warn); }
 
+/* El aparato se abre desde el centro, como un obturador; los datos suben detrás.
+   Solo `backwards`: con el clip-path final aplicado, los focos del borde quedarían recortados. */
+.cam-reveal__device { min-width: 0; animation: cam-open .5s var(--cam-ease) .1s backwards; }
+@keyframes cam-open {
+  from { clip-path: inset(50% 0 50% 0 round 12px); opacity: .3; }
+  to   { clip-path: inset(0 0 0 0 round 0); opacity: 1; }
+}
+.cam-reveal__info { display: flex; flex-direction: column; gap: 18px; min-width: 0; animation: cam-rise .4s var(--cam-ease) .18s backwards; }
+.cam-reveal__info:not(:has(> *)) { display: none; }
 .cam-reveal__block { display: flex; flex-direction: column; gap: 10px; }
 .cam-reveal__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cam-reveal__label { margin: 0; font-size: var(--cam-fs-sm); font-weight: 600; color: var(--cam-ink); }
 .cam-reveal__meta { margin: 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
-.cam-reveal__facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; font-size: var(--cam-fs-sm); }
+.cam-reveal__facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; padding-top: 14px; border-top: 1px solid var(--cam-line); font-size: var(--cam-fs-sm); }
+.cam-reveal__block + .cam-reveal__facts { margin-top: -2px; }
 .cam-reveal__facts > div { display: flex; align-items: baseline; gap: .5rem; }
 .cam-reveal__facts dt { font-weight: 600; }
 .cam-reveal__facts dd { margin: 0; }
 .cam-reveal__facts code { font-family: var(--cam-mono); font-size: .9375rem; color: var(--cam-ink); }
 .cam-reveal__notes { padding: 10px 12px; background: var(--cam-bg); border-radius: 10px; }
 .cam-reveal__notes p { margin: .25rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); white-space: pre-line; overflow-wrap: anywhere; }
-
-.cam-anim-sealed { animation: cam-seal-in .36s var(--cam-ease) backwards; }
-@keyframes cam-seal-in { from { opacity: 0; filter: blur(6px); transform: scale(.985); } }
+.cam-reveal__error { display: flex; align-items: flex-start; gap: 14px; }
+.cam-reveal__error p { margin: 0; font-size: var(--cam-fs-sm); line-height: 1.45; color: var(--cam-ink); text-wrap: pretty; }
+.cam-reveal__error-tile {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+  font-size: 1.25rem; color: var(--cam-danger); background: var(--cam-danger-soft);
+}
 
 /* ── Aparato del patrón (visor y editor) ─────────────────────────────────── */
 .cam-pattern {
@@ -311,8 +460,8 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-pattern__controls .cam-btn { padding: 0 12px; gap: .375rem; }
 .cam-pattern__controls .cam-btn--icon { padding: 0; }
 .cam-pattern__controls > :last-child { margin-left: auto; }
-/* En la tarjeta, el aparato casi toca los bordes: el patrón es lo que se mira. */
-.cam-card .cam-pattern { margin: 0 -6px; padding: 10px; }
+/* En el diálogo, la cuadrícula cede ante la altura: el aparato cabe sin hacer scroll. */
+.cam-modal .cam-pattern__screen { max-width: min(22rem, max(12rem, 100vh - 22rem)); max-width: min(22rem, max(12rem, 100dvh - 22rem)); }
 
 .cam-grid { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--cam-font); user-select: none; -webkit-user-select: none; }
 .cam-grid--edit { touch-action: none; cursor: crosshair; border-radius: var(--cam-r); }
@@ -411,6 +560,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-btn--primary:hover,
 .cam-btn--reveal:hover { background: #2a323d; color: #fff; }
 .cam-btn--reveal { padding: 0 18px; }
+.cam-btn--block { width: 100%; min-height: 48px; font-size: var(--cam-fs-md); }
 .cam-btn--reveal .bi { color: var(--cam-signal); }
 .cam-btn--ghost { background: var(--cam-surface); border-color: var(--cam-line); color: var(--cam-ink); }
 .cam-btn--ghost:hover { background: var(--cam-bg); border-color: var(--cam-line-strong); color: var(--cam-ink); }
@@ -563,9 +713,10 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 
 /* ── Movimiento reducido: todo aparece en su estado final, sin trayecto ─── */
 @media (prefers-reduced-motion: reduce) {
-  .cam-reveal, .cam-anim-sealed, .cam-pw.is-copied .cam-pw__ch { animation: none; }
+  .cam-modal::backdrop, .cam-modal__panel, .cam-reveal__device, .cam-reveal__info,
+  .cam-pw.is-copied .cam-pw__ch, .cam-card--tile .cam-face > * { animation: none; }
   .cam-dot__disc, .cam-dot__num, .cam-dot__idle, .cam-dot__pos, .cam-arrow,
-  .cam-reveal__fuse > span, .cam-btn { transition: none; }
+  .cam-reveal__fuse > span, .cam-btn, .cam-face__grid > span, .cam-face__mask > span::after { transition: none; }
   .cam-dot.is-current .cam-dot__halo { animation: none; opacity: 1; }
   .cam-btn:active:not(:disabled) { transform: none; }
   .cam-spin { animation-duration: 1.6s; }

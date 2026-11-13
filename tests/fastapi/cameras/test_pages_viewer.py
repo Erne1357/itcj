@@ -77,6 +77,10 @@ def test_index_no_secret_leak(app_client):
     assert r.status_code == 200
     assert "DVR Prueba" in r.text
     assert "usr-zz9" not in r.text and "nota-x" not in r.text
+    # El diálogo del revelado viaja vacío: ni contraseña ni secuencia en la lista.
+    assert "data-cam-pw" not in r.text and "data-pattern=" not in r.text and "data-revealed" not in r.text
+    assert '<div class="cam-modal__body" id="cam-reveal-body" data-cam-modal-body></div>' in r.text
+    assert 'hx-post="/cameras/dvrs/1/reveal" hx-target="#cam-reveal-body"' in r.text
 
 
 def test_base_disables_htmx_history(app_client):
@@ -93,7 +97,7 @@ def test_reveal_no_store(app_client):
     assert "no-store" in r.headers["cache-control"]
     assert 'data-pattern="1259"' in r.text
     assert "<p class=\"cam-pw\" data-cam-pw>  x y </p>" in r.text
-    assert "<template data-cam-sealed>" in r.text and 'data-seal-after="30"' in r.text
+    assert "data-revealed" in r.text and 'data-seal-after="30"' in r.text
 
 
 def test_reveal_out_of_scope_404(app_client):
@@ -122,6 +126,9 @@ def test_reveal_wrong_key_503(app_client):
         r = app_client.post("/cameras/dvrs/1/reveal", headers=_hdr())
     assert r.status_code == 503
     assert "no coincide" in unquote(r.headers["x-cam-error"])
+    # El error entra al diálogo: aviso visible, sin otro botón de revelar ni secretos.
+    assert 'role="alert"' in r.text and "no coincide" in r.text
+    assert "hx-post" not in r.text and "usr-zz9" not in r.text and "nota-x" not in r.text
 
 
 def test_head_password_form_keeps_spaces(app_client):
@@ -253,3 +260,19 @@ def test_password_form_manager_hints_and_cancel(app_client):
         r = app_client.get("/cameras/dvrs/1/password", headers=_hdr())
     assert r.text.count('autocomplete="new-password"') == 2
     assert 'data-cam-pw-cancel="1"' in r.text
+
+
+def test_index_views_by_role(app_client):
+    """Soporte: filas con buscador. Jefe con pocos DVR: tarjetas, sin buscador."""
+    many = [_dvr(i, f"DVR {i}") for i in range(1, 8)]
+    head = _viewer(see_all=False, dept_ids=frozenset({1}), can_manage=False, can_audit=False)
+    with _ctx(app_client, list_visible=dict(return_value=[_dvr()])):
+        ops = app_client.get("/cameras/", headers=_hdr())
+    with _ctx(app_client, viewer=head, list_visible=dict(return_value=[_dvr()])):
+        few = app_client.get("/cameras/", headers=_hdr())
+    with _ctx(app_client, viewer=head, list_visible=dict(return_value=many)):
+        lots = app_client.get("/cameras/", headers=_hdr())
+    assert "cam-card--row" in ops.text and "cam-card--tile" not in ops.text and 'id="cam-q"' in ops.text
+    assert "cam-card--tile" in few.text and "cam-card--row" not in few.text and 'id="cam-q"' not in few.text
+    assert "Revelar patrón y contraseña" in few.text
+    assert 'id="cam-q"' in lots.text

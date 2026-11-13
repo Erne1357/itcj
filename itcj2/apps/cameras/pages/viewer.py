@@ -108,7 +108,7 @@ def reveal(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Dep
                               {"d": dvr, "rv": rv, "viewer": viewer})
         resp.headers["Cache-Control"] = "no-store"
         return resp
-    resp = render_cameras(request, "cameras/partials/card_secret.html",
+    resp = render_cameras(request, "cameras/partials/reveal_error.html",
                           {"d": dvr, "error": msg}, status_code=503)
     return _cam_error(resp, msg)
 
