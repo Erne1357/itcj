@@ -125,8 +125,7 @@ def test_reveal_wrong_key_503(app_client):
 
 
 def test_head_password_form_keeps_spaces(app_client):
-    with _ctx(app_client, get_visible=dict(return_value=_dvr()),
-              set_password=dict(return_value=True)) as _:
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
         with patch(f"{V}.set_password", return_value=True) as sp:
             r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
                                 data={"password": "  x y ", "password_confirm": "  x y "})
@@ -190,3 +189,35 @@ def test_reveal_password_exact_inner_text(app_client):
         r = app_client.post("/cameras/dvrs/1/reveal", headers=_hdr())
     m = re.search(r"<p class=\"cam-pw\" data-cam-pw>(.*?)</p>", r.text, re.S)
     assert m.group(1) == "  x y &lt;&amp;"
+
+
+def test_password_errors_keep_card_intact(app_client):
+    """422/503 se pintan en el hueco; el éxito sigue apuntando a la tarjeta."""
+    for kw, code in ((dict(return_value=True), None),
+                     (dict(side_effect=ValueError("vacía")), 422),
+                     (dict(side_effect=secrets.CamerasKeyMissing("x")), 503)):
+        with _ctx(app_client, get_visible=dict(return_value=_dvr()), set_password=kw):
+            r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+                                data={"password": "a", "password_confirm": "a"})
+        if code is None:
+            assert r.status_code == 200 and "hx-retarget" not in r.headers
+            assert 'id="cam-dvr-1"' in r.text
+        else:
+            assert r.status_code == code
+            assert r.headers["hx-retarget"] == "#cam-pwslot-1"
+            assert r.headers["hx-reswap"] == "innerHTML"
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+                            data={"password": "a", "password_confirm": "b"})
+    assert r.status_code == 422 and r.headers["hx-retarget"] == "#cam-pwslot-1"
+
+
+def test_not_found_carries_header_same_message(app_client):
+    from urllib.parse import unquote
+    with _ctx(app_client, get_visible=dict(return_value=None)):
+        r1 = app_client.post("/cameras/dvrs/9/password", headers=_hdr(),
+                             data={"password": "a", "password_confirm": "a"})
+        r2 = app_client.post("/cameras/dvrs/9/reveal", headers=_hdr())
+    assert r1.status_code == r2.status_code == 404
+    assert unquote(r1.headers["x-cam-error"]) == unquote(r2.headers["x-cam-error"]) == "No encontrado."
+    assert r1.headers["hx-retarget"] == "#cam-pwslot-9" and "hx-retarget" not in r2.headers

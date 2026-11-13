@@ -70,8 +70,18 @@ def _visible_or_none(db, user, dvr_id):
     return viewer, dvr_service.get_visible(db, viewer, dvr_id)
 
 
-def _not_found(request):
-    return render_cameras(request, "cameras/partials/not_found.html", status_code=404)
+def _slot_headers(resp, dvr_id: int):
+    """Errores del formulario: se pintan en el hueco, sin tocar la tarjeta."""
+    resp.headers["HX-Retarget"] = f"#cam-pwslot-{dvr_id}"
+    resp.headers["HX-Reswap"] = "innerHTML"
+    return resp
+
+
+def _not_found(request, dvr_id: int | None = None):
+    """Mismo mensaje exista o no el DVR (no revela existencia)."""
+    resp = _cam_error(render_cameras(request, "cameras/partials/not_found.html",
+                                     status_code=404), "No encontrado.")
+    return _slot_headers(resp, dvr_id) if dvr_id else resp
 
 
 @router.post("/dvrs/{dvr_id}/reveal")
@@ -100,7 +110,9 @@ def reveal(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Dep
 def _pw_form(request, dvr, *, error=None, status_code=200):
     resp = render_cameras(request, "cameras/partials/password_form.html",
                           {"d": dvr, "error": error}, status_code=status_code)
-    return _cam_error(resp, error) if error else resp
+    if not error:
+        return resp
+    return _slot_headers(_cam_error(resp, error), dvr.id)
 
 
 @router.get("/dvrs/{dvr_id}/password")
@@ -110,7 +122,7 @@ def password_form(dvr_id: int, request: Request, user=Depends(_gate),
         return user
     viewer, dvr = _visible_or_none(db, user, dvr_id)
     if dvr is None or not (viewer.can_update_password or viewer.can_manage):
-        return _not_found(request)
+        return _not_found(request, dvr_id)
     return _pw_form(request, dvr)
 
 
@@ -122,7 +134,7 @@ def password_save(dvr_id: int, request: Request, password: str = Form(""),
         return user
     viewer, dvr = _visible_or_none(db, user, dvr_id)
     if dvr is None or not (viewer.can_update_password or viewer.can_manage):
-        return _not_found(request)
+        return _not_found(request, dvr_id)
     if password != password_confirm:
         return _pw_form(request, dvr, error="No coincide con la contraseña nueva.", status_code=422)
     try:
@@ -132,6 +144,6 @@ def password_save(dvr_id: int, request: Request, password: str = Form(""),
     except secrets.CamerasKeyMissing:
         return _pw_form(request, dvr, error="Falta configurar la llave de cifrado.", status_code=503)
     if not ok:
-        return _not_found(request)
+        return _not_found(request, dvr_id)
     db.refresh(dvr)
     return render_cameras(request, "cameras/partials/card.html", {"d": dvr, "viewer": viewer})
