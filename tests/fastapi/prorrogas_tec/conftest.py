@@ -339,13 +339,14 @@ def make_program(db_session):
 def solicitud(db_session, make_user, periodo):
     """Solicitud pendiente de un estudiante sintético (con flush + refresh para los defaults del servidor)."""
     from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
+    from itcj2.core.utils.timezone import db_now
 
     u = make_user(first_name="ESTUDIANTE", last_name="PRUEBA", control_number="99400001")
     req = ProrrogaRequest(
         student_id=u.id, period_id=periodo.id, period_label="enero – junio 2091", status="pendiente",
         requested_terms=2, reason="Motivo de prueba de treinta c.", control_number="99400001",
         student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
-        email="L99400001@cdjuarez.tecnm.mx",
+        email="L99400001@cdjuarez.tecnm.mx", created_at=db_now(),  # ver make_aceptada
     )
     db_session.add(req)
     db_session.flush()
@@ -367,6 +368,9 @@ def make_aceptada(db_session, make_user, periodo):
             requested_terms=2, reason="Motivo de prueba de treinta c.", control_number=control,
             student_name="ESTUDIANTE PRUEBA", program_name="Ingeniería en Sistemas Computacionales",
             email=f"L{control}@cdjuarez.tecnm.mx", decided_at=db_now(),
+            # Hora local, no el NOW() de la base: el Postgres de CI corre en UTC (prod y dev, en Juárez) y
+            # de 17:00 a 24:00 la solicitud "nacía mañana": un pago de hoy salía anterior a ella (400).
+            created_at=db_now(),
         )
         db_session.add(req)
         db_session.flush()
@@ -463,6 +467,7 @@ def make_historica(db_session):
     from itcj2.apps.prorrogas_tec.models.plan import ProrrogaInstallment, ProrrogaPayment
     from itcj2.apps.prorrogas_tec.models.request import ProrrogaRequest
     from itcj2.apps.prorrogas_tec.services.periods import period_label
+    from itcj2.core.utils.timezone import db_now
 
     def _make(periodo=None, control_number=None, parcialidades=(("1000.00", date(2025, 2, 1)),), pagadas=()):
         req = ProrrogaRequest(
@@ -470,7 +475,7 @@ def make_historica(db_session):
             student_id=None, email=None, control_number=control_number or f"99420{next(_seq):03d}",
             student_name="ESTUDIANTE HISTORICO", program_name="Contador publico", program_level="licenciatura",
             period_id=periodo.id if periodo else None,
-            period_label=period_label(periodo) if periodo else "enero – junio 2089",
+            period_label=period_label(periodo) if periodo else "enero – junio 2089", created_at=db_now(),  # ver make_aceptada
         )
         db_session.add(req)
         db_session.flush()
