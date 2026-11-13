@@ -19,6 +19,10 @@ class CamerasKeyMissing(Exception):
     """No hay CAMERAS_SECRET_KEY válida (o el token no se puede descifrar con ella)."""
 
 
+class CamerasDecryptError(CamerasKeyMissing):
+    """Hay llave pero no sirve para este token (llave rotada o dato corrupto)."""
+
+
 def _fernet() -> Fernet:
     # Se lee en cada llamada: los tests parchean el singleton de settings.
     key = get_settings().CAMERAS_SECRET_KEY
@@ -39,7 +43,7 @@ def decrypt(token: str) -> str:
     try:
         return f.decrypt(token.encode()).decode("utf-8")
     except InvalidToken:
-        raise CamerasKeyMissing("No se pudo descifrar con la llave vigente") from None
+        raise CamerasDecryptError("No se pudo descifrar con la llave vigente") from None
 
 
 def normalize_pattern(raw: str) -> str:

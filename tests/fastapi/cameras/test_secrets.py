@@ -28,3 +28,12 @@ def test_normalize_pattern_rejects(raw):
     with pytest.raises(ValueError) as e:
         sec.normalize_pattern(raw)
     assert raw not in str(e.value)
+
+
+def test_decrypt_wrong_key(cameras_key, monkeypatch):
+    from cryptography.fernet import Fernet
+    from itcj2.config import get_settings
+    token = sec.encrypt("x")
+    monkeypatch.setattr(get_settings(), "CAMERAS_SECRET_KEY", Fernet.generate_key().decode())
+    with pytest.raises(sec.CamerasDecryptError):
+        sec.decrypt(token)

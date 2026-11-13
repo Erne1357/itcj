@@ -5,7 +5,7 @@ departamento; jamás valores de secretos.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import exists, or_
@@ -24,6 +24,8 @@ PERM_AUDIT = "cameras.audit.page.list"
 APP = "cameras"
 
 _PLAIN_FIELDS = ("name", "location", "brand", "model", "channels", "username", "notes")
+# username/notes son solo escritura: vacío = sin cambio; se borran con remove_*.
+_WRITE_ONLY = ("username", "notes")
 
 
 @dataclass(frozen=True)
@@ -38,10 +40,10 @@ class Viewer:
 
 @dataclass
 class Revealed:
-    password: str | None
-    pattern: str | None
-    username: str | None
-    notes: str | None
+    password: str | None = field(repr=False)
+    pattern: str | None = field(repr=False)
+    username: str | None = field(repr=False)
+    notes: str | None = field(repr=False)
     password_changed_at: datetime | None
     password_changed_by: str | None
 
@@ -128,40 +130,68 @@ def create(db: Session, data: DvrInput, actor_id: int) -> Dvr:
 
 
 def update(db: Session, dvr: Dvr, data: DvrInput, actor_id: int) -> Dvr:
-    changed = [f for f in _PLAIN_FIELDS if getattr(dvr, f) != getattr(data, f)]
-    for f in changed:
-        setattr(dvr, f, getattr(data, f))
-    if changed:
-        _log(db, dvr, actor_id, "update", {"fields": changed})
+    # Todo se valida y cifra ANTES de mutar el objeto o escribir bitácora.
+    new_pattern = secrets.normalize_pattern(data.pattern) if data.pattern else None
+    new_pwd_cipher = secrets.encrypt(data.password) if data.password else None
+    new_pat_cipher = secrets.encrypt(new_pattern) if new_pattern else None
+    dept_ids = set(data.department_ids)
+    new_depts = None
+    if dept_ids != {d.id for d in dvr.departments}:
+        from itcj2.core.models.department import Department
+        new_depts = db.query(Department).filter(Department.id.in_(dept_ids)).all() if dept_ids else []
+        if len(new_depts) != len(dept_ids):
+            raise ValueError("Departamento no encontrado.")
 
-    if data.password:
-        dvr.password_cipher = secrets.encrypt(data.password)
+    values = {}
+    for f in _PLAIN_FIELDS:
+        v = getattr(data, f)
+        if f in _WRITE_ONLY:
+            if getattr(data, f"remove_{f}"):
+                v = None
+            elif not v:
+                continue
+        if getattr(dvr, f) != v:
+            values[f] = v
+    for f, v in values.items():
+        setattr(dvr, f, v)
+    if values:
+        _log(db, dvr, actor_id, "update", {"fields": list(values)})
+
+    if new_pwd_cipher:
+        dvr.password_cipher = new_pwd_cipher
         _log(db, dvr, actor_id, "password_update")
     elif data.remove_password and dvr.password_cipher:
         dvr.password_cipher = None
         _log(db, dvr, actor_id, "password_update", {"removed": True})
 
-    if data.pattern:
-        dvr.pattern_cipher = secrets.encrypt(secrets.normalize_pattern(data.pattern))
+    if new_pat_cipher:
+        dvr.pattern_cipher = new_pat_cipher
         _log(db, dvr, actor_id, "pattern_update")
     elif data.remove_pattern and dvr.pattern_cipher:
         dvr.pattern_cipher = None
         _log(db, dvr, actor_id, "pattern_update", {"removed": True})
 
-    if _set_departments(db, dvr, data.department_ids):
-        _log(db, dvr, actor_id, "departments_update",
-             {"departments": sorted(data.department_ids)})
+    if new_depts is not None:
+        dvr.departments = new_depts
+        _log(db, dvr, actor_id, "departments_update", {"departments": sorted(dept_ids)})
     db.commit()
     db.refresh(dvr)
     return dvr
 
 
-def set_password(db: Session, dvr: Dvr, password: str, actor_id: int) -> None:
+def set_password(db: Session, viewer: Viewer, dvr_id: int, password: str, actor_id: int) -> bool:
+    """False (sin escribir) si el DVR no es visible o el viewer no puede cambiarla."""
     if not password:
         raise ValueError("La contraseña no puede estar vacía.")
+    if not (viewer.can_update_password or viewer.can_manage):
+        return False
+    dvr = get_visible(db, viewer, dvr_id)
+    if dvr is None:
+        return False
     dvr.password_cipher = secrets.encrypt(password)
     _log(db, dvr, actor_id, "password_update")
     db.commit()
+    return True
 
 
 def deactivate(db: Session, dvr: Dvr, actor_id: int) -> None:
@@ -184,8 +214,10 @@ def reveal(db: Session, dvr: Dvr, actor_id: int) -> Revealed:
         changed_by = u.full_name if u else None
     _log(db, dvr, actor_id, "reveal")
     db.commit()
-    return Revealed(password, pattern, dvr.username, dvr.notes,
-                    last.created_at if last else None, changed_by)
+    # Sin contraseña no hay "actualizada por" que mostrar.
+    when = last.created_at if last and password is not None else None
+    return Revealed(password, pattern, dvr.username, dvr.notes, when,
+                    changed_by if password is not None else None)
 
 
 def audit_page(db: Session, *, page: int, per_page: int = 50, dvr_id: int | None = None,

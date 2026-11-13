@@ -49,12 +49,12 @@ def test_head_sees_only_linked(db_session, cam_world, cameras_key):
 def test_shared_dvr_password_visible_to_other_head(db_session, cam_world, cameras_key):
     w = cam_world
     d = svc.create(db_session, inp(password="old", department_ids=[w.dept_a, w.dept_b]), w.tech)
-    svc.set_password(db_session, d, "nueva", w.head_a)
+    assert svc.set_password(db_session, viewer(w.head_a, depts={w.dept_a}, pwd=True), d.id, "nueva", w.head_a)
     r = svc.reveal(db_session, d, w.head_b)
     assert r.password == "nueva"
     assert r.password_changed_by == "Cam head_a"
     with pytest.raises(ValueError):
-        svc.set_password(db_session, d, "", w.head_a)
+        svc.set_password(db_session, viewer(w.head_a, depts={w.dept_a}, pwd=True), d.id, "", w.head_a)
 
 
 def test_deactivated_dvr_hidden_and_404(db_session, cam_world, cameras_key):
@@ -107,3 +107,67 @@ def test_viewer_for_head_real(db_session, cam_world, cameras_key):
     v = svc.viewer_for(db_session, {"sub": str(cam_world.head_a), "role": "staff"})
     assert v.dept_ids == {cam_world.dept_a}
     assert v.can_update_password and not v.can_manage and not v.see_all
+
+
+def test_set_password_scope_enforced(db_session, cam_world, cameras_key):
+    w = cam_world
+    d = svc.create(db_session, inp(password="old", department_ids=[w.dept_a]), w.tech)
+    assert svc.set_password(db_session, viewer(w.head_b, depts={w.dept_b}, pwd=True), d.id, "x", w.head_b) is False
+    assert "password_update" not in actions(db_session, d)
+    assert svc.set_password(db_session, viewer(w.head_a, depts={w.dept_a}, pwd=True), d.id, "x", w.head_a) is True
+    assert "password_update" in actions(db_session, d)
+
+
+def test_update_write_only_username_notes(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(password="x", username="adm", notes="n"), cam_world.tech)
+    svc.update(db_session, d, inp(name="Otro"), cam_world.tech)
+    assert d.username == "adm" and d.notes == "n"
+    svc.update(db_session, d, inp(name="Otro", remove_notes=True), cam_world.tech)
+    assert d.notes is None and d.username == "adm"
+
+
+def test_input_error_hides_value():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError) as e:
+        inp(username="u" * 51)
+    assert "u" * 51 not in str(e.value)
+
+
+def test_repr_hides_secrets(db_session, cam_world, cameras_key):
+    assert "Zq9pass" not in repr(inp(password="Zq9pass"))
+    d = svc.create(db_session, inp(password="Zq9pass"), cam_world.tech)
+    assert "Zq9pass" not in repr(svc.reveal(db_session, d, cam_world.tech))
+
+
+def test_update_validates_before_mutating(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(name="Orig", password="x"), cam_world.tech)
+    with pytest.raises(ValueError):
+        svc.update(db_session, d, inp(name="Nuevo", pattern="11"), cam_world.tech)
+    assert d.name == "Orig"
+    assert "update" not in actions(db_session, d)
+
+
+def test_reveal_pattern_only_has_no_changed_by(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(pattern="1357"), cam_world.tech)
+    r = svc.reveal(db_session, d, cam_world.tech)
+    assert r.password is None and r.password_changed_at is None and r.password_changed_by is None
+
+
+def test_create_without_key_leaves_no_row(db_session, cam_world, monkeypatch):
+    from itcj2.apps.cameras.services import secrets as sec
+    from itcj2.config import get_settings
+    monkeypatch.setattr(get_settings(), "CAMERAS_SECRET_KEY", None)
+    n = db_session.query(Dvr).count()
+    with pytest.raises(sec.CamerasKeyMissing):
+        svc.create(db_session, inp(password="x"), cam_world.tech)
+    assert db_session.query(Dvr).count() == n
+
+
+def test_remove_password_and_departments_update(db_session, cam_world, cameras_key):
+    w = cam_world
+    d = svc.create(db_session, inp(password="x", pattern="1357", department_ids=[w.dept_a]), w.tech)
+    svc.update(db_session, d, inp(remove_password=True, department_ids=[w.dept_a, w.dept_b]), w.tech)
+    assert d.password_cipher is None
+    assert "password_update" in actions(db_session, d)
+    row = (db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id, action="departments_update").one())
+    assert row.detail == {"departments": sorted([w.dept_a, w.dept_b])}
