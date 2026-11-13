@@ -62,9 +62,13 @@ def _departments(db: Session) -> list:
 
 def _form_ctx(db, viewer, dvr, values=None, selected=None, error=None):
     v = values or {}
+    deps = _departments(db)
+    if dvr:  # los ya ligados siguen visibles (marcados) aunque estén inactivos
+        known = {x.id for x in deps}
+        deps = sorted(deps + [x for x in dvr.departments if x.id not in known], key=lambda x: x.name)
     return {
         "viewer": viewer, "d": dvr, "error": error, "v": v,
-        "departments": _departments(db),
+        "departments": deps,
         "selected": set(selected if selected is not None
                         else ([x.id for x in dvr.departments] if dvr else [])),
         "locations": sorted({x.location for x in dvr_service.list_visible(db, viewer) if x.location}),
@@ -152,14 +156,11 @@ async def _save(request, db, viewer, user, dvr):
     except ValueError as exc:
         db.rollback()
         return _form_error(request, db, viewer, dvr, values, selected, str(exc), 422)
-    except secrets.CamerasDecryptError:  # antes que su clase base
-        return _form_error(request, db, viewer, dvr, values, selected,
-                           "No se pudo descifrar: la llave de cifrado no coincide.", 503)
     except secrets.CamerasKeyMissing:
         return _form_error(request, db, viewer, dvr, values, selected,
                            "Falta configurar la llave de cifrado.", 503)
-    except Exception:
-        logger.exception("Error guardando DVR")
+    except Exception as exc:
+        logger.error("Error guardando DVR (%s)", type(exc).__name__)  # sin traceback: podría llevar datos
         db.rollback()
         return _form_error(request, db, viewer, dvr, values, selected, "Error interno al guardar.", 500)
     return _done(request)
@@ -259,5 +260,6 @@ def audit(request: Request, page: str = "1", dvr_id: str = "", actor_id: str = "
     if request.headers.get("HX-Request"):
         return render_cameras(request, "cameras/partials/audit_rows.html", ctx)
     from itcj2.apps.cameras.models import Dvr
+    ctx["actor_options"] = dvr_service.audit_actors(db)
     ctx["dvr_options"] = [(i, n) for i, n in db.query(Dvr.id, Dvr.name).order_by(Dvr.name).all()]
     return render_cameras(request, "cameras/audit.html", ctx)

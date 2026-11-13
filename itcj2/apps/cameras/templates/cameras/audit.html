@@ -19,6 +19,13 @@
       </select>
     </div>
     <div class="cam-field">
+      <label class="form-label" for="a-actor">Persona</label>
+      <select class="form-select" id="a-actor" name="actor_id">
+        <option value="">Todas</option>
+        {% for i, n in actor_options %}<option value="{{ i }}"{% if f.actor_id == i %} selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="cam-field">
       <label class="form-label" for="a-act">Acción</label>
       <select class="form-select" id="a-act" name="action">
         <option value="">Todas</option>

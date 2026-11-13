@@ -134,9 +134,9 @@ def test_create_without_key_503(app_client):
 
 def test_update_wrong_key_503_and_remove_flags(app_client):
     with _ctx(app_client, get_visible=dict(return_value=_dvr()),
-              update=dict(side_effect=secrets.CamerasDecryptError("x"))):
+              update=dict(side_effect=secrets.CamerasKeyMissing("x"))):
         r = app_client.post("/cameras/dvrs/1", headers=_hdr(), data={"name": "a"})
-    assert r.status_code == 503 and "no coincide" in unquote(r.headers["x-cam-error"])
+    assert r.status_code == 503 and "llave" in unquote(r.headers["x-cam-error"])
     with _ctx(app_client, get_visible=dict(return_value=_dvr())):
         with patch(f"{S}.update", return_value=_dvr()) as up:
             r = app_client.post("/cameras/dvrs/1", headers=_hdr(),
@@ -178,3 +178,28 @@ def test_audit_requires_perm(app_client):
         assert "13/11/2026 09:05" in r.text
         r = app_client.get("/cameras/audit?page=1&action=update", headers={**_hdr(), "HX-Request": "true"})
         assert r.status_code == 200 and "<html" not in r.text and "Ana Pérez" in r.text
+
+
+def test_edit_not_found_direct_navigation_full_page(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=None)):
+        r = app_client.get("/cameras/dvrs/999/edit", headers=_hdr())
+    assert r.status_code == 404 and "<html" in r.text and "No encontrado" in r.text and "cam-" in r.text
+
+
+def test_dvr_form_password_managers_and_inactive_department(app_client):
+    d = _dvr()
+    d.departments = [SimpleNamespace(id=7, name="Depto Viejo", is_active=False)]
+    with _ctx(app_client, get_visible=dict(return_value=d)):
+        r = app_client.get("/cameras/dvrs/1/edit", headers=_hdr())
+    assert r.text.count('autocomplete="new-password"') == 2
+    assert "Depto Viejo (inactivo)" in r.text
+    import re
+    assert re.search(r'value="7" checked', r.text)
+
+
+def test_audit_actor_filter_select(app_client):
+    with _ctx(app_client, audit_page=dict(return_value=([], 0)),
+              audit_actors=dict(return_value=[(5, "Ana Pérez López")])):
+        r = app_client.get("/cameras/audit?actor_id=5", headers=_hdr())
+    assert 'name="actor_id"' in r.text
+    assert '<option value="5" selected>Ana Pérez López</option>' in r.text

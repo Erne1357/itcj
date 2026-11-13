@@ -51,10 +51,10 @@ def _list_ctx(db: Session, user: dict, q: str | None) -> dict:
 
 
 @router.get("/")
-def index(request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
+def index(request: Request, q: str = "", user=Depends(_gate), db: Session = Depends(get_db)):
     if isinstance(user, RedirectResponse):
         return user
-    return render_cameras(request, "cameras/index.html", _list_ctx(db, user, None))
+    return render_cameras(request, "cameras/index.html", _list_ctx(db, user, q or None))
 
 
 @router.get("/list")
@@ -78,7 +78,13 @@ def _slot_headers(resp, dvr_id: int):
 
 
 def _not_found(request, dvr_id: int | None = None):
-    """Mismo mensaje exista o no el DVR (no revela existencia)."""
+    """Mismo mensaje exista o no el DVR (no revela existencia).
+
+    Navegación directa (sin HX-Request): página completa con la base.
+    """
+    if not request.headers.get("HX-Request"):
+        return _cam_error(render_cameras(request, "cameras/not_found_page.html", status_code=404),
+                          "No encontrado.")
     resp = _cam_error(render_cameras(request, "cameras/partials/not_found.html",
                                      status_code=404), "No encontrado.")
     return _slot_headers(resp, dvr_id) if dvr_id else resp

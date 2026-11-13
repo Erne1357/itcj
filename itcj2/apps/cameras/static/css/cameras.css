@@ -192,6 +192,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   display: flex; align-items: baseline; gap: .5rem; margin: 0 0 14px;
   font-size: var(--cam-fs-lg); font-weight: 600; line-height: 1.25;
 }
+@media (max-width: 420px) { .cam-group__title { font-size: clamp(1rem, 5.2vw, var(--cam-fs-lg)); } }
 .cam-group__title > .bi { flex: none; font-size: var(--cam-fs-md); color: var(--cam-ink-2); transform: translateY(1px); }
 .cam-group__place { min-width: 0; overflow-wrap: anywhere; text-wrap: balance; }
 .cam-group__count {
@@ -556,6 +557,8 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   .cam-audit__table th:nth-child(1), .cam-audit__table td:nth-child(1) { width: 100%; }
   .cam-audit__table td::before { content: attr(data-label); font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); padding-top: 2px; }
   .cam-audit__when { white-space: normal; }
+  /* el detalle de la acción ocupa su propia línea a ancho completo */
+  .cam-audit__detail { grid-column: 1 / -1; margin-top: 0; overflow-wrap: break-word; }
 }
 
 /* ── Movimiento reducido: todo aparece en su estado final, sin trayecto ─── */

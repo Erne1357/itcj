@@ -171,3 +171,19 @@ def test_remove_password_and_departments_update(db_session, cam_world, cameras_k
     assert "password_update" in actions(db_session, d)
     row = (db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id, action="departments_update").one())
     assert row.detail == {"departments": sorted([w.dept_a, w.dept_b])}
+
+
+def test_update_cannot_remove_last_secret(db_session, cam_world, cameras_key):
+    w = cam_world
+    d = svc.create(db_session, inp(password="pw1", pattern="1259"), w.tech)
+    pw, pat = d.password_cipher, d.pattern_cipher
+    with pytest.raises(ValueError, match="al menos"):
+        svc.update(db_session, d, inp(remove_password=True, remove_pattern=True), w.tech)
+    db_session.refresh(d)
+    assert d.password_cipher == pw and d.pattern_cipher == pat
+
+
+def test_shared_dvr_listed_for_head_b(db_session, cam_world, cameras_key):
+    w = cam_world
+    d = svc.create(db_session, inp(password="pw1", department_ids=[w.dept_a, w.dept_b]), w.tech)
+    assert d in svc.list_visible(db_session, viewer(w.head_b, depts={w.dept_b}))

@@ -142,6 +142,11 @@ def update(db: Session, dvr: Dvr, data: DvrInput, actor_id: int) -> Dvr:
         if len(new_depts) != len(dept_ids):
             raise ValueError("Departamento no encontrado.")
 
+    keeps_pwd = new_pwd_cipher or (dvr.password_cipher and not data.remove_password)
+    keeps_pat = new_pat_cipher or (dvr.pattern_cipher and not data.remove_pattern)
+    if not (keeps_pwd or keeps_pat):
+        raise ValueError("Captura al menos la contraseña o el patrón.")
+
     values = {}
     for f in _PLAIN_FIELDS:
         v = getattr(data, f)
@@ -238,3 +243,11 @@ def audit_page(db: Session, *, page: int, per_page: int = 50, dvr_id: int | None
     return [{"id": r.id, "dvr_id": r.dvr_id, "dvr_name": r.dvr_name, "actor_id": r.actor_id,
              "actor_name": names.get(r.actor_id), "action": r.action, "detail": r.detail,
              "created_at": r.created_at} for r in rows], total
+
+
+def audit_actors(db: Session) -> list[tuple[int, str]]:
+    """Personas que aparecen en la bitácora, (id, nombre completo) por nombre."""
+    from itcj2.core.models.user import User
+    ids = [i for (i,) in db.query(CamerasAuditLog.actor_id).distinct().all() if i]
+    users = db.query(User).filter(User.id.in_(ids)).all() if ids else []
+    return sorted(((u.id, u.full_name) for u in users), key=lambda t: t[1] or "")

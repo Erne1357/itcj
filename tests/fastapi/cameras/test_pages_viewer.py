@@ -215,9 +215,41 @@ def test_password_errors_keep_card_intact(app_client):
 def test_not_found_carries_header_same_message(app_client):
     from urllib.parse import unquote
     with _ctx(app_client, get_visible=dict(return_value=None)):
-        r1 = app_client.post("/cameras/dvrs/9/password", headers=_hdr(),
+        hx = {**_hdr(), "HX-Request": "true"}
+        r1 = app_client.post("/cameras/dvrs/9/password", headers=hx,
                              data={"password": "a", "password_confirm": "a"})
-        r2 = app_client.post("/cameras/dvrs/9/reveal", headers=_hdr())
+        r2 = app_client.post("/cameras/dvrs/9/reveal", headers=hx)
     assert r1.status_code == r2.status_code == 404
     assert unquote(r1.headers["x-cam-error"]) == unquote(r2.headers["x-cam-error"]) == "No encontrado."
     assert r1.headers["hx-retarget"] == "#cam-pwslot-9" and "hx-retarget" not in r2.headers
+
+
+def test_index_q_prefilters_and_fills_input(app_client):
+    with _ctx(app_client, list_visible=dict(return_value=[])) as _:
+        with patch(f"{V}.list_visible", return_value=[]) as lv:
+            r = app_client.get("/cameras/?q=abc", headers=_hdr())
+    assert lv.call_args.args[2] == "abc"
+    assert 'value="abc"' in r.text and 'hx-get="/cameras/list"' in r.text
+
+
+def test_non_admin_without_assignment_forbidden(app_client):
+    with _ctx(app_client, list_visible=dict(return_value=[])):
+        with patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=False):
+            r = app_client.get("/cameras/", headers=_hdr("staff", 300), follow_redirects=False)
+    assert r.status_code in (302, 307, 403)
+    assert "DVR Prueba" not in r.text
+
+
+def test_not_found_direct_navigation_full_page(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=None)):
+        r = app_client.post("/cameras/dvrs/9/reveal", headers=_hdr())
+        h = app_client.post("/cameras/dvrs/9/reveal", headers={**_hdr(), "HX-Request": "true"})
+    assert r.status_code == 404 and "<html" in r.text and "No encontrado" in r.text and "cam-" in r.text
+    assert h.status_code == 404 and "<html" not in h.text
+
+
+def test_password_form_manager_hints_and_cancel(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        r = app_client.get("/cameras/dvrs/1/password", headers=_hdr())
+    assert r.text.count('autocomplete="new-password"') == 2
+    assert 'data-cam-pw-cancel="1"' in r.text
