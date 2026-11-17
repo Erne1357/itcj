@@ -8,6 +8,9 @@
  *   sealAll(root)    quita del DOM cada [data-revealed] y cierra su diálogo
  *                    (lo llaman los 30 s, pagehide y visibilitychange a oculta).
  *
+ * Reloj: corre tras el dibujo; [data-cam-extend] hace POST y reinicia el plazo.
+ * Escritorio: sella al minimizar o perder el foco la ventana (eventos desktop:*).
+ *
  * Diálogo de revelado (dialog[data-cam-modal], nativo): el botón
  * [data-cam-reveal] hace hx-post y su respuesta (o el error) entra en
  * [data-cam-modal-body]; al llegar se abre con showModal(). Cerrar (botón
@@ -225,7 +228,11 @@
       k++;
       show(st, k, true);
       if (k < n) later(st, k === 1 ? 380 : SEG_MS + 140, tick);
-      else later(st, SEG_MS + 200, function () { st.playing = false; sync(st); });
+      else later(st, SEG_MS + 200, function () {
+        st.playing = false;
+        sync(st);
+        st.box.dispatchEvent(new CustomEvent('cam:drawn', { bubbles: true }));
+      });
     })();
   }
 
@@ -490,13 +497,30 @@
     }, ok ? 1800 : 4000);
   }
 
-  // === SELLO: 30 s, pagehide y pestaña oculta ===
+  // === SELLO: reloj tras el dibujo, +30 s, 30 s, pagehide, pestaña oculta y escritorio ===
+  // Estados en la raíz [data-revealed][data-cam-timer]: drawing (reloj parado) | running | ending | sealed.
+  function setTimerState(box, v) {
+    box.setAttribute('data-cam-timer', v);
+    var x = box.querySelector('[data-cam-extend]');
+    if (x) x.hidden = v === 'drawing' || v === 'sealed';
+  }
+
   function arm(box) {
-    var st = states.get(box);
-    if (st && st.timer) return;
+    if (states.has(box)) return;
     var secs = parseInt(box.getAttribute('data-seal-after'), 10) || SEAL_SECONDS;
-    st = { deadline: Date.now() + secs * 1000, total: secs * 1000, warned: false };
+    var st = { total: secs * 1000, warned: false, busy: false };
     states.set(box, st);
+    attachDesktop();
+    var v = box.querySelector('[data-pattern-viewer]');
+    var vs = v && states.get(v);
+    if (vs && vs.playing) { setTimerState(box, 'drawing'); return; }   // 'cam:drawn' lo arranca
+    start(box, st);
+  }
+
+  function start(box, st) {
+    if (st.timer) return;
+    st.deadline = Date.now() + st.total;
+    setTimerState(box, 'running');
     tick(box, st);
     st.timer = setInterval(function () { tick(box, st); }, 250);
   }
@@ -504,16 +528,96 @@
   function tick(box, st) {
     if (!box.isConnected || !box.hasAttribute('data-revealed')) { clearInterval(st.timer); return; }
     var left = st.deadline - Date.now();
-    if (left <= 0) {
-      seal(box);
-      announce('Se ocultaron otra vez el patrón y la contraseña');
-      return;
-    }
+    if (left <= 0) { autoSeal(box); return; }
     var s = Math.ceil(left / 1000);
     box.querySelectorAll('[data-cam-countdown]').forEach(function (n) { n.textContent = s; });
     box.querySelectorAll('[data-cam-fuse]').forEach(function (n) { n.style.transform = 'scaleX(' + (left / st.total).toFixed(3) + ')'; });
     box.classList.toggle('is-ending', s <= 5);
+    setTimerState(box, s <= 5 ? 'ending' : 'running');
     if (s <= 5 && !st.warned) { st.warned = true; announce('Se ocultará en 5 segundos'); }
+  }
+
+  // El visor avisa al terminar de dibujar: ahí arranca el reloj.
+  document.addEventListener('cam:drawn', function (e) {
+    var box = e.target.closest && e.target.closest('[data-revealed]');
+    var st = box && states.get(box);
+    if (st && !st.timer) start(box, st);
+  });
+
+  // +30 s: el servidor lo registra (acción extend); solo si responde bien se reinicia el plazo.
+  function extend(btn) {
+    var box = btn.closest('[data-revealed]');
+    var st = box && states.get(box);
+    if (!st || !st.timer || st.busy) return;
+    st.busy = true;
+    btn.setAttribute('aria-busy', 'true');
+    var old = box.querySelector('.cam-reveal__extend-msg');
+    if (old) old.remove();
+    function fail() {
+      var m = el('span', 'cam-reveal__extend-msg', box.querySelector('.cam-reveal__timer') || box, 'No se pudo extender.');
+      m.setAttribute('role', 'status');
+    }
+    fetch(btn.getAttribute('data-cam-extend-url'), {
+      method: 'POST', credentials: 'same-origin', headers: { 'HX-Request': 'true' }
+    }).then(function (r) {
+      if (!r.ok) { fail(); return; }
+      if (!box.isConnected || !box.hasAttribute('data-revealed')) return;
+      st.deadline = Date.now() + st.total;
+      st.warned = false;
+      tick(box, st);
+    }, fail).then(function () {
+      st.busy = false;
+      btn.removeAttribute('aria-busy');
+    });
+  }
+
+  // Sello automático (reloj o salida del escritorio): deja el aviso en la tarjeta y
+  // marca el disparador para que no se encienda en lima hasta que el puntero salga.
+  function autoSeal(box) {
+    var id = opener, text = box.getAttribute('data-cam-sealed-text');
+    seal(box);
+    announce('Se ocultaron otra vez el patrón y la contraseña');
+    var note = id && document.getElementById('cam-note-' + id);
+    if (note && text) {
+      note.textContent = text;
+      clearTimeout(note._camT);
+      note._camT = setTimeout(function () { note.textContent = ''; }, 8000);
+    }
+    var btn = id && document.querySelector('[data-cam-reveal="' + id + '"]');
+    if (btn) {
+      btn.setAttribute('data-cam-just-sealed', '');
+      var clear = function () {
+        btn.removeAttribute('data-cam-just-sealed');
+        btn.removeEventListener('pointerleave', clear);
+        btn.removeEventListener('blur', clear);
+      };
+      btn.addEventListener('pointerleave', clear);
+      btn.addEventListener('blur', clear);
+    }
+  }
+
+  // Ventana del escritorio: sella al minimizarse o al dejar de ser la activa.
+  // Eventos: window-manager.js:17-19 (desktop:window-minimized, desktop:active-changed, desktop:window-closed), en document del padre.
+  var desk = null;
+  function deskKey() {
+    try {
+      var f = window.parent !== window && window.parent.ItcjDesktop && window.frameElement;
+      var w = f && f.closest('.app-window');
+      return w && w.dataset.appId ? w.dataset.appId : null;
+    } catch (e) { return null; }
+  }
+  function attachDesktop() {
+    if (desk) return;
+    var key = deskKey();
+    if (!key) return;
+    var pd = window.parent.document;
+    var on = function (e) {
+      var k = e.detail && e.detail.key;
+      if (e.type === 'desktop:active-changed' ? k !== key : k === key) sealAll(document, true);
+    };
+    var evs = ['desktop:window-minimized', 'desktop:active-changed', 'desktop:window-closed'];
+    evs.forEach(function (n) { pd.addEventListener(n, on); });
+    desk = function () { evs.forEach(function (n) { pd.removeEventListener(n, on); }); desk = null; };
   }
 
   // Quita lo revelado del DOM (no basta ocultarlo) y para sus relojes.
@@ -529,6 +633,7 @@
       if (vs) stop(vs);
     });
     box.remove();
+    if (desk && !document.querySelector('[data-revealed]')) desk();
   }
 
   function seal(box) {
@@ -537,11 +642,11 @@
     if (dlg) closeModal(dlg);
   }
 
-  function sealAll(root) {
+  function sealAll(root, withNote) {
     root = root || document;
     var list = Array.from(root.querySelectorAll('[data-revealed]'));
     if (root.matches && root.matches('[data-revealed]')) list.unshift(root);
-    list.forEach(seal);
+    list.forEach(withNote ? autoSeal : seal);
     return list.length;
   }
 
@@ -568,8 +673,28 @@
         panel.style.setProperty('--cam-from-y', Math.round((r.top + r.height / 2 - window.innerHeight / 2) / 3) + 'px');
       }
     }
+    var pn = dlg.querySelector('.cam-modal__panel');
+    if (pn && !pn.querySelector('[data-cam-sentinel]')) {
+      ['start', 'end'].forEach(function (w) {
+        var sn = document.createElement('span');
+        sn.className = 'cam-modal__sentinel';
+        sn.tabIndex = 0;
+        sn.setAttribute('data-cam-sentinel', w);
+        if (w === 'start') pn.insertBefore(sn, pn.firstChild); else pn.appendChild(sn);
+      });
+    }
     if (!dlg.open) dlg.showModal();
   }
+
+  // Trampa de foco: los centinelas devuelven el foco al extremo opuesto del panel.
+  document.addEventListener('focusin', function (e) {
+    var w = e.target.getAttribute && e.target.getAttribute('data-cam-sentinel');
+    if (!w) return;
+    var items = Array.from(e.target.parentNode.querySelectorAll('button, [href], input, select, textarea, [tabindex]'))
+      .filter(function (n) { return !n.hasAttribute('data-cam-sentinel') && !n.disabled && n.tabIndex >= 0 && n.getClientRects().length; });
+    var to = items[w === 'start' ? items.length - 1 : 0];
+    if (to) to.focus({ preventScroll: true });
+  });
 
   // Cerrar = sellar: el cuerpo se vacía antes de cerrar; el evento close devuelve el foco.
   function closeModal(dlg) {
@@ -662,8 +787,9 @@
       if (downOnBackdrop) closeModal(e.target);
       return;
     }
-    var t = e.target.closest && e.target.closest('[data-cam-copy], [data-cam-modal-close]');
+    var t = e.target.closest && e.target.closest('[data-cam-copy], [data-cam-modal-close], [data-cam-extend]');
     if (!t) return;
+    if (t.hasAttribute('data-cam-extend')) { extend(t); return; }
     if (t.hasAttribute('data-cam-copy')) { copy(t); return; }
     var dlg = modalOf(t);
     if (!dlg) return;
