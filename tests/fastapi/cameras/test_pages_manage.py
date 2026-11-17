@@ -420,3 +420,32 @@ def test_reveal_logs_boolean_detail_only(db_session, cam_world, cameras_key):
     assert row.detail == {"pattern": False, "password": True, "username": True, "notes": True}
     blob = json.dumps(row.detail)
     assert "Zq9pass" not in blob and "adm" not in blob and "nota-secreta" not in blob
+
+
+def test_audit_extreme_dates_are_ignored_not_500(app_client):
+    with _ctx(app_client, audit_page=dict(return_value=([], 0)),
+              audit_actors=dict(return_value=[])) as _:
+        for q in ("hasta=9999-12-31", "desde=0001-01-01", "hasta=9999-01-01"):
+            assert app_client.get(f"/cameras/audit?{q}", headers=_hdr()).status_code == 200, q
+        assert app_client.get("/cameras/audit?hasta=2026-11-17", headers=_hdr()).status_code == 200
+
+
+def test_flash_baja_copy_only_links_for_managers(app_client):
+    with _ctx(app_client):
+        r = app_client.get("/cameras/?ok=baja", headers=_hdr())
+    assert "DVR dado de baja." in r.text and "Puedes reactivarlo en" in r.text
+    v = _viewer(can_manage=False, can_audit=False, see_all=False, dept_ids=frozenset({1}))
+    with _ctx(app_client, viewer=v):
+        r = app_client.get("/cameras/?ok=baja", headers=_hdr())
+    assert "DVR dado de baja." in r.text and "Puedes reactivarlo" not in r.text
+
+
+def test_reactivate_missing_htmx_renders_visible_404_in_row(app_client):
+    with _ctx(app_client, get_inactive=dict(return_value=None)):
+        r = app_client.post("/cameras/dvrs/9/reactivate", headers={**_hdr(), "HX-Request": "true"})
+        assert r.status_code == 404 and "No encontrado." in r.text
+        item = {"dvr": _dvr(3), "when": None, "by": None}
+    with _ctx(app_client, list_inactive=dict(return_value=[item])):
+        page = app_client.get("/cameras/inactive", headers=_hdr()).text
+    assert 'hx-target="#cam-inactive-3"' in page and 'hx-swap="outerHTML"' in page
+

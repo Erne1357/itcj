@@ -396,3 +396,9 @@ def test_password_form_has_fixed_error_slot(app_client):
         r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
                             data={"password": "a", "password_confirm": "b"})
     assert "<form" in r.text and "No coinciden. Escríbelas las dos otra vez." in r.text
+
+
+def test_password_form_novalidate_keeps_hint(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        r = app_client.get("/cameras/dvrs/1/password", headers=_hdr())
+    assert r.status_code == 200 and "novalidate" in r.text and 'aria-describedby="pw-hint-1"' in r.text

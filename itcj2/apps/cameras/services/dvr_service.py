@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import exists, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from itcj2.apps.cameras.models import CamerasAuditLog, Dvr, DvrDepartment
 from itcj2.apps.cameras.schemas.dvr import DvrInput
@@ -222,7 +222,8 @@ def get_inactive(db: Session, dvr_id: int) -> Dvr | None:
 def list_inactive(db: Session) -> list[dict]:
     """DVR dados de baja con cuándo y quién (de la última baja en bitácora, si existe)."""
     from itcj2.core.models.user import User
-    dvrs = db.query(Dvr).filter(Dvr.is_active.is_(False)).order_by(Dvr.name).all()
+    dvrs = (db.query(Dvr).options(selectinload(Dvr.departments))
+            .filter(Dvr.is_active.is_(False)).order_by(Dvr.name).all())
     out = []
     for d in dvrs:
         log = (db.query(CamerasAuditLog)

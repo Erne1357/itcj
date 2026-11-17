@@ -28,7 +28,7 @@
     {% endif %}
   </header>
 
-  {% if flash %}<p class="cam-flash" id="cam-flash" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>{{ flash }}{% if flash_inactive_link and viewer.can_manage %} <a href="/cameras/inactive">Dados de baja</a>.{% endif %}</span></p>{% endif %}
+  {% if flash %}<p class="cam-flash" id="cam-flash" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>{{ flash }}{% if flash_inactive_link and viewer.can_manage %} Puedes reactivarlo en <a href="/cameras/inactive">Dados de baja</a>.{% endif %}</span></p>{% endif %}
 
   <div id="cam-list">{% include "cameras/partials/list.html" %}</div>
 

@@ -277,9 +277,11 @@ def _detail_text(row: dict) -> str:
 def _opt_date(v: str | None) -> date | None:
     """YYYY-MM-DD; cualquier otra cosa se ignora."""
     try:
-        return date.fromisoformat(v) if v and len(v) == 10 else None
+        d = date.fromisoformat(v) if v and len(v) == 10 else None
     except ValueError:
         return None
+    # hasta + 1 día desborda en el último día representable; fuera de rango = inválido
+    return d if d and date(1900, 1, 1) <= d < date(9999, 1, 1) else None
 
 
 def _reveal_label(detail: dict | None) -> str:
@@ -302,7 +304,8 @@ def _audit_ctx(db, viewer, page, dvr_id, actor_id, action, desde=None, hasta=Non
     rows, total = dvr_service.audit_page(db, page=page, per_page=PER_PAGE, dvr_id=dvr_id,
                                          actor_id=actor_id, action=action, desde=desde, hasta=hasta)
     for r in rows:
-        r["label"] = _reveal_label(r["detail"]) if r["action"] == "reveal"             else ACTION_LABELS.get(r["action"], r["action"])
+        r["label"] = (_reveal_label(r["detail"]) if r["action"] == "reveal"
+                      else ACTION_LABELS.get(r["action"], r["action"]))
         r["text"] = _detail_text(r)
     return {"viewer": viewer, "rows": rows, "total": total, "page": page,
             "total_pages": max(1, math.ceil(total / PER_PAGE)),

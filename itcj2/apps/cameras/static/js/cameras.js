@@ -201,6 +201,7 @@ function camPwClear(form) {
   camPwFields(form).forEach(function (c) {
     if (!c) return;
     camClearError(c);
+    if (c.name === 'password') c.setAttribute('aria-describedby', 'pw-hint-' + c.id.replace(/^pw-/, ''));
     var s = document.getElementById(c.id.replace(/^pw2?-/, 'pw2-err-'));   // aviso renderizado por el servidor sin HTMX
     if (s && c.name === 'password_confirm') s.remove();
   });
@@ -232,7 +233,7 @@ document.addEventListener('htmx:afterSwap', function (e) {
   if (form) camPwFields(form).forEach(function (c) {
     if (!c) return;
     c.setAttribute('aria-invalid', 'true');
-    c.setAttribute('aria-describedby', t.id);
+    c.setAttribute('aria-describedby', (c.name === 'password' ? 'pw-hint-' + c.id.replace(/^pw-/, '') + ' ' : '') + t.id);
   });
   t.scrollIntoView({ block: 'nearest' });
   var first = form && form.querySelector('input[name="password"]');

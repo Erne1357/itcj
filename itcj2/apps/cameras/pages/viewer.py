@@ -51,7 +51,7 @@ def _list_ctx(db: Session, user: dict, q: str | None) -> dict:
 
 
 FLASH_MESSAGES = {"registrado": "DVR registrado.", "actualizado": "Cambios guardados.",
-                  "baja": "DVR dado de baja. Puedes reactivarlo en", "reactivado": "DVR reactivado."}
+                  "baja": "DVR dado de baja.", "reactivado": "DVR reactivado."}
 
 
 def _flash_ctx(ok: str, dvr: str) -> dict:
@@ -59,7 +59,7 @@ def _flash_ctx(ok: str, dvr: str) -> dict:
     if ok not in FLASH_MESSAGES:
         return {}
     flash_dvr = int(dvr) if ok != "baja" and dvr.isascii() and dvr.isdigit() and len(dvr) < 10 else None
-    # En "baja" el mensaje termina en «en» y la plantilla añade el enlace a Dados de baja.
+    # En "baja" la plantilla añade el enlace a Dados de baja solo para quien puede gestionar.
     return {"flash": FLASH_MESSAGES[ok], "flash_dvr": flash_dvr, "flash_inactive_link": ok == "baja"}
 
 

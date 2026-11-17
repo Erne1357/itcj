@@ -26,7 +26,7 @@
         <p class="cam-inactive__depts">{% if d.departments %}{{ d.departments|map(attribute='name')|join(', ') }}{% else %}Sin departamento{% endif %}</p>
         {% if it.when or it.by %}<p class="cam-inactive__when">Dado de baja{% if it.when %} el {{ it.when.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if it.by %} por {{ it.by }}{% endif %}</p>{% endif %}
       </div>
-      <form class="cam-inactive__form" method="post" action="/cameras/dvrs/{{ d.id }}/reactivate" hx-post="/cameras/dvrs/{{ d.id }}/reactivate" hx-swap="none">
+      <form class="cam-inactive__form" method="post" action="/cameras/dvrs/{{ d.id }}/reactivate" hx-post="/cameras/dvrs/{{ d.id }}/reactivate" hx-target="#cam-inactive-{{ d.id }}" hx-swap="outerHTML">
         <button type="submit" class="cam-btn cam-btn--primary cam-btn--sm"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span><span>Reactivar DVR</span></button>
       </form>
     </li>
