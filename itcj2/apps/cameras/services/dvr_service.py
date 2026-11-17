@@ -50,8 +50,6 @@ class Revealed:
 
 def viewer_for(db: Session, user: dict) -> Viewer:
     uid = int(user["sub"])
-    if user.get("role") == "admin":
-        return Viewer(uid, True, frozenset(), True, True, True)
     from itcj2.core.services import authz_cache
     from itcj2.core.services.scope_service import granting_departments
 

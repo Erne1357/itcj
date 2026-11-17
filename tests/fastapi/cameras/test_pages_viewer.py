@@ -31,7 +31,10 @@ def _dvr(id=1, name="DVR Prueba"):
 @contextmanager
 def _ctx(app_client, viewer=None, **patches):
     app_client.app.dependency_overrides[get_db] = lambda: MagicMock()
-    stack = [patch(f"{V}.viewer_for", return_value=viewer or _viewer())]
+    stack = [patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=True),
+             patch("itcj2.core.services.authz_cache.cached_perms",
+                   return_value={"cameras.dvrs.page.list", "cameras.audit.page.list"})]
+    stack += [patch(f"{V}.viewer_for", return_value=viewer or _viewer())]
     stack += [patch(f"{V}.{k}", **v) for k, v in patches.items()]
     try:
         for p in stack:

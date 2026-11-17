@@ -80,3 +80,15 @@ def test_notify_failure_keeps_password_change(db_session, cam_world, cameras_key
     assert svc.reveal(db_session, d, w.tech).password == NEW
     assert db_session.query(CamerasAuditLog).filter_by(
         dvr_id=d.id, action="password_update").count() == 1
+
+
+def test_global_admin_without_cameras_assignment_not_notified(db_session, cam_world, cameras_key):
+    from itcj2.core.models.role import Role
+    w = cam_world
+    d, _, _ = _setup(db_session, w)
+    gadmin = User(first_name="gadmin", last_name="Aviso", is_active=True,
+                  role_id=db_session.query(Role).filter_by(name="admin").one().id)
+    db_session.add(gadmin)
+    db_session.commit()
+    assert _change(db_session, w, d, w.head_a)
+    assert gadmin.id not in {n.user_id for n in _notes(db_session)}

@@ -244,3 +244,37 @@ def test_extend_eleventh_after_reveal_refused(db_session, cam_world, cameras_key
     assert actions(db_session, d) == before
     svc.reveal(db_session, d, cam_world.tech)
     svc.extend(db_session, d, cam_world.tech)
+
+
+def test_viewer_for_ignores_global_admin_role(db_session, cam_world, cameras_key):
+    from itcj2.core.services import authz_cache
+    authz_cache.invalidate_user(cam_world.nobody)
+    v = svc.viewer_for(db_session, {"sub": str(cam_world.nobody), "role": "admin"})
+    assert not (v.see_all or v.can_manage or v.can_update_password or v.can_audit) and not v.dept_ids
+
+
+def test_global_admin_with_department_head_sees_only_its_department(db_session, cam_world, cameras_key):
+    from itcj2.core.services import authz_cache
+    w = cam_world
+    d_a = svc.create(db_session, inp(name="A", password="x", department_ids=[w.dept_a]), w.tech)
+    svc.create(db_session, inp(name="B", password="x", department_ids=[w.dept_b]), w.tech)
+    authz_cache.invalidate_user(w.head_a)
+    v = svc.viewer_for(db_session, {"sub": str(w.head_a), "role": "admin"})
+    assert not v.see_all and not v.can_manage
+    assert svc.list_visible(db_session, v) == [d_a]
+
+
+def test_app_admin_role_without_global_admin_sees_and_manages_all(db_session, cam_world, cameras_key):
+    from itcj2.core.models.role import Role
+    from itcj2.core.models.user_app_role import UserAppRole
+    from itcj2.core.services import authz_cache
+    w = cam_world
+    db_session.add(UserAppRole(user_id=w.nobody, app_id=w.app_id,
+                               role_id=db_session.query(Role).filter_by(name="admin").one().id))
+    db_session.commit()
+    authz_cache.invalidate_user(w.nobody)
+    d1 = svc.create(db_session, inp(name="A", password="x", department_ids=[w.dept_a]), w.tech)
+    d2 = svc.create(db_session, inp(name="B", password="x", department_ids=[w.dept_b]), w.tech)
+    v = svc.viewer_for(db_session, {"sub": str(w.nobody), "role": "staff"})
+    assert v.see_all and v.can_manage
+    assert set(svc.list_visible(db_session, v)) == {d1, d2}

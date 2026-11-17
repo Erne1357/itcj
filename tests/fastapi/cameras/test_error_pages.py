@@ -54,3 +54,16 @@ def test_other_apps_and_api_unchanged(app_client):
     assert "cam-error" not in app_client.get("/help-desk/ruta-inexistente").text
     r = app_client.get("/api/cameras/ruta-inexistente")
     assert r.status_code == 404 and r.headers["content-type"].startswith("application/json")
+
+
+def test_global_admin_without_cameras_assignment_gets_403(app_client):
+    """El rol global admin no da acceso: igual que cualquier usuario sin asignación."""
+    probes = (("get", "/cameras/"), ("get", "/cameras/list"), ("post", "/cameras/dvrs/1/reveal"),
+              ("get", "/cameras/dvrs/1/password"), ("post", "/cameras/dvrs/1/password"))
+    with _db(app_client), patch(f"{AUTHZ}.has_any_assignment", return_value=False):
+        for method, path in probes:
+            adm = getattr(app_client, method)(path, headers=_hdr("admin"), follow_redirects=False)
+            usr = getattr(app_client, method)(path, headers=_hdr("staff"), follow_redirects=False)
+            assert adm.status_code == usr.status_code == 403, path
+        r = app_client.get("/cameras/", headers=_hdr("admin"), follow_redirects=False)
+    assert "cam-error" in r.text and "Ir al panel principal" in r.text

@@ -25,13 +25,13 @@ def _gate(request: Request, user: dict = Depends(require_page_login),
     """Login + no-alumno + permiso de página. Devuelve el usuario o un redirect."""
     if user.get("cn"):
         return RedirectResponse("/itcj/m/", status_code=302)
-    if user.get("role") != "admin":
-        from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms
-        uid = int(user["sub"])
-        if not cached_has_assignment(db, uid, dvr_service.APP):
-            raise PageForbidden(has_app_access=False)
-        if dvr_service.PERM_PAGE not in cached_perms(db, uid, dvr_service.APP):
-            raise PageForbidden(has_app_access=True)
+    # Sin bypass del rol global admin: solo cuentan las asignaciones de la app cameras.
+    from itcj2.core.services.authz_cache import cached_has_assignment, cached_perms
+    uid = int(user["sub"])
+    if not cached_has_assignment(db, uid, dvr_service.APP):
+        raise PageForbidden(has_app_access=False)
+    if dvr_service.PERM_PAGE not in cached_perms(db, uid, dvr_service.APP):
+        raise PageForbidden(has_app_access=True)
     return user
 
 
