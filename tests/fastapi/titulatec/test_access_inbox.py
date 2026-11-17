@@ -174,6 +174,13 @@ def _folio(db_session, req) -> str:
     return db_session.get(TitulationProcess, req.converted_process_id).folio
 
 
+def _nip_suelto(texto: str, nip: str = NIP) -> bool:
+    """El NIP como valor propio (`nip=4826`, `"4826"`), no como pedazo de un id,
+    hash o número más largo: un `x-request-id`/`traceparent` hexadecimal o un id
+    en un log contiene esos 4 dígitos por casualidad (CI 2026-11-17)."""
+    return re.search(rf"(?<![0-9A-Za-z-]){re.escape(nip)}(?![0-9A-Za-z-])", texto) is not None
+
+
 def _sin_nip(resp) -> None:
     """Review Focus 4: el NIP no vuelve al navegador, ni en el texto visible, ni
     en cabeceras, ni como `value` autocompletado de un `<input name="nip">`.
@@ -187,7 +194,7 @@ def _sin_nip(resp) -> None:
     ningún input del NIP trae `value=`.
     """
     assert NIP not in _plano(resp.text)
-    assert NIP not in " ".join(f"{k}: {v}" for k, v in resp.headers.items())
+    assert not _nip_suelto(" ".join(f"{k}: {v}" for k, v in resp.headers.items()))
     for campo in re.finditer(r'<input\b[^>]*\bname="nip"[^>]*>', resp.text):
         assert "value=" not in campo.group(0), campo.group(0)
 
@@ -939,7 +946,7 @@ def test_un_fallo_real_de_dar_acceso_no_lleva_el_hash_del_nip_al_log(
     assert "password_hash" not in caplog.text
     assert "scrypt" not in caplog.text
     assert "Traceback" not in caplog.text
-    assert NIP not in caplog.text
+    assert not _nip_suelto(caplog.text)
     db_session.refresh(req)
     assert req.status == "awaiting_access"
 

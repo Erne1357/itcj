@@ -25,6 +25,7 @@ hay solicitudes", o el encargado ve una pantalla vacía y cree que no hay trabaj
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timedelta
 from urllib.parse import unquote
 
@@ -1494,6 +1495,8 @@ class TestModoSiiSEDecide:
         assert resp.status_code == 200, resp.headers.get("X-Tt-Error")
         db_session.refresh(req)
         assert req.status == estado
-        assert nip not in resp.text
-        assert nip not in " ".join(f"{k}: {v}" for k, v in resp.headers.items())
-        assert nip not in caplog.text
+        # NIP como valor propio, no dentro de un id/hash aleatorio (falso rojo en CI).
+        suelto = re.compile(rf"(?<![0-9A-Za-z-]){re.escape(nip)}(?![0-9A-Za-z-])")
+        assert not suelto.search(resp.text)
+        assert not suelto.search(" ".join(f"{k}: {v}" for k, v in resp.headers.items()))
+        assert not suelto.search(caplog.text)
