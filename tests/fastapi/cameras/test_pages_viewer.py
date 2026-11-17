@@ -279,13 +279,32 @@ def test_index_views_by_role(app_client):
 
 
 def test_extend_204_no_store_and_logs(app_client):
-    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr()), reveal=dict(return_value=_revealed())):
+        app_client.post("/cameras/dvrs/1/reveal", headers=_hdr())
         with patch(f"{V}.extend") as ex:
             r = app_client.post("/cameras/dvrs/1/extend", headers=_hdr())
     assert r.status_code == 204 and r.content == b""
     assert "no-store" in r.headers["cache-control"]
     ex.assert_called_once()
     assert ex.call_args.args[2] == 200
+
+
+def test_extend_without_recent_reveal_409(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        with patch(f"{V}.extend", side_effect=ValueError("Vuelve a revelar el DVR.")):
+            r = app_client.post("/cameras/dvrs/1/extend", headers=_hdr())
+    assert r.status_code == 409 and "Vuelve a revelar el DVR." in r.text
+    assert "no-store" in r.headers["cache-control"]
+    assert r.headers["x-cam-error"] == "Vuelve%20a%20revelar%20el%20DVR."
+
+
+def test_extend_without_cameras_permission_refused(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        with patch(f"{V}.extend") as ex,                 patch("itcj2.core.services.authz_cache.cached_has_assignment", return_value=False):
+            r = app_client.post("/cameras/dvrs/1/extend", headers=_hdr("staff", 300),
+                                follow_redirects=False)
+    assert r.status_code in (302, 307, 403)
+    ex.assert_not_called()
 
 
 def test_extend_out_of_scope_404_and_no_session(app_client):
@@ -302,6 +321,7 @@ def test_extend_service_logs_extend_without_detail(db_session, cam_world, camera
     from itcj2.apps.cameras.models import CamerasAuditLog
     from itcj2.apps.cameras.schemas.dvr import DvrInput
     d = dvr_service.create(db_session, DvrInput(name="D", password="pw1"), cam_world.tech)
+    dvr_service.reveal(db_session, d, cam_world.tech)
     dvr_service.extend(db_session, d, cam_world.tech)
     row = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id).order_by(CamerasAuditLog.id.desc()).first()
     assert row.action == "extend" and row.detail is None

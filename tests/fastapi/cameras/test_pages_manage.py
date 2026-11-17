@@ -206,13 +206,13 @@ def test_audit_actor_filter_select(app_client):
 
 
 def test_form_error_htmx_retargets_and_keeps_form(app_client):
-    with _ctx(app_client, create=dict(side_effect=ValueError("El patrón necesita al menos 4 puntos, sin repetir."))):
+    with _ctx(app_client, create=dict(side_effect=ValueError("El patrón necesita de 4 a 9 puntos del 1 al 9, sin repetir."))):
         r = app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
                             data={"name": "Mi DVR", "pattern": "12", "password": "sec-123",
                                   "password_confirm": "sec-123"})
     assert r.status_code == 422
     assert r.headers["hx-retarget"] == "#cam-form-error" and r.headers["hx-reswap"] == "innerHTML"
-    assert "El patrón necesita al menos 4 puntos" in r.text
+    assert "El patrón necesita de 4 a 9 puntos" in r.text
     assert "<form" not in r.text and "sec-123" not in r.text and "Mi DVR" not in r.text
 
 

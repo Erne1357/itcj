@@ -225,8 +225,31 @@ def reveal(db: Session, dvr: Dvr, actor_id: int) -> Revealed:
                     changed_by if password is not None else None)
 
 
+EXTEND_WINDOW_MIN = 10
+EXTEND_MAX = 10
+
+
 def extend(db: Session, dvr: Dvr, actor_id: int) -> None:
-    """Registra que se amplió el plazo del revelado (sin detalle: nada secreto)."""
+    """Registra que se amplió el plazo del revelado (sin detalle: nada secreto).
+
+    Solo tras un revelado reciente del mismo actor y DVR (último reveal en la
+    ventana) y hasta EXTEND_MAX extensiones posteriores a ese reveal.
+    """
+    from datetime import timedelta
+    from sqlalchemy import func
+    last_reveal = (db.query(func.max(CamerasAuditLog.id))
+                   .filter(CamerasAuditLog.dvr_id == dvr.id, CamerasAuditLog.actor_id == actor_id,
+                           CamerasAuditLog.action == "reveal",
+                           CamerasAuditLog.created_at >= func.now() - timedelta(minutes=EXTEND_WINDOW_MIN))
+                   .scalar())
+    if last_reveal is None:
+        raise ValueError("Vuelve a revelar el DVR.")
+    used = (db.query(CamerasAuditLog)
+            .filter(CamerasAuditLog.dvr_id == dvr.id, CamerasAuditLog.actor_id == actor_id,
+                    CamerasAuditLog.action == "extend", CamerasAuditLog.id > last_reveal)
+            .count())
+    if used >= EXTEND_MAX:
+        raise ValueError("Vuelve a revelar el DVR.")
     _log(db, dvr, actor_id, "extend")
     db.commit()
 

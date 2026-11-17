@@ -187,3 +187,60 @@ def test_shared_dvr_listed_for_head_b(db_session, cam_world, cameras_key):
     w = cam_world
     d = svc.create(db_session, inp(password="pw1", department_ids=[w.dept_a, w.dept_b]), w.tech)
     assert d in svc.list_visible(db_session, viewer(w.head_b, depts={w.dept_b}))
+
+
+def _dvr_with_pw(db, cam_world, name="D"):
+    return svc.create(db, inp(name=name, password="pw1"), cam_world.tech)
+
+
+def test_extend_without_reveal_refused_no_row(db_session, cam_world, cameras_key):
+    d = _dvr_with_pw(db_session, cam_world)
+    before = actions(db_session, d)
+    with pytest.raises(ValueError, match="Vuelve a revelar"):
+        svc.extend(db_session, d, cam_world.tech)
+    assert actions(db_session, d) == before
+
+
+def test_extend_after_other_dvr_reveal_refused(db_session, cam_world, cameras_key):
+    d1 = _dvr_with_pw(db_session, cam_world, "D1")
+    d2 = _dvr_with_pw(db_session, cam_world, "D2")
+    svc.reveal(db_session, d2, cam_world.tech)
+    with pytest.raises(ValueError):
+        svc.extend(db_session, d1, cam_world.tech)
+    assert "extend" not in actions(db_session, d1)
+
+
+def test_extend_reveal_older_than_window_refused(db_session, cam_world, cameras_key):
+    from datetime import timedelta
+    from sqlalchemy import func
+    d = _dvr_with_pw(db_session, cam_world)
+    db_session.add(CamerasAuditLog(dvr_id=d.id, dvr_name=d.name, actor_id=cam_world.tech,
+                                   action="reveal", created_at=func.now() - timedelta(minutes=11)))
+    db_session.commit()
+    with pytest.raises(ValueError):
+        svc.extend(db_session, d, cam_world.tech)
+    assert "extend" not in actions(db_session, d)
+
+
+def test_extend_reveal_within_window_allowed(db_session, cam_world, cameras_key):
+    from datetime import timedelta
+    from sqlalchemy import func
+    d = _dvr_with_pw(db_session, cam_world)
+    db_session.add(CamerasAuditLog(dvr_id=d.id, dvr_name=d.name, actor_id=cam_world.tech,
+                                   action="reveal", created_at=func.now() - timedelta(minutes=9)))
+    db_session.commit()
+    svc.extend(db_session, d, cam_world.tech)
+    assert actions(db_session, d)[-1] == "extend"
+
+
+def test_extend_eleventh_after_reveal_refused(db_session, cam_world, cameras_key):
+    d = _dvr_with_pw(db_session, cam_world)
+    svc.reveal(db_session, d, cam_world.tech)
+    for _ in range(10):
+        svc.extend(db_session, d, cam_world.tech)
+    before = actions(db_session, d)
+    with pytest.raises(ValueError):
+        svc.extend(db_session, d, cam_world.tech)
+    assert actions(db_session, d) == before
+    svc.reveal(db_session, d, cam_world.tech)
+    svc.extend(db_session, d, cam_world.tech)

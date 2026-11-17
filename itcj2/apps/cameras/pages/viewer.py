@@ -129,13 +129,17 @@ def reveal(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Dep
 
 @router.post("/dvrs/{dvr_id}/extend")
 def extend(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
-    """+30 s del revelado: mismo alcance que revelar; 204 sin cuerpo."""
+    """+30 s del revelado: mismo alcance que revelar; 204 sin cuerpo, 409 sin revelado reciente."""
     if isinstance(user, RedirectResponse):
         return user
     _, dvr = _visible_or_none(db, user, dvr_id)
     if dvr is None:
         return _not_found(request)
-    dvr_service.extend(db, dvr, int(user["sub"]))
+    try:
+        dvr_service.extend(db, dvr, int(user["sub"]))
+    except ValueError as exc:
+        msg = str(exc)
+        return _cam_error(Response(msg, status_code=409, headers={"Cache-Control": "no-store"}), msg)
     return Response(status_code=204, headers={"Cache-Control": "no-store"})
 
 
