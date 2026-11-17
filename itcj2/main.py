@@ -364,11 +364,13 @@ def _register_error_handlers(app: FastAPI):
         ("/maint", "maint"),
         ("/help-desk", "helpdesk"),
         ("/agendatec", "agendatec"),
+        ("/cameras", "cameras"),
     )
     _APP_TEMPLATE = {
         "maint": "maint/errors/error.html",
         "helpdesk": "helpdesk/errors/error.html",
         "agendatec": "agendatec/errors/error.html",
+        "cameras": "cameras/errors/error.html",
         "core": "core/errors/core_error.html",
     }
     # Home de cada app (botón "Ir al inicio" en 404/500). core → dashboard hub.
@@ -376,6 +378,7 @@ def _register_error_handlers(app: FastAPI):
         "maint": "/maint",
         "helpdesk": "/help-desk/",
         "agendatec": "/agendatec/",
+        "cameras": "/cameras/",
         "core": _DASHBOARD_URL,
     }
 
@@ -461,6 +464,12 @@ def _register_error_handlers(app: FastAPI):
                 return maint_templates.TemplateResponse(
                     request, template, ctx_maint, status_code=status_code
                 )
+
+            if app_key == "cameras":
+                # cameras también tiene su propia instancia de Jinja2.
+                from itcj2.apps.cameras.pages.render import render_cameras
+
+                return render_cameras(request, template, ctx, status_code=status_code)
 
             from itcj2.templates import render
             return render(request, template, ctx, status_code=status_code)

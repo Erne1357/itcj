@@ -1,0 +1,22 @@
+{% extends "cameras/base_cameras.html" %}
+{% block title %}Error {{ error_code }} · Cámaras{% endblock %}
+{% block appbar_back %}{% if button_exits_app %}<button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio" aria-label="Volver al inicio"><i class="bi bi-arrow-left" aria-hidden="true"></i></button>{% else %}<a class="mobile-back-to-dashboard" href="{{ button_url }}" title="Ir a Cámaras" aria-label="Ir a Cámaras"><i class="bi bi-arrow-left" aria-hidden="true"></i></a>{% endif %}{% endblock %}
+{% block body %}
+<main class="cam-page cam-error">
+  <section class="cam-error__panel" aria-labelledby="cam-error-title">
+    <div class="cam-error__screen" aria-hidden="true">
+      <span class="cam-error__status"><span class="cam-error__led"></span>Cámaras</span>
+      <span class="cam-error__code">{{ error_code }}</span>
+    </div>
+    <div class="cam-error__body">
+      <h1 class="cam-error__title" id="cam-error-title">{{ error_title }}</h1>
+      {# Copy propio: el 403 con acceso a la app orienta; el resto usa el genérico del mapa global. #}
+      <p class="cam-error__msg">{% if error_code == 403 and not button_exits_app %}No tienes acceso a esta sección de Cámaras. Si crees que deberías verla, pídelo a Soporte.{% else %}{{ error_message }}{% endif %}</p>
+      <a href="{{ button_url }}" id="errorActionBtn" class="cam-btn cam-btn--primary cam-error__btn"><i class="bi bi-arrow-left" aria-hidden="true"></i>{{ button_label }}</a>
+    </div>
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="/static/cameras/js/error.js?v={{ sv('js/error.js') }}"></script>
+{% endblock %}

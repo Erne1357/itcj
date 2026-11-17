@@ -991,3 +991,33 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
   .cam-card__note:not(:empty) { animation: none; }
   .cam-card__slot > [data-cam-pw-ok] { transition: none; }
 }
+
+/* ── Página de error ─────────────────────────────────────────────────────────
+   Bloques: cam-error (__panel, __screen, __status, __led, __code, __body,
+   __title, __msg, __btn). El código se ve como la pantalla de un DVR; la señal
+   lima es solo el LED. Sin rojo: un error no es una alarma de la app. */
+.cam-error { display: grid; place-items: center; min-height: 100vh; min-height: 100dvh; padding-block: 24px; }
+.cam-error__panel {
+  width: 100%; max-width: 560px; background: var(--cam-surface); border: 1px solid var(--cam-line);
+  border-radius: var(--cam-r-lg); overflow: hidden; animation: cam-error-in .35s var(--cam-ease) both;
+}
+.cam-error__screen {
+  background: var(--cam-screen); color: var(--cam-screen-ink); padding: 14px 20px 22px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.cam-error__status {
+  display: inline-flex; align-items: center; gap: 8px; font-family: var(--cam-mono);
+  font-size: var(--cam-fs-xs); font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--cam-screen-mute);
+}
+.cam-error__led { width: 8px; height: 8px; border-radius: 50%; background: var(--cam-signal); }
+.cam-error__code {
+  font-family: var(--cam-mono); font-weight: 700; font-size: clamp(4rem, 22vw, 7rem);
+  line-height: 1; letter-spacing: .04em; font-variant-numeric: tabular-nums;
+}
+.cam-error__body { padding: 22px 20px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.cam-error__title { margin: 0; font-size: var(--cam-fs-xl); font-weight: 700; color: var(--cam-ink); }
+.cam-error__msg { margin: 0 0 8px; color: var(--cam-ink-2); max-width: 46ch; }
+.cam-error__btn { min-height: var(--cam-tap); }
+@keyframes cam-error-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cam-error__panel { animation: none; } }
