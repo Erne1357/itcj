@@ -21,21 +21,24 @@
                            y acciones en la línea del título)
    - cam-mark ............ marca de la app (cuadro grafito con cámara lima)
    - cam-search .......... buscador: __input (con .form-control)
-   - cam-rack ............ Soporte: panel único con los grupos en filas
+   - cam-rack ............ Soporte: panel único con los grupos en filas; es
+                           contenedor (cam-rack): la fila se acomoda a su ancho
    - cam-group ........... una ubicación: __title, __place, __count, __list
-   - cam-card ............ un DVR. --row (Soporte: __id, __depts, __stored,
+   - cam-card ............ un DVR. --row (Soporte: __id, __depts, __only,
                            __reveal, __tools) o --tile (Jefe: cam-face,
                            __body, __place, __shared, __actions). Ambas: __name,
                            __meta (cada dato en un span; __dot es el «·» dentro
                            del span que sigue), __slot (hueco del formulario de
                            contraseña, id cam-pwslot-N), __note (aviso tras el
-                           auto-sello, id cam-note-N). .is-flashing = fila recién
-                           registrada o editada
+                           auto-sello, id cam-note-N, justo antes de Revelar).
+                           __only = excepción de lo guardado («Solo patrón»).
+                           .is-flashing = fila recién registrada o editada
    - cam-tiles ........... rejilla de tarjetas del jefe
    - cam-face ............ carátula grafito de la tarjeta: __grid (9 puntos),
                            __mask (contraseña enmascarada, longitud fija)
    - cam-chip ............ depto ligado; --none = sin departamento, --more = +N
-   - cam-badge ........... qué guarda el DVR (patrón, contraseña)
+   - cam-inactive ........ Dados de baja: __row, __id, __name, __place,
+                           __depts, __when, __form (Reactivar DVR)
    - cam-modal ........... <dialog> del revelado: __panel, __head, __id,
                            __title, __sub, __body (hoja inferior bajo 640 px),
                            __sentinel (trampa de foco). --confirm = baja (con
@@ -56,10 +59,11 @@
    - cam-pw .............. contraseña en celdas (pattern.js la parte): __ch
                            con --digit, --symbol, --space; __legend, __key;
                            __plain (campo del respaldo de copiado)
-   - cam-editor .......... editor del patrón: __device, __readout, __status
+   - cam-editor .......... editor del patrón: __device, __readout (con
+                           __reading: orden y lugar en palabras), __status
    - cam-btn ............. botones: --primary, --reveal, --ghost, --quiet,
                            --dark, --signal, --danger, --icon, --sm; .is-copied;
-                           __label (texto que se oculta bajo 560 px)
+                           __label (texto que se oculta bajo 560 px; en --ghost, bajo 680)
    - cam-spin ............ indicador dentro de un botón con .htmx-request o
                            aria-busy="true"
    - cam-empty ........... estado vacío: __tile, __title, __hint, __action
@@ -72,7 +76,7 @@
                            __list, __item, __empty, __count (pie)
    - cam-form__error ..... hueco del error del servidor al tope del formulario
                            (siempre presente; vacío no ocupa espacio)
-   - cam-audit ........... bitacora: __filters (selects en fila fluida),
+   - cam-audit ........... bitacora: __filters (DVR, Persona, Acción, Desde, Hasta),
                            __table (tabla; bajo 768 px cada fila es una
                            tarjeta apilada con data-label), __when, __act,
                            __detail, __pager (__total, __links)
@@ -202,20 +206,29 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 /* Buscador y acciones en la línea del título: la lista empieza más arriba. */
 .cam-head__tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
 @media (max-width: 767.98px) { .cam-head__tools { flex: 1 1 100%; } }
-/* «Bitácora» y «Registrar DVR» con texto hasta 560 px; debajo, solo el ícono (llevan title y aria-label). */
+/* Acciones de la cabecera con texto desde 680 px. De 560 a 679 «Bitácora» y «Dados de baja» quedan
+   en ícono (el buscador necesita el ancho); debajo de 560, también «Registrar DVR». Llevan title y aria-label. */
+@media (max-width: 679.98px) {
+  .cam-btn--ghost > .cam-btn__label { display: none; }
+  .cam-btn--ghost:has(> .cam-btn__label) { flex: none; width: 40px; padding: 0; }
+}
 @media (max-width: 559.98px) {
   .cam-btn__label { display: none; }
   .cam-btn:has(> .cam-btn__label) { flex: none; width: 40px; padding: 0; }
 }
+@media (max-width: 679.98px) and (pointer: coarse) { .cam-btn--ghost:has(> .cam-btn__label) { width: var(--cam-tap); } }
 @media (max-width: 559.98px) and (pointer: coarse) { .cam-btn:has(> .cam-btn__label) { width: var(--cam-tap); } }
 
-/* Aviso de éxito arriba de la lista (?ok=registrado|actualizado|baja). */
+/* Aviso de éxito arriba de la lista (?ok=registrado|actualizado|baja|reactivado); tras la baja
+   lleva un enlace a Dados de baja. */
 .cam-flash {
   display: flex; align-items: flex-start; gap: .5rem; margin: 0 0 16px; padding: 10px 12px;
   font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.4; color: var(--cam-signal-ink);
   background: var(--cam-signal-soft); border-radius: 10px; text-wrap: pretty;
 }
 .cam-flash > .bi { flex: none; margin-top: .1rem; }
+.cam-flash a { color: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.cam-flash a:hover { color: var(--cam-ink); }
 
 .cam-mark {
   flex: none; display: grid; place-items: center;
@@ -230,58 +243,87 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
   position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
   color: var(--cam-ink-2); pointer-events: none;
 }
-.cam-body .cam-search__input { min-height: 40px; padding-left: 2.5rem; background: var(--cam-surface); }
+.cam-body .cam-search__input { min-height: 40px; padding-left: 2.5rem; background: var(--cam-surface); text-overflow: ellipsis; }
 @media (pointer: coarse) { .cam-body .cam-search__input { min-height: var(--cam-tap); } }
 
 /* ── Soporte: inventario en filas dentro de un solo panel ────────────────── */
+/* Contenedor: la fila depende del ancho del panel, no de la pantalla (la ventana acoplada del
+   escritorio mide 680-960 px aunque el monitor sea de 1440 o 1920). */
 .cam-rack {
+  container: cam-rack / inline-size;
   background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg);
   overflow: hidden;   /* recorta la banda del primer grupo; los focos quedan dentro del relleno */
 }
 .cam-group + .cam-group { border-top: 1px solid var(--cam-line); }
 .cam-group__title {
-  display: flex; align-items: center; gap: .5rem; margin: 0; padding: 9px 16px;
+  display: flex; align-items: center; gap: .5rem; margin: 0; padding: 6px 16px;
   font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.35; color: var(--cam-ink);
   background: var(--cam-bg); border-bottom: 1px solid var(--cam-line);
 }
-@media (min-width: 768px) { .cam-group__title { padding: 9px 20px; } }
+@container cam-rack (min-width: 560px) { .cam-group__title { padding-inline: 20px; } }
 .cam-group__title > .bi { flex: none; color: var(--cam-ink-2); }
 .cam-group__place { min-width: 0; overflow-wrap: anywhere; }
 .cam-group__count {
   flex: none; min-width: 1.5rem; padding: 0 7px; text-align: center;
-  font-size: var(--cam-fs-xs); font-weight: 600; line-height: 1.375rem; color: var(--cam-ink-2);
+  font-size: var(--cam-fs-xs); font-weight: 600; line-height: 1.25rem; color: var(--cam-ink-2);
   background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: 999px;
   font-variant-numeric: tabular-nums;
 }
 .cam-group__list { margin: 0; padding: 0; list-style: none; }
 
-/* Fila. Móvil: apilada. 768+: nombre | qué guarda | Revelar | herramientas, deptos debajo.
-   1100+: todo en una línea. */
+/* Fila, por ancho del panel. Revelar va siempre junto a las herramientas.
+   - Menos de 560 px: apilada (nombre y meta | deptos | excepción si la hay | Revelar a lo
+     ancho y herramientas).
+   - 560 a 899 px: dos líneas (nombre y meta | deptos y excepción) con Revelar y las
+     herramientas a la derecha, centradas en ambas.
+   - 900 px o más: una línea (nombre sobre meta | deptos | excepción | Revelar | herramientas).
+   La nota del auto-sello y el formulario de contraseña toman su propia línea debajo. */
 .cam-card { min-width: 0; }
 .cam-card--row {
-  display: grid; align-items: center; gap: 10px 16px; padding: 14px 16px;
+  display: grid; align-items: center; gap: 8px 12px; padding: 12px 16px;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "id tools" "depts depts" "stored reveal";
+  grid-template-areas: "id id" "depts depts" "reveal tools";
+}
+/* La excepción no cabe junto a Revelar en un teléfono: toma su línea solo cuando existe. */
+@container cam-rack (width < 560px) {
+  .cam-card--row:has(> .cam-card__only) { grid-template-areas: "id id" "depts depts" "only only" "reveal tools"; }
 }
 .cam-card--row + .cam-card--row { border-top: 1px solid var(--cam-line); }
 .cam-card--row .cam-card__id { grid-area: id; min-width: 0; }
 .cam-card--row .cam-card__depts { grid-area: depts; }
-.cam-card--row .cam-card__stored { grid-area: stored; }
+.cam-card--row .cam-card__only { grid-area: only; justify-self: start; }
 .cam-card--row .cam-card__reveal { grid-area: reveal; }
-.cam-card--row .cam-card__tools { grid-area: tools; align-self: start; margin: -6px -8px 0 0; }
-@media (min-width: 768px) {
+.cam-card--row .cam-card__reveal > .cam-btn { width: 100%; }   /* apilada: Revelar a lo ancho, al alcance del pulgar */
+/* Íconos quietos: su caja ya trae aire, así que se arriman a Revelar y al borde. */
+.cam-card--row .cam-card__tools { grid-area: tools; margin: 0 -8px 0 -6px; }
+@container cam-rack (min-width: 560px) {
   .cam-card--row {
-    gap: 8px 24px; padding: 14px 20px;
-    grid-template-columns: minmax(0, 1fr) 7.5rem auto auto;
-    grid-template-areas: "id stored reveal tools" "depts depts depts depts";
+    gap: 6px 16px; padding: 10px 20px;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "id id reveal tools" "depts only reveal tools";
   }
-  .cam-card--row .cam-card__tools { align-self: center; margin: 0 -8px 0 -14px; }
-  .cam-card--row .cam-card__stored { flex-direction: column; gap: 4px; }
+  .cam-card--row .cam-card__only { justify-self: end; }
+  .cam-card--row .cam-card__reveal > .cam-btn { width: auto; }
+  .cam-card--row .cam-card__tools { margin-left: -10px; }
 }
-@media (min-width: 1100px) {
+/* Dos líneas: la meta sigue al nombre y se recorta (baja a su propia línea solo si el nombre no
+   le deja 5rem); los deptos van en una línea y cada uno se recorta (el nombre completo va en title). */
+@container cam-rack (560px <= width < 900px) {
+  .cam-card--row .cam-card__id { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: .75rem; }
+  .cam-card--row .cam-card__name { flex: 0 1 auto; min-width: 0; }
+  .cam-card--row .cam-card__meta {
+    display: block; flex: 1 1 5rem; min-width: 0; margin: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cam-card--row .cam-card__meta > span + span { margin-left: .75rem; }
+  .cam-card--row .cam-card__depts { flex-wrap: nowrap; }
+  .cam-card--row .cam-chip:not(.cam-chip--more) { flex: 0 1 auto; min-width: 5rem; }
+}
+@container cam-rack (min-width: 900px) {
   .cam-card--row {
-    grid-template-columns: minmax(13rem, 1fr) minmax(0, 1.4fr) 7.5rem auto auto;
-    grid-template-areas: "id depts stored reveal tools";
+    gap: 8px 20px; padding: 14px 20px;
+    grid-template-columns: minmax(12rem, 1fr) minmax(0, 1.3fr) 7rem auto auto;   /* 7rem fijo: deptos alineados entre filas */
+    grid-template-areas: "id depts only reveal tools";
   }
 }
 .cam-card__slot { grid-column: 1 / -1; min-width: 0; }
@@ -297,15 +339,18 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 @keyframes cam-flash { 0%, 30% { background-color: var(--cam-signal-soft); } }
 
 /* «Se ocultó. Puedes revelarlo otra vez.»: vacío no ocupa lugar pero sigue en el árbol
-   accesible (role=status), para que el lector anuncie el texto cuando llegue. */
+   accesible (role=status), para que el lector anuncie el texto cuando llegue. Va justo antes
+   de Revelar, donde vuelve el foco tras el sello: en la fila, bajo Revelar y las herramientas;
+   en la tarjeta, entre los datos y el botón. */
 .cam-card__note {
-  grid-column: 1 / -1; margin: 0; padding: 8px 12px;
+  margin: 0; padding: 8px 12px;
   font-size: var(--cam-fs-sm); line-height: 1.4; color: var(--cam-ink-2);
   background: var(--cam-bg); border-radius: 10px; text-wrap: pretty;
 }
 .cam-card__note:not(:empty) { animation: cam-fade .2s ease-out; }
 .cam-card__note:empty { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
-.cam-card--tile .cam-card__note { margin: 4px 10px 10px; }
+.cam-card--row .cam-card__note { grid-column: 1 / -1; justify-self: end; }
+.cam-card--tile .cam-card__note { margin: 10px 10px 0; }
 
 /* «Contraseña guardada.»: el JS pone .is-leaving 200 ms antes de quitarlo. */
 .cam-card__slot > [data-cam-pw-ok] { transition: opacity .2s ease-out; }
@@ -316,7 +361,13 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 .cam-card__meta > span { white-space: nowrap; }
 .cam-card__tools { display: flex; gap: 2px; }
 .cam-card__depts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
-.cam-card__stored { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; padding: 0; list-style: none; }
+/* Lo guardado solo se dice cuando falta algo («Solo patrón», «Solo contraseña», «Sin
+   credenciales»): etiqueta recta, para no confundirse con las píldoras de los deptos. */
+.cam-card__only {
+  display: inline-block; padding: 2px 8px; white-space: nowrap;
+  font-size: var(--cam-fs-xs); font-weight: 600; line-height: 1.35; color: var(--cam-ink);
+  border: 1px solid var(--cam-line-strong); border-radius: 6px;
+}
 
 .cam-chip {
   display: inline-block; max-width: 100%; padding: 3px 10px;
@@ -326,12 +377,6 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 }
 .cam-chip--none { border-style: dashed; background: transparent; }
 .cam-chip--more { flex: none; font-weight: 600; color: var(--cam-ink); cursor: default; }
-
-.cam-badge {
-  display: inline-flex; align-items: center; gap: .375rem;
-  font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-ink-2); white-space: nowrap;
-}
-.cam-badge .bi { color: var(--cam-ink); font-size: .8125rem; }
 
 /* ── Jefe: tarjetas con carátula ─────────────────────────────────────────── */
 /* Sin estirar: abrir el formulario de contraseña en una tarjeta no agranda a sus vecinas. */
@@ -678,15 +723,35 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 
 /* ── Editor del patrón ───────────────────────────────────────────────────── */
 .cam-editor { display: grid; gap: 12px 24px; align-items: start; }
-@media (min-width: 768px) { .cam-editor { grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); } }
+/* Dos columnas: el aparato y su aviso de error a la izquierda, la ayuda a la derecha. */
+@media (min-width: 768px) {
+  .cam-editor { grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); }
+  .cam-editor > :is(.cam-editor__device, .cam-field__error) { grid-column: 1; }
+  .cam-editor > :not(.cam-editor__device, .cam-field__error) { grid-column: 2; grid-row: 1; }
+  .cam-editor:has(> .cam-field__error) > :not(.cam-editor__device, .cam-field__error) { grid-row: 1 / span 2; }
+}
 /* En una columna, el aparato no se vuelve una losa a todo lo ancho del formulario. */
 .cam-editor__device { min-width: 0; max-width: 24rem; }
-/* Patrón de menos de 4 puntos: el JS marca el editor (aria-invalid) y pone el aviso debajo. */
-.cam-editor[aria-invalid="true"] .cam-editor__device { outline: 2px solid var(--cam-danger); outline-offset: 2px; }
+/* Patrón de menos de 4 puntos: el JS marca el pad (svg[aria-invalid]) y pone el aviso justo
+   bajo el aparato; el contorno rojo enmarca el aparato completo. */
+.cam-editor:has(svg[aria-invalid="true"]) .cam-editor__device { outline: 2px solid var(--cam-danger); outline-offset: 2px; }
+.cam-editor > .cam-field__error { margin: -4px 0 0; font-size: var(--cam-fs-sm); }
 .cam-editor__readout {
   margin: 0; padding: 0 4px; min-height: 1.5em;
   font-family: var(--cam-mono); font-size: var(--cam-fs-md); font-weight: 700; color: var(--cam-screen-ink);
   overflow-wrap: anywhere; text-wrap: balance;
+}
+/* Lectura en palabras («1º arriba izquierda → 2º arriba centro …»): letra de la UI, no mono.
+   Pegada al último paso (el que se acaba de trazar): de 3 líneas en adelante asoma media línea
+   desvanecida de lo anterior (sigue en los discos y en el aria-label). La máscara mide el tope
+   (3,5 líneas) y se ancla abajo: su borde transparente solo cae dentro cuando hay algo oculto. */
+.cam-editor__reading {
+  --cam-reading-max: calc(3.5 * 1.45em);
+  display: flex; flex-direction: column; justify-content: flex-end;
+  max-height: var(--cam-reading-max); overflow: hidden;
+  font-family: var(--cam-font); font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.45;
+  overflow-wrap: normal; text-wrap: pretty;
+  mask: linear-gradient(transparent, #000 calc(.5 * 1.45em)) bottom / 100% var(--cam-reading-max) no-repeat;
 }
 .cam-editor__readout.is-empty { font-family: var(--cam-font); font-size: var(--cam-fs-sm); font-weight: 500; color: var(--cam-screen-mute); }
 .cam-editor__status { margin: -6px 0 0; padding: 0 4px; font-size: var(--cam-fs-sm); color: var(--cam-screen-mute); }
@@ -832,13 +897,58 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 .cam-picker__empty { margin: 0; padding: 16px; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-align: center; }
 
 /* ── Gestión: hueco del error del servidor ───────────────────────────────── */
-/* Siempre está (role=alert, recibe el foco); vacío no deja margen. */
+/* Siempre está (role=alert, recibe el foco). Vacío sale del flujo como .cam-card__note: no deja
+   margen ni el hueco del gap en el formulario angosto (#cam-pwerr-N), y sigue en el árbol accesible. */
+.cam-form__error:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .cam-form__error:not(:empty) { margin-top: 20px; }
+.cam-form--narrow > .cam-form__error:not(:empty) { margin-top: 0; }
+
+/* ── Dados de baja ───────────────────────────────────────────────────────── */
+/* Lista corta en un panel, como el inventario; el botón va a la derecha desde 560 px. */
+.cam-inactive {
+  container: cam-inactive / inline-size;
+  max-width: 60rem; margin: 0; padding: 0; list-style: none;
+  background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg); overflow: hidden;
+}
+.cam-inactive__row { display: grid; gap: 12px 24px; align-items: center; padding: 14px 16px; }
+.cam-inactive > * + * { border-top: 1px solid var(--cam-line); }
+@container cam-inactive (min-width: 560px) {
+  .cam-inactive__row { grid-template-columns: minmax(0, 1fr) auto; padding: 14px 20px; }
+}
+.cam-inactive__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cam-inactive__name { margin: 0 0 2px; font-size: var(--cam-fs-md); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
+.cam-inactive__place,
+.cam-inactive__depts,
+.cam-inactive__when { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--cam-ink-2); overflow-wrap: anywhere; text-wrap: pretty; }
+.cam-inactive__place { display: flex; align-items: baseline; gap: .375rem; }
+.cam-inactive__place > .bi { flex: none; transform: translateY(1px); }
+.cam-inactive__when { font-variant-numeric: tabular-nums; }
+.cam-inactive__form { justify-self: start; margin: 0; }
+/* Secundario, como «Revelar» en el inventario: un botón oscuro por fila competiría consigo mismo. */
+.cam-inactive__form .cam-btn { min-height: 40px; background: var(--cam-surface); border-color: var(--cam-line); color: var(--cam-ink); }
+.cam-inactive__form .cam-btn:hover { background: var(--cam-bg); border-color: var(--cam-line-strong); color: var(--cam-ink); }
+.cam-inactive__form .cam-btn .bi { color: var(--cam-signal-ink); }
+@media (pointer: coarse) { .cam-inactive__form .cam-btn { min-height: var(--cam-tap); } }
+/* Si el servidor responde «No encontrado.» la fila se reemplaza por el aviso. */
+.cam-inactive > .cam-field__error { margin: 0; padding: 14px 20px; font-size: var(--cam-fs-sm); }
 
 /* ── Bitácora: tabla que se apila bajo 768 px (sin scroll horizontal) ───── */
+/* Filtros. Móvil: DVR a lo ancho, luego Persona | Acción y Desde | Hasta (3 renglones, no 5).
+   768+: DVR | Persona | Acción y debajo Desde | Hasta alineados con las dos primeras.
+   1200+: los cinco en una línea, las fechas más angostas. */
 .cam-audit__filters {
   display: grid; gap: 12px 16px; margin-bottom: 20px;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 18rem));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.cam-audit__filters > :first-child { grid-column: 1 / -1; }
+.cam-audit__filters input[type="date"] { font-variant-numeric: tabular-nums; }
+@media (min-width: 768px) {
+  .cam-audit__filters { max-width: 56rem; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .cam-audit__filters > .cam-field { grid-column: span 2; }
+}
+@media (min-width: 1200px) {
+  .cam-audit__filters { max-width: none; grid-template-columns: repeat(3, minmax(0, 16rem)) repeat(2, minmax(0, 11rem)); }
+  .cam-audit__filters > .cam-field { grid-column: auto; }
 }
 .cam-audit { background: var(--cam-surface); border: 1px solid var(--cam-line); border-radius: var(--cam-r-lg); overflow: hidden; }
 .cam-audit__table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--cam-fs-sm); }

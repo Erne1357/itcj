@@ -406,7 +406,8 @@
     }
     // orden + lugar con palabras (una sola numeración: la de los discos del aparato)
     var reading = st.seq.map(function (p, i) {
-      return (i + 1) + 'º ' + POS[p].replace(/^al /, '').replace(/ a(l| la) /, ' ');
+      // espacios no separables: un paso nunca se parte entre líneas
+      return ((i + 1) + 'º ' + POS[p].replace(/^al /, '').replace(/ a(l| la) /, ' ')).replace(/ /g, ' ');
     }).join(' → ');
     st.readout.textContent = n ? reading : 'Traza el patrón sobre la cuadrícula';
     st.grid.root.setAttribute('aria-label', 'Editor del patrón. ' + (n ? 'Patrón actual: ' + reading + '. ' : '') +

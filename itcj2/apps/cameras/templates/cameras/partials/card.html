@@ -16,12 +16,12 @@
 <li class="cam-card cam-card--row" id="cam-dvr-{{ d.id }}"{% if flash_dvr == d.id %} data-cam-flash{% endif %}>
   <div class="cam-card__id">
     <h3 class="cam-card__name" id="cam-name-{{ d.id }}">{{ d.name }}</h3>
-    {% if bits %}<p class="cam-card__meta">{{ meta_bits() }}</p>{% endif %}
+    {% if bits %}<p class="cam-card__meta" title="{{ bits|join(' · ') }}">{{ meta_bits() }}</p>{% endif %}
   </div>
   <ul class="cam-card__depts" aria-label="Departamentos">
     {% for dep in d.departments[:2] %}<li class="cam-chip" title="{{ dep.name }}">{{ dep.name }}</li>{% endfor %}
     {% if d.departments|length > 2 %}{% set rest = d.departments[2:]|map(attribute='name')|join(', ') %}<li class="cam-chip cam-chip--more" title="{{ rest }}">+{{ d.departments|length - 2 }}<span class="visually-hidden"> más: {{ rest }}</span></li>{% endif %}
-    {% if not d.departments %}<li class="cam-chip cam-chip--none">Sin departamento: solo lo ve Soporte</li>{% endif %}
+    {% if not d.departments %}<li class="cam-chip cam-chip--none" title="Sin departamento: solo lo ve Soporte">Sin departamento: solo lo ve Soporte</li>{% endif %}
   </ul>
   {# Solo la excepción: con patrón y contraseña no se dice nada. #}
   {% if not d.pattern_cipher and not d.password_cipher %}<span class="cam-card__only">Sin credenciales</span>
