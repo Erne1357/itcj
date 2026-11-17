@@ -195,6 +195,9 @@ def set_password(db: Session, viewer: Viewer, dvr_id: int, password: str, actor_
         return False
     dvr.password_cipher = secrets.encrypt(password)
     _log(db, dvr, actor_id, "password_update")
+    if not viewer.see_all:  # un jefe cambió: Soporte, admins y los demás jefes se enteran
+        from itcj2.apps.cameras.services import notify_service
+        notify_service.notify_password_changed(db, dvr, actor_id)
     db.commit()
     return True
 
