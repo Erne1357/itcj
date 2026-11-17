@@ -312,7 +312,7 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 .cam-card__slot > [data-cam-pw-ok].is-leaving { opacity: 0; }
 
 .cam-card__name { margin: 0; font-size: var(--cam-fs-md); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
-.cam-card__meta { margin: .2rem 0 0; font-size: .8125rem; color: var(--cam-ink-2); overflow-wrap: anywhere; }
+.cam-card__meta { margin: .2rem 0 0; font-size: .8125rem; color: var(--cam-ink-2); overflow-wrap: anywhere; display: flex; flex-wrap: wrap; column-gap: .75rem; /* sin «·»: ningún separador puede quedar al borde de una línea */ }
 .cam-card__meta > span { white-space: nowrap; }
 .cam-card__tools { display: flex; gap: 2px; }
 .cam-card__depts { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }

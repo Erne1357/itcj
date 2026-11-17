@@ -52,7 +52,7 @@ DROP FUNCTION IF EXISTS cameras_audit_log_guard();
 
 class CamerasAuditLog(Base):
     """action: reveal | create | update | password_update | pattern_update |
-    deactivate | departments_update."""
+    deactivate | departments_update | extend."""
     __tablename__ = "cameras_audit_log"
 
     id = Column(BigInteger, primary_key=True)

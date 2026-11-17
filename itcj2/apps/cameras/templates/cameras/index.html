@@ -49,13 +49,13 @@
   {% if viewer.can_manage %}
   {# Baja: diálogo propio (sin confirm nativo). cameras.js pone el nombre en [data-cam-deactivate-name] y la
      action del formulario; sin JS, el POST redirige a /cameras/?ok=baja. #}
-  <dialog class="cam-modal cam-modal--confirm" id="cam-deactivate" aria-modal="true" aria-labelledby="cam-deactivate-title" data-cam-confirm>
+  <dialog class="cam-modal cam-modal--confirm" id="cam-deactivate" aria-modal="true" aria-labelledby="cam-deactivate-title" aria-describedby="cam-deactivate-text" data-cam-confirm>
     <div class="cam-modal__panel">
       <header class="cam-modal__head">
         <div class="cam-modal__id"><h2 class="cam-modal__title" id="cam-deactivate-title">Dar de baja DVR</h2></div>
       </header>
       <form class="cam-modal__body" method="post" action="" data-cam-deactivate-form>
-        <p class="cam-confirm__text">«<span data-cam-deactivate-name></span>» dejará de aparecer en la lista. La bitácora conserva su historial.</p>
+        <p class="cam-confirm__text" id="cam-deactivate-text">«<span data-cam-deactivate-name></span>» dejará de aparecer en la lista. La bitácora conserva su historial.</p>
         <p class="cam-note cam-note--error" data-cam-deactivate-error role="alert" hidden></p>
         <div class="cam-form__actions">
           <button type="button" class="cam-btn cam-btn--ghost" data-cam-confirm-cancel>Cancelar</button>

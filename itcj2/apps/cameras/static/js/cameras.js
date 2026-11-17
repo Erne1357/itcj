@@ -42,18 +42,13 @@ document.addEventListener('click', function (e) {
 // === BAJA DE DVR (diálogo propio; nunca confirm nativo) ===
 var camDeactivateOpener = null;
 
-function camFocusSentinels(panel, dlg) {
+// Los atiende el focusin global de pattern.js.
+function camFocusSentinels(panel) {
   ['start', 'end'].forEach(function (pos) {
     var s = document.createElement('span');
     s.className = 'cam-modal__sentinel';
     s.tabIndex = 0;
     s.setAttribute('data-cam-sentinel', pos);
-    s.addEventListener('focus', function () {
-      var f = Array.prototype.filter.call(dlg.querySelectorAll('button, a[href], input, select, textarea'),
-        function (el) { return !el.disabled && !el.hidden; });
-      var t = pos === 'start' ? f[f.length - 1] : f[0];
-      if (t) t.focus();
-    });
     if (pos === 'start') panel.insertBefore(s, panel.firstChild); else panel.appendChild(s);
   });
 }
@@ -65,7 +60,7 @@ document.addEventListener('click', function (e) {
   if (btn && !btn.disabled) {
     camDeactivateOpener = btn;
     var panel = dlg.querySelector('.cam-modal__panel');
-    if (panel && !panel.querySelector('[data-cam-sentinel]')) camFocusSentinels(panel, dlg);
+    if (panel && !panel.querySelector('[data-cam-sentinel]')) camFocusSentinels(panel);
     dlg.querySelector('[data-cam-deactivate-name]').textContent = btn.getAttribute('data-name');
     dlg.querySelector('[data-cam-deactivate-form]').setAttribute('action', '/cameras/dvrs/' + btn.getAttribute('data-cam-deactivate') + '/deactivate');
     var err = dlg.querySelector('[data-cam-deactivate-error]');
@@ -98,7 +93,7 @@ document.addEventListener('submit', async function (e) {
   try {
     var res = await fetch(form.getAttribute('action'),
       { method: 'POST', credentials: 'same-origin', headers: { 'HX-Request': 'true' } });
-    if (res.ok) { window.location.assign('/cameras/?ok=baja'); return; }
+    if (res.ok && !res.redirected) { window.location.assign('/cameras/?ok=baja'); return; }
     var msg = res.headers.get('X-Cam-Error');
     err.textContent = msg ? decodeURIComponent(msg) : 'Error inesperado. Intenta de nuevo.';
   } catch (_) {
@@ -133,15 +128,17 @@ function camClearError(ctrl) {
 
 function camValidateDvrForm(form) {
   var pat = form.querySelector('input[name="pattern"]');
-  var ed = pat && pat.closest('[data-pattern-editor]');
+  var edRoot = pat && pat.closest('[data-pattern-editor]');
+  var ed = edRoot && edRoot.querySelector('svg.cam-grid--edit[role="application"]');
   var pw = form.querySelector('input[name="password"]');
   var pw2 = form.querySelector('input[name="password_confirm"]');
   if (ed && !ed.id) ed.id = 'f-pattern-editor';
+  var edAnchor = edRoot;
   camClearError(ed); camClearError(pw2);
   var first = null;
   var n = pat ? pat.value.length : 0;
   if (ed && n > 0 && n < 4) {
-    camFieldError(ed, ed, 'El patrón necesita al menos 4 puntos, sin repetir.');
+    camFieldError(ed, edAnchor, 'El patrón necesita al menos 4 puntos, sin repetir.');
     first = ed;
   }
   if (pw && pw2 && pw.value !== pw2.value) {
@@ -149,7 +146,6 @@ function camValidateDvrForm(form) {
     first = first || pw2;
   }
   if (first) {
-    if (first === ed) ed.tabIndex = -1;
     first.focus();
     first.scrollIntoView({ block: 'center' });
   }
@@ -167,7 +163,7 @@ document.addEventListener('input', function (e) {
   }
 });
 document.addEventListener('change', function (e) {
-  if (e.target.matches && e.target.matches('#cam-dvr-form input[name="pattern"]')) camClearError(e.target.closest('[data-pattern-editor]'));
+  if (e.target.matches && e.target.matches('#cam-dvr-form input[name="pattern"]')) camClearError(e.target.closest('[data-pattern-editor]').querySelector('svg.cam-grid--edit'));
 });
 
 // Error del servidor: llevarlo a la vista y enfocarlo.
@@ -201,6 +197,7 @@ document.addEventListener('click', function (e) {
   if (!btn) return;
   var slot = document.getElementById('cam-pwslot-' + btn.getAttribute('data-cam-pw-cancel'));
   var opener = slot && camPwOpener(slot);
+  if (slot) slot.innerHTML = '';
   if (opener) { opener.setAttribute('aria-expanded', 'false'); opener.focus(); }
 });
 
@@ -209,6 +206,8 @@ function camPwOk(ok) {
   ok.dataset.camSeen = '1';
   var opener = camPwOpener(ok);
   if (opener) { opener.setAttribute('aria-expanded', 'false'); opener.focus(); }
+  var sp = ok.querySelector('span');
+  if (sp) { var txt = sp.textContent; sp.textContent = ''; setTimeout(function () { sp.textContent = txt; }, 150); }   // re-inyecta para anunciarlo
   setTimeout(function () { ok.classList.add('is-leaving'); }, 5800);
   setTimeout(function () { ok.remove(); }, 6000);
 }
@@ -233,7 +232,11 @@ function camScanSuccess() {
   var pw = document.querySelector('[data-cam-pw-ok]');
   if (pw) camPwOk(pw);
 }
-document.addEventListener('DOMContentLoaded', camScanSuccess);
+document.addEventListener('DOMContentLoaded', function () {
+  camScanSuccess();
+  // Evita que F5 o la sesión del escritorio repitan el aviso (?ok=, dvr=).
+  if (location.search) { try { history.replaceState(null, '', location.pathname); } catch (_) { /* sin history */ } }
+});
 document.addEventListener('htmx:afterSettle', camScanSuccess);
 
 // === Buscar departamento: Enter no envía el formulario ===

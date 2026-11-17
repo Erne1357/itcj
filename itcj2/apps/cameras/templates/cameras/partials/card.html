@@ -3,14 +3,14 @@
 {% set what = 'patrón y contraseña' if (d.pattern_cipher and d.password_cipher) else ('patrón' if d.pattern_cipher else ('contraseña' if d.password_cipher else '')) %}
 {% set can_pw = viewer.can_update_password or viewer.can_manage %}
 {% macro meta_bits() -%}
-{% for b in bits %}<span>{% if not loop.first %}<span class="cam-card__dot" aria-hidden="true">·&nbsp;</span>{% endif %}{{ b }}</span>{% if not loop.last %} {% endif %}{% endfor %}
+{% for b in bits %}<span>{{ b }}</span>{% endfor %}
 {%- endmacro %}
 {% macro reveal_button(extra='', label='Revelar') -%}
 <button type="button" class="cam-btn cam-btn--reveal{{ extra }}" hx-post="/cameras/dvrs/{{ d.id }}/reveal" hx-target="#cam-reveal-body" hx-swap="innerHTML"
         data-cam-reveal="{{ d.id }}" data-name="{{ d.name }}" data-place="{{ d.location or '' }}" aria-haspopup="dialog" aria-describedby="cam-name-{{ d.id }}"><i class="bi bi-eye-fill" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span><span>{{ label }}</span></button>
 {%- endmacro %}
 {% macro pw_button(cls, text) -%}
-<button type="button" class="cam-btn cam-btn--quiet {{ cls }}" hx-get="/cameras/dvrs/{{ d.id }}/password" hx-target="#cam-pwslot-{{ d.id }}" hx-swap="innerHTML"{% if not text %} aria-label="Cambiar contraseña de DVR {{ d.name }}" title="Cambiar contraseña"{% endif %}><i class="bi bi-key" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span>{{ text }}</button>
+<button type="button" class="cam-btn cam-btn--quiet {{ cls }}" hx-get="/cameras/dvrs/{{ d.id }}/password" hx-target="#cam-pwslot-{{ d.id }}" hx-swap="innerHTML" aria-expanded="false" aria-controls="cam-pwslot-{{ d.id }}"{% if not text %} aria-label="Cambiar contraseña de DVR {{ d.name }}" title="Cambiar contraseña"{% endif %}><i class="bi bi-key" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span>{{ text }}</button>
 {%- endmacro %}
 {% if viewer.can_manage %}
 <li class="cam-card cam-card--row" id="cam-dvr-{{ d.id }}"{% if flash_dvr == d.id %} data-cam-flash{% endif %}>
