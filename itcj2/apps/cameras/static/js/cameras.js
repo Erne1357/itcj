@@ -297,12 +297,26 @@ document.addEventListener('DOMContentLoaded', function () {
   // Evita que F5 o la sesión del escritorio repitan el aviso (?ok=, dvr=).
   // Solo esos dos parámetros: los filtros de la bitácora se conservan.
   var q = new URLSearchParams(location.search);
-  if (q.has('ok') || q.has('dvr')) {
-    q.delete('ok'); q.delete('dvr');
+  var rev = q.get('revelar');   // viene del aviso de la campana: abre el revelado de ese DVR
+  if (q.has('ok') || q.has('dvr') || q.has('revelar')) {
+    q.delete('ok'); q.delete('dvr'); q.delete('revelar');
     var rest = q.toString();
     try { history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch (_) { /* sin history */ }
   }
+  if (rev !== null) setTimeout(function () { camRevealFromLink(rev); }, 300);   // deja que pattern.js enganche la ventana del escritorio
 });
+function camRevealFromLink(id) {
+  var btn = /^[0-9]{1,9}$/.test(id) && document.querySelector('[data-cam-reveal="' + id + '"]');
+  if (btn) { btn.click(); return; }
+  var host = document.getElementById('cam-flash');
+  if (!host) {
+    host = document.createElement('p');
+    host.id = 'cam-flash'; host.className = 'cam-flash'; host.setAttribute('role', 'status');
+    var main = document.querySelector('main') || document.body;
+    main.insertBefore(host, main.firstChild);
+  }
+  host.textContent = 'Ese DVR ya no está en tu lista.';
+}
 document.addEventListener('htmx:afterSettle', camScanSuccess);
 
 // === Buscar departamento: Enter no envía el formulario ===

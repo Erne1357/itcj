@@ -48,7 +48,7 @@ def test_head_change_notifies_viewers_except_actor(db_session, cam_world, camera
     actor = db_session.get(User, w.head_a).full_name
     assert all(x.body == f"DVR Lobby: {actor} la cambió. Revélala en Cámaras cuando la necesites."
                for x in notes)
-    assert all(x.data == {"url": "/cameras/", "dvr_id": d.id} for x in notes)
+    assert all(x.data == {"url": f"/cameras/?revelar={d.id}", "dvr_id": d.id} for x in notes)
 
 
 def test_no_secret_in_notification(db_session, cam_world, cameras_key):

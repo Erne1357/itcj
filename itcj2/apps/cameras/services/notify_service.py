@@ -39,7 +39,7 @@ def notify_password_changed(db: Session, dvr, actor_id: int) -> None:
                     db, u.id, app_name=dvr_service.APP, type=TYPE_PASSWORD_CHANGED,
                     title="Cambió la contraseña de un DVR",
                     body=f"{dvr.name}: {actor_name} la cambió. Revélala en Cámaras cuando la necesites.",
-                    data={"url": "/cameras/", "dvr_id": dvr.id})
+                    data={"url": f"/cameras/?revelar={dvr.id}", "dvr_id": dvr.id})
     except Exception as e:  # noqa: BLE001 - el aviso nunca debe tumbar el cambio
         logger.exception("No se pudo avisar el cambio de contraseña del DVR %s (%s)",
                          dvr.id, type(e).__name__)
