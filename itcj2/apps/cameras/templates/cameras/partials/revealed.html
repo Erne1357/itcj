@@ -4,7 +4,7 @@
 <div class="cam-secret{% if rv.pattern %} cam-secret--pattern{% endif %}" data-revealed data-seal-after="30" data-cam-sealed-text="Se ocultó. Puedes revelarlo otra vez.">
   <div class="cam-reveal__timer">
     <p class="cam-reveal__countdown"><i class="bi bi-eye" aria-hidden="true"></i>Se oculta en <b data-cam-countdown>30</b> s</p>
-    <button type="button" class="cam-btn cam-btn--ghost cam-btn--sm cam-reveal__extend" data-cam-extend hidden data-cam-extend-url="/cameras/dvrs/{{ d.id }}/extend" aria-label="Agregar 30 segundos"><i class="bi bi-plus-circle" aria-hidden="true"></i><span>+30 s</span></button>
+    <button type="button" class="cam-btn cam-btn--ghost cam-btn--sm cam-reveal__extend" data-cam-extend hidden data-cam-extend-url="/cameras/dvrs/{{ d.id }}/extend"><i class="bi bi-plus-circle" aria-hidden="true"></i><span>+30 s</span><span class="visually-hidden"> (agregar 30 segundos)</span></button>
     <div class="cam-reveal__fuse" aria-hidden="true"><span data-cam-fuse></span></div>
   </div>
   <div class="cam-reveal__info">

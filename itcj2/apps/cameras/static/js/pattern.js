@@ -208,12 +208,17 @@
 
   function later(st, ms, fn) { st.timers.push(setTimeout(fn, ms)); }
 
+  // Cortar el dibujo (Paso a paso, Paso anterior, Repetir) cuenta como terminado: el reloj
+  // del revelado arranca aquí y nunca se queda en 'drawing' (start es idempotente).
   function stop(st) {
     st.timers.forEach(clearTimeout);
     st.timers = [];
     st.anims.forEach(function (a) { a.cancel(); });
     st.anims = [];
-    st.playing = false;
+    if (st.playing) {
+      st.playing = false;
+      st.box.dispatchEvent(new CustomEvent('cam:drawn', { bubbles: true }));
+    }
   }
 
   function play(st) {
@@ -513,7 +518,11 @@
     attachDesktop();
     var v = box.querySelector('[data-pattern-viewer]');
     var vs = v && states.get(v);
-    if (vs && vs.playing) { setTimerState(box, 'drawing'); return; }   // 'cam:drawn' lo arranca
+    if (vs && vs.playing) {   // 'cam:drawn' lo arranca; el respaldo, por si ese aviso nunca llega
+      setTimerState(box, 'drawing');
+      setTimeout(function () { if (box.isConnected) start(box, st); }, 8000);
+      return;
+    }
     start(box, st);
   }
 
@@ -553,47 +562,66 @@
     btn.setAttribute('aria-busy', 'true');
     var old = box.querySelector('.cam-reveal__extend-msg');
     if (old) old.remove();
-    function fail() {
-      var m = el('span', 'cam-reveal__extend-msg', box.querySelector('.cam-reveal__timer') || box, 'No se pudo extender.');
-      m.setAttribute('role', 'status');
+    function fail(why) {
+      var msg = 'No se pudo extender.' + (why ? ' ' + why : '');
+      el('span', 'cam-reveal__extend-msg', box.querySelector('.cam-reveal__timer') || box, msg).setAttribute('role', 'status');
+      announce(msg);
     }
+    // Solo 204 extiende. Sin seguir redirecciones: con la sesión vencida el servidor manda
+    // al login (302) y eso no dejó fila 'extend' en la bitácora.
     fetch(btn.getAttribute('data-cam-extend-url'), {
-      method: 'POST', credentials: 'same-origin', headers: { 'HX-Request': 'true' }
+      method: 'POST', credentials: 'same-origin', redirect: 'manual', headers: { 'HX-Request': 'true' }
     }).then(function (r) {
-      if (!r.ok) { fail(); return; }
+      if (r.status !== 204) {
+        var why = r.type === 'opaqueredirect' ? 'Tu sesión terminó: vuelve a iniciar sesión.' : r.headers.get('X-Cam-Error');
+        try { why = why && decodeURIComponent(why); } catch (e) { /* header mal codificado: queda tal cual */ }
+        fail(why);
+        return;
+      }
       if (!box.isConnected || !box.hasAttribute('data-revealed')) return;
       st.deadline = Date.now() + st.total;
       st.warned = false;
       tick(box, st);
-    }, fail).then(function () {
+    }, function () { fail('Sin conexión con el servidor.'); }).then(function () {
       st.busy = false;
       btn.removeAttribute('aria-busy');
     });
   }
 
-  // Sello automático (reloj o salida del escritorio): deja el aviso en la tarjeta y
-  // marca el disparador para que no se encienda en lima hasta que el puntero salga.
+  // Lo que se ocultó, según lo que traía el revelado (no siempre son ambos).
+  function hiddenMsg(box) {
+    var p = !!box.querySelector('[data-pattern-viewer]'), w = !!box.querySelector('[data-cam-pw]');
+    return p && w ? 'Se ocultaron el patrón y la contraseña' : p ? 'Se ocultó el patrón' : w ? 'Se ocultó la contraseña' : 'Se ocultó';
+  }
+
+  // Sello automático (reloj o salida del escritorio): un solo aviso (la nota de la tarjeta,
+  // o la región viva si la tarjeta ya no está) y el disparador sin lima hasta que el puntero salga.
   function autoSeal(box) {
-    var id = opener, text = box.getAttribute('data-cam-sealed-text');
+    var id = opener, text = box.getAttribute('data-cam-sealed-text'), msg = hiddenMsg(box);
     seal(box);
-    announce('Se ocultaron otra vez el patrón y la contraseña');
     var note = id && document.getElementById('cam-note-' + id);
     if (note && text) {
       note.textContent = text;
       clearTimeout(note._camT);
       note._camT = setTimeout(function () { note.textContent = ''; }, 8000);
+    } else {
+      announce(msg);
     }
+    // Siempre: al cerrar el diálogo el navegador recalcula el hover sin mover el puntero, y
+    // ':hover' aquí todavía es falso (el fondo del diálogo lo tapaba).
     var btn = id && document.querySelector('[data-cam-reveal="' + id + '"]');
-    if (btn && btn.matches(':hover')) {   // sin puntero encima no hay hover que apagar
-      btn.setAttribute('data-cam-just-sealed', '');
-      var clear = function () {
-        btn.removeAttribute('data-cam-just-sealed');
-        btn.removeEventListener('pointerleave', clear);
-        btn.removeEventListener('blur', clear);
-      };
-      btn.addEventListener('pointerleave', clear);
-      btn.addEventListener('blur', clear);
-    }
+    if (!btn) return;
+    btn.setAttribute('data-cam-just-sealed', '');
+    var clear = function (e) {
+      if (e && e.type === 'pointermove' && btn.contains(e.target)) return;
+      btn.removeAttribute('data-cam-just-sealed');
+      btn.removeEventListener('pointerleave', clear);
+      btn.removeEventListener('blur', clear);
+      document.removeEventListener('pointermove', clear, true);
+    };
+    btn.addEventListener('pointerleave', clear);
+    btn.addEventListener('blur', clear);
+    document.addEventListener('pointermove', clear, true);
   }
 
   // Ventana del escritorio: sella al minimizarse o al dejar de ser la activa.
@@ -601,8 +629,10 @@
   var desk = null;
   function deskKey() {
     try {
-      var f = window.parent !== window && window.parent.ItcjDesktop && window.frameElement;
-      var w = f && f.closest('.app-window');
+      var cp = window.CamerasPage;   // lo expone cameras.js; respaldo propio si aún no existe
+      var inDesk = cp && typeof cp.inDesktopWindow === 'boolean' ? cp.inDesktopWindow
+        : window.parent !== window && !!window.parent.ItcjDesktop;
+      var w = inDesk && window.frameElement && window.frameElement.closest('.app-window');
       return w && w.dataset.appId ? w.dataset.appId : null;
     } catch (e) { return null; }
   }
@@ -613,7 +643,9 @@
     var pd = window.parent.document;
     var on = function (e) {
       var k = e.detail && e.detail.key;
-      if (e.type === 'desktop:active-changed' ? k !== key : k === key) sealAll(document, true);
+      if (e.type === 'desktop:active-changed' ? k === key : k !== key) return;
+      pending = null;   // un «Revelar» en vuelo ya no se abre: la ventana dejó de estar al frente
+      sealAll(document, true);
     };
     var evs = ['desktop:window-minimized', 'desktop:active-changed', 'desktop:window-closed'];
     evs.forEach(function (n) { pd.addEventListener(n, on); });
@@ -622,15 +654,15 @@
 
   // Quita lo revelado del DOM (no basta ocultarlo) y para sus relojes.
   function wipe(box) {
+    box.querySelectorAll('[data-pattern-viewer]').forEach(function (v) {
+      var vs = states.get(v);
+      if (vs) stop(vs);   // antes del reloj: si dibujaba, stop() lo arranca y aquí abajo se para
+    });
     var st = states.get(box);
     if (st && st.timer) clearInterval(st.timer);
     box.querySelectorAll('[data-cam-copy]').forEach(function (b) {
       var cs = states.get(b);
       if (cs) clearTimeout(cs.t);
-    });
-    box.querySelectorAll('[data-pattern-viewer]').forEach(function (v) {
-      var vs = states.get(v);
-      if (vs) stop(vs);
     });
     box.remove();
     if (desk && !document.querySelector('[data-revealed]')) desk();
@@ -683,7 +715,13 @@
         if (w === 'start') pn.insertBefore(sn, pn.firstChild); else pn.appendChild(sn);
       });
     }
-    if (!dlg.open) dlg.showModal();
+    if (dlg.open) return;
+    // Al abrir, el foco va a «Ocultar»: sin esto el primer enfocable es el centinela del inicio
+    // y la trampa lo manda al último control.
+    var hide = dlg.querySelector('[data-cam-modal-close]');
+    if (hide) hide.autofocus = true;
+    dlg.showModal();
+    if (hide) hide.focus();
   }
 
   // Trampa de foco: los centinelas devuelven el foco al extremo opuesto del panel.
@@ -701,10 +739,18 @@
     Array.from(dlg.querySelectorAll('[data-revealed]')).forEach(wipe);
     var body = dlg.querySelector('[data-cam-modal-body]');
     if (body) body.textContent = '';
-    if (dlg.open) dlg.close();
+    if (!dlg.open) return;
+    // Sin foco en este documento (el escritorio minimizó o activó otra ventana), cerrar no debe
+    // traer el foco al iframe: el wm lo tomaría por un clic y nos devolvería al frente. El
+    // <dialog> restaura el foco a quien lo abrió, y un botón deshabilitado no lo recibe.
+    var b = !document.hasFocus() && opener && document.querySelector('[data-cam-reveal="' + opener + '"]');
+    if (b) b.disabled = true;
+    dlg.close();
+    if (b) b.disabled = false;
   }
 
   function failReveal(btn, msg) {
+    if (btn !== pending) return;   // un revelado que ya no es el vigente no abre nada
     pending = null;
     var dlg = document.querySelector('dialog[data-cam-modal]');
     var body = dlg && dlg.querySelector('[data-cam-modal-body]');
@@ -716,15 +762,27 @@
 
   function revealBtn(n) { return n && n.closest ? n.closest('[data-cam-reveal]') : null; }
 
+  // Solo el último «Revelar» pulsado es el vigente: la respuesta de otro (o una que llega
+  // cuando la ventana del escritorio ya no está al frente) no entra al DOM. Así el título del
+  // diálogo y el secreto salen siempre del mismo botón.
+  function requester(e) { return e.detail && e.detail.requestConfig ? revealBtn(e.detail.requestConfig.elt) : null; }
   document.addEventListener('htmx:beforeRequest', function (e) {
     var b = revealBtn(e.target);
-    if (b) pending = b;
+    if (!b) return;
+    pending = b;
+    attachDesktop();
+  });
+  // En window: corre después del htmx:beforeSwap de cameras.js, que reactiva el swap de errores.
+  window.addEventListener('htmx:beforeSwap', function (e) {
+    var b = requester(e);
+    if (b && b !== pending) e.detail.shouldSwap = false;
   });
   document.addEventListener('htmx:afterSwap', function (e) {
-    var dlg = modalOf(e.detail && e.detail.target);
-    if (!dlg || !pending) return;
-    openModal(dlg, pending);
+    var dlg = modalOf(e.detail && e.detail.target), b = requester(e);
+    if (!dlg || !b) return;
+    if (b !== pending) { closeModal(dlg); return; }
     pending = null;
+    openModal(dlg, b);
   });
   document.addEventListener('htmx:sendError', function (e) {
     var b = revealBtn(e.target);
@@ -748,7 +806,7 @@
     closeModal(dlg);         // por si se cerró por otra vía: nada queda en el DOM
     var btn = opener && document.querySelector('[data-cam-reveal="' + opener + '"]');
     opener = null;
-    if (btn) btn.focus({ preventScroll: true });
+    if (btn && document.hasFocus()) btn.focus({ preventScroll: true });   // sin robar el foco a otra ventana
   }, true);
   // Clic en el fondo: el diálogo ocupa la pantalla y el panel es su único hijo,
   // así que un clic que empieza y termina en el diálogo mismo cayó fuera del panel
@@ -795,7 +853,7 @@
     if (!dlg) return;
     var had = dlg.querySelector('[data-revealed]');
     closeModal(dlg);
-    if (had) announce('Se ocultaron el patrón y la contraseña');
+    if (had) announce(hiddenMsg(had));
   });
 
   document.addEventListener('input', function (e) {
@@ -820,7 +878,10 @@
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') sealAll(document);
   });
-  window.addEventListener('pagehide', function () { sealAll(document); });
+  window.addEventListener('pagehide', function () {
+    sealAll(document);
+    if (desk) desk();   // aunque ya no quede nada revelado: el listener vive en el document del padre
+  });
   document.addEventListener('htmx:load', function (e) { scan(e.detail && e.detail.elt); });
   document.addEventListener('htmx:afterSettle', function () { scan(document); });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { scan(document); });
