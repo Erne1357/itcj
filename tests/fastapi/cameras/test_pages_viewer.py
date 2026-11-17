@@ -276,3 +276,77 @@ def test_index_views_by_role(app_client):
     assert "cam-card--tile" in few.text and "cam-card--row" not in few.text and 'id="cam-q"' not in few.text
     assert "Revelar patrón y contraseña" in few.text
     assert 'id="cam-q"' in lots.text
+
+
+def test_extend_204_no_store_and_logs(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        with patch(f"{V}.extend") as ex:
+            r = app_client.post("/cameras/dvrs/1/extend", headers=_hdr())
+    assert r.status_code == 204 and r.content == b""
+    assert "no-store" in r.headers["cache-control"]
+    ex.assert_called_once()
+    assert ex.call_args.args[2] == 200
+
+
+def test_extend_out_of_scope_404_and_no_session(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=None)):
+        with patch(f"{V}.extend") as ex:
+            r = app_client.post("/cameras/dvrs/9/extend", headers=_hdr())
+            anon = app_client.post("/cameras/dvrs/1/extend", follow_redirects=False)
+    assert r.status_code == 404
+    assert anon.status_code in (302, 303, 401, 403)
+    ex.assert_not_called()
+
+
+def test_extend_service_logs_extend_without_detail(db_session, cam_world, cameras_key):
+    from itcj2.apps.cameras.models import CamerasAuditLog
+    from itcj2.apps.cameras.schemas.dvr import DvrInput
+    d = dvr_service.create(db_session, DvrInput(name="D", password="pw1"), cam_world.tech)
+    dvr_service.extend(db_session, d, cam_world.tech)
+    row = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id).order_by(CamerasAuditLog.id.desc()).first()
+    assert row.action == "extend" and row.detail is None
+
+
+def test_password_success_shows_notice_in_slot(app_client):
+    import re
+    for manage, extra in ((False, True), (True, False)):
+        v = _viewer(can_manage=manage, see_all=manage, dept_ids=frozenset({1}))
+        with _ctx(app_client, viewer=v, get_visible=dict(return_value=_dvr()),
+                  set_password=dict(return_value=True)):
+            r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+                                data={"password": "pw-ok-1", "password_confirm": "pw-ok-1"})
+        m = re.search(r'id="cam-pwslot-1">(.*?)</div>', r.text, re.S)
+        assert 'role="status"' in m.group(1) and "Contraseña guardada." in m.group(1)
+        assert ("Soporte verá que la cambiaste" in m.group(1)) is extra
+        assert "pw-ok-1" not in r.text
+
+
+def test_flash_whitelist_and_no_reflection(app_client):
+    with _ctx(app_client, list_visible=dict(return_value=[_dvr()])):
+        r = app_client.get("/cameras/?ok=registrado&dvr=1", headers=_hdr())
+        assert 'id="cam-flash"' in r.text and "DVR registrado." in r.text
+        assert r.text.count("data-cam-flash") == 1
+        r = app_client.get("/cameras/?ok=baja&dvr=1", headers=_hdr())
+        assert "DVR dado de baja." in r.text and "data-cam-flash" not in r.text
+        r = app_client.get("/cameras/?ok=<script>zzz&dvr=<b>qq", headers=_hdr())
+        assert 'id="cam-flash"' not in r.text and "zzz" not in r.text and "qq" not in r.text
+        r = app_client.get("/cameras/?ok=actualizado&dvr=abc", headers=_hdr())
+        assert "Cambios guardados." in r.text and "data-cam-flash" not in r.text
+
+
+def test_reveal_orders_username_before_password(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr()),
+              reveal=dict(return_value=_revealed())):
+        r = app_client.post("/cameras/dvrs/1/reveal", headers=_hdr())
+    assert r.text.index("Usuario") < r.text.index("Contraseña")
+    assert 'data-cam-extend-url="/cameras/dvrs/1/extend"' in r.text
+
+
+def test_back_arrow_home_vs_subpages(app_client):
+    with _ctx(app_client, list_visible=dict(return_value=[])):
+        home = app_client.get("/cameras/", headers=_hdr())
+    assert 'id="mobileBackToDashboard"' in home.text
+    with _ctx(app_client, get_visible=dict(return_value=None)):
+        nf = app_client.get("/cameras/dvrs/9/edit", headers=_hdr())
+    assert 'id="mobileBackToDashboard"' not in nf.text
+    assert 'class="mobile-back-to-dashboard" href="/cameras/"' in nf.text

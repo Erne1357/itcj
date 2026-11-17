@@ -24,7 +24,8 @@ router = APIRouter()
 
 PER_PAGE = 50
 ACTION_LABELS = {
-    "reveal": "Reveló credenciales",
+    "reveal": "Vio patrón y contraseña",
+    "extend": "Extendió el tiempo",
     "create": "Registró el DVR",
     "update": "Editó los datos",
     "password_update": "Cambió la contraseña",
@@ -88,9 +89,19 @@ def _form_page(request, db, viewer, dvr):
 
 
 def _form_error(request, db, viewer, dvr, values, selected, message, status_code):
-    """Re-pinta el formulario con lo capturado (sin secretos) y el error en header."""
-    resp = render_cameras(request, "cameras/partials/dvr_form.html",
-                          _form_ctx(db, viewer, dvr, values, selected, message), status_code=status_code)
+    """Error del servidor sin destruir lo tecleado.
+
+    HTMX: solo el aviso, redirigido a #cam-form-error (patrón y contraseñas siguen en el DOM).
+    Sin HTMX: página completa con lo capturado (sin secretos) y el aviso en el formulario.
+    """
+    if request.headers.get("HX-Request"):
+        resp = render_cameras(request, "cameras/partials/form_error.html", {"error": message},
+                              status_code=status_code)
+        resp.headers["HX-Retarget"] = "#cam-form-error"
+        resp.headers["HX-Reswap"] = "innerHTML"
+    else:
+        resp = render_cameras(request, "cameras/manage_form.html",
+                              _form_ctx(db, viewer, dvr, values, selected, message), status_code=status_code)
     return _cam_error(resp, message)
 
 
@@ -120,7 +131,7 @@ def _build(form, values, selected) -> DvrInput:
     """Arma el DvrInput; el mensaje de error nunca lleva valores capturados."""
     password = form.get("password") or None  # sin strip: se guarda como se tecleó
     if (form.get("password") or "") != (form.get("password_confirm") or ""):
-        raise ValueError("La contraseña y su confirmación no coinciden.")
+        raise ValueError("La confirmación no coincide con la contraseña.")
     try:
         channels = int(values["channels"]) if values["channels"] else None
     except ValueError:
@@ -150,9 +161,12 @@ async def _save(request, db, viewer, user, dvr):
     try:
         data = _build(form, values, selected)
         if dvr is None:
-            dvr_service.create(db, data, int(user["sub"]))
+            saved = dvr_service.create(db, data, int(user["sub"]))
+            ok = "registrado"
         else:
-            dvr_service.update(db, dvr, data, int(user["sub"]))
+            saved = dvr_service.update(db, dvr, data, int(user["sub"]))
+            ok = "actualizado"
+        target = f"/cameras/?ok={ok}&dvr={int(saved.id)}"
     except ValueError as exc:
         db.rollback()
         return _form_error(request, db, viewer, dvr, values, selected, str(exc), 422)
@@ -163,7 +177,7 @@ async def _save(request, db, viewer, user, dvr):
         logger.error("Error guardando DVR (%s)", type(exc).__name__)  # sin traceback: podría llevar datos
         db.rollback()
         return _form_error(request, db, viewer, dvr, values, selected, "Error interno al guardar.", 500)
-    return _done(request)
+    return _done(request, target)
 
 
 @router.get("/dvrs/new")
@@ -213,7 +227,7 @@ def deactivate_dvr(dvr_id: int, request: Request, gate=Depends(_manage_gate),
     if dvr is None:
         return _not_found(request)
     dvr_service.deactivate(db, dvr, int(user["sub"]))
-    return _done(request)
+    return _done(request, "/cameras/?ok=baja")
 
 
 # === BITÁCORA ===
@@ -232,7 +246,8 @@ def _detail_text(row: dict) -> str:
     if d.get("removed"):
         return "Se quitó"
     if "departments" in d:
-        return f"{len(d['departments'])} departamento(s)"
+        n = len(d["departments"])
+        return "Sin departamento" if n == 0 else ("1 departamento" if n == 1 else f"{n} departamentos")
     return ""
 
 

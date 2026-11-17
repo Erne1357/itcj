@@ -225,6 +225,12 @@ def reveal(db: Session, dvr: Dvr, actor_id: int) -> Revealed:
                     changed_by if password is not None else None)
 
 
+def extend(db: Session, dvr: Dvr, actor_id: int) -> None:
+    """Registra que se amplió el plazo del revelado (sin detalle: nada secreto)."""
+    _log(db, dvr, actor_id, "extend")
+    db.commit()
+
+
 def audit_page(db: Session, *, page: int, per_page: int = 50, dvr_id: int | None = None,
                actor_id: int | None = None, action: str | None = None):
     from itcj2.core.models.user import User

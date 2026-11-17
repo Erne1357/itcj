@@ -10,6 +10,6 @@
 {% else %}
   <span class="cam-empty__tile" aria-hidden="true"><i class="bi bi-camera-video-off"></i></span>
   <h2 class="cam-empty__title">{% if viewer.see_all %}Aún no hay DVR registrados{% else %}Tu departamento no tiene DVR registrados{% endif %}</h2>
-  <p class="cam-empty__hint">Si tu área tiene un grabador de cámaras, pide a Soporte que lo registre. Aparecerá aquí en cuanto lo liguen a tu departamento.</p>
+  <p class="cam-empty__hint">Si tu área tiene un grabador de cámaras, pide el alta a Soporte o al Centro de Cómputo{% if not viewer.see_all %}: <a href="/help-desk/">levanta una solicitud en Help Desk</a>{% endif %}. Aparecerá aquí en cuanto lo liguen a tu departamento.</p>
 {% endif %}
 </div>

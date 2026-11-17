@@ -109,7 +109,7 @@ def test_create_passes_pattern_from_hidden_input(app_client):
                                 data={"name": " Mi DVR ", "pattern": "1259", "channels": "16",
                                       "department_ids": ["1", "2"], "password": "  x y ",
                                       "password_confirm": "  x y "})
-    assert r.status_code == 200 and r.headers["hx-redirect"] == "/cameras/"
+    assert r.status_code == 200 and r.headers["hx-redirect"] == "/cameras/?ok=registrado&dvr=1"
     data = cr.call_args.args[1]
     assert data.pattern == "1259" and data.channels == 16 and data.name == "Mi DVR"
     assert data.department_ids == [1, 2] and data.password == "  x y "
@@ -203,3 +203,57 @@ def test_audit_actor_filter_select(app_client):
         r = app_client.get("/cameras/audit?actor_id=5", headers=_hdr())
     assert 'name="actor_id"' in r.text
     assert '<option value="5" selected>Ana Pérez López</option>' in r.text
+
+
+def test_form_error_htmx_retargets_and_keeps_form(app_client):
+    with _ctx(app_client, create=dict(side_effect=ValueError("El patrón necesita al menos 4 puntos, sin repetir."))):
+        r = app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
+                            data={"name": "Mi DVR", "pattern": "12", "password": "sec-123",
+                                  "password_confirm": "sec-123"})
+    assert r.status_code == 422
+    assert r.headers["hx-retarget"] == "#cam-form-error" and r.headers["hx-reswap"] == "innerHTML"
+    assert "El patrón necesita al menos 4 puntos" in r.text
+    assert "<form" not in r.text and "sec-123" not in r.text and "Mi DVR" not in r.text
+
+
+def test_form_error_without_htmx_is_full_page_with_slot(app_client):
+    with _ctx(app_client, create=dict(side_effect=ValueError("Error x."))):
+        r = app_client.post("/cameras/dvrs", headers=_hdr(), data={"name": "Mi DVR", "pattern": "1259"})
+    assert r.status_code == 422 and "hx-retarget" not in r.headers
+    assert 'id="cam-form-error"' in r.text and 'tabindex="-1"' in r.text and "Error x." in r.text
+    assert "<html" in r.text and "1259" not in r.text
+
+
+def test_confirmation_copy(app_client):
+    with _ctx(app_client):
+        r = app_client.post("/cameras/dvrs", headers=_hdr(),
+                            data={"name": "a", "password": "a", "password_confirm": "b"})
+    assert "La confirmación no coincide con la contraseña." in unquote(r.headers["x-cam-error"])
+
+
+def test_update_and_deactivate_redirect_with_ok(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr(5))):
+        with patch(f"{S}.update", return_value=_dvr(5)):
+            r = app_client.post("/cameras/dvrs/5", headers=_hdr(), data={"name": "a"}, follow_redirects=False)
+        assert r.status_code == 303 and r.headers["location"] == "/cameras/?ok=actualizado&dvr=5"
+        with patch(f"{S}.deactivate"):
+            r = app_client.post("/cameras/dvrs/5/deactivate", headers=_hdr(), follow_redirects=False)
+        assert r.headers["location"] == "/cameras/?ok=baja"
+
+
+def test_audit_copy_labels(app_client):
+    base = {"id": 1, "dvr_id": 1, "dvr_name": "D", "actor_id": 5, "actor_name": "Ana",
+            "created_at": datetime(2026, 11, 13, 9, 5)}
+    rows = [{**base, "action": "departments_update", "detail": {"departments": []}},
+            {**base, "action": "departments_update", "detail": {"departments": [1]}},
+            {**base, "action": "departments_update", "detail": {"departments": [1, 2]}},
+            {**base, "action": "reveal", "detail": None},
+            {**base, "action": "extend", "detail": None}]
+    with _ctx(app_client, audit_page=dict(return_value=(rows, 5)),
+              audit_actors=dict(return_value=[])):
+        r = app_client.get("/cameras/audit", headers=_hdr())
+    for txt in ("Sin departamento", "1 departamento<", "2 departamentos", "Vio patrón y contraseña",
+                "Extendió el tiempo"):
+        assert txt in r.text
+    assert "departamento(s)" not in r.text and "Reveló" not in r.text
+    assert '<option value="extend">Extendió el tiempo</option>' in r.text

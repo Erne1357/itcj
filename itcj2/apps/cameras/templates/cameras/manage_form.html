@@ -1,5 +1,6 @@
 {% extends "cameras/base_cameras.html" %}
 {% block title %}{% if d %}Editar DVR{% else %}Registrar DVR{% endif %} · Cámaras{% endblock %}
+{% block appbar_back %}<a class="mobile-back-to-dashboard" href="/cameras/" title="Volver a Cámaras" aria-label="Volver a Cámaras"><i class="bi bi-arrow-left" aria-hidden="true"></i></a>{% endblock %}
 {% block body %}
 <main class="cam-page">
   <nav class="cam-crumb" aria-label="Regresar"><a href="/cameras/"><i class="bi bi-arrow-left" aria-hidden="true"></i>Cámaras</a></nav>

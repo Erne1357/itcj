@@ -51,8 +51,5 @@ def normalize_pattern(raw: str) -> str:
     s = _SEPARATORS.sub("", raw or "")
     if (not re.fullmatch(r"[1-9]+", s) or len(set(s)) != len(s)
             or not PATTERN_MIN_LEN <= len(s) <= PATTERN_MAX_LEN):
-        raise ValueError(
-            f"Patrón inválido: usa de {PATTERN_MIN_LEN} a {PATTERN_MAX_LEN} dígitos "
-            "del 1 al 9, sin repetir."
-        )
+        raise ValueError(f"El patrón necesita al menos {PATTERN_MIN_LEN} puntos, sin repetir.")
     return s

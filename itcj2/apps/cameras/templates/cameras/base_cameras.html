@@ -16,9 +16,10 @@
 <body class="cam-body" hx-ext="morph" hx-history="false">
   <!-- App bar: solo visible dentro del iframe móvil (body.in-mobile-iframe). -->
   <header class="cam-appbar">
-    <button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio" aria-label="Volver al inicio">
+    {# Portada: cierra la app (el shell liga #mobileBackToDashboard). Subpáginas: enlace a la lista. #}
+    {% block appbar_back %}<button type="button" class="mobile-back-to-dashboard" id="mobileBackToDashboard" title="Volver al inicio" aria-label="Volver al inicio">
       <i class="bi bi-arrow-left" aria-hidden="true"></i>
-    </button>
+    </button>{% endblock %}
     <span class="cam-appbar__title"><i class="bi bi-camera-video-fill" aria-hidden="true"></i>Cámaras</span>
   </header>
 

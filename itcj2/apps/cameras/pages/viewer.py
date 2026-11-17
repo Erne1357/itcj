@@ -7,7 +7,7 @@ import logging
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from itcj2.apps.cameras.pages.render import render_cameras
@@ -50,11 +50,25 @@ def _list_ctx(db: Session, user: dict, q: str | None) -> dict:
     return {"viewer": viewer, "groups": list(groups.items()), "q": q or ""}
 
 
+FLASH_MESSAGES = {"registrado": "DVR registrado.", "actualizado": "Cambios guardados.",
+                  "baja": "DVR dado de baja."}
+
+
+def _flash_ctx(ok: str, dvr: str) -> dict:
+    """Aviso de éxito tras redirigir: `ok` contra lista blanca y `dvr` entero; nunca se refleja el query."""
+    if ok not in FLASH_MESSAGES:
+        return {}
+    flash_dvr = int(dvr) if ok != "baja" and dvr.isascii() and dvr.isdigit() and len(dvr) < 10 else None
+    return {"flash": FLASH_MESSAGES[ok], "flash_dvr": flash_dvr}
+
+
 @router.get("/")
-def index(request: Request, q: str = "", user=Depends(_gate), db: Session = Depends(get_db)):
+def index(request: Request, q: str = "", ok: str = "", dvr: str = "", user=Depends(_gate),
+          db: Session = Depends(get_db)):
     if isinstance(user, RedirectResponse):
         return user
-    return render_cameras(request, "cameras/index.html", _list_ctx(db, user, q or None))
+    ctx = {**_list_ctx(db, user, q or None), **_flash_ctx(ok, dvr)}
+    return render_cameras(request, "cameras/index.html", ctx)
 
 
 @router.get("/list")
@@ -113,6 +127,18 @@ def reveal(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Dep
     return _cam_error(resp, msg)
 
 
+@router.post("/dvrs/{dvr_id}/extend")
+def extend(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
+    """+30 s del revelado: mismo alcance que revelar; 204 sin cuerpo."""
+    if isinstance(user, RedirectResponse):
+        return user
+    _, dvr = _visible_or_none(db, user, dvr_id)
+    if dvr is None:
+        return _not_found(request)
+    dvr_service.extend(db, dvr, int(user["sub"]))
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
 def _pw_form(request, dvr, *, error=None, status_code=200):
     resp = render_cameras(request, "cameras/partials/password_form.html",
                           {"d": dvr, "error": error}, status_code=status_code)
@@ -152,4 +178,4 @@ def password_save(dvr_id: int, request: Request, password: str = Form(""),
     if not ok:
         return _not_found(request, dvr_id)
     db.refresh(dvr)
-    return render_cameras(request, "cameras/partials/card.html", {"d": dvr, "viewer": viewer})
+    return render_cameras(request, "cameras/partials/card.html", {"d": dvr, "viewer": viewer, "pw_ok": True})

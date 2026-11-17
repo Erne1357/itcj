@@ -7,7 +7,7 @@
   <header class="cam-head">
     <div class="cam-head__id">
       <h1 class="cam-head__title"><span class="cam-mark" aria-hidden="true"><i class="bi bi-camera-video-fill"></i></span>Cámaras</h1>
-      <p class="cam-head__sub">{% if viewer.can_manage %}DVR registrados, agrupados por ubicación.{% else %}Patrón y contraseña de los DVR de tu departamento.{% endif %}</p>
+      <p class="cam-head__sub">{% if viewer.can_manage %}DVR registrados, agrupados por ubicación.{% elif total or q %}Patrón y contraseña de los DVR de tu departamento.{% else %}Aquí aparecerán los DVR de tu departamento.{% endif %}</p>
     </div>
     {% if show_search or viewer.can_manage or viewer.can_audit %}
     <div class="cam-head__tools">
@@ -18,14 +18,16 @@
         <input id="cam-q" class="form-control cam-search__input" type="search" name="q" value="{{ q }}"
                placeholder="DVR, lugar o depto." autocomplete="off"
                hx-get="/cameras/list" hx-target="#cam-list" hx-swap="morph:innerHTML"
-               hx-trigger="keyup changed delay:400ms, search">
+               hx-trigger="input changed delay:300ms, search">
       </form>
       {% endif %}
-      {% if viewer.can_audit %}<a class="cam-btn cam-btn--ghost" href="/cameras/audit" aria-label="Bitácora"><i class="bi bi-journal-text" aria-hidden="true"></i><span class="d-none d-md-inline">Bitácora</span></a>{% endif %}
-      {% if viewer.can_manage %}<a class="cam-btn cam-btn--primary" href="/cameras/dvrs/new" aria-label="Registrar DVR"><i class="bi bi-plus-lg" aria-hidden="true"></i><span class="d-none d-md-inline">Registrar DVR</span></a>{% endif %}
+      {% if viewer.can_audit %}<a class="cam-btn cam-btn--ghost" href="/cameras/audit" aria-label="Bitácora" title="Bitácora"><i class="bi bi-journal-text" aria-hidden="true"></i><span class="cam-btn__label">Bitácora</span></a>{% endif %}
+      {% if viewer.can_manage %}<a class="cam-btn cam-btn--primary" href="/cameras/dvrs/new" aria-label="Registrar DVR" title="Registrar DVR"><i class="bi bi-plus-lg" aria-hidden="true"></i><span class="cam-btn__label">Registrar DVR</span></a>{% endif %}
     </div>
     {% endif %}
   </header>
+
+  {% if flash %}<p class="cam-flash" id="cam-flash" role="status"><i class="bi bi-check-circle-fill" aria-hidden="true"></i><span>{{ flash }}</span></p>{% endif %}
 
   <div id="cam-list">{% include "cameras/partials/list.html" %}</div>
 
@@ -43,5 +45,25 @@
       <div class="cam-modal__body" id="cam-reveal-body" data-cam-modal-body></div>
     </div>
   </dialog>
+
+  {% if viewer.can_manage %}
+  {# Baja: diálogo propio (sin confirm nativo). cameras.js pone el nombre en [data-cam-deactivate-name] y la
+     action del formulario; sin JS, el POST redirige a /cameras/?ok=baja. #}
+  <dialog class="cam-modal cam-modal--confirm" id="cam-deactivate" aria-modal="true" aria-labelledby="cam-deactivate-title" data-cam-confirm>
+    <div class="cam-modal__panel">
+      <header class="cam-modal__head">
+        <div class="cam-modal__id"><h2 class="cam-modal__title" id="cam-deactivate-title">Dar de baja DVR</h2></div>
+      </header>
+      <form class="cam-modal__body" method="post" action="" data-cam-deactivate-form>
+        <p class="cam-confirm__text">«<span data-cam-deactivate-name></span>» dejará de aparecer en la lista. La bitácora conserva su historial.</p>
+        <p class="cam-note cam-note--error" data-cam-deactivate-error role="alert" hidden></p>
+        <div class="cam-form__actions">
+          <button type="button" class="cam-btn cam-btn--ghost" data-cam-confirm-cancel>Cancelar</button>
+          <button type="submit" class="cam-btn cam-btn--danger" data-cam-confirm-ok><span class="cam-spin" aria-hidden="true"></span><span>Dar de baja DVR</span></button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+  {% endif %}
 </main>
 {% endblock %}
