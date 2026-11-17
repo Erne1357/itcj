@@ -11,7 +11,10 @@
    Mapa de bloques (las plantillas usan EXACTAMENTE estos nombres):
    - cam-body ............ <body> de la app (fondo, fuente, remapeo de Bootstrap)
    - cam-appbar .......... barra del iframe móvil: __title (visible solo con
-                           body.in-mobile-iframe, que pone mobile-app-shell.js)
+                           body.in-mobile-iframe, que pone mobile-app-shell.js;
+                           en la ventana del escritorio cameras.js lo cambia por
+                           body.in-desktop-window y la barra no aparece)
+   - cam-flash ........... aviso de éxito arriba de la lista (?ok=...)
    - cam-page ............ contenedor de vista (tope 1240 px, márgenes)
    - cam-crumb ........... enlace de regreso arriba de un formulario
    - cam-head ............ cabecera de vista: __title, __sub, __tools (buscador
@@ -23,20 +26,27 @@
    - cam-card ............ un DVR. --row (Soporte: __id, __depts, __stored,
                            __reveal, __tools) o --tile (Jefe: cam-face,
                            __body, __place, __shared, __actions). Ambas: __name,
-                           __meta (cada dato en un span), __slot (hueco del
-                           formulario de contraseña, id cam-pwslot-N)
+                           __meta (cada dato en un span; __dot es el «·» dentro
+                           del span que sigue), __slot (hueco del formulario de
+                           contraseña, id cam-pwslot-N), __note (aviso tras el
+                           auto-sello, id cam-note-N). .is-flashing = fila recién
+                           registrada o editada
    - cam-tiles ........... rejilla de tarjetas del jefe
    - cam-face ............ carátula grafito de la tarjeta: __grid (9 puntos),
                            __mask (contraseña enmascarada, longitud fija)
    - cam-chip ............ depto ligado; --none = sin departamento, --more = +N
    - cam-badge ........... qué guarda el DVR (patrón, contraseña)
    - cam-modal ........... <dialog> del revelado: __panel, __head, __id,
-                           __title, __sub, __body (hoja inferior bajo 640 px)
+                           __title, __sub, __body (hoja inferior bajo 640 px),
+                           __sentinel (trampa de foco). --confirm = baja (con
+                           cam-confirm__text)
    - cam-secret .......... lo revelado ([data-revealed], dentro de __body);
-                           --pattern = trae patrón; .is-ending en los últimos 5 s
+                           --pattern = trae patrón; data-cam-timer = drawing |
+                           running | ending | sealed (.is-ending = ending)
    - cam-reveal .......... piezas de lo revelado: __timer, __countdown, __fuse,
-                           __device, __info, __block, __row, __label, __meta,
-                           __facts, __notes, __error, __error-tile
+                           __extend (+30 s), __extend-msg, __device, __info,
+                           __block, __row, __label, __meta, __facts, __notes,
+                           __error, __error-tile
    - cam-pattern ......... aparato grafito del visor y del editor: __screen,
                            __console, __caption, __controls
    - cam-grid ............ el SVG 3x3 (lo dibuja pattern.js): --edit,
@@ -48,8 +58,10 @@
                            __plain (campo del respaldo de copiado)
    - cam-editor .......... editor del patrón: __device, __readout, __status
    - cam-btn ............. botones: --primary, --reveal, --ghost, --quiet,
-                           --dark, --signal, --icon, --sm; .is-copied
-   - cam-spin ............ indicador dentro de un botón con .htmx-request
+                           --dark, --signal, --danger, --icon, --sm; .is-copied;
+                           __label (texto que se oculta bajo 560 px)
+   - cam-spin ............ indicador dentro de un botón con .htmx-request o
+                           aria-busy="true"
    - cam-empty ........... estado vacío: __tile, __title, __hint, __action
    - cam-panel ........... superficie blanca de un formulario (sin anidar)
    - cam-form ............ formulario: --narrow, __section, __intro, __title,
@@ -58,7 +70,8 @@
    - cam-note ............ aviso en línea: --warn, --ok, --error
    - cam-picker .......... multiselección de deptos: __top, __search,
                            __list, __item, __empty, __count (pie)
-   - cam-form__error ..... aviso de error al tope del formulario (con cam-note)
+   - cam-form__error ..... hueco del error del servidor al tope del formulario
+                           (siempre presente; vacío no ocupa espacio)
    - cam-audit ........... bitacora: __filters (selects en fila fluida),
                            __table (tabla; bajo 768 px cada fila es una
                            tarjeta apilada con data-label), __when, __act,
@@ -96,6 +109,7 @@
   --cam-warn-ink: #7a3a00;      /* 7.9:1 sobre warn-soft */
   --cam-warn-on-screen: #f2b25c;/* 9.6:1 sobre pantalla */
   --cam-danger: #c22826;        /* 5.8:1 blanco, 5.1:1 sobre danger-soft */
+  --cam-danger-hover: #a11d1b;  /* 7.8:1 blanco */
   --cam-danger-soft: #ffece9;
 
   /* Tipo: escala fija en rem (registro product) */
@@ -132,6 +146,8 @@
 .cam-page { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
 @media (min-width: 768px) { .cam-page { padding: 28px 24px 64px; } }
 
+/* [hidden] gana siempre: .cam-btn y otros declaran display (p. ej. «+30 s» mientras se dibuja). */
+.cam-body [hidden] { display: none !important; }
 .cam-body :focus-visible { outline: 3px solid var(--cam-focus); outline-offset: 2px; }
 .cam-body .form-label,
 .cam-body .form-check-label { font-size: var(--cam-fs-sm); font-weight: 600; color: var(--cam-ink); }
@@ -148,6 +164,8 @@
 .cam-body .form-check-input:focus { box-shadow: 0 0 0 3px rgba(74, 113, 10, .28); border-color: var(--cam-ink); }
 
 /* ── App bar del iframe móvil (como Directorio) ─────────────────────────── */
+/* Solo en el iframe móvil real. En la ventana del escritorio cameras.js quita
+   in-mobile-iframe (pone in-desktop-window): sin barra ni flecha que cierre la ventana. */
 .cam-appbar { display: none; }
 body.in-mobile-iframe .cam-appbar {
   display: flex; align-items: center; gap: .5rem;
@@ -157,7 +175,13 @@ body.in-mobile-iframe .cam-appbar {
 }
 .cam-appbar__title { display: flex; align-items: center; gap: .5rem; font-size: var(--cam-fs-md); font-weight: 600; }
 .cam-appbar__title .bi { color: var(--cam-signal); }
-body.in-mobile-iframe .cam-head__title { display: none; }
+/* Portada: la barra ya dice «Cámaras»; el h1 se queda para el lector de pantalla.
+   Subpáginas (Registrar, Editar, Bitácora): su h1 sigue visible. */
+body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+/* Subpáginas: la flecha de la barra ya vuelve a la lista; el shell la oculta desde 992 px. */
+@media (max-width: 991.98px) { body.in-mobile-iframe .cam-crumb { display: none; } }
 
 /* ── Cabecera de vista ───────────────────────────────────────────────────── */
 .cam-crumb { margin-bottom: 12px; font-size: var(--cam-fs-sm); }
@@ -178,6 +202,20 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 /* Buscador y acciones en la línea del título: la lista empieza más arriba. */
 .cam-head__tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
 @media (max-width: 767.98px) { .cam-head__tools { flex: 1 1 100%; } }
+/* «Bitácora» y «Registrar DVR» con texto hasta 560 px; debajo, solo el ícono (llevan title y aria-label). */
+@media (max-width: 559.98px) {
+  .cam-btn__label { display: none; }
+  .cam-btn:has(> .cam-btn__label) { flex: none; width: 40px; padding: 0; }
+}
+@media (max-width: 559.98px) and (pointer: coarse) { .cam-btn:has(> .cam-btn__label) { width: var(--cam-tap); } }
+
+/* Aviso de éxito arriba de la lista (?ok=registrado|actualizado|baja). */
+.cam-flash {
+  display: flex; align-items: flex-start; gap: .5rem; margin: 0 0 16px; padding: 10px 12px;
+  font-size: var(--cam-fs-sm); font-weight: 600; line-height: 1.4; color: var(--cam-signal-ink);
+  background: var(--cam-signal-soft); border-radius: 10px; text-wrap: pretty;
+}
+.cam-flash > .bi { flex: none; margin-top: .1rem; }
 
 .cam-mark {
   flex: none; display: grid; place-items: center;
@@ -248,6 +286,30 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 }
 .cam-card__slot { grid-column: 1 / -1; min-width: 0; }
 .cam-card__slot:empty { display: none; }
+/* Soporte: «Revelar» es secundario en cada fila; el único primario oscuro es «Registrar DVR». */
+.cam-card--row .cam-btn--reveal { background: var(--cam-surface); border-color: var(--cam-line); color: var(--cam-ink); }
+.cam-card--row .cam-btn--reveal:hover { background: var(--cam-bg); border-color: var(--cam-line-strong); color: var(--cam-ink); }
+.cam-card--row .cam-btn--reveal .bi { color: var(--cam-signal-ink); }
+
+/* Fila recién registrada o editada: el fondo de la señal se desvanece hacia el suyo. */
+.cam-card[data-cam-flash] { scroll-margin: 5rem 0; }
+.cam-card.is-flashing { animation: cam-flash 2.4s ease-in; }
+@keyframes cam-flash { 0%, 30% { background-color: var(--cam-signal-soft); } }
+
+/* «Se ocultó. Puedes revelarlo otra vez.»: vacío no ocupa lugar pero sigue en el árbol
+   accesible (role=status), para que el lector anuncie el texto cuando llegue. */
+.cam-card__note {
+  grid-column: 1 / -1; margin: 0; padding: 8px 12px;
+  font-size: var(--cam-fs-sm); line-height: 1.4; color: var(--cam-ink-2);
+  background: var(--cam-bg); border-radius: 10px; text-wrap: pretty;
+}
+.cam-card__note:not(:empty) { animation: cam-fade .2s ease-out; }
+.cam-card__note:empty { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.cam-card--tile .cam-card__note { margin: 4px 10px 10px; }
+
+/* «Contraseña guardada.»: el JS pone .is-leaving 200 ms antes de quitarlo. */
+.cam-card__slot > [data-cam-pw-ok] { transition: opacity .2s ease-out; }
+.cam-card__slot > [data-cam-pw-ok].is-leaving { opacity: 0; }
 
 .cam-card__name { margin: 0; font-size: var(--cam-fs-md); font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; text-wrap: pretty; }
 .cam-card__meta { margin: .2rem 0 0; font-size: .8125rem; color: var(--cam-ink-2); overflow-wrap: anywhere; }
@@ -302,13 +364,14 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor;
   transition: background-color .18s ease-out;
 }
-/* Pasar por «Revelar» enciende la carátula en diagonal, del 1 al 9. */
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face { color: var(--cam-signal); }
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible, .htmx-request)) .cam-face__grid > span { transform: scale(1.18); }
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(2), :nth-child(4)) { transition-delay: 35ms; }
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(3), :nth-child(5), :nth-child(7)) { transition-delay: 70ms; }
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(6), :nth-child(8)) { transition-delay: 105ms; }
-.cam-card--tile:has(.cam-btn--reveal:is(:hover, :focus-visible)) .cam-face__grid > span:nth-child(9) { transition-delay: 140ms; }
+/* Pasar por «Revelar» enciende la carátula en diagonal, del 1 al 9. Tras el auto-sello el botón
+   lleva data-cam-just-sealed hasta que el puntero sale o pierde el foco: la carátula sigue apagada. */
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible, .htmx-request)) .cam-face { color: var(--cam-signal); }
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible, .htmx-request)) .cam-face__grid > span { transform: scale(1.18); }
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(2), :nth-child(4)) { transition-delay: 35ms; }
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(3), :nth-child(5), :nth-child(7)) { transition-delay: 70ms; }
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible)) .cam-face__grid > span:is(:nth-child(6), :nth-child(8)) { transition-delay: 105ms; }
+.cam-card--tile:has(.cam-btn--reveal:not([data-cam-just-sealed]):is(:hover, :focus-visible)) .cam-face__grid > span:nth-child(9) { transition-delay: 140ms; }
 .cam-card--tile:has(.cam-btn--reveal.htmx-request) .cam-face > * { animation: cam-blink .7s ease-in-out infinite alternate; }
 @keyframes cam-blink { to { opacity: .4; } }
 
@@ -327,7 +390,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 
 /* Formulario de contraseña dentro de una fila o tarjeta: sin la barra pegajosa del panel. */
 .cam-card__slot .cam-form--narrow { padding-top: 14px; }
-.cam-card--row .cam-card__slot { border-top: 1px dashed var(--cam-line); margin-top: 6px; }
+.cam-card--row .cam-card__slot:has(> form) { border-top: 1px dashed var(--cam-line); margin-top: 6px; }
 .cam-card__slot .cam-form__actions { position: static; margin: 0; padding: 4px 0 0; background: none; border: 0; border-radius: 0; }
 
 /* ── Diálogo de revelado ─────────────────────────────────────────────────── */
@@ -345,11 +408,20 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   box-shadow: 0 32px 64px -24px rgba(10, 14, 19, .6);
   animation: cam-modal-in .36s var(--cam-ease) backwards;
 }
-/* Patrón + datos: dos columnas, el aparato a la izquierda. */
-@media (min-width: 720px) {
-  .cam-modal__panel:has(.cam-secret--pattern .cam-reveal__info > *) { width: min(100%, 54rem); }
-  .cam-secret--pattern:has(.cam-reveal__info > *) { grid-template-columns: minmax(0, 23rem) minmax(15rem, 1fr); column-gap: 28px; }
-}
+/* Con patrón el panel tiene alto propio y el aparato toma el alto que dejan la cabecera, el reloj
+   y los datos (ver .cam-secret--pattern): la rejilla se ajusta sin adivinar cuánto mide cada cosa.
+   El tope es lo que pide el contenido en una pantalla amplia; abajo de él manda el alto disponible. */
+.cam-modal__panel:has(.cam-secret--pattern) { height: min(100%, 41rem); }
+.cam-modal__panel:has(.cam-secret--pattern .cam-reveal__info > *) { width: min(100%, 54rem); height: min(100%, 37rem); }
+/* Centinelas de la trampa de foco (los pone el JS): enfocables, invisibles, sin ocupar lugar. */
+.cam-modal__sentinel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.cam-modal__sentinel:focus,
+.cam-modal__sentinel:focus-visible { outline: none; }
+/* Baja: panel angosto en escritorio; en móvil, la misma hoja inferior del revelado. */
+@media (min-width: 640px) { .cam-modal--confirm .cam-modal__panel { width: min(100%, 26rem); } }
+.cam-modal--confirm .cam-modal__body { display: flex; flex-direction: column; gap: 14px; }
+.cam-confirm__text { margin: 0; font-size: var(--cam-fs-md); line-height: 1.45; color: var(--cam-ink); overflow-wrap: anywhere; text-wrap: pretty; }
+.cam-modal--confirm .cam-form__actions { position: static; margin: 4px 0 0; padding: 0; background: none; border: 0; border-radius: 0; }
 .cam-modal__head {
   display: flex; align-items: flex-start; gap: 12px; padding: 16px 16px 14px 20px;
   border-bottom: 1px solid var(--cam-line);
@@ -357,7 +429,11 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-modal__id { flex: 1; min-width: 0; }
 .cam-modal__title { margin: 0; font-size: var(--cam-fs-lg); font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; text-wrap: balance; }
 .cam-modal__sub { margin: .2rem 0 0; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); overflow-wrap: anywhere; }
-.cam-modal__body { --cam-pad-t: 16px; --cam-pad-x: 20px; min-height: 0; padding: var(--cam-pad-t) var(--cam-pad-x) 22px; overflow: auto; overscroll-behavior: contain; }
+.cam-modal__body {
+  --cam-pad-t: 16px; --cam-pad-x: 20px; flex: 1 1 auto; min-height: 0;
+  padding: var(--cam-pad-t) var(--cam-pad-x) 22px; overflow: auto; overscroll-behavior: contain;
+  container: cam-reveal / inline-size;   /* las dos columnas dependen del ancho del cuerpo, no del viewport */
+}
 .cam-modal__body > .cam-field__error {
   margin: 0; padding: 12px 14px; font-size: var(--cam-fs-sm);
   background: var(--cam-danger-soft); border-radius: 10px;
@@ -378,10 +454,20 @@ body.in-mobile-iframe .cam-head__title { display: none; }
     width: 100%; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px);
     animation-name: cam-sheet-in; animation-duration: .4s;
   }
+  /* Con patrón la hoja usa todo el alto: los datos van arriba y el aparato llena el resto. */
+  .cam-modal__panel:has(.cam-secret--pattern),
+  .cam-modal__panel:has(.cam-secret--pattern .cam-reveal__info > *) { height: 100%; }
+  .cam-modal--confirm .cam-form__actions > .cam-btn { flex: 1 1 0; }
   .cam-modal__head { padding: 14px 12px 12px 16px; }
   .cam-modal__title { font-size: 1.125rem; }
   .cam-modal__sub { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   .cam-modal__body { --cam-pad-t: 14px; --cam-pad-x: 16px; padding-bottom: 18px; }
+  /* Con patrón, más compacta: en 360 × 676 caben datos y rejilla completos. */
+  .cam-modal:has(.cam-secret--pattern) .cam-modal__sub { -webkit-line-clamp: 1; }
+  .cam-modal:has(.cam-secret--pattern) .cam-modal__body { padding-bottom: 12px; }
+  .cam-modal .cam-secret--pattern { gap: 12px; }
+  .cam-modal .cam-secret--pattern .cam-reveal__info { gap: 14px; }
+  .cam-modal .cam-secret--pattern .cam-reveal__block { gap: 8px; }
 }
 /* Pantallas bajas (teléfono acostado, ventana chica del escritorio). */
 @media (max-height: 560px) {
@@ -394,25 +480,50 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 
 /* ── Secreto revelado (dentro del diálogo) ───────────────────────────────── */
 .cam-secret { display: grid; gap: 16px; align-items: start; }
-/* La cuenta regresiva se queda arriba aunque el cuerpo haga scroll (hoja móvil). */
-.cam-reveal__timer {
-  grid-column: 1 / -1; position: sticky; top: calc(-1 * var(--cam-pad-t, 0px)); z-index: 2; display: flex; align-items: center; gap: 12px;
-  margin: calc(-1 * var(--cam-pad-t, 0px)) calc(-1 * var(--cam-pad-x, 0px)) 0;
-  padding: var(--cam-pad-t, 0px) var(--cam-pad-x, 0px) 6px; background: var(--cam-surface);
+/* Con patrón. Una columna: reloj, datos (Usuario y Contraseña) y el aparato en el alto que sobra;
+   el panel tiene alto propio, así que la fila 1fr del aparato es exactamente lo que queda.
+   Dos columnas (container query del cuerpo): el aparato a la izquierda a todo el alto, el reloj
+   y los datos a la derecha. El orden visual cambia con áreas; el DOM no se toca. */
+.cam-secret--pattern { min-height: 100%; grid-template: "timer" auto "device" 1fr / minmax(0, 1fr); }
+.cam-secret--pattern:has(.cam-reveal__info > *) { grid-template: "timer" auto "info" auto "device" 1fr / minmax(0, 1fr); }
+.cam-secret--pattern > .cam-reveal__timer { grid-area: timer; }
+.cam-secret--pattern > .cam-reveal__info { grid-area: info; }
+.cam-secret--pattern > .cam-reveal__device { grid-area: device; align-self: stretch; display: flex; flex-direction: column; }
+@container cam-reveal (min-width: 30rem) {
+  .cam-secret--pattern:has(.cam-reveal__info > *) {
+    grid-template: "device timer" auto "device info" auto "device ." 1fr / minmax(0, 23rem) minmax(15rem, 1fr);
+    column-gap: 28px;
+  }
 }
+/* La cuenta regresiva se queda arriba aunque el cuerpo haga scroll (hoja móvil). La mecha corre
+   a lo ancho debajo de la fila: así «+30 s» nunca le quita espacio. */
+.cam-reveal__timer {
+  grid-column: 1 / -1; position: sticky; top: calc(-1 * var(--cam-pad-t, 0px)); z-index: 2;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 2px 12px;
+  margin: calc(-1 * var(--cam-pad-t, 0px)) calc(-1 * var(--cam-pad-x, 0px)) 0;
+  padding: var(--cam-pad-t, 0px) var(--cam-pad-x, 0px) 10px; background: var(--cam-surface);
+}
+/* Alto de un botón chico aunque «+30 s» siga oculto (mientras se dibuja): el reloj no brinca al aparecer. */
 .cam-reveal__countdown {
-  flex: none; display: flex; align-items: center; gap: .4rem; margin: 0;
+  flex: none; display: flex; align-items: center; gap: .4rem; min-height: 34px; margin: 0;
   font-size: var(--cam-fs-sm); color: var(--cam-ink-2);
 }
 .cam-reveal__countdown b { min-width: 2ch; text-align: right; font-weight: 700; color: var(--cam-ink); font-variant-numeric: tabular-nums; }
-.cam-reveal__fuse { flex: 1; height: 4px; border-radius: 999px; background: var(--cam-line); overflow: hidden; }
+.cam-reveal__fuse {
+  position: absolute; left: var(--cam-pad-x, 0px); right: var(--cam-pad-x, 0px); bottom: 2px;
+  height: 4px; border-radius: 999px; background: var(--cam-line); overflow: hidden;
+}
 .cam-reveal__fuse > span {
   display: block; height: 100%; background: var(--cam-ink); border-radius: inherit;
   transform-origin: left center; transition: transform .25s linear, background-color .3s;
 }
-.cam-secret.is-ending .cam-reveal__fuse > span { background: var(--cam-warn); }
-.cam-secret.is-ending .cam-reveal__countdown,
-.cam-secret.is-ending .cam-reveal__countdown b { color: var(--cam-warn); }
+.cam-secret:is(.is-ending, [data-cam-timer="ending"]) .cam-reveal__fuse > span { background: var(--cam-warn); }
+.cam-secret:is(.is-ending, [data-cam-timer="ending"]) .cam-reveal__countdown,
+.cam-secret:is(.is-ending, [data-cam-timer="ending"]) .cam-reveal__countdown b { color: var(--cam-warn); }
+.cam-reveal__extend { flex: none; }
+/* «No se pudo extender.»: en su propia línea, bajo la cuenta y el botón. */
+.cam-reveal__extend-msg { flex: 1 1 100%; order: 2; font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-danger); }
+@media (pointer: coarse) { .cam-reveal__countdown { min-height: 40px; } }
 
 /* El aparato se abre desde el centro, como un obturador; los datos suben detrás.
    Solo `backwards`: con el clip-path final aplicado, los focos del borde quedarían recortados. */
@@ -427,8 +538,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-reveal__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cam-reveal__label { margin: 0; font-size: var(--cam-fs-sm); font-weight: 600; color: var(--cam-ink); }
 .cam-reveal__meta { margin: 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); }
-.cam-reveal__facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; padding-top: 14px; border-top: 1px solid var(--cam-line); font-size: var(--cam-fs-sm); }
-.cam-reveal__block + .cam-reveal__facts { margin-top: -2px; }
+.cam-reveal__facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; font-size: var(--cam-fs-sm); }
 .cam-reveal__facts > div { display: flex; align-items: baseline; gap: .5rem; }
 .cam-reveal__facts dt { font-weight: 600; }
 .cam-reveal__facts dd { margin: 0; }
@@ -460,8 +570,14 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-pattern__controls .cam-btn { padding: 0 12px; gap: .375rem; }
 .cam-pattern__controls .cam-btn--icon { padding: 0; }
 .cam-pattern__controls > :last-child { margin-left: auto; }
-/* En el diálogo, la cuadrícula cede ante la altura: el aparato cabe sin hacer scroll. */
-.cam-modal .cam-pattern__screen { max-width: min(22rem, max(12rem, 100vh - 22rem)); max-width: min(22rem, max(12rem, 100dvh - 22rem)); }
+/* En el diálogo el aparato llena su área (.cam-secret--pattern) y la pantalla es un contenedor:
+   la rejilla es el cuadrado más grande que cabe, con tope de 22rem y piso usable de 150 px. */
+.cam-modal .cam-reveal__device > .cam-pattern { flex: 1 1 auto; }
+.cam-modal .cam-pattern__screen {
+  container-type: size; flex: 1 1 0; min-height: 150px; max-width: none;
+  display: grid; place-items: center;
+}
+.cam-modal .cam-pattern__screen > .cam-grid { width: min(100cqi, 100cqb, 22rem); }
 
 .cam-grid { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--cam-font); user-select: none; -webkit-user-select: none; }
 .cam-grid--edit { touch-action: none; cursor: crosshair; border-radius: var(--cam-r); }
@@ -510,11 +626,16 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   font-family: var(--cam-mono); font-size: 1.5rem; font-weight: 700; line-height: 1;
   color: var(--cam-ink); font-variant-ligatures: none;
 }
+/* Las celdas se encogen antes de partir la línea: el corte se decide con la base (el ancho del
+   carácter, .6em en JetBrains Mono, más el relleno) y cada celda crece hasta la medida cómoda.
+   Una contraseña de 10 cabe en una línea desde ~220 px; solo las muy largas se parten. */
 .cam-pw__ch {
   position: relative; display: inline-flex; justify-content: center;
-  min-width: 1.15em; padding: 8px 2px 22px; white-space: pre;
+  flex: 1 0 calc(.6em + 4px); max-width: 1.15em; padding: 8px 2px 22px; white-space: pre;
   background: var(--cam-bg); border-radius: 6px;
 }
+/* Muy larga (13+): se parte de todos modos; sin crecer, las celdas quedan parejas en todas las líneas. */
+.cam-pw:has(> .cam-pw__ch:nth-child(13)) > .cam-pw__ch { flex-grow: 0; }
 .cam-pw__ch::after {
   content: attr(data-i); content: attr(data-i) / "";
   position: absolute; left: 0; right: 0; bottom: 5px; text-align: center;
@@ -531,10 +652,37 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-pw__key { font-family: var(--cam-mono); font-weight: 700; margin-right: .25rem; }
 .cam-body .cam-pw__plain { font-family: var(--cam-mono); font-size: var(--cam-fs-md); font-weight: 700; }
 
+/* ── Revelado en pantallas muy bajas (teléfono acostado, ~740 × 296) ─────── */
+/* La consola del aparato pasa al lado de la pantalla y todo se aprieta: la rejilla conserva
+   su piso de 150 px y Usuario + Contraseña quedan a la vista sin scroll. */
+@media (max-height: 420px) {
+  .cam-modal__head { align-items: center; padding: 6px 10px 6px 16px; }
+  .cam-modal__body { --cam-pad-t: 8px; padding-bottom: 8px; }
+  .cam-modal .cam-secret--pattern { gap: 10px; }
+  .cam-modal .cam-secret--pattern .cam-reveal__info { gap: 8px; }
+  .cam-modal .cam-reveal__block { gap: 6px; }
+  /* Ayudas secundarias (leyenda de colores, aria-hidden, y «Actualizada por…»): aquí no hay alto
+     para ellas; en cualquier otra pantalla siguen visibles. */
+  .cam-modal .cam-pw__legend,
+  .cam-modal .cam-reveal__meta { display: none; }
+  .cam-modal .cam-pw { font-size: 1.25rem; }
+  .cam-modal .cam-pw__ch { padding: 6px 2px 18px; }
+  .cam-modal .cam-pw__ch::after { bottom: 3px; }
+  .cam-modal .cam-pw__ch--space::before { font-size: 1.25rem; }
+  .cam-modal .cam-reveal__device > .cam-pattern { flex-direction: row; }
+  .cam-modal .cam-reveal__device .cam-pattern__console { flex: none; width: 10.5rem; justify-content: center; }
+  @container cam-reveal (min-width: 30rem) {
+    .cam-secret--pattern:has(.cam-reveal__info > *) { grid-template-columns: minmax(0, 25rem) minmax(15rem, 1fr); column-gap: 20px; }
+  }
+}
+
 /* ── Editor del patrón ───────────────────────────────────────────────────── */
 .cam-editor { display: grid; gap: 12px 24px; align-items: start; }
 @media (min-width: 768px) { .cam-editor { grid-template-columns: minmax(0, 21rem) minmax(0, 1fr); } }
-.cam-editor__device { min-width: 0; }
+/* En una columna, el aparato no se vuelve una losa a todo lo ancho del formulario. */
+.cam-editor__device { min-width: 0; max-width: 24rem; }
+/* Patrón de menos de 4 puntos: el JS marca el editor (aria-invalid) y pone el aviso debajo. */
+.cam-editor[aria-invalid="true"] .cam-editor__device { outline: 2px solid var(--cam-danger); outline-offset: 2px; }
 .cam-editor__readout {
   margin: 0; padding: 0 4px; min-height: 1.5em;
   font-family: var(--cam-mono); font-size: var(--cam-fs-md); font-weight: 700; color: var(--cam-screen-ink);
@@ -570,6 +718,8 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-btn--dark:hover:not(:disabled) { background: var(--cam-screen-3); color: #fff; }
 .cam-btn--signal { background: var(--cam-signal); color: var(--cam-screen); }
 .cam-btn--signal:hover { background: var(--cam-signal-hover); color: var(--cam-screen); }
+.cam-btn--danger { background: var(--cam-danger); color: #fff; }
+.cam-btn--danger:hover { background: var(--cam-danger-hover); color: #fff; }
 .cam-btn--icon { width: 40px; padding: 0; }
 .cam-btn--sm { min-height: 34px; padding: 0 12px; font-size: .8125rem; }
 .cam-btn--sm.cam-btn--icon { width: 34px; }
@@ -587,9 +737,15 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   border: 2px solid currentColor; border-right-color: transparent;
   animation: cam-spin .7s linear infinite;
 }
-.htmx-request > .cam-spin { display: inline-block; }
-.htmx-request > .bi { display: none; }
-.cam-btn.htmx-request { pointer-events: none; }
+/* Ocupado: por HTMX (.htmx-request) o por fetch propio (aria-busy="true", baja y «+30 s»).
+   El spinner sustituye al ícono; un botón ocupado no recibe otro clic. */
+:is(.htmx-request, [aria-busy="true"]) > .cam-spin { display: inline-block; }
+.htmx-request > .bi,
+[aria-busy="true"]:has(> .cam-spin) > .bi { display: none; }
+.cam-btn:is(.htmx-request, [aria-busy="true"]) { pointer-events: none; }
+/* Deshabilitado y ocupado a la vez: se atenúa menos que :disabled para que el spinner se lea. */
+.cam-btn[aria-busy="true"]:disabled { opacity: .7; }
+.cam-btn[aria-busy="true"]:not(:has(> .cam-spin)) { opacity: .55; }
 @keyframes cam-spin { to { transform: rotate(360deg); } }
 
 /* ── Estados vacíos ──────────────────────────────────────────────────────── */
@@ -636,7 +792,7 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-field .form-label { margin-bottom: .375rem; }
 .cam-field__hint { margin: .375rem 0 0; font-size: var(--cam-fs-xs); color: var(--cam-ink-2); text-wrap: pretty; }
 .cam-field__error { display: flex; gap: .375rem; margin: .375rem 0 0; font-size: var(--cam-fs-xs); font-weight: 600; color: var(--cam-danger); }
-.cam-body .form-control.is-invalid { border-color: var(--cam-danger); background-image: none; padding-right: .75rem; }
+.cam-body .form-control:is(.is-invalid, [aria-invalid="true"]) { border-color: var(--cam-danger); background-image: none; padding-right: .75rem; }
 
 .cam-note {
   display: flex; gap: .5rem; align-items: flex-start; margin: 0; padding: 10px 12px;
@@ -675,8 +831,9 @@ body.in-mobile-iframe .cam-head__title { display: none; }
 .cam-picker__item:has(input:checked) > label { font-weight: 600; }
 .cam-picker__empty { margin: 0; padding: 16px; font-size: var(--cam-fs-sm); color: var(--cam-ink-2); text-align: center; }
 
-/* ── Gestión: aviso de error del formulario ──────────────────────────────── */
-.cam-form__error { margin: 20px 0 0; }
+/* ── Gestión: hueco del error del servidor ───────────────────────────────── */
+/* Siempre está (role=alert, recibe el foco); vacío no deja margen. */
+.cam-form__error:not(:empty) { margin-top: 20px; }
 
 /* ── Bitácora: tabla que se apila bajo 768 px (sin scroll horizontal) ───── */
 .cam-audit__filters {
@@ -720,4 +877,8 @@ body.in-mobile-iframe .cam-head__title { display: none; }
   .cam-dot.is-current .cam-dot__halo { animation: none; opacity: 1; }
   .cam-btn:active:not(:disabled) { transform: none; }
   .cam-spin { animation-duration: 1.6s; }
+  /* Fila resaltada: el fondo se queda fijo ~2 s y se quita de golpe, sin desvanecer. */
+  .cam-card.is-flashing { animation: cam-flash 2s step-end; }
+  .cam-card__note:not(:empty) { animation: none; }
+  .cam-card__slot > [data-cam-pw-ok] { transition: none; }
 }
