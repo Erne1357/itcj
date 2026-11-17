@@ -7,39 +7,237 @@ document.addEventListener('htmx:beforeSwap', function (e) {
   }
 });
 
-// === BAJA DE DVR (confirmación con el modal compartido; nunca confirm nativo) ===
-document.addEventListener('click', async function (e) {
-  var btn = e.target.closest && e.target.closest('[data-cam-deactivate]');
-  if (!btn || btn.disabled) return;
-  var ok = await window.AppModal.confirm({
-    title: 'Dar de baja el DVR',
-    message: '«' + btn.getAttribute('data-name') + '» dejará de aparecer en la lista. La bitácora conserva su historial.',
-    confirmText: 'Dar de baja', confirmVariant: 'danger', cancelText: 'Cancelar'
-  });
-  if (!ok) return;
-  btn.disabled = true;
+// === CONTEXTO DE PÁGINA (ventana del escritorio vs iframe móvil) ===
+// shortcut: mismo origen + ItcjDesktop.wm = ventana del escritorio; cualquier otro iframe se queda como móvil.
+function camInDesktopWindow() {
   try {
-    var res = await fetch('/cameras/dvrs/' + btn.getAttribute('data-cam-deactivate') + '/deactivate',
-      { method: 'POST', credentials: 'same-origin', headers: { 'HX-Request': 'true' } });
-    if (res.ok) { window.location.reload(); return; }
-    var msg = res.headers.get('X-Cam-Error');
-    await window.AppModal.alert({ title: 'No se pudo dar de baja',
-      message: msg ? decodeURIComponent(msg) : 'Error inesperado. Intenta de nuevo.' });
-  } catch (err) {
-    await window.AppModal.alert({ title: 'No se pudo dar de baja', message: 'Sin conexión con el servidor.' });
+    return window.parent !== window && !!(window.parent.ItcjDesktop && window.parent.ItcjDesktop.wm);
+  } catch (_) { return false; }
+}
+window.CamerasPage = { inDesktopWindow: camInDesktopWindow() };
+
+document.addEventListener('DOMContentLoaded', function () {
+  // mobile-app-shell.js corre después de este script y pone in-mobile-iframe: se reaplica en el siguiente tick.
+  if (!window.CamerasPage.inDesktopWindow) return;
+  var apply = function () {
+    document.body.classList.remove('in-mobile-iframe');
+    document.body.classList.add('in-desktop-window');
+  };
+  apply();
+  setTimeout(apply, 0);
+  window.addEventListener('load', apply);
+});
+
+// === ENLACE A HELP DESK (no navega el iframe de Cámaras; en el escritorio abre su ventana) ===
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[data-cam-helpdesk]');
+  if (!a || !window.CamerasPage.inDesktopWindow) return;
+  try {
+    var D = window.parent.ItcjDesktop;
+    var hit = D.registry && D.registry.resolve(a.getAttribute('href'));
+    if (D.wm.open(hit ? hit.key : 'helpdesk', hit ? { url: hit.url } : undefined)) e.preventDefault();
+  } catch (_) { /* cae al target=_top del enlace */ }
+});
+
+// === BAJA DE DVR (diálogo propio; nunca confirm nativo) ===
+var camDeactivateOpener = null;
+
+function camFocusSentinels(panel, dlg) {
+  ['start', 'end'].forEach(function (pos) {
+    var s = document.createElement('span');
+    s.className = 'cam-modal__sentinel';
+    s.tabIndex = 0;
+    s.setAttribute('data-cam-sentinel', pos);
+    s.addEventListener('focus', function () {
+      var f = Array.prototype.filter.call(dlg.querySelectorAll('button, a[href], input, select, textarea'),
+        function (el) { return !el.disabled && !el.hidden; });
+      var t = pos === 'start' ? f[f.length - 1] : f[0];
+      if (t) t.focus();
+    });
+    if (pos === 'start') panel.insertBefore(s, panel.firstChild); else panel.appendChild(s);
+  });
+}
+
+document.addEventListener('click', function (e) {
+  var dlg = document.getElementById('cam-deactivate');
+  if (!dlg) return;
+  var btn = e.target.closest && e.target.closest('[data-cam-deactivate]');
+  if (btn && !btn.disabled) {
+    camDeactivateOpener = btn;
+    var panel = dlg.querySelector('.cam-modal__panel');
+    if (panel && !panel.querySelector('[data-cam-sentinel]')) camFocusSentinels(panel, dlg);
+    dlg.querySelector('[data-cam-deactivate-name]').textContent = btn.getAttribute('data-name');
+    dlg.querySelector('[data-cam-deactivate-form]').setAttribute('action', '/cameras/dvrs/' + btn.getAttribute('data-cam-deactivate') + '/deactivate');
+    var err = dlg.querySelector('[data-cam-deactivate-error]');
+    err.hidden = true; err.textContent = '';
+    var ok = dlg.querySelector('[data-cam-confirm-ok]');
+    ok.disabled = false; ok.removeAttribute('aria-busy');
+    dlg.showModal();
+    dlg.querySelector('[data-cam-confirm-cancel]').focus();
+    return;
   }
-  btn.disabled = false;
+  if (e.target === dlg || (e.target.closest && e.target.closest('[data-cam-confirm-cancel]') && dlg.contains(e.target))) {
+    if (dlg.open) dlg.close();   // fondo o Cancelar (Esc lo cierra el propio dialog)
+  }
 });
 
-// === Buscar departamento: Enter no envía el formulario ===
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-cam-filter]')) e.preventDefault();
+document.addEventListener('close', function (e) {
+  if (e.target.id !== 'cam-deactivate') return;
+  if (camDeactivateOpener && document.contains(camDeactivateOpener)) camDeactivateOpener.focus();
+  camDeactivateOpener = null;
+}, true);
+
+document.addEventListener('submit', async function (e) {
+  var form = e.target.closest && e.target.closest('[data-cam-deactivate-form]');
+  if (!form) return;
+  e.preventDefault();
+  var ok = form.querySelector('[data-cam-confirm-ok]');
+  var err = form.querySelector('[data-cam-deactivate-error]');
+  if (ok.disabled) return;
+  ok.disabled = true; ok.setAttribute('aria-busy', 'true'); err.hidden = true;
+  try {
+    var res = await fetch(form.getAttribute('action'),
+      { method: 'POST', credentials: 'same-origin', headers: { 'HX-Request': 'true' } });
+    if (res.ok) { window.location.assign('/cameras/?ok=baja'); return; }
+    var msg = res.headers.get('X-Cam-Error');
+    err.textContent = msg ? decodeURIComponent(msg) : 'Error inesperado. Intenta de nuevo.';
+  } catch (_) {
+    err.textContent = 'Sin conexión con el servidor.';
+  }
+  err.hidden = false;
+  ok.disabled = false; ok.removeAttribute('aria-busy');
 });
 
-// === Cancelar el cambio de contraseña (vacía el hueco de la tarjeta) ===
+// === VALIDACIÓN DEL FORMULARIO DE DVR ===
+function camFieldError(ctrl, anchor, text) {
+  var id = ctrl.id + '-error';
+  var p = document.getElementById(id);
+  if (!p) {
+    p = document.createElement('p');
+    p.className = 'cam-field__error';
+    p.id = id;
+    anchor.insertAdjacentElement('afterend', p);
+  }
+  p.textContent = text;
+  ctrl.setAttribute('aria-invalid', 'true');
+  ctrl.setAttribute('aria-describedby', id);
+}
+
+function camClearError(ctrl) {
+  if (!ctrl) return;
+  var p = document.getElementById(ctrl.id + '-error');
+  if (p) p.remove();
+  ctrl.removeAttribute('aria-invalid');
+  ctrl.removeAttribute('aria-describedby');
+}
+
+function camValidateDvrForm(form) {
+  var pat = form.querySelector('input[name="pattern"]');
+  var ed = pat && pat.closest('[data-pattern-editor]');
+  var pw = form.querySelector('input[name="password"]');
+  var pw2 = form.querySelector('input[name="password_confirm"]');
+  if (ed && !ed.id) ed.id = 'f-pattern-editor';
+  camClearError(ed); camClearError(pw2);
+  var first = null;
+  var n = pat ? pat.value.length : 0;
+  if (ed && n > 0 && n < 4) {
+    camFieldError(ed, ed, 'El patrón necesita al menos 4 puntos, sin repetir.');
+    first = ed;
+  }
+  if (pw && pw2 && pw.value !== pw2.value) {
+    camFieldError(pw2, pw2, 'La confirmación no coincide con la contraseña.');
+    first = first || pw2;
+  }
+  if (first) {
+    if (first === ed) ed.tabIndex = -1;
+    first.focus();
+    first.scrollIntoView({ block: 'center' });
+  }
+  return !first;
+}
+
+document.addEventListener('htmx:beforeRequest', function (e) {
+  var form = e.target;
+  if (form && form.id === 'cam-dvr-form' && !camValidateDvrForm(form)) e.preventDefault();
+});
+
+document.addEventListener('input', function (e) {
+  if (e.target.matches && e.target.matches('#cam-dvr-form input[name="password_confirm"], #cam-dvr-form input[name="password"]')) {
+    camClearError(document.querySelector('#cam-dvr-form input[name="password_confirm"]'));
+  }
+});
+document.addEventListener('change', function (e) {
+  if (e.target.matches && e.target.matches('#cam-dvr-form input[name="pattern"]')) camClearError(e.target.closest('[data-pattern-editor]'));
+});
+
+// Error del servidor: llevarlo a la vista y enfocarlo.
+document.addEventListener('htmx:afterSwap', function (e) {
+  var t = e.detail && e.detail.target;
+  if (!t || t.id !== 'cam-form-error' || !t.firstElementChild) return;
+  t.scrollIntoView({ block: 'center' });
+  t.focus();
+});
+
+// === CAMBIAR CONTRASEÑA (aria-expanded, foco, éxito) ===
+function camPwOpener(slot) {
+  var card = slot.closest('.cam-card');
+  return card && card.querySelector('[hx-get$="/password"]');
+}
+
+document.addEventListener('htmx:afterSwap', function (e) {
+  var t = e.detail && e.detail.target;
+  if (!t || !t.id || t.id.indexOf('cam-pwslot-') !== 0) return;
+  var form = t.querySelector('form');
+  if (!form) return;
+  var opener = camPwOpener(t);
+  if (opener) opener.setAttribute('aria-expanded', 'true');
+  var f = form.querySelector('[aria-invalid="true"]') || form.querySelector('input[name="password"]');
+  if (f) f.focus();
+  t.scrollIntoView({ block: 'nearest' });
+});
+
 document.addEventListener('click', function (e) {
   var btn = e.target.closest && e.target.closest('[data-cam-pw-cancel]');
   if (!btn) return;
   var slot = document.getElementById('cam-pwslot-' + btn.getAttribute('data-cam-pw-cancel'));
-  if (slot) slot.innerHTML = '';
+  var opener = slot && camPwOpener(slot);
+  if (opener) { opener.setAttribute('aria-expanded', 'false'); opener.focus(); }
+});
+
+function camPwOk(ok) {
+  if (ok.dataset.camSeen) return;
+  ok.dataset.camSeen = '1';
+  var opener = camPwOpener(ok);
+  if (opener) { opener.setAttribute('aria-expanded', 'false'); opener.focus(); }
+  setTimeout(function () { ok.classList.add('is-leaving'); }, 5800);
+  setTimeout(function () { ok.remove(); }, 6000);
+}
+
+// === ÉXITOS EN LA LISTA ===
+function camScanSuccess() {
+  var row = document.querySelector('[data-cam-flash]');
+  if (row && !row.dataset.camSeen) {
+    row.dataset.camSeen = '1';
+    row.scrollIntoView({ block: 'center' });
+    row.classList.add('is-flashing');
+    setTimeout(function () { row.classList.remove('is-flashing'); }, 2600);
+  }
+  var note = document.getElementById('cam-flash');
+  if (note && !note.dataset.camSeen) {
+    note.dataset.camSeen = '1';
+    var span = note.querySelector('span') || note;
+    var txt = span.textContent;
+    span.textContent = '';
+    setTimeout(function () { span.textContent = txt; }, 150);   // re-inyecta para que el lector lo anuncie
+    setTimeout(function () { note.remove(); }, 8000);
+  }
+  var pw = document.querySelector('[data-cam-pw-ok]');
+  if (pw) camPwOk(pw);
+}
+document.addEventListener('DOMContentLoaded', camScanSuccess);
+document.addEventListener('htmx:afterSettle', camScanSuccess);
+
+// === Buscar departamento: Enter no envía el formulario ===
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && e.target.closest && e.target.closest('[data-cam-filter]')) e.preventDefault();
 });
