@@ -303,7 +303,9 @@ document.addEventListener('DOMContentLoaded', function () {
     var rest = q.toString();
     try { history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch (_) { /* sin history */ }
   }
-  if (rev !== null) setTimeout(function () { camRevealFromLink(rev); }, 300);   // deja que pattern.js enganche la ventana del escritorio
+  // shortcut: espera fija de 300 ms para que pattern.js enganche la ventana del escritorio;
+  // si en equipos lentos no revela, esperar el evento desktop:active-changed de esta ventana.
+  if (rev !== null) setTimeout(function () { camRevealFromLink(rev); }, 300);
 });
 function camRevealFromLink(id) {
   var btn = /^[0-9]{1,9}$/.test(id) && document.querySelector('[data-cam-reveal="' + id + '"]');

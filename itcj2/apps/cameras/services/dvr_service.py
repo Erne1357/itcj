@@ -78,15 +78,39 @@ def _visible_query(db: Session, viewer: Viewer):
         DvrDepartment.dvr_id == Dvr.id, DvrDepartment.department_id.in_(viewer.dept_ids)))
 
 
+_FILLER = {"canal", "canales", "ch", "cam", "camara", "camaras"}
+_MAX_WORDS = 8
+
+
+def _search_words(q: str) -> list[str]:
+    import unicodedata
+    words = []
+    for w in q.split()[:_MAX_WORDS]:
+        plain = unicodedata.normalize("NFD", w.lower())
+        plain = "".join(c for c in plain if not unicodedata.combining(c))
+        if plain not in _FILLER:
+            words.append(w)
+    return words
+
+
 def list_visible(db: Session, viewer: Viewer, q: str | None = None) -> list[Dvr]:
+    """Cada palabra de `q` debe coincidir (AND) con algun campo (OR): nombre, lugar,
+    marca, modelo, departamento; un numero suelto tambien es nº de canales."""
     from itcj2.core.models.department import Department
     query = _visible_query(db, viewer)
-    if q and q.strip():
-        like = f"%{q.strip()}%"
+    for w in _search_words(q or ""):
+        like = "%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         dept_match = exists().where(
             DvrDepartment.dvr_id == Dvr.id, DvrDepartment.department_id == Department.id,
-            Department.name.ilike(like))
-        query = query.filter(or_(Dvr.name.ilike(like), Dvr.location.ilike(like), dept_match))
+            Department.name.ilike(like, escape="\\"))
+        conds = [Dvr.name.ilike(like, escape="\\"), Dvr.location.ilike(like, escape="\\"),
+                 Dvr.brand.ilike(like, escape="\\"), Dvr.model.ilike(like, escape="\\"), dept_match]
+        if w.isdigit() and len(w) <= 3:
+            # numero: canales exactos o palabra completa en nombre/lugar (no subcadena en modelo)
+            word = rf"\m{int(w)}\M"
+            conds = [Dvr.channels == int(w), Dvr.name.op("~*")(word), Dvr.location.op("~*")(word),
+                     dept_match, Dvr.brand.ilike(like, escape="\\")]
+        query = query.filter(or_(*conds))
     return query.order_by(Dvr.location.asc().nulls_last(), Dvr.name).all()
 
 

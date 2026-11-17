@@ -16,7 +16,7 @@
         <i class="bi bi-search" aria-hidden="true"></i>
         <label for="cam-q" class="visually-hidden">Buscar DVR</label>
         <input id="cam-q" class="form-control cam-search__input" type="search" name="q" value="{{ q }}"
-               placeholder="DVR, lugar o depto." autocomplete="off"
+               placeholder="Buscar por nombre, ubicación, departamento, marca, modelo o canales" autocomplete="off"
                hx-get="/cameras/list" hx-target="#cam-list" hx-swap="morph:innerHTML"
                hx-trigger="input changed delay:300ms, search">
       </form>

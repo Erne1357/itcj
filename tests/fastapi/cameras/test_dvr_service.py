@@ -278,3 +278,74 @@ def test_app_admin_role_without_global_admin_sees_and_manages_all(db_session, ca
     v = svc.viewer_for(db_session, {"sub": str(w.nobody), "role": "staff"})
     assert v.see_all and v.can_manage
     assert set(svc.list_visible(db_session, v)) == {d1, d2}
+
+
+# --- buscador: marca, modelo, canales -------------------------------------
+
+def _search_world(db, w):
+    mk = lambda **kw: svc.create(db, inp(password="x", **kw), w.tech)
+    return SimpleNamespaceX(
+        h8=mk(name="Alfa", brand="Hikvision", model="DS-7208", channels=8, department_ids=[w.dept_a]),
+        h16=mk(name="Beta", brand="Hikvision", model="DS-7216", channels=16),
+        d8=mk(name="Gama", brand="Dahua", model="XVR5108HS", channels=8),
+        d16=mk(name="Delta", brand="Dahua", model="XVR5216", channels=16),
+        ed=mk(name="Edificio 8", brand="Dahua", model="XVR5116", channels=16),
+        pct=mk(name="Cien%", brand="Dahua", model="Q_1", channels=4),
+    )
+
+
+class SimpleNamespaceX:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _s(db, q, **vkw):
+    return set(svc.list_visible(db, viewer(**(vkw or {"see_all": True})), q=q))
+
+
+def test_search_brand_case_insensitive_and_partial(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    assert _s(db_session, "Hikvision") == {x.h8, x.h16}
+    assert _s(db_session, "HIK") == {x.h8, x.h16}
+
+
+def test_search_channels_number_not_model_substring(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    # h16 tiene «8» en el modelo (DS-7208 es h8; XVR5108HS es d8) y «Edificio 8» lo trae en el nombre
+    assert _s(db_session, "8") == {x.h8, x.d8, x.ed}
+    assert _s(db_session, "8 canales") == {x.h8, x.d8, x.ed}
+    assert _s(db_session, "16 CANALES") == {x.h16, x.d16, x.ed}
+
+
+def test_search_and_between_words(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    assert _s(db_session, "hikvision 8 canales") == {x.h8}
+
+
+def test_search_by_model(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    assert _s(db_session, "DS-7208") == {x.h8}
+    assert _s(db_session, "xvr5108hs") == {x.d8}
+
+
+def test_search_only_filler_is_no_filter(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    assert _s(db_session, "canales") == _s(db_session, "") == _s(db_session, None)
+    assert x.h8 in _s(db_session, "Cámaras")
+
+
+def test_search_wildcards_are_literal(db_session, cam_world, cameras_key):
+    x = _search_world(db_session, cam_world)
+    assert _s(db_session, "%") == {x.pct}
+    assert _s(db_session, "q_1") == {x.pct}
+    assert _s(db_session, "h_") == set()  # «_» no comodina («Hikvision» no cuenta)
+    assert _s(db_session, "100%") == set()
+
+
+def test_search_department_and_scope(db_session, cam_world, cameras_key):
+    w = cam_world
+    x = _search_world(db_session, w)
+    assert _s(db_session, "cam_a") == {x.h8}
+    # un jefe de dept_b no ve el DVR de dept_a aunque coincida
+    assert _s(db_session, "Hikvision", depts={w.dept_b}) == set()
+    assert _s(db_session, "Hikvision", depts={w.dept_a}) == {x.h8}
