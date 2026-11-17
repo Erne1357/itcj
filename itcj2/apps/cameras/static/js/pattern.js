@@ -301,7 +301,7 @@
     screen.appendChild(pad);
 
     var con = el('div', 'cam-pattern__console', st.box);
-    st.readout = el('p', 'cam-editor__readout', con);
+    st.readout = el('p', 'cam-editor__readout cam-editor__reading', con);
     st.status = el('p', 'cam-editor__status', con);
     st.status.setAttribute('aria-live', 'polite');
     var tools = el('div', 'cam-pattern__controls', con);
@@ -404,7 +404,13 @@
       input.value = val;
       input.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    st.readout.textContent = n ? st.seq.join(' → ') : 'Traza el patrón sobre la cuadrícula';
+    // orden + lugar con palabras (una sola numeración: la de los discos del aparato)
+    var reading = st.seq.map(function (p, i) {
+      return (i + 1) + 'º ' + POS[p].replace(/^al /, '').replace(/ a(l| la) /, ' ');
+    }).join(' → ');
+    st.readout.textContent = n ? reading : 'Traza el patrón sobre la cuadrícula';
+    st.grid.root.setAttribute('aria-label', 'Editor del patrón. ' + (n ? 'Patrón actual: ' + reading + '. ' : '') +
+      'Traza con el dedo o el mouse, o teclea los números del 1 al 9 de cada posición. Retroceso deshace, Suprimir limpia.');
     st.readout.classList.toggle('is-empty', !n);
     var miss = MIN_LEN - n;
     st.status.textContent = !n ? 'Mínimo ' + MIN_LEN + ' puntos, sin repetir'

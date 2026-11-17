@@ -133,7 +133,7 @@ function camValidateDvrForm(form) {
   var pw = form.querySelector('input[name="password"]');
   var pw2 = form.querySelector('input[name="password_confirm"]');
   if (ed && !ed.id) ed.id = 'f-pattern-editor';
-  var edAnchor = edRoot;
+  var edAnchor = (edRoot && edRoot.querySelector('.cam-editor__device')) || edRoot;   // el error va bajo la consola del aparato
   camClearError(ed); camClearError(pw2);
   var first = null;
   var n = pat ? pat.value.length : 0;
@@ -190,6 +190,53 @@ document.addEventListener('htmx:afterSwap', function (e) {
   var f = form.querySelector('[aria-invalid="true"]') || form.querySelector('input[name="password"]');
   if (f) f.focus();
   t.scrollIntoView({ block: 'nearest' });
+});
+
+// Validación previa y errores del servidor del formulario de contraseña (reusa camFieldError/camClearError).
+var CAM_PW_MISMATCH = 'No coinciden. Escríbelas las dos otra vez.';
+function camPwFields(form) {
+  return [form.querySelector('input[name="password"]'), form.querySelector('input[name="password_confirm"]')];
+}
+function camPwClear(form) {
+  camPwFields(form).forEach(function (c) {
+    if (!c) return;
+    camClearError(c);
+    var s = document.getElementById(c.id.replace(/^pw2?-/, 'pw2-err-'));   // aviso renderizado por el servidor sin HTMX
+    if (s && c.name === 'password_confirm') s.remove();
+  });
+  var slot = form.closest('[id^="cam-pwslot-"]');
+  var box = slot && document.getElementById('cam-pwerr-' + slot.id.slice('cam-pwslot-'.length));
+  if (box) box.textContent = '';
+}
+document.addEventListener('htmx:beforeRequest', function (e) {
+  var form = e.target;
+  if (!form || !form.closest || form.tagName !== 'FORM' || !form.closest('[id^="cam-pwslot-"]')) return;
+  var f = camPwFields(form), pw = f[0], pw2 = f[1];
+  if (!pw || !pw2) return;
+  camPwClear(form);
+  if (pw.value && pw.value === pw2.value) return;
+  e.preventDefault();
+  var bad = (!pw.value || !pw2.value) ? [pw.value ? null : pw, pw2.value ? null : pw2].filter(Boolean) : [pw, pw2];
+  bad.forEach(function (c) { camFieldError(c, c, CAM_PW_MISMATCH); });
+  bad[0].focus();
+});
+document.addEventListener('input', function (e) {
+  var t = e.target;
+  if (t.matches && t.matches('input[name="password"], input[name="password_confirm"]') && t.closest('[id^="cam-pwslot-"]')) camPwClear(t.form);
+});
+// Error del servidor en el hueco: marca ambos campos y lo lleva a la vista (lo tecleado se conserva).
+document.addEventListener('htmx:afterSwap', function (e) {
+  var t = e.detail && e.detail.target;
+  if (!t || !t.id || t.id.indexOf('cam-pwerr-') !== 0 || !t.firstElementChild) return;
+  var form = t.closest('form');
+  if (form) camPwFields(form).forEach(function (c) {
+    if (!c) return;
+    c.setAttribute('aria-invalid', 'true');
+    c.setAttribute('aria-describedby', t.id);
+  });
+  t.scrollIntoView({ block: 'nearest' });
+  var first = form && form.querySelector('input[name="password"]');
+  if (first) first.focus();
 });
 
 document.addEventListener('click', function (e) {
