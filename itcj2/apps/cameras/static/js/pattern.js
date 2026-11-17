@@ -584,7 +584,7 @@
       note._camT = setTimeout(function () { note.textContent = ''; }, 8000);
     }
     var btn = id && document.querySelector('[data-cam-reveal="' + id + '"]');
-    if (btn) {
+    if (btn && btn.matches(':hover')) {   // sin puntero encima no hay hover que apagar
       btn.setAttribute('data-cam-just-sealed', '');
       var clear = function () {
         btn.removeAttribute('data-cam-just-sealed');

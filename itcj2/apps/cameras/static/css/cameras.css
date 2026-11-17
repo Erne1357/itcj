@@ -483,7 +483,7 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 /* Con patrón. Una columna: reloj, datos (Usuario y Contraseña) y el aparato en el alto que sobra;
    el panel tiene alto propio, así que la fila 1fr del aparato es exactamente lo que queda.
    Dos columnas (container query del cuerpo): el aparato a la izquierda a todo el alto, el reloj
-   y los datos a la derecha. El orden visual cambia con áreas; el DOM no se toca. */
+   y los datos a la derecha. El DOM va reloj, datos, aparato (orden de Tab = orden visual en móvil); las áreas lo acomodan. */
 .cam-secret--pattern { min-height: 100%; grid-template: "timer" auto "device" 1fr / minmax(0, 1fr); }
 .cam-secret--pattern:has(.cam-reveal__info > *) { grid-template: "timer" auto "info" auto "device" 1fr / minmax(0, 1fr); }
 .cam-secret--pattern > .cam-reveal__timer { grid-area: timer; }

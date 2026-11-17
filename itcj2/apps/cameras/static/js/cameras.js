@@ -229,7 +229,6 @@ function camScanSuccess() {
     var txt = span.textContent;
     span.textContent = '';
     setTimeout(function () { span.textContent = txt; }, 150);   // re-inyecta para que el lector lo anuncie
-    setTimeout(function () { note.remove(); }, 8000);
   }
   var pw = document.querySelector('[data-cam-pw-ok]');
   if (pw) camPwOk(pw);
