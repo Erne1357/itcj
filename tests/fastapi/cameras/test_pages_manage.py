@@ -447,5 +447,22 @@ def test_reactivate_missing_htmx_renders_visible_404_in_row(app_client):
         item = {"dvr": _dvr(3), "when": None, "by": None}
     with _ctx(app_client, list_inactive=dict(return_value=[item])):
         page = app_client.get("/cameras/inactive", headers=_hdr()).text
-    assert 'hx-target="#cam-inactive-3"' in page and 'hx-swap="outerHTML"' in page
+    assert 'hx-target="#cam-inactive-3"' in page and 'hx-swap="innerHTML"' in page and 'hx-disabled-elt="find button"' in page
 
+
+
+def test_audit_inverted_dates_are_swapped_and_no_stale_limits(app_client):
+    from datetime import date
+    with _ctx(app_client, audit_page=dict(return_value=([], 0)), audit_actors=dict(return_value=[])):
+        with patch(f"{S}.audit_page", return_value=([], 0)) as ap:
+            r = app_client.get("/cameras/audit?desde=2026-11-13&hasta=2026-11-01", headers=_hdr())
+    assert ap.call_args.kwargs["desde"] == date(2026, 11, 1) and ap.call_args.kwargs["hasta"] == date(2026, 11, 13)
+    assert " min=" not in r.text.split('id="a-hasta"')[1].split(">")[0]
+    assert " max=" not in r.text.split('id="a-desde"')[1].split(">")[0]
+
+
+def test_inactive_and_reactivate_need_see_all(app_client):
+    v = _viewer(can_manage=True, see_all=False, dept_ids=frozenset({1}))
+    with _ctx(app_client, viewer=v, get_inactive=dict(return_value=_dvr()), list_inactive=dict(return_value=[])):
+        assert app_client.get("/cameras/inactive", headers=_hdr()).status_code == 403
+        assert app_client.post("/cameras/dvrs/1/reactivate", headers=_hdr()).status_code == 403

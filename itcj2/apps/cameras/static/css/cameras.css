@@ -316,7 +316,7 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .cam-card--row .cam-card__meta > span + span { margin-left: .75rem; }
-  .cam-card--row .cam-card__depts { flex-wrap: nowrap; }
+  .cam-card--row .cam-card__depts { flex-wrap: nowrap; overflow: hidden; }
   .cam-card--row .cam-chip:not(.cam-chip--more) { flex: 0 1 auto; min-width: 5rem; }
 }
 @container cam-rack (min-width: 900px) {
@@ -924,13 +924,12 @@ body.in-mobile-iframe :is(.cam-page--ops, .cam-page--head) .cam-head__title {
 .cam-inactive__place > .bi { flex: none; transform: translateY(1px); }
 .cam-inactive__when { font-variant-numeric: tabular-nums; }
 .cam-inactive__form { justify-self: start; margin: 0; }
-/* Secundario, como «Revelar» en el inventario: un botón oscuro por fila competiría consigo mismo. */
-.cam-inactive__form .cam-btn { min-height: 40px; background: var(--cam-surface); border-color: var(--cam-line); color: var(--cam-ink); }
-.cam-inactive__form .cam-btn:hover { background: var(--cam-bg); border-color: var(--cam-line-strong); color: var(--cam-ink); }
+/* Secundario (ghost), como «Revelar» en el inventario: un botón oscuro por fila competiría consigo mismo. */
+.cam-inactive__form .cam-btn { min-height: 40px; }
 .cam-inactive__form .cam-btn .bi { color: var(--cam-signal-ink); }
 @media (pointer: coarse) { .cam-inactive__form .cam-btn { min-height: var(--cam-tap); } }
-/* Si el servidor responde «No encontrado.» la fila se reemplaza por el aviso. */
-.cam-inactive > .cam-field__error { margin: 0; padding: 14px 20px; font-size: var(--cam-fs-sm); }
+/* Si el servidor responde «No encontrado.» el contenido de la fila se reemplaza por el aviso. */
+.cam-inactive__row > .cam-field__error { margin: 0; font-size: var(--cam-fs-sm); }
 
 /* ── Bitácora: tabla que se apila bajo 768 px (sin scroll horizontal) ───── */
 /* Filtros. Móvil: DVR a lo ancho, luego Persona | Acción y Desde | Hasta (3 renglones, no 5).

@@ -1,3 +1,6 @@
+// Atrás tras filtrar la bitácora: sin caché (hx-history="false") recarga la URL completa en vez de pegar solo la tabla.
+htmx.config.refreshOnHistoryMiss = true;
+
 /* Cámaras: deja que HTMX pinte las respuestas de error de dominio (404/422/500/503 con X-Cam-Error). */
 document.addEventListener('htmx:beforeSwap', function (e) {
   var xhr = e.detail.xhr;
@@ -197,13 +200,12 @@ var CAM_PW_MISMATCH = 'No coinciden. Escríbelas las dos otra vez.';
 function camPwFields(form) {
   return [form.querySelector('input[name="password"]'), form.querySelector('input[name="password_confirm"]')];
 }
+function camPwHint(pw) { return 'pw-hint-' + pw.id.replace(/^pw-/, ''); }
 function camPwClear(form) {
   camPwFields(form).forEach(function (c) {
     if (!c) return;
     camClearError(c);
-    if (c.name === 'password') c.setAttribute('aria-describedby', 'pw-hint-' + c.id.replace(/^pw-/, ''));
-    var s = document.getElementById(c.id.replace(/^pw2?-/, 'pw2-err-'));   // aviso renderizado por el servidor sin HTMX
-    if (s && c.name === 'password_confirm') s.remove();
+    if (c.name === 'password') c.setAttribute('aria-describedby', camPwHint(c));
   });
   var slot = form.closest('[id^="cam-pwslot-"]');
   var box = slot && document.getElementById('cam-pwerr-' + slot.id.slice('cam-pwslot-'.length));
@@ -217,26 +219,36 @@ document.addEventListener('htmx:beforeRequest', function (e) {
   camPwClear(form);
   if (pw.value && pw.value === pw2.value) return;
   e.preventDefault();
-  var bad = (!pw.value || !pw2.value) ? [pw.value ? null : pw, pw2.value ? null : pw2].filter(Boolean) : [pw, pw2];
-  bad.forEach(function (c) { camFieldError(c, c, CAM_PW_MISMATCH); });
-  bad[0].focus();
+  var empty = !pw.value ? pw : (!pw2.value ? pw2 : null);
+  if (empty) {
+    camFieldError(empty, empty, empty === pw ? 'Escribe la contraseña nueva.' : 'Confírmala.');
+    if (empty === pw) pw.setAttribute('aria-describedby', camPwHint(pw) + ' ' + pw.id + '-error');
+    empty.focus();
+    return;
+  }
+  // No coinciden: un solo mensaje bajo «Confírmala»; ambos campos inválidos.
+  camFieldError(pw2, pw2, CAM_PW_MISMATCH);
+  pw.setAttribute('aria-invalid', 'true');
+  pw.setAttribute('aria-describedby', camPwHint(pw) + ' ' + pw2.id + '-error');
+  pw2.focus();
 });
 document.addEventListener('input', function (e) {
   var t = e.target;
   if (t.matches && t.matches('input[name="password"], input[name="password_confirm"]') && t.closest('[id^="cam-pwslot-"]')) camPwClear(t.form);
 });
-// Error del servidor en el hueco: marca ambos campos y lo lleva a la vista (lo tecleado se conserva).
+// Error del servidor en el hueco: lo lleva a la vista; marca los campos solo si el error es del valor (X-Cam-Field).
 document.addEventListener('htmx:afterSwap', function (e) {
   var t = e.detail && e.detail.target;
   if (!t || !t.id || t.id.indexOf('cam-pwerr-') !== 0 || !t.firstElementChild) return;
   var form = t.closest('form');
-  if (form) camPwFields(form).forEach(function (c) {
+  var byValue = e.detail.xhr && e.detail.xhr.getResponseHeader('X-Cam-Field');
+  if (form && byValue) camPwFields(form).forEach(function (c) {
     if (!c) return;
     c.setAttribute('aria-invalid', 'true');
-    c.setAttribute('aria-describedby', (c.name === 'password' ? 'pw-hint-' + c.id.replace(/^pw-/, '') + ' ' : '') + t.id);
+    c.setAttribute('aria-describedby', (c.name === 'password' ? camPwHint(c) + ' ' : '') + t.id);
   });
   t.scrollIntoView({ block: 'nearest' });
-  var first = form && form.querySelector('input[name="password"]');
+  var first = byValue && form && form.querySelector('input[name="password"]');
   if (first) first.focus();
 });
 
@@ -273,9 +285,9 @@ function camScanSuccess() {
   if (note && !note.dataset.camSeen) {
     note.dataset.camSeen = '1';
     var span = note.querySelector('span') || note;
-    var txt = span.textContent;
+    var nodes = [].slice.call(span.childNodes);   // nodos, no texto: conserva el enlace
     span.textContent = '';
-    setTimeout(function () { span.textContent = txt; }, 150);   // re-inyecta para que el lector lo anuncie
+    setTimeout(function () { nodes.forEach(function (n) { span.appendChild(n); }); }, 150);   // re-inyecta para que el lector lo anuncie
   }
   var pw = document.querySelector('[data-cam-pw-ok]');
   if (pw) camPwOk(pw);
@@ -283,7 +295,13 @@ function camScanSuccess() {
 document.addEventListener('DOMContentLoaded', function () {
   camScanSuccess();
   // Evita que F5 o la sesión del escritorio repitan el aviso (?ok=, dvr=).
-  if (location.search) { try { history.replaceState(null, '', location.pathname); } catch (_) { /* sin history */ } }
+  // Solo esos dos parámetros: los filtros de la bitácora se conservan.
+  var q = new URLSearchParams(location.search);
+  if (q.has('ok') || q.has('dvr')) {
+    q.delete('ok'); q.delete('dvr');
+    var rest = q.toString();
+    try { history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch (_) { /* sin history */ }
+  }
 });
 document.addEventListener('htmx:afterSettle', camScanSuccess);
 

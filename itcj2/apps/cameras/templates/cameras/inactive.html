@@ -21,13 +21,13 @@
     {% for it in items %}{% set d = it.dvr %}
     <li class="cam-inactive__row" id="cam-inactive-{{ d.id }}">
       <div class="cam-inactive__id">
-        <h2 class="cam-inactive__name">{{ d.name }}</h2>
+        <h2 class="cam-inactive__name" id="cam-inactive-name-{{ d.id }}">{{ d.name }}</h2>
         {% if d.location %}<p class="cam-inactive__place"><i class="bi bi-geo-alt" aria-hidden="true"></i><span>{{ d.location }}</span></p>{% endif %}
         <p class="cam-inactive__depts">{% if d.departments %}{{ d.departments|map(attribute='name')|join(', ') }}{% else %}Sin departamento{% endif %}</p>
         {% if it.when or it.by %}<p class="cam-inactive__when">Dado de baja{% if it.when %} el {{ it.when.strftime('%d/%m/%Y %H:%M') }}{% endif %}{% if it.by %} por {{ it.by }}{% endif %}</p>{% endif %}
       </div>
-      <form class="cam-inactive__form" method="post" action="/cameras/dvrs/{{ d.id }}/reactivate" hx-post="/cameras/dvrs/{{ d.id }}/reactivate" hx-target="#cam-inactive-{{ d.id }}" hx-swap="outerHTML">
-        <button type="submit" class="cam-btn cam-btn--primary cam-btn--sm"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span><span>Reactivar DVR</span></button>
+      <form class="cam-inactive__form" method="post" action="/cameras/dvrs/{{ d.id }}/reactivate" hx-post="/cameras/dvrs/{{ d.id }}/reactivate" hx-target="#cam-inactive-{{ d.id }}" hx-swap="innerHTML" hx-disabled-elt="find button" hx-indicator="find button">
+        <button type="submit" class="cam-btn cam-btn--ghost cam-btn--sm" aria-describedby="cam-inactive-name-{{ d.id }}"><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i><span class="cam-spin" aria-hidden="true"></span><span>Reactivar DVR</span></button>
       </form>
     </li>
     {% endfor %}

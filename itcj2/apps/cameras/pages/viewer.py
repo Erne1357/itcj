@@ -151,12 +151,12 @@ def _pw_form(request, dvr, *, error=None, status_code=200):
                               status_code=status_code)
         resp.headers["HX-Retarget"] = f"#cam-pwerr-{dvr.id}"
         resp.headers["HX-Reswap"] = "innerHTML"
+        if status_code == 422:
+            resp.headers["X-Cam-Field"] = "1"   # error del valor: el JS marca los campos
         return _cam_error(resp, error)
     resp = render_cameras(request, "cameras/partials/password_form.html",
                           {"d": dvr, "error": error}, status_code=status_code)
-    if not error:
-        return resp
-    return _slot_headers(_cam_error(resp, error), dvr.id)
+    return _cam_error(resp, error) if error else resp
 
 
 @router.get("/dvrs/{dvr_id}/password")

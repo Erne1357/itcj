@@ -35,11 +35,11 @@
     </div>
     <div class="cam-field">
       <label class="form-label" for="a-desde">Desde</label>
-      <input class="form-control" type="date" id="a-desde" name="desde" value="{{ f.desde }}"{% if f.hasta %} max="{{ f.hasta }}"{% endif %}>
+      <input class="form-control" type="date" id="a-desde" name="desde" value="{{ f.desde }}">
     </div>
     <div class="cam-field">
       <label class="form-label" for="a-hasta">Hasta</label>
-      <input class="form-control" type="date" id="a-hasta" name="hasta" value="{{ f.hasta }}"{% if f.desde %} min="{{ f.desde }}"{% endif %}>
+      <input class="form-control" type="date" id="a-hasta" name="hasta" value="{{ f.hasta }}">
     </div>
   </form>
 

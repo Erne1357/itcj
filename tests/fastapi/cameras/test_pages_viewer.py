@@ -199,24 +199,24 @@ def test_reveal_password_exact_inner_text(app_client):
 
 
 def test_password_errors_keep_card_intact(app_client):
-    """422/503 se pintan en el hueco; el éxito sigue apuntando a la tarjeta."""
+    """422/503 se pintan en el hueco de error; el éxito sigue apuntando a la tarjeta."""
     for kw, code in ((dict(return_value=True), None),
                      (dict(side_effect=ValueError("vacía")), 422),
                      (dict(side_effect=secrets.CamerasKeyMissing("x")), 503)):
         with _ctx(app_client, get_visible=dict(return_value=_dvr()), set_password=kw):
-            r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+            r = app_client.post("/cameras/dvrs/1/password", headers={**_hdr(), "HX-Request": "true"},
                                 data={"password": "a", "password_confirm": "a"})
         if code is None:
             assert r.status_code == 200 and "hx-retarget" not in r.headers
             assert 'id="cam-dvr-1"' in r.text
         else:
             assert r.status_code == code
-            assert r.headers["hx-retarget"] == "#cam-pwslot-1"
+            assert r.headers["hx-retarget"] == "#cam-pwerr-1"
             assert r.headers["hx-reswap"] == "innerHTML"
     with _ctx(app_client, get_visible=dict(return_value=_dvr())):
-        r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+        r = app_client.post("/cameras/dvrs/1/password", headers={**_hdr(), "HX-Request": "true"},
                             data={"password": "a", "password_confirm": "b"})
-    assert r.status_code == 422 and r.headers["hx-retarget"] == "#cam-pwslot-1"
+    assert r.status_code == 422 and r.headers["hx-retarget"] == "#cam-pwerr-1"
 
 
 def test_not_found_carries_header_same_message(app_client):
@@ -402,3 +402,16 @@ def test_password_form_novalidate_keeps_hint(app_client):
     with _ctx(app_client, get_visible=dict(return_value=_dvr())):
         r = app_client.get("/cameras/dvrs/1/password", headers=_hdr())
     assert r.status_code == 200 and "novalidate" in r.text and 'aria-describedby="pw-hint-1"' in r.text
+
+
+def test_password_field_header_only_for_value_errors(app_client):
+    hx = {**_hdr(), "HX-Request": "true"}
+    data = {"password": "a", "password_confirm": "b"}
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        r = app_client.post("/cameras/dvrs/1/password", headers=hx, data=data)
+    assert r.status_code == 422 and r.headers["x-cam-field"] == "1"
+    from itcj2.apps.cameras.services import secrets as cam_secrets
+    with _ctx(app_client, get_visible=dict(return_value=_dvr()),
+              set_password=dict(side_effect=cam_secrets.CamerasKeyMissing())):
+        r = app_client.post("/cameras/dvrs/1/password", headers=hx, data={"password": "a", "password_confirm": "a"})
+    assert r.status_code == 503 and "x-cam-field" not in r.headers

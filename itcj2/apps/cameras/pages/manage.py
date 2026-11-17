@@ -49,6 +49,13 @@ def _manage_gate(request: Request, user=Depends(_gate), db: Session = Depends(ge
     return user, viewer
 
 
+def _inactive_gate(gate=Depends(_manage_gate)):
+    """Dados de baja no pasan por get_visible: solo quien ve todos los DVR."""
+    if not isinstance(gate, RedirectResponse) and not gate[1].see_all:
+        raise PageForbidden(has_app_access=True)
+    return gate
+
+
 def _audit_gate(request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
     if isinstance(user, RedirectResponse):
         return user
@@ -233,7 +240,7 @@ def deactivate_dvr(dvr_id: int, request: Request, gate=Depends(_manage_gate),
 
 
 @router.get("/inactive")
-def inactive(request: Request, gate=Depends(_manage_gate), db: Session = Depends(get_db)):
+def inactive(request: Request, gate=Depends(_inactive_gate), db: Session = Depends(get_db)):
     if isinstance(gate, RedirectResponse):
         return gate
     return render_cameras(request, "cameras/inactive.html",
@@ -241,7 +248,7 @@ def inactive(request: Request, gate=Depends(_manage_gate), db: Session = Depends
 
 
 @router.post("/dvrs/{dvr_id}/reactivate")
-def reactivate_dvr(dvr_id: int, request: Request, gate=Depends(_manage_gate),
+def reactivate_dvr(dvr_id: int, request: Request, gate=Depends(_inactive_gate),
                    db: Session = Depends(get_db)):
     if isinstance(gate, RedirectResponse):
         return gate
@@ -301,6 +308,8 @@ def _reveal_label(detail: dict | None) -> str:
 def _audit_ctx(db, viewer, page, dvr_id, actor_id, action, desde=None, hasta=None):
     if action not in ACTION_LABELS:
         action = None
+    if desde and hasta and desde > hasta:
+        desde, hasta = hasta, desde
     rows, total = dvr_service.audit_page(db, page=page, per_page=PER_PAGE, dvr_id=dvr_id,
                                          actor_id=actor_id, action=action, desde=desde, hasta=hasta)
     for r in rows:
