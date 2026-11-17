@@ -370,3 +370,29 @@ def test_back_arrow_home_vs_subpages(app_client):
         nf = app_client.get("/cameras/dvrs/9/edit", headers=_hdr())
     assert 'id="mobileBackToDashboard"' not in nf.text
     assert 'class="mobile-back-to-dashboard" href="/cameras/"' in nf.text
+
+
+def test_password_error_htmx_retargets_to_pwerr_without_form(app_client):
+    hx = {**_hdr(), "HX-Request": "true"}
+    same = {"password": "sec-uno", "password_confirm": "sec-uno"}
+    cases = ((dict(side_effect=ValueError("vacía")), same, 422),
+             (dict(side_effect=secrets.CamerasKeyMissing("x")), same, 503),
+             (dict(return_value=True), {"password": "sec-uno", "password_confirm": "sec-dos"}, 422))
+    for kw, data, code in cases:
+        with _ctx(app_client, get_visible=dict(return_value=_dvr()), set_password=kw):
+            r = app_client.post("/cameras/dvrs/1/password", headers=hx, data=data)
+        assert r.status_code == code
+        assert r.headers["hx-retarget"] == "#cam-pwerr-1" and r.headers["hx-reswap"] == "innerHTML"
+        assert "<form" not in r.text and "sec-uno" not in r.text and "sec-dos" not in r.text
+        assert 'class="cam-note cam-note--error"' in r.text and r.headers["x-cam-error"]
+    assert "No coinciden. Escríbelas las dos otra vez." in r.text
+
+
+def test_password_form_has_fixed_error_slot(app_client):
+    with _ctx(app_client, get_visible=dict(return_value=_dvr())):
+        r = app_client.get("/cameras/dvrs/1/password", headers=_hdr())
+        assert 'id="cam-pwerr-1"' in r.text and 'role="alert"' in r.text and 'tabindex="-1"' in r.text
+        assert 'class="cam-form__error"' in r.text
+        r = app_client.post("/cameras/dvrs/1/password", headers=_hdr(),
+                            data={"password": "a", "password_confirm": "b"})
+    assert "<form" in r.text and "No coinciden. Escríbelas las dos otra vez." in r.text

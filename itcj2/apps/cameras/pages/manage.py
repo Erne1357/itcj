@@ -6,6 +6,7 @@ conservando lo capturado, salvo los secretos.
 """
 import logging
 import math
+from datetime import date
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -24,7 +25,7 @@ router = APIRouter()
 
 PER_PAGE = 50
 ACTION_LABELS = {
-    "reveal": "Vio patrón y contraseña",
+    "reveal": "Vio credenciales",
     "extend": "Extendió el tiempo",
     "create": "Registró el DVR",
     "update": "Editó los datos",
@@ -32,6 +33,7 @@ ACTION_LABELS = {
     "pattern_update": "Cambió el patrón",
     "departments_update": "Cambió los departamentos",
     "deactivate": "Dio de baja el DVR",
+    "reactivate": "Reactivó el DVR",
 }
 _FIELD_LABELS = {"name": "nombre", "location": "ubicación", "brand": "marca", "model": "modelo",
                  "channels": "canales", "username": "usuario", "notes": "notas"}
@@ -230,6 +232,27 @@ def deactivate_dvr(dvr_id: int, request: Request, gate=Depends(_manage_gate),
     return _done(request, "/cameras/?ok=baja")
 
 
+@router.get("/inactive")
+def inactive(request: Request, gate=Depends(_manage_gate), db: Session = Depends(get_db)):
+    if isinstance(gate, RedirectResponse):
+        return gate
+    return render_cameras(request, "cameras/inactive.html",
+                          {"viewer": gate[1], "items": dvr_service.list_inactive(db)})
+
+
+@router.post("/dvrs/{dvr_id}/reactivate")
+def reactivate_dvr(dvr_id: int, request: Request, gate=Depends(_manage_gate),
+                   db: Session = Depends(get_db)):
+    if isinstance(gate, RedirectResponse):
+        return gate
+    user, _viewer = gate
+    dvr = dvr_service.get_inactive(db, dvr_id)
+    if dvr is None:
+        return _not_found(request)
+    dvr_service.reactivate(db, dvr, int(user["sub"]))
+    return _done(request, f"/cameras/?ok=reactivado&dvr={int(dvr_id)}")
+
+
 # === BITÁCORA ===
 
 def _opt_int(v: str | None) -> int | None:
@@ -251,27 +274,50 @@ def _detail_text(row: dict) -> str:
     return ""
 
 
-def _audit_ctx(db, viewer, page, dvr_id, actor_id, action):
+def _opt_date(v: str | None) -> date | None:
+    """YYYY-MM-DD; cualquier otra cosa se ignora."""
+    try:
+        return date.fromisoformat(v) if v and len(v) == 10 else None
+    except ValueError:
+        return None
+
+
+def _reveal_label(detail: dict | None) -> str:
+    """Qué entregó el revelado; filas viejas (sin detail) quedan como «Vio credenciales»."""
+    if not detail or "pattern" not in detail:
+        return ACTION_LABELS["reveal"]
+    pat, pwd = bool(detail.get("pattern")), bool(detail.get("password"))
+    if pat and pwd:
+        return "Vio patrón y contraseña"
+    if pwd:
+        return "Vio la contraseña"
+    if pat:
+        return "Vio el patrón"
+    return "Vio el DVR (sin datos guardados)"
+
+
+def _audit_ctx(db, viewer, page, dvr_id, actor_id, action, desde=None, hasta=None):
     if action not in ACTION_LABELS:
         action = None
     rows, total = dvr_service.audit_page(db, page=page, per_page=PER_PAGE, dvr_id=dvr_id,
-                                         actor_id=actor_id, action=action)
+                                         actor_id=actor_id, action=action, desde=desde, hasta=hasta)
     for r in rows:
-        r["label"] = ACTION_LABELS.get(r["action"], r["action"])
+        r["label"] = _reveal_label(r["detail"]) if r["action"] == "reveal"             else ACTION_LABELS.get(r["action"], r["action"])
         r["text"] = _detail_text(r)
     return {"viewer": viewer, "rows": rows, "total": total, "page": page,
             "total_pages": max(1, math.ceil(total / PER_PAGE)),
-            "f": {"dvr_id": dvr_id or "", "actor_id": actor_id or "", "action": action or ""},
+            "f": {"dvr_id": dvr_id or "", "actor_id": actor_id or "", "action": action or "",
+                  "desde": desde.isoformat() if desde else "", "hasta": hasta.isoformat() if hasta else ""},
             "actions": ACTION_LABELS}
 
 
 @router.get("/audit")
 def audit(request: Request, page: str = "1", dvr_id: str = "", actor_id: str = "", action: str = "",
-          gate=Depends(_audit_gate), db: Session = Depends(get_db)):
+          desde: str = "", hasta: str = "", gate=Depends(_audit_gate), db: Session = Depends(get_db)):
     if isinstance(gate, RedirectResponse):
         return gate
     ctx = _audit_ctx(db, gate[1], max(_opt_int(page) or 1, 1), _opt_int(dvr_id),
-                     _opt_int(actor_id), action or None)
+                     _opt_int(actor_id), action or None, _opt_date(desde), _opt_date(hasta))
     if request.headers.get("HX-Request"):
         return render_cameras(request, "cameras/partials/audit_rows.html", ctx)
     from itcj2.apps.cameras.models import Dvr

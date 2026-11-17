@@ -11,7 +11,7 @@
     </div>
   </header>
 
-  <form class="cam-audit__filters" hx-get="/cameras/audit" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML" hx-trigger="change">
+  <form class="cam-audit__filters" hx-get="/cameras/audit" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML" hx-trigger="change" hx-push-url="true">
     <div class="cam-field">
       <label class="form-label" for="a-dvr">DVR</label>
       <select class="form-select" id="a-dvr" name="dvr_id">
@@ -32,6 +32,14 @@
         <option value="">Todas</option>
         {% for k, label in actions.items() %}<option value="{{ k }}"{% if f.action == k %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
+    </div>
+    <div class="cam-field">
+      <label class="form-label" for="a-desde">Desde</label>
+      <input class="form-control" type="date" id="a-desde" name="desde" value="{{ f.desde }}"{% if f.hasta %} max="{{ f.hasta }}"{% endif %}>
+    </div>
+    <div class="cam-field">
+      <label class="form-label" for="a-hasta">Hasta</label>
+      <input class="form-control" type="date" id="a-hasta" name="hasta" value="{{ f.hasta }}"{% if f.desde %} min="{{ f.desde }}"{% endif %}>
     </div>
   </form>
 

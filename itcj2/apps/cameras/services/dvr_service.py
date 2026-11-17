@@ -6,7 +6,7 @@ departamento; jamás valores de secretos.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session
@@ -208,6 +208,32 @@ def deactivate(db: Session, dvr: Dvr, actor_id: int) -> None:
     db.commit()
 
 
+def reactivate(db: Session, dvr: Dvr, actor_id: int) -> None:
+    dvr.is_active = True
+    _log(db, dvr, actor_id, "reactivate")
+    db.commit()
+
+
+def get_inactive(db: Session, dvr_id: int) -> Dvr | None:
+    dvr = db.get(Dvr, dvr_id)
+    return dvr if dvr is not None and not dvr.is_active else None
+
+
+def list_inactive(db: Session) -> list[dict]:
+    """DVR dados de baja con cuándo y quién (de la última baja en bitácora, si existe)."""
+    from itcj2.core.models.user import User
+    dvrs = db.query(Dvr).filter(Dvr.is_active.is_(False)).order_by(Dvr.name).all()
+    out = []
+    for d in dvrs:
+        log = (db.query(CamerasAuditLog)
+               .filter(CamerasAuditLog.dvr_id == d.id, CamerasAuditLog.action == "deactivate")
+               .order_by(CamerasAuditLog.id.desc()).first())
+        u = db.get(User, log.actor_id) if log and log.actor_id else None
+        out.append({"dvr": d, "when": log.created_at if log else None,
+                    "by": u.full_name if u else None})
+    return out
+
+
 def reveal(db: Session, dvr: Dvr, actor_id: int) -> Revealed:
     from itcj2.core.models.user import User
     password = secrets.decrypt(dvr.password_cipher) if dvr.password_cipher else None
@@ -220,7 +246,10 @@ def reveal(db: Session, dvr: Dvr, actor_id: int) -> Revealed:
     if last and last.actor_id:
         u = db.get(User, last.actor_id)
         changed_by = u.full_name if u else None
-    _log(db, dvr, actor_id, "reveal")
+    # detail: solo qué se entregó (booleanos), nunca los valores.
+    _log(db, dvr, actor_id, "reveal", {
+        "pattern": pattern is not None, "password": password is not None,
+        "username": bool(dvr.username), "notes": bool(dvr.notes)})
     db.commit()
     # Sin contraseña no hay "actualizada por" que mostrar.
     when = last.created_at if last and password is not None else None
@@ -238,7 +267,6 @@ def extend(db: Session, dvr: Dvr, actor_id: int) -> None:
     Solo tras un revelado reciente del mismo actor y DVR (último reveal en la
     ventana) y hasta EXTEND_MAX extensiones posteriores a ese reveal.
     """
-    from datetime import timedelta
     from sqlalchemy import func
     last_reveal = (db.query(func.max(CamerasAuditLog.id))
                    .filter(CamerasAuditLog.dvr_id == dvr.id, CamerasAuditLog.actor_id == actor_id,
@@ -258,7 +286,9 @@ def extend(db: Session, dvr: Dvr, actor_id: int) -> None:
 
 
 def audit_page(db: Session, *, page: int, per_page: int = 50, dvr_id: int | None = None,
-               actor_id: int | None = None, action: str | None = None):
+               actor_id: int | None = None, action: str | None = None,
+               desde: date | None = None, hasta: date | None = None):
+    """`desde`/`hasta` inclusivos, sobre created_at tal como se muestra (sin conversión)."""
     from itcj2.core.models.user import User
     q = db.query(CamerasAuditLog)
     if dvr_id:
@@ -267,6 +297,10 @@ def audit_page(db: Session, *, page: int, per_page: int = 50, dvr_id: int | None
         q = q.filter(CamerasAuditLog.actor_id == actor_id)
     if action:
         q = q.filter(CamerasAuditLog.action == action)
+    if desde:
+        q = q.filter(CamerasAuditLog.created_at >= datetime.combine(desde, time.min))
+    if hasta:
+        q = q.filter(CamerasAuditLog.created_at < datetime.combine(hasta + timedelta(days=1), time.min))
     total = q.count()
     rows = (q.order_by(CamerasAuditLog.id.desc())
             .offset(max(page - 1, 0) * per_page).limit(per_page).all())

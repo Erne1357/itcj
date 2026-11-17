@@ -20,12 +20,12 @@
     </tbody>
   </table>
 </div>
-{% set qs = '&dvr_id=' ~ f.dvr_id ~ '&action=' ~ f.action ~ '&actor_id=' ~ f.actor_id %}
+{% set qs = '&dvr_id=' ~ f.dvr_id ~ '&action=' ~ f.action ~ '&actor_id=' ~ f.actor_id ~ '&desde=' ~ f.desde ~ '&hasta=' ~ f.hasta %}
 <nav class="cam-audit__pager" aria-label="Paginación">
   <span class="cam-audit__total">{{ total }} registro{{ '' if total == 1 else 's' }} · página {{ page }} de {{ total_pages }}</span>
   <span class="cam-audit__links">
-    {% if page > 1 %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML"><i class="bi bi-chevron-left" aria-hidden="true"></i>Anterior</a>{% endif %}
-    {% if page < total_pages %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML">Siguiente<i class="bi bi-chevron-right" aria-hidden="true"></i></a>{% endif %}
+    {% if page > 1 %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page - 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML" hx-push-url="true"><i class="bi bi-chevron-left" aria-hidden="true"></i>Anterior</a>{% endif %}
+    {% if page < total_pages %}<a class="cam-btn cam-btn--ghost cam-btn--sm" href="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-get="/cameras/audit?page={{ page + 1 }}{{ qs }}" hx-target="#cam-audit-rows" hx-swap="morph:innerHTML" hx-push-url="true">Siguiente<i class="bi bi-chevron-right" aria-hidden="true"></i></a>{% endif %}
   </span>
 </nav>
 {% endif %}

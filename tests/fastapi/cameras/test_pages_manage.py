@@ -252,8 +252,171 @@ def test_audit_copy_labels(app_client):
     with _ctx(app_client, audit_page=dict(return_value=(rows, 5)),
               audit_actors=dict(return_value=[])):
         r = app_client.get("/cameras/audit", headers=_hdr())
-    for txt in ("Sin departamento", "1 departamento<", "2 departamentos", "Vio patrón y contraseña",
+    for txt in ("Sin departamento", "1 departamento<", "2 departamentos", "Vio credenciales",
                 "Extendió el tiempo"):
         assert txt in r.text
     assert "departamento(s)" not in r.text and "Reveló" not in r.text
     assert '<option value="extend">Extendió el tiempo</option>' in r.text
+
+
+# === v4: dados de baja, bitácora precisa, filtros de fecha ===
+
+def test_inactive_page_lists_and_empty_state(app_client):
+    item = {"dvr": _dvr(3), "when": datetime(2026, 11, 10, 8, 30), "by": "Ana Pérez"}
+    with _ctx(app_client, list_inactive=dict(return_value=[item])):
+        r = app_client.get("/cameras/inactive", headers=_hdr())
+    assert r.status_code == 200 and "Dados de baja" in r.text and "DVR Prueba" in r.text
+    assert 'action="/cameras/dvrs/3/reactivate"' in r.text and "Reactivar DVR" in r.text
+    assert "10/11/2026 08:30" in r.text and "Ana Pérez" in r.text
+    assert "SECRETO" not in r.text and "usr-zz9" not in r.text
+    with _ctx(app_client, list_inactive=dict(return_value=[])):
+        r = app_client.get("/cameras/inactive", headers=_hdr())
+    assert "No hay DVR dados de baja." in r.text and "Reactivar DVR" not in r.text
+
+
+def test_inactive_and_reactivate_forbidden_for_head(app_client):
+    v = _viewer(can_manage=False, can_audit=False, see_all=False, dept_ids=frozenset({1}))
+    with _ctx(app_client, viewer=v, get_inactive=dict(return_value=_dvr())):
+        assert app_client.get("/cameras/inactive", headers=_hdr()).status_code == 403
+        assert app_client.post("/cameras/dvrs/1/reactivate", headers=_hdr()).status_code == 403
+
+
+def test_reactivate_redirects_like_deactivate(app_client):
+    with _ctx(app_client, get_inactive=dict(return_value=_dvr(5))):
+        with patch(f"{S}.reactivate") as re_:
+            r = app_client.post("/cameras/dvrs/5/reactivate", headers=_hdr(), follow_redirects=False)
+            assert r.status_code == 303 and r.headers["location"] == "/cameras/?ok=reactivado&dvr=5"
+            r = app_client.post("/cameras/dvrs/5/reactivate", headers={**_hdr(), "HX-Request": "true"})
+            assert r.status_code == 200 and r.headers["hx-redirect"] == "/cameras/?ok=reactivado&dvr=5"
+        assert re_.call_count == 2
+
+
+def test_reactivate_active_or_missing_404(app_client):
+    with _ctx(app_client, get_inactive=dict(return_value=None)):
+        with patch(f"{S}.reactivate") as re_:
+            r = app_client.post("/cameras/dvrs/9/reactivate", headers=_hdr())
+    assert r.status_code == 404 and unquote(r.headers["x-cam-error"]) == "No encontrado."
+    re_.assert_not_called()
+
+
+def test_reactivate_service_logs_and_restores(db_session, cam_world, cameras_key):
+    from itcj2.apps.cameras.models import CamerasAuditLog
+    from itcj2.apps.cameras.schemas.dvr import DvrInput
+    from itcj2.apps.cameras.services import dvr_service as svc
+    d = svc.create(db_session, DvrInput(name="D", password="pw1"), cam_world.tech)
+    assert svc.get_inactive(db_session, d.id) is None  # activo: no aplica
+    svc.deactivate(db_session, d, cam_world.tech)
+    assert svc.get_inactive(db_session, d.id) is d and svc.get_inactive(db_session, 99999999) is None
+    info = [i for i in svc.list_inactive(db_session) if i["dvr"] is d][0]
+    assert info["when"] is not None and info["by"]
+    svc.reactivate(db_session, d, cam_world.tech)
+    assert d.is_active and svc.get_inactive(db_session, d.id) is None
+    last = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id).order_by(CamerasAuditLog.id.desc()).first()
+    assert last.action == "reactivate" and last.detail is None
+
+
+def test_deactivate_dialog_copy_and_inactive_link(app_client):
+    with _ctx(app_client):
+        r = app_client.get("/cameras/", headers=_hdr())
+    assert "Podrás reactivarlo desde Dados de baja." in r.text
+    assert 'href="/cameras/inactive"' in r.text and "cam-btn__label" in r.text
+    v = _viewer(can_manage=False, see_all=False, dept_ids=frozenset({1}))
+    with _ctx(app_client, viewer=v):
+        r = app_client.get("/cameras/", headers=_hdr())
+    assert "/cameras/inactive" not in r.text
+
+
+def test_flash_after_baja_links_to_inactive_and_reactivated_highlights(app_client):
+    with _ctx(app_client):
+        with patch("itcj2.apps.cameras.pages.viewer.dvr_service.list_visible", return_value=[_dvr()]):
+            r = app_client.get("/cameras/?ok=baja", headers=_hdr())
+            assert "DVR dado de baja. Puedes reactivarlo en" in r.text
+            assert '<a href="/cameras/inactive">Dados de baja</a>' in r.text
+            r = app_client.get("/cameras/?ok=reactivado&dvr=1", headers=_hdr())
+    assert "DVR reactivado." in r.text and r.text.count("data-cam-flash") == 1
+
+
+def test_card_only_chip_for_support(app_client):
+    def page(pat, pwd):
+        d = _dvr()
+        d.pattern_cipher, d.password_cipher = pat, pwd
+        with _ctx(app_client):
+            with patch("itcj2.apps.cameras.pages.viewer.dvr_service.list_visible", return_value=[d]):
+                return app_client.get("/cameras/", headers=_hdr()).text
+    both, only_pat, only_pwd, none = page("a", "b"), page("a", None), page(None, "b"), page(None, None)
+    assert "cam-card__only" not in both and "Patrón · Contraseña" not in both
+    assert 'cam-card__only">Solo patrón<' in only_pat
+    assert 'cam-card__only">Solo contraseña<' in only_pwd
+    assert 'cam-card__only">Sin credenciales<' in none
+
+
+def test_note_before_reveal_button_both_variants(app_client):
+    for manage in (True, False):
+        v = _viewer(can_manage=manage, see_all=manage, dept_ids=frozenset({1}))
+        with _ctx(app_client, viewer=v):
+            with patch("itcj2.apps.cameras.pages.viewer.dvr_service.list_visible", return_value=[_dvr()]):
+                r = app_client.get("/cameras/", headers=_hdr())
+        assert 0 < r.text.index('id="cam-note-1"') < r.text.index('data-cam-reveal="1"')
+
+
+def test_audit_reveal_labels_from_detail(app_client):
+    base = {"id": 1, "dvr_id": 1, "dvr_name": "D", "actor_id": 5, "actor_name": "Ana",
+            "created_at": datetime(2026, 11, 13, 9, 5), "action": "reveal"}
+
+    def d(p, w):
+        return {"pattern": p, "password": w, "username": False, "notes": False}
+    rows = [{**base, "detail": d(True, True)}, {**base, "detail": d(False, True)},
+            {**base, "detail": d(True, False)}, {**base, "detail": d(False, False)},
+            {**base, "detail": None},
+            {**base, "action": "reactivate", "detail": None}]
+    with _ctx(app_client, audit_page=dict(return_value=(rows, 6)), audit_actors=dict(return_value=[])):
+        r = app_client.get("/cameras/audit", headers=_hdr())
+    for txt in ("Vio patrón y contraseña<", "Vio la contraseña<", "Vio el patrón<",
+                "Vio el DVR (sin datos guardados)<", "Vio credenciales<", "Reactivó el DVR<"):
+        assert txt in r.text, txt
+    assert '<option value="reveal">Vio credenciales</option>' in r.text
+
+
+def test_audit_date_filters_parse_and_ignore_invalid(app_client):
+    from datetime import date
+    with _ctx(app_client, audit_page=dict(return_value=([], 0)), audit_actors=dict(return_value=[])) as _:
+        with patch(f"{S}.audit_page", return_value=([], 0)) as ap:
+            r = app_client.get("/cameras/audit?desde=2026-11-01&hasta=2026-11-13", headers=_hdr())
+            assert ap.call_args.kwargs["desde"] == date(2026, 11, 1)
+            assert ap.call_args.kwargs["hasta"] == date(2026, 11, 13)
+            assert 'name="desde" value="2026-11-01"' in r.text and 'hx-push-url="true"' in r.text
+            r = app_client.get("/cameras/audit?desde=ayer&hasta=2026-13-45", headers=_hdr())
+            assert r.status_code == 200
+            assert ap.call_args.kwargs["desde"] is None and ap.call_args.kwargs["hasta"] is None
+            assert "ayer" not in r.text
+
+
+def test_audit_page_dates_inclusive(db_session, cam_world, cameras_key):
+    from datetime import date
+    from sqlalchemy import text
+    from itcj2.apps.cameras.schemas.dvr import DvrInput
+    from itcj2.apps.cameras.services import dvr_service as svc
+    d = svc.create(db_session, DvrInput(name="Dfecha", password="pw1"), cam_world.tech)
+    svc.reveal(db_session, d, cam_world.tech)
+    day = db_session.execute(text("select created_at::date from cameras_audit_log where dvr_id=:i limit 1"),
+                             {"i": d.id}).scalar()
+    kw = dict(page=1, dvr_id=d.id)
+    assert svc.audit_page(db_session, desde=day, hasta=day, **kw)[1] == 2  # create + reveal, mismo día
+    assert svc.audit_page(db_session, desde=day, **kw)[1] == 2
+    assert svc.audit_page(db_session, hasta=day, **kw)[1] == 2
+    assert svc.audit_page(db_session, desde=date.fromordinal(day.toordinal() + 1), **kw)[1] == 0
+    assert svc.audit_page(db_session, hasta=date.fromordinal(day.toordinal() - 1), **kw)[1] == 0
+
+
+def test_reveal_logs_boolean_detail_only(db_session, cam_world, cameras_key):
+    import json
+    from itcj2.apps.cameras.models import CamerasAuditLog
+    from itcj2.apps.cameras.schemas.dvr import DvrInput
+    from itcj2.apps.cameras.services import dvr_service as svc
+    d = svc.create(db_session, DvrInput(name="D", password="Zq9pass", username="adm", notes="nota-secreta"),
+                   cam_world.tech)
+    svc.reveal(db_session, d, cam_world.tech)
+    row = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id, action="reveal").first()
+    assert row.detail == {"pattern": False, "password": True, "username": True, "notes": True}
+    blob = json.dumps(row.detail)
+    assert "Zq9pass" not in blob and "adm" not in blob and "nota-secreta" not in blob

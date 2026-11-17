@@ -51,7 +51,7 @@ def _list_ctx(db: Session, user: dict, q: str | None) -> dict:
 
 
 FLASH_MESSAGES = {"registrado": "DVR registrado.", "actualizado": "Cambios guardados.",
-                  "baja": "DVR dado de baja."}
+                  "baja": "DVR dado de baja. Puedes reactivarlo en", "reactivado": "DVR reactivado."}
 
 
 def _flash_ctx(ok: str, dvr: str) -> dict:
@@ -59,7 +59,8 @@ def _flash_ctx(ok: str, dvr: str) -> dict:
     if ok not in FLASH_MESSAGES:
         return {}
     flash_dvr = int(dvr) if ok != "baja" and dvr.isascii() and dvr.isdigit() and len(dvr) < 10 else None
-    return {"flash": FLASH_MESSAGES[ok], "flash_dvr": flash_dvr}
+    # En "baja" el mensaje termina en «en» y la plantilla añade el enlace a Dados de baja.
+    return {"flash": FLASH_MESSAGES[ok], "flash_dvr": flash_dvr, "flash_inactive_link": ok == "baja"}
 
 
 @router.get("/")
@@ -144,6 +145,13 @@ def extend(dvr_id: int, request: Request, user=Depends(_gate), db: Session = Dep
 
 
 def _pw_form(request, dvr, *, error=None, status_code=200):
+    if error and request.headers.get("HX-Request"):
+        # Solo el aviso, al hueco del formulario: lo tecleado no se borra.
+        resp = render_cameras(request, "cameras/partials/form_error.html", {"error": error},
+                              status_code=status_code)
+        resp.headers["HX-Retarget"] = f"#cam-pwerr-{dvr.id}"
+        resp.headers["HX-Reswap"] = "innerHTML"
+        return _cam_error(resp, error)
     resp = render_cameras(request, "cameras/partials/password_form.html",
                           {"d": dvr, "error": error}, status_code=status_code)
     if not error:
@@ -172,7 +180,7 @@ def password_save(dvr_id: int, request: Request, password: str = Form(""),
     if dvr is None or not (viewer.can_update_password or viewer.can_manage):
         return _not_found(request, dvr_id)
     if password != password_confirm:
-        return _pw_form(request, dvr, error="No coincide con la contraseña nueva.", status_code=422)
+        return _pw_form(request, dvr, error="No coinciden. Escríbelas las dos otra vez.", status_code=422)
     try:
         ok = dvr_service.set_password(db, viewer, dvr_id, password, int(user["sub"]))
     except ValueError as exc:
