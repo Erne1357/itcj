@@ -34,7 +34,8 @@ class Dvr(Base):
     model = Column(String(80))
     channels = Column(SmallInteger)
     camera_type = Column(String(10))               # bala | ptz | mixtas (CAMERA_TYPES)
-    cameras_installed = Column(Integer)
+    cameras_bala = Column(Integer)
+    cameras_ptz = Column(Integer)
     username = Column(String(50))                  # en claro: casi siempre `admin`
     password_cipher = Column(Text)                 # token Fernet, nunca en claro
     pattern_cipher = Column(Text)                  # token Fernet de la secuencia
@@ -48,7 +49,8 @@ class Dvr(Base):
 
     __table_args__ = (
         CheckConstraint("camera_type IN ('bala','ptz','mixtas')", name="ck_cameras_dvrs_camera_type"),
-        CheckConstraint("cameras_installed BETWEEN 0 AND 128", name="ck_cameras_dvrs_cameras_installed"),
+        CheckConstraint("cameras_bala BETWEEN 0 AND 128", name="ck_cameras_dvrs_cameras_bala"),
+        CheckConstraint("cameras_ptz BETWEEN 0 AND 128", name="ck_cameras_dvrs_cameras_ptz"),
     )
 
     # Sin passive_deletes la sesión intentaría anular dvr_id; la BD ya cascadea.

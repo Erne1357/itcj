@@ -37,7 +37,7 @@ ACTION_LABELS = {
 }
 _FIELD_LABELS = {"name": "nombre", "location": "ubicación", "brand": "marca", "model": "modelo",
                  "channels": "canales", "camera_type": "tipo de cámaras",
-                 "cameras_installed": "cámaras instaladas", "username": "usuario", "notes": "notas"}
+                 "cameras_bala": "cámaras bala", "cameras_ptz": "cámaras PTZ", "username": "usuario", "notes": "notas"}
 
 
 def _manage_gate(request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
@@ -91,7 +91,7 @@ def _form_ctx(db, viewer, dvr, values=None, selected=None, error=None):
 def _values_of(dvr):
     return {k: ("" if getattr(dvr, k) is None else getattr(dvr, k))
             for k in ("name", "location", "brand", "model", "channels",
-                      "camera_type", "cameras_installed")} if dvr else {}
+                      "camera_type", "cameras_bala", "cameras_ptz")} if dvr else {}
 
 
 def _form_page(request, db, viewer, dvr):
@@ -129,7 +129,7 @@ async def _parse(request: Request):
     form = await request.form()
     g = lambda k: form.get(k) or ""  # noqa: E731
     values = {k: g(k).strip() for k in ("name", "location", "brand", "model", "channels",
-                                   "camera_type", "cameras_installed")}
+                                   "camera_type", "cameras_bala", "cameras_ptz")}
     selected = []
     for raw in form.getlist("department_ids"):
         try:
@@ -148,15 +148,17 @@ def _build(form, values, selected) -> DvrInput:
         channels = int(values["channels"]) if values["channels"] else None
     except ValueError:
         raise ValueError("Los canales deben ser un número.") from None
-    try:
-        installed = int(values["cameras_installed"]) if values["cameras_installed"] else None
-    except ValueError:
-        raise ValueError("Las cámaras instaladas deben ser un número.") from None
+    counts = {}
+    for k, lbl in (("cameras_bala", "bala"), ("cameras_ptz", "PTZ")):
+        try:
+            counts[k] = int(values[k]) if values[k] else None
+        except ValueError:
+            raise ValueError(f"Las cámaras {lbl} deben ser un número.") from None
     try:
         return DvrInput(
             name=values["name"], location=values["location"] or None, brand=values["brand"] or None,
             model=values["model"] or None, channels=channels,
-            camera_type=values["camera_type"] or None, cameras_installed=installed,
+            camera_type=values["camera_type"] or None, **counts,
             username=form.get("username") or None, notes=form.get("notes") or None,
             remove_username=bool(form.get("remove_username")), remove_notes=bool(form.get("remove_notes")),
             department_ids=selected, password=password,

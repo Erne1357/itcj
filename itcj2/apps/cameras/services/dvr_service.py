@@ -24,7 +24,7 @@ PERM_PWD_DEPT = "cameras.credentials.api.update.department"
 PERM_AUDIT = "cameras.audit.page.list"
 APP = "cameras"
 
-_PLAIN_FIELDS = ("name", "location", "brand", "model", "channels", "camera_type", "cameras_installed", "username", "notes")
+_PLAIN_FIELDS = ("name", "location", "brand", "model", "channels", "camera_type", "cameras_bala", "cameras_ptz", "username", "notes")
 # username/notes son solo escritura: vacío = sin cambio; se borran con remove_*.
 _WRITE_ONLY = ("username", "notes")
 
