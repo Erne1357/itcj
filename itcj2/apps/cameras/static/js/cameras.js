@@ -148,6 +148,17 @@ function camValidateDvrForm(form) {
     camFieldError(pw2, pw2, 'La confirmación no coincide con la contraseña.');
     first = first || pw2;
   }
+  var ct = form.querySelector('[data-cam-type]');
+  var cb = form.querySelector('input[name="cameras_bala"]');
+  var cp = form.querySelector('input[name="cameras_ptz"]');
+  camClearError(cb); camClearError(cp);
+  if (ct && ct.value === 'mixtas' && cb && cp) {
+    var bad = !(parseInt(cb.value, 10) >= 1) ? cb : (!(parseInt(cp.value, 10) >= 1) ? cp : null);
+    if (bad) {
+      camFieldError(bad, bad, 'Con Bala y PTZ escribe cuántas hay de cada una.');
+      first = first || bad;
+    }
+  }
   if (first) {
     first.focus();
     first.scrollIntoView({ block: 'center' });
@@ -158,6 +169,30 @@ function camValidateDvrForm(form) {
 document.addEventListener('htmx:beforeRequest', function (e) {
   var form = e.target;
   if (form && form.id === 'cam-dvr-form' && !camValidateDvrForm(form)) e.preventDefault();
+});
+
+// Muestra solo los conteos que aplican al tipo; lo oculto va deshabilitado (no se envía).
+function camApplyType(sel) {
+  var form = sel.closest('form');
+  if (!form) return;
+  var t = sel.value;
+  form.querySelectorAll('[data-cam-count]').forEach(function (box) {
+    var kind = box.getAttribute('data-cam-count');
+    var on = t === 'mixtas' || t === kind;
+    var inp = box.querySelector('input');
+    box.hidden = !on;
+    inp.disabled = !on;
+    inp.required = t === 'mixtas';
+    if (!on) { inp.value = ''; camClearError(inp); }
+  });
+}
+function camInitType(root) {
+  (root || document).querySelectorAll('[data-cam-type]').forEach(camApplyType);
+}
+document.addEventListener('DOMContentLoaded', function () { camInitType(); });
+document.addEventListener('htmx:load', function (e) { camInitType(e.target); });
+document.addEventListener('change', function (e) {
+  if (e.target.matches && e.target.matches('[data-cam-type]')) camApplyType(e.target);
 });
 
 document.addEventListener('input', function (e) {
@@ -232,6 +267,30 @@ document.addEventListener('htmx:beforeRequest', function (e) {
   pw.setAttribute('aria-describedby', camPwHint(pw) + ' ' + pw2.id + '-error');
   pw2.focus();
 });
+// Muestra solo los conteos que aplican al tipo; lo oculto va deshabilitado (no se envía).
+function camApplyType(sel) {
+  var form = sel.closest('form');
+  if (!form) return;
+  var t = sel.value;
+  form.querySelectorAll('[data-cam-count]').forEach(function (box) {
+    var kind = box.getAttribute('data-cam-count');
+    var on = t === 'mixtas' || t === kind;
+    var inp = box.querySelector('input');
+    box.hidden = !on;
+    inp.disabled = !on;
+    inp.required = t === 'mixtas';
+    if (!on) { inp.value = ''; camClearError(inp); }
+  });
+}
+function camInitType(root) {
+  (root || document).querySelectorAll('[data-cam-type]').forEach(camApplyType);
+}
+document.addEventListener('DOMContentLoaded', function () { camInitType(); });
+document.addEventListener('htmx:load', function (e) { camInitType(e.target); });
+document.addEventListener('change', function (e) {
+  if (e.target.matches && e.target.matches('[data-cam-type]')) camApplyType(e.target);
+});
+
 document.addEventListener('input', function (e) {
   var t = e.target;
   if (t.matches && t.matches('input[name="password"], input[name="password_confirm"]') && t.closest('[id^="cam-pwslot-"]')) camPwClear(t.form);

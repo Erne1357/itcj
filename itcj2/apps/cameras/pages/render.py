@@ -6,11 +6,14 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
+from itcj2.apps.cameras.models.dvr import CAMERA_TYPES
+
 logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
 
 cameras_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+cameras_templates.env.filters["camera_type"] = lambda code: CAMERA_TYPES.get(code, "")
 
 
 def _sv_for(app_name: str, path: str) -> str:

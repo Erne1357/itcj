@@ -32,6 +32,24 @@
         <label class="form-label" for="f-ch">Canales</label>
         <input class="form-control" id="f-ch" name="channels" type="number" min="1" max="128" inputmode="numeric" value="{{ v.channels or '' }}">
       </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-ctype">Tipo de cámaras</label>
+        <select class="form-select" id="f-ctype" name="camera_type" data-cam-type>
+          <option value="">Sin especificar</option>
+          <option value="bala"{% if v.camera_type == 'bala' %} selected{% endif %}>Bala</option>
+          <option value="ptz"{% if v.camera_type == 'ptz' %} selected{% endif %}>PTZ</option>
+          <option value="mixtas"{% if v.camera_type == 'mixtas' %} selected{% endif %}>Bala y PTZ</option>
+        </select>
+      </div>
+      <div class="cam-field" data-cam-count="bala">
+        <label class="form-label" for="f-cbala">Cámaras bala</label>
+        <input class="form-control" id="f-cbala" name="cameras_bala" type="number" min="0" max="128" inputmode="numeric" value="{{ v.cameras_bala if v.cameras_bala is not none else '' }}">
+        <p class="cam-field__hint">Bala y PTZ juntas no pueden superar los canales del DVR.</p>
+      </div>
+      <div class="cam-field" data-cam-count="ptz">
+        <label class="form-label" for="f-cptz">Cámaras PTZ</label>
+        <input class="form-control" id="f-cptz" name="cameras_ptz" type="number" min="0" max="128" inputmode="numeric" value="{{ v.cameras_ptz if v.cameras_ptz is not none else '' }}">
+      </div>
     </div>
   </section>
 

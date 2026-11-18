@@ -349,3 +349,63 @@ def test_search_department_and_scope(db_session, cam_world, cameras_key):
     # un jefe de dept_b no ve el DVR de dept_a aunque coincida
     assert _s(db_session, "Hikvision", depts={w.dept_b}) == set()
     assert _s(db_session, "Hikvision", depts={w.dept_a}) == {x.h8}
+
+
+# --- tipo y cantidad de cámaras ---
+
+def test_camera_type_and_count_create_and_blank(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(password="x", channels=8, camera_type="ptz", cameras_ptz=6), cam_world.tech)
+    assert (d.camera_type, d.cameras_bala, d.cameras_ptz) == ("ptz", None, 6)
+    m = svc.create(db_session, inp(name="M", password="x", channels=20, camera_type="mixtas",
+                                   cameras_bala=8, cameras_ptz=6), cam_world.tech)
+    assert (m.cameras_bala, m.cameras_ptz) == (8, 6)
+    blank = inp(password="x", camera_type="")
+    assert blank.camera_type is None and blank.cameras_bala is None and blank.cameras_ptz is None
+
+
+@pytest.mark.parametrize("kw, msg", [
+    (dict(camera_type="mixtas", cameras_bala=3), "Con Bala y PTZ escribe cuántas hay de cada una."),
+    (dict(camera_type="mixtas", cameras_bala=3, cameras_ptz=0), "Con Bala y PTZ escribe cuántas hay de cada una."),
+    (dict(camera_type="mixtas"), "Con Bala y PTZ escribe cuántas hay de cada una."),
+    (dict(camera_type="bala", cameras_ptz=2), "Con tipo Bala solo se capturan cámaras bala."),
+    (dict(camera_type="ptz", cameras_bala=2), "Con tipo PTZ solo se capturan cámaras PTZ."),
+    (dict(cameras_bala=2), "Elige el tipo de cámaras."),
+    (dict(cameras_ptz=2), "Elige el tipo de cámaras."),
+    (dict(channels=8, camera_type="mixtas", cameras_bala=5, cameras_ptz=4),
+     "Hay más cámaras que canales: el DVR tiene 8 canales."),
+    (dict(channels=8, camera_type="bala", cameras_bala=9),
+     "Hay más cámaras que canales: el DVR tiene 8 canales."),
+])
+def test_camera_count_rules_reject(kw, msg):
+    with pytest.raises(ValueError, match=msg):
+        inp(**kw)
+
+
+def test_camera_count_rules_accept():
+    assert inp(channels=8, camera_type="bala", cameras_bala=8).cameras_bala == 8
+    assert inp(camera_type="ptz", cameras_ptz=0).cameras_ptz == 0
+    assert inp(camera_type="bala").cameras_bala is None
+    assert inp(camera_type="mixtas", cameras_bala=1, cameras_ptz=127).cameras_ptz == 127
+    for kw in (dict(camera_type="bala", cameras_bala=129), dict(camera_type="domo")):
+        with pytest.raises(ValueError):
+            inp(**kw)
+
+
+def test_update_camera_fields_logged_and_cleared(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(password="x", channels=8), cam_world.tech)
+    svc.update(db_session, d, inp(channels=8, camera_type="mixtas", cameras_bala=4, cameras_ptz=2), cam_world.tech)
+    log = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id, action="update").one()
+    assert set(log.detail["fields"]) == {"camera_type", "cameras_bala", "cameras_ptz"}
+    svc.update(db_session, d, inp(channels=8), cam_world.tech)
+    assert d.camera_type is None and d.cameras_bala is None and d.cameras_ptz is None
+
+
+def test_search_by_camera_type(db_session, cam_world, cameras_key):
+    a = svc.create(db_session, inp(name="A", password="x", camera_type="ptz"), cam_world.tech)
+    b = svc.create(db_session, inp(name="B", password="x", camera_type="bala"), cam_world.tech)
+    c = svc.create(db_session, inp(name="C", password="x", camera_type="mixtas", channels=4, cameras_bala=2, cameras_ptz=2), cam_world.tech)
+    v = viewer(see_all=True)
+    assert set(svc.list_visible(db_session, v, q="PTZ")) == {a, c}
+    assert set(svc.list_visible(db_session, v, q="bala")) == {b, c}
+    assert svc.list_visible(db_session, v, q="mixtas") == [c]
+    assert svc.list_visible(db_session, v, q="4") == [c]  # números siguen siendo canales

@@ -27,7 +27,7 @@ def _viewer(**kw):
 def _dvr(id=1):
     return SimpleNamespace(
         id=id, name="DVR Prueba", location="Edificio A", brand="Hikvision", model="X1",
-        channels=8, username="usr-zz9", notes="nota-x", is_active=True,
+        channels=8, camera_type=None, cameras_bala=None, cameras_ptz=None, username="usr-zz9", notes="nota-x", is_active=True,
         password_cipher="SECRETO-PW", pattern_cipher="SECRETO-PAT",
         departments=[SimpleNamespace(id=1, name="Dirección")])
 
@@ -469,3 +469,47 @@ def test_inactive_and_reactivate_need_see_all(app_client):
     with _ctx(app_client, viewer=v, get_inactive=dict(return_value=_dvr()), list_inactive=dict(return_value=[])):
         assert app_client.get("/cameras/inactive", headers=_hdr()).status_code == 403
         assert app_client.post("/cameras/dvrs/1/reactivate", headers=_hdr()).status_code == 403
+
+
+def test_card_meta_shows_camera_count_and_type(app_client):
+    d = _dvr()
+    for t, b, pz, want, absent in (
+        ("bala", 6, None, ("6 cámaras", "Bala"), "PTZ"),
+        ("ptz", None, 1, ("1 cámara<", "PTZ"), "cámaras<"),
+        ("mixtas", 8, 6, ("14 cámaras", "8 bala y 6 PTZ"), "Bala y PTZ"),
+        ("bala", None, None, ("Bala",), "cámara"),
+    ):
+        d.camera_type, d.cameras_bala, d.cameras_ptz = t, b, pz
+        with _ctx(app_client):
+            with patch(f"{S}.list_visible", return_value=[d]):
+                r = app_client.get("/cameras/", headers=_hdr())
+        assert "8 canales" in r.text and all(w in r.text for w in want), (t, b, pz)
+        assert absent not in r.text.split("8 canales", 1)[1][:200], (t, b, pz)
+
+
+def test_form_parses_camera_fields_and_overflow_message(app_client):
+    with _ctx(app_client):
+        with patch(f"{S}.create", return_value=_dvr()) as cr:
+            app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
+                            data={"name": "X", "channels": "8", "camera_type": "mixtas",
+                                  "cameras_bala": "4", "cameras_ptz": "2", "password": "p", "password_confirm": "p"})
+        got = cr.call_args.args[1]
+        assert (got.camera_type, got.cameras_bala, got.cameras_ptz) == ("mixtas", 4, 2)
+        for extra, msg in (({"camera_type": "bala", "cameras_bala": "5", "cameras_ptz": "4"},
+                            "Hay más cámaras que canales: el DVR tiene 8 canales."),
+                           ({"camera_type": "mixtas", "cameras_bala": "5"},
+                            "Con Bala y PTZ escribe cuántas hay de cada una.")):
+            r = app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
+                                data={"name": "X", "channels": "8", "password": "p",
+                                      "password_confirm": "p", **extra})
+            assert r.status_code == 422
+            assert unquote(r.headers["x-cam-error"]) in (msg, "Con tipo Bala solo se capturan cámaras bala.")
+
+
+def test_edit_form_prefills_camera_fields(app_client):
+    d = _dvr()
+    d.camera_type, d.cameras_bala, d.cameras_ptz = "ptz", None, 0
+    with _ctx(app_client, get_visible=dict(return_value=d)):
+        r = app_client.get("/cameras/dvrs/1/edit", headers=_hdr())
+    assert '<option value="ptz" selected>' in r.text and 'name="cameras_ptz"' in r.text and 'name="cameras_bala"' in r.text
+    assert 'name="cameras_ptz" type="number" min="0" max="128" inputmode="numeric" value="0"' in r.text
