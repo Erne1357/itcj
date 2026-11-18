@@ -18,6 +18,7 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 
 import pytest
@@ -567,8 +568,10 @@ def test_el_nip_no_sale_ni_en_el_log_ni_en_el_retorno_ni_en_el_payload(
                                         actor_id=make_user().id)
 
     assert resultado[0] is True
-    assert NIP not in repr(resultado)
-    assert NIP not in caplog.text
+    # NIP como valor propio, no dentro de un id/hash aleatorio del log (falso rojo en CI).
+    suelto = re.compile(rf"(?<![0-9A-Za-z-]){re.escape(NIP)}(?![0-9A-Za-z-])")
+    assert not suelto.search(repr(resultado))
+    assert not suelto.search(caplog.text)
     # Control positivo: sin esto, un caplog que no captura nada (nivel mal
     # puesto, handler que no llegó) daria el mismo "NIP not in caplog.text"
     # por una razon completamente distinta. `_deliver` (email_helper.py:132)

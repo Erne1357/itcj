@@ -61,3 +61,6 @@ from itcj2.apps.prorrogas_tec.models import (  # noqa: F401
     ProrrogaDocument, ProrrogaEvent, ProrrogaInvitation, ProrrogaJoin,
     ProrrogaRequest, ProrrogaSignature, ProrrogaTemplate, ProrrogaInstallment, ProrrogaPayment,
 )
+
+# Cameras
+from itcj2.apps.cameras.models import Dvr, DvrDepartment, CamerasAuditLog  # noqa: F401
