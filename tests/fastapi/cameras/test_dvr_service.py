@@ -349,3 +349,43 @@ def test_search_department_and_scope(db_session, cam_world, cameras_key):
     # un jefe de dept_b no ve el DVR de dept_a aunque coincida
     assert _s(db_session, "Hikvision", depts={w.dept_b}) == set()
     assert _s(db_session, "Hikvision", depts={w.dept_a}) == {x.h8}
+
+
+# --- tipo y cantidad de cámaras ---
+
+def test_camera_type_and_count_create_and_blank(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(password="x", channels=8, camera_type="ptz", cameras_installed=6), cam_world.tech)
+    assert (d.camera_type, d.cameras_installed) == ("ptz", 6)
+    blank = inp(password="x", camera_type="", cameras_installed=None)
+    assert blank.camera_type is None and blank.cameras_installed is None
+
+
+def test_cameras_installed_rules():
+    with pytest.raises(ValueError, match="Hay más cámaras que canales: el DVR tiene 8 canales."):
+        inp(channels=8, cameras_installed=9)
+    assert inp(channels=8, cameras_installed=8).cameras_installed == 8
+    assert inp(cameras_installed=128).cameras_installed == 128 and inp(cameras_installed=0)
+    with pytest.raises(ValueError):
+        inp(cameras_installed=129)
+    with pytest.raises(ValueError):
+        inp(camera_type="domo")
+
+
+def test_update_camera_fields_logged_and_cleared(db_session, cam_world, cameras_key):
+    d = svc.create(db_session, inp(password="x", channels=8), cam_world.tech)
+    svc.update(db_session, d, inp(channels=8, camera_type="bala", cameras_installed=4), cam_world.tech)
+    log = db_session.query(CamerasAuditLog).filter_by(dvr_id=d.id, action="update").one()
+    assert set(log.detail["fields"]) == {"camera_type", "cameras_installed"}
+    svc.update(db_session, d, inp(channels=8), cam_world.tech)
+    assert d.camera_type is None and d.cameras_installed is None
+
+
+def test_search_by_camera_type(db_session, cam_world, cameras_key):
+    a = svc.create(db_session, inp(name="A", password="x", camera_type="ptz"), cam_world.tech)
+    b = svc.create(db_session, inp(name="B", password="x", camera_type="bala"), cam_world.tech)
+    c = svc.create(db_session, inp(name="C", password="x", camera_type="mixtas", channels=4), cam_world.tech)
+    v = viewer(see_all=True)
+    assert set(svc.list_visible(db_session, v, q="PTZ")) == {a, c}
+    assert set(svc.list_visible(db_session, v, q="bala")) == {b, c}
+    assert svc.list_visible(db_session, v, q="mixtas") == [c]
+    assert svc.list_visible(db_session, v, q="4") == [c]  # números siguen siendo canales

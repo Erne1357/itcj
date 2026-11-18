@@ -27,7 +27,7 @@ def _viewer(**kw):
 def _dvr(id=1):
     return SimpleNamespace(
         id=id, name="DVR Prueba", location="Edificio A", brand="Hikvision", model="X1",
-        channels=8, username="usr-zz9", notes="nota-x", is_active=True,
+        channels=8, camera_type=None, cameras_installed=None, username="usr-zz9", notes="nota-x", is_active=True,
         password_cipher="SECRETO-PW", pattern_cipher="SECRETO-PAT",
         departments=[SimpleNamespace(id=1, name="Dirección")])
 
@@ -469,3 +469,35 @@ def test_inactive_and_reactivate_need_see_all(app_client):
     with _ctx(app_client, viewer=v, get_inactive=dict(return_value=_dvr()), list_inactive=dict(return_value=[])):
         assert app_client.get("/cameras/inactive", headers=_hdr()).status_code == 403
         assert app_client.post("/cameras/dvrs/1/reactivate", headers=_hdr()).status_code == 403
+
+
+def test_card_meta_shows_camera_count_and_type(app_client):
+    d = _dvr()
+    d.camera_type, d.cameras_installed = "mixtas", 6
+    with _ctx(app_client):
+        with patch(f"{S}.list_visible", return_value=[d]):
+            r = app_client.get("/cameras/", headers=_hdr())
+    assert "8 canales" in r.text and "6 cámaras" in r.text and "Bala y PTZ" in r.text
+
+
+def test_form_parses_camera_fields_and_overflow_message(app_client):
+    with _ctx(app_client):
+        with patch(f"{S}.create", return_value=_dvr()) as cr:
+            app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
+                            data={"name": "X", "channels": "8", "camera_type": "ptz",
+                                  "cameras_installed": "6", "password": "p", "password_confirm": "p"})
+        assert cr.call_args.args[1].camera_type == "ptz" and cr.call_args.args[1].cameras_installed == 6
+        r = app_client.post("/cameras/dvrs", headers={**_hdr(), "HX-Request": "true"},
+                            data={"name": "X", "channels": "8", "cameras_installed": "9",
+                                  "password": "p", "password_confirm": "p"})
+    assert r.status_code == 422
+    assert unquote(r.headers["x-cam-error"]) == "Hay más cámaras que canales: el DVR tiene 8 canales."
+
+
+def test_edit_form_prefills_camera_fields(app_client):
+    d = _dvr()
+    d.camera_type, d.cameras_installed = "ptz", 0
+    with _ctx(app_client, get_visible=dict(return_value=d)):
+        r = app_client.get("/cameras/dvrs/1/edit", headers=_hdr())
+    assert '<option value="ptz" selected>' in r.text and 'name="cameras_installed"' in r.text
+    assert 'max="128" inputmode="numeric" value="0"' in r.text

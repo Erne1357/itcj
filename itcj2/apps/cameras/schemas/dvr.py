@@ -1,5 +1,7 @@
 """Entrada de alta/edición de DVR. `password` NO se recorta (se guarda tal cual)."""
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class DvrInput(BaseModel):
@@ -11,6 +13,8 @@ class DvrInput(BaseModel):
     brand: str | None = Field(default=None, max_length=50)
     model: str | None = Field(default=None, max_length=80)
     channels: int | None = Field(default=None, ge=1, le=128)
+    camera_type: Literal["bala", "ptz", "mixtas"] | None = None
+    cameras_installed: int | None = Field(default=None, ge=0, le=128)
     username: str | None = Field(default=None, max_length=50, repr=False)
     notes: str | None = Field(default=None, repr=False)
     remove_username: bool = False
@@ -25,3 +29,14 @@ class DvrInput(BaseModel):
     @classmethod
     def _strip_name(cls, v):
         return v.strip() if isinstance(v, str) else v
+
+    @field_validator("camera_type", mode="before")
+    @classmethod
+    def _blank_type(cls, v):
+        return None if isinstance(v, str) and not v.strip() else v
+
+    @model_validator(mode="after")
+    def _installed_within_channels(self):
+        if self.channels and self.cameras_installed is not None and self.cameras_installed > self.channels:
+            raise ValueError(f"Hay más cámaras que canales: el DVR tiene {self.channels} canales.")
+        return self

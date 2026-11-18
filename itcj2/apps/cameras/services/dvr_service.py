@@ -12,6 +12,7 @@ from sqlalchemy import exists, or_
 from sqlalchemy.orm import Session, selectinload
 
 from itcj2.apps.cameras.models import CamerasAuditLog, Dvr, DvrDepartment
+from itcj2.apps.cameras.models.dvr import CAMERA_TYPES
 from itcj2.apps.cameras.schemas.dvr import DvrInput
 from itcj2.apps.cameras.services import secrets
 
@@ -23,7 +24,7 @@ PERM_PWD_DEPT = "cameras.credentials.api.update.department"
 PERM_AUDIT = "cameras.audit.page.list"
 APP = "cameras"
 
-_PLAIN_FIELDS = ("name", "location", "brand", "model", "channels", "username", "notes")
+_PLAIN_FIELDS = ("name", "location", "brand", "model", "channels", "camera_type", "cameras_installed", "username", "notes")
 # username/notes son solo escritura: vacío = sin cambio; se borran con remove_*.
 _WRITE_ONLY = ("username", "notes")
 
@@ -95,7 +96,7 @@ def _search_words(q: str) -> list[str]:
 
 def list_visible(db: Session, viewer: Viewer, q: str | None = None) -> list[Dvr]:
     """Cada palabra de `q` debe coincidir (AND) con algun campo (OR): nombre, lugar,
-    marca, modelo, departamento; un numero suelto tambien es nº de canales."""
+    marca, modelo, tipo de cámaras (código o etiqueta), departamento; un numero suelto tambien es nº de canales."""
     from itcj2.core.models.department import Department
     query = _visible_query(db, viewer)
     for w in _search_words(q or ""):
@@ -103,8 +104,10 @@ def list_visible(db: Session, viewer: Viewer, q: str | None = None) -> list[Dvr]
         dept_match = exists().where(
             DvrDepartment.dvr_id == Dvr.id, DvrDepartment.department_id == Department.id,
             Department.name.ilike(like, escape="\\"))
+        types = [k for k, lbl in CAMERA_TYPES.items() if len(w) >= 3 and w.lower() in (k, *lbl.lower().split())]
         conds = [Dvr.name.ilike(like, escape="\\"), Dvr.location.ilike(like, escape="\\"),
-                 Dvr.brand.ilike(like, escape="\\"), Dvr.model.ilike(like, escape="\\"), dept_match]
+                 Dvr.brand.ilike(like, escape="\\"), Dvr.model.ilike(like, escape="\\"), dept_match,
+                 Dvr.camera_type.in_(types)]
         if w.isdigit() and len(w) <= 3:
             # numero: canales exactos o palabra completa en nombre/lugar (no subcadena en modelo)
             word = rf"\m{int(w)}\M"

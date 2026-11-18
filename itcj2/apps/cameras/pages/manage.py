@@ -36,7 +36,8 @@ ACTION_LABELS = {
     "reactivate": "Reactivó el DVR",
 }
 _FIELD_LABELS = {"name": "nombre", "location": "ubicación", "brand": "marca", "model": "modelo",
-                 "channels": "canales", "username": "usuario", "notes": "notas"}
+                 "channels": "canales", "camera_type": "tipo de cámaras",
+                 "cameras_installed": "cámaras instaladas", "username": "usuario", "notes": "notas"}
 
 
 def _manage_gate(request: Request, user=Depends(_gate), db: Session = Depends(get_db)):
@@ -89,7 +90,8 @@ def _form_ctx(db, viewer, dvr, values=None, selected=None, error=None):
 
 def _values_of(dvr):
     return {k: ("" if getattr(dvr, k) is None else getattr(dvr, k))
-            for k in ("name", "location", "brand", "model", "channels")} if dvr else {}
+            for k in ("name", "location", "brand", "model", "channels",
+                      "camera_type", "cameras_installed")} if dvr else {}
 
 
 def _form_page(request, db, viewer, dvr):
@@ -126,7 +128,8 @@ async def _parse(request: Request):
     """Lee el formulario crudo: (DvrInput, values, selected) o lanza ValueError."""
     form = await request.form()
     g = lambda k: form.get(k) or ""  # noqa: E731
-    values = {k: g(k).strip() for k in ("name", "location", "brand", "model", "channels")}
+    values = {k: g(k).strip() for k in ("name", "location", "brand", "model", "channels",
+                                   "camera_type", "cameras_installed")}
     selected = []
     for raw in form.getlist("department_ids"):
         try:
@@ -146,9 +149,14 @@ def _build(form, values, selected) -> DvrInput:
     except ValueError:
         raise ValueError("Los canales deben ser un número.") from None
     try:
+        installed = int(values["cameras_installed"]) if values["cameras_installed"] else None
+    except ValueError:
+        raise ValueError("Las cámaras instaladas deben ser un número.") from None
+    try:
         return DvrInput(
             name=values["name"], location=values["location"] or None, brand=values["brand"] or None,
             model=values["model"] or None, channels=channels,
+            camera_type=values["camera_type"] or None, cameras_installed=installed,
             username=form.get("username") or None, notes=form.get("notes") or None,
             remove_username=bool(form.get("remove_username")), remove_notes=bool(form.get("remove_notes")),
             department_ids=selected, password=password,
@@ -157,7 +165,10 @@ def _build(form, values, selected) -> DvrInput:
             remove_pattern=bool(form.get("remove_pattern")),
         )
     except ValidationError as exc:
-        loc = ".".join(str(p) for p in exc.errors()[0]["loc"])
+        err = exc.errors()[0]
+        if not err["loc"]:  # validador de modelo (cámaras > canales): su mensaje es de ventanilla
+            raise ValueError(str(err["msg"]).removeprefix("Value error, ")) from None
+        loc = ".".join(str(p) for p in err["loc"])
         raise ValueError(f"Revisa el campo «{_FIELD_LABELS.get(loc, loc)}».") from None
 
 

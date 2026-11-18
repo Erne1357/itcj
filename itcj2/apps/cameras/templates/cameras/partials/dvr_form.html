@@ -32,6 +32,20 @@
         <label class="form-label" for="f-ch">Canales</label>
         <input class="form-control" id="f-ch" name="channels" type="number" min="1" max="128" inputmode="numeric" value="{{ v.channels or '' }}">
       </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-ctype">Tipo de cámaras</label>
+        <select class="form-select" id="f-ctype" name="camera_type">
+          <option value="">Sin especificar</option>
+          <option value="bala"{% if v.camera_type == 'bala' %} selected{% endif %}>Bala</option>
+          <option value="ptz"{% if v.camera_type == 'ptz' %} selected{% endif %}>PTZ</option>
+          <option value="mixtas"{% if v.camera_type == 'mixtas' %} selected{% endif %}>Bala y PTZ</option>
+        </select>
+      </div>
+      <div class="cam-field">
+        <label class="form-label" for="f-cinst">Cámaras instaladas</label>
+        <input class="form-control" id="f-cinst" name="cameras_installed" type="number" min="0" max="128" inputmode="numeric" value="{{ v.cameras_installed if v.cameras_installed is not none else '' }}">
+        <p class="cam-field__hint">No puede superar los canales del DVR.</p>
+      </div>
     </div>
   </section>
 

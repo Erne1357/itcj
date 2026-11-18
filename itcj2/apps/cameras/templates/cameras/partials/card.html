@@ -1,5 +1,7 @@
 {# Tarjeta sellada de un DVR. Nunca lleva usuario, notas ni secretos: «Revelar» abre el diálogo #cam-reveal. #}
-{% set bits = [d.brand, d.model, (d.channels ~ ' canales') if d.channels else none]|select|list %}
+{% set bits = [d.brand, d.model, (d.channels ~ ' canales') if d.channels else none,
+  (d.cameras_installed ~ (' cámara' if d.cameras_installed == 1 else ' cámaras')) if d.cameras_installed is not none else none,
+  d.camera_type|camera_type if d.camera_type else none]|select|list %}
 {% set what = 'patrón y contraseña' if (d.pattern_cipher and d.password_cipher) else ('patrón' if d.pattern_cipher else ('contraseña' if d.password_cipher else '')) %}
 {% set can_pw = viewer.can_update_password or viewer.can_manage %}
 {% macro meta_bits() -%}
