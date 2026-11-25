@@ -62,7 +62,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from urllib.parse import quote
@@ -258,6 +258,7 @@ class StudentMail:
         "already_enrolled": "Aviso de que ya tiene un proceso",
         "process_cancelled": "Inscripción revocada",
         "process_reactivated": "Inscripción reactivada",
+        "cohort_closing": "Aviso de cierre de convocatoria",
     }
 
     # ------------------------------------------------------------------
@@ -670,6 +671,18 @@ class StudentMail:
         Caja)."""
         return StudentMail._reminder(db, "library_reminder", process, anchor, index,
                                      created_at)
+
+    @staticmethod
+    @_best_effort
+    def cohort_closing(db: Session, process, *, closes_on: date) -> bool:
+        """Aviso de que la convocatoria cierra el `closes_on` (comando
+        `avisar-cierre-convocatoria`). Llave `cohort_closing:{pid}:{AAAAMMDD}`:
+        correr el comando dos veces con la misma fecha no duplica. `False` si
+        ya estaba encolado (o el correo está apagado)."""
+        return StudentMail.enqueue(
+            db, kind="cohort_closing", process=process,
+            payload={"closes_on": closes_on.isoformat()},
+            dedupe_key=f"cohort_closing:{process.id}:{closes_on:%Y%m%d}")
 
     @staticmethod
     def _reminder(db: Session, kind: str, process, anchor: datetime, index: int,

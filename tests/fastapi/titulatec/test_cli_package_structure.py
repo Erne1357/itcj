@@ -3,7 +3,7 @@
 El CLI de TitulaTec dejó de ser un solo archivo de ~4,900 líneas: es un paquete
 con un módulo por contexto. Aquí se fija lo que ese corte no puede romper:
 
-- los 29 comandos siguen registrados en `titulatec_cli` con los mismos nombres
+- los 30 comandos siguen registrados en `titulatec_cli` con los mismos nombres
   (y cada uno vive en el módulo que le asigna la spec);
 - `itcj2.cli.titulatec` sigue exportando lo que usan `cli/main.py` y
   `cli/core.py` (`titulatec_cli`, `SEED_FILES`, `DML_TITULATEC`, `PROJECT_ROOT`);
@@ -55,6 +55,7 @@ _COMANDO_A_MODULO = {
     "fix-missing-credentials": "mantenimiento",
     "rename-documents": "mantenimiento",
     "fix-control-l": "mantenimiento",
+    "avisar-cierre-convocatoria": "mantenimiento",
     "exportar-sin-cuenta": "nips",
     "cargar-nips": "nips",
     "purgar-nips": "nips",
@@ -98,9 +99,9 @@ def test_es_un_paquete_con_sus_14_modulos():
     assert len(_MODULOS) == 14
 
 
-def test_registra_los_29_comandos_con_los_mismos_nombres():
+def test_registra_los_30_comandos_con_los_mismos_nombres():
     assert set(titulatec_cli.commands) == set(_COMANDO_A_MODULO)
-    assert len(titulatec_cli.commands) == 29
+    assert len(titulatec_cli.commands) == 30
 
 
 def test_cada_comando_vive_en_el_modulo_de_la_spec():

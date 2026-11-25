@@ -1,0 +1,28 @@
+{# Aviso de cierre de convocatoria (2026-11-25). Lo encola a mano el comando
+   `titulatec avisar-cierre-convocatoria` a los procesos activos que Servicios
+   Escolares no ha liberado (fase 2 sin aprobar); al enviar se re-valida (D8).
+   Contexto: first_name, link, fecha_limite (texto ya formateado),
+   falta (lista de `_que_falta`, o None si ya tiene cita o no aplica). #}
+{% extends "titulatec/email/_base_email.html" %}
+{% import "titulatec/email/_email_macros.html" as m %}
+{% block titulo %}Última semana para completar tu trámite con Servicios Escolares — TitulaTec ITCJ{% endblock %}
+{% block cuerpo %}
+<p style="margin:0 0 16px;">Hola <strong>{{ first_name|e }}</strong>,</p>
+<p style="margin:0 0 20px;">
+  Tu trámite de titulación sigue abierto con <strong>Servicios Escolares</strong>. La convocatoria
+  cierra el <strong>{{ fecha_limite|e }}</strong>, así que <strong>solo tienes esta semana</strong>
+  para completar lo que te falta, hasta tu cita de cotejo.
+</p>
+{{ m.agenda(falta) }}
+{{ m.aviso("Si no lo completas antes del cierre, podrías tener que empezar de nuevo el próximo semestre, cuando se abra la nueva convocatoria.") }}
+<p style="margin:0 0 8px;color:#1F3D7A;font-weight:700;">¿Qué pasa con lo que ya avanzaste?</p>
+<p style="margin:0 0 24px;">
+  Parte de lo que ya entregaste podría respetarse, pero no todo. La <strong>CURP</strong>, por
+  ejemplo, no se respeta: debe ser actual, así que tendrías que presentar una nueva, con fecha
+  del año en que retomes tu trámite.
+</p>
+{{ m.boton(link, "Ir a mi trámite") }}
+<p style="margin:0;color:#607D8B;font-size:13px;">
+  Si tienes dudas, acude a Servicios Escolares.
+</p>
+{% endblock %}

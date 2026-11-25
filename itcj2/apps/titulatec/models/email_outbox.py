@@ -116,6 +116,9 @@ OUTBOX_KINDS = (
     "already_enrolled",
     "process_cancelled",
     "process_reactivated",
+    # Aviso masivo de cierre de convocatoria (2026-11-25): lo encola a mano el
+    # comando `titulatec avisar-cierre-convocatoria`; individual, con dedupe.
+    "cohort_closing",
 )
 
 # Correos de la INSCRIPCION que pasan por la bandeja (P-D1): el aviso con folio

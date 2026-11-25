@@ -1,4 +1,5 @@
-"""Reparaciones puntuales de datos: fix-missing-credentials, rename-documents y fix-control-l."""
+"""Reparaciones puntuales de datos: fix-missing-credentials, rename-documents y fix-control-l;
+y el aviso masivo avisar-cierre-convocatoria."""
 import os
 from pathlib import Path, PurePosixPath
 
@@ -324,3 +325,50 @@ def fix_control_l_command(dry_run, sin_correo, solo):
             raise SystemExit(1)
     finally:
         db.close()
+
+
+@titulatec_cli.command("avisar-cierre-convocatoria")
+@click.option("--cierre", required=True, type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Día en que cierra la convocatoria (AAAA-MM-DD); sale en el correo.")
+@click.option("--dry-run", is_flag=True, help="Solo cuenta a quién le llegaría.")
+def avisar_cierre_convocatoria_command(cierre, dry_run):
+    """Encola el aviso de cierre de convocatoria (`cohort_closing`).
+
+    A todo proceso `active` que Servicios Escolares no ha liberado (fase
+    `review_appointment` sin aprobar), al correo personal como el resto de los
+    correos del proceso. Solo encola: lo envía `titulatec.email_dispatch` en
+    lotes de 50 cada 5 min, y al enviar vuelve a revisar que aplique.
+    Idempotente por fecha: correrlo otra vez con el mismo `--cierre` no duplica.
+    """
+    from itcj2.database import SessionLocal
+    from itcj2.apps.titulatec.models import TitulationProcess
+    from itcj2.apps.titulatec.services.mail_compose import aviso_cierre_no_aplica
+    from itcj2.apps.titulatec.services.student_mail import MailSettings, StudentMail
+    from itcj2.apps.titulatec.utils.dates_es import dia_largo
+    from itcj2.core.utils.timezone import db_now
+
+    cierre = cierre.date()
+    if cierre < db_now().date():
+        raise click.BadParameter("esa fecha ya pasó", param_hint="--cierre")
+    if not MailSettings.enabled():
+        raise click.ClickException("El correo de TitulaTec está apagado "
+                                   "(TITULATEC_EMAIL_ENABLED): no se encolaría nada.")
+
+    with SessionLocal() as db:
+        activos = (db.query(TitulationProcess)
+                   .filter(TitulationProcess.status == "active")
+                   .order_by(TitulationProcess.id).all())
+        destino = [p for p in activos if aviso_cierre_no_aplica(db, p) is None]
+        sin_correo = sum(1 for p in destino if StudentMail.contact_email(db, p) is None)
+        click.echo(f"🔎 {len(activos)} proceso(s) activo(s), {len(destino)} sin liberar por "
+                   f"Servicios Escolares ({sin_correo} sin correo personal: quedarán "
+                   f"«sin destinatario»).")
+        click.echo(f"   El correo dirá que la convocatoria cierra el {dia_largo(cierre)}.")
+        if dry_run:
+            click.echo("   Dry-run: nada encolado.")
+            return
+        nuevos = sum(1 for p in destino if StudentMail.cohort_closing(db, p, closes_on=cierre))
+        db.commit()
+
+    click.echo(f"✅ {nuevos} aviso(s) encolado(s); {len(destino) - nuevos} ya estaban encolados "
+               f"para esa fecha (o fallaron: revisa el log). Salen en lotes de 50 cada 5 min.")
