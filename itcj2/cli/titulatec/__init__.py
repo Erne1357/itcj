@@ -16,7 +16,8 @@ La lista de comandos con sus opciones está en el docstring de `_common.py`.
     encuesta        load-survey-2026-09, import-survey-xlsx
     sii             sii-ping, sii-rules-validate, sii-check, sii-sweep
     bitacora        audit-purge, audit-backfill-solicitudes
-    mantenimiento   fix-missing-credentials, rename-documents, fix-control-l
+    mantenimiento   fix-missing-credentials, rename-documents, fix-control-l,
+                    avisar-cierre-convocatoria
     nips            exportar-sin-cuenta, cargar-nips, purgar-nips
     promedios       exportar-controles, cargar-promedios
     documentos      init-reemplazo-docs

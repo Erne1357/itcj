@@ -1116,6 +1116,51 @@ def _compose_library_reminder(db: Session, rows: list, process, user) -> Compose
 # plantillas, asuntos y contexto que `TitulaTecEmailHelper.send_*`, con datos
 # planos (dicts con los mismos nombres de atributo que la plantilla lee).
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Aviso de cierre de convocatoria (2026-11-25): lo encola a mano el comando
+# `titulatec avisar-cierre-convocatoria`, una fila suelta por proceso.
+# ---------------------------------------------------------------------------
+ASUNTO_CIERRE = "Última semana para completar tu trámite con Servicios Escolares"
+
+
+def aviso_cierre_no_aplica(db: Session, process) -> str | None:
+    """Por qué el aviso de cierre ya NO le toca a `process`, o `None` si le
+    toca: proceso `active` que Servicios Escolares no ha liberado (su fase
+    `review_appointment` sin `approved`, el mismo criterio de Liberados). La
+    misma regla elige a quién encola el comando y re-valida al enviar (D8)."""
+    from itcj2.apps.titulatec.models import ProcessPhase
+    from itcj2.apps.titulatec.services.phase_service import PhaseService
+
+    if process.status != "active":
+        return "el proceso ya no está activo"
+    fase = PhaseService.phase_number_for_code(db, "review_appointment")
+    if fase is None:
+        return "no está sembrado el catálogo de fases"
+    liberado = (db.query(ProcessPhase.id)
+                .filter(ProcessPhase.process_id == process.id,
+                        ProcessPhase.phase_number == fase,
+                        ProcessPhase.status == "approved")
+                .first())
+    return "Servicios Escolares ya lo liberó" if liberado is not None else None
+
+
+def _compose_cohort_closing(db: Session, rows: list, process, user) -> Composed | Obsolete:
+    """Aviso de cierre de convocatoria. Aplica mientras siga activo, sin
+    liberar y la fecha de cierre del payload no haya pasado. Lleva lo que le
+    falta para agendar con el estado VIVO (`_que_falta`, D11)."""
+    no_aplica = aviso_cierre_no_aplica(db, process)
+    if no_aplica is not None:
+        return Obsolete(no_aplica)
+    cierre = _cuando(_datos(rows[-1]).get("closes_on"))
+    if cierre is None:
+        return Obsolete("el aviso no trae la fecha de cierre")
+    if cierre.date() < db_now().date():
+        return Obsolete("la convocatoria ya cerró")
+    return _correo(user, ASUNTO_CIERRE, "cohort_closing.html",
+                   _tablero(process.current_phase),
+                   fecha_limite=dia_largo(cierre), falta=_que_falta(db, process))
+
+
 _SIN_PROCESO = "el proceso o su alumno ya no existe"
 
 
@@ -1278,6 +1323,7 @@ class MailComposer:
         "library_observed": _compose_library_observed,
         "library_reenabled": _compose_library_reenabled,
         "library_payment_held": _compose_library_payment_held,
+        "cohort_closing": _compose_cohort_closing,
     }
 
     # Los 4 correos de inscripción sin secreto (spec 2026-10-05 §3.7): con las

@@ -2673,6 +2673,10 @@ def todos(db_session, proceso, make_appointment, make_document, seed_document_ty
     _recordatorio(db, "survey_reminder", p)
     _anota("recordatorio de encuesta", p)
 
+    p = proceso(fase=1)
+    assert StudentMail.cohort_closing(db, p, closes_on=(HOY_FIJO + timedelta(days=2)).date())
+    _anota("aviso de cierre de convocatoria", p)
+
     return correos, tipos
 
 

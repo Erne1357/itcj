@@ -26,6 +26,7 @@ Comandos:
     titulatec exportar-controles [--salida RUTA]  Controles con solicitud no rechazada o proceso (CSV para pedir los promedios al SII).
     titulatec cargar-promedios ARCHIVO --actor USUARIO [--dry-run]  Carga los promedios oficiales (los aplica a los procesos existentes).
     titulatec init-reemplazo-docs [--dry-run]  Permiso para pedir reemplazo de un documento en cotejo (jefa de SE y admin).
+    titulatec avisar-cierre-convocatoria --cierre AAAA-MM-DD [--dry-run]  Encola el aviso de cierre a los activos sin liberar.
 """
 import logging
 from pathlib import Path
