@@ -490,6 +490,17 @@ def _rutas(router):
 
 _GUARD = "assert_process_in_scope"
 
+# Rutas con `{process_id}` cuya guarda NO es la de encargado: la bandeja «Promedios»
+# (Centro de Cómputo no es encargado y ve todo). Su alcance es `_lock_in_tray` dentro de
+# cada mutador de `AverageQueueService` (404 si no está en la bandeja del actor), probado
+# por comportamiento en `test_averages_pages.py`. Ruta EXACTA, nunca prefijo: una ruta
+# nueva bajo /admin/promedios entra al censo normal y tiene que justificarse aquí.
+_GUARD_DE_BANDEJA = {
+    "/admin/promedios/{process_id}/guardar",
+    "/admin/promedios/{process_id}/pasar-a-escolares",
+    "/admin/promedios/{process_id}/regresar",
+}
+
 
 def _nombre_llamado(func):
     """Nombre del callable de un `Call`: `f(...)` -> "f", `scope_service.f(...)` -> "f"."""
@@ -610,6 +621,7 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     from itcj2.apps.titulatec.pages.router import titulatec_pages_router
 
     sin_guard, condicional, tardio = [], [], []
+    de_bandeja = set()
     revisadas = 0
     for route in _rutas(titulatec_pages_router):
         path = getattr(route, "path", "")
@@ -617,6 +629,10 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
             continue
         revisadas += 1
         etiqueta = str(sorted(getattr(route, "methods", []))) + " " + path
+        bandeja = next((b for b in _GUARD_DE_BANDEJA if path.endswith(b)), None)
+        if bandeja is not None:
+            de_bandeja.add(bandeja)
+            continue
 
         cuerpo = _cuerpo(route.endpoint)
         llamadas = [n for st in cuerpo for n in ast.walk(st) if isinstance(n, ast.Call)]
@@ -648,7 +664,10 @@ def test_toda_ruta_con_process_id_invoca_el_guard():
     # (panel de atender) y `POST /admin/processes/{id}/documents/{tipo}/reemplazo`
     # (expediente).
     # 30 desde 2026-10-27: + `POST /admin/processes/{id}/reactivar`.
-    assert revisadas == 30, (
+    # 33 desde 2026-11-26: + las 3 de la bandeja «Promedios» (`_GUARD_DE_BANDEJA`).
+    assert de_bandeja == _GUARD_DE_BANDEJA, (
+        "excepciones de `_GUARD_DE_BANDEJA` que ya no existen: %s" % (_GUARD_DE_BANDEJA - de_bandeja))
+    assert revisadas == 33, (
         "Cambio el inventario de rutas con {process_id}: ahora son %d.\n"
         "Si acabas de ANADIR una ruta, ponle `assert_process_in_scope` como PRIMERA\n"
         "sentencia del try y sube este numero. Si la quitaste, bajalo.\n"

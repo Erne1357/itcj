@@ -1,0 +1,20 @@
+{% extends "titulatec/admin/base_admin.html" %}
+{% block title %}Promedios · TitulaTec{% endblock %}
+{% block admin_view %}averages{% endblock %}
+{% block admin_main %}
+<div class="px-4 pt-4 pb-2">
+  <span class="tt-kicker">Expedientes · Promedio oficial</span>
+  <h1 class="tt-display h3 fw-medium">Promedios</h1>
+  {# Un párrafo en segunda persona por vista (spec 2026-11-26 §6). #}
+  {% if is_cc %}
+  <p class="mb-0 small text-body-secondary">Expedientes sin promedio oficial. Captúralo del SII o
+     del kárdex; si no lo encuentras, pásalo a Servicios Escolares con «No lo tengo».</p>
+  {% else %}
+  <p class="mb-0 small text-body-secondary">Expedientes de tus carreras cuyo promedio Centro de
+     Cómputo no encontró en el SII. Captúralo del expediente físico.</p>
+  {% endif %}
+</div>
+<div class="px-4 pb-4">
+  {% include "titulatec/admin/partials/averages_body.html" %}
+</div>
+{% endblock %}
