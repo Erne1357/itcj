@@ -81,7 +81,9 @@ def _body_ctx(db, *, user_id: int, tab, q=None, page=1, result=None,
     view, allowed = AverageQueueService.view_for(db, user_id)
     is_cc = view == "cc"
     tab = tab if is_cc and tab in TABS else ("pending" if is_cc else "requested")
-    q = normalize_q(q)
+    # «» y no None: la plantilla lo pinta en el buscador y en los campos ocultos,
+    # y un «None» literal volvería como búsqueda en el siguiente POST.
+    q = normalize_q(q) or ""
     ctx = {
         "view": view, "is_cc": is_cc, "tab": tab, "q": q, "result": result,
         "no_programs": False, "rows": [], "page": None,

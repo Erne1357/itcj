@@ -33,7 +33,7 @@
     <div class="tt-search">
       <i class="bi bi-search" aria-hidden="true"></i>
       <input type="search" id="tt-avg-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
-             placeholder="Buscar control, nombre o folio"
+             placeholder="Control, nombre o folio"
              aria-label="Buscar control, nombre o folio"
              hx-get="/titulatec/admin/promedios/body" hx-target="#tt-avg-body"
              hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
@@ -71,15 +71,15 @@
   {% if result %}
   <section id="tt-avg-result" class="tt-card mb-3" aria-label="Resultado de la carga">
     <h2 class="h6 mb-2">{{ result.filename or 'Archivo' }}: {{ result.total }} fila(s)</h2>
-    {% for g in result.groups %}
+    {# Solo los grupos con filas: un «0» por grupo es ruido. El motivo se omite
+       cuando solo repite el nombre del grupo («No está en tu bandeja.»). #}
+    {% for g in result.groups if g['items'] %}
     <p class="mb-1" id="tt-avg-result-{{ g.key }}"><strong>{{ g.label }}: {{ g['items'] | length }}</strong></p>
-    {% if g['items'] %}
     <ul class="small mb-2">
       {% for control, motivo in g['items'] %}
-      <li><span class="tt-mono">{{ control or '(vacío)' }}</span>{% if motivo %}: {{ motivo }}{% endif %}</li>
+      <li><span class="tt-mono">{{ control or '(vacío)' }}</span>{% if motivo and motivo != g.label ~ '.' %}: {{ motivo }}{% endif %}</li>
       {% endfor %}
     </ul>
-    {% endif %}
     {% endfor %}
   </section>
   {% endif %}
@@ -130,7 +130,7 @@
                 hx-target="#tt-avg-body" hx-swap="outerHTML" hx-disabled-elt="find button">
             {{ tab_fields(tab, q, page_no) }}
             <input class="tt-field tt-field--xs" name="promedio" type="text" inputmode="decimal"
-                   autocomplete="off" required maxlength="6" placeholder="85.50"
+                   autocomplete="off" required maxlength="6" placeholder="Promedio"
                    aria-label="Promedio (70 a 100)">
             <button type="submit" class="btn btn-sm tt-btn-ink">Guardar promedio</button>
           </form>

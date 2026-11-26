@@ -376,7 +376,7 @@ def test_archivo_resume_por_grupo(client_as, db_session, expediente, cc):
     assert "Fuera de rango (70-100): 1" in plano
     assert "No está en tu bandeja: 1" in plano
     assert "Formato inválido: 1" in plano
-    assert "Duplicados: 0" in plano
+    assert "Duplicados" not in plano  # grupos en 0 no se pintan
     assert 'id="tt-avg-result"' in resp.text and "promedios.csv" in plano
     assert _aviso(resp) == "1 de 4 fila(s) aplicadas."
     db_session.refresh(uno)
@@ -450,6 +450,15 @@ def test_el_buscador_se_conserva_y_filtra_por_control(client_as, db_session, exp
     assert_buscador_preservado(resp.text, input_id="tt-avg-q", filters_id="tt-avg-filters",
                                q=control)
     assert resp.text.count('id="tt-avg-body"') == 1
+
+
+def test_sin_busqueda_no_viaja_un_none_literal(client_as, cc):
+    """Sin `q`, buscador y campos ocultos van vacíos: un «None» pintado volvería
+    como búsqueda en el siguiente POST y vaciaría la bandeja tras guardar."""
+    html = client_as(cc).get(URL).text
+
+    assert 'value="None"' not in html
+    assert 'name="q" value=""' in html
 
 
 def test_el_parcial_pagina(client_as, monkeypatch, expediente, cc):
