@@ -26,6 +26,7 @@ Comandos:
     titulatec exportar-controles [--salida RUTA]  Controles con solicitud no rechazada o proceso (CSV para pedir los promedios al SII).
     titulatec cargar-promedios ARCHIVO --actor USUARIO [--dry-run]  Carga los promedios oficiales (los aplica a los procesos existentes).
     titulatec init-reemplazo-docs [--dry-run]  Permiso para pedir reemplazo de un documento en cotejo (jefa de SE y admin).
+    titulatec init-promedios-pendientes [--dry-run]  Permisos de la bandeja «Promedios» (Centro de Cómputo, Escolares y admin).
     titulatec avisar-cierre-convocatoria --cierre AAAA-MM-DD [--dry-run]  Encola el aviso de cierre a los activos sin liberar.
 """
 import logging
@@ -174,6 +175,11 @@ SEED_FILES = [
     # (explicito). Inserta un permiso, asi que va ANTES del 15. Tambien corre SOLO
     # con `titulatec init-reemplazo-docs`.
     "reemplazo_2026_10/27_insert_doc_replacement_perm.sql",
+    # --- Delta 2026-11-26: bandeja «Promedios». Los 3 `titulatec.average.*` para
+    # Centro de Computo, Servicios Escolares (operativo y jefatura) y `admin`
+    # (explicito). Inserta permisos, asi que va ANTES del 15. Tambien corre SOLO
+    # con `titulatec init-promedios-pendientes`.
+    "promedios_2026_11/28_insert_average_queue_perms.sql",
     # El 15 va SIEMPRE AL FINAL: concede DINÁMICAMENTE (SELECT sobre
     # core_permissions, sin listar códigos) todos los permisos de titulatec al
     # rol 'admin' y le da ese rol al usuario `username='admin'`. Tiene que
@@ -394,48 +400,15 @@ def _echo_folios_por_tipo_y_semestre(conteo: dict[tuple[str, str], int]) -> None
 # ---------------------------------------------------------------------------
 # NIPs del SII precargados (spec 2026-10-13-titulatec-nip-precargado-design.md §5.3)
 # ---------------------------------------------------------------------------
-_NIPS_COLUMNAS_CONTROL = {"control", "no_control", "numero_control", "numero_de_control",
-                          "num_control", "n_control", "no._control"}
-
-
 def _leer_dos_columnas(ruta: Path, valor: str, alias_valor: set[str], *,
                        estricto: bool = False) -> list[tuple[str, str]]:
-    """Lee `(control, <valor>)` de un CSV/TXT con encabezado. Acepta BOM (Excel),
-    `,` `;` o tabulador, y `no_control`/`numero_control` como encabezado del
-    control. La celda del valor se deja TAL CUAL: validarla es del servicio.
-    `ClickException` si falta una columna.
-
-    `estricto`: una fila con MÁS celdas que el encabezado se devuelve con el
-    valor roto a propósito (las celdas sobrantes pegadas con un espacio). Es lo
-    que pasa con «85,5» sin comillas en un CSV separado por comas: sin esto se
-    leería «85» y el «5» se perdería en silencio."""
-    import csv
-    import io
-    import unicodedata
+    """Lee el archivo (BOM de Excel incluido) y lo pasa a
+    `apps/titulatec/utils/two_columns.leer_dos_columnas`, que también usa la
+    bandeja «Promedios». `ClickException` si falta una columna."""
+    from itcj2.apps.titulatec.utils.two_columns import leer_dos_columnas
 
     texto = ruta.read_bytes().decode("utf-8-sig", errors="replace")
-    primera = texto.splitlines()[0] if texto.strip() else ""
-    delim = max(("\t", ";", ","), key=primera.count)
-    lector = csv.reader(io.StringIO(texto), delimiter=delim)
-
-    def _norm(h: str) -> str:
-        sin = unicodedata.normalize("NFKD", h or "").encode("ascii", "ignore").decode()
-        return sin.strip().lower().replace(" ", "_")
-
-    encabezado = [_norm(h) for h in next(lector, [])]
-    i_control = next((i for i, h in enumerate(encabezado)
-                      if h in _NIPS_COLUMNAS_CONTROL), None)
-    i_valor = next((i for i, h in enumerate(encabezado) if h in alias_valor), None)
-    if i_control is None or i_valor is None:
-        raise click.ClickException(
-            f"El archivo necesita un encabezado con las columnas «control» y «{valor}» "
-            "(también vale «no_control» o «numero_control»).")
-    filas = []
-    for r in lector:
-        if not any((c or "").strip() for c in r):
-            continue
-        celda = r[i_valor] if i_valor < len(r) else ""
-        if estricto and any((c or "").strip() for c in r[len(encabezado):]):
-            celda = " ".join([celda, *r[len(encabezado):]])
-        filas.append((r[i_control] if i_control < len(r) else "", celda))
-    return filas
+    try:
+        return leer_dos_columnas(texto, valor, alias_valor, estricto=estricto)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc

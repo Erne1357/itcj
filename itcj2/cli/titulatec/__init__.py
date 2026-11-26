@@ -19,7 +19,7 @@ La lista de comandos con sus opciones está en el docstring de `_common.py`.
     mantenimiento   fix-missing-credentials, rename-documents, fix-control-l,
                     avisar-cierre-convocatoria
     nips            exportar-sin-cuenta, cargar-nips, purgar-nips
-    promedios       exportar-controles, cargar-promedios
+    promedios       exportar-controles, cargar-promedios, init-promedios-pendientes
     documentos      init-reemplazo-docs
 
 Cada submódulo registra sus comandos en `titulatec_cli` al importarse: por eso

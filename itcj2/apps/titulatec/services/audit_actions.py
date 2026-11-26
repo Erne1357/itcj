@@ -114,6 +114,8 @@ AUDIT_ACTIONS: dict[str, tuple[str, str]] = {
 
     # --- processes: promedio oficial (`process.*` es de la escucha, por eso `average.*`)
     "average.final_set": ("processes", "Fijó el promedio final de un proceso"),
+    "average.requested": ("processes", "Pasó un promedio a Servicios Escolares"),
+    "average.request_withdrawn": ("processes", "Regresó un promedio a Por capturar"),
 
     # --- library: liberaciones previas ----------------------------------------
     "prior_clearance.deferred": ("library", "Dejó pendiente una liberación previa"),
