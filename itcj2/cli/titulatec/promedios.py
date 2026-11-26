@@ -1,9 +1,15 @@
-"""Promedios oficiales del SII: exportar-controles y cargar-promedios."""
+"""Promedios oficiales del SII: exportar-controles, cargar-promedios e
+init-promedios-pendientes (permisos de la bandeja «Promedios», 2026-11-26)."""
 from pathlib import Path
 
 import click
 
-from itcj2.cli.titulatec._common import _leer_dos_columnas, titulatec_cli
+from itcj2.cli.titulatec._common import (
+    DML_TITULATEC,
+    _abortar_con,
+    _leer_dos_columnas,
+    titulatec_cli,
+)
 
 # ---------------------------------------------------------------------------
 # Promedios oficiales (spec 2026-10-13-titulatec-promedios-design.md §5)
@@ -167,3 +173,102 @@ def cargar_promedios_command(archivo, actor, dry_run):
         click.echo("Dry-run: no se escribió nada.")
     if nada:
         raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# Bandeja «Promedios» (spec 2026-11-26-titulatec-promedios-pendientes-design.md §4)
+# ---------------------------------------------------------------------------
+# El 28 inserta los 3 `titulatec.average.*` y los concede EXPLICITO, `admin`
+# incluido. En produccion el 15 NUNCA se re-corre (reparte todo titulatec a
+# `admin`), asi que este comando corre SOLO el 28. Invalida el cache de authz
+# SOLO de titulatec (nunca `invalidate_all`).
+_DML_PROMEDIOS_2026_11_FILES = ["promedios_2026_11/28_insert_average_queue_perms.sql"]
+_ROLES_BANDEJA = ("admin", "titulatec_computer_center",
+                  "titulatec_school_services", "titulatec_school_services_head")
+_AVERAGE_GRANTS = {
+    "titulatec.average.page.list": _ROLES_BANDEJA,
+    "titulatec.average.api.capture": _ROLES_BANDEJA,
+    "titulatec.average.api.request": ("admin", "titulatec_computer_center"),
+}
+
+
+def _verify_promedios_pendientes() -> list[str]:
+    """Comprueba que el 28 ATERRIZO: cada permiso existe y lo tienen sus roles.
+    Devuelve problemas (contrato de `_verify_reemplazo_docs`). Sesion propia,
+    solo lectura."""
+    from sqlalchemy import text
+
+    from itcj2.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        concedidos = {
+            (code, rol) for code, rol in db.execute(
+                text("SELECT p.code, r.name FROM core_permissions p "
+                     "JOIN core_apps a ON a.id = p.app_id AND a.key = 'titulatec' "
+                     "LEFT JOIN core_role_permissions rp ON rp.perm_id = p.id "
+                     "LEFT JOIN core_roles r ON r.id = rp.role_id "
+                     "WHERE p.code = ANY(:codes)"),
+                {"codes": list(_AVERAGE_GRANTS)})
+        }
+    finally:
+        db.close()
+    existen = {code for code, _rol in concedidos}
+    problemas = [f"permiso ausente: {code}" for code in _AVERAGE_GRANTS if code not in existen]
+    problemas += [f"el rol {rol} no tiene {code}"
+                  for code, roles in _AVERAGE_GRANTS.items() if code in existen
+                  for rol in roles if (code, rol) not in concedidos]
+    return problemas
+
+
+@titulatec_cli.command("init-promedios-pendientes")
+@click.option("--dry-run", is_flag=True,
+              help="Comprueba los archivos en disco y los lista, sin escribir nada.")
+def init_promedios_pendientes_command(dry_run):
+    """Da de alta los permisos de la bandeja «Promedios».
+
+    Corre `promedios_2026_11/28_insert_average_queue_perms.sql`: inserta
+    `titulatec.average.{page.list,api.capture,api.request}` y los concede a
+    Centro de Computo, Servicios Escolares (operativo y jefatura) y `admin`
+    (`api.request` solo a Centro de Computo y `admin`). Corre SOLO ese archivo:
+    NO re-ejecuta el 15 ni el resto de `SEED_FILES`. Idempotente (ON CONFLICT).
+    Invalida el cache de authz solo de titulatec y VERIFICA con
+    `_verify_promedios_pendientes()`; aborta si algo no aterrizo. `--dry-run`:
+    comprueba que los archivos existen y los lista, sin escribir.
+    """
+    faltan = [n for n in _DML_PROMEDIOS_2026_11_FILES if not (DML_TITULATEC / n).exists()]
+
+    if dry_run:
+        if faltan:
+            click.echo(click.style(f"ERROR: faltan archivos en disco: {faltan}", fg="red"))
+        else:
+            click.echo("Archivos en disco: OK. Se ejecutarian:")
+            for nombre in _DML_PROMEDIOS_2026_11_FILES:
+                click.echo(f"  {nombre}")
+        click.echo("Dry-run: no se ejecuto nada.")
+        if faltan:
+            raise click.Abort()
+        return
+
+    if faltan:
+        _abortar_con([f"faltan archivos en disco: {faltan} "
+                      "(database/ esta gitignored: subelos al host)"])
+
+    from itcj2.cli.core import execute_sql_file
+
+    for nombre in _DML_PROMEDIOS_2026_11_FILES:
+        click.echo(f"   Ejecutando: {nombre}")
+        execute_sql_file(str(DML_TITULATEC / nombre), invalidate_authz=False)
+        click.echo(f"   Completado: {nombre}")
+
+    # Tras el commit y ANTES de verificar; best-effort (Redis caido = TTL de 5 min).
+    from itcj2.core.services.authz_cache import invalidate_app
+    invalidate_app("titulatec")
+    click.echo("Cache de authz de titulatec invalidado (solo esta app).")
+
+    problemas = _verify_promedios_pendientes()
+    if problemas:
+        _abortar_con(problemas)
+
+    click.echo(click.style(
+        f"OK: {len(_AVERAGE_GRANTS)} permisos titulatec.average.* con sus roles.", fg="green"))

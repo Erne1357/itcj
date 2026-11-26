@@ -566,6 +566,13 @@ _PERMISOS_ACCESOS_COMPUTO = (
     "titulatec.enrollment_access.api.return",
     "titulatec.enrollment_access.api.reject",
 )
+# Bandeja «Promedios» (2026-11-26, `promedios_2026_11/28`): CC ve, captura y pasa a
+# Escolares. El rol concede EXACTAMENTE Accesos + estos 3.
+_PERMISOS_PROMEDIOS_COMPUTO = (
+    "titulatec.average.page.list",
+    "titulatec.average.api.capture",
+    "titulatec.average.api.request",
+)
 
 
 def _verify_computer_center() -> list[str]:
@@ -580,7 +587,8 @@ def _verify_computer_center() -> list[str]:
 
     Tres chequeos (spec sección 7, D1/D2):
       - el rol `titulatec_computer_center` concede EXACTAMENTE los 4 códigos
-        de la bandeja de Accesos, ni uno más ni uno menos;
+        de la bandeja de Accesos más los 3 de «Promedios» (2026-11-26), ni uno
+        más ni uno menos;
       - el mapeo puesto→rol INCLUYE `head_comp_center` y
         `secretary_comp_center` -- semántica "contiene al menos" (arreglo A7,
         igual que `_verify_titulacion`): no exige conteo exacto de filas, así
@@ -626,12 +634,13 @@ def _verify_computer_center() -> list[str]:
                 {"rol": _ROL_COMPUTER_CENTER},
             )
         }
-        if concedidos != set(_PERMISOS_ACCESOS_COMPUTO):
-            faltan = set(_PERMISOS_ACCESOS_COMPUTO) - concedidos
-            sobran = concedidos - set(_PERMISOS_ACCESOS_COMPUTO)
+        esperados = set(_PERMISOS_ACCESOS_COMPUTO) | set(_PERMISOS_PROMEDIOS_COMPUTO)
+        if concedidos != esperados:
+            faltan = esperados - concedidos
+            sobran = concedidos - esperados
             problemas.append(
-                f"{_ROL_COMPUTER_CENTER} no tiene exactamente los 4 permisos "
-                f"de Accesos (faltan {sorted(faltan)}, sobran {sorted(sobran)})"
+                f"{_ROL_COMPUTER_CENTER} no tiene exactamente los 7 permisos "
+                f"de Accesos y Promedios (faltan {sorted(faltan)}, sobran {sorted(sobran)})"
             )
 
         # Mapeo puesto→rol para los dos roles que nos importan aquí, con la

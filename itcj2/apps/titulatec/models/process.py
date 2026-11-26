@@ -26,6 +26,12 @@ class TitulationProcess(Base):
     # Promedio OFICIAL de la carrera (0-100). NULL hasta que haya fuente; NUNCA se
     # rellena con el «Promedio final» autodeclarado en la encuesta de egresados.
     final_average = Column(Numeric(5, 2), nullable=True)
+    # Bandeja «Promedios» (spec 2026-11-26, migración `tt20261126a`): cuándo y quién
+    # de Centro de Cómputo lo pasó a Servicios Escolares («No lo tengo»). NULL = por
+    # capturar en CC. Se quedan como historia cuando llega el promedio.
+    average_requested_at = Column(DateTime, nullable=True)
+    average_requested_by_id = Column(BigInteger, ForeignKey("core_users.id", ondelete="SET NULL"),
+                                     nullable=True)
 
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

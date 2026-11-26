@@ -102,6 +102,9 @@ _ACCIONES_SPEC = {
     "certificate.voided": "certificates",
     "certificate.batch_created": "certificates",
     "certificate.backfill_run": "certificates",
+    # Bandeja «Promedios» (spec 2026-11-26 §5): CC pasa / regresa un promedio.
+    "average.requested": "processes",
+    "average.request_withdrawn": "processes",
     "prior_clearance.deferred": "library",
     "prior_clearance.replaced": "library",
     "prior_clearance.import_run": "library",

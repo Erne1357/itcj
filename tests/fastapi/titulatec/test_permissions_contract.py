@@ -205,12 +205,13 @@ def test_todo_permiso_exigido_por_pages_existe_en_el_dml():
 
 
 @requires_dml
-def test_el_dml_declara_los_103_permisos_conocidos():
+def test_el_dml_declara_los_106_permisos_conocidos():
     """Guarda del OTRO lado: detecta un seeder truncado o borrado.
 
-    103 es el numero verificado en BD tras `titulatec init-reemplazo-docs`
+    106 es el numero verificado en BD tras `titulatec init-promedios-pendientes`
     (o tras `init-titulatec` desde cero).
 
+    2026-11-26: sube de 103 a 106 por titulatec.average.{page.list,api.capture,api.request} (bandeja Promedios, promedios_2026_11/28).
     2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement (reemplazo en cotejo, reemplazo_2026_10/27).
     2026-10-14: sube de 101 a 102 por titulatec.reports.page.view (Tablero de la jefa, reportes_2026_10/26).
     Eran 99 hasta el 2026-10-07, cuando
@@ -255,10 +256,10 @@ def test_el_dml_declara_los_103_permisos_conocidos():
     """
     declared = _declared_by_dml()
 
-    assert len(declared) == 103, (
-        f"el DML declara {len(declared)} permisos titulatec, se esperaban 103 "
-        "(2026-10-15: sube de 102 a 103 por titulatec.document.api.request_replacement, "
-        "el reemplazo en cotejo). Actualiza este numero "
+    assert len(declared) == 106, (
+        f"el DML declara {len(declared)} permisos titulatec, se esperaban 106 "
+        "(2026-11-26: sube de 103 a 106 por los 3 titulatec.average.*, "
+        "la bandeja Promedios). Actualiza este numero "
         f"SOLO si el cambio en database/DML/titulatec/ es intencional. "
         f"Declarados: {sorted(declared)}"
     )

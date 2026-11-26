@@ -164,6 +164,8 @@ _ADMIN_NAV = [
     # Centro de Computo (2026-09-24): da el NIP a las solicitudes que SE aprobo
     # sin cuenta; en modo alterno, revisa todo.
     ("Accesos",             "bi-key",         "/titulatec/admin/accesos",      {"titulatec.enrollment_access.page.list"}),
+    # Promedios (2026-11-26): captura del promedio oficial de los expedientes sin él.
+    ("Promedios",           "bi-123",         "/titulatec/admin/promedios",    {"titulatec.average.page.list"}),
     ("Liberaciones",        "bi-patch-check", "/titulatec/admin/liberaciones", {"titulatec.survey_review.page.list"}),
     # No adeudo de biblioteca (2026-10-01): bandejas de Biblioteca (Centro de
     # Información) y Caja (Recursos Financieros).

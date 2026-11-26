@@ -1,0 +1,154 @@
+{# Bandeja «Promedios» (`pages/averages_admin.py`). Raíz `#tt-avg-body`; todos los
+   controles apuntan a ella con `hx-swap="outerHTML"`, así que TODOS los handlers
+   devuelven este parcial completo, nunca una fila. Reusa las CLASES de la tabla y
+   el formulario de «Bandeja de solicitudes» (titulatec.css); ids propios `tt-avg-*`.
+
+   `tab` es la pestaña activa (`_body_ctx` la normaliza: SE solo tiene
+   «requested», sin botones). Cada formulario manda de vuelta pestaña, búsqueda y
+   página en campos ocultos (`tab_fields`): la acción re-pinta donde estaba el
+   actor. El buscador lleva `hx-preserve` (como Accesos) y su contenedor
+   `#tt-avg-filters` anuncia el `q` del servidor en `data-tt-q-server`.
+
+   El resultado de la carga por archivo vive DENTRO del parcial, arriba de la
+   tabla, y desaparece en el siguiente swap. Éxito: `X-Tt-Notice`; error de
+   valor: 400 + `X-Tt-Error`. Sin confirmaciones (todo se deshace o se corrige
+   con la CLI), sin JS ni CSS en línea. #}
+{% from "titulatec/_macros.html" import pager %}
+{% macro tab_fields(tab, q, page_no) -%}
+<input type="hidden" name="tab" value="{{ tab }}">
+<input type="hidden" name="q" value="{{ q }}">
+<input type="hidden" name="page" value="{{ page_no }}">
+{%- endmacro %}
+{%- set qs_q = ('&q=' ~ (q | urlencode)) if q else '' %}
+{%- set page_no = page.page if page else 1 %}
+<div id="tt-avg-body" data-tt-view="averages-body">
+  {% if no_programs %}
+  <div class="tt-card" id="tt-avg-no-programs">
+    <p class="mb-0">No tienes carreras asignadas: pide a la jefatura de Servicios Escolares que te asigne.</p>
+  </div>
+  {% else %}
+  <div id="tt-avg-filters" class="d-flex flex-wrap align-items-center gap-2 mb-3" data-tt-q-server="{{ q or '' }}">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input type="hidden" name="page" value="1">
+    <div class="tt-search">
+      <i class="bi bi-search" aria-hidden="true"></i>
+      <input type="search" id="tt-avg-q" name="q" value="{{ q }}" maxlength="100" hx-preserve="true"
+             placeholder="Control, nombre o folio"
+             aria-label="Buscar control, nombre o folio"
+             hx-get="/titulatec/admin/promedios/body" hx-target="#tt-avg-body"
+             hx-swap="outerHTML" hx-trigger="keyup changed delay:400ms, search"
+             hx-include="#tt-avg-filters">
+    </div>
+  </div>
+
+  {% if is_cc %}
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    {% for key, label in tabs %}
+    <button id="tt-avg-tab-{{ key }}" type="button"
+            class="btn btn-sm {{ 'tt-btn-ink' if tab == key else 'tt-btn-ghost' }}"
+            {% if tab == key %}aria-current="true"{% endif %}
+            hx-get="/titulatec/admin/promedios/body?tab={{ key }}{{ qs_q }}"
+            hx-target="#tt-avg-body" hx-swap="outerHTML">{{ label }} ({{ tab_counts[key] }})</button>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <details id="tt-avg-file" class="tt-avg-file mb-3">
+    <summary id="tt-avg-file-summary">Cargar varios desde un archivo</summary>
+    <form id="tt-avg-file-form" class="tt-req-form mt-2"
+          hx-post="/titulatec/admin/promedios/archivo" hx-encoding="multipart/form-data"
+          hx-target="#tt-avg-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+      {{ tab_fields(tab, q, page_no) }}
+      <input class="tt-field tt-field--xs" id="tt-avg-file-input" name="archivo" type="file"
+             accept=".csv,.txt" required aria-label="Archivo de promedios (CSV o TXT)">
+      <button type="submit" class="btn btn-sm tt-btn-ink">Cargar promedios</button>
+    </form>
+    <p class="small text-body-secondary mt-2 mb-0">Columnas «control» y «promedio»; separador «;» o
+       tabulador (con «,» el decimal va con punto). Solo aplica a los expedientes de esta bandeja
+       y nunca reemplaza un promedio que ya existe. Máximo 1 MB.</p>
+  </details>
+
+  {% if result %}
+  <section id="tt-avg-result" class="tt-card mb-3" aria-label="Resultado de la carga">
+    <h2 class="h6 mb-2">{{ result.filename or 'Archivo' }}: {{ result.total }} fila(s)</h2>
+    {# Solo los grupos con filas: un «0» por grupo es ruido. El motivo se omite
+       cuando solo repite el nombre del grupo («No está en tu bandeja.»). #}
+    {% for g in result.groups if g['items'] %}
+    <p class="mb-1" id="tt-avg-result-{{ g.key }}"><strong>{{ g.label }}: {{ g['items'] | length }}</strong></p>
+    <ul class="small mb-2">
+      {% for control, motivo in g['items'] %}
+      <li><span class="tt-mono">{{ control or '(vacío)' }}</span>{% if motivo and motivo != g.label ~ '.' %}: {{ motivo }}{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  {% if not rows and q %}
+  <div class="tt-card" id="tt-avg-no-results">
+    <p class="mb-0">Sin resultados para "{{ q }}"</p>
+  </div>
+  {% elif not rows %}
+  <div class="tt-card" id="tt-avg-empty">
+    <p class="mb-0">
+      {%- if not is_cc -%}Centro de Cómputo no te ha pasado ningún promedio de tus carreras.
+      {%- elif tab == 'requested' -%}No has pasado ninguno a Servicios Escolares.
+      {%- else -%}Todos los expedientes tienen promedio. Uno nuevo sin promedio llega aquí solo.
+      {%- endif -%}
+    </p>
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm tt-req-table tt-avg-table" id="tt-avg-table">
+      <colgroup>
+        <col class="tt-avg-col-who"><col class="tt-avg-col-prog"><col class="tt-avg-col-cohort">
+        <col class="tt-avg-col-acc">
+      </colgroup>
+      <thead><tr>
+        <th>Egresado</th><th>Carrera</th><th>Convocatoria</th>
+        <th><span class="visually-hidden">Acciones</span></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr id="tt-avg-{{ r.process_id }}">
+        <td>
+          <span class="tt-req-ctl">{{ r.control }}</span>
+          <span class="tt-req-name">{{ r.name }}</span>
+          <span class="tt-req-sub">Fase {{ r.phase_number }}{% if r.phase_name %} · {{ r.phase_name }}{% endif %}</span>
+          {% if r.released %}
+          <span class="tt-req-tags"><span class="tt-pill tt-pill--amber">En Liberados</span></span>
+          {% endif %}
+          {% if r.requested_on %}
+          <span class="tt-req-sub">Pasado a Escolares el {{ r.requested_on }}{% if is_cc and r.requested_by_name %} por {{ r.requested_by_name }}{% endif %}</span>
+          {% endif %}
+        </td>
+        <td>{{ r.program or '—' }}</td>
+        <td>{{ r.cohort }}</td>
+        <td class="tt-req-acc">
+          <form class="tt-req-form"
+                hx-post="/titulatec/admin/promedios/{{ r.process_id }}/guardar"
+                hx-target="#tt-avg-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+            {{ tab_fields(tab, q, page_no) }}
+            <input class="tt-field tt-field--xs" name="promedio" type="text" inputmode="decimal"
+                   autocomplete="off" required maxlength="6" placeholder="Promedio"
+                   aria-label="Promedio (70 a 100)">
+            <button type="submit" class="btn btn-sm tt-btn-ink">Guardar promedio</button>
+          </form>
+          {% if is_cc %}
+          <form class="tt-req-form mt-1"
+                hx-post="/titulatec/admin/promedios/{{ r.process_id }}/{{ 'regresar' if tab == 'requested' else 'pasar-a-escolares' }}"
+                hx-target="#tt-avg-body" hx-swap="outerHTML" hx-disabled-elt="find button">
+            {{ tab_fields(tab, q, page_no) }}
+            <button type="submit" class="btn btn-sm tt-btn-ghost">{{ 'Regresar a Por capturar' if tab == 'requested' else 'No lo tengo' }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {{ pager(page, '/titulatec/admin/promedios/body', '#tt-avg-body', include='#tt-avg-filters', prefix='tt-avg') }}
+  {% endif %}
+  {% endif %}
+</div>
