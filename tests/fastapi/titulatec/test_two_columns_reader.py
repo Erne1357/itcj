@@ -38,3 +38,11 @@ def test_estricto_pega_las_celdas_sobrantes():
 def test_sin_columnas_es_value_error(texto):
     with pytest.raises(ValueError, match="«control» y «promedio»"):
         leer_dos_columnas(texto, "promedio", ALIAS)
+
+
+def test_csv_roto_es_value_error_y_no_500():
+    """Comilla sin cerrar en un campo enorme: `csv.Error` sale como `ValueError`."""
+    texto = 'control,promedio\n20110001,"' + "x" * 200_000 + "\n"
+
+    with pytest.raises(ValueError, match="comillas sin cerrar"):
+        leer_dos_columnas(texto, "promedio", {"promedio"})

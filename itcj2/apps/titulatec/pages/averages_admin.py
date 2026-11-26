@@ -139,29 +139,32 @@ async def upload(request: Request,
                  user: dict = Depends(require_page_app("titulatec", perms=_CAPTURE))):
     """Carga por archivo (`control` + `promedio`) sobre la bandeja del actor."""
     form = await request.form()
-    archivo = form.get("archivo")
-    if archivo is None or not hasattr(archivo, "read"):
-        return _error(_MSG_NO_FILE)
-    raw = await archivo.read(_MAX_FILE_BYTES + 1)
-    if len(raw) > _MAX_FILE_BYTES:
-        return _error(_MSG_BIG_FILE)
-    return await run_in_threadpool(
-        _cuerpo_upload, request=request, user=user, form=form, raw=raw,
-        nombre=getattr(archivo, "filename", "") or "")
+    return await run_in_threadpool(_cuerpo_upload, request=request, user=user, form=form)
 
 
 def _decode(raw: bytes) -> str:
-    """UTF-8 (con o sin BOM); los CSV de Excel en español suelen venir en latin-1."""
+    """UTF-16 con BOM («Texto Unicode» de Excel), UTF-8 (con o sin BOM) o, si no,
+    latin-1 (los CSV de Excel en español suelen venir así)."""
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16")
     try:
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         return raw.decode("latin-1")
 
 
-def _cuerpo_upload(request, user, form, raw, nombre):
-    """Cuerpo síncrono de `upload`: corre en el threadpool, no en el event loop."""
+def _cuerpo_upload(request, user, form):
+    """Cuerpo síncrono de `upload`: corre en el threadpool, no en el event loop.
+    El formulario ya está en un archivo temporal: leerlo aquí no bloquea el loop."""
     from itcj2.database import SessionLocal
 
+    archivo = form.get("archivo")
+    if archivo is None or not hasattr(archivo, "file"):
+        return _error(_MSG_NO_FILE)
+    raw = archivo.file.read(_MAX_FILE_BYTES + 1)
+    if len(raw) > _MAX_FILE_BYTES:
+        return _error(_MSG_BIG_FILE)
+    nombre = archivo.filename or ""
     try:
         filas = leer_dos_columnas(_decode(raw), "promedio", _PROMEDIOS_ALIAS, estricto=True)
     except ValueError as exc:

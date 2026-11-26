@@ -62,6 +62,10 @@ LOAD_LABELS = {
 }
 
 _MSG_HAS_AVERAGE = "Ya tiene promedio."
+# La tabla oficial ya guarda OTRO valor para el control (p. ej. lo cargó la CLI
+# mientras el proceso estaba cancelado y luego se reactivó): la UI nunca la pisa.
+_MSG_OFFICIAL = ("Ya hay un promedio oficial guardado para este control ({}); "
+                 "si hay que cambiarlo, se corrige con la CLI.")
 _MSG_NOT_IN_TRAY = "No está en tu bandeja."
 # Primera frase de `_MSG_PROMEDIO`: lo demás habla del separador de un archivo.
 _MSG_FORMATO = "Formato inválido: se espera un número (ej. 85.5)."
@@ -140,6 +144,30 @@ def _lock_control(db: Session, control: str) -> list:
         return []
     return (db.query(TP).filter(TP.id.in_(ids)).order_by(TP.id)
             .populate_existing().with_for_update(key_share=True).all())
+
+
+def _official_other(db: Session, control: str, valor: Decimal):
+    """El promedio de `titulatec_official_averages` si es DISTINTO de `valor`
+    (mismo valor = nada que pisar); si no, `None`."""
+    from itcj2.apps.titulatec.models import OfficialAverage
+
+    fila = db.get(OfficialAverage, control)
+    if fila is None or Decimal(fila.average).quantize(Decimal("0.01")) == valor:
+        return None
+    return f"{Decimal(fila.average):.2f}"
+
+
+def _still_in_tray(db: Session, control: str, *, view, allowed_program_ids) -> bool:
+    """Re-chequeo tras el bloqueo: el expediente sigue sin promedio y en la
+    bandeja del actor (CC pudo regresarlo, o se canceló, entre la consulta y el
+    bloqueo)."""
+    from itcj2.apps.titulatec.models import TitulationProcess as TP
+    from itcj2.core.models.user import User
+
+    query = _pending(db.query(TP.id).select_from(TP).join(User, User.id == TP.student_id)
+                     .filter(User.control_number.in_({control, "L" + control})),
+                     view=view, allowed_program_ids=allowed_program_ids, q=None)
+    return query is not None and query.first() is not None
 
 
 class AverageQueueService:
@@ -272,6 +300,9 @@ class AverageQueueService:
             raise ValueError(_MSG_FORMATO)
         if not OfficialAverageService.in_range(valor):
             raise ValueError(_MSG_RANGE)
+        otro = _official_other(db, control, valor)
+        if otro is not None:
+            raise ValueError(_MSG_OFFICIAL.format(otro))
         OfficialAverageService.upsert(db, control, valor, actor_id=actor_id)
         OfficialAverageService.apply_to_processes(db, control, valor, actor_id=actor_id)
         if proc.final_average is None:
@@ -340,6 +371,17 @@ class AverageQueueService:
                     # Lo capturó alguien entre la consulta y el bloqueo.
                     savepoint.rollback()
                     out["not_in_tray"].append((control, _MSG_HAS_AVERAGE))
+                    continue
+                if not _still_in_tray(db, control, view=view,
+                                      allowed_program_ids=allowed_program_ids):
+                    # Regresado o cancelado entre la consulta y el bloqueo.
+                    savepoint.rollback()
+                    out["not_in_tray"].append((control, _MSG_NOT_IN_TRAY))
+                    continue
+                otro = _official_other(db, control, valor)
+                if otro is not None:
+                    savepoint.rollback()
+                    out["not_in_tray"].append((control, _MSG_OFFICIAL.format(otro)))
                     continue
                 OfficialAverageService.upsert(db, control, valor, actor_id=actor_id)
                 OfficialAverageService.apply_to_processes(db, control, valor, actor_id=actor_id)

@@ -19,6 +19,16 @@ def _norm(h: str) -> str:
     return sin.strip().lower().replace(" ", "_")
 
 
+def _filas_csv(lector):
+    """El lector de `csv`, pero un archivo roto (comillas sin cerrar, campo de más
+    de 128 KB) sale como `ValueError` con texto de ventanilla y no como 500."""
+    try:
+        yield from lector
+    except csv.Error as exc:
+        raise ValueError("No se pudo leer el archivo como CSV: revisa que no haya "
+                         "comillas sin cerrar.") from exc
+
+
 def leer_dos_columnas(texto: str, valor: str, alias_valor: set[str], *,
                       estricto: bool = False) -> list[tuple[str, str]]:
     """Lee `(control, <valor>)` de un CSV/TXT con encabezado. Acepta BOM (Excel),
@@ -32,7 +42,7 @@ def leer_dos_columnas(texto: str, valor: str, alias_valor: set[str], *,
     leería «85» y el «5» se perdería en silencio."""
     primera = texto.splitlines()[0] if texto.strip() else ""
     delim = max(("\t", ";", ","), key=primera.count)
-    lector = csv.reader(io.StringIO(texto), delimiter=delim)
+    lector = _filas_csv(csv.reader(io.StringIO(texto), delimiter=delim))
 
     encabezado = [_norm(h) for h in next(lector, [])]
     i_control = next((i for i, h in enumerate(encabezado) if h in CONTROL_HEADERS), None)

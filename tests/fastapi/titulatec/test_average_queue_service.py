@@ -339,6 +339,42 @@ def test_capturar_con_promedio_no_lo_pisa(db_session, expediente, cc):
     assert proc.final_average == D("88.00")
 
 
+def test_capturar_no_pisa_la_fila_oficial_de_otro_valor(db_session, expediente, cc):
+    """Proceso sin promedio pero tabla oficial con valor (CLI con el proceso
+    cancelado y luego reactivado): la UI no la pisa; con el MISMO valor, aplica."""
+    from itcj2.apps.titulatec.models import OfficialAverage
+
+    proc = expediente()
+    control = _control(db_session, proc)
+    db_session.add(OfficialAverage(control_number=control, average=D("95.00")))
+    db_session.commit()
+
+    with pytest.raises(ValueError, match=r"oficial guardado.*95\.00"):
+        _captura(db_session, proc, "71", cc)
+    assert db_session.get(OfficialAverage, control).average == D("95.00")
+    db_session.refresh(proc)
+    assert proc.final_average is None
+
+    assert _captura(db_session, proc, "95", cc) == D("95.00")
+    db_session.refresh(proc)
+    assert proc.final_average == D("95.00")
+
+
+def test_archivo_no_pisa_la_fila_oficial_de_otro_valor(db_session, expediente, cc):
+    from itcj2.apps.titulatec.models import OfficialAverage
+
+    proc = expediente()
+    control = _control(db_session, proc)
+    db_session.add(OfficialAverage(control_number=control, average=D("95.00")))
+    db_session.commit()
+
+    res = _carga(db_session, [(control, "71")], cc)
+
+    assert _controles(res, "not_in_tray") == [control]
+    assert "95.00" in res["not_in_tray"][0][1]
+    assert db_session.get(OfficialAverage, control).average == D("95.00")
+
+
 def test_capturar_fuera_de_la_bandeja_es_lookup_error(
         db_session, expediente, cc, carrera, otra_carrera, make_officer):
     officer, _pos = make_officer([carrera], perm_codes=(LIST, CAPTURE))

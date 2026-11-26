@@ -2358,7 +2358,7 @@ button.tt-seat--libre { pointer-events: auto; }
 .tt-avg-col-acc    { width: 34%; }
 .tt-req-form input[name="promedio"] { flex: 0 0 84px; }
 .tt-avg-file > summary { cursor: pointer; color: var(--tt-text-1); font-weight: 600; width: fit-content; }
-.tt-avg-file > summary:focus-visible { outline: 2px solid var(--tt-accent-ink); outline-offset: 2px; }
+.tt-avg-file > summary:focus-visible { outline: 2px solid var(--tt-focus); outline-offset: 2px; }
 @media (max-width: 767.98px) {
   #tt-avg-body .tt-field, #tt-avg-body .btn, .tt-avg-file > summary { min-height: 40px; }
 }
